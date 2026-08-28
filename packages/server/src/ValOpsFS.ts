@@ -47,7 +47,10 @@ import {
   patchBinaryFile,
   patchBinaryFileMetadata,
   patchDir,
-  markPatchUploading,
+  removeStagedUploads,
+  stagedPatchBinaryFile,
+  stagedPatchBinaryFileMetadata,
+  sweepStaleUploads,
   patchesLogFile,
   PATCH_REPAIR_LOG_FILE_NAME,
   PatchStoreEntry,
@@ -906,32 +909,41 @@ export class ValOpsFS extends ValOps {
     metadata: MetadataOfType<BinaryFileType> | undefined,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
     // Keyed by the patch's own id, so the parent is not needed and is not asked
-    // for. Uploads arrive before the patch record does — the record's `file` op
-    // carries only a sha, so it would otherwise point at nothing — which leaves
-    // the directory holding `files/` and no `patch.json` until `PUT /patches`
-    // lands.
+    // for.
     //
-    // That shape has to be DECLARED, or a read landing in the window takes it
-    // for a patch whose contents are lost and repair removes it, bytes and all.
-    // The window is not hypothetical: writing in here is what wakes `getStat`'s
-    // long poll, so the upload summons the read that would destroy it. See
-    // `markPatchUploading`.
+    // Written OUTSIDE the store, and moved in by `appendPatch` once the record
+    // exists. Uploads arrive before the patch record does — the record's `file`
+    // op carries only a sha, so it would otherwise point at nothing — and
+    // writing them straight into `<patchId>/files/` left a directory holding
+    // files and no `patch.json` for a whole round trip. Nothing can read that as
+    // anything but a patch whose contents are lost, so repair removed it, bytes
+    // and all, and the image 404ed.
+    //
+    // Staging is what makes that state unreachable rather than tolerated. See
+    // `uploadsDir`.
     const patchesDir = this.getPatchesDir();
-    if (data !== null) {
-      markPatchUploading(patchesDir, patchId);
-    }
-    const patchFilePath = patchBinaryFile(patchesDir, patchId, filePath);
-    const metadataFilePath = patchBinaryFileMetadata(
+    const patchFilePath = stagedPatchBinaryFile(patchesDir, patchId, filePath);
+    const metadataFilePath = stagedPatchBinaryFileMetadata(
       patchesDir,
       patchId,
       filePath,
     );
     try {
       if (data === null) {
+        // A delete is the other order — the record is written first — so the
+        // bytes are already in the store. Both locations, because a file staged
+        // and then removed before its record never got there.
+        this.host.deleteFile(patchBinaryFile(patchesDir, patchId, filePath));
+        this.host.deleteFile(
+          patchBinaryFileMetadata(patchesDir, patchId, filePath),
+        );
         this.host.deleteFile(patchFilePath);
         this.host.deleteFile(metadataFilePath);
         return { patchId, filePath };
       }
+      // Cheap, and this is the one path that creates staging directories, so it
+      // is where the ones nobody claimed get noticed.
+      sweepStaleUploads(patchesDir);
       const buffer = bufferFromDataUrl(data);
       if (!buffer) {
         return {
@@ -953,16 +965,34 @@ export class ValOpsFS extends ValOps {
     }
   }
 
+  /**
+   * Which of the two places a patch's file can be, if either.
+   *
+   * The bytes are in the store once the patch's record is, and in the staging
+   * area before that — see `uploadsDir`. Every reader has to accept both, and
+   * they decide it here rather than each on its own, so two readers of the same
+   * file cannot disagree about whether it exists.
+   */
+  private wherePatchFileIs(inStore: string, staged: string): string | null {
+    if (this.host.fileExists(inStore)) {
+      return inStore;
+    }
+    if (this.host.fileExists(staged)) {
+      return staged;
+    }
+    return null;
+  }
+
   protected override async getBase64EncodedBinaryFileMetadataFromPatch<
     T extends BinaryFileType,
   >(filePath: string, type: T, patchId: PatchId): Promise<OpsMetadata<T>> {
-    const metadataFilePath = patchBinaryFileMetadata(
-      this.getPatchesDir(),
-      patchId,
-      filePath,
+    const patchesDir = this.getPatchesDir();
+    const metadataFilePath = this.wherePatchFileIs(
+      patchBinaryFileMetadata(patchesDir, patchId, filePath),
+      stagedPatchBinaryFileMetadata(patchesDir, patchId, filePath),
     );
 
-    if (!this.host.fileExists(metadataFilePath)) {
+    if (metadataFilePath === null) {
       return {
         errors: [{ message: "Metadata file not found", filePath }],
       };
@@ -997,8 +1027,12 @@ export class ValOpsFS extends ValOps {
   ): Promise<Buffer | null> {
     // Straight from the id. This used to read and parse every patch on disk to
     // work out which directory the file was under, on every single image request.
-    const absPath = patchBinaryFile(this.getPatchesDir(), patchId, filePath);
-    if (!this.host.fileExists(absPath)) {
+    const patchesDir = this.getPatchesDir();
+    const absPath = this.wherePatchFileIs(
+      patchBinaryFile(patchesDir, patchId, filePath),
+      stagedPatchBinaryFile(patchesDir, patchId, filePath),
+    );
+    if (absPath === null) {
       return null;
     }
     return this.host.readBinaryFile(absPath);
@@ -1059,6 +1093,9 @@ export class ValOpsFS extends ValOps {
               recursive: true,
               force: true,
             });
+            // And anything this patch had staged but never moved in, which is
+            // the case where a delete arrives before the record does.
+            removeStagedUploads(patchesDir, patchId);
             deleted.push(patchId);
           } catch (err) {
             // Reported. This endpoint used to answer "deleted" unconditionally —

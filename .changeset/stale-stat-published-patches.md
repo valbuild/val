@@ -99,8 +99,16 @@ The window is not passive. Writing into `.val/patches` is exactly what ends
 why replacing an image worked only when the two requests happened to land close
 enough together.
 
-The upload now declares the window: `uploading.json` is written before the first
-byte, and a record-less directory carrying a fresh one is not a problem at all.
-`appendPatch` clears it once the record exists, and a marker older than an hour
-is an upload whose client never came back — swept as an orphan, and silently,
-because nothing ever referenced those bytes.
+So uploaded bytes are no longer in the store until they belong to something. They
+go to `.val/uploads/<patchId>/` — a sibling of the patches directory, so nothing
+reading the store lists it and moving into place is a rename — and `appendPatch`
+moves them in: record, then bytes, then log line, all under the lock. The record
+first is what makes "files but no `patch.json`" a state the store cannot produce;
+the log line last keeps the existing crash property; and the lock means repair,
+which re-reads under it, never sees the halfway state.
+
+Both readers of a patch's bytes accept either location, because the studio asks
+for the new image before the patch referencing it has been written. A staging
+directory whose `PUT` never arrived is swept after a day — a TTL that only
+governs garbage collection outside the store, where being wrong costs disk space
+rather than someone's upload.

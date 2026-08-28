@@ -4,10 +4,35 @@ import path from "node:path";
 import { initVal, ModuleFilePath, PatchId } from "@valbuild/core";
 import { ParentRef } from "@valbuild/shared/internal";
 import { ValOpsFS } from "./ValOpsFS";
-import type { BaseSha, SchemaSha, SourcesSha } from "./ValOps";
-import { patchDir, patchesLogFile, patchUploadMarkerFile } from "./patchStore";
+import type { BaseSha, OpsMetadata, SchemaSha, SourcesSha } from "./ValOps";
+import {
+  patchDir,
+  patchesLogFile,
+  patchRecordFile,
+  patchUploadDir,
+} from "./patchStore";
 
 const { s, c, config } = initVal();
+
+/**
+ * The real thing, with one `protected` reader opened up.
+ *
+ * A subclass rather than a cast: reading a patch file's metadata is a genuine
+ * seam of this class, and a test is allowed to be one of its subclasses. `as any`
+ * would stop the signature being checked, which is the part worth keeping.
+ */
+class TestValOpsFS extends ValOpsFS {
+  readPatchFileMetadata(
+    filePath: string,
+    patchId: PatchId,
+  ): Promise<OpsMetadata<"image">> {
+    return this.getBase64EncodedBinaryFileMetadataFromPatch(
+      filePath,
+      "image",
+      patchId,
+    );
+  }
+}
 
 const MODULE_PATH = "/test/page.val.ts" as ModuleFilePath;
 
@@ -26,7 +51,7 @@ const MODULE_PATH = "/test/page.val.ts" as ModuleFilePath;
  */
 describe("ValOpsFS patch store", () => {
   let rootDir: string;
-  let ops: ValOpsFS;
+  let ops: TestValOpsFS;
 
   const patchesDir = (): string => path.join(rootDir, ".val", "patches");
 
@@ -37,7 +62,7 @@ describe("ValOpsFS patch store", () => {
       path.join(rootDir, "test", "page.val.ts"),
       `import { s, c } from "val.config";\n\nexport default c.define(\n  "${MODULE_PATH}",\n  s.object({ title: s.string() }),\n  { title: "start" },\n);\n`,
     );
-    ops = new ValOpsFS(
+    ops = new TestValOpsFS(
       "http://localhost:4000",
       rootDir,
       {
@@ -759,9 +784,11 @@ describe("ValOpsFS patch store", () => {
       const patchId = "upload-in-flight" as PatchId;
       await upload(patchId);
 
-      // The read the upload's own write woke up.
+      // The read the upload's own write used to wake up.
       expect(await announcedStat()).toMatchObject({ patches: [] });
 
+      // Served from staging, because the studio asks for the new image before
+      // the patch that references it has been written.
       expect(
         await ops.getBase64EncodedBinaryFileFromPatch(FILE_PATH, patchId),
       ).not.toBeNull();
@@ -788,55 +815,69 @@ describe("ValOpsFS patch store", () => {
     });
 
     /**
-     * The marker is spent once the record lands: a directory the log names is
-     * never classified by it, and leaving it behind would make the layout say
-     * something that is no longer true.
+     * The property the whole design rests on, asserted directly: there is no
+     * moment at which the store holds a patch directory without a record. The
+     * bytes are outside the store until they belong to something.
      */
-    it("stops declaring an upload once the record has landed", async () => {
+    it("does not put anything in the store before the record", async () => {
       const patchId = "upload-in-flight" as PatchId;
       await upload(patchId);
-      expect(fs.existsSync(patchUploadMarkerFile(patchesDir(), patchId))).toBe(
-        true,
-      );
 
+      expect(fs.existsSync(patchDir(patchesDir(), patchId))).toBe(false);
+      expect(fs.existsSync(patchUploadDir(patchesDir(), patchId))).toBe(true);
+    });
+
+    /**
+     * And the record comes first when they do move in, so an interrupted append
+     * leaves a directory the log does not name WITH a record — the benign half
+     * of a crash, swept silently — rather than the shape that gets reported as
+     * lost work.
+     */
+    it("moves them in behind the record, and empties the staging area", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
       await writeRecord(patchId);
 
-      expect(fs.existsSync(patchUploadMarkerFile(patchesDir(), patchId))).toBe(
-        false,
-      );
+      expect(fs.existsSync(patchRecordFile(patchesDir(), patchId))).toBe(true);
+      expect(fs.existsSync(patchUploadDir(patchesDir(), patchId))).toBe(false);
     });
 
     /**
-     * An upload whose client never came back. Nothing ever referenced the bytes,
-     * so they are swept like any other orphan — and silently, for the same
-     * reason: there is no edit anyone could have seen.
+     * A delete that arrives before the record does — nothing has been moved in,
+     * so the bytes are still in staging and have to go from there.
      */
-    it("sweeps an upload that was abandoned, without reporting it", async () => {
-      const patchId = "abandoned" as PatchId;
+    it("takes staged bytes with it when the patch is deleted", async () => {
+      const patchId = "upload-in-flight" as PatchId;
       await upload(patchId);
-      // Backdated past the TTL, which is the only thing separating this from the
-      // in-flight case.
-      fs.writeFileSync(
-        patchUploadMarkerFile(patchesDir(), patchId),
-        JSON.stringify({
-          startedAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
-        }),
-      );
 
-      const stat = await announcedStat();
+      await ops.deletePatches([patchId]);
 
-      expect(stat.removed).toBeUndefined();
-      expect(fs.existsSync(patchDir(patchesDir(), patchId))).toBe(false);
+      expect(fs.existsSync(patchUploadDir(patchesDir(), patchId))).toBe(false);
     });
 
     /**
-     * A directory with neither a record nor an upload in progress is still an
-     * unreadable patch, and still reported. The distinction is the whole point:
-     * "no record yet, bytes on the way" is a normal moment in a two-request
-     * write, and "no record, and nothing says one is coming" is work that is
-     * gone.
+     * Both readers of those bytes, not just the one serving the image. A
+     * validation that ran in the window used to answer "Metadata file not found"
+     * for a file that was on disk.
      */
-    it("still reports a directory that is not an upload", async () => {
+    it("serves the metadata from staging too", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+
+      const res = await ops.readPatchFileMetadata(FILE_PATH, patchId);
+      if (res.errors !== undefined) {
+        throw new Error(`expected metadata, got ${JSON.stringify(res.errors)}`);
+      }
+      expect(res.metadata).toMatchObject({ mimeType: "image/png" });
+    });
+
+    /**
+     * And a directory in the store with no record is STILL reported as lost
+     * work, unchanged. That reading was never wrong — it was the upload putting
+     * the store into a shape the reading does not describe. With the bytes kept
+     * outside until they belong to something, there is nothing to soften.
+     */
+    it("still reports a record-less directory in the store", async () => {
       fs.mkdirSync(patchDir(patchesDir(), "junk" as PatchId), {
         recursive: true,
       });

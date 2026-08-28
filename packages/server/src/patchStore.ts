@@ -145,108 +145,59 @@ export function patchBaseFile(patchesDir: string, patchId: PatchId): string {
 }
 
 /**
- * The marker that says "bytes are being uploaded for this patch, its record is
- * coming".
+ * Where a patch's uploaded bytes wait for the record that will reference them.
  *
- * Writing a patch that carries a file is TWO requests, and the bytes go first:
- * the patch's `file` op holds only a sha, so a record written before its file
- * would point at nothing. That leaves the directory holding `files/` and no
- * `patch.json` for as long as the round trip takes — a shape
- * {@link readPatchStore} would otherwise read as a patch whose contents are
- * lost, and repair would remove it and report someone's work as thrown away.
- * The bytes went with it, which is how replacing an image came to fail most of
- * the time.
+ * ## Why they cannot simply be written into the patch directory
  *
- * The upload cannot avoid the window, so it declares it instead. Written BEFORE
- * the first byte, so there is no instant where the directory exists without an
- * explanation.
+ * A patch that carries a file is written in TWO requests, and the bytes go
+ * first: the record's `file` op holds only a sha, so a record written before its
+ * bytes would point at nothing. Uploading straight into `<patchId>/files/` left
+ * the directory holding files and no `patch.json` for the length of a round
+ * trip — which is neither of the two shapes this store allows, so
+ * {@link readPatchStore} read it as a patch whose contents were lost and repair
+ * removed it, bytes and all.
+ *
+ * And that window is not passive: writing into the patches directory is exactly
+ * what ends `getStat`'s long poll, so the upload summoned the read that
+ * destroyed it. Replacing an image worked only when the two requests happened to
+ * land close enough together.
+ *
+ * So the bytes are not in the store until they belong to something.
+ * {@link appendPatch} moves them in after writing the record, under the lock, so
+ * no reader ever sees a half-built patch directory — and the invariant that a
+ * directory either holds a usable record or is named by the log holds again,
+ * with nothing to tolerate and no ambiguous state to classify.
+ *
+ * A SIBLING of the patches directory, for two reasons: nothing that reads the
+ * store lists it, and it is on the same filesystem, so moving into place is a
+ * rename rather than a copy.
  */
-export function patchUploadMarkerFile(
-  patchesDir: string,
-  patchId: PatchId,
-): string {
-  return fsPath.join(patchDir(patchesDir, patchId), "uploading.json");
+export function uploadsDir(patchesDir: string): string {
+  return fsPath.join(fsPath.dirname(patchesDir), "uploads");
 }
 
-const FSPatchUpload = z.object({
-  /** When the upload began, for {@link UPLOAD_MARKER_TTL_MS}. */
-  startedAt: z.string(),
-});
-
-/**
- * How long a declared upload is believed.
- *
- * Generous on purpose. Too short destroys a live upload, which is the bug this
- * exists to fix; too long only leaves unreferenced bytes on disk a while longer,
- * and nothing ever read them. A client that dies mid-upload is the only way to
- * get a stale one.
- */
-const UPLOAD_MARKER_TTL_MS = 60 * 60 * 1000;
-
-/**
- * Declare an upload, before any of its bytes are written.
- *
- * A no-op once the record exists: there is no window left to explain, and
- * {@link appendPatch} — the only thing that clears a marker — has already run,
- * so one written now would sit in a live patch's directory forever describing a
- * state that is over.
- */
-export function markPatchUploading(
-  patchesDir: string,
-  patchId: PatchId,
-  now: Date = new Date(),
-): void {
-  if (fs.existsSync(patchRecordFile(patchesDir, patchId))) {
-    return;
-  }
-  const file = patchUploadMarkerFile(patchesDir, patchId);
-  fs.mkdirSync(fsPath.dirname(file), { recursive: true });
-  fs.writeFileSync(
-    file,
-    JSON.stringify({ startedAt: now.toISOString() } satisfies z.infer<
-      typeof FSPatchUpload
-    >),
-    "utf-8",
-  );
+/** Where one patch's uploads wait. See {@link uploadsDir}. */
+export function patchUploadDir(patchesDir: string, patchId: PatchId): string {
+  return fsPath.join(uploadsDir(patchesDir), patchId);
 }
 
 /**
- * Is this directory an upload still in flight?
+ * The binary layout, relative to whichever directory holds it.
  *
- * `undefined` for "no marker at all", so the caller can tell a declared upload
- * from a directory nothing explains — they get opposite handling.
+ * Shared by the patch directory and the staging directory so the two cannot
+ * drift — a move into place has to land the bytes exactly where a read expects
+ * them.
  */
-function readUploadMarker(
-  patchesDir: string,
-  name: string,
-  now: number,
-): { inFlight: boolean } | undefined {
-  const file = patchUploadMarkerFile(patchesDir, name as PatchId);
-  if (!fs.existsSync(file)) {
-    return undefined;
-  }
-  /**
-   * A marker whose contents cannot be used still says an upload was started
-   * here, so it never counts as work that is gone. Its AGE falls back to the
-   * file's mtime: assuming the worst instead would let one torn write of a
-   * forty-byte file cost a live upload its bytes, which is the whole failure
-   * this marker exists to prevent.
-   */
-  const res = readJsonFile(file, FSPatchUpload);
-  const startedAt =
-    res.error === undefined ? Date.parse(res.data.startedAt) : NaN;
-  if (!Number.isNaN(startedAt)) {
-    return { inFlight: now - startedAt < UPLOAD_MARKER_TTL_MS };
-  }
-  try {
-    return {
-      inFlight: now - fs.statSync(file).mtimeMs < UPLOAD_MARKER_TTL_MS,
-    };
-  } catch {
-    // It was there a moment ago. Something else is writing here, which is not a
-    // reason to delete anything.
-    return { inFlight: true };
-  }
+function binaryFilesDir(dir: string): string {
+  return fsPath.join(dir, "files");
+}
+
+function binaryFileIn(dir: string, filePath: string): string {
+  return fsPath.join(binaryFilesDir(dir), filePath, fsPath.basename(filePath));
+}
+
+function binaryFileMetadataIn(dir: string, filePath: string): string {
+  return fsPath.join(binaryFilesDir(dir), filePath, "metadata.json");
 }
 
 export function patchBinaryFile(
@@ -254,12 +205,7 @@ export function patchBinaryFile(
   patchId: PatchId,
   filePath: string,
 ): string {
-  return fsPath.join(
-    patchDir(patchesDir, patchId),
-    "files",
-    filePath,
-    fsPath.basename(filePath),
-  );
+  return binaryFileIn(patchDir(patchesDir, patchId), filePath);
 }
 
 export function patchBinaryFileMetadata(
@@ -267,12 +213,125 @@ export function patchBinaryFileMetadata(
   patchId: PatchId,
   filePath: string,
 ): string {
-  return fsPath.join(
-    patchDir(patchesDir, patchId),
-    "files",
-    filePath,
-    "metadata.json",
-  );
+  return binaryFileMetadataIn(patchDir(patchesDir, patchId), filePath);
+}
+
+/** The staged twin of {@link patchBinaryFile}. */
+export function stagedPatchBinaryFile(
+  patchesDir: string,
+  patchId: PatchId,
+  filePath: string,
+): string {
+  return binaryFileIn(patchUploadDir(patchesDir, patchId), filePath);
+}
+
+/** The staged twin of {@link patchBinaryFileMetadata}. */
+export function stagedPatchBinaryFileMetadata(
+  patchesDir: string,
+  patchId: PatchId,
+  filePath: string,
+): string {
+  return binaryFileMetadataIn(patchUploadDir(patchesDir, patchId), filePath);
+}
+
+/**
+ * Move a patch's staged uploads into the patch directory.
+ *
+ * Called by {@link appendPatch} between the record and the log line, so it runs
+ * under the lock and no reader can observe the halfway state.
+ *
+ * The whole `files` tree in one rename where it can be — the common case, since
+ * a patch's files only ever arrive before its record — and per file otherwise,
+ * for the case where something is already there.
+ */
+function moveStagedUploadsIn(patchesDir: string, patchId: PatchId): void {
+  const from = binaryFilesDir(patchUploadDir(patchesDir, patchId));
+  if (!fs.existsSync(from)) {
+    return;
+  }
+  const to = binaryFilesDir(patchDir(patchesDir, patchId));
+  if (!fs.existsSync(to)) {
+    fs.mkdirSync(fsPath.dirname(to), { recursive: true });
+    fs.renameSync(from, to);
+  } else {
+    moveTreeInto(from, to);
+  }
+  removeStagedUploads(patchesDir, patchId);
+}
+
+/** File-by-file, for when the destination already holds some of the tree. */
+function moveTreeInto(from: string, to: string): void {
+  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+    const source = fsPath.join(from, entry.name);
+    const target = fsPath.join(to, entry.name);
+    if (entry.isDirectory()) {
+      fs.mkdirSync(target, { recursive: true });
+      moveTreeInto(source, target);
+      continue;
+    }
+    fs.mkdirSync(fsPath.dirname(target), { recursive: true });
+    fs.renameSync(source, target);
+  }
+}
+
+/** Drop a patch's staging directory, whatever is left of it. */
+export function removeStagedUploads(
+  patchesDir: string,
+  patchId: PatchId,
+): void {
+  try {
+    fs.rmSync(patchUploadDir(patchesDir, patchId), {
+      recursive: true,
+      force: true,
+    });
+  } catch {
+    // Hygiene, not correctness: nothing reads a staging directory that no patch
+    // claims, and the sweep below gets it eventually.
+  }
+}
+
+/**
+ * How long an upload nobody claimed is kept.
+ *
+ * Only garbage collection, which is why it can be a guess at all: these bytes
+ * are outside the store, so no reader can mistake them for a patch and nothing
+ * is lost by keeping them a while. The old marker-based attempt at this problem
+ * had a TTL deciding whether to delete something INSIDE the store, where being
+ * wrong meant destroying a live upload.
+ */
+const STALE_UPLOAD_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Drop staged uploads whose patch never arrived.
+ *
+ * A client that dies between the upload and the `PUT` leaves its bytes here.
+ * Nothing references them — no record points at them and the log never named
+ * them — so they are removed without a word.
+ */
+export function sweepStaleUploads(
+  patchesDir: string,
+  now: number = Date.now(),
+): void {
+  const dir = uploadsDir(patchesDir);
+  if (!fs.existsSync(dir)) {
+    return;
+  }
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    const staged = fsPath.join(dir, name);
+    try {
+      if (now - fs.statSync(staged).mtimeMs < STALE_UPLOAD_MS) continue;
+      fs.rmSync(staged, { recursive: true, force: true });
+    } catch {
+      // Someone else is writing here, or it is already gone. Either way it is
+      // not this pass's business.
+    }
+  }
 }
 
 /** Names that live in the patches directory but are not patches. */
@@ -395,7 +454,6 @@ export function readPatchStore(patchesDir: string): ReadPatchStoreResult {
     });
   }
 
-  const now = Date.now();
   for (const name of dirNames) {
     if (named.has(name)) {
       continue;
@@ -405,30 +463,6 @@ export function readPatchStore(patchesDir: string): ReadPatchStoreResult {
     // leftover nothing ever read.
     const read = readPatchRecord(patchesDir, name);
     if (read.error !== undefined) {
-      /**
-       * Unless an upload said it was coming. See {@link patchUploadMarkerFile}:
-       * a patch carrying a file is written in two requests with the bytes first,
-       * so "files, no record" is a normal moment in that write and not work that
-       * is gone. Reported as lost, repair removed the bytes mid-upload and the
-       * replacement quietly failed.
-       *
-       * A stale marker is an upload whose client never came back. Nothing ever
-       * referenced those bytes — the log never named them and no record points
-       * at them — so they are swept like any other orphan, and silently, for the
-       * same reason.
-       */
-      const upload = readUploadMarker(patchesDir, name, now);
-      if (upload !== undefined) {
-        if (upload.inFlight) {
-          continue;
-        }
-        problems.push({
-          type: "orphan-directory",
-          name,
-          dir: fsPath.join(patchesDir, name),
-        });
-        continue;
-      }
       problems.push({
         type: "unreadable-patch",
         name,
@@ -540,15 +574,18 @@ export function appendPatch(
 ): PatchLogEntry {
   const patchId = record.patchId as PatchId;
   writePatchRecord(patchesDir, patchId, record);
-  // The record is the marker's whole purpose, so it is spent. Removed after the
-  // write rather than before: an interrupted append must never leave a directory
-  // with neither a record nor a reason to exist.
-  try {
-    fs.rmSync(patchUploadMarkerFile(patchesDir, patchId), { force: true });
-  } catch {
-    // Leaving it is harmless — a directory the log names is never classified by
-    // its marker — so this is not worth failing the write over.
-  }
+  /*
+   * Then the bytes, then the log line — and the order is the whole point.
+   *
+   * The record goes first, so the directory never exists without one: that is
+   * what makes "files but no patch.json" a state this store cannot produce, and
+   * what lets a reader keep treating it as a patch whose contents are lost.
+   * The log line goes last, so an interrupted append leaves a directory the log
+   * does not name — the benign half of a crash, swept silently.
+   *
+   * See `uploadsDir`. Under the lock, like the rest of this function.
+   */
+  moveStagedUploadsIn(patchesDir, patchId);
   const entry: PatchLogEntry = {
     patchId,
     createdAt: record.createdAt,

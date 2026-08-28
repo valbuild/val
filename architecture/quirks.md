@@ -218,7 +218,8 @@ poll and the next read happens immediately. That makes every "window" in the
 patch write path a window something actually looks into — which is how uploading
 an image, whose bytes land a round trip before the patch record that references
 them, came to summon the read that classified the half-written directory as lost
-work and deleted the bytes. `uploading.json` is what closes it; see
+work and deleted the bytes. Uploads now land in `.val/uploads/` and are moved in
+behind the record, so there is no half-written directory to read; see
 [patch-store.md](./patch-store.md).
 
 **The server's committed sources do not come from disk.** `ValOps` memoises them,
