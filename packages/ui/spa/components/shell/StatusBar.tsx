@@ -76,24 +76,32 @@ export function StatusBar({
         breakpoint === "desktop" ? "left-[4.75rem]" : "left-3",
       )}
     >
-      <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
-        <Checkbox
-          checked={autoSave}
-          onCheckedChange={(checked) => onAutoSaveChange(checked === true)}
-          className="w-3.5 h-3.5"
-        />
-        Auto save
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="hidden lg:inline text-fg-secondary-alt">
-              <Info size={12} />
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>
-            Changes are written to your working tree as you type.
-          </TooltipContent>
-        </Tooltip>
-      </label>
+      {/*
+        `fs` only. Auto save writes the working tree on a pause in typing; in
+        `http` mode publishing makes a commit, which is not something to do
+        without being asked. Same rule the deploy feed and "Dev mode" already
+        follow here.
+      */}
+      {mode === "fs" && (
+        <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
+          <Checkbox
+            checked={autoSave}
+            onCheckedChange={(checked) => onAutoSaveChange(checked === true)}
+            className="w-3.5 h-3.5"
+          />
+          Auto save
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="hidden lg:inline text-fg-secondary-alt">
+                <Info size={12} />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              Changes are written to your working tree on a pause in typing.
+            </TooltipContent>
+          </Tooltip>
+        </label>
+      )}
       {branch && (
         <>
           <Divider />

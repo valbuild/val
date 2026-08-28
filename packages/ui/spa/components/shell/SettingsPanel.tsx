@@ -23,6 +23,8 @@ export type SettingsPanelProps = {
   onThemeChange: (theme: "dark" | "light") => void;
   isDevMode: boolean;
   onDevModeChange: (devMode: boolean) => void;
+  /** How Val is running. Auto save is a dev-server setting; see `StatusBar`. */
+  mode?: "fs" | "http" | "unknown";
   autoSave: boolean;
   onAutoSaveChange: (autoSave: boolean) => void;
   branch?: string;
@@ -56,6 +58,7 @@ export function SettingsPanel({
   onThemeChange,
   isDevMode,
   onDevModeChange,
+  mode,
   autoSave,
   onAutoSaveChange,
   branch,
@@ -121,12 +124,15 @@ export function SettingsPanel({
 
         <PanelSectionLabel divided>Workspace</PanelSectionLabel>
         <div className="px-4 pt-1 space-y-2.5">
-          <SettingsToggle
-            label="Auto save"
-            description="Write changes to the working tree as you type."
-            checked={autoSave}
-            onChange={onAutoSaveChange}
-          />
+          {/* `fs` only, for the reason given in `StatusBar`. */}
+          {mode === "fs" && (
+            <SettingsToggle
+              label="Auto save"
+              description="Write changes to the working tree on a pause in typing."
+              checked={autoSave}
+              onChange={onAutoSaveChange}
+            />
+          )}
           <SettingsToggle
             label="Dev mode"
             description="Show source paths and schema details in the editor."
