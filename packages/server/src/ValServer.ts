@@ -1998,6 +1998,26 @@ export const ValServer = (
             };
           }
           /*
+           * The files on disk are the committed content now, so say so here too.
+           *
+           * Nothing else will: the sources are memoised per `ValOps` instance
+           * and are re-read by awaiting each module's `def`, which is the app's
+           * own `import()` — that resolves from the module registry, not from
+           * the file this save just rewrote. So until the host rebuilds its
+           * module graph, every read of committed content answers with what was
+           * there before the save. A page rendering draft content sees exactly
+           * that once the patches below are gone: `getJsonEntry` resolves the
+           * committed entry and has no patches left to replay over it.
+           *
+           * Before `deletePatches`, because it needs the patches it is adopting
+           * the result of. See `ValOps.promoteCommittedSources` for why the SHAs
+           * move with them.
+           */
+          await serverOps.adoptCommittedSources(
+            { ...analysis, ...patches },
+            preparedCommit,
+          );
+          /*
            * Only what this request consumed.
            *
            * This used to be `deleteAllPatches()`, which renamed the whole store

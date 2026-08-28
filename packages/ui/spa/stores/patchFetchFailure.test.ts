@@ -92,7 +92,7 @@ describe("a patch fetch that fails as a request", () => {
     system.dispose();
   });
 
-  it("reports an id stat named that the fetch did not return", async () => {
+  it("reports an id TWO stats named that the fetch did not return", async () => {
     /*
      * This case USED to assert silence, on the reading that an id absent from
      * the result is how a deleted patch is observed.
@@ -103,6 +103,11 @@ describe("a patch fetch that fails as a request", () => {
      * "still treats a change stat stopped naming as deleted" in
      * `announcedNotDelivered.test.ts`. Stat naming an id whose ops never arrive
      * is the opposite: the person is editing on top of content that is missing.
+     *
+     * What it takes TWO stats for is in `PatchStore.notDeliveredOnce`: the first
+     * announcement can simply be older than a delete, and a stat issued after
+     * the delete is the only thing that can tell that from a server that cannot
+     * send what it has.
      */
     const system = createSystem({
       fetchPatches: async () => ({ patches: [] }),
@@ -111,10 +116,38 @@ describe("a patch fetch that fails as a request", () => {
     system.host.receive([module()]);
     system.stat.receiveStat({ patches: ["gone" as PatchId], baseSha: "sha" });
     await settle();
+    expect(system.status.current().errors).toHaveLength(0);
+
+    system.stat.receiveStat({ patches: ["gone" as PatchId], baseSha: "sha" });
+    await settle();
     expect(system.status.current().errors).toHaveLength(1);
     expect(system.status.current().errors[0].message).toBe(
       "An unpublished change could not be loaded.",
     );
+    system.dispose();
+  });
+
+  /**
+   * The wait is not a silence with nothing behind it: the id is out of
+   * `fetching`, so the next stat that still names it asks again. That retry is
+   * the whole reason one empty answer can be treated as inconclusive.
+   */
+  it("asks again for an id the first fetch did not return", async () => {
+    const asked: PatchId[][] = [];
+    const system = createSystem({
+      fetchPatches: async (patchIds) => {
+        asked.push([...patchIds]);
+        return { patches: [] };
+      },
+      createPatchId: () => "unused" as PatchId,
+    });
+    system.host.receive([module()]);
+    system.stat.receiveStat({ patches: ["gone" as PatchId], baseSha: "sha" });
+    await settle();
+    system.stat.receiveStat({ patches: ["gone" as PatchId], baseSha: "sha" });
+    await settle();
+
+    expect(asked).toEqual([["gone"], ["gone"]]);
     system.dispose();
   });
 });

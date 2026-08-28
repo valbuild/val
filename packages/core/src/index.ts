@@ -2,7 +2,10 @@ export { initVal, type ConfigDirectory } from "./initVal";
 export { modules, type ValModules } from "./modules";
 export {
   extractValModules,
+  computeValModuleShas,
   type ExtractedValModules,
+  type ValModuleShaEntry,
+  type ValModuleShas,
   type ExtractedModuleError,
 } from "./extractValModules";
 export type {
