@@ -9,7 +9,10 @@ self.onmessage = (event: MessageEvent<PatchSetsWorkerRequest>) => {
 
   try {
     if (request.type === "compute") {
-      const { trees } = computeChangedSourcePaths(request.patchSets);
+      const { trees } = computeChangedSourcePaths(
+        request.patchSets,
+        new Set(request.committedPatchIds ?? []),
+      );
       const response: PatchSetsWorkerResponse = {
         type: "result",
         id: request.id,

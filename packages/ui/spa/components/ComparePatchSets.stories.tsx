@@ -4,6 +4,7 @@ import {
   Internal,
   Json,
   ModuleFilePath,
+  PatchId,
   ReifiedPreview,
   SerializedSchema,
 } from "@valbuild/core";
@@ -13,6 +14,7 @@ import { useMemo, useState } from "react";
 import { ComparePatchSets } from "./ComparePatchSets";
 import { Profile } from "./ValProvider";
 import { PatchSets, SerializedPatchSet } from "../utils/PatchSets";
+import type { ValEnrichedDeployment } from "../utils/mergeCommitsAndDeployments";
 import { createStorySystem } from "../stores/react/storySystem";
 import type { System } from "../stores/createSystem";
 import { ValSystemProvider } from "../stores/react/SystemContext";
@@ -102,8 +104,9 @@ function applyPatchesAndSerialize(
   moduleFilePath: ModuleFilePath,
   serializedSchema: SerializedSchema,
   patches: TestPatch[],
-): SerializedPatchSet {
+): { patchSets: SerializedPatchSet; patchIds: PatchId[] } {
   const patchSets = new PatchSets();
+  const patchIds: PatchId[] = [];
   for (const p of patches) {
     /**
      * The id is minted first and handed in, so it is known without awaiting.
@@ -115,6 +118,7 @@ function applyPatchesAndSerialize(
      * lets it be built in a `useMemo` rather than in state behind an effect.
      */
     const realPatchId = system.patchStore.mintPatchId();
+    patchIds.push(realPatchId);
     void system.patchStore.createPatch(
       moduleFilePath,
       p.patch,
@@ -134,7 +138,7 @@ function applyPatchesAndSerialize(
       );
     }
   }
-  return patchSets.serialize();
+  return { patchSets: patchSets.serialize(), patchIds };
 }
 
 // --- StoryProviders ---
@@ -214,30 +218,59 @@ function StorySetup({
   moduleFilePath,
   serializedSchema,
   canDiscard,
+  committedCount = 0,
+  deployment,
 }: {
   mockData: MockData;
   patches: TestPatch[];
   moduleFilePath: ModuleFilePath;
   serializedSchema: SerializedSchema;
   canDiscard?: boolean;
+  /**
+   * How many of the supplied patches have already shipped in a commit.
+   *
+   * The FIRST n, because `patches` is in chain order and a publish takes the
+   * oldest end of the chain. Those land below the deploy line with their discard
+   * controls gone; anything after them stays discardable.
+   */
+  committedCount?: number;
+  /**
+   * The deploy the divider describes. Passed explicitly — including as `null` —
+   * because the connected version reads `ValContext`, which these stories do not
+   * mount. See `ComparePatchSets`.
+   */
+  deployment?: ValEnrichedDeployment | null;
 }) {
   const client = useMemo(() => createMockClient(), []);
-  const { system, patchSets } = useMemo(() => {
+  const { system, patchSets, committedPatchIds } = useMemo(() => {
     const system = makeSystem(mockData);
-    const patchSets = applyPatchesAndSerialize(
+    const { patchSets, patchIds } = applyPatchesAndSerialize(
       system,
       moduleFilePath,
       serializedSchema,
       patches,
     );
-    return { system, patchSets };
-  }, [client, mockData, moduleFilePath, serializedSchema, patches]);
+    return {
+      system,
+      patchSets,
+      committedPatchIds: new Set(patchIds.slice(0, committedCount)),
+    };
+  }, [
+    client,
+    mockData,
+    moduleFilePath,
+    serializedSchema,
+    patches,
+    committedCount,
+  ]);
   return (
     <StoryProviders system={system}>
       <ComparePatchSets
         patchSets={patchSets}
         profilesByAuthorIds={mockProfiles}
         canDiscard={canDiscard}
+        committedPatchIds={committedPatchIds}
+        deployment={committedCount > 0 ? (deployment ?? null) : undefined}
       />
     </StoryProviders>
   );
@@ -452,6 +485,157 @@ export const DesktopReview: Story = {
           author: "bob",
         },
       ]}
+    />
+  ),
+};
+
+// --- The deploy line ---
+
+/** A publish that is on its way out, as GitHub reports it while building. */
+const buildingDeployment: ValEnrichedDeployment = {
+  deploymentState: "pending",
+  commitMessage: "Update landing page copy",
+  creator: "alice",
+  commitSha: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+  createdAt: "2025-04-05T10:20:00Z",
+  updatedAt: "2025-04-05T10:22:00Z",
+};
+
+/** The same publish, once the host reports it live. */
+const liveDeployment: ValEnrichedDeployment = {
+  ...buildingDeployment,
+  deploymentState: "success",
+};
+
+const failedDeployment: ValEnrichedDeployment = {
+  ...buildingDeployment,
+  deploymentState: "failure",
+};
+
+const deployLinePatches: TestPatch[] = [
+  {
+    patch: [{ op: "replace", path: ["/home", "title"], value: "Welcome Home" }],
+    createdAt: "2025-04-03T08:00:00Z",
+    author: "alice",
+  },
+  {
+    patch: [{ op: "replace", path: ["/home", "status"], value: "published" }],
+    createdAt: "2025-04-03T08:05:00Z",
+    author: "alice",
+  },
+  {
+    patch: [
+      {
+        op: "replace",
+        path: ["/about", "title"],
+        value: "About Us — Updated",
+      },
+    ],
+    createdAt: "2025-04-06T09:00:00Z",
+    author: "bob",
+  },
+];
+
+/**
+ * The summary strip, with everything still discardable.
+ *
+ * The count and the discard-all sit above the changes, which is where the view
+ * itself now puts them — the strip used to be the surrounding screen's job, and
+ * the shell never had anywhere to put it.
+ */
+export const WithSummaryStrip: Story = {
+  render: () => (
+    <StorySetup
+      mockData={mockData}
+      moduleFilePath={MODULE_FILE_PATH}
+      serializedSchema={serializedSchema}
+      canDiscard
+      patches={deployLinePatches}
+    />
+  ),
+};
+
+/**
+ * Two published patches deploying, one edit made since.
+ *
+ * The divider sits between them: above it the newer edit is still discardable,
+ * below it the module is dashed, its discard control replaced by a lock, and the
+ * strip offers to discard one change rather than three.
+ */
+export const DeployingBelowDivider: Story = {
+  render: () => (
+    <StorySetup
+      mockData={mockData}
+      moduleFilePath={MODULE_FILE_PATH}
+      serializedSchema={serializedSchema}
+      canDiscard
+      committedCount={2}
+      deployment={buildingDeployment}
+      patches={deployLinePatches}
+    />
+  ),
+};
+
+/**
+ * Everything has shipped and the deploy has landed.
+ *
+ * Nothing above the line, so the strip says so rather than dropping its button
+ * without explanation. The section stays until the server drops the patches from
+ * the chain — see `ComparePatchSets`.
+ */
+export const AllDeployedAndLive: Story = {
+  render: () => (
+    <StorySetup
+      mockData={mockData}
+      moduleFilePath={MODULE_FILE_PATH}
+      serializedSchema={serializedSchema}
+      canDiscard
+      committedCount={3}
+      deployment={liveDeployment}
+      patches={deployLinePatches}
+    />
+  ),
+};
+
+/**
+ * The deploy failed, and the patches are still not discardable.
+ *
+ * The commit exists either way, which is the whole reason: there is nothing a
+ * Discard button below this line could honestly do.
+ */
+export const DeployFailed: Story = {
+  render: () => (
+    <StorySetup
+      mockData={mockData}
+      moduleFilePath={MODULE_FILE_PATH}
+      serializedSchema={serializedSchema}
+      canDiscard
+      committedCount={2}
+      deployment={failedDeployment}
+      patches={deployLinePatches}
+    />
+  ),
+};
+
+/** The same review at 360px: two-row strip, banner divider, stacked diffs. */
+export const DeployingOnAPhone: Story = {
+  parameters: { viewport: { defaultViewport: "mobile1" } },
+  decorators: [
+    (Story) => (
+      <div className="w-[360px] bg-bg-tertiary min-h-screen p-3">
+        <Story />
+      </div>
+    ),
+  ],
+  render: () => (
+    <StorySetup
+      mockData={mockData}
+      moduleFilePath={MODULE_FILE_PATH}
+      serializedSchema={serializedSchema}
+      canDiscard
+      committedCount={2}
+      deployment={buildingDeployment}
+      patches={deployLinePatches}
     />
   ),
 };
