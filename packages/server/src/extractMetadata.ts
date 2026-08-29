@@ -35,7 +35,6 @@ export async function extractImageMetadata(
 
 export async function extractFileMetadata(
   filename: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _input: Buffer, // TODO: use buffer to determine mimetype
 ): Promise<FileMetadata> {
   let mimeType = Internal.filenameToMimeType(filename);

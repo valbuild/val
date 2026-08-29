@@ -41,7 +41,7 @@ export default {
             maybeValConfigImportDeclaration?.type === "ImportDeclaration" &&
             typeof maybeValConfigImportDeclaration.source.value === "string"
           ) {
-            const filename = context.filename || context.getFilename();
+            const filename = context.filename;
             if (
               filename?.endsWith(".val.ts") ||
               filename?.endsWith(".val.tsx") ||
@@ -51,7 +51,7 @@ export default {
               let packageJsonDir =
                 PACKAGE_JSON_DIRS_CACHE[path.dirname(filename)];
               if (!packageJsonDir) {
-                const runtimeRoot = path.resolve(context.cwd || process.cwd());
+                const runtimeRoot = path.resolve(context.cwd);
                 packageJsonDir = path.resolve(path.dirname(filename));
                 while (
                   !fs.existsSync(path.join(packageJsonDir, "package.json")) &&

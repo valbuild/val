@@ -16,16 +16,16 @@
     "@valbuild/core": "workspace:*",
     "@valbuild/shared": "workspace:*",
     "@valbuild/ui": "workspace:*",
-    "@vercel/stega": "^0.1.0",
+    "@vercel/stega": "^1.1.0",
     "base64-arraybuffer": "^1.0.2"
   },
   "devDependencies": {
-    "@testing-library/react": "^16.3.2",
+    "@testing-library/react": "^16.3.3",
     "@types/react": "^19.2.18",
-    "jest-environment-jsdom": "^29.5.0",
+    "jest-environment-jsdom": "^30.5.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.3"
   },
   "peerDependencies": {
     "react": ">=19.0.0",

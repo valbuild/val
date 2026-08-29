@@ -14,6 +14,7 @@ import {
 import {
   CodeAction,
   CodeActionKind,
+  MarkupContent,
   type Diagnostic,
   type TextEdit,
 } from "vscode-languageserver";
@@ -90,6 +91,16 @@ export function isLocalFix(fix: string): fix is ValidationFix {
  * The client returns our `Diagnostic.data` verbatim, which is where the source
  * path and available fixes come from — no re-deriving them from a code string.
  */
+/**
+ * LSP 10 widened `Diagnostic.message` to `string | MarkupContent`. Every
+ * diagnostic this server produces carries a plain string (see `diagnostics.ts`),
+ * but the type no longer says so, and both the remote-fix command arguments and
+ * `ValidationError.message` are strings.
+ */
+function diagnosticMessage(message: Diagnostic["message"]): string {
+  return MarkupContent.is(message) ? message.value : message;
+}
+
 export async function createValCodeActions({
   document,
   diagnostics,
@@ -127,7 +138,7 @@ export async function createValCodeActions({
           moduleFilePath,
           sourcePath: data.sourcePath as SourcePath,
           fix,
-          message: diagnostic.message,
+          message: diagnosticMessage(diagnostic.message),
           ...(data.value !== undefined ? { value: data.value } : {}),
         };
         actions.push({
@@ -152,7 +163,7 @@ export async function createValCodeActions({
         // createFixPatch works one fix at a time; give it exactly this one so a
         // failing sibling fix cannot suppress this action.
         validationError: {
-          message: diagnostic.message,
+          message: diagnosticMessage(diagnostic.message),
           value: data.value,
           fixes: [fix],
         },

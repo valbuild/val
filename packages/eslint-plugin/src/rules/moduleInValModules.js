@@ -23,7 +23,7 @@ export default {
     },
   },
   create(context) {
-    const projectDir = path.resolve(context.cwd || context.getCwd());
+    const projectDir = path.resolve(context.cwd);
     const modulesFilePath = path.join(projectDir, "val.modules.ts");
 
     let baseUrl = projectDir;
@@ -118,7 +118,7 @@ export default {
 
     return {
       ExportDefaultDeclaration(node) {
-        const filename = context.filename || context.getFilename();
+        const filename = context.filename;
         if (filename?.includes(".val")) {
           if (
             node.declaration &&

@@ -1,6 +1,15 @@
 {
   "compilerOptions": {
     "lib": ["es2020"],
+    // Declared, not auto-discovered: TypeScript 6 no longer includes every
+    // @types package it can find, so leaving this unset loses the node and
+    // jest globals. The packages are still resolved through the default
+    // typeRoots walk up to the workspace root.
+    "types": ["node", "jest"],
+    // Set explicitly: with neither given, TypeScript falls back to commonjs
+    // and the node10 resolver, which 6 deprecates and 7 removes.
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "strict": true,
     "isolatedModules": true,
     "noEmit": true,

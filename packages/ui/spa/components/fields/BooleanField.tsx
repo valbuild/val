@@ -72,7 +72,7 @@ export function BooleanField({
         checked={current}
         onCheckedChange={() => {
           if (readonly) return;
-          let nextValue: boolean | null = false;
+          let nextValue: boolean | null;
           // If optional/nullable: we cycle like this: true -> indeterminate / null -> false -> true
           if (schemaAtPath.data.opt) {
             if (current === true) {

@@ -511,6 +511,36 @@ until someone bumps it. So, once the new version is on npm:
 
 ## Common Fixes
 
+### `prettier --check` fails on a file `prettier --write` just wrote
+
+Symptom: the `format` CI job is red on a Markdown file, and running
+`pnpm run format:fix` does not fix it — `--check` keeps rejecting the file no
+matter how many times you write it.
+
+→ Prettier 3.9.x re-indents a wrapping continuation paragraph inside a
+**task-list item** by four more spaces on every pass, so formatting never
+reaches a fixed point and `--check` can never pass. Five lines are enough to
+reproduce it:
+
+```markdown
+- [x] Decide something here, and it
+      already had one. The double mount render was the cost.
+
+      `peek` resolved the path all the way to the value and then discarded it,
+      returning only a status. It now carries the value.
+```
+
+Run that through `prettier` repeatedly and the last two lines march right: 6,
+10, 14, 18 spaces. A plain `- ` item is stable, and so is a single-line
+continuation paragraph — it takes a `- [x] ` / `- [ ] ` item (content column 6)
+plus a paragraph that wraps. `packages/ui/spa/stores/openquestions.md` has
+exactly that shape.
+
+The whole 3.9 line is affected (3.9.0 through 3.9.6 all diverge) and 3.8.5 is
+fine, so **prettier is pinned to `~3.8.5`, not `^3.8.5`** — a caret range would
+let 3.9 back in and turn the `format` job permanently red. Do not widen it
+without re-running the snippet above against the version you want.
+
 ### "Type 'X' does not satisfy constraint 'Source'"
 
 → Add the type to `SelectorSource` union in `packages/core/src/selector/index.ts`

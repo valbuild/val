@@ -116,7 +116,7 @@ export class JsonEntryFilesFingerprint {
     if (cached && cached.moduleMtimeMs === moduleMtimeMs) {
       return cached.entryFilePaths;
     }
-    let entryFilePaths: string[] = [];
+    let entryFilePaths: string[];
     try {
       const contents = fs.readFileSync(absModulePath, "utf-8");
       entryFilePaths = findJsonEntryFilePathsInSource(

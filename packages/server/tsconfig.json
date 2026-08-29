@@ -1,13 +1,18 @@
 {
   "compilerOptions": {
-    "lib": ["es2020", "dom", "dom.iterable"],
+    // es2022 for the `new Error(message, { cause })` overload, which eslint 10's
+    // `preserve-caught-error` rule asks for when rethrowing.
+    "lib": ["es2022", "dom", "dom.iterable"],
     "types": ["node", "jest"],
     "strict": true,
     "isolatedModules": true,
     "noEmit": true,
     "esModuleInterop": true,
     "module": "esnext",
-    "moduleResolution": "node",
+    // `bundler`, not `node`: TypeScript 6 deprecates the node10 resolver and
+    // TypeScript 7 removes it. `bundler` reads `exports` maps and, unlike
+    // node16/nodenext, does not require extensions on relative imports.
+    "moduleResolution": "bundler",
     "skipLibCheck": true
   },
   // Fixture projects are standalone mini val-projects: they are compiled by

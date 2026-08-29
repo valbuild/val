@@ -50,6 +50,24 @@ module.exports = defineConfig([
           allowTaggedTemplates: false,
         },
       ],
+      /**
+       * `_`-prefixed means "named for the signature, not used in the body".
+       *
+       * typescript-eslint 8.68 started reporting parameters that only appear in
+       * a type position, which is every `z.string().refine((_p): _p is Id =>
+       * ...)` predicate in the repo: the name is required to write the type
+       * guard and can never be read. The convention was already there in the
+       * code — `_path`, `_id` — it just was not configured, so the rule flagged
+       * those too.
+       */
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
     },
 
     settings: {

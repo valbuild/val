@@ -451,7 +451,6 @@ export async function handleRemoteFileUpload(
     typeof actualRemoteFileSource === "object" &&
     "path" in actualRemoteFileSource
       ? (() => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { path: _path, ...metadata } = actualRemoteFileSource;
           return metadata;
         })()

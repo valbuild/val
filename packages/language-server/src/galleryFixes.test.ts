@@ -2,7 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import ts from "typescript";
-import { RenameFile, TextDocumentEdit } from "vscode-languageserver";
+import { RenameFile, TextDocumentEdit, TextEdit } from "vscode-languageserver";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
   canRenameFiles,
@@ -302,7 +302,13 @@ export default c.define(
     // ...and the field's path is rewritten to match, or the move would break it.
     const textChange = changes.find(TextDocumentEdit.is);
     expect(textChange).toBeDefined();
-    expect(textChange!.edits[0].newText).toBe("/public/img/stray.png");
+    // LSP 10 widened `TextDocumentEdit.edits` to include `SnippetTextEdit`,
+    // which carries `snippet` rather than `newText`. This edit is a plain one.
+    const firstEdit = textChange!.edits[0];
+    expect(TextEdit.is(firstEdit)).toBe(true);
+    expect(TextEdit.is(firstEdit) && firstEdit.newText).toBe(
+      "/public/img/stray.png",
+    );
     // Registering it instead must NOT be offered: that would break the gallery's
     // own directory check.
     expect(actions.find((a) => a.title.includes("add"))).toBeUndefined();

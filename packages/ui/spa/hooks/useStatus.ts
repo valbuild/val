@@ -14,7 +14,7 @@ import { z } from "zod";
 const PatchId = z
   .string()
   .uuid()
-  .refine((p): p is PatchId => true);
+  .refine((_p): _p is PatchId => true);
 
 export const AIModel = z.enum(["openai-gpt-5.1"]);
 export type AIModel = z.infer<typeof AIModel>;
