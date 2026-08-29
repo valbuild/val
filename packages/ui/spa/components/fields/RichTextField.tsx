@@ -449,6 +449,22 @@ export function RichTextField({
     <div id={path} className="m-1">
       <RichTextEditor
         ref={editorRef}
+        /**
+         * The document the editor MOUNTS with.
+         *
+         * It used to be given none, so the view was always built empty and the
+         * content arrived afterwards through `reset()` in the sync effect above.
+         * That made the effect load-bearing for the initial paint, and the
+         * effect's deps are the source — so anything that rebuilt the view
+         * without moving source (a toolbar feature settling, a portal container
+         * arriving) left a permanently blank field with nothing to refill it.
+         *
+         * Uncontrolled still: this is read once, at mount. `reset()` remains how
+         * a FOREIGN change lands.
+         */
+        defaultValue={
+          (currentSourceData as unknown as EditorDocument | null) ?? []
+        }
         features={features}
         linkCatalog={linkCatalog}
         readOnly={readonly || disabledRef.current}
