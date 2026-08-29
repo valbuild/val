@@ -48,6 +48,21 @@ export type FetchPatches = (patchIds: PatchId[]) => Promise<{
 export type CreatePatchId = () => PatchId;
 
 /**
+ * Is this the same chain, in the same order?
+ *
+ * Order matters as much as membership — `/stat` is the authority on order, and
+ * another session's patch landing between two of ours is a real change with an
+ * identical id set. So this compares position by position rather than as sets.
+ */
+function sameOrder(a: readonly PatchId[], b: readonly PatchId[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index++) {
+    if (a[index] !== b[index]) return false;
+  }
+  return true;
+}
+
+/**
  * POST one file's bytes to wherever files live, or delete one.
  *
  * `data: null` IS the delete — the same operation in both directions, which is
@@ -360,6 +375,16 @@ export class PatchStore {
     patchIds: PatchId[],
     baseMoved = false,
   ): Promise<void> {
+    /**
+     * The FIRST stat is always news, whatever it announces.
+     *
+     * `chainSettled()` is false until a stat has arrived, and the editor holds
+     * its fields inert until it is true — so a first stat announcing an empty
+     * chain, against an empty local chain, moves nothing in `ordered` and still
+     * has to be told. Without this the common case (a clean project, no pending
+     * changes) leaves every field dimmed forever.
+     */
+    const firstStat = !this.statSeen;
     this.statSeen = true;
     /**
      * A stat older than our own publish is not evidence of anything.
@@ -408,8 +433,28 @@ export class PatchStore {
       }
     }
     const tail = this.ordered.filter((patchId) => !announced.has(patchId));
-    this.ordered = [...named, ...tail];
-    this.bump();
+    const next = [...named, ...tail];
+    /**
+     * A stat that announced the chain we already hold is not news.
+     *
+     * `/stat` in `fs` mode long polls on a watcher over `.val/patches`, so it
+     * answers on every write and again on every polling interval — and the
+     * answer is usually the chain this client already has. Adopting it and
+     * bumping regardless made `patch:chain` a project-wide render pulse on a
+     * timer: `filePatchIds()` rebuilds and hands every media field a new map,
+     * every `useChainVersion` reader re-renders and walks the chain, and the
+     * pending-module validation pass is rescheduled — all for no change.
+     *
+     * So the bump goes where the mutation is, which is the rule
+     * `SourceStore.bump` already follows. `patch:head` is emitted on the same
+     * condition, because the head is a fact about the chain and the chain did
+     * not move.
+     */
+    const moved = firstStat || !sameOrder(this.ordered, next);
+    this.ordered = next;
+    if (moved) {
+      this.bump();
+    }
 
     /**
      * A patch still in flight cannot be in stat, so it is not evidence of
@@ -425,7 +470,9 @@ export class PatchStore {
     const missing = named.filter(
       (patchId) => !this.dataById.has(patchId) && !this.fetching.has(patchId),
     );
-    this.events.emit({ type: "patch:head", head: this.currentHead() });
+    if (moved) {
+      this.events.emit({ type: "patch:head", head: this.currentHead() });
+    }
     if (missing.length === 0) {
       return;
     }
