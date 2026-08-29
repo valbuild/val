@@ -14,7 +14,6 @@ import React, {
 import {
   hasRemoteFileSchema,
   ImageMetadata,
-  Internal,
   Json,
   ModuleFilePath,
   ModulePath,
@@ -55,6 +54,7 @@ import { ValStoreProvider } from "../stores/react/ValStoreProvider";
 import { useValSystem } from "../stores/react/SystemContext";
 import type { StatusSnapshot } from "../stores/StatusStore";
 import type { PatchErrorEntry, PatchRecord } from "../stores/types";
+import type { PatchAtPath } from "../stores/PatchStore";
 import { ValOverlayEmitter } from "../stores/react/ValOverlayEmitter";
 import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
@@ -1401,33 +1401,54 @@ export type PendingPatch = {
     commitSha: string;
   };
 };
+const NO_PATCHES_AT_PATH: PatchAtPath[] = [];
+
+/**
+ * The chain entries that touch one path.
+ *
+ * ## Per PATH, not a chain walk per field
+ *
+ * `FieldPatchAuthorsSection` renders this on every non-compact field, and it
+ * used to subscribe to `patch:chain` — a project-wide wake-up — and then walk
+ * `allRecords()` itself. So a chain movement cost O(fields on screen x chain
+ * length) and re-rendered every one of those fields, whether or not its own
+ * answer had changed.
+ *
+ * `PatchStore.patchesByPath()` builds the index once per chain version and
+ * hands back the SAME array for a path whose answer has not moved, which is what
+ * lets `useSyncExternalStore` bail out. So one field's keystroke wakes that
+ * field's path and nobody else's, and the walk happens once for the whole
+ * screen rather than once per field.
+ */
 export function usePendingPatches(
   sourcePath: SourcePath | ModuleFilePath,
 ): PendingPatch[] | null {
   const val = useValSystem();
-  const chainVersion = useChainVersion();
-  return useMemo((): PendingPatch[] | null => {
-    if (val === null) return null;
-    void chainVersion;
-    const [moduleFilePath, modulePath] =
-      Internal.splitModuleFilePathAndModulePath(sourcePath);
-    const store = val.system.patchStore;
-    const patches: PendingPatch[] = [];
-    for (const record of store.allRecords()) {
-      if (record.moduleFilePath !== moduleFilePath) continue;
-      // A module-level path matches every patch in the module; a deeper one
-      // matches only the ops that touch it.
-      const matches =
-        !modulePath ||
-        record.patch.some(
-          (op) => Internal.patchPathToModulePath(op.path) === modulePath,
-        );
-      if (matches) {
-        patches.push(toPendingPatch(record, store.isPending(record.patchId)));
-      }
-    }
-    return patches;
-  }, [val, chainVersion, sourcePath]);
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.patchStore.events.on("patch:chain", onChange);
+    },
+    [val],
+  );
+  const getSnapshot = useCallback(
+    () =>
+      val === null
+        ? null
+        : (val.system.patchStore.patchesByPath().get(sourcePath) ??
+          NO_PATCHES_AT_PATH),
+    [val, sourcePath],
+  );
+  const at = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  // Mapped to the review shape here, keyed on the store's own stable array — so
+  // this is stable for exactly as long as that one is.
+  return useMemo(
+    () =>
+      at === null
+        ? null
+        : at.map((entry) => toPendingPatch(entry.record, entry.isPending)),
+    [at],
+  );
 }
 
 export function usePendingPatchesForModule(

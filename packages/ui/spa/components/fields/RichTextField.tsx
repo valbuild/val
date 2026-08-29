@@ -17,8 +17,8 @@ import {
   ShallowSource,
   useAddPatch,
   useFieldCreatorId,
+  useModuleSchema,
   useSchemaAtPath,
-  useSchemas,
   useShallowSourceAtPath,
   useValConfig,
 } from "../ValFieldProvider";
@@ -50,7 +50,6 @@ export function RichTextField({
   const config = useValConfig();
   const remoteFiles = useRemoteFiles();
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
-  const schemas = useSchemas();
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type, creatorId);
   const currentSourceData =
@@ -144,26 +143,34 @@ export function RichTextField({
 
   const hasImageEnabled = !!schemaOptions?.inline?.img;
 
-  const imageReferencedModule = imageSchema?.referencedModule;
+  const imageReferencedModule = imageSchema?.referencedModule as
+    | ModuleFilePath
+    | undefined;
+  /**
+   * The GALLERY's schema, not the project's.
+   *
+   * This used to read `useSchemas()` — every schema in the project, woken by
+   * every schema change — to look up one module and take two fields off it.
+   * `useSchemas` is a whole-project subscription and this component is mounted
+   * once per rich text field.
+   */
+  const imageModuleSchema = useModuleSchema(imageReferencedModule);
   const imageAcceptOptions = useMemo(() => {
     if (!hasImageEnabled) return undefined;
     if (imageSchema?.options?.accept) return imageSchema.options.accept;
-    if (imageReferencedModule && schemas.status === "success") {
-      const moduleSchema =
-        schemas.data[imageReferencedModule as ModuleFilePath];
-      if (moduleSchema?.type === "record" && moduleSchema.accept) {
-        return moduleSchema.accept;
-      }
+    if (imageModuleSchema?.type === "record" && imageModuleSchema.accept) {
+      return imageModuleSchema.accept;
     }
     return undefined;
-  }, [hasImageEnabled, imageSchema, imageReferencedModule, schemas]);
+  }, [hasImageEnabled, imageSchema, imageModuleSchema]);
 
-  const imageModuleDirectory = useMemo(() => {
-    if (!imageReferencedModule || schemas.status !== "success")
-      return undefined;
-    const moduleSchema = schemas.data[imageReferencedModule as ModuleFilePath];
-    return moduleSchema?.type === "record" ? moduleSchema.directory : undefined;
-  }, [imageReferencedModule, schemas]);
+  const imageModuleDirectory = useMemo(
+    () =>
+      imageModuleSchema?.type === "record"
+        ? imageModuleSchema.directory
+        : undefined,
+    [imageModuleSchema],
+  );
 
   const imageRemoteData = useMemo(() => {
     if (

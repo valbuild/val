@@ -49,11 +49,13 @@ function textOf(editor: RichTextEditorRef | null): string {
 describe("RichTextEditor: where the document comes from", () => {
   test("mounts with the document it was given", () => {
     const ref = createRef<RichTextEditorRef>();
-    render(<RichTextEditor
+    render(
+      <RichTextEditor
         ref={ref}
         features={NO_MEASURING}
         defaultValue={doc("Hello")}
-      />);
+      />,
+    );
 
     expect(textOf(ref.current)).toContain("Hello");
   });

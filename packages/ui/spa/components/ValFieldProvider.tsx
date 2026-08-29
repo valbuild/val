@@ -323,6 +323,23 @@ function useSchemasVersion(val: ValSystem | null): number {
 export type LoadingStatus = "loading" | "not-asked" | "error" | "success";
 
 /**
+ * Has the project been taken in yet?
+ *
+ * The cheap half of {@link useLoadingStatus}, and the half most callers
+ * actually want. It wakes exactly once per session — `host:receive` — where
+ * `useLoadingStatus` also carries the WRITE QUEUE, which moves on every save.
+ *
+ * Use this wherever the question is "is there anything to show yet". Reach for
+ * `useLoadingStatus` only where the answer is genuinely about whether edits have
+ * reached the server, and never from a component mounted once per field: see
+ * `perFieldSubscriptions.test.ts`.
+ */
+export function useIsInitialized(): boolean {
+  const val = useValSystem();
+  return useInitialized(val) !== null;
+}
+
+/**
  * Is the system busy?
  *
  * The engine counted queued operations, most of which were reads it had issued
@@ -920,6 +937,43 @@ export function useSchemas():
     // that invalidated the cache.
     return { status: "success", data: val.system.schemaStore.all() };
   }, [val, initializedAt, schemaVersion]);
+}
+
+/**
+ * One module's schema.
+ *
+ * For a field that needs a schema OTHER than its own — a gallery-backed media
+ * field reading the gallery's `accept` and `directory`, say. `useSchemas()`
+ * answers the same question and is a whole-project subscription, so reaching for
+ * it from a per-field component makes a keystroke O(project) for one lookup.
+ *
+ * `schema:init` only, which fires on intake and on an HMR schema swap. There is
+ * no source subscription here on purpose: a schema is not a function of source,
+ * and adding one would put this back on the keystroke path.
+ */
+export function useModuleSchema(
+  moduleFilePath: ModuleFilePath | undefined,
+): SerializedSchema | undefined {
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.schemaStore.events.on("schema:init", onChange);
+    },
+    [val],
+  );
+  const getSnapshot = useCallback(
+    () =>
+      val === null || moduleFilePath === undefined
+        ? undefined
+        : val.system.schemaStore.get(moduleFilePath),
+    [val, moduleFilePath],
+  );
+  return useSyncExternalStore(
+    val === null ? noopSubscribe : subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
 }
 
 export function useAllSources(): Record<ModuleFilePath, Json> {

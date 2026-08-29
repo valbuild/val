@@ -33,7 +33,9 @@ function countChainEvents(system: ReturnType<typeof createSystem>) {
 
 describe("a stat that changes nothing", () => {
   it("announces the first one even when it names no patches", () => {
-    const system = createSystem({ fetchPatches: async () => ({ patches: [] }) });
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+    });
     system.host.receive([module()]);
     const chain = countChainEvents(system);
 

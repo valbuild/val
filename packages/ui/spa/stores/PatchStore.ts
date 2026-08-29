@@ -1,4 +1,4 @@
-import type { ModuleFilePath, PatchId } from "@valbuild/core";
+import { Internal, type ModuleFilePath, type PatchId } from "@valbuild/core";
 import type { Json } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
 import { StoreBus } from "./StoreBus";
@@ -46,6 +46,32 @@ export type FetchPatches = (patchIds: PatchId[]) => Promise<{
 }>;
 
 export type CreatePatchId = () => PatchId;
+
+/**
+ * One chain entry, as a reader AT A PATH sees it.
+ *
+ * The record plus the optimistic axis, because those are the two facts a review
+ * row renders and they move independently: `markSaved` flips `isPending` while
+ * the record stays exactly the same object.
+ */
+export type PatchAtPath = {
+  record: PatchRecord;
+  isPending: boolean;
+};
+
+/** Do these two answers about one path say the same thing? */
+function samePatchesAtPath(a: PatchAtPath[], b: PatchAtPath[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index++) {
+    if (
+      a[index].record !== b[index].record ||
+      a[index].isPending !== b[index].isPending
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /**
  * Is this the same chain, in the same order?
@@ -1414,6 +1440,93 @@ export class PatchStore {
     this.filePatchIdsAt = { n: this.version, map };
     return map;
   }
+
+  /**
+   * The chain, indexed by the source path a reader would ask about.
+   *
+   * Built ONCE per chain version and shared, with each path's array reused when
+   * its answer has not changed. Both halves are load-bearing, and they answer
+   * different costs:
+   *
+   * - **Built once.** `FieldPatchAuthorsSection` is mounted on every non-compact
+   *   field, and it used to walk `allRecords()` itself. That made a chain
+   *   movement O(fields on screen x chain length) — and `patch:chain` moves on
+   *   every keystroke's patch, on every save, and (before it was fixed) on every
+   *   `/stat` poll.
+   * - **Reused when equal.** A field reads this through
+   *   `useSyncExternalStore`, so an array rebuilt with the same contents is a
+   *   new snapshot and a guaranteed re-render. Comparing means a patch created
+   *   in one field wakes that field's path and nobody else's.
+   *
+   * Keyed at TWO granularities, because that is what callers ask at: the module
+   * file path, which answers for every patch in the module, and the exact source
+   * path of each op. A reader at a deeper path finds itself under its own key or
+   * not at all — the same exact-match rule the walk this replaces used.
+   *
+   * `isPending` travels with the record because it is what a reader renders
+   * (an edit that has not reached the server is shown differently) and because
+   * it moves WITHOUT the chain's membership moving — `markSaved` flips it. A
+   * comparison on records alone would hold the stale answer.
+   */
+  patchesByPath(): ReadonlyMap<string, PatchAtPath[]> {
+    const cached = this.patchesByPathAt;
+    if (cached !== null && cached.n === this.version) {
+      return cached.byPath;
+    }
+    const byPath = new Map<string, PatchAtPath[]>();
+    const seen = new Map<string, Set<PatchId>>();
+    const add = (key: string, entry: PatchAtPath) => {
+      let already = seen.get(key);
+      if (already === undefined) {
+        already = new Set();
+        seen.set(key, already);
+      }
+      // One record per key, however many of its ops land on that path.
+      if (already.has(entry.record.patchId)) return;
+      already.add(entry.record.patchId);
+      const at = byPath.get(key);
+      if (at === undefined) {
+        byPath.set(key, [entry]);
+      } else {
+        at.push(entry);
+      }
+    };
+    for (const patchId of this.ordered) {
+      const record = this.dataById.get(patchId);
+      if (record === undefined) continue;
+      const entry: PatchAtPath = {
+        record,
+        isPending: this.pendingIds.has(patchId),
+      };
+      add(record.moduleFilePath, entry);
+      for (const op of record.patch) {
+        if (op.op === "file") continue;
+        add(
+          Internal.joinModuleFilePathAndModulePath(
+            record.moduleFilePath,
+            Internal.patchPathToModulePath(op.path),
+          ),
+          entry,
+        );
+      }
+    }
+    const previous = cached?.byPath;
+    if (previous !== undefined) {
+      for (const [key, entries] of byPath) {
+        const before = previous.get(key);
+        if (before !== undefined && samePatchesAtPath(before, entries)) {
+          byPath.set(key, before);
+        }
+      }
+    }
+    this.patchesByPathAt = { n: this.version, byPath };
+    return byPath;
+  }
+
+  private patchesByPathAt: {
+    n: number;
+    byPath: ReadonlyMap<string, PatchAtPath[]>;
+  } | null = null;
 
   /**
    * Does this module have an unsaved patch that THIS field instance made?
