@@ -29,6 +29,7 @@ import {
 import { FieldsPanel } from "./FieldsPanel";
 import { CanvasFields } from "./CanvasFields";
 import { CanvasRouteBar } from "./CanvasRouteBar";
+import { usePaneScroller, WorkspacePane } from "./usePaneScroller";
 import { CANVAS_MAX_WIDTH } from "../EditorCanvas";
 import { SourcePath } from "@valbuild/core";
 import { ShellBreakpoint } from "../types";
@@ -45,6 +46,8 @@ import {
 // Re-exported: this module named the type before the canvas had a types file,
 // and the whole shell imports it from here.
 export type { CanvasView };
+// Named here first, and moved to `usePaneScroller` with the state it describes.
+export type { WorkspacePane };
 
 export type PageWorkspaceProps = {
   /** The module editor for the current selection. Shown when it is on. */
@@ -198,16 +201,6 @@ const PHONE_STRIP_CLEARANCE = "6.75rem";
 const OPEN_MS = 320;
 /** The switch thumb moves faster: it is a short distance and a direct answer. */
 const SWITCH_MS = 200;
-/** How long the panes have to be still before the switch reads them. */
-const PANE_SETTLE_MS = 140;
-/**
- * How long a placement holds the pane where it put it.
- *
- * Long enough to outlast the layout changes that follow one — the column's
- * fields arrive one at a time as their schemas resolve — and short enough that
- * it can never be felt as the switch refusing a swipe.
- */
-const PANE_HOLD_MS = 400;
 const OPEN_EASE = "cubic-bezier(0.4, 0, 0.2, 1)";
 
 /**
@@ -322,10 +315,22 @@ export function PageWorkspace({
   );
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [attachedFieldIds, setAttachedFieldIds] = useState<string[]>([]);
-  const [pane, setPane] = useState<WorkspacePane>("editor");
+
+  /**
+   * The phone's two panes, and where they are.
+   *
+   * One owner for the pane and the scroll position, because they are one fact.
+   * See {@link usePaneScroller} for the invariant that keeps them from resting
+   * anywhere between the two.
+   */
+  const panes = usePaneScroller({
+    enabled: isPhone,
+    paneCount: open ? 2 : 1,
+    animate: !reducedMotion && !skipTransition,
+  });
+  const pane = panes.pane;
 
   const canvasWindowRef = useRef<CanvasWindowHandle>(null);
-  const paneScrollRef = useRef<HTMLDivElement>(null);
   const splitRef = useRef<HTMLDivElement>(null);
 
   /**
@@ -499,126 +504,17 @@ export function PageWorkspace({
     canvasWindowRef.current?.pinch(gesture);
   }, []);
 
-  // Opening the canvas on a phone means going to it; closing means coming
-  // back. The switch and the swipe then agree about where you are.
-  useEffect(() => setPane(open ? "canvas" : "editor"), [open]);
-
-  // The phone's panes are a scroll container, so moving between them is a
-  // scroll — which keeps the swipe and the button doing the same thing, and
-  // means the switch slides the canvas in rather than cutting to it.
-  //
-  // The first placement is not a move anyone made, so it lands without
-  // animating; every later one glides.
-  const hasPlacedPane = useRef(false);
   /**
-   * Whether the next placement should LAND rather than glide.
+   * Opening the canvas on a phone means going to it; closing means coming back.
    *
-   * Set by a pick, and it is not a taste judgement — a glide does not survive
-   * one. Clicking an element inside the frame focuses the frame, and the
-   * browser then scrolls the newly focused frame back into view, which cancels
-   * a smooth scroll that is trying to take it off screen. The animation never
-   * produces a single scroll event; the switch says "Editor", the canvas stays
-   * on screen, and the pick looks like it did nothing.
-   *
-   * A landing has no such window to be cancelled in: it is applied
-   * synchronously, and the snap that follows lands on the pane it is already
-   * sitting on. Nothing is lost either — a pick is a jump to somewhere else,
-   * not a continuation of a gesture, so there is no motion to preserve.
+   * The one place the pane follows something other than a person, and it goes
+   * through the same door every other placement does — see
+   * {@link usePaneScroller}. Nothing else in here touches the scroller.
    */
-  const placePaneInstantly = useRef(false);
-  /**
-   * Where a placement is currently trying to get to, or `null` between them.
-   *
-   * Doubles as the flag that says one is in progress, because those are the same
-   * fact: while the panes are being MOVED, where they are is not an answer to
-   * "which pane did you choose".
-   */
-  const paneTarget = useRef<number | null>(null);
+  const goToPane = panes.goTo;
   useEffect(() => {
-    if (!isPhone) return;
-    const container = paneScrollRef.current;
-    if (!container) return;
-    const instant = placePaneInstantly.current;
-    placePaneInstantly.current = false;
-    const smooth =
-      hasPlacedPane.current && !instant && !skipTransition && !reducedMotion;
-    hasPlacedPane.current = true;
-    const left = pane === "canvas" && open ? container.clientWidth : 0;
-    paneTarget.current = left;
-    container.scrollTo({ left, behavior: smooth ? "smooth" : "auto" });
-    if (smooth) {
-      // An animation is allowed to be somewhere other than its target; it just
-      // must not be READ while it is. See `paneTarget`.
-      const release = setTimeout(() => {
-        paneTarget.current = null;
-      }, PANE_HOLD_MS);
-      return () => clearTimeout(release);
-    }
-    /*
-     * Hold it there.
-     *
-     * A placement is not finished when it is applied. This is a snap container
-     * whose panes change contents as it moves — the fields column fills in as
-     * each schema resolves — and a snap container re-snaps to the area it last
-     * considered current whenever its contents change. So the pane lands, the
-     * layout settles, and it is quietly pulled back to where it came from; the
-     * switch then reads that position, agrees with it, and scrolls the rest of
-     * the way. Two `scrollTo`s later you are exactly where you started, and a
-     * pick looks like it did nothing.
-     *
-     * Re-asserting for a few frames outlasts that without having to know which
-     * layout change caused it, which has proved to be more than one thing.
-     */
-    let frame = 0;
-    const until = Date.now() + PANE_HOLD_MS;
-    const hold = () => {
-      if (container.scrollLeft !== left) container.scrollLeft = left;
-      if (Date.now() < until) {
-        frame = requestAnimationFrame(hold);
-      } else {
-        paneTarget.current = null;
-      }
-    };
-    frame = requestAnimationFrame(hold);
-    return () => {
-      cancelAnimationFrame(frame);
-      paneTarget.current = null;
-    };
-  }, [pane, open, isPhone, skipTransition, reducedMotion]);
-
-  /**
-   * A swipe moves the panes without going through the switch, so the switch
-   * reads the scroll position back rather than assuming it is in charge.
-   *
-   * Read once movement stops, not on every frame: a smooth scroll passes
-   * through the half-way mark on its way, and reacting to that would set the
-   * switch back to where it came from, which sends the scroll back after it.
-   * Waiting for the rest answers the only question worth asking — where did
-   * this end up — and cannot fight an animation still in progress.
-   */
-  const paneSettle = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const onPaneScroll = useCallback(() => {
-    // A placement in progress is not a position anyone chose, and reading it as
-    // one is how a pick ends up back on the canvas: the container bounces off
-    // the target for a frame, the switch believes the bounce, and then moves the
-    // pane to match what it believed. See `paneTarget`.
-    if (paneTarget.current !== null) return;
-    if (paneSettle.current !== null) clearTimeout(paneSettle.current);
-    paneSettle.current = setTimeout(() => {
-      paneSettle.current = null;
-      const container = paneScrollRef.current;
-      if (!container || container.clientWidth === 0) return;
-      const next: WorkspacePane =
-        container.scrollLeft > container.clientWidth / 2 ? "canvas" : "editor";
-      setPane((current) => (current === next ? current : next));
-    }, PANE_SETTLE_MS);
-  }, []);
-  useEffect(
-    () => () => {
-      if (paneSettle.current !== null) clearTimeout(paneSettle.current);
-    },
-    [],
-  );
+    goToPane(open ? "canvas" : "editor");
+  }, [open, goToPane]);
 
   const attachField = useCallback(
     (fieldId: string) => {
@@ -648,26 +544,23 @@ export function PageWorkspace({
    * switched the view left you looking at the page you had just selected on,
    * with the answer on a screen you had to know to swipe to.
    *
-   * The caller acts on the pick itself — it owns navigation — and this is only
-   * the part that is the canvas's: where to look now.
+   * The caller acts on the pick itself — it owns navigation — and only calls
+   * this once that has SUCCEEDED. A pick that could not be turned into a field
+   * to open must not move anything: half a transition, with the fields column
+   * in front of you and the field it was opened for missing from it, is the
+   * state that reads as the canvas being broken.
+   *
+   * The placement lands rather than glides. A pick is a jump to somewhere else,
+   * not the continuation of a gesture, so there is no motion to preserve — and
+   * the frame the click just focused is liable to be scrolled back into view by
+   * the browser, which an animation in flight loses to and a landing does not.
    */
   const onPicked = useCallback(() => {
     if (!isPicking) return;
     onViewChange("fields");
-    if (!isPhone || pane === "editor") return;
-    /*
-     * See `placePaneInstantly`: a glide here is cancelled by the focus the
-     * click just gave the frame.
-     *
-     * Only when the pane is actually MOVING. `setPane` to the pane you are
-     * already on is not a state change, so the effect that consumes this flag
-     * never runs — and the flag would sit there until the next pane change,
-     * whoever made it, and turn that one into a jump with 400ms of held
-     * position. A swipe answered that way feels like the switch fighting back.
-     */
-    placePaneInstantly.current = true;
-    setPane("editor");
-  }, [isPicking, onViewChange, isPhone, pane]);
+    if (!isPhone) return;
+    goToPane("editor", { animate: false });
+  }, [isPicking, onViewChange, isPhone, goToPane]);
 
   /**
    * Whether the page is re-rendering because of an edit.
@@ -944,8 +837,7 @@ export function PageWorkspace({
     return (
       <div className="absolute inset-0 bg-bg-canvas">
         <div
-          ref={paneScrollRef}
-          onScroll={onPaneScroll}
+          ref={panes.ref}
           className={cn(
             "flex h-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain",
             !open && "overflow-x-hidden",
@@ -988,7 +880,7 @@ export function PageWorkspace({
             <span className="ml-auto">
               <PaneToggle
                 pane={pane}
-                onChange={setPane}
+                onChange={goToPane}
                 animate={!reducedMotion}
               />
             </span>
@@ -1105,9 +997,6 @@ function SplitDivider({
     </div>
   );
 }
-
-/** Which half of the workspace a phone is showing. */
-export type WorkspacePane = "editor" | "canvas";
 
 /** Where the thumb sits, in pixels from the inside of the control's border. */
 type SegmentedThumb = { left: number; width: number };

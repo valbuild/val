@@ -2106,6 +2106,28 @@ export function useFullValidationRunning(): boolean {
   return running;
 }
 
+/**
+ * Tell the editor something went wrong, once.
+ *
+ * The same queue every other announcement goes through — it surfaces as a toast
+ * and stays in the transient-errors list afterwards — reachable from a component
+ * rather than only from the sync layer. `StatusStore.reportError` de-duplicates
+ * by message, so a handler that fails on every attempt says it once.
+ *
+ * For things the person DID and that visibly did not happen. Not for background
+ * failures the studio recovers from on its own, which have their own reporting
+ * and would only be noise here.
+ */
+export function useReportError(): (message: string, details?: string) => void {
+  const val = useValSystem();
+  return useCallback(
+    (message: string, details?: string) => {
+      val?.system.status.reportError(message, details);
+    },
+    [val],
+  );
+}
+
 export function useGlobalTransientErrors() {
   const val = useValSystem();
   const status = useValStatus();
