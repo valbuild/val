@@ -286,6 +286,50 @@ export class PatchSync {
     );
   }
 
+  /**
+   * These patches are gone from the server. Stop naming them as a parent.
+   *
+   * The counterpart to {@link receiveStat}, and the reason it cannot do this
+   * job itself: a stat drops an id from {@link savedNotInStat} by LISTING it,
+   * because a snapshot that omits a just-saved patch is usually only stale. A
+   * DELETED patch is never listed again, so it would sit there naming itself the
+   * parent of every future write for as long as the tab is open.
+   *
+   * That is not a slow recovery, it is no recovery: the chain is linear, so a
+   * parent the server does not hold is refused — and refused as
+   * `Parent patch not found` with a status that is not 409, which {@link handle}
+   * reads as permanent and answers by DROPPING the patch. One discard therefore
+   * cost every edit made after it, one toast at a time, until a reload.
+   *
+   * Called from the `patch:drop` listener in `createSystem`, so it covers a
+   * discard made here, a discard made in another tab (`reconcileVanished` drops
+   * what stat has stopped naming), and a patch the server refused — rather than
+   * only the one path that happened to be reported.
+   *
+   * One drop is not a deletion: `discardUnapplicable` gives up on a patch the
+   * server will not delete and drops it locally anyway, saying so in the
+   * console. Forgetting that one costs a round trip and no more — the parent
+   * moves back to a patch that IS still the server's head, so the next write is
+   * a 409, which re-syncs and retries. Cheap, self-correcting, and on a path
+   * that has already announced it is broken; the alternative is for this to
+   * know WHY each patch left, which is knowledge `patch:drop` does not carry
+   * and should not have to.
+   */
+  forget(patchIds: readonly PatchId[]): void {
+    if (patchIds.length === 0) {
+      return;
+    }
+    const gone = new Set(patchIds);
+    this.savedNotInStat = this.savedNotInStat.filter(
+      (patchId) => !gone.has(patchId),
+    );
+    // The stat list too: it is the other half of the parent, and between a
+    // discard and the socket message announcing it the two are equally stale.
+    this.statPatchIds = this.statPatchIds.filter(
+      (patchId) => !gone.has(patchId),
+    );
+  }
+
   currentState(): SyncState {
     return this.state;
   }
