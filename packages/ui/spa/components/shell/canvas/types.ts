@@ -77,7 +77,22 @@ export const CANVAS_DEVICE_HEIGHTS: Record<CanvasDevice, number> = {
   mobile: 844,
 };
 
-/** Pan and zoom state. */
+/** A point on the page, in the page's own unscaled coordinates. */
+export type CanvasPoint = {
+  x: number;
+  y: number;
+};
+
+/**
+ * Where the canvas is looking: how far it is zoomed, and how far the window
+ * around the page is scrolled.
+ *
+ * `x` and `y` are a SCROLL position, not a translation. They were a
+ * translation while the page floated on a canvas; now it sits in a window that
+ * scrolls, and the browser owns the movement. The shape is unchanged so the
+ * `canvas-at` link parameter keeps working — an old link restores the right
+ * zoom, and its offsets, which were negative, clamp to the top left.
+ */
 export type CanvasTransform = {
   /** 1 = 100%. */
   scale: number;

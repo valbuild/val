@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Internal, SourcePath } from "@valbuild/core";
 import { Search } from "lucide-react";
 import { cn } from "../../designSystem/cn";
@@ -8,6 +8,11 @@ import { FieldLoading } from "../../FieldLoading";
 import { FieldNotFound } from "../../FieldNotFound";
 import { FieldSchemaError } from "../../FieldSchemaError";
 import { useSchemaAtPath } from "../../ValFieldProvider";
+
+/** How far below the top of the column a field scrolled to should land. */
+const SCROLL_MARGIN_PX = 8;
+/** How long the column keeps re-aligning as its rows fill in. */
+const SETTLE_MS = 1200;
 
 /**
  * The fields the page reported, as fields rather than as a list of paths.
@@ -38,6 +43,64 @@ export function CanvasFields({
   onSelect?: (path: SourcePath) => void;
 }) {
   const [query, setQuery] = useState("");
+
+  /**
+   * Bring the selected field into view.
+   *
+   * This is the other half of selecting something on the page: pointing at a
+   * headline is a request to edit it, and a column that lists it three screens
+   * down has not answered that request. Also covers arriving from anywhere else
+   * that names a field — a search hit, a validation error, a link.
+   *
+   * Scrolls THIS list and nothing else, rather than `scrollIntoView`: the
+   * column sits inside a horizontal pane switcher on a phone, and
+   * `scrollIntoView` walks every scrollable ancestor — including that one,
+   * which it would slide half a pane sideways.
+   *
+   * Re-aligned as the rows settle, for a while. Each row asks for its own
+   * schema and fills in when it arrives, so the row this scrolled to is
+   * usually not where it will end up a moment later; without the observer the
+   * column lands close and then drifts away as the rows above it grow.
+   */
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const list = listRef.current;
+    if (!selectedPath || !list) return;
+    const align = () => {
+      const row = list.querySelector(
+        `[data-canvas-field="${CSS.escape(selectedPath)}"]`,
+      );
+      if (!(row instanceof HTMLElement)) return;
+      const listBox = list.getBoundingClientRect();
+      const rowBox = row.getBoundingClientRect();
+      // Already readable: leave it alone rather than centring it, so picking
+      // one of two adjacent fields does not shuffle the column under you.
+      if (rowBox.top >= listBox.top && rowBox.bottom <= listBox.bottom) return;
+      list.scrollTop += rowBox.top - listBox.top - SCROLL_MARGIN_PX;
+    };
+    align();
+    const observer = new ResizeObserver(align);
+    observer.observe(list);
+    for (const child of Array.from(list.children)) observer.observe(child);
+    // Long enough for the schemas to land, short enough that the column stops
+    // moving well before anyone has finished reading the field.
+    const stop = setTimeout(() => observer.disconnect(), SETTLE_MS);
+    return () => {
+      clearTimeout(stop);
+      observer.disconnect();
+    };
+    /*
+     * Re-run when the LIST changes as well as when the selection does.
+     *
+     * A selection can arrive before the rows it names: a deep link, a search
+     * hit or a validation error all name a field while the page is still being
+     * scanned, and the column is empty until it reports back. The observer does
+     * not cover that — it watches the rows that exist when it is set up, and
+     * the column's own box does not change when sections are added inside a
+     * scroller — so without this the one case where the scroll matters most is
+     * the one it never happens in.
+     */
+  }, [selectedPath, paths]);
 
   const groups = useMemo(() => {
     const byModule = new Map<string, SourcePath[]>();
@@ -92,7 +155,10 @@ export function CanvasFields({
           />
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim px-2 py-2">
+      <div
+        ref={listRef}
+        className="min-h-0 flex-1 overflow-y-auto scrollbar-slim px-2 py-2"
+      >
         {filtered.length === 0 ? (
           <p className="px-1 py-6 text-center text-xs text-fg-secondary-alt">
             {query
@@ -146,6 +212,10 @@ function CanvasFieldRow({
   const schemaAtPath = useSchemaAtPath(path);
   return (
     <div
+      // Read by the scroll-into-view effect above, which finds the row by path
+      // rather than by holding a ref per row: the list is dynamic, and a map of
+      // refs to a changing set of paths is a leak waiting to be written.
+      data-canvas-field={path}
       onFocusCapture={() => onSelect?.(path)}
       className={cn(
         "rounded-lg border px-2.5 py-2",

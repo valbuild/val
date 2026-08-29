@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { ValCanvasElement } from "@valbuild/shared/internal";
 import { findShellSelection, Shell, ShellSelection } from "./Shell";
+import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
 import { CanvasFrame } from "./canvas/CanvasFrame";
 import { canvasFallbackRoute } from "./canvasFallbackRoute";
 import { SaveState } from "./StatusBar";
@@ -602,14 +603,10 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       isPicking,
       onRequestReload,
       onRefreshingChange,
-    }: {
-      width: number;
-      height: number;
-      reloadKey: number;
-      isPicking: boolean;
-      onRequestReload: () => void;
-      onRefreshingChange: (isRefreshing: boolean) => void;
-    }) => (
+      onPinch,
+      onZoom,
+      onPicked,
+    }: Parameters<NonNullable<PageWorkspaceProps["renderCanvas"]>>[0]) => (
       <CanvasFrame
         url={canvasUrl}
         width={width}
@@ -629,7 +626,18 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
          */
         highlightedPath={isPicking ? focusedPath : null}
         onElements={setCanvasElements}
-        onPick={onPick}
+        /*
+         * Two things happen on a pick, and they belong to different owners.
+         * The shell opens the field, because it owns navigation; the canvas is
+         * told one happened, because where to LOOK afterwards is its business —
+         * the fields column, and on a phone the pane that holds it.
+         */
+        onPick={(paths) => {
+          onPick(paths);
+          onPicked();
+        }}
+        onPinch={onPinch}
+        onZoom={onZoom}
         onRequestReload={onRequestReload}
         onRefreshingChange={onRefreshingChange}
       />
