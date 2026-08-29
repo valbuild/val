@@ -587,13 +587,33 @@ export class SourceStore {
    * and reported by `peek` as `entry-failed`, which is where a row shows it. A
    * rejected promise here would make a prefetch of twenty rows fail because one
    * of them did.
+   *
+   * ## An entry that FAILED is not asked for again
+   *
+   * The same rule `peek` draws between `entry-missing` ("ask for it") and
+   * `entry-failed` ("stop asking and say so"), applied to the bulk path — which
+   * did not observe it, because a failure is recorded in `entryFailures` and
+   * never in `jsonEntries`, so a `has(key)` test calls it wanted forever.
+   *
+   * That was a fetch storm rather than a wasted call. `ValOverlayEmitter`
+   * re-derives the entries a module's patches touch and calls this on every
+   * `source:change` burst, so one entry the server cannot resolve produced a
+   * `GET /json` every 200ms for as long as the tab was open — which is what
+   * "when there are errors everything is loading" looked like from the outside.
+   *
+   * {@link retryEntry} stays the one door back in: it clears the failure first,
+   * and it goes to {@link loadEntry} directly rather than through here.
    */
   async loadEntries(
     moduleFilePath: ModuleFilePath,
     keys: readonly string[],
   ): Promise<void> {
     const here = this.jsonEntries.get(moduleFilePath);
-    const wanted = keys.filter((key) => here?.has(key) !== true);
+    const wanted = keys.filter(
+      (key) =>
+        here?.has(key) !== true &&
+        !this.entryFailures.has(entryKey(moduleFilePath, key)),
+    );
     if (wanted.length === 0) return;
     /**
      * Coalesced per module per tick, then announced once.

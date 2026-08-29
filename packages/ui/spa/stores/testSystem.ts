@@ -310,6 +310,20 @@ export type TestSourceStore = {
    */
   moduleSource(moduleFilePath: string): Json | undefined;
   loadedModules(): ModuleFilePath[];
+  /**
+   * The BULK prefetch — what a virtualized record's visible window asks for.
+   *
+   * Its own entry point rather than N reads, because the thing worth testing is
+   * what it does with a key it has already failed on: `peek` tells a reader to
+   * stop asking after a failure, and this path has to observe the same rule or
+   * a broken entry becomes a fetch per render burst.
+   */
+  loadEntries(moduleFilePath: string, keys: readonly string[]): Promise<void>;
+  /** The one door back in after a failure. See {@link loadEntries}. */
+  retryEntry(
+    moduleFilePath: string,
+    key: string,
+  ): Promise<{ status: "ok" } | { status: "error"; message: string }>;
 };
 
 export type TestStatStore = {
@@ -1050,6 +1064,10 @@ export function initTestSystem(): TestSystem {
       moduleSource: (moduleFilePath) =>
         system.sourceStore.moduleSource(moduleFilePath as ModuleFilePath),
       loadedModules: () => system.sourceStore.loadedModules(),
+      loadEntries: (moduleFilePath, keys) =>
+        system.sourceStore.loadEntries(moduleFilePath as ModuleFilePath, keys),
+      retryEntry: (moduleFilePath, key) =>
+        system.sourceStore.retryEntry(moduleFilePath as ModuleFilePath, key),
     },
     patchStore: {
       getHead: () => system.patchStore.getHead(),
