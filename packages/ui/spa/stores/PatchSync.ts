@@ -308,12 +308,12 @@ export class PatchSync {
    *
    * One drop is not a deletion: `discardUnapplicable` gives up on a patch the
    * server will not delete and drops it locally anyway, saying so in the
-   * console. Forgetting that one costs a round trip and no more — the parent
-   * moves back to a patch that IS still the server's head, so the next write is
-   * a 409, which re-syncs and retries. Cheap, self-correcting, and on a path
-   * that has already announced it is broken; the alternative is for this to
-   * know WHY each patch left, which is knowledge `patch:drop` does not carry
-   * and should not have to.
+   * console. That patch is still the server's head, so forgetting it names the
+   * one BEFORE it — a parent that exists but is no longer the tip, which is a
+   * 409, which re-syncs and retries. A round trip and no more. Cheap,
+   * self-correcting, and on a path that has already announced it is broken; the
+   * alternative is for this to know WHY each patch left, which is knowledge
+   * `patch:drop` does not carry and should not have to.
    */
   forget(patchIds: readonly PatchId[]): void {
     if (patchIds.length === 0) {
