@@ -119,3 +119,56 @@ describe("chainSettled", () => {
     system.dispose();
   });
 });
+
+/**
+ * `chainSettled()` flips on the APPLY, and the apply announces itself on
+ * `patch:head`, not on `patch:chain`.
+ *
+ * Two stores answer this question — the patch store knows a patch exists, the
+ * source store knows whether it landed — and only the second half moves at the
+ * end. A reader listening to the chain alone therefore hears the fetch and not
+ * the apply, and `useInitialPatchesApplied` is that reader: it holds every field
+ * in the Studio dimmed and inert until this is true.
+ *
+ * It survived only because a repeated `/stat` used to bump the chain
+ * unconditionally, which is the wasted project-wide pulse this branch removed.
+ * So the last transition has to be observable on its own.
+ */
+describe("the event that carries the last transition", () => {
+  it("announces settling on patch:head", async () => {
+    const system = createSystem({
+      fetchPatches: async (patchIds) => ({
+        patches: patchIds.map((patchId) =>
+          externalPatch(patchId, "/t.val.ts", [
+            { op: "replace", path: ["title"], value: "from the server" },
+          ]),
+        ),
+      }),
+    });
+    system.host.receive([module()]);
+
+    const settledOn: string[] = [];
+    const record = (type: string) => () => {
+      if (system.patchStore.chainSettled()) settledOn.push(type);
+    };
+    const offChain = system.patchStore.events.on(
+      "patch:chain",
+      record("chain"),
+    );
+    const offHead = system.patchStore.events.on("patch:head", record("head"));
+
+    system.stat.receiveStat({
+      patches: ["settle-1" as PatchId],
+      baseSha: "sha",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(system.patchStore.chainSettled()).toBe(true);
+    // The claim: SOMETHING announced it. Named as `head` because that is where
+    // the apply is reported from, and a reader has to subscribe to it.
+    expect(settledOn).toContain("head");
+    offChain();
+    offHead();
+    system.dispose();
+  });
+});

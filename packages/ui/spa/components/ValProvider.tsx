@@ -1318,14 +1318,47 @@ export function usePendingClientSidePatchIds(): PatchId[] {
  */
 export function useInitialPatchesApplied(): boolean {
   const val = useValSystem();
-  const chainVersion = useChainVersion();
+  /**
+   * Woken by the head as well as by the chain, and the head is the one that
+   * matters here.
+   *
+   * `chainSettled()` needs every announced patch to be FETCHED and APPLIED, and
+   * those are two different stores' answers. The chain version moves when a
+   * patch's ops arrive; what moves when the source store finally applies them is
+   * `patch:head`, emitted from `PatchStore`'s `source:patch-apply` handler.
+   *
+   * Listening to the chain alone left the last step unheard — this latch is what
+   * holds every field dimmed and inert, so it stayed dimmed until some unrelated
+   * re-render happened to re-read. It survived only because a repeated `/stat`
+   * used to bump the chain unconditionally, which is exactly the wasted pulse
+   * that has now been removed.
+   *
+   * Cheap to widen: there is one of these in the Studio, it latches once, and
+   * after that the subscription answers `true` without reading anything.
+   */
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      const offChain = val.system.patchStore.events.on("patch:chain", onChange);
+      const offHead = val.system.patchStore.events.on("patch:head", onChange);
+      return () => {
+        offChain();
+        offHead();
+      };
+    },
+    [val],
+  );
+  const getSnapshot = useCallback(
+    () => (val === null ? false : val.system.patchStore.chainSettled()),
+    [val],
+  );
+  const chainSettled = useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
   const [settled, setSettled] = useState(false);
-  const ready =
-    settled ||
-    (val !== null &&
-      // `void`, not a dependency: the version is the wake-up, the store is the
-      // answer.
-      (void chainVersion, val.system.patchStore.chainSettled()));
+  const ready = settled || chainSettled;
   useEffect(() => {
     if (ready) setSettled(true);
   }, [ready]);

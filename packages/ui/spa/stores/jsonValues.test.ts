@@ -438,6 +438,34 @@ describe("prefetching `.jsonValues()` entries in bulk", () => {
   });
 
   /**
+   * SPEC: "stop asking" must not mean "never again".
+   *
+   * Nothing re-asks for a failed entry, deliberately — so the failure has to be
+   * forgotten the moment something contradicts it, or an entry that failed once
+   * during a dev-server restart is broken for the life of the tab. The server
+   * resending the module is that contradiction.
+   */
+  it("asks again after the module is re-received", async () => {
+    const { sourceStore, jsonEntries, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+    jsonEntries.failFor("/blogs.val.ts", "/a", "the network is down");
+    await sourceStore.loadEntries(mfp("/blogs.val.ts"), ["/a"]);
+    jsonEntries.clearFailures();
+
+    // HMR, a refetch, a dev server that has finished restarting.
+    await sourceStore.testReceive([jsonValuesModule()]);
+    await sourceStore.loadEntries(mfp("/blogs.val.ts"), ["/a"]);
+
+    expect(jsonEntries.requests()).toEqual([
+      requested("/blogs.val.ts", "/a"),
+      requested("/blogs.val.ts", "/a"),
+    ]);
+    const peeked = sourceStore.peek('/blogs.val.ts?p="/a"."title"');
+    expect(peeked.status).toBe("ready");
+    dispose();
+  });
+
+  /**
    * `retryEntry` stays the one door back in: it clears the failure first and
    * goes to `loadEntry` directly, so "stop asking" never becomes "never again".
    */

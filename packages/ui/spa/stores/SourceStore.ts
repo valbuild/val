@@ -617,12 +617,49 @@ export class SourceStore {
    * trusted yet. See `openquestions.md` item 9b.
    */
   markJsonEntriesStale(moduleFilePath: ModuleFilePath): void {
-    if (!this.jsonEntries.has(moduleFilePath)) return;
+    /**
+     * A recorded FAILURE is stale news too, and clearing it is the whole point.
+     *
+     * `peek` reports `entry-failed` so that readers stop asking, and nothing
+     * asks again except an explicit `retryEntry`. That is right for a failure
+     * nothing has contradicted — and it would be a permanent one if the moment
+     * the file changed on disk were not the moment to forget it. So this runs
+     * BEFORE the early return: a module whose every entry failed has nothing in
+     * `jsonEntries` at all, which is exactly the case that needs it most.
+     */
+    const clearedFailures = this.clearEntryFailures(moduleFilePath);
+    if (!this.jsonEntries.has(moduleFilePath)) {
+      if (clearedFailures) this.bump(moduleFilePath);
+      return;
+    }
     this.jsonEntries.delete(moduleFilePath);
     // The base copy too: the file on disk changed, so what the server last said
     // about it is exactly what is now stale.
     this.baseJsonEntries.delete(moduleFilePath);
     this.bump(moduleFilePath);
+  }
+
+  /**
+   * Forget what this module's entries failed with. Returns whether any did.
+   *
+   * The one thing that turns `entry-failed` back into `entry-missing`, short of
+   * someone pressing retry — so it is called from the two places that are new
+   * evidence about the content: the file changing on disk
+   * ({@link markJsonEntriesStale}) and the server resending the module
+   * ({@link receive}). Without it, "stop asking" quietly means "never again",
+   * and an entry that failed once during a dev-server restart stays broken for
+   * the life of the tab.
+   */
+  private clearEntryFailures(moduleFilePath: ModuleFilePath): boolean {
+    if (this.entryFailures.size === 0) return false;
+    const prefix = `${moduleFilePath}\0`;
+    let cleared = false;
+    for (const key of [...this.entryFailures.keys()]) {
+      if (!key.startsWith(prefix)) continue;
+      this.entryFailures.delete(key);
+      cleared = true;
+    }
+    return cleared;
   }
 
   /**
@@ -1493,6 +1530,16 @@ export class SourceStore {
       const base = deepClone(source as JSONValue);
       this.baseSources[moduleFilePath as ModuleFilePath] = base;
       this.sources[moduleFilePath as ModuleFilePath] = deepClone(base);
+      /*
+       * A recorded entry FAILURE does not survive a re-intake.
+       *
+       * `peek` reports `entry-failed` so readers stop asking, which is right
+       * for a failure nothing has contradicted — and the server resending this
+       * module contradicts it. Without this, an entry that failed once (a dev
+       * server mid-restart, a network blip) would stay failed for the life of
+       * the tab, because nothing else asks again.
+       */
+      this.clearEntryFailures(moduleFilePath as ModuleFilePath);
       // The base was replaced, so every reader of this module is holding
       // something that may no longer be right — whatever the patch chain did.
       this.bump(moduleFilePath as ModuleFilePath);
