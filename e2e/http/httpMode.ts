@@ -396,8 +396,18 @@ type StoreBag = {
         | { status: string; message: string }
       >;
     };
-    patchSync: { flush(): Promise<void> };
+    patchSync: {
+      flush(): Promise<void>;
+      currentParentRef(): {
+        type: "head" | "patch";
+        patchId?: string;
+        headBaseSha?: string;
+      } | null;
+    };
     sourceStore: { peek(path: string): unknown };
+    status: {
+      current(): { errors: readonly { message: string; details?: string }[] };
+    };
     discard(ids: string[]): Promise<{ status: string; message?: string }>;
     publish(
       patchIds: string[],
@@ -434,6 +444,80 @@ export async function writePatch(
     },
     { mfp: moduleFilePath, ops: patch },
   );
+}
+
+/**
+ * Make one edit and report the outcome instead of waiting for it to succeed.
+ *
+ * {@link writePatch} is the happy path and throws on anything else, which is
+ * right for a test whose subject is somewhere after the write. A test whose
+ * subject IS the write needs to see the failure rather than be thrown out of, so
+ * this returns the id and leaves the assertion to the caller: a patch the server
+ * refused is dropped from the store by the time `flush` resolves, so "is this id
+ * still in the chain" is the question that distinguishes saved from lost.
+ */
+export async function tryWritePatch(
+  page: Page,
+  moduleFilePath: string,
+  patch: unknown[],
+): Promise<{ patchId: string; keptLocally: boolean }> {
+  return page.evaluate(
+    async ({ mfp, ops }) => {
+      const bag = window as unknown as { __VAL_STORES__: StoreBag };
+      const system = bag.__VAL_STORES__.system;
+      const res = await system.patchStore.createPatch(mfp, ops);
+      if (!("record" in res)) {
+        throw new Error(`createPatch failed: ${JSON.stringify(res)}`);
+      }
+      const patchId = res.record.patchId;
+      await system.patchSync.flush();
+      return {
+        patchId,
+        keptLocally: system.patchStore
+          .allRecords()
+          .some((record) => record.patchId === patchId),
+      };
+    },
+    { mfp: moduleFilePath, ops: patch },
+  );
+}
+
+/**
+ * What the next write would name as its parent.
+ *
+ * The one piece of client state this suite asserts on directly, because it is
+ * the cause and everything else is the symptom: a parent naming a patch the
+ * content service no longer has is what turns the next edit into a lost one.
+ */
+export function currentParentRef(page: Page): Promise<{
+  type: "head" | "patch";
+  patchId?: string;
+  headBaseSha?: string;
+} | null> {
+  return page.evaluate(() => {
+    const bag = window as unknown as { __VAL_STORES__: StoreBag };
+    return bag.__VAL_STORES__.system.patchSync.currentParentRef();
+  });
+}
+
+/**
+ * Everything the Studio has told the editor is wrong.
+ *
+ * Read from `StatusStore` rather than off the screen. The words are the same
+ * either way — this is what the toast renders — and reading them here means a
+ * test about saving does not also depend on where the notice is drawn or how
+ * long it stays up.
+ */
+export function reportedErrors(
+  page: Page,
+): Promise<{ message: string; details?: string }[]> {
+  return page.evaluate(() => {
+    const bag = window as unknown as { __VAL_STORES__: StoreBag };
+    return bag.__VAL_STORES__.system.status.current().errors.map((error) => ({
+      message: error.message,
+      details: error.details,
+    }));
+  });
 }
 
 /** What the page currently shows at one source path. */

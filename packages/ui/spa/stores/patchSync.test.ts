@@ -1,7 +1,8 @@
 import { initVal, type PatchId } from "@valbuild/core";
-import type { Patch } from "@valbuild/core/patch";
+import type { ParentRef, Patch } from "@valbuild/core/patch";
 import { externalPatch, initTestSystem, mfp } from "./testSystem";
 import { createSystem } from "./createSystem";
+import type { SaveResult } from "./PatchSync";
 
 /**
  * `PUT /patches`: the write-back path, and whether the head model survives a
@@ -1256,6 +1257,174 @@ describe("a save that keeps failing", () => {
     expect(states).toContain("retrying");
     expect(system.patchSync.currentState().status).toBe("in-sync");
     expect(system.patchStore.pendingPatchIds()).toHaveLength(0);
+    system.dispose();
+  });
+});
+
+/**
+ * The next write after a discard.
+ *
+ * Reported from production: discard a set of changes, start a new page, and the
+ * Studio answers "An edit could not be saved and has been reverted." with
+ * `Parent patch not found` under it — every time, until the tab is reloaded.
+ * `e2e/http/discard.spec.ts` reproduces the whole thing through a browser and a
+ * content service; these two isolate the two halves of it.
+ *
+ * The chain is linear and every write names its parent, and `PatchSync` computes
+ * that parent from what the SERVER has said exists — `savedNotInStat` if it holds
+ * anything, `statPatchIds` otherwise. A discard deletes patches through the
+ * discard seam and drops them from `PatchStore`, and tells `PatchSync` nothing at
+ * all. So the parent it names next is a patch that no longer exists.
+ *
+ * That would be survivable if it were a conflict, which is retried after a
+ * re-sync. It is not: a content service answers a parent it does not hold with
+ * `Parent patch not found` and a status that is not 409, `ValOpsHttp` maps
+ * everything that is not 409 to `other`, and `PatchSync` treats that as
+ * PERMANENT — the patch is dropped and the edit is gone.
+ */
+describe("the write after a discard", () => {
+  /**
+   * A content service with the two answers that matter, told apart.
+   *
+   * A parent it does not hold is `rejected`, not `conflict`, because that is the
+   * distinction the bug turns on: modelling both as a conflict makes the client
+   * look like it recovers, which against a real service it does not.
+   */
+  function contentService() {
+    const chain: PatchId[] = [];
+    const parents: ParentRef[] = [];
+    return {
+      chain,
+      /** The parent each write named, in order. */
+      parents,
+      savePatches: async ({
+        patches,
+        parentRef,
+      }: {
+        patches: { patchId: PatchId }[];
+        parentRef: ParentRef;
+      }): Promise<SaveResult> => {
+        parents.push(parentRef);
+        if (parentRef.type === "patch" && !chain.includes(parentRef.patchId)) {
+          return { status: "rejected", message: "Parent patch not found" };
+        }
+        if (
+          parentRef.type === "patch" &&
+          parentRef.patchId !== chain[chain.length - 1]
+        ) {
+          return { status: "conflict", message: "Not the head of the chain" };
+        }
+        const newPatchIds = patches.map((entry) => entry.patchId);
+        chain.push(...newPatchIds);
+        return {
+          status: "saved",
+          newPatchIds,
+          parentRef: {
+            type: "patch",
+            patchId: newPatchIds[newPatchIds.length - 1],
+          },
+        };
+      },
+      discardPatches: async (
+        patchIds: readonly PatchId[],
+      ): Promise<{ status: "discarded"; patchIds: PatchId[] }> => {
+        const deleted: PatchId[] = [];
+        for (const patchId of patchIds) {
+          const at = chain.indexOf(patchId);
+          if (at === -1) continue;
+          chain.splice(at, 1);
+          deleted.push(patchId);
+        }
+        return { status: "discarded", patchIds: deleted };
+      },
+    };
+  }
+
+  function systemFor(service: ReturnType<typeof contentService>) {
+    let next = 0;
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+      createPatchId: () => `after-discard-${++next}` as PatchId,
+      savePatches: service.savePatches,
+      discardPatches: service.discardPatches,
+      resyncChain: async () => {
+        system.stat.receiveStat({
+          patches: [...service.chain],
+          baseSha: "sha",
+        });
+      },
+      saveBackoffMs: () => 0,
+    });
+    system.host.receive([module()]);
+    system.stat.receiveStat({ patches: [], baseSha: "sha" });
+    return system;
+  }
+
+  it("names a parent the server still has", async () => {
+    const service = contentService();
+    const system = systemFor(service);
+    await system.patchStore.createPatch(mfp("/t.val.ts"), [
+      { op: "replace", path: ["title"], value: "before the discard" },
+    ]);
+    await system.patchSync.flush();
+    const saved = service.chain[0];
+
+    await system.discard([saved]);
+
+    // The whole bug in one assertion. `head` is a correct answer here — the
+    // chain is empty — and so is any id the server still holds; only a
+    // discarded one is wrong, and it is wrong before anything is even written.
+    const parent = system.patchSync.currentParentRef();
+    if (parent?.type === "patch") {
+      expect(service.chain).toContain(parent.patchId);
+    }
+    system.dispose();
+  });
+
+  /**
+   * And a fresh `/stat` does not clear it, which is why it fails every time.
+   *
+   * The stat here is the one the WebSocket would produce the moment the discard
+   * lands, so nothing about this is a race: the server has said what it holds and
+   * the client has taken it in. `receiveStat` drops an id from `savedNotInStat`
+   * only by SEEING it listed, and a deleted patch is never listed again — so the
+   * one thing that would clear the stale parent is the one thing that cannot
+   * happen.
+   */
+  it("recovers when the server says what it has", async () => {
+    const service = contentService();
+    const system = systemFor(service);
+    await system.patchStore.createPatch(mfp("/t.val.ts"), [
+      { op: "replace", path: ["title"], value: "before the discard" },
+    ]);
+    await system.patchSync.flush();
+    const saved = service.chain[0];
+
+    await system.discard([saved]);
+    // What the socket announces when the discard lands: the chain, as it now is.
+    system.stat.receiveStat({ patches: [...service.chain], baseSha: "sha" });
+    await settle();
+
+    const record = await system.patchStore.createPatch(mfp("/t.val.ts"), [
+      { op: "replace", path: ["title"], value: "after the discard" },
+    ]);
+    await system.patchSync.flush();
+    await settle();
+
+    const patchId = "record" in record ? record.record.patchId : null;
+    // The parent first, because it is the cause and it reads as the cause: a
+    // failure here says "the write named the patch the discard deleted" rather
+    // than "an id is missing from an array". `expect` takes no message in jest,
+    // so the explaining has to be done by what is asserted.
+    expect(service.parents[service.parents.length - 1]).not.toEqual({
+      type: "patch",
+      patchId: saved,
+    });
+    expect(service.chain).toContain(patchId);
+    // Not merely unsaved: dropped, and the field with it.
+    expect(
+      system.status.current().errors.map((error) => error.message),
+    ).not.toContain("An edit could not be saved and has been reverted.");
     system.dispose();
   });
 });

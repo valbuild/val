@@ -545,6 +545,16 @@ const getApplicablePatches: Handler = (req, res, url) => {
  * single-writer, and a patch whose parent is no longer the head is a 409 the
  * client is built to recover from. Two editors racing is the case that produces
  * it, which is exactly one of the things these tests are for.
+ *
+ * A parent that DOES NOT EXIST is a different answer, and the difference is the
+ * whole of `e2e/http/discard.spec.ts`. The real content service answers a
+ * missing parent with `Parent patch not found` and a status that is not 409, and
+ * that distinction decides what the Studio does with the edit: `ValOpsHttp` maps
+ * 409 to `patch-head-conflict`, which `PatchSync` re-syncs and RETRIES, and
+ * anything else to `other`, which `ValServer` turns into a 400 `patch-error` and
+ * `PatchSync` treats as permanently rejected — the patch is dropped and the
+ * user's edit is gone. Answering both cases 409, as this used to, made the mock
+ * forgiving of exactly the bug that loses an edit after a discard.
  */
 const savePatch: Handler = async (req, res) => {
   const body = await readJsonBody<{
@@ -564,11 +574,20 @@ const savePatch: Handler = async (req, res) => {
     json(res, 200, { patchId: body.patchId });
     return;
   }
+  const parentPatchId = body.parentPatchId ?? null;
+  if (parentPatchId !== null && !state.patches.has(parentPatchId)) {
+    // Gone, not merely stale: nothing the client can re-sync to makes this id
+    // exist again. JSON with a `message`, because that is what `ValOpsHttp`
+    // reads a non-409 body as — a text body would reach the user as the status
+    // line instead of as this sentence.
+    json(res, 404, { message: "Parent patch not found" });
+    return;
+  }
   const head = headPatchId();
-  if ((body.parentPatchId ?? null) !== head) {
+  if (parentPatchId !== head) {
     res.writeHead(409, { "Content-Type": "text/plain", ...corsHeaders(res) });
     res.end(
-      `Parent patch ${body.parentPatchId ?? "<head>"} is not the head of the chain (${head ?? "<empty>"})`,
+      `Parent patch ${parentPatchId ?? "<head>"} is not the head of the chain (${head ?? "<empty>"})`,
     );
     return;
   }
