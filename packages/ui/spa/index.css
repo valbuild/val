@@ -379,6 +379,20 @@
     background-color: var(--fg-secondary-alt);
   }
 
+  /*
+   * A scroller with no bar at all.
+   *
+   * For the small floating strips that can run out of room on a phone — the
+   * canvas toolbar — where the bar would be most of the height of the thing it
+   * is scrolling and the content is obviously swipeable without it.
+   */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
   /* ProseMirror base styles (from prosemirror-view/style/prosemirror.css) */
   .ProseMirror {
     position: relative;

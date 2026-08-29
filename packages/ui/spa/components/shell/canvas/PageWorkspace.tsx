@@ -2,6 +2,7 @@ import {
   ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -19,7 +20,12 @@ import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
 import { usePickingDefault } from "./usePickingDefault";
 import { CanvasPage } from "./CanvasPage";
 import { CanvasToolbar } from "./CanvasToolbar";
-import { CanvasViewport, clampScale, fitTransform } from "./CanvasViewport";
+import {
+  CanvasPinch,
+  CanvasWindow,
+  CanvasWindowHandle,
+  ZOOM_STEP,
+} from "./CanvasWindow";
 import { FieldsPanel } from "./FieldsPanel";
 import { CanvasFields } from "./CanvasFields";
 import { CanvasRouteBar } from "./CanvasRouteBar";
@@ -31,6 +37,7 @@ import {
   CANVAS_DEVICE_WIDTHS,
   CanvasDevice,
   CanvasPageData,
+  CanvasPoint,
   CanvasTransform,
   CanvasView,
 } from "./types";
@@ -90,6 +97,26 @@ export type PageWorkspaceProps = {
      * like the canvas being stuck rather than busy.
      */
     onRefreshingChange: (isRefreshing: boolean) => void;
+    /**
+     * A two-finger gesture that landed on the page.
+     *
+     * The page is a frame and a frame keeps its own touches, so a pinch there
+     * is invisible here unless the page relays it. Without this the only zoom
+     * on a phone is the toolbar's + and -, which is not the gesture anyone
+     * reaches for. See `ValCanvasBridge`.
+     */
+    onPinch: (gesture: CanvasPinch) => void;
+    /** A ctrl/cmd + wheel zoom over the page, relayed for the same reason. */
+    onZoom: (factor: number, center: CanvasPoint) => void;
+    /**
+     * Something on the page was picked.
+     *
+     * The pick itself is the caller's to act on — it owns navigation — but the
+     * canvas has to know one happened, because selecting on the page is a
+     * request to go and edit the thing selected, and where that is is the
+     * canvas's business: the fields column, and on a phone the pane holding it.
+     */
+    onPicked: () => void;
   }) => ReactNode;
   /**
    * The content paths the running page reported finding on itself.
@@ -128,7 +155,14 @@ export type PageWorkspaceProps = {
   onViewChange: (view: CanvasView) => void;
   isDevMode?: boolean;
   /** Hand a field to the assistant, which opens the AI panel. */
-  onAttachToChat?: (fieldId: string, label: string) => void;
+  /**
+   * Mention this field in the assistant, by its val source path.
+   *
+   * The SOURCE path rather than the canvas's own field id: what reaches the
+   * assistant is a reference the model can look up, and a canvas id means
+   * nothing outside this component.
+   */
+  onAttachToChat?: (sourcePath: string) => void;
   /** Skips the entrance transition — for screenshots and for tests. */
   skipTransition?: boolean;
 };
@@ -166,6 +200,14 @@ const OPEN_MS = 320;
 const SWITCH_MS = 200;
 /** How long the panes have to be still before the switch reads them. */
 const PANE_SETTLE_MS = 140;
+/**
+ * How long a placement holds the pane where it put it.
+ *
+ * Long enough to outlast the layout changes that follow one — the column's
+ * fields arrive one at a time as their schemas resolve — and short enough that
+ * it can never be felt as the switch refusing a swipe.
+ */
+const PANE_HOLD_MS = 400;
 const OPEN_EASE = "cubic-bezier(0.4, 0, 0.2, 1)";
 
 /**
@@ -237,21 +279,52 @@ export function PageWorkspace({
       ? undefined
       : properties.map((p) => `${p} ${OPEN_MS}ms ${OPEN_EASE}`).join(", ");
 
-  const [device, setDevice] = useState<CanvasDevice>("desktop");
-  const [transform, setTransform] = useState<CanvasTransform>(
-    () => initialTransform ?? { scale: 1, x: 0, y: 0 },
+  /**
+   * Which width the page is shown at.
+   *
+   * A phone starts on the phone layout, and that is not a nicety: a 1280px page
+   * fitted into a phone-width pane lands at about 25%, which is a thumbnail
+   * rather than a preview. The layout someone on a phone almost certainly wants
+   * to look at is the one they are holding.
+   *
+   * The starting value only, so the switch stays theirs after that — including
+   * the perfectly reasonable "check the desktop layout from my phone".
+   */
+  const [device, setDevice] = useState<CanvasDevice>(
+    isPhone ? "mobile" : "desktop",
   );
+  /**
+   * How far the page is zoomed.
+   *
+   * Only the zoom: where the window is scrolled belongs to the browser now,
+   * and is read back off the element rather than mirrored here. Keeping it in
+   * state as well would mean a render of the whole workspace on every frame of
+   * a flick, to tell it something it can already see.
+   */
+  const [scale, setScale] = useState(() => initialTransform?.scale ?? 1);
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
+  const scrollRef = useRef<CanvasPoint>({
+    x: initialTransform?.x ?? 0,
+    y: initialTransform?.y ?? 0,
+  });
   // Reported on every change, including the fit: the fitted position is a
   // position, and a link copied without touching anything should restore it.
   useEffect(() => {
-    onTransformChange?.(transform);
-  }, [transform, onTransformChange]);
+    onTransformChange?.({ scale, ...scrollRef.current });
+  }, [scale, onTransformChange]);
+  const onScrollChange = useCallback(
+    (next: CanvasPoint) => {
+      scrollRef.current = next;
+      onTransformChange?.({ scale: scaleRef.current, ...next });
+    },
+    [onTransformChange],
+  );
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [attachedFieldIds, setAttachedFieldIds] = useState<string[]>([]);
   const [pane, setPane] = useState<WorkspacePane>("editor");
 
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const pageRef = useRef<HTMLDivElement>(null);
+  const canvasWindowRef = useRef<CanvasWindowHandle>(null);
   const paneScrollRef = useRef<HTMLDivElement>(null);
   const splitRef = useRef<HTMLDivElement>(null);
 
@@ -361,40 +434,17 @@ export function PageWorkspace({
 
   const pageWidth = CANVAS_DEVICE_WIDTHS[device];
 
-  const fit = useCallback(() => {
-    const viewport = viewportRef.current?.getBoundingClientRect();
-    const height = pageRef.current?.offsetHeight;
-    if (!viewport || !height) return;
-    setTransform(
-      fitTransform(
-        { width: pageWidth, height },
-        { width: viewport.width, height: viewport.height },
-      ),
-    );
-  }, [pageWidth]);
-
-  // Fitting needs the page's laid-out height, which is not known for a frame
-  // or two after mount — measuring too early fits to a page a tenth of its
-  // real size. A ResizeObserver waits for the height to actually arrive, and
-  // the flag stops it re-fitting afterwards and fighting the user's zoom.
-  // A link that names a position has already answered the question fitting
-  // exists to answer, so it is not overruled by one.
-  const [needsFit, setNeedsFit] = useState(initialTransform == null);
-  useEffect(() => {
-    if (!needsFit || !open) return;
-    const pageEl = pageRef.current;
-    const viewportEl = viewportRef.current;
-    if (!pageEl || !viewportEl) return;
-    const attempt = () => {
-      if (pageEl.offsetHeight === 0 || viewportEl.clientHeight === 0) return;
-      fit();
-    };
-    const observer = new ResizeObserver(attempt);
-    observer.observe(pageEl);
-    observer.observe(viewportEl);
-    attempt();
-    return () => observer.disconnect();
-  }, [needsFit, fit, open]);
+  /**
+   * Whether the window should keep the whole page in view.
+   *
+   * The window does the fitting — it is the only thing that knows both sizes,
+   * and the page's height is not known for a frame or two after a frame mounts
+   * — but whether a fit is still WANTED is decided here, and it stops being
+   * wanted the moment someone zooms. A link that names a position has already
+   * answered the question fitting exists to answer, so it is not overruled by
+   * one.
+   */
+  const [autoFit, setAutoFit] = useState(initialTransform == null);
 
   /**
    * Opening the canvas, and switching device, both change the box the page has
@@ -418,19 +468,35 @@ export function PageWorkspace({
       return;
     }
     lastBox.current = { device, open };
-    setNeedsFit(true);
+    setAutoFit(true);
   }, [device, open]);
 
   const reload = useCallback(() => {
     setReloadKey((key) => key + 1);
     // A reloaded page can be a different height, so the fit it had is no
     // longer the right one.
-    setNeedsFit(true);
+    setAutoFit(true);
   }, []);
 
-  const setTransformByUser = useCallback((next: CanvasTransform) => {
-    setNeedsFit(false);
-    setTransform(next);
+  /**
+   * A zoom someone asked for ends the fit.
+   *
+   * Answered once, by the window, rather than at each of the four ways of
+   * asking: the buttons and the relayed gestures come through here, but a
+   * ctrl/cmd + wheel over the canvas background never leaves the window at all.
+   * That path had no way to say so, so a zoom made that way stayed armed for a
+   * fit and was thrown away by the next resize — the split divider, the browser
+   * window, or the column's own opening animation a third of a second later.
+   */
+  const onUserZoom = useCallback(() => setAutoFit(false), []);
+  const zoomByUser = useCallback(
+    (factor: number, center: CanvasPoint | null) => {
+      canvasWindowRef.current?.zoomBy(factor, center);
+    },
+    [],
+  );
+  const onPinch = useCallback((gesture: CanvasPinch) => {
+    canvasWindowRef.current?.pinch(gesture);
   }, []);
 
   // Opening the canvas on a phone means going to it; closing means coming
@@ -444,16 +510,80 @@ export function PageWorkspace({
   // The first placement is not a move anyone made, so it lands without
   // animating; every later one glides.
   const hasPlacedPane = useRef(false);
+  /**
+   * Whether the next placement should LAND rather than glide.
+   *
+   * Set by a pick, and it is not a taste judgement — a glide does not survive
+   * one. Clicking an element inside the frame focuses the frame, and the
+   * browser then scrolls the newly focused frame back into view, which cancels
+   * a smooth scroll that is trying to take it off screen. The animation never
+   * produces a single scroll event; the switch says "Editor", the canvas stays
+   * on screen, and the pick looks like it did nothing.
+   *
+   * A landing has no such window to be cancelled in: it is applied
+   * synchronously, and the snap that follows lands on the pane it is already
+   * sitting on. Nothing is lost either — a pick is a jump to somewhere else,
+   * not a continuation of a gesture, so there is no motion to preserve.
+   */
+  const placePaneInstantly = useRef(false);
+  /**
+   * Where a placement is currently trying to get to, or `null` between them.
+   *
+   * Doubles as the flag that says one is in progress, because those are the same
+   * fact: while the panes are being MOVED, where they are is not an answer to
+   * "which pane did you choose".
+   */
+  const paneTarget = useRef<number | null>(null);
   useEffect(() => {
     if (!isPhone) return;
     const container = paneScrollRef.current;
     if (!container) return;
-    const smooth = hasPlacedPane.current && !skipTransition && !reducedMotion;
+    const instant = placePaneInstantly.current;
+    placePaneInstantly.current = false;
+    const smooth =
+      hasPlacedPane.current && !instant && !skipTransition && !reducedMotion;
     hasPlacedPane.current = true;
-    container.scrollTo({
-      left: pane === "canvas" && open ? container.clientWidth : 0,
-      behavior: smooth ? "smooth" : "auto",
-    });
+    const left = pane === "canvas" && open ? container.clientWidth : 0;
+    paneTarget.current = left;
+    container.scrollTo({ left, behavior: smooth ? "smooth" : "auto" });
+    if (smooth) {
+      // An animation is allowed to be somewhere other than its target; it just
+      // must not be READ while it is. See `paneTarget`.
+      const release = setTimeout(() => {
+        paneTarget.current = null;
+      }, PANE_HOLD_MS);
+      return () => clearTimeout(release);
+    }
+    /*
+     * Hold it there.
+     *
+     * A placement is not finished when it is applied. This is a snap container
+     * whose panes change contents as it moves — the fields column fills in as
+     * each schema resolves — and a snap container re-snaps to the area it last
+     * considered current whenever its contents change. So the pane lands, the
+     * layout settles, and it is quietly pulled back to where it came from; the
+     * switch then reads that position, agrees with it, and scrolls the rest of
+     * the way. Two `scrollTo`s later you are exactly where you started, and a
+     * pick looks like it did nothing.
+     *
+     * Re-asserting for a few frames outlasts that without having to know which
+     * layout change caused it, which has proved to be more than one thing.
+     */
+    let frame = 0;
+    const until = Date.now() + PANE_HOLD_MS;
+    const hold = () => {
+      if (container.scrollLeft !== left) container.scrollLeft = left;
+      if (Date.now() < until) {
+        frame = requestAnimationFrame(hold);
+      } else {
+        paneTarget.current = null;
+      }
+    };
+    frame = requestAnimationFrame(hold);
+    return () => {
+      cancelAnimationFrame(frame);
+      paneTarget.current = null;
+    };
   }, [pane, open, isPhone, skipTransition, reducedMotion]);
 
   /**
@@ -468,6 +598,11 @@ export function PageWorkspace({
    */
   const paneSettle = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onPaneScroll = useCallback(() => {
+    // A placement in progress is not a position anyone chose, and reading it as
+    // one is how a pick ends up back on the canvas: the container bounces off
+    // the target for a frame, the switch believes the bounce, and then moves the
+    // pane to match what it believed. See `paneTarget`.
+    if (paneTarget.current !== null) return;
     if (paneSettle.current !== null) clearTimeout(paneSettle.current);
     paneSettle.current = setTimeout(() => {
       paneSettle.current = null;
@@ -491,13 +626,48 @@ export function PageWorkspace({
         current.includes(fieldId) ? current : [...current, fieldId],
       );
       const field = page?.fields[fieldId];
-      if (field) onAttachToChat?.(field.id, field.label);
+      if (field) onAttachToChat?.(field.sourcePath);
     },
     [page, onAttachToChat],
   );
 
   /** See {@link usePickingDefault} — the view sets the default, the button disagrees. */
   const [isPicking, setIsPicking] = usePickingDefault(view);
+
+  /**
+   * Selecting something on the page takes you to it.
+   *
+   * Picking is not an end in itself: nobody outlines a headline to admire the
+   * outline. The point of pointing at a thing is to change it, so a pick puts
+   * the thing's field in front of you — the fields column, which is where the
+   * page's own content lives, and which scrolls itself to the picked field
+   * because it is told which one is selected.
+   *
+   * On a phone that also means changing pane. The fields column is in the
+   * editor pane and the page is in the canvas pane, so a pick that only
+   * switched the view left you looking at the page you had just selected on,
+   * with the answer on a screen you had to know to swipe to.
+   *
+   * The caller acts on the pick itself — it owns navigation — and this is only
+   * the part that is the canvas's: where to look now.
+   */
+  const onPicked = useCallback(() => {
+    if (!isPicking) return;
+    onViewChange("fields");
+    if (!isPhone || pane === "editor") return;
+    /*
+     * See `placePaneInstantly`: a glide here is cancelled by the focus the
+     * click just gave the frame.
+     *
+     * Only when the pane is actually MOVING. `setPane` to the pane you are
+     * already on is not a state change, so the effect that consumes this flag
+     * never runs — and the flag would sit there until the next pane change,
+     * whoever made it, and turn that one into a jump with 400ms of held
+     * position. A swipe answered that way feels like the switch fighting back.
+     */
+    placePaneInstantly.current = true;
+    setPane("editor");
+  }, [isPicking, onViewChange, isPhone, pane]);
 
   /**
    * Whether the page is re-rendering because of an edit.
@@ -545,6 +715,7 @@ export function PageWorkspace({
         onChange={onViewChange}
         fieldCount={fieldCount}
         animate={!reducedMotion}
+        compact={isPhone}
       />
     ) : null;
 
@@ -677,19 +848,20 @@ export function PageWorkspace({
       )}
     >
       {routeBar}
-      <CanvasViewport
-        ref={viewportRef}
+      <CanvasWindow
+        ref={canvasWindowRef}
         pageWidth={pageWidth}
-        transform={transform}
-        onTransformChange={setTransformByUser}
-        horizontalWheelPans={!isPhone}
+        scale={scale}
+        onScaleChange={setScale}
+        autoFit={autoFit}
+        onUserZoom={onUserZoom}
+        initialScroll={
+          initialTransform && { x: initialTransform.x, y: initialTransform.y }
+        }
+        onScrollChange={onScrollChange}
         className="h-full"
       >
-        <div
-          ref={pageRef}
-          className="shadow-2xl"
-          onClick={() => setSelectedFieldId(null)}
-        >
+        <div className="shadow-2xl" onClick={() => setSelectedFieldId(null)}>
           {renderCanvas?.({
             device,
             width: pageWidth,
@@ -698,6 +870,9 @@ export function PageWorkspace({
             isPicking,
             onRequestReload: reload,
             onRefreshingChange: setIsRefreshing,
+            onPinch,
+            onZoom: (factor, center) => zoomByUser(factor, center),
+            onPicked,
           }) ??
             (page && (
               <CanvasPage
@@ -706,13 +881,18 @@ export function PageWorkspace({
                 selectedFieldId={isPicking ? selectedFieldId : null}
                 attachedFieldIds={isPicking ? attachedFieldIds : []}
                 onSelectField={(fieldId) => {
-                  if (isPicking) setSelectedFieldId(fieldId);
+                  if (!isPicking) return;
+                  setSelectedFieldId(fieldId);
+                  // The demo page's version of what a pick does on a real one:
+                  // go to the field. Kept in step deliberately, since this is
+                  // the copy the design is reviewed against.
+                  onPicked();
                 }}
                 isSelectMode={isPicking}
               />
             ))}
         </div>
-      </CanvasViewport>
+      </CanvasWindow>
 
       {/*
        * Leaving the canvas, said as well as drawn.
@@ -744,16 +924,10 @@ export function PageWorkspace({
         className="absolute bottom-3 left-1/2 -translate-x-1/2"
         device={device}
         onDeviceChange={setDevice}
-        scale={transform.scale}
-        onZoomIn={() => {
-          setNeedsFit(false);
-          setTransform((t) => ({ ...t, scale: clampScale(t.scale * 1.2) }));
-        }}
-        onZoomOut={() => {
-          setNeedsFit(false);
-          setTransform((t) => ({ ...t, scale: clampScale(t.scale / 1.2) }));
-        }}
-        onFit={() => setNeedsFit(true)}
+        scale={scale}
+        onZoomIn={() => zoomByUser(ZOOM_STEP, null)}
+        onZoomOut={() => zoomByUser(1 / ZOOM_STEP, null)}
+        onFit={() => setAutoFit(true)}
         // Only where there is something to select. The demo page reports no
         // paths, so a click on it has nothing to open.
         isPicking={isPicking}
@@ -935,6 +1109,9 @@ function SplitDivider({
 /** Which half of the workspace a phone is showing. */
 export type WorkspacePane = "editor" | "canvas";
 
+/** Where the thumb sits, in pixels from the inside of the control's border. */
+type SegmentedThumb = { left: number; width: number };
+
 /**
  * A two-state switch whose selected state travels between the options.
  *
@@ -942,8 +1119,17 @@ export type WorkspacePane = "editor" | "canvas";
  * pane switch and the swipe do the same thing — and a control that slides
  * says that, where one that blinks between two colours does not.
  *
- * Options are laid out in equal columns (`auto-cols-fr`) so the thumb can be
- * one column wide and travel by exactly one column, whatever the labels say.
+ * Each option is as wide as what is written on it, so every label gets the
+ * SAME padding either side of it. Equal columns (`auto-cols-fr`) did not: the
+ * widest option decides the column, so it ends up flush against its own
+ * padding while every shorter one is centred in the slack left over. On the
+ * canvas switch that is "Fields 18" against "Normal" — the count made the
+ * fields option the wide one, so the selected pill looked tight around
+ * "Fields 18" and roomy around "Normal", from the same `px-4`.
+ *
+ * The price is that the thumb can no longer be "one column, moved by one
+ * column": it is measured off the selected button instead, which is what
+ * {@link SegmentedThumb} holds.
  */
 function SegmentedControl<T extends string>({
   label,
@@ -951,6 +1137,7 @@ function SegmentedControl<T extends string>({
   onChange,
   options,
   animate,
+  compact,
 }: {
   label: string;
   value: T;
@@ -963,28 +1150,99 @@ function SegmentedControl<T extends string>({
     badge?: number;
   }>;
   animate: boolean;
+  /**
+   * The tighter padding, for where the room is not there.
+   *
+   * The phone strip carries BOTH switches on one line that does not wrap, in
+   * `viewport - 24`; at the roomier padding that line runs off a 390px screen
+   * and takes the pane switch — the only visible way to the canvas — with it.
+   * Every option still gets the same padding as every other, which is what
+   * this control is for; there is just less of it.
+   */
+  compact?: boolean;
 }) {
   const index = Math.max(
     0,
     options.findIndex((option) => option.value === value),
   );
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const [thumb, setThumb] = useState<SegmentedThumb | null>(null);
+
+  /*
+   * Measured, and re-measured whenever a label's width can have changed.
+   *
+   * A layout effect rather than an effect: the first measurement has to land
+   * before the browser paints, or the thumb is drawn at zero width and then
+   * springs open. The observer covers the rest — a webfont arriving, the badge
+   * going from 9 to 10, the control being laid out in a narrower column.
+   */
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (list === null) {
+      return;
+    }
+    const measure = () => {
+      const buttons = list.querySelectorAll("button");
+      const selected = buttons[index];
+      if (selected === undefined) {
+        return;
+      }
+      // Against the padding box, which is what `absolute; left: 0` is measured
+      // from — `clientLeft` takes the border back off.
+      const left =
+        selected.getBoundingClientRect().left -
+        list.getBoundingClientRect().left -
+        list.clientLeft;
+      const width = selected.getBoundingClientRect().width;
+      setThumb((current) =>
+        current !== null && current.left === left && current.width === width
+          ? current
+          : { left, width },
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    list
+      .querySelectorAll("button")
+      .forEach((button) => observer.observe(button));
+    return () => observer.disconnect();
+    // `options.length` rather than `options`: the array is a literal at every
+    // call site, so depending on it would tear down and re-observe on every
+    // render. What the effect reads off it is how many buttons there are; a
+    // label or badge that changes width is what the observer is for.
+  }, [index, options.length]);
+
   return (
     <div
+      ref={listRef}
       role="tablist"
       aria-label={label}
-      className="relative inline-grid auto-cols-fr grid-flow-col rounded-md border border-border-float bg-bg-float p-0.5"
+      className="relative inline-flex rounded-md border border-border-float bg-bg-float p-0.5"
     >
-      <span
-        aria-hidden
-        style={{
-          width: `calc((100% - 4px) / ${options.length})`,
-          transform: `translateX(${index * 100}%)`,
-          transition: animate
-            ? `transform ${SWITCH_MS}ms ${OPEN_EASE}`
-            : undefined,
-        }}
-        className="absolute inset-y-0.5 left-0.5 rounded bg-bg-float-raised shadow-sm"
-      />
+      {/*
+       * Only once there is a measurement to draw it at.
+       *
+       * Not `width: 0` until then: a transition runs off the style the element
+       * was last painted with, and measuring forces a style recalculation — so
+       * a thumb that exists at zero width has a zero width to animate FROM,
+       * and every mount of the control played the pill growing out of nothing.
+       * A node that was not there has no previous style, so its first paint is
+       * simply where it belongs.
+       */}
+      {thumb !== null && (
+        <span
+          aria-hidden
+          style={{
+            width: thumb.width,
+            transform: `translateX(${thumb.left}px)`,
+            transition: animate
+              ? `transform ${SWITCH_MS}ms ${OPEN_EASE}, width ${SWITCH_MS}ms ${OPEN_EASE}`
+              : undefined,
+          }}
+          className="absolute inset-y-0.5 left-0 rounded bg-bg-float-raised shadow-sm"
+        />
+      )}
       {options.map((option) => (
         <button
           key={option.value}
@@ -994,7 +1252,8 @@ function SegmentedControl<T extends string>({
           onClick={() => onChange(option.value)}
           className={cn(
             // Above the thumb, which is painted behind the whole row.
-            "relative inline-flex h-7 items-center justify-center gap-1.5 rounded px-2.5 text-[0.6875rem] transition-colors",
+            "relative inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded text-[0.6875rem] transition-colors",
+            compact ? "px-2.5" : "px-4",
             value === option.value
               ? "font-medium text-fg-primary"
               : "text-fg-secondary hover:text-fg-primary",
@@ -1034,6 +1293,8 @@ function PaneToggle({
       value={pane}
       onChange={onChange}
       animate={animate}
+      // Only ever on the phone strip, which is where the room runs out.
+      compact
       options={[
         { value: "editor", label: "Editor", icon: PanelLeft },
         { value: "canvas", label: "Canvas", icon: Layers },
@@ -1053,12 +1314,15 @@ function ViewToggle({
   onChange,
   fieldCount,
   animate,
+  compact,
 }: {
   view: CanvasView;
   onChange: (view: CanvasView) => void;
   /** How many fields the page reported. Shown on the Fields tab. */
   fieldCount?: number;
   animate: boolean;
+  /** See `SegmentedControl`: on the phone it shares its line with the panes. */
+  compact?: boolean;
 }) {
   return (
     <SegmentedControl
@@ -1066,6 +1330,7 @@ function ViewToggle({
       value={view}
       onChange={onChange}
       animate={animate}
+      compact={compact}
       options={[
         {
           value: "normal",

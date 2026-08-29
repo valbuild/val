@@ -9,6 +9,8 @@ import {
 } from "@valbuild/shared/internal";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { cn } from "../../designSystem/cn";
+import { CanvasPinch } from "./CanvasWindow";
+import { CanvasPoint } from "./types";
 import {
   useValPendingSourceSnapshot,
   useValSourceUpdates,
@@ -52,6 +54,16 @@ export type CanvasFrameProps = {
   onElements?: (elements: ValCanvasElement[]) => void;
   /** Something on the page was picked. */
   onPick?: (paths: SourcePath[]) => void;
+  /**
+   * A two-finger gesture on the page.
+   *
+   * Relayed rather than observed: a frame keeps its own touches, so nothing the
+   * studio listens for ever sees a finger that landed here. See
+   * `ValCanvasBridge` and the `pinch` message in `valCanvasProtocol`.
+   */
+  onPinch?: (gesture: CanvasPinch) => void;
+  /** A ctrl/cmd + wheel zoom over the page, relayed for the same reason. */
+  onZoom?: (factor: number, center: CanvasPoint) => void;
   /** Ask for the page again — used when enabling preview needs a reload. */
   onRequestReload: () => void;
   /** Whether the page says it is re-rendering. See `ValCanvasBridge`. */
@@ -83,6 +95,8 @@ export function CanvasFrame({
   highlightedPath,
   onElements,
   onPick,
+  onPinch,
+  onZoom,
   onRequestReload,
   onRefreshingChange,
 }: CanvasFrameProps) {
@@ -149,13 +163,21 @@ export function CanvasFrame({
         onElements?.(message.elements);
       } else if (message.type === "refreshing") {
         onRefreshingChange?.(message.pending);
+      } else if (message.type === "pinch") {
+        onPinch?.({
+          phase: message.phase,
+          span: message.span,
+          center: message.center,
+        });
+      } else if (message.type === "zoom") {
+        onZoom?.(message.factor, message.center);
       } else {
         onPick?.(message.paths);
       }
     };
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
-  }, [onElements, onPick, onRefreshingChange]);
+  }, [onElements, onPick, onPinch, onZoom, onRefreshingChange]);
 
   // Picking and highlighting are pushed rather than set on the frame: they are
   // properties of the page's behaviour, and only the page can apply them.

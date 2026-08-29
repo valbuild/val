@@ -41,19 +41,9 @@ import { ScopeTrail } from "./ModuleScope";
 export function Module({
   path,
   showModuleGalleryChild,
-  hideHeader,
 }: {
   path: SourcePath;
   showModuleGalleryChild: SourcePath | null;
-  /**
-   * Drop the breadcrumb and the title.
-   *
-   * For the canvas, where the page itself is on screen beside the fields: the
-   * breadcrumb repeats what the address bar says, and its title repeats the
-   * page's own heading. The record tools stay — they are the only way to add an
-   * item, and they navigate nowhere.
-   */
-  hideHeader?: boolean;
 }) {
   const schemaAtPath = useSchemaAtPath(path);
   const { path: maybeParentPath, schema: parentSchema } = useParent(path);
@@ -177,44 +167,42 @@ export function Module({
            * of the column on the part that does not change.
            */}
           <div className="flex gap-4 justify-between items-start min-h-6">
-            {!hideHeader && (
-              /*
-               * The title and its description, in ONE column.
-               *
-               * The description was a sibling of this whole row, so its top
-               * margin was measured from the row's bottom — and the row is as
-               * tall as the tools on its right, not as tall as the title. That
-               * put a fixed 12px between title and description no matter what
-               * was asked for, the same 12px that then separated it from the
-               * scope: three evenly spaced lines, with nothing saying which one
-               * the description belonged to. Inside the column it sits against
-               * the title, and the tools cannot push it around.
-               */
-              <div className="min-w-0 flex-1">
-                {/*
-                 * A heading, in the role sense: the editor column had none, so
-                 * nothing announced what was being edited and nothing could jump
-                 * to it. Not an `<h1>` element, because the title of a router
-                 * page is a breadcrumb — and a `<nav>` inside a heading element
-                 * is not valid HTML.
-                 */}
-                <div
-                  role="heading"
-                  aria-level={1}
-                  className="text-2xl leading-tight"
-                >
-                  {titleNode}
-                </div>
-                {keyDescription && (
-                  <div className="mt-1 text-sm text-fg-tertiary">
-                    {keyDescription}
-                  </div>
-                )}
+            {/*
+             * The title and its description, in ONE column.
+             *
+             * The description was a sibling of this whole row, so its top
+             * margin was measured from the row's bottom — and the row is as
+             * tall as the tools on its right, not as tall as the title. That
+             * put a fixed 12px between title and description no matter what
+             * was asked for, the same 12px that then separated it from the
+             * scope: three evenly spaced lines, with nothing saying which one
+             * the description belonged to. Inside the column it sits against
+             * the title, and the tools cannot push it around.
+             */}
+            <div className="min-w-0 flex-1">
+              {/*
+               * A heading, in the role sense: the editor column had none, so
+               * nothing announced what was being edited and nothing could jump
+               * to it. Not an `<h1>` element, because the title of a router
+               * page is a breadcrumb — and a `<nav>` inside a heading element
+               * is not valid HTML.
+               */}
+              <div
+                role="heading"
+                aria-level={1}
+                className="text-2xl leading-tight"
+              >
+                {titleNode}
               </div>
-            )}
+              {keyDescription && (
+                <div className="mt-1 text-sm text-fg-tertiary">
+                  {keyDescription}
+                </div>
+              )}
+            </div>
             {tools}
           </div>
-          {!hideHeader && init.length > 0 && (
+          {init.length > 0 && (
             <ScopeTrail
               parts={init}
               portalContainer={portalContainer}
