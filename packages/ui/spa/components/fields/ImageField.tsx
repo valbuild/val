@@ -4,12 +4,10 @@ import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
 import { FieldSourceError } from "../../components/FieldSourceError";
 import {
-  useSchemaAtPath,
   useShallowSourceAtPath,
-  useAddPatch,
-  useFieldCreatorId,
+  useValField,
   useValConfig,
-  useSchemas,
+  useModuleSchema,
   useFilePatchIds,
 } from "../ValFieldProvider";
 import {
@@ -45,13 +43,17 @@ export function ImageField({
   hideUpload?: boolean;
 }) {
   const type = "image";
-  const creatorId = useFieldCreatorId();
   const config = useValConfig();
   const remoteFiles = useRemoteFiles();
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
-  const schemas = useSchemas();
-  const schemaAtPath = useSchemaAtPath(path);
-  const sourceAtPath = useShallowSourceAtPath(path, type, creatorId);
+  const {
+    source: sourceAtPath,
+    schema: schemaAtPath,
+    addPatch,
+    patchPath,
+    addAndUploadPatchWithFileOps,
+    addModuleFilePatch,
+  } = useValField(path, type);
   const [hotspot, setHotspot] = useState<{ y: number; x: number } | undefined>(
     undefined,
   );
@@ -70,12 +72,6 @@ export function ImageField({
    * field mounts with no value — which is every empty image field.
    */
   const [previewOpen, setPreviewOpen] = useState(false);
-  const {
-    addPatch,
-    patchPath,
-    addAndUploadPatchWithFileOps,
-    addModuleFilePatch,
-  } = useAddPatch(path, creatorId);
   const portalContainer = useValPortal();
   /**
    * The hidden file input, clicked by name.
@@ -134,8 +130,18 @@ export function ImageField({
       ? schemaAtPath.data
       : undefined;
   const referencedModule = imageSchema?.referencedModule;
+  /**
+   * The referenced GALLERY's schema, not the project's.
+   *
+   * `useSchemas()` answers the same question and wakes on every schema change
+   * anywhere; this component is mounted once per media field. See
+   * `perFieldSubscriptions.test.ts`.
+   */
+  const referencedModuleSchema = useModuleSchema(
+    referencedModule as ModuleFilePath | undefined,
+  );
   const acceptOptions = useMemo(() => {
-    if (!imageSchema || schemas.status !== "success") {
+    if (!imageSchema) {
       return undefined;
     }
     if (imageSchema.options?.accept) {
@@ -144,12 +150,14 @@ export function ImageField({
     if (!referencedModule) {
       return undefined;
     }
-    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
-    if (moduleSchema?.type === "record" && moduleSchema.accept) {
-      return moduleSchema.accept;
+    if (
+      referencedModuleSchema?.type === "record" &&
+      referencedModuleSchema.accept
+    ) {
+      return referencedModuleSchema.accept;
     }
     return undefined;
-  }, [imageSchema, referencedModule, schemas]);
+  }, [imageSchema, referencedModule, referencedModuleSchema]);
   /**
    * Where an upload from this field is stored.
    *
@@ -163,10 +171,10 @@ export function ImageField({
     if (imageSchema?.options?.directory) {
       return imageSchema.options.directory;
     }
-    if (!referencedModule || schemas.status !== "success") return undefined;
-    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
-    return moduleSchema?.type === "record" ? moduleSchema.directory : undefined;
-  }, [imageSchema, referencedModule, schemas]);
+    return referencedModuleSchema?.type === "record"
+      ? referencedModuleSchema.directory
+      : undefined;
+  }, [imageSchema, referencedModuleSchema]);
   const existingAlt =
     maybeSourceData && typeof maybeSourceData.alt === "string"
       ? maybeSourceData.alt
@@ -237,10 +245,8 @@ export function ImageField({
     schemaAtPath.data.remote &&
     remoteFiles.status !== "ready";
   const missingModules =
-    referencedModule && schemas.status === "success"
-      ? schemas.data[referencedModule as ModuleFilePath]
-        ? []
-        : [referencedModule]
+    referencedModule && referencedModuleSchema === undefined
+      ? [referencedModule]
       : [];
   const disabled =
     readonly || remoteFileUploadDisabled || missingModules.length > 0;

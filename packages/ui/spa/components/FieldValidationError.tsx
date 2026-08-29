@@ -7,7 +7,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "./designSystem/tooltip";
-import { useGetNavPath, useLoadingStatus } from "./ValFieldProvider";
+import { useGetNavPath, useIsInitialized } from "./ValFieldProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useNavigation } from "./ValRouter";
 
@@ -36,8 +36,14 @@ export function FieldValidationErrorCompact({ path }: { path: SourcePath }) {
   const { navigate } = useNavigation();
   const getNavPath = useGetNavPath();
   const validationErrors = useAllValidationErrors();
-  const loadingStatus = useLoadingStatus();
-  const isLoading = loadingStatus === "loading";
+  /**
+   * The spinner means "the project has not been taken in yet", which is what
+   * this badge can honestly say. `useLoadingStatus()` also carries the write
+   * queue, so every compact row's icon flipped between a spinner and a warning
+   * triangle on every save round trip — a flicker with no information in it,
+   * on a component that is mounted once per row.
+   */
+  const isLoading = !useIsInitialized();
   const messages: string[] = [];
   if (validationErrors) {
     for (const errorPath in validationErrors) {

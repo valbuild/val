@@ -384,6 +384,109 @@ describe("the base value inside a `.jsonValues()` entry", () => {
   });
 });
 
+/** The key `TestJsonEntries.requests()` records one fetch under. */
+const requested = (moduleFilePath: string, key: string) =>
+  `${moduleFilePath}\u0000${key}`;
+
+describe("prefetching `.jsonValues()` entries in bulk", () => {
+  /**
+   * SPEC: `loadEntries` does not re-ask for an entry whose fetch FAILED.
+   *
+   * The same rule `peek` draws between `entry-missing` ("ask for it") and
+   * `entry-failed` ("stop asking and say so") — which this path did not observe,
+   * because a failure is recorded in `entryFailures` and never in `jsonEntries`,
+   * so the `has(key)` test called it wanted forever.
+   *
+   * That made it a fetch storm rather than one wasted call: `ValOverlayEmitter`
+   * re-derives the entries a module's patches touch and calls this on every
+   * `source:change` burst, so one entry the server cannot resolve produced a
+   * `GET /json` every 200ms for as long as the tab was open.
+   */
+  it("asks once for an entry that fails, however many times it is prefetched", async () => {
+    const { sourceStore, jsonEntries, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+    jsonEntries.failFor("/blogs.val.ts", "/a", "the network is down");
+
+    await sourceStore.loadEntries(mfp("/blogs.val.ts"), ["/a"]);
+    await sourceStore.loadEntries(mfp("/blogs.val.ts"), ["/a"]);
+    await sourceStore.loadEntries(mfp("/blogs.val.ts"), ["/a"]);
+
+    expect(jsonEntries.requests()).toEqual([requested("/blogs.val.ts", "/a")]);
+    dispose();
+  });
+
+  /**
+   * And the entries that DID work are still served, so one bad key cannot take
+   * a window of rows down with it.
+   */
+  it("still loads the healthy entries in the same window", async () => {
+    const { sourceStore, jsonEntries, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+    jsonEntries.failFor("/blogs.val.ts", "/a", "the network is down");
+
+    await sourceStore.loadEntries(mfp("/blogs.val.ts"), ["/a", "/b"]);
+    await sourceStore.loadEntries(mfp("/blogs.val.ts"), ["/a", "/b"]);
+
+    expect(jsonEntries.requests()).toEqual([
+      requested("/blogs.val.ts", "/a"),
+      requested("/blogs.val.ts", "/b"),
+    ]);
+    const peeked = sourceStore.peek('/blogs.val.ts?p="/b"."title"');
+    expect(peeked.status).toBe("ready");
+    expect(peeked.status === "ready" && peeked.data).toBe("Beta");
+    dispose();
+  });
+
+  /**
+   * SPEC: "stop asking" must not mean "never again".
+   *
+   * Nothing re-asks for a failed entry, deliberately — so the failure has to be
+   * forgotten the moment something contradicts it, or an entry that failed once
+   * during a dev-server restart is broken for the life of the tab. The server
+   * resending the module is that contradiction.
+   */
+  it("asks again after the module is re-received", async () => {
+    const { sourceStore, jsonEntries, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+    jsonEntries.failFor("/blogs.val.ts", "/a", "the network is down");
+    await sourceStore.loadEntries(mfp("/blogs.val.ts"), ["/a"]);
+    jsonEntries.clearFailures();
+
+    // HMR, a refetch, a dev server that has finished restarting.
+    await sourceStore.testReceive([jsonValuesModule()]);
+    await sourceStore.loadEntries(mfp("/blogs.val.ts"), ["/a"]);
+
+    expect(jsonEntries.requests()).toEqual([
+      requested("/blogs.val.ts", "/a"),
+      requested("/blogs.val.ts", "/a"),
+    ]);
+    const peeked = sourceStore.peek('/blogs.val.ts?p="/a"."title"');
+    expect(peeked.status).toBe("ready");
+    dispose();
+  });
+
+  /**
+   * `retryEntry` stays the one door back in: it clears the failure first and
+   * goes to `loadEntry` directly, so "stop asking" never becomes "never again".
+   */
+  it("fetches again when someone explicitly retries", async () => {
+    const { sourceStore, jsonEntries, dispose } = initTestSystem();
+    await sourceStore.testReceive([jsonValuesModule()]);
+    jsonEntries.failFor("/blogs.val.ts", "/a", "the network is down");
+    await sourceStore.loadEntries(mfp("/blogs.val.ts"), ["/a"]);
+    jsonEntries.clearFailures();
+
+    const retried = await sourceStore.retryEntry(mfp("/blogs.val.ts"), "/a");
+
+    expect(retried).toEqual({ status: "ok" });
+    expect(jsonEntries.requests()).toEqual([
+      requested("/blogs.val.ts", "/a"),
+      requested("/blogs.val.ts", "/a"),
+    ]);
+    dispose();
+  });
+});
+
 describe("peeking a `.jsonValues()` record", () => {
   /**
    * The module root must peek to the SAME OBJECT once an entry is loaded.

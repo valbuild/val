@@ -30,6 +30,18 @@ jest.mock("../ValFieldProvider", () => ({
   useSchemaAtPath: () => mockSchema(),
   useShallowSourceAtPath: () => mockSource(),
   useAddPatch: () => ({ patchPath: [], addPatch: jest.fn() }),
+  // The seam the field actually reads through. Composed from the two mocks
+  // above rather than stubbed separately, so what this file controls — the
+  // schema and the source — is unchanged by where the field gets them from.
+  useValField: () => ({
+    schema: mockSchema(),
+    source: mockSource(),
+    hasUnsavedOwnEdit: false,
+    patchPath: [],
+    addPatch: jest.fn(),
+    addAndUploadPatchWithFileOps: jest.fn(),
+    addModuleFilePatch: jest.fn(),
+  }),
 }));
 
 // `Preview` is the generic field dispatcher, so importing it drags in the whole

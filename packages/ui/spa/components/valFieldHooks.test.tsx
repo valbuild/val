@@ -22,6 +22,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useSourceAtPath,
+  useValField,
 } from "./ValFieldProvider";
 import { useValidationErrors } from "./ValErrorProvider";
 import { ImageField } from "./fields/ImageField";
@@ -365,6 +366,142 @@ describe("per-instance suppression", () => {
     });
 
     expect(renders.current).toBe(before + 1);
+    system.dispose();
+  });
+});
+
+/**
+ * The same field, assembled by `useValField` instead of by hand.
+ *
+ * There is no `readerId` here and there cannot be: the id never leaves the
+ * hook. That is the whole point of the seam — the trap above is not something a
+ * caller has to remember to avoid, it is something a caller cannot express.
+ */
+function SeamedField({
+  renders,
+  onReady,
+}: {
+  renders?: { current: number };
+  onReady: (write: (value: string) => Promise<unknown>) => void;
+}) {
+  if (renders) renders.current++;
+  const { source, patchPath, addPatch } = useValField(
+    '/page.val.ts?p="title"' as SourcePath,
+    "string",
+  );
+  const held = useRef(addPatch);
+  held.current = addPatch;
+  onReady(async (value: string) => {
+    held.current([{ op: "replace", path: patchPath, value }], "string");
+    await Promise.resolve();
+  });
+  return (
+    <span data-testid="seamed">
+      {source.status === "success" ? String(source.data) : source.status}
+    </span>
+  );
+}
+
+describe("useValField", () => {
+  /**
+   * The claim `TypingField` above could not make.
+   *
+   * `TypingField` reads source and writes, and nothing else — so it never
+   * exercised the case every real field is in: an editable field also resolves
+   * its SCHEMA at the same path, and `useSchemaAtPath` registers a source
+   * listener of its own to do it. Under an id of its own that is a second
+   * instance as far as suppression is concerned, so the field was woken by its
+   * own keystroke through the schema hook while the source hook correctly said
+   * nothing.
+   *
+   * `useValField` hands one id to both, which is the only reason this passes.
+   */
+  it("reads and writes under one identity, so its own edit leaves it asleep", async () => {
+    const system = makeSystem();
+    system.host.receive(project());
+    const renders = { current: 0 };
+    let write: ((value: string) => Promise<unknown>) | null = null;
+
+    render(
+      <Harness system={system}>
+        <SeamedField
+          renders={renders}
+          onReady={(fn) => {
+            write = fn;
+          }}
+        />
+      </Harness>,
+    );
+    const before = renders.current;
+
+    await act(async () => {
+      await write?.("typed");
+    });
+
+    expect(renders.current).toBe(before);
+    system.dispose();
+  });
+
+  it("still wakes another instance on the same path", async () => {
+    const system = makeSystem();
+    system.host.receive(project());
+    const overlay = { current: 0 };
+    let write: ((value: string) => Promise<unknown>) | null = null;
+
+    render(
+      <Harness system={system}>
+        <SeamedField
+          onReady={(fn) => {
+            write = fn;
+          }}
+        />
+        <Field path='/page.val.ts?p="title"' renders={overlay} />
+      </Harness>,
+    );
+    const before = overlay.current;
+
+    await act(async () => {
+      await write?.("typed");
+    });
+
+    expect(overlay.current).toBe(before + 1);
+    expect(screen.getByTestId('/page.val.ts?p="title"').textContent).toBe(
+      "typed",
+    );
+    system.dispose();
+  });
+
+  /**
+   * `watchUnsaved` is off by default, and the default is the load-bearing one:
+   * a field that is woken when its own edit saves is a text input that loses
+   * its caret mid-word.
+   */
+  it("does not wake on its own save unless asked to watch", async () => {
+    const system = makeSystem();
+    system.host.receive(project());
+    const renders = { current: 0 };
+    let write: ((value: string) => Promise<unknown>) | null = null;
+
+    render(
+      <Harness system={system}>
+        <SeamedField
+          renders={renders}
+          onReady={(fn) => {
+            write = fn;
+          }}
+        />
+      </Harness>,
+    );
+    await act(async () => {
+      await write?.("typed");
+    });
+    const before = renders.current;
+
+    await act(async () => {
+      system.patchStore.markSaved(system.patchStore.pendingPatchIds());
+    });
+
+    expect(renders.current).toBe(before);
     system.dispose();
   });
 });

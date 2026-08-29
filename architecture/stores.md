@@ -51,6 +51,16 @@ per field _instance_, because one path can be rendered twice (studio field and
 inline overlay). A controlled input re-rendered by its own keystroke loses the
 caret.
 
+An editable field gets its identity from **`useValField`**, which mints the id
+and never hands it out. That is not sugar: a field registers more than one
+source listener — resolving its schema needs source too — and every one of them
+has to carry the same id or the field is a second instance to itself.
+
+> The other half of this rule lives one layer up, and it is easy to undo:
+> nothing mounted per field may subscribe to a whole-project hook.
+> `perFieldSubscriptions.test.ts` is the guard, and it covers every file under
+> `components/fields/` plus the per-field components outside it.
+
 Corollary worth knowing: **suppression means a field does not see its own edit
 land.** Anything read on a render path that moves with the _patch chain_ rather
 than with source — "do I have an unsaved edit" — must therefore be read fresh on
@@ -77,6 +87,7 @@ never produce a value, and leaving it blocks every later save to its module.
 | you want                                   | look at                                           |
 | ------------------------------------------ | ------------------------------------------------- |
 | the read hooks a field uses                | `packages/ui/spa/components/ValFieldProvider.tsx` |
+| how a patch gets INTO source               | `SourceStore.intake` and `PatchIntake`            |
 | source, patch application, `.jsonValues()` | `stores/SourceStore.ts`                           |
 | the chain, `/stat` reconciliation, uploads | `stores/PatchStore.ts`, `stores/PatchSync.ts`     |
 | wiring, publish, discard                   | `stores/createSystem.ts`                          |

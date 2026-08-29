@@ -74,6 +74,38 @@ const SAFETY_REFRESH_WINDOW_MS = 30_000;
  */
 const VAL_EDIT_LANDED = "val-edit-landed";
 
+/**
+ * How often `/draft/stat` is asked when nothing is in progress.
+ *
+ * Draft mode changes when someone toggles it, which the handshake below already
+ * covers — so this is only there to notice it being changed somewhere else.
+ */
+const DRAFT_IDLE_POLL_MS = 20_000;
+
+/**
+ * And how often while the enable/disable handshake is in flight.
+ *
+ * Fast on purpose: the hidden iframe redirects through `/draft/enable`, and the
+ * page cannot do anything useful until that has landed.
+ */
+const DRAFT_HANDSHAKE_POLL_MS = 100;
+
+/**
+ * How long that fast phase may last before it gives up.
+ *
+ * Without a deadline it does not end: the only thing that clears `iframeSrc` is
+ * a `val-ready` message posted by the redirect target, so a frame that fails to
+ * load — a 500, an auth redirect, a dev server still compiling — left the page
+ * asking ten times a second, forever. A browser runs about six connections per
+ * origin, so that is enough to push `/stat`, `/patches` and the canvas document
+ * itself into the browser's own queue, where they are indistinguishable from a
+ * slow server.
+ *
+ * Generous enough for a first compile in `next dev`, which is the slowest case
+ * that is not a fault.
+ */
+const DRAFT_HANDSHAKE_TIMEOUT_MS = 10_000;
+
 export const ValNextProvider = (props: {
   children: React.ReactNode | React.ReactNode[];
   config: ValConfig;
@@ -454,12 +486,41 @@ export const ValNextProvider = (props: {
             return;
           }
           pollDraftStatIdRef.current--;
+          const handshaking = iframeSrc !== null;
+          if (
+            handshaking &&
+            Date.now() - startedAt > DRAFT_HANDSHAKE_TIMEOUT_MS
+          ) {
+            /**
+             * The handshake did not complete, so stop hammering.
+             *
+             * Clearing `iframeSrc` unmounts the hidden frame and takes the poll
+             * back to its idle interval — which is the honest state: nothing is
+             * in progress any more. Leaving it set is what made this
+             * unrecoverable, because the ONLY other thing that clears it is the
+             * `val-ready` message the frame never sent.
+             */
+            console.warn(
+              "Val: draft mode did not confirm in time. Falling back to the " +
+                "idle poll — try toggling preview again.",
+            );
+            setIframeSrc(null);
+            return;
+          }
           timeout = setTimeout(
             pollCurrentDraftMode,
-            iframeSrc === null ? 20000 : 100,
+            handshaking ? DRAFT_HANDSHAKE_POLL_MS : DRAFT_IDLE_POLL_MS,
           );
         });
     }
+    /**
+     * When this spell of polling began.
+     *
+     * The effect re-runs when `iframeSrc` changes, so for the fast phase this is
+     * the moment the handshake started — which is what the deadline below is
+     * measured from.
+     */
+    const startedAt = Date.now();
     pollCurrentDraftMode();
     return () => {
       clearTimeout(timeout);
@@ -496,8 +557,26 @@ export const ValNextProvider = (props: {
               const moduleFilePath = event.detail?.moduleFilePath;
               const source = event.detail?.source;
               if (typeof moduleFilePath === "string" && source !== undefined) {
-                valStore.update(moduleFilePath as ModuleFilePath, source);
-                if (!props.disableRefresh) {
+                const changed = valStore.update(
+                  moduleFilePath as ModuleFilePath,
+                  source,
+                );
+                /**
+                 * Armed by a CHANGE, not by a message.
+                 *
+                 * The editor re-sends everything it holds whenever this page
+                 * becomes a new document — a reload, or the one `next dev` does
+                 * when a publish rewrites the `.val.ts` files — and most of that
+                 * snapshot is content this page already has. Counting those
+                 * bought a whole-route request per publish whether or not the
+                 * page was out of date, which with auto-save on is one per pause
+                 * in typing.
+                 *
+                 * The catch-up that MATTERS still refreshes: a page whose server
+                 * render predates the write has no value for that module, so the
+                 * first arrival counts as a change.
+                 */
+                if (changed && !props.disableRefresh) {
                   rerenderCounterRef.current++;
                   window.dispatchEvent(new Event(VAL_EDIT_LANDED));
                 }

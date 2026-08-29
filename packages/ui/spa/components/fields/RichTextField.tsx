@@ -15,12 +15,10 @@ import { deepEqual, JSONValue } from "@valbuild/core/patch";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import {
   ShallowSource,
-  useAddPatch,
-  useFieldCreatorId,
-  useSchemaAtPath,
-  useSchemas,
+  useModuleSchema,
   useShallowSourceAtPath,
   useValConfig,
+  useValField,
 } from "../ValFieldProvider";
 import {
   useCurrentRemoteFileBucket,
@@ -46,13 +44,17 @@ export function RichTextField({
   compact?: boolean; // TODO: implement compact
 }) {
   const type = "richtext";
-  const creatorId = useFieldCreatorId();
   const config = useValConfig();
   const remoteFiles = useRemoteFiles();
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
-  const schemas = useSchemas();
-  const schemaAtPath = useSchemaAtPath(path);
-  const sourceAtPath = useShallowSourceAtPath(path, type, creatorId);
+  const {
+    source: sourceAtPath,
+    schema: schemaAtPath,
+    patchPath,
+    addPatch,
+    addAndUploadPatchWithFileOps,
+    addModuleFilePatch,
+  } = useValField(path, type);
   const currentSourceData =
     "data" in sourceAtPath
       ? (sourceAtPath.data as RichTextSource<AllRichTextOptions>)
@@ -82,13 +84,6 @@ export function RichTextField({
    */
   const pendingDocRef = useRef<EditorDocument | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-
-  const {
-    patchPath,
-    addPatch,
-    addAndUploadPatchWithFileOps,
-    addModuleFilePatch,
-  } = useAddPatch(path, creatorId);
 
   const maybeClientSideOnly =
     "clientSideOnly" in sourceAtPath && sourceAtPath.clientSideOnly;
@@ -144,26 +139,34 @@ export function RichTextField({
 
   const hasImageEnabled = !!schemaOptions?.inline?.img;
 
-  const imageReferencedModule = imageSchema?.referencedModule;
+  const imageReferencedModule = imageSchema?.referencedModule as
+    | ModuleFilePath
+    | undefined;
+  /**
+   * The GALLERY's schema, not the project's.
+   *
+   * This used to read `useSchemas()` — every schema in the project, woken by
+   * every schema change — to look up one module and take two fields off it.
+   * `useSchemas` is a whole-project subscription and this component is mounted
+   * once per rich text field.
+   */
+  const imageModuleSchema = useModuleSchema(imageReferencedModule);
   const imageAcceptOptions = useMemo(() => {
     if (!hasImageEnabled) return undefined;
     if (imageSchema?.options?.accept) return imageSchema.options.accept;
-    if (imageReferencedModule && schemas.status === "success") {
-      const moduleSchema =
-        schemas.data[imageReferencedModule as ModuleFilePath];
-      if (moduleSchema?.type === "record" && moduleSchema.accept) {
-        return moduleSchema.accept;
-      }
+    if (imageModuleSchema?.type === "record" && imageModuleSchema.accept) {
+      return imageModuleSchema.accept;
     }
     return undefined;
-  }, [hasImageEnabled, imageSchema, imageReferencedModule, schemas]);
+  }, [hasImageEnabled, imageSchema, imageModuleSchema]);
 
-  const imageModuleDirectory = useMemo(() => {
-    if (!imageReferencedModule || schemas.status !== "success")
-      return undefined;
-    const moduleSchema = schemas.data[imageReferencedModule as ModuleFilePath];
-    return moduleSchema?.type === "record" ? moduleSchema.directory : undefined;
-  }, [imageReferencedModule, schemas]);
+  const imageModuleDirectory = useMemo(
+    () =>
+      imageModuleSchema?.type === "record"
+        ? imageModuleSchema.directory
+        : undefined,
+    [imageModuleSchema],
+  );
 
   const imageRemoteData = useMemo(() => {
     if (
@@ -449,6 +452,22 @@ export function RichTextField({
     <div id={path} className="m-1">
       <RichTextEditor
         ref={editorRef}
+        /**
+         * The document the editor MOUNTS with.
+         *
+         * It used to be given none, so the view was always built empty and the
+         * content arrived afterwards through `reset()` in the sync effect above.
+         * That made the effect load-bearing for the initial paint, and the
+         * effect's deps are the source — so anything that rebuilt the view
+         * without moving source (a toolbar feature settling, a portal container
+         * arriving) left a permanently blank field with nothing to refill it.
+         *
+         * Uncontrolled still: this is read once, at mount. `reset()` remains how
+         * a FOREIGN change lands.
+         */
+        defaultValue={
+          (currentSourceData as unknown as EditorDocument | null) ?? []
+        }
         features={features}
         linkCatalog={linkCatalog}
         readOnly={readonly || disabledRef.current}
