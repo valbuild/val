@@ -246,6 +246,25 @@ two backwards and you either resurrect deleted edits as permanent failures, or
 wait forever on changes that will never arrive — the second of which is a real
 bug that shipped. See `architecture/patch-store.md`.
 
+**A parent the content service does not HOLD is fatal; a parent that is merely
+stale is not.** Every write names its parent, and the service answers the two
+cases differently: not-the-head is a 409, which `ValOpsHttp` maps to
+`patch-head-conflict` and `PatchSync` re-syncs and retries; a parent that has
+been deleted is `Parent patch not found` with a status that is not 409, which
+becomes `other` → a 400 `patch-error` → `rejected`, and rejected is PERMANENT —
+the patch is dropped and the field reverts. So the whole cost of naming a
+deleted parent is the editor's work, reported as "An edit could not be saved and
+has been reverted."
+
+Which is what a discard used to do. `PatchSync` computes the parent from what
+the server has said exists, and the discard told it nothing; worse,
+`savedNotInStat` releases an id only when a stat LISTS it, and a deleted patch
+never is — so one discard poisoned every later edit until the tab was reloaded.
+`patch:drop` now reaches `PatchSync.forget`. Pinned by `e2e/http/discard.spec.ts`
+and by "the write after a discard" in `patchSync.test.ts`; the mock content host
+answers the two cases apart, which it did not, and could therefore not reproduce
+any of this.
+
 **An AI-written `file` op carries a session key where every other one carries
 bytes.** An image the editor attaches in the chat is uploaded to the content
 service straight from the browser; the assistant is only ever told an opaque key,

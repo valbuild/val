@@ -841,6 +841,24 @@ export function createSystem(options: SystemOptions): System {
     patchStore.events.on("patch:drop", () => {
       patchSetChain.invalidate();
     }),
+    /**
+     * A patch that has left the chain cannot be anybody's parent.
+     *
+     * `PatchSync` computes the parent of the next write from what the SERVER has
+     * said exists, and nothing about a discard reached it: the ids were deleted
+     * through the discard seam and dropped from the store, and the sync went on
+     * naming one of them. See `PatchSync.forget` for what that cost — a discard
+     * followed by an edit lost the edit, and every edit after it, until the tab
+     * was reloaded.
+     *
+     * On `patch:drop` rather than in `discard()` so that the other ways a patch
+     * leaves are covered by the same line: another tab's discard arrives as
+     * `reconcileVanished` dropping what stat has stopped naming, and a patch the
+     * server refuses is dropped by `PatchSync` itself.
+     */
+    patchStore.events.on("patch:drop", (event) => {
+      patchSync.forget(event.patches);
+    }),
   ];
 
   /**
