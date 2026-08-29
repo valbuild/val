@@ -1,12 +1,7 @@
 import React from "react";
 import { SourcePath } from "@valbuild/core";
 import { Input } from "../designSystem/input";
-import {
-  useAddPatch,
-  useFieldCreatorId,
-  useSchemaAtPath,
-  useShallowSourceAtPath,
-} from "../ValFieldProvider";
+import { useShallowSourceAtPath, useValField } from "../ValFieldProvider";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
@@ -30,10 +25,12 @@ export function StringField({
   compact?: boolean;
 }) {
   const type = "string";
-  const creatorId = useFieldCreatorId();
-  const schemaAtPath = useSchemaAtPath(path);
-  const sourceAtPath = useShallowSourceAtPath(path, "string", creatorId);
-  const { patchPath, addPatch } = useAddPatch(path, creatorId);
+  const {
+    source: sourceAtPath,
+    schema: schemaAtPath,
+    patchPath,
+    addPatch,
+  } = useValField(path, type);
   const [currentValue, setCurrentValue] = useState<string | null>(null);
   /**
    * One patch per PAUSE in typing, not per keystroke.

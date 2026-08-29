@@ -15,12 +15,10 @@ import { deepEqual, JSONValue } from "@valbuild/core/patch";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import {
   ShallowSource,
-  useAddPatch,
-  useFieldCreatorId,
   useModuleSchema,
-  useSchemaAtPath,
   useShallowSourceAtPath,
   useValConfig,
+  useValField,
 } from "../ValFieldProvider";
 import {
   useCurrentRemoteFileBucket,
@@ -46,12 +44,17 @@ export function RichTextField({
   compact?: boolean; // TODO: implement compact
 }) {
   const type = "richtext";
-  const creatorId = useFieldCreatorId();
   const config = useValConfig();
   const remoteFiles = useRemoteFiles();
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
-  const schemaAtPath = useSchemaAtPath(path);
-  const sourceAtPath = useShallowSourceAtPath(path, type, creatorId);
+  const {
+    source: sourceAtPath,
+    schema: schemaAtPath,
+    patchPath,
+    addPatch,
+    addAndUploadPatchWithFileOps,
+    addModuleFilePatch,
+  } = useValField(path, type);
   const currentSourceData =
     "data" in sourceAtPath
       ? (sourceAtPath.data as RichTextSource<AllRichTextOptions>)
@@ -81,13 +84,6 @@ export function RichTextField({
    */
   const pendingDocRef = useRef<EditorDocument | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-
-  const {
-    patchPath,
-    addPatch,
-    addAndUploadPatchWithFileOps,
-    addModuleFilePatch,
-  } = useAddPatch(path, creatorId);
 
   const maybeClientSideOnly =
     "clientSideOnly" in sourceAtPath && sourceAtPath.clientSideOnly;

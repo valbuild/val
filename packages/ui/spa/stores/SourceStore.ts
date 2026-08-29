@@ -122,6 +122,57 @@ type Resolved =
   | { status: "error"; message: string };
 
 /**
+ * How a batch of patches arrives at the source store.
+ *
+ * Three variants, and the difference between them is exactly one thing: who is
+ * woken when the source moves. That question used to be answered in three
+ * places — the origin picked at one call site, the creator looked up at
+ * another, and a comment explaining why a drop overrides both at a third — so
+ * "does a field see its own edit land?" could only be reconstructed by reading
+ * all of them.
+ *
+ * Naming the cases is the point. A reader of {@link SourceStore.intake} can see
+ * the whole rule at once, and a fourth way for a patch to arrive has to say
+ * which of these it behaves like.
+ */
+export type PatchIntake =
+  /**
+   * Made HERE, by a field instance in this session.
+   *
+   * `creatorOf` is asked per patch rather than passed as one id, because a
+   * batch can carry patches from different instances — a replay does. The
+   * instance that made a patch is left asleep when it lands; everyone else on
+   * the path, including a second instance rendering the same path, is woken.
+   */
+  | {
+      kind: "local";
+      records: PatchRecord[];
+      creatorOf: (patchId: PatchId) => string | undefined;
+    }
+  /**
+   * Made elsewhere — another tab, another editor, the CLI.
+   *
+   * Foreign to every field here by definition, so there is no instance to leave
+   * asleep and none is looked for.
+   */
+  | { kind: "foreign"; records: PatchRecord[] }
+  /**
+   * Gone: refused by the server, discarded, or dropped as unapplicable.
+   *
+   * The effect has to come back out of source, which means rebuilding the
+   * module from base plus what survives — a JSON patch is not invertible, so
+   * "remove the middle one" can only mean recompute. Everyone is woken,
+   * INCLUDING the author, and that is not an exception to the rule above: the
+   * field that typed the value is exactly the one now showing something that
+   * does not exist anywhere.
+   */
+  | {
+      kind: "revoked";
+      patchIds: readonly PatchId[];
+      modules: readonly ModuleFilePath[];
+    };
+
+/**
  * Owns the patched source, and owns "who is listening where".
  *
  * Both in one store on purpose: because the same code applies the patch and
@@ -1251,36 +1302,71 @@ export class SourceStore {
   }
 
   /**
-   * Reacts to both `patch:receive` (data arrived for an external patch) and
-   * `patch:create` (a local edit). The two are handled identically except for
-   * the origin reported to listeners, which is the only thing a field needs in
-   * order to tell news from its own echo.
+   * The three ways a patch reaches source, as three constructors of
+   * {@link PatchIntake}.
+   *
+   * This used to be three handlers that each assembled the origin and the
+   * creator differently, with the reasoning for each in a comment beside it —
+   * so "does this patch wake the field that made it?" could only be answered by
+   * reading all three and holding the convention between them. The union makes
+   * each case a named thing, and {@link intake} the one place that decides what
+   * a name means.
    */
   listenTo(patchStore: PatchStore): () => void {
     const offReceive = patchStore.events.on("patch:receive", (event) => {
-      this.applyPatches(
-        patchStore.recordsFor(event.patches),
-        "external",
-        // A patch fetched from the server was made elsewhere, so it is foreign
-        // to every field here — there is nobody to leave asleep.
-        () => undefined,
-      );
+      this.intake({
+        kind: "foreign",
+        records: patchStore.recordsFor(event.patches),
+      });
     });
     const offCreate = patchStore.events.on("patch:create", (event) => {
-      this.applyPatches(
-        patchStore.recordsFor(event.patches),
-        "internal",
-        (id) => patchStore.creatorOf(id),
-      );
+      this.intake({
+        kind: "local",
+        records: patchStore.recordsFor(event.patches),
+        creatorOf: (patchId) => patchStore.creatorOf(patchId),
+      });
     });
     const offDrop = patchStore.events.on("patch:drop", (event) => {
-      this.dropFromChains(event.patches, event.modules);
+      this.intake({
+        kind: "revoked",
+        patchIds: event.patches,
+        modules: event.modules,
+      });
     });
     return () => {
       offReceive();
       offCreate();
       offDrop();
     };
+  }
+
+  /**
+   * Take patches in. THE door into source, and the only place that decides who
+   * a patch wakes.
+   *
+   * Each variant of {@link PatchIntake} answers the same question differently,
+   * and the differences are the whole of the "internal vs external" rule:
+   *
+   * - `local` — this session made it, so the field INSTANCE that made it is
+   *   left asleep and every other reader of the path is woken. A controlled
+   *   input re-rendered by its own keystroke loses the caret.
+   * - `foreign` — it came from the server, so it is news to every field here by
+   *   definition and there is nobody to suppress.
+   * - `revoked` — it was refused or deleted, so its effect has to come back OUT
+   *   of source. The author is woken too, and that is not an exception: the
+   *   field that typed the value is precisely the one now showing something
+   *   that no longer exists.
+   */
+  intake(intake: PatchIntake): void {
+    if (intake.kind === "revoked") {
+      this.dropFromChains(intake.patchIds, intake.modules);
+      return;
+    }
+    this.applyPatches(
+      intake.records,
+      intake.kind === "local" ? "internal" : "external",
+      intake.kind === "local" ? intake.creatorOf : () => undefined,
+    );
   }
 
   /**

@@ -1,12 +1,9 @@
-import { Internal, SourcePath, SerializedArraySchema } from "@valbuild/core";
+import { SourcePath, SerializedArraySchema } from "@valbuild/core";
 import {
-  useAddPatch,
-  useFieldCreatorId,
-  useHasUnsavedFrom,
   usePreviewAtPath,
-  useSchemaAtPath,
   useShallowSourceAtPath,
   useSourceAtPath,
+  useValField,
 } from "../ValFieldProvider";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
@@ -37,25 +34,25 @@ export function ArrayFields({
   errorDisplay?: "default" | "compact" | "none";
 }) {
   const type = "array";
-  const creatorId = useFieldCreatorId();
   const { navigate } = useNavigation();
-  const schemaAtPath = useSchemaAtPath(path);
   const previewAtPath = usePreviewAtPath(path);
-  const shallowSourceAtPath = useShallowSourceAtPath(path, type, creatorId);
   const sourceAtPath = useSourceAtPath(path);
-
-  const { addPatch, patchPath } = useAddPatch(path, creatorId);
-  const [moduleFilePathOfPath] = Internal.splitModuleFilePathAndModulePath(
-    path as SourcePath,
-  );
   /**
-   * Subscribed, unlike the same fact inside `useShallowSourceAtPath`.
+   * `watchUnsaved`, unlike almost every other field.
    *
    * A list has no caret to lose, and an indicator that says "saving" after the
    * save has landed is a visible lie — so this one is allowed to wake the
-   * component. See `useHasUnsavedFrom` for why a text input must not.
+   * component. It is also load-bearing: the drag handle is a `<button disabled>`
+   * driven by this answer, so a value frozen at the moment of the drag disables
+   * reordering until something unrelated moves.
    */
-  const hasUnsavedOwnEdit = useHasUnsavedFrom(moduleFilePathOfPath, creatorId);
+  const {
+    source: shallowSourceAtPath,
+    schema: schemaAtPath,
+    addPatch,
+    patchPath,
+    hasUnsavedOwnEdit,
+  } = useValField(path, type, { watchUnsaved: true });
 
   if (schemaAtPath.status === "error") {
     return (

@@ -15,11 +15,9 @@ import { FieldSchemaMismatchError } from "../FieldSchemaMismatchError";
 import { FieldSourceError } from "../FieldSourceError";
 import {
   useValConfig,
-  useSchemaAtPath,
   useShallowSourceAtPath,
-  useAddPatch,
-  useFieldCreatorId,
-  useSchemas,
+  useValField,
+  useModuleSchema,
   useFilePatchIds,
 } from "../ValFieldProvider";
 import {
@@ -124,23 +122,21 @@ export function FileField({
   compact?: boolean;
 }) {
   const type = "file";
-  const creatorId = useFieldCreatorId();
   const config = useValConfig();
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
   const remoteFiles = useRemoteFiles();
-  const schemas = useSchemas();
-  const schemaAtPath = useSchemaAtPath(path);
-  const sourceAtPath = useShallowSourceAtPath(path, type, creatorId);
   const [showAsVideo, setShowAsVideo] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const {
+    source: sourceAtPath,
+    schema: schemaAtPath,
     addPatch,
     patchPath,
     addAndUploadPatchWithFileOps,
     addModuleFilePatch,
-  } = useAddPatch(path, creatorId);
+  } = useValField(path, type);
   const portalContainer = useValPortal();
   /**
    * The hidden file input, clicked by name.
@@ -207,8 +203,18 @@ export function FileField({
       ? schemaAtPath.data
       : undefined;
   const referencedModule = fileSchema?.referencedModule;
+  /**
+   * The referenced GALLERY's schema, not the project's.
+   *
+   * `useSchemas()` answers the same question and wakes on every schema change
+   * anywhere; this component is mounted once per media field. See
+   * `perFieldSubscriptions.test.ts`.
+   */
+  const referencedModuleSchema = useModuleSchema(
+    referencedModule as ModuleFilePath | undefined,
+  );
   const acceptOptions = useMemo(() => {
-    if (!fileSchema || schemas.status !== "success") {
+    if (!fileSchema) {
       return undefined;
     }
     if (fileSchema.options?.accept) {
@@ -217,12 +223,14 @@ export function FileField({
     if (!referencedModule) {
       return undefined;
     }
-    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
-    if (moduleSchema?.type === "record" && moduleSchema.accept) {
-      return moduleSchema.accept;
+    if (
+      referencedModuleSchema?.type === "record" &&
+      referencedModuleSchema.accept
+    ) {
+      return referencedModuleSchema.accept;
     }
     return undefined;
-  }, [fileSchema, referencedModule, schemas]);
+  }, [fileSchema, referencedModule, referencedModuleSchema]);
   /**
    * Where an upload from this field is stored: the gallery it references, or
    * `createFilePatch`'s `/public/val` default.
@@ -232,10 +240,10 @@ export function FileField({
    * an API change to `packages/core`, not a fix.
    */
   const uploadDirectory = useMemo(() => {
-    if (!referencedModule || schemas.status !== "success") return undefined;
-    const moduleSchema = schemas.data[referencedModule as ModuleFilePath];
-    return moduleSchema?.type === "record" ? moduleSchema.directory : undefined;
-  }, [referencedModule, schemas]);
+    return referencedModuleSchema?.type === "record"
+      ? referencedModuleSchema.directory
+      : undefined;
+  }, [referencedModuleSchema]);
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -280,10 +288,8 @@ export function FileField({
     schemaAtPath.data.remote &&
     remoteFiles.status !== "ready";
   const missingModules =
-    referencedModule && schemas.status === "success"
-      ? schemas.data[referencedModule as ModuleFilePath]
-        ? []
-        : [referencedModule]
+    referencedModule && referencedModuleSchema === undefined
+      ? [referencedModule]
       : [];
   const disabled =
     readonly || remoteFileUploadDisabled || missingModules.length > 0;

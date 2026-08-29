@@ -289,7 +289,11 @@ export function useHasUnsavedFrom(
     [val, moduleFilePath, creatorId],
   );
   return useSyncExternalStore(
-    val === null ? noopSubscribe : subscribe,
+    // No creator, no question — so no subscription either. `useValField` calls
+    // this unconditionally and passes an id only when the caller asked to watch,
+    // which is what lets it stay a hook while costing nothing for the fields
+    // (every text input) that must NOT be woken by their own writes.
+    val === null || creatorId === undefined ? noopSubscribe : subscribe,
     getSnapshot,
     getSnapshot,
   );
@@ -553,6 +557,108 @@ export function useAddPatch(
   };
 }
 
+/**
+ * Everything an EDITABLE field needs, under one identity.
+ *
+ * ## Why this exists rather than four hooks
+ *
+ * A field's read id and its write id have to be the same string. `SourceStore`
+ * compares the id that registered a listener with the id that created a patch
+ * and leaves the match asleep, so a field that reads under one id and writes
+ * under another is woken by its own keystroke — and a controlled input
+ * re-rendered by its own keystroke loses the caret.
+ *
+ * Assembled by hand, that rule lives in a doc comment: mint an id, pass it to
+ * `useShallowSourceAtPath`, pass the SAME id to `useAddPatch`, and remember
+ * that `clientSideOnly` must be read fresh rather than subscribed to. Four
+ * calls, one invariant between them, and nothing checking it. Here the id never
+ * leaves the hook, so there is nothing to thread and nothing to get wrong.
+ *
+ * ## What it deliberately does not do
+ *
+ * It does not replace the individual hooks. A READ-ONLY reader of a path — a
+ * preview row, a compare view, an overlay that shows a value it does not
+ * write — wants a distinct instance so that it IS woken by everything,
+ * including the studio field's edits. `useShallowSourceAtPath` with no creator
+ * id is right there, and stays.
+ */
+export function useValField<SchemaType extends SerializedSchema["type"]>(
+  path: SourcePath,
+  type: SchemaType,
+  options?: {
+    /**
+     * Also report, LIVE, whether this instance has an edit the server has not
+     * acknowledged.
+     *
+     * Off by default, and the default is the important one. `source` already
+     * carries `clientSideOnly`, read fresh on each render and subscribing to
+     * nothing — which is what a text input needs, because being woken when its
+     * own edit saves is a re-render that loses the caret.
+     *
+     * Turn this on where there is no caret to lose and a stale indicator would
+     * be visible. An array field's drag handle is the case it was written for:
+     * it is a `<button disabled>` driven by this answer, so a value frozen at
+     * the moment of the drag disables reordering until something unrelated
+     * moves.
+     */
+    watchUnsaved?: boolean;
+  },
+): {
+  /** The value, plus `clientSideOnly` for this instance. */
+  source: ShallowSourceOf<SchemaType>;
+  schema: SchemaAtPathResult;
+  /** Always `false` unless `watchUnsaved` was asked for. See the option. */
+  hasUnsavedOwnEdit: boolean;
+  /** The patch path to write ops at. */
+  patchPath: string[];
+  addPatch: (patch: Patch, type: SerializedSchema["type"]) => void;
+  addAndUploadPatchWithFileOps: (
+    patch: Patch,
+    type: "image" | "file",
+    onError: (message: string) => void,
+    onProgress: (
+      bytesUploaded: number,
+      totalBytes: number,
+      currentFile: number,
+      totalFiles: number,
+    ) => void,
+  ) => Promise<void>;
+  addModuleFilePatch: (
+    moduleFilePath: ModuleFilePath,
+    patch: Patch,
+    type: SerializedSchema["type"],
+  ) => void;
+} {
+  // Minted here and never returned: this IS the seam. See the note above.
+  const creatorId = useFieldCreatorId();
+  const source = useShallowSourceAtPath(path, type, creatorId);
+  // The same id, so this hook's own source listener is not a second instance —
+  // see `useSchemaAtPathInternal`.
+  const schema = useSchemaAtPath(path, creatorId);
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const hasUnsavedOwnEdit = useHasUnsavedFrom(
+    moduleFilePath,
+    // Passing no id is what makes this free — see `useHasUnsavedFrom`, which
+    // does not even subscribe without one.
+    options?.watchUnsaved === true ? creatorId : undefined,
+  );
+  const {
+    patchPath,
+    addPatch,
+    addAndUploadPatchWithFileOps,
+    addModuleFilePatch,
+  } = useAddPatch(path, creatorId);
+  return {
+    source,
+    schema,
+    hasUnsavedOwnEdit,
+    patchPath,
+    addPatch,
+    addAndUploadPatchWithFileOps,
+    addModuleFilePatch,
+  };
+}
+
 export function useGetDirectFileUploadSettings() {
   return useValFieldContext().getDirectFileUploadSettings;
 }
@@ -733,6 +839,22 @@ type ResolvedSchemaAtPathResult =
 
 function useSchemaAtPathInternal(
   sourcePath: SourcePath | ModuleFilePath,
+  /**
+   * The field INSTANCE this resolution belongs to, where there is one.
+   *
+   * Resolving a schema needs the module's source, so this hook registers a
+   * source listener of its own — and a listener under an id of its own is a
+   * SECOND instance as far as suppression is concerned. So a component that
+   * renders this hook alongside `useShallowSourceAtPath` under its own creator
+   * id was woken by its own keystroke through this one, which is precisely what
+   * per-instance suppression exists to prevent. Every editable field does render
+   * both.
+   *
+   * `useValField` passes its id, so the two listeners are one instance.
+   * `useId()` remains the fallback for a standalone reader, which is correctly
+   * woken by everything.
+   */
+  creatorId?: string,
 ): SchemaWithResolvedPathResult {
   const val = useValSystem();
   const sourceOverride = useContext(FieldSourceOverrideContext);
@@ -752,7 +874,7 @@ function useSchemaAtPathInternal(
    * sibling's keystroke does neither, and must not.
    */
   const ownId = useId();
-  const seen = usePeek(val, path, ownId);
+  const seen = usePeek(val, path, creatorId ?? ownId);
   useEntryDemand(val, path, seen);
 
   const resolvedSchemaAtPathRes = useMemo<ResolvedSchemaAtPathResult>(() => {
@@ -886,8 +1008,10 @@ function useSchemaAtPathInternal(
 
 export function useSchemaAtPath(
   sourcePath: SourcePath | ModuleFilePath,
+  /** See {@link useSchemaAtPathInternal}. Omit unless you also write here. */
+  creatorId?: string,
 ): SchemaAtPathResult {
-  const res = useSchemaAtPathInternal(sourcePath);
+  const res = useSchemaAtPathInternal(sourcePath, creatorId);
   // Memoised for the same reason as the internal hook above: dropping
   // `resolvedPath` by building a new object made every render a new reference.
   return useMemo<SchemaAtPathResult>(() => {

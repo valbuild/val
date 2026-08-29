@@ -527,6 +527,17 @@ every local field by definition. So it never has to survive a round trip, which
 is why it is not encoded into the patch id — and could not be, since the server
 validates `patchId.length === 36`.
 
+**A field is one instance only if every listener it registers says so**, and
+that is easier to get wrong than it sounds. An editable field reads its source
+AND resolves its schema at the same path, and `useSchemaAtPath` registers a
+source listener of its own to do the resolving — under its own `useId()`, which
+makes it a second instance and wakes the field on its own keystroke while the
+source listener correctly stays quiet. `useValField` exists to close that: it
+mints one id and hands it to both, and never returns it, so there is nothing to
+thread and nothing to get wrong. The individual hooks stay for read-only
+readers, which genuinely want a distinct instance so they are woken by
+everything.
+
 ### 4. Only registered paths are woken
 
 The source store keeps a registry of watched paths, one `EventTarget` per
