@@ -346,6 +346,42 @@ cleanup cancels, which is the only pass that writes to the editor that survives.
 resolving `dist/`. Also delete `examples/next/.next` — a production build left
 there makes the dev server 500 with `MODULE_NOT_FOUND` on Studio routes.
 
+## The `@valbuild/ui` build substitutes placeholders into bundler output
+
+`packages/ui` ships two strings that only get their real values _after_ Vite has
+bundled: the package version and the base64 record of the whole SPA build.
+`fix-server-hack.js` and `fix-version-hack.js` do that substitution by reading
+the emitted `.js` files and replacing `$$BUILD_$$REPLACE_WITH_VERSION$$` /
+`$$BUILD_$$REPLACE_WITH_RECORD$$` in the text.
+
+**A bundler is free to re-print a string literal however it likes, and that
+breaks the substitution silently.** Vite 8 (rolldown/oxc) constant-folds
+
+```ts
+path === `${VERSION ? `/${VERSION}` : ""}${VAL_APP_PATH}`;
+```
+
+into one template literal and escapes every `$` while printing it:
+
+```js
+path === `/\$\$BUILD_\$\$REPLACE_WITH_VERSION\$\$/app`;
+```
+
+Vite 7 kept `const VERSION = "$$BUILD_..."` as its own literal, so the plain
+`String.replace` found it. In 0.108.0 it did not, and the placeholder shipped.
+Nothing threw: `/api/val/static/0.108.0/app` simply stopped matching, fell
+through to the SPA fallback, and every Studio got the index HTML where it asked
+for the app bundle — `Failed to load module script: ... MIME type of ""`. The
+version in the _client_ bundle was substituted fine, so the URL the browser
+asked for was right; only the server's comparison string was wrong.
+
+So the substitution is escape-tolerant (`buildPlaceholders.js`), it fails the
+build if a marker survives, and `verify-build.js` loads the packaged server
+bundle at the end of `pnpm --filter @valbuild/ui build` and asserts that
+`/<version>/app` really comes back as `application/javascript`. **That last
+check is the one that does not care how the placeholder is implemented** — keep
+it if you ever replace the hacks with something better.
+
 ## A request "pending" in dev is usually queued, not slow
 
 The devtools show a request as pending from the moment it is _created_, which
