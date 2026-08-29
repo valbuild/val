@@ -8,7 +8,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "vite build && vite --config server.vite.config.mts build && rollup --config rollup.config.js && vite --config spa.vite.config.mts build && node fix-server-hack.js && node fix-version-hack.js",
+    "build": "vite build && vite --config server.vite.config.mts build && rollup --config rollup.config.js && vite --config spa.vite.config.mts build && node fix-server-hack.js && node fix-version-hack.js && node verify-build.js",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "dev": "vite",
