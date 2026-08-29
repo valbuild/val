@@ -472,6 +472,27 @@ export function ValProvider({
 
   const [deployments, setDeployments] = useState<ValEnrichedDeployment[]>([]);
   const dismissedDeploymentsRef = useRef<Set<string>>(new Set());
+  /**
+   * What is worth re-merging for, as a value rather than a reference.
+   *
+   * `/stat` hands back a fresh array every time, so the arrays themselves are
+   * useless as dependencies. Their LENGTHS were used instead — and that is
+   * precisely blind to the update that matters: the content service reports a
+   * deployment moving from pending to success as the same row with a new state,
+   * so the list a poll returns is the same length as the one before it and the
+   * merge never ran. Progress only ever showed up if it happened to arrive on
+   * the socket, which appends.
+   */
+  const deploymentsFingerprint =
+    "data" in stat && stat.data?.deployments
+      ? stat.data.deployments
+          .map((d) => `${d.deploymentId}:${d.deploymentState}:${d.updatedAt}`)
+          .join(",")
+      : "";
+  const commitsFingerprint =
+    "data" in stat && stat.data?.commits
+      ? stat.data.commits.map((c) => c.commitSha).join(",")
+      : "";
   useEffect(() => {
     if ("data" in stat && stat.data) {
       setDeployments((prev) => {
@@ -488,10 +509,7 @@ export function ValProvider({
         return prev;
       });
     }
-  }, [
-    "data" in stat && stat.data?.deployments && stat.data?.deployments.length,
-    "data" in stat && stat.data?.commits && stat.data?.commits.length,
-  ]);
+  }, [deploymentsFingerprint, commitsFingerprint]);
   const dismissDeployment = useCallback((commitSha: string) => {
     setDeployments((prev) => {
       return prev.filter((d) => d.commitSha !== commitSha);

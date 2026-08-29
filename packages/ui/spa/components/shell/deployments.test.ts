@@ -7,13 +7,19 @@ import { ShellDeployment } from "./types";
  * publishes, and how a `ValEnrichedDeployment` becomes a row.
  */
 
+/**
+ * `isLive` defaults to false — Val has NOT seen the site answer with this
+ * commit — because that is the state every publish starts in, and because it
+ * outranks `state` once it is true. A fixture that is live by default would
+ * make every case below assert the live path by accident.
+ */
 const deployment = (
   overrides: Partial<ShellDeployment> & Pick<ShellDeployment, "commitSha">,
 ): ShellDeployment => ({
   state: "success",
   message: "A change",
   timestamp: "just now",
-  isLive: true,
+  isLive: false,
   ...overrides,
 });
 
@@ -58,6 +64,47 @@ describe("summarizeDeployments", () => {
         deployment({ commitSha: "old", state: "success" }),
       ]),
     ).toEqual({ state: "failed" });
+  });
+
+  /**
+   * The one signal Val gets for itself.
+   *
+   * The build state is relayed from the host and can be absent, stale, or about
+   * a different environment entirely — a publish whose deployment events never
+   * arrive sits at `created` forever. Val watching the site answer with the
+   * commit settles it either way, and that is what the status bar was missing:
+   * it said "Building" long after the site had gone out.
+   */
+  test("a publish the site is serving is live, whatever the host said", () => {
+    expect(
+      summarizeDeployments([
+        deployment({ commitSha: "a", state: "created", isLive: true }),
+      ]),
+    ).toEqual({ state: "live" });
+    expect(
+      summarizeDeployments([
+        deployment({ commitSha: "a", state: "pending", isLive: true }),
+      ]),
+    ).toEqual({ state: "live" });
+  });
+
+  // A commit the site answers with went out, so a failure reported against it
+  // belongs to some other build of it — a preview environment, a retried job.
+  test("a failure against a commit the site is serving is not a warning", () => {
+    expect(
+      summarizeDeployments([
+        deployment({ commitSha: "a", state: "failure", isLive: true }),
+      ]),
+    ).toEqual({ state: "live" });
+  });
+
+  test("one publish still in flight is not hidden by a live one", () => {
+    expect(
+      summarizeDeployments([
+        deployment({ commitSha: "new", state: "created" }),
+        deployment({ commitSha: "old", state: "success", isLive: true }),
+      ]),
+    ).toEqual({ state: "building", count: 1 });
   });
 });
 

@@ -29,20 +29,49 @@ export function summarizeDeployments(
   if (deployments.length === 0) {
     return { state: "none" };
   }
-  const building = deployments.filter(
-    (deployment) =>
-      deployment.state === "created" || deployment.state === "pending",
-  );
+  const building = deployments.filter(isBuilding);
   if (building.length > 0) {
     return { state: "building", count: building.length };
   }
   // Only the newest publish decides the resting state: an older failure that
   // a later publish has already fixed is history, not a warning.
   const latest = deployments[0];
-  if (latest.state === "failure" || latest.state === "error") {
+  if (isFailed(latest)) {
     return { state: "failed" };
   }
   return { state: "live" };
+}
+
+/**
+ * Whether a publish is still on its way out.
+ *
+ * `isLive` — Val has seen the site answer with this commit — settles it on its
+ * own, whatever the host last said about the build. It has to: the build state
+ * comes from somewhere else entirely (GitHub deployment events, relayed by the
+ * content service), and when that channel says nothing a publish sits at
+ * `created` forever. The site serving the commit is the one answer Val can get
+ * for itself, and it is the stronger one anyway — a page you can load is what
+ * "deployed" meant in the first place.
+ */
+function isBuilding(deployment: ShellDeployment): boolean {
+  if (deployment.isLive) {
+    return false;
+  }
+  return deployment.state === "created" || deployment.state === "pending";
+}
+
+/**
+ * Whether a publish failed to go out.
+ *
+ * A commit the site is serving did go out, so a failure reported for it is
+ * about some other build of the same commit — a preview environment, a retried
+ * job — and not something to warn about.
+ */
+function isFailed(deployment: ShellDeployment): boolean {
+  if (deployment.isLive) {
+    return false;
+  }
+  return deployment.state === "failure" || deployment.state === "error";
 }
 
 export type DeploymentsStatusProps = {
@@ -280,20 +309,18 @@ function DeploymentRow({
   deployment: ShellDeployment;
   onDismiss: () => void;
 }) {
-  const isBuilding =
-    deployment.state === "created" || deployment.state === "pending";
-  const isFailed =
-    deployment.state === "failure" || deployment.state === "error";
+  const building = isBuilding(deployment);
+  const failed = isFailed(deployment);
   return (
     <li className="flex items-start gap-2.5 px-3 py-2.5 border-b border-border-float last:border-b-0">
       <span className="mt-0.5 shrink-0">
-        {isBuilding && (
+        {building && (
           <Loader2 size={13} className="animate-spin text-fg-secondary" />
         )}
-        {isFailed && (
+        {failed && (
           <CircleAlert size={13} className="text-fg-error-on-surface" />
         )}
-        {!isBuilding && !isFailed && (
+        {!building && !failed && (
           <span className="block w-1.5 h-1.5 m-[3px] rounded-full bg-bg-brand-secondary" />
         )}
       </span>
@@ -307,7 +334,7 @@ function DeploymentRow({
           {deployment.timestamp}
         </div>
       </div>
-      {!isBuilding && (
+      {!building && (
         <button
           type="button"
           aria-label="Dismiss deployment"
@@ -322,6 +349,11 @@ function DeploymentRow({
 }
 
 function describeState(deployment: ShellDeployment): string {
+  // The site answering with this commit outranks anything the build host said
+  // about it, including having said nothing at all. See `isBuilding`.
+  if (deployment.isLive) {
+    return "Live";
+  }
   switch (deployment.state) {
     case "created":
       return "Queued";
@@ -333,6 +365,6 @@ function describeState(deployment: ShellDeployment): string {
     case "success":
       // A green build is not the same as a page you can load: Val watches for
       // the commit to answer from the site before saying it is live.
-      return deployment.isLive ? "Live" : "Built";
+      return "Built";
   }
 }

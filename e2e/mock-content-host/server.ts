@@ -534,7 +534,18 @@ const getApplicablePatches: Handler = (req, res, url) => {
   json(res, 200, {
     patches,
     commits: state.commits,
-    deployments: state.deployments,
+    /**
+     * Newest update first, as the content service returns them.
+     *
+     * `getByCommitShas` is `ORDER BY updated_at DESC`, and the client folds the
+     * list into one entry per commit sha — so the order decides which state
+     * survives when a commit has been deployed more than once. Insertion order
+     * would have been the friendlier answer and the wrong one.
+     */
+    deployments: [...state.deployments].sort(
+      (a, b) =>
+        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+    ),
   });
 };
 
@@ -1350,6 +1361,16 @@ const controlPlane: Handler = async (req, res, url) => {
       commitSha?: string;
       deploymentId?: string;
       deploymentState?: string;
+      /**
+       * Whether to push this down the socket.
+       *
+       * Off is not a hypothetical: the socket only carries what the content
+       * service's database trigger fires while a Studio happens to be
+       * connected, so a reconnect, a dropped frame or a deployment that moved
+       * before anyone opened the Studio all reach the browser only on the next
+       * `/stat`. A test can say so with this.
+       */
+      broadcast?: boolean;
     }>(req);
     const deploymentId = body?.deploymentId ?? randomUUID();
     const commitSha = body?.commitSha ?? state.headCommitSha;
@@ -1369,7 +1390,9 @@ const controlPlane: Handler = async (req, res, url) => {
     if (!existing) {
       state.deployments.push(record);
     }
-    broadcast({ type: "deployment", deployment: record });
+    if (body?.broadcast !== false) {
+      broadcast({ type: "deployment", deployment: record });
+    }
     json(res, 200, { deployment: record });
     return;
   }

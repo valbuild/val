@@ -36,7 +36,19 @@ export function mergeCommitsAndDeployments(
       };
     }
   }
-  for (const deployment of deployments) {
+  /**
+   * Oldest first, so the newest state for a commit is the one that survives.
+   *
+   * The fold below overwrites whatever it already has for a commit sha, so the
+   * LAST entry wins — and the two sources disagree about order. The socket
+   * appends, so there the newest is last; `/stat` returns the content service's
+   * rows ordered by `updated_at DESC`, so there the newest is FIRST and a
+   * finished deployment was being overwritten by the pending one it replaced.
+   */
+  const orderedDeployments = [...deployments].sort(
+    (a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime(),
+  );
+  for (const deployment of orderedDeployments) {
     // NOTE: we ignore the deployments without commit sha - this is a new property, in the future they should all have it. We can't really do much useful stuff without knowing the commit?
     if (deployment.commitSha) {
       deploymentsByCommitSha[deployment.commitSha] = {

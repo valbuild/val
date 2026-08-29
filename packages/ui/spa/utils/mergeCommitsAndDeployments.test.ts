@@ -181,4 +181,51 @@ describe("mergeCommitsAndDeployments", () => {
       },
     ]);
   });
+
+  /**
+   * The same commit, deployed twice, reported newest first.
+   *
+   * `/stat` returns the content service's deployment rows ordered by
+   * `updated_at DESC`, and the fold keeps whichever entry it sees LAST — so a
+   * commit that had gone green was being overwritten by the `pending` row that
+   * preceded it, and the feed showed a finished publish as still building.
+   */
+  it("keeps the newest state when a commit has several deployments", () => {
+    const commits: ValCommit[] = [
+      {
+        commitSha: "abc123",
+        clientCommitSha: "client-abc123",
+        parentCommitSha: "parent-abc123",
+        branch: "main",
+        commitMessage: "A change",
+        creator: "user1",
+        createdAt: "2023-01-01T00:00:00Z",
+      },
+    ];
+    const newestFirst: ValDeployment[] = [
+      {
+        commitSha: "abc123",
+        deploymentState: "success",
+        createdAt: "2023-01-01T00:00:00Z",
+        updatedAt: "2023-01-01T00:05:00Z",
+        deploymentId: "deployment-abc123",
+      },
+      {
+        commitSha: "abc123",
+        deploymentState: "pending",
+        createdAt: "2023-01-01T00:00:00Z",
+        updatedAt: "2023-01-01T00:01:00Z",
+        deploymentId: "deployment-abc123",
+      },
+    ];
+
+    expect(
+      mergeCommitsAndDeployments([], commits, newestFirst)[0].deploymentState,
+    ).toBe("success");
+    // And the other order, which is how the same two arrive on the socket.
+    expect(
+      mergeCommitsAndDeployments([], commits, [...newestFirst].reverse())[0]
+        .deploymentState,
+    ).toBe("success");
+  });
 });
