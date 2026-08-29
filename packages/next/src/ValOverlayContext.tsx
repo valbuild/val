@@ -1,5 +1,6 @@
 "use client";
 import { Json, ModuleFilePath } from "@valbuild/core";
+import { deepEqual } from "@valbuild/core/patch";
 import React from "react";
 
 // How long waitForLoad waits for draft data before giving up and resolving
@@ -50,8 +51,35 @@ export class ValExternalStore {
     };
   };
 
-  update(path: ModuleFilePath, source: Json) {
+  /**
+   * Take a module's source from the editor.
+   *
+   * Returns whether this actually MOVED the value, which the caller needs and
+   * cannot work out for itself: the same source arrives more than once by
+   * design. The editor sends a catch-up snapshot of everything it holds every
+   * time the page becomes a new document — a reload, or the one `next dev` does
+   * when a publish rewrites the `.val.ts` files — and most of that snapshot is
+   * content this page already has.
+   *
+   * Without the answer, `ValNextProvider` armed its `router.refresh()` loop on
+   * the arrival rather than on the change, so every publish bought a whole-route
+   * request whether or not the page was out of date. With auto-save on that is
+   * one per pause in typing, which in development is a re-render (and sometimes
+   * a recompile) of the page — and it is what leaves the canvas looking
+   * permanently busy.
+   */
+  update(path: ModuleFilePath, source: Json): boolean {
+    // `Json` has no `undefined`, so absent and "stored as undefined" cannot be
+    // confused: a miss here means this page has never been given this module.
+    const before = this.loadedSources.get(path);
+    const changed = before === undefined || !deepEqual(before, source);
     this.loadedSources.set(path, source);
+    if (!changed) {
+      // Nothing downstream to do: every subscriber's snapshot still answers
+      // with the same value, so invalidating them would be a re-render that
+      // shows exactly what is already on screen.
+      return false;
+    }
     // Invalidate cached snapshots that include this path so the next get()
     // rebuilds a fresh (new-reference) record, then notify their listeners.
     for (const subscriberId of Array.from(this.snapshots.keys())) {
@@ -68,6 +96,7 @@ export class ValExternalStore {
     for (const listener of Array.from(this.loadListeners)) {
       listener();
     }
+    return true;
   }
 
   private emitChange(subscriberId: SubscriberId) {

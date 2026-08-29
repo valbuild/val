@@ -557,8 +557,26 @@ export const ValNextProvider = (props: {
               const moduleFilePath = event.detail?.moduleFilePath;
               const source = event.detail?.source;
               if (typeof moduleFilePath === "string" && source !== undefined) {
-                valStore.update(moduleFilePath as ModuleFilePath, source);
-                if (!props.disableRefresh) {
+                const changed = valStore.update(
+                  moduleFilePath as ModuleFilePath,
+                  source,
+                );
+                /**
+                 * Armed by a CHANGE, not by a message.
+                 *
+                 * The editor re-sends everything it holds whenever this page
+                 * becomes a new document — a reload, or the one `next dev` does
+                 * when a publish rewrites the `.val.ts` files — and most of that
+                 * snapshot is content this page already has. Counting those
+                 * bought a whole-route request per publish whether or not the
+                 * page was out of date, which with auto-save on is one per pause
+                 * in typing.
+                 *
+                 * The catch-up that MATTERS still refreshes: a page whose server
+                 * render predates the write has no value for that module, so the
+                 * first arrival counts as a change.
+                 */
+                if (changed && !props.disableRefresh) {
                   rerenderCounterRef.current++;
                   window.dispatchEvent(new Event(VAL_EDIT_LANDED));
                 }
