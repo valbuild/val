@@ -32,6 +32,7 @@ import {
   valModulesEntryText,
 } from "./valModulesRegistry";
 import type { ValModuleContent } from "./ValProject";
+import { jsonEntryEditFor, type JsonEntryEdit } from "./jsonEntryEdit";
 import { minimalTextEdit } from "./textEdit";
 
 // Re-exported: it lives in its own module so that `commands.ts` can use it
@@ -107,14 +108,25 @@ export async function createValCodeActions({
   content,
   valRoot,
   moduleFilePath,
+  read,
   remoteHost = process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST,
 }: {
   document: TextDocument;
   diagnostics: Diagnostic[];
   content: ValModuleContent;
   valRoot: string;
-  /** Needed to offer the remote fixes, which run as commands. */
+  /**
+   * Needed to offer the remote fixes, which run as commands -- and to fix a
+   * `.jsonValues()` entry, whose content is in a file this document only
+   * references.
+   */
   moduleFilePath?: ModuleFilePath;
+  /**
+   * Reads an open buffer for a path. A fix that edits another file must see that
+   * file as the editor has it, or the edit's ranges are computed against text
+   * the editor is not showing.
+   */
+  read?: (fsPath: string) => string | undefined;
   remoteHost?: string;
 }): Promise<CodeAction[]> {
   const actions: CodeAction[] = [];
@@ -155,7 +167,7 @@ export async function createValCodeActions({
       if (!isLocalFix(fix)) {
         continue;
       }
-      const edit = await computeFixEdit({
+      const fixEdit = await computeFixEdit({
         document,
         // A gallery check is reported on the entry but fixed against the record
         // that contains it; everything else fixes where it is reported.
@@ -169,15 +181,20 @@ export async function createValCodeActions({
         },
         content,
         valRoot,
+        moduleFilePath,
+        read,
         remoteHost,
       });
-      if (!edit) {
+      if (!fixEdit) {
         continue;
       }
       actions.push(
         CodeAction.create(
           FIX_TITLES[fix] ?? `Val: ${fix}`,
-          { changes: { [document.uri]: [edit] } },
+          // Not always `document.uri`: a fix inside a `.jsonValues()` entry
+          // edits the entry's own `*.val.json`, which is a different file from
+          // the one the diagnostic is reported on.
+          { changes: { [fixEdit.uri]: [fixEdit.edit] } },
           CodeActionKind.QuickFix,
         ),
       );
@@ -193,6 +210,8 @@ async function computeFixEdit({
   validationError,
   content,
   valRoot,
+  moduleFilePath,
+  read,
   remoteHost,
 }: {
   document: TextDocument;
@@ -200,8 +219,10 @@ async function computeFixEdit({
   validationError: ValidationError;
   content: ValModuleContent;
   valRoot: string;
+  moduleFilePath?: ModuleFilePath;
+  read?: (fsPath: string) => string | undefined;
   remoteHost: string;
-}): Promise<TextEdit | undefined> {
+}): Promise<JsonEntryEdit | undefined> {
   let fixed;
   try {
     fixed = await createFixPatch(
@@ -223,11 +244,29 @@ async function computeFixEdit({
   }
 
   const before = document.getText();
+  // The value may not be in this file at all. A `.jsonValues()` entry's content
+  // lives in its own `*.val.json`, and applying the patch to the `.val.ts` would
+  // walk into the `c.json(...)` thunk and fail -- which is exactly why no quick
+  // fix was offered inside an entry.
+  if (moduleFilePath) {
+    const entryEdit = jsonEntryEditFor({
+      patch: fixed.patch,
+      schema: content.schema,
+      moduleFilePath,
+      valTsText: before,
+      valRoot,
+      read,
+    });
+    if (entryEdit) {
+      return entryEdit;
+    }
+  }
   const patched = patchSourceFile(before, fixed.patch);
   if (result.isErr(patched)) {
     return undefined;
   }
-  return minimalTextEdit(before, patched.value.text, document);
+  const edit = minimalTextEdit(before, patched.value.text, document);
+  return edit && { uri: document.uri, edit };
 }
 
 /**
