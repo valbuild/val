@@ -68,3 +68,30 @@ Also: a pick on the page always ends on the fields, rather than only when the
 pane happened to be somewhere else; the switches have room to breathe above the
 content, instead of a two-pixel gap; and the option that used to read "Canvas"
 reads "Preview", which is what it is called everywhere else.
+
+## Three more, on the canvas itself
+
+**The canvas chrome is docked, not floating.** The address bar, the exit button
+and the zoom/device toolbar all sat on top of the page. That is fine over a
+mockup and wrong over a real site, because a real site puts its most important
+things exactly where the chrome was: the address bar covered the header and
+whatever navigation was in it, and the toolbar covered the footer. You could
+scroll the page under them, but a preview you have to scroll to see the top of is
+not showing you the top of the page. They are three rows now — bar, page,
+controls — which costs about 80px of page height and gives back both edges.
+
+**The fields view is inset like the editor is.** It had no horizontal padding at
+all while the module editor had `px-4 md:px-6`, so switching between the two
+slid the content sideways and pinned the fields card to the very edge of a phone
+screen. They are the same column holding different things, and they now sit in
+the same place.
+
+**The Fields tab is always there, and explains itself when it is empty.** It used
+to appear only once the page had reported some content — which took the control
+away in the one state where someone needs to be told something, since a page
+that is not in preview mode mounts none of Val's client code and tags nothing. A
+tab that comes and goes cannot explain its own absence. It now says the page has
+reported nothing and points at the Preview, where the button that turns preview
+mode on already lives; on a phone it offers to take you there. It does not claim
+preview mode _is_ off, because it cannot see that: a page in preview mode with no
+Val content on it reports nothing either.

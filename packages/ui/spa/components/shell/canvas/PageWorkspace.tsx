@@ -590,23 +590,28 @@ export function PageWorkspace({
   /**
    * The switch that decides what the column holds.
    *
-   * Only offered when there is something to switch to: the fields view is a
-   * list of what Val found on the page, so without that list there is one view
-   * and a control with a single option.
+   * Always both options, even before the page has reported anything. It used to
+   * appear only once there was a list to show, which meant the one state where
+   * someone needs to be told something — the page is not in preview mode, so it
+   * mounts none of Val's client code and tags nothing — was the state with no
+   * way to ask. The control went missing rather than explaining itself, and a
+   * missing control cannot say why.
+   *
+   * The count is held back until there is one, so the tab does not read "Fields
+   * 0" at a page that simply has not answered yet.
    */
   const reportedPaths = canvasPaths ?? [];
   const fieldCount = page
     ? Object.keys(page.fields).length
     : reportedPaths.length;
-  const viewToggle =
-    fieldCount > 0 ? (
-      <ViewToggle
-        view={view}
-        onChange={onViewChange}
-        fieldCount={fieldCount}
-        animate={!reducedMotion}
-      />
-    ) : null;
+  const viewToggle = (
+    <ViewToggle
+      view={view}
+      onChange={onViewChange}
+      fieldCount={fieldCount > 0 ? fieldCount : undefined}
+      animate={!reducedMotion}
+    />
+  );
 
   /**
    * The phone's one switch, and the three places it can put you.
@@ -620,16 +625,14 @@ export function PageWorkspace({
    * does at every press: Normal is the module editor, Fields is the page's own
    * fields, Preview is the page. Leaving is the X beside it, and nothing else.
    *
-   * Fields only where the page reported some — the same rule the desktop switch
-   * follows, so a page Val cannot see into offers Normal and Preview and no
-   * dead third option.
+   * All three always, the same rule the desktop switch follows. Fields used to
+   * appear only once the page had reported some, which took the control away in
+   * the one state where someone needs to be told something — and a tab that
+   * comes and goes cannot explain its own absence. It explains itself instead;
+   * see {@link FieldsAwaitingPage}.
    */
   const mobileMode: MobileMode =
-    pane === "canvas"
-      ? "preview"
-      : view === "fields" && fieldCount > 0
-        ? "fields"
-        : "normal";
+    pane === "canvas" ? "preview" : view === "fields" ? "fields" : "normal";
   const setMobileMode = useCallback(
     (next: MobileMode) => {
       if (next === "preview") {
@@ -700,27 +703,47 @@ export function PageWorkspace({
     </div>
   );
 
-  const pathsColumn = !page && reportedPaths.length > 0 && (
-    <div style={railPadding} className="h-full pb-14">
-      <CanvasFields
-        paths={reportedPaths}
-        selectedPath={selectedCanvasPath}
-        onSelect={onSelectCanvasPath}
-      />
-    </div>
-  );
-
-  const fieldsColumn = page && (
-    <div style={railPadding} className="h-full pb-14">
-      <FieldsPanel
-        page={page}
-        selectedFieldId={selectedFieldId}
-        onSelectField={setSelectedFieldId}
-        onChangeField={() => undefined}
-        onAttachField={attachField}
-        attachedFieldIds={attachedFieldIds}
-        isDevMode={isDevMode}
-      />
+  /**
+   * The fields view, in whichever of its three forms applies.
+   *
+   * Storybook's demo page carries the values, so it gets the designed panel; a
+   * real page can only report which fields are on it, so it gets the list of
+   * those; and a page that has reported nothing gets told why, which is the
+   * form that used to be a missing tab.
+   *
+   * The wrapper is padded exactly as the module editor's box is — `px-4
+   * md:px-6`, and the same hairline above. The two views are the same column
+   * holding different things, and they were inset differently: switching to
+   * Fields slid the content sideways by 16px and pinned the card to the edge of
+   * a phone screen.
+   */
+  const fieldsColumn = (
+    <div style={railPadding} className="h-full px-4 md:px-6 pt-1 pb-14">
+      {page ? (
+        <FieldsPanel
+          page={page}
+          selectedFieldId={selectedFieldId}
+          onSelectField={setSelectedFieldId}
+          onChangeField={() => undefined}
+          onAttachField={attachField}
+          attachedFieldIds={attachedFieldIds}
+          isDevMode={isDevMode}
+        />
+      ) : reportedPaths.length > 0 ? (
+        <CanvasFields
+          paths={reportedPaths}
+          selectedPath={selectedCanvasPath}
+          onSelect={onSelectCanvasPath}
+        />
+      ) : (
+        <FieldsAwaitingPage
+          // Only where the page is somewhere else. Beside the editor it is
+          // already on screen, with its own button in it, and a control that
+          // says "go there" pointing at something already in front of you is
+          // worse than none.
+          onGoToPreview={isPhone ? () => onPaneChange("canvas") : undefined}
+        />
+      )}
     </div>
   );
 
@@ -740,15 +763,7 @@ export function PageWorkspace({
         </div>
       )}
       <div className="min-h-0 flex-1">
-        {/*
-         * The fields view has two forms. Storybook's demo page carries the
-         * values, so it gets the designed panel; a real page can only report
-         * which fields are on it, so it gets the list of those. Either way the
-         * switch above only exists when one of them has something in it.
-         */}
-        {view === "fields" && open && (fieldsColumn || pathsColumn)
-          ? fieldsColumn || pathsColumn
-          : moduleColumn}
+        {view === "fields" && open ? fieldsColumn : moduleColumn}
       </div>
     </div>
   );
@@ -758,112 +773,129 @@ export function PageWorkspace({
       value={canvasRoute}
       routes={canvasRoutes ?? []}
       onChange={onCanvasRouteChange}
-      // Wide enough to read a real route, narrow enough to leave the page the
-      // middle of the pane.
-      className="absolute left-3 top-3 z-window w-[min(22rem,calc(100%-5rem))]"
+      // Takes the row it is on, up to a width where a real route is readable
+      // without the field running the length of a desk.
+      className="min-w-0 flex-1 md:max-w-[28rem]"
     />
   );
 
+  /**
+   * The canvas: an address bar, the page, and the page's controls — in that
+   * order, each on its own row.
+   *
+   * All three used to float on top of the page. That is fine over a mockup and
+   * wrong over a real site, because a real site puts its most important things
+   * exactly where the chrome was sitting: the address bar covered the header
+   * and whatever navigation was in it, and the toolbar covered the footer. You
+   * could scroll the page under them, but a preview you have to scroll to see
+   * the top of is not showing you the top of the page.
+   *
+   * Docking them costs about 80px of page height and gives back the two edges,
+   * which is the right trade for a thing whose whole job is to be looked at.
+   */
   const canvasPane = open && (
-    <div
-      className={cn(
-        "relative h-full overflow-hidden rounded-xl border border-border-float bg-bg-float-raised",
-      )}
-    >
-      {routeBar}
-      <CanvasWindow
-        ref={canvasWindowRef}
-        pageWidth={pageWidth}
-        scale={scale}
-        onScaleChange={setScale}
-        autoFit={autoFit}
-        onUserZoom={onUserZoom}
-        initialScroll={
-          initialTransform && { x: initialTransform.x, y: initialTransform.y }
-        }
-        onScrollChange={onScrollChange}
-        className="h-full"
-      >
-        <div className="shadow-2xl" onClick={() => setSelectedFieldId(null)}>
-          {renderCanvas?.({
-            device,
-            width: pageWidth,
-            height: CANVAS_DEVICE_HEIGHTS[device],
-            reloadKey,
-            isPicking,
-            onRequestReload: reload,
-            onRefreshingChange: setIsRefreshing,
-            onPinch,
-            onZoom: (factor, center) => zoomByUser(factor, center),
-            onPicked,
-          }) ??
-            (page && (
-              <CanvasPage
-                page={page}
-                device={device}
-                selectedFieldId={isPicking ? selectedFieldId : null}
-                attachedFieldIds={isPicking ? attachedFieldIds : []}
-                onSelectField={(fieldId) => {
-                  if (!isPicking) return;
-                  setSelectedFieldId(fieldId);
-                  // The demo page's version of what a pick does on a real one:
-                  // go to the field. Kept in step deliberately, since this is
-                  // the copy the design is reviewed against.
-                  onPicked();
-                }}
-                isSelectMode={isPicking}
-              />
-            ))}
-        </div>
-      </CanvasWindow>
-
-      {/*
-       * Leaving the canvas, said as well as drawn.
-       *
-       * An X in the corner of a pane is ambiguous — it could close the page,
-       * the studio, or the thing the page is showing — and this one does
-       * something worth being sure about, so where the canvas is a region
-       * beside the editor the word is there beside the icon.
-       *
-       * Not on a phone. There the canvas is one of three modes, and the way out
-       * of all three is one X on the strip that switches between them — a
-       * second one inside the page's own corner would be a way out that exists
-       * in one mode and not the others, which is the sort of "sometimes" this
-       * screen is meant to be rid of.
-       */}
-      {!isPhone && (
-        <button
-          type="button"
-          aria-label="Exit Preview"
-          onClick={onCloseCanvas}
-          className={cn(
-            "absolute top-3 right-3 inline-flex h-8 items-center gap-1.5 rounded-md pl-2.5 pr-3",
-            "border border-border-float bg-bg-float text-fg-secondary shadow-lg",
-            "hover:text-fg-primary",
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      {(routeBar || !isPhone) && (
+        <div className="flex shrink-0 items-center gap-2">
+          {routeBar}
+          {/*
+           * Leaving the canvas, said as well as drawn.
+           *
+           * An X on its own is ambiguous — it could close the page, the studio,
+           * or the thing the page is showing — and this one does something
+           * worth being sure about, so where the canvas is a region beside the
+           * editor the word is there beside the icon.
+           *
+           * Not on a phone. There the canvas is one of three modes, and the way
+           * out of all three is one X on the strip that switches between them —
+           * a second one here would be a way out that exists in one mode and
+           * not the others, which is the sort of "sometimes" this screen is
+           * meant to be rid of.
+           */}
+          {!isPhone && (
+            <button
+              type="button"
+              aria-label="Exit Preview"
+              onClick={onCloseCanvas}
+              className={cn(
+                "ml-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md pl-2.5 pr-3",
+                "border border-border-float bg-bg-float text-fg-secondary",
+                "hover:text-fg-primary",
+              )}
+            >
+              <X size={15} />
+              <span className="text-xs font-medium">Exit Preview</span>
+            </button>
           )}
-        >
-          <X size={15} />
-          <span className="text-xs font-medium">Exit Preview</span>
-        </button>
+        </div>
       )}
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border-float bg-bg-float-raised">
+        <CanvasWindow
+          ref={canvasWindowRef}
+          pageWidth={pageWidth}
+          scale={scale}
+          onScaleChange={setScale}
+          autoFit={autoFit}
+          onUserZoom={onUserZoom}
+          initialScroll={
+            initialTransform && { x: initialTransform.x, y: initialTransform.y }
+          }
+          onScrollChange={onScrollChange}
+          className="h-full"
+        >
+          <div className="shadow-2xl" onClick={() => setSelectedFieldId(null)}>
+            {renderCanvas?.({
+              device,
+              width: pageWidth,
+              height: CANVAS_DEVICE_HEIGHTS[device],
+              reloadKey,
+              isPicking,
+              onRequestReload: reload,
+              onRefreshingChange: setIsRefreshing,
+              onPinch,
+              onZoom: (factor, center) => zoomByUser(factor, center),
+              onPicked,
+            }) ??
+              (page && (
+                <CanvasPage
+                  page={page}
+                  device={device}
+                  selectedFieldId={isPicking ? selectedFieldId : null}
+                  attachedFieldIds={isPicking ? attachedFieldIds : []}
+                  onSelectField={(fieldId) => {
+                    if (!isPicking) return;
+                    setSelectedFieldId(fieldId);
+                    // The demo page's version of what a pick does on a real one:
+                    // go to the field. Kept in step deliberately, since this is
+                    // the copy the design is reviewed against.
+                    onPicked();
+                  }}
+                  isSelectMode={isPicking}
+                />
+              ))}
+          </div>
+        </CanvasWindow>
+      </div>
 
-      <CanvasToolbar
-        className="absolute bottom-3 left-1/2 -translate-x-1/2"
-        device={device}
-        onDeviceChange={setDevice}
-        scale={scale}
-        onZoomIn={() => zoomByUser(ZOOM_STEP, null)}
-        onZoomOut={() => zoomByUser(1 / ZOOM_STEP, null)}
-        onFit={() => setAutoFit(true)}
-        // Only where there is something to select. The demo page reports no
-        // paths, so a click on it has nothing to open.
-        isPicking={isPicking}
-        onPickingChange={fieldCount > 0 ? setIsPicking : undefined}
-        isRefreshing={isRefreshing}
-        // Only where reloading means something. The demo page renders from
-        // data that is already live, so it has nothing to fetch again.
-        onReload={renderCanvas && reload}
-      />
+      <div className="flex shrink-0 justify-center">
+        <CanvasToolbar
+          className="max-w-full"
+          device={device}
+          onDeviceChange={setDevice}
+          scale={scale}
+          onZoomIn={() => zoomByUser(ZOOM_STEP, null)}
+          onZoomOut={() => zoomByUser(1 / ZOOM_STEP, null)}
+          onFit={() => setAutoFit(true)}
+          // Only where there is something to select. The demo page reports no
+          // paths, so a click on it has nothing to open.
+          isPicking={isPicking}
+          onPickingChange={fieldCount > 0 ? setIsPicking : undefined}
+          isRefreshing={isRefreshing}
+          // Only where reloading means something. The demo page renders from
+          // data that is already live, so it has nothing to fetch again.
+          onReload={renderCanvas && reload}
+        />
+      </div>
     </div>
   );
 
@@ -944,8 +976,8 @@ export function PageWorkspace({
             <MobileModeToggle
               mode={mobileMode}
               onChange={setMobileMode}
-              // Absent means the page reported no fields, and the switch then
-              // offers Normal and Preview rather than a dead third option.
+              // Held back until there is one, so the tab does not read
+              // "Fields 0" at a page that has not answered yet.
               fieldCount={fieldCount > 0 ? fieldCount : undefined}
               animate={!reducedMotion}
             />
@@ -1027,6 +1059,61 @@ export function PageWorkspace({
       >
         {canvasPane}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The fields view before the page has said what is on it.
+ *
+ * Almost always one thing: preview mode is off. Without that cookie the page
+ * mounts none of Val's client code, so nothing tags its content and nothing
+ * reports back — and the canvas says so, with the button that fixes it, because
+ * the canvas is the thing holding the page.
+ *
+ * This used to be no tab at all. The switch appeared only once there was a list
+ * to show, so the one state where someone needs to be told something was the
+ * state with nothing to click, and the fields view read as a feature that comes
+ * and goes. Saying it here costs a tab that is occasionally empty and buys an
+ * answer to "where did Fields go".
+ *
+ * It does not claim preview mode IS off, because it cannot see: a page in
+ * preview mode with no Val content on it reports nothing either, and telling
+ * someone to turn on something already on is its own dead end.
+ */
+function FieldsAwaitingPage({
+  onGoToPreview,
+}: {
+  /** Absent where the page is already on screen beside this column. */
+  onGoToPreview?: () => void;
+}) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 rounded-xl border border-border-float bg-bg-float px-6 text-center">
+      <ListTree size={20} className="text-fg-secondary-alt" />
+      <div className="space-y-1.5">
+        <h2 className="text-[0.8125rem] font-medium text-fg-primary">
+          Nothing reported yet
+        </h2>
+        <p className="text-[0.6875rem] leading-relaxed text-fg-secondary-alt">
+          This page has not told Val what is on it. Turn on preview mode in the
+          Preview — until it is on, the page mounts none of Val's client code
+          and tags nothing.
+        </p>
+      </div>
+      {onGoToPreview && (
+        <button
+          type="button"
+          onClick={onGoToPreview}
+          className={cn(
+            "inline-flex h-8 items-center gap-1.5 rounded-md px-3",
+            "border border-border-float bg-bg-float-raised text-xs font-medium",
+            "text-fg-secondary hover:text-fg-primary",
+          )}
+        >
+          <Eye size={13} />
+          Go to Preview
+        </button>
+      )}
     </div>
   );
 }
@@ -1287,27 +1374,13 @@ function MobileModeToggle({
 }: {
   mode: MobileMode;
   onChange: (mode: MobileMode) => void;
-  /** How many fields the page reported. Absent hides the Fields option. */
+  /** How many fields the page reported. Absent shows Fields with no count. */
   fieldCount?: number;
   animate: boolean;
 }) {
-  // Its own annotated binding rather than a spread inside the array below: an
-  // array literal in a conditional gets no contextual type, so `"fields"` there
-  // would widen to `string` and stop being a `MobileMode` at all.
-  const fieldsOption: MobileModeOption[] =
-    fieldCount === undefined
-      ? []
-      : [
-          {
-            value: "fields",
-            label: "Fields",
-            icon: ListTree,
-            badge: fieldCount,
-          },
-        ];
   const options: ReadonlyArray<MobileModeOption> = [
     { value: "normal", label: "Normal", icon: MousePointerSquareDashed },
-    ...fieldsOption,
+    { value: "fields", label: "Fields", icon: ListTree, badge: fieldCount },
     { value: "preview", label: "Preview", icon: Eye },
   ];
   return (

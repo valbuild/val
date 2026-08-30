@@ -20,9 +20,7 @@ const HOME = "/val/~/app/page.val.ts?p=%22%2F%22";
  * A field on the home page, named in full.
  *
  * In full because the page has three whose path ends in `."text"` — the hero's
- * link text and the video's caption are the others — and because this one is far
- * enough down the page to be clear of the address bar floating over the top of
- * the canvas pane, which swallows a click aimed underneath it.
+ * link text and the video's caption are the others.
  */
 const TEXT_FIELD = '/app/page.val.ts?p="/"."text"';
 
