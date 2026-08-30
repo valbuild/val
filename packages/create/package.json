@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/create",
-  "version": "0.93.0",
+  "version": "0.108.0",
   "description": "Create a new Val project with Next.js",
   "repository": {
     "type": "git",
@@ -24,14 +24,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "degit": "^2.8.4",
-    "@inquirer/prompts": "^3.0.2",
-    "chalk": "^4.1.2"
+    "degit": "^3.8.0",
+    "@inquirer/prompts": "^8.7.0",
+    "chalk": "^6.0.0"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.0.0",
-    "tsx": "^4.0.0"
+    "@types/node": "^26.4.0",
+    "typescript": "^6.0.3",
+    "tsx": "^4.23.12"
   },
   "keywords": [
     "val",
@@ -48,6 +48,6 @@
     ]
   },
   "engines": {
-    "node": ">=18.17.0"
+    "node": "^22.13.0 || >=23.5.0"
   }
 }

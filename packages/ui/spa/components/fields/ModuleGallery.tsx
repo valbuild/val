@@ -27,24 +27,37 @@ import {
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { getRefParts } from "../../utils/getFilenameFromRef";
-import { ValidationErrors } from "../ValidationError";
 import { FieldLoading } from "../FieldLoading";
 import { Progress } from "../designSystem/progress";
 import { FileGallery } from "../FileGallery/FileGallery";
 import type { GalleryFile } from "../FileGallery/types";
 import { readImage, readImageFromFile } from "../../utils/readImage";
+import type { ReadImageEncode } from "../../utils/readImage";
+import { resolveEncodeSettings } from "../../utils/encodeImage";
 import { readFile, readFileFromFile } from "../../utils/readFile";
 import { getFileExt } from "../../utils/getFileExt";
 import { refToUrl } from "../MediaPicker/refToUrl";
+import { useUploadRequest } from "../UploadRequest";
 
 const textEncoder = new TextEncoder();
 
 export function ModuleGallery({
   path,
   showChildPath: showChild,
+  readonly,
 }: {
   path: SourcePath;
   showChildPath?: SourcePath;
+  /**
+   * `s.images().readonly()` — look, do not touch.
+   *
+   * The gallery had no notion of it at all, so a readonly module still offered
+   * upload, delete and alt text, and every one of them wrote a patch. The three
+   * handlers are simply withheld: `FileGallery` already hides an action it was
+   * given no handler for, which is better than a disabled button that invites a
+   * click and then explains itself.
+   */
+  readonly?: boolean;
 }) {
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   const source = useSourceAtPath(path);
@@ -61,6 +74,15 @@ export function ModuleGallery({
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
 
   const inputRef = React.useRef<HTMLInputElement>(null);
+  /**
+   * The Media panel can ask this gallery to open its file dialog.
+   *
+   * The panel knows which gallery you meant; only this component knows how to
+   * upload into one — the ref from the hash and the directory, local or remote,
+   * the metadata entry and the file op as one patch. So the panel asks and this
+   * answers, rather than the upload existing twice.
+   */
+  useUploadRequest(moduleFilePath, () => inputRef.current?.click());
   const dragCounterRef = React.useRef(0);
   const [isDraggingOver, setIsDraggingOver] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
@@ -104,6 +126,18 @@ export function ModuleGallery({
   const imageMode = schema?.mediaType === "images";
   const directory = schema?.directory ?? "/public/val";
   const accept = schema?.accept;
+  /**
+   * A gallery has no field to override it, so the gallery's own option is the
+   * whole answer. Passed to both upload paths: the file input and the drop
+   * loop are separate code, and a fix to one has never reached the other.
+   */
+  const encode = React.useMemo<ReadImageEncode>(
+    () => ({
+      settings: resolveEncodeSettings(undefined, schema?.encode),
+      accept,
+    }),
+    [schema, accept],
+  );
 
   const requireRemote = schema?.remote;
   const remoteData =
@@ -233,7 +267,10 @@ export function ModuleGallery({
       if (!ref) return;
       const patch: Patch = [
         {
-          op: "replace",
+          // "add", not "replace": on an object key the two mean the same thing,
+          // but "add" also works when the key is absent by the time the patch is
+          // applied - e.g. the entry was re-uploaded with fresh metadata.
+          op: "add",
           path: [...patchPath, ref, "alt"],
           value: newAltText,
         },
@@ -341,7 +378,7 @@ export function ModuleGallery({
         return;
       }
       if (imageMode) {
-        readImage(ev)
+        readImage(ev, encode)
           .then(async (res) => {
             if (!res.width || !res.height || !res.mimeType) return;
             const metadata: ImageMetadata = {
@@ -468,6 +505,7 @@ export function ModuleGallery({
       currentRemoteFileBucket,
       schema,
       remoteFiles,
+      encode,
     ],
   );
 
@@ -499,7 +537,7 @@ export function ModuleGallery({
       (async () => {
         for (const file of droppedFiles) {
           if (imageMode) {
-            const res = await readImageFromFile(file).catch(() => null);
+            const res = await readImageFromFile(file, encode).catch(() => null);
             if (!res || !res.width || !res.height || !res.mimeType) continue;
             const metadata: ImageMetadata = {
               width: res.width,
@@ -603,6 +641,7 @@ export function ModuleGallery({
       schema,
       computeRef,
       handleProgress,
+      encode,
     ],
   );
 
@@ -633,7 +672,6 @@ export function ModuleGallery({
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
     >
-      <ValidationErrors path={path} />
       {uploadError && (
         <div className="mb-2 rounded p-3 bg-bg-error-primary text-fg-error-primary text-sm">
           {uploadError}
@@ -659,9 +697,11 @@ export function ModuleGallery({
         files={files}
         parentPath={moduleFilePath}
         imageMode={imageMode}
-        onAltTextChange={imageMode ? handleAltTextChange : undefined}
-        onFileDelete={handleFileDelete}
-        onUploadClick={() => inputRef.current?.click()}
+        onAltTextChange={
+          imageMode && !readonly ? handleAltTextChange : undefined
+        }
+        onFileDelete={readonly ? undefined : handleFileDelete}
+        onUploadClick={readonly ? undefined : () => inputRef.current?.click()}
         uploading={uploading}
         defaultOpenFileRef={showChildRef ?? undefined}
         isDraggingOver={isDraggingOver}

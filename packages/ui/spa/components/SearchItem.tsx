@@ -1,6 +1,6 @@
 import { SourcePath, Internal } from "@valbuild/core";
 import { Globe } from "lucide-react";
-import { PreviewWithRender } from "./PreviewWithRender";
+import { RefPreview } from "./RefPreview";
 import { useSchemaAtPath } from "./ValFieldProvider";
 import { NodeIcon } from "./NodeIcon";
 
@@ -38,7 +38,7 @@ export function SearchItem({
         {ItemIcon}
         <span>{formattedPath}</span>
       </div>
-      <PreviewWithRender path={path} size={size} />
+      <RefPreview path={path} size={size} />
     </div>
   );
 }

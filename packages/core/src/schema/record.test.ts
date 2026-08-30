@@ -15,31 +15,27 @@ describe("RecordSchema", () => {
     });
   });
 
-  test("record: nested renders", () => {
+  test("record: nested previews", () => {
     const schema = record(
       object({
         title: string(),
         bar: record(
           object({
             baz: string().nullable(),
-          }),
-        ).render({
-          as: "list",
-          select: ({ val }) => {
+          }).preview(({ val }) => {
             return {
               title: val.baz || "No baz",
             };
-          },
+          }),
+        ),
+      })
+        .nullable()
+        .preview(({ val }) => {
+          return {
+            title: val.title || "No item",
+          };
         }),
-      }).nullable(),
-    ).render({
-      as: "list",
-      select: ({ val }) => {
-        return {
-          title: val?.title || "No item",
-        };
-      },
-    });
+    );
     const src = {
       "upper-key": {
         title: "test",
@@ -51,12 +47,11 @@ describe("RecordSchema", () => {
       },
       "nullable-key": null,
     };
-    const res = schema["executeRender"]("/test.val.ts" as SourcePath, src);
+    const res = schema["executePreview"]("/test.val.ts" as SourcePath, src);
     expect(res).toStrictEqual({
       '/test.val.ts?p="upper-key"."bar"': {
         status: "success",
         data: {
-          layout: "list",
           parent: "record",
           items: [
             ["test1", { title: "baz", subtitle: undefined, image: undefined }],
@@ -66,20 +61,78 @@ describe("RecordSchema", () => {
       "/test.val.ts": {
         status: "success",
         data: {
-          layout: "list",
           parent: "record",
+          // The null entry is skipped, not previewed: an item preview closure
+          // receives NonNullable values.
           items: [
             [
               "upper-key",
               { title: "test", subtitle: undefined, image: undefined },
             ],
-            [
-              "nullable-key",
-              { title: "No item", subtitle: undefined, image: undefined },
-            ],
           ],
         },
       },
+    });
+  });
+
+  test("preview: a partially loaded .jsonValues() record previews its loaded keys", () => {
+    // Un-loaded entries are opaque `{_type:"json"}` markers. They must be skipped
+    // rather than fed to the user's closure — and the result must still cover the
+    // keys that ARE loaded, which is what makes a windowed list work: the caller
+    // shows a placeholder for the keys missing from `items`.
+    const schema = record(
+      object({ title: string() }).preview(({ val }) => ({ title: val.title })),
+    ).jsonValues();
+    const res = schema["executePreview"](
+      "/test.val.ts" as SourcePath,
+      {
+        loaded: { title: "Loaded" },
+        unloaded: { _type: "json" },
+      } as never,
+    );
+
+    expect(res["/test.val.ts" as SourcePath]).toStrictEqual({
+      status: "success",
+      data: {
+        parent: "record",
+        items: [
+          [
+            "loaded",
+            { title: "Loaded", subtitle: undefined, image: undefined },
+          ],
+        ],
+      },
+    });
+  });
+
+  test("preview: one key whose closure throws is one error, not a dead preview", () => {
+    const schema = record(
+      object({ title: string() }).preview(({ val }) => {
+        if (val.title === "boom") {
+          throw new Error("user select blew up");
+        }
+        return { title: val.title };
+      }),
+    );
+    const res = schema["executePreview"]("/test.val.ts" as SourcePath, {
+      ok: { title: "fine" },
+      bad: { title: "boom" },
+    });
+
+    // The record still previews, with the surviving key...
+    expect(res["/test.val.ts" as SourcePath]).toStrictEqual({
+      status: "success",
+      data: {
+        parent: "record",
+        items: [
+          ["ok", { title: "fine", subtitle: undefined, image: undefined }],
+        ],
+      },
+    });
+    // ...and the failure is reported at the key that caused it.
+    expect(res['/test.val.ts?p="bad"' as SourcePath]).toStrictEqual({
+      status: "error",
+      message: "user select blew up",
     });
   });
 
@@ -542,5 +595,47 @@ describe("RecordSchema", () => {
       expect(reserialized.item.type).toBe(serialized.item.type);
       expect(reserialized.key?.type).toBe(serialized.key?.type);
     }
+  });
+  test("record: preview is kept when chaining after preview", () => {
+    const base = record(
+      object({ name: string() }).preview(({ val }) => ({
+        title: val.name,
+      })),
+    );
+    const src = { ada: { name: "Ada" } };
+    const expected = {
+      "/test.val.ts": {
+        status: "success",
+        data: {
+          parent: "record",
+          items: [
+            ["ada", { title: "Ada", subtitle: undefined, image: undefined }],
+          ],
+        },
+      },
+    };
+    for (const schema of [
+      base,
+      base.nullable(),
+      base.readonly(),
+      base.hidden(),
+      base.describe("Some description"),
+      base.validate(() => false),
+      base.router(nextAppRouter),
+    ]) {
+      expect(
+        schema["executePreview"]("/test.val.ts" as SourcePath, src),
+      ).toEqual(expected);
+    }
+  });
+
+  test("record: preview does not mutate the schema it was called on", () => {
+    const item = object({ name: string() });
+    item.preview(({ val }) => ({ title: val.name }));
+    expect(
+      record(item)["executePreview"]("/test.val.ts" as SourcePath, {
+        ada: { name: "Ada" },
+      }),
+    ).toEqual({});
   });
 });

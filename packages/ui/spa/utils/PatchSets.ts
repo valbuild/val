@@ -226,15 +226,14 @@ export class PatchSets {
     if (this.insertedPatches.has(patchId)) {
       return;
     }
-    // Only marked as inserted once we had a schema to place it with. Without one
-    // every op falls back to the whole module as a single patch set, and marking it
-    // would make that fallback permanent: `ValSyncEngine` re-inserts a patch only
-    // while `isInserted` is false, so this is what lets it try again with the real
-    // schema. A module-wide patch set would otherwise make every pending change in
-    // that file one inseparable staging unit, forever.
-    if (schema) {
-      this.insertedPatches.add(patchId);
-    }
+    // Marked inserted unconditionally, schema or not. An earlier revision of this
+    // fix only marked it once a schema was available, so that a patch grouped
+    // under the whole-module fallback could be re-inserted later with the real
+    // schema. That is no longer this class's problem: `PatchSetChain` invalidates
+    // on `schema:init` and a rebuild calls `reset()`, which clears this set — so
+    // the fallback is already re-derived from scratch when the schema lands, and a
+    // conditional here would only leave the per-patch de-duplication half-applied.
+    this.insertedPatches.add(patchId);
     for (const op of patch) {
       this.insertOp(moduleFilePath, schema, op, patchId, createdAt, author);
     }

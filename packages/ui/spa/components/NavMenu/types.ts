@@ -2,6 +2,20 @@ import { SourcePath, ModuleFilePath } from "@valbuild/core";
 import { RoutePattern } from "@valbuild/shared/internal";
 
 /**
+ * Validation error summary for a single nav menu row.
+ *
+ * `ownCount` is the number of errors that resolve directly to this row (a
+ * file's own errors, or a sitemap entry's nested errors). Descendant counts
+ * are computed at render time by recursing the tree.
+ */
+export type NavItemErrors = {
+  /** Errors that resolve directly to this item (not descendants). */
+  ownCount: number;
+  /** First error's user-facing message — used in tooltips. */
+  firstMessage?: string;
+};
+
+/**
  * Represents a page or folder in the site map tree.
  * Used for Next.js app router pages.
  */
@@ -20,6 +34,10 @@ export type SitemapItem = {
   routePattern?: RoutePattern[];
   /** Existing children keys (for validation in add form) */
   existingKeys?: string[];
+  /** Validation errors attributable to this row (not descendants). */
+  errors?: NavItemErrors;
+  /** Description of the router key schema (shown in the add page form) */
+  keyDescription?: string;
   /** Child pages/folders */
   children: SitemapItem[];
   /** Whether this item or any descendant has validation errors */
@@ -39,8 +57,31 @@ export type ExplorerItem = {
   isDirectory: boolean;
   /** Child items */
   children: ExplorerItem[];
-  /** Whether this item or any descendant has validation errors */
+  /** Validation errors attributable to this file (not descendants). */
+  errors?: NavItemErrors;
+  /**
+   * @deprecated Set `errors` instead. Retained so callers that constructed
+   * mock data with just `hasError: true` keep working.
+   */
   hasError?: boolean;
+};
+
+/**
+ * A gallery module - `s.images()` or `s.files()` - shown under Media.
+ *
+ * These are records keyed by file path with a `mediaType` marker, so the useful
+ * unit in the nav menu is the DIRECTORY they are constrained to rather than the
+ * module file. Selecting one opens the module, which renders the gallery.
+ */
+export type MediaModule = {
+  /** Module file path of the gallery module. */
+  moduleFilePath: ModuleFilePath;
+  /** The directory the gallery is constrained to, e.g. `/public/val/images`. */
+  directory: string;
+  /** Whether this gallery holds images or arbitrary files. */
+  mediaType: "files" | "images";
+  /** Validation errors attributable to this module. */
+  errors?: NavItemErrors;
 };
 
 /**
@@ -57,12 +98,25 @@ export type ExternalModule = {
  * Combined navigation menu data.
  */
 export type NavMenuData = {
+  /**
+   * Whether the project declares any `s.router` module at all.
+   *
+   * Not the same as `sitemap` being present: a router with no entries yet, or
+   * one whose source folder has not resolved, has no tree to show but is still
+   * a project that has pages. The distinction matters because the shell hides
+   * the Pages destination entirely when a project has no routes — a site map
+   * for a project that is only content files is an empty room — and hiding it
+   * for a project that merely has not created its first page would be wrong.
+   */
+  hasRouters: boolean;
   /** Site map data (if next-app-router exists) */
   sitemap?: SitemapItem;
   /** Explorer data (if there are non-router val files) */
   explorer?: ExplorerItem;
   /** External module (if external-url-router exists) */
   external?: ExternalModule;
+  /** `s.images()` / `s.files()` gallery modules, shown under Media. */
+  media?: MediaModule[];
 };
 
 /**

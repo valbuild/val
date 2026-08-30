@@ -1,10 +1,10 @@
 import { s, c, type t } from "../val.config";
 import mediaVal from "./media.val";
 
-export const schema = s
-  .record(
-    s.string().describe("Unique identifier for the author"),
-    s.object({
+export const schema = s.record(
+  s.string().describe("Unique identifier for the author"),
+  s
+    .object({
       name: s.string().minLength(2),
       birthdate: s
         .date()
@@ -14,15 +14,16 @@ export const schema = s
         .describe("Author's birthdate"),
       joinedAt: s.datetime().nullable(),
       image: s.image(mediaVal).nullable(),
-    }),
-  )
-  .render({
-    as: "list",
-    select: ({ val }) => ({
+    })
+    // The preview lives on the AUTHOR (the value being previewed), so it is
+    // used everywhere an author shows up: the record's rows, a keyOf dropdown,
+    // search. See architecture/render-and-preview.md.
+    .preview(({ val }) => ({
       title: val.name,
       subtitle: val.birthdate,
-    }),
-  });
+      image: val.image,
+    })),
+);
 
 export type Author = t.inferSchema<typeof schema>;
 export default c.define("/content/authors.val.ts", schema, {

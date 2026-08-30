@@ -1,4 +1,5 @@
 "use client";
+import { ValRichText } from "@valbuild/next";
 import { notFound } from "next/navigation";
 import { useValRoute } from "../../../val/client";
 import pageVal from "./page.val";
@@ -6,7 +7,7 @@ import pageVal from "./page.val";
 export default function GenericPage({
   params,
 }: {
-  params: { path: string[] };
+  params: Promise<{ path: string[] }>;
 }) {
   const content = useValRoute(pageVal, params);
   if (!content) {
@@ -15,8 +16,13 @@ export default function GenericPage({
   return (
     <main>
       <h1>{content.title}</h1>
-      <p>{content.content}</p>
-      <pre>{content.exampleCode}</pre>
+      {content.sections.map((section, index) =>
+        section.type === "text" ? (
+          <ValRichText key={index} content={section.text} />
+        ) : (
+          <pre key={index}>{section.code}</pre>
+        ),
+      )}
     </main>
   );
 }

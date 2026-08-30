@@ -11,6 +11,20 @@ module.exports = {
         md: "1000px",
       },
     },
+    /**
+     * The layering scale, smallest to largest.
+     *
+     * `hover` is a highlight over content, `window` is anything floating that
+     * belongs to the content (an editor toolbar, a link popover), `full` is the
+     * app's own chrome (the rail, the bars, the floating panels), and `overlay`
+     * is a modal that deliberately covers all of it.
+     *
+     * Use a name. `5` and `50` are here for the vendored design-system
+     * primitives — dialogs, dropdowns, tooltips — which ship with `z-50` and are
+     * modal layers in their own right. Anything else reaching for a raw number
+     * beats the whole scale: `z-50` on the rich text toolbar put it over the
+     * shell's Pages panel, and `z-[60]` on a node view put it over that.
+     */
     zIndex: {
       5: 5,
       50: 50,
@@ -24,6 +38,12 @@ module.exports = {
       serif: ["Space Grotesk", "sans-serif"],
     },
     extend: {
+      screens: {
+        // The floating shell layout switches to its full desktop chrome
+        // (permanent left rail) at 1200px, which sits between Tailwind's
+        // `lg` (1024px) and `xl` (1280px).
+        desktop: "1200px",
+      },
       colors: {
         "bg-selection": "var(--bg-selection)",
         "text-selection": "var(--text-selection)",
@@ -71,6 +91,15 @@ module.exports = {
         "border-error-secondary": "var(--border-error-secondary)",
         "bg-disabled": "var(--bg-disabled)",
         "fg-disabled": "var(--fg-disabled)",
+        "fg-error-on-surface": "var(--fg-error-on-surface)",
+        "bg-page-selection": "var(--bg-page-selection)",
+        "bg-page-selection-fill": "var(--bg-page-selection-fill)",
+        "bg-page-selection-soft": "var(--bg-page-selection-soft)",
+        "bg-canvas": "var(--bg-canvas)",
+        "bg-surface": "var(--bg-surface)",
+        "bg-float": "var(--bg-float)",
+        "bg-float-raised": "var(--bg-float-raised)",
+        "border-float": "var(--border-float)",
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
           foreground: "hsl(var(--sidebar-foreground))",

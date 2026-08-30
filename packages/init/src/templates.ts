@@ -215,7 +215,7 @@ export const testSchema = s.object({
    * @docs https://val.build/docs/images
    *
    * When defining content use the following syntax:
-   * @example c.image('/public/myimage.png') // path to the image file, use the VS Code plugin or the \`@valbuild/cli validate --fix\` command to add metadata
+   * @example { path: '/public/myimage.png' } // the VS Code plugin fills in width, height and mimeType as you type the path; \`@valbuild/cli validate --fix\` adds them too
    *
    * @see ValImage component to see how to render this in your app
    */

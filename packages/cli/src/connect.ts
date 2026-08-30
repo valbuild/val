@@ -1,7 +1,7 @@
 import pc from "picocolors";
 import fs from "fs";
 import path from "path";
-import { evalValConfigFile } from "./utils/evalValConfigFile";
+import { findAndEvalValConfigFile } from "./utils/evalValConfigFile";
 
 const host = process.env.VAL_BUILD_URL || "https://admin.val.build";
 
@@ -39,9 +39,7 @@ async function tryGetProject(projectRoot: string): Promise<{
   orgName: string;
   projectName: string;
 } | null> {
-  const valConfigFile =
-    (await evalValConfigFile(projectRoot, "val.config.ts")) ||
-    (await evalValConfigFile(projectRoot, "val.config.js"));
+  const valConfigFile = await findAndEvalValConfigFile(projectRoot);
 
   if (valConfigFile && valConfigFile.project) {
     const parts = valConfigFile.project.split("/");

@@ -1,13 +1,21 @@
 {
   "compilerOptions": {
     "esModuleInterop": true,
+    // Declared, not auto-discovered: TypeScript 6 no longer includes every
+    // @types package it can find, so leaving this unset loses the node and
+    // jest globals. The packages are still resolved through the default
+    // typeRoots walk up to the workspace root.
+    "types": ["node", "jest"],
     "strict": true,
     "allowJs": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
     "lib": ["es2020", "dom"],
     "module": "esnext",
-    "moduleResolution": "node",
+    // `bundler`, not `node`: TypeScript 6 deprecates the node10 resolver and
+    // TypeScript 7 removes it. `bundler` reads `exports` maps and, unlike
+    // node16/nodenext, does not require extensions on relative imports.
+    "moduleResolution": "bundler",
     "noEmit": true,
     "target": "ES2017",
     "outDir": "dist",

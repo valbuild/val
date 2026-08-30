@@ -13,15 +13,12 @@ import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchEr
 import type { Patch, ReadonlyJSONValue } from "@valbuild/core/patch";
 import { deepEqual, JSONValue } from "@valbuild/core/patch";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { ValidationErrors } from "../../components/ValidationError";
 import {
   ShallowSource,
-  useAddPatch,
-  useFieldCreatorId,
-  useSchemaAtPath,
-  useSchemas,
+  useModuleSchema,
   useShallowSourceAtPath,
   useValConfig,
+  useValField,
 } from "../ValFieldProvider";
 import {
   useCurrentRemoteFileBucket,
@@ -33,6 +30,8 @@ import { useRichTextEditorConfig } from "../RichTextEditor/useRichTextEditorConf
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useValPortal } from "../ValPortalProvider";
 import { readImageFromFile } from "../../utils/readImage";
+import type { ReadImageEncode } from "../../utils/readImage";
+import { resolveEncodeSettings } from "../../utils/encodeImage";
 import { createFilePatch } from "./FileField";
 
 const DEBOUNCE_MS = 400;
@@ -47,13 +46,17 @@ export function RichTextField({
   compact?: boolean; // TODO: implement compact
 }) {
   const type = "richtext";
-  const creatorId = useFieldCreatorId();
   const config = useValConfig();
   const remoteFiles = useRemoteFiles();
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
-  const schemas = useSchemas();
-  const schemaAtPath = useSchemaAtPath(path);
-  const sourceAtPath = useShallowSourceAtPath(path, type, creatorId);
+  const {
+    source: sourceAtPath,
+    schema: schemaAtPath,
+    patchPath,
+    addPatch,
+    addAndUploadPatchWithFileOps,
+    addModuleFilePatch,
+  } = useValField(path, type);
   const currentSourceData =
     "data" in sourceAtPath
       ? (sourceAtPath.data as RichTextSource<AllRichTextOptions>)
@@ -66,32 +69,64 @@ export function RichTextField({
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const disabledRef = useRef(false);
   const suppressNextDirtyRef = useRef(false);
+  /**
+   * Typed, but not yet turned into a patch.
+   *
+   * True from a keystroke until the debounced patch is added. See the sync
+   * effect below: this is the difference between "the server disagrees with me
+   * because someone else edited" and "the server disagrees with me because I am
+   * still typing".
+   */
+  const hasUnsentEditRef = useRef(false);
+  /**
+   * The document as of the last keystroke, captured eagerly.
+   *
+   * Read by the unmount flush below, which cannot ask the editor for it — by
+   * then the editor may already be gone.
+   */
+  const pendingDocRef = useRef<EditorDocument | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-
-  const {
-    patchPath,
-    addPatch,
-    addAndUploadPatchWithFileOps,
-    addModuleFilePatch,
-  } = useAddPatch(path, creatorId);
 
   const maybeClientSideOnly =
     "clientSideOnly" in sourceAtPath && sourceAtPath.clientSideOnly;
 
+  /**
+   * Take the server's document only when the change came from somewhere else.
+   *
+   * The editor is uncontrolled — it owns its document and reports changes
+   * through `onDirty` — so a `reset` is not a re-render, it is throwing your
+   * text away and putting someone else's in its place. Which is right when
+   * someone else wrote it, and a bug when you did.
+   *
+   * `clientSideOnly` alone was not enough to tell those apart. It answers "does
+   * this field have an unsaved patch", and there is a 400ms window on every
+   * keystroke where the answer is no and the editor is still ahead of the
+   * server: the previous patch has saved, and the next one has not been made
+   * yet. A source update landing in that window compared unequal and reset the
+   * editor to the last saved document — which is the jumping caret and the
+   * letters coming back after being deleted.
+   *
+   * So the debounce is part of the question. `hasUnsentEdit` is true from the
+   * keystroke until its patch is actually added, and while it is true nothing
+   * from outside is allowed to overwrite what is being typed. A foreign change
+   * arriving mid-word is not lost — it lands on the next update, once the
+   * typing has settled — and losing your own sentence is much worse than seeing
+   * someone else's a second late.
+   */
   useEffect(() => {
-    if (maybeClientSideOnly === false && currentSourceData) {
-      const serverDoc = currentSourceData as unknown as EditorDocument;
-      const currentDoc = editorRef.current?.getDocument();
-      if (
-        currentDoc &&
-        !deepEqual(
-          currentDoc as unknown as ReadonlyJSONValue,
-          serverDoc as unknown as ReadonlyJSONValue,
-        )
-      ) {
-        editorRef.current?.reset(serverDoc);
-        sourceRef.current = serverDoc;
-      }
+    if (maybeClientSideOnly !== false || !currentSourceData) return;
+    if (hasUnsentEditRef.current) return;
+    const serverDoc = currentSourceData as unknown as EditorDocument;
+    const currentDoc = editorRef.current?.getDocument();
+    if (
+      currentDoc &&
+      !deepEqual(
+        currentDoc as unknown as ReadonlyJSONValue,
+        serverDoc as unknown as ReadonlyJSONValue,
+      )
+    ) {
+      editorRef.current?.reset(serverDoc);
+      sourceRef.current = serverDoc;
     }
   }, [currentSourceData, maybeClientSideOnly]);
 
@@ -106,26 +141,49 @@ export function RichTextField({
 
   const hasImageEnabled = !!schemaOptions?.inline?.img;
 
-  const imageReferencedModule = imageSchema?.referencedModule;
+  const imageReferencedModule = imageSchema?.referencedModule as
+    | ModuleFilePath
+    | undefined;
+  /**
+   * The GALLERY's schema, not the project's.
+   *
+   * This used to read `useSchemas()` — every schema in the project, woken by
+   * every schema change — to look up one module and take two fields off it.
+   * `useSchemas` is a whole-project subscription and this component is mounted
+   * once per rich text field.
+   */
+  const imageModuleSchema = useModuleSchema(imageReferencedModule);
   const imageAcceptOptions = useMemo(() => {
     if (!hasImageEnabled) return undefined;
     if (imageSchema?.options?.accept) return imageSchema.options.accept;
-    if (imageReferencedModule && schemas.status === "success") {
-      const moduleSchema =
-        schemas.data[imageReferencedModule as ModuleFilePath];
-      if (moduleSchema?.type === "record" && moduleSchema.accept) {
-        return moduleSchema.accept;
-      }
+    if (imageModuleSchema?.type === "record" && imageModuleSchema.accept) {
+      return imageModuleSchema.accept;
     }
     return undefined;
-  }, [hasImageEnabled, imageSchema, imageReferencedModule, schemas]);
+  }, [hasImageEnabled, imageSchema, imageModuleSchema]);
 
-  const imageModuleDirectory = useMemo(() => {
-    if (!imageReferencedModule || schemas.status !== "success")
-      return undefined;
-    const moduleSchema = schemas.data[imageReferencedModule as ModuleFilePath];
-    return moduleSchema?.type === "record" ? moduleSchema.directory : undefined;
-  }, [imageReferencedModule, schemas]);
+  const imageModuleDirectory = useMemo(
+    () =>
+      imageModuleSchema?.type === "record"
+        ? imageModuleSchema.directory
+        : undefined,
+    [imageModuleSchema],
+  );
+
+  /** Resolved the same way as `imageAcceptOptions`: the nested schema, then the gallery. */
+  const imageEncode = useMemo<ReadImageEncode>(() => {
+    const galleryEncode =
+      imageModuleSchema?.type === "record"
+        ? imageModuleSchema.encode
+        : undefined;
+    return {
+      settings: resolveEncodeSettings(
+        imageSchema?.options?.encode,
+        galleryEncode,
+      ),
+      accept: imageAcceptOptions,
+    };
+  }, [imageSchema, imageModuleSchema, imageAcceptOptions]);
 
   const imageRemoteData = useMemo(() => {
     if (
@@ -168,7 +226,7 @@ export function RichTextField({
       ) => string[] | null,
     ): Promise<{ filePath: string; ref: string } | null> => {
       try {
-        const res = await readImageFromFile(file);
+        const res = await readImageFromFile(file, imageEncode);
 
         let metadata: ImageMetadata | undefined;
         if (res.width && res.height && res.mimeType) {
@@ -198,8 +256,8 @@ export function RichTextField({
           "value" in patch[0] &&
           typeof patch[0].value === "object" &&
           patch[0].value !== null &&
-          "_ref" in patch[0].value
-            ? (patch[0].value._ref as string)
+          "path" in patch[0].value
+            ? (patch[0].value.path as string)
             : filePath;
 
         const fileOps = patch.filter((op) => op.op === "file");
@@ -216,6 +274,10 @@ export function RichTextField({
           clearTimeout(debounceTimerRef.current);
           debounceTimerRef.current = null;
         }
+        // This path patches the document itself, below, so the pending keystroke
+        // it just cancelled is accounted for. Leaving the flag set would block
+        // every foreign update from here on.
+        hasUnsentEditRef.current = false;
 
         const doc = editorRef.current?.getDocument();
         if (!doc) return null;
@@ -302,6 +364,7 @@ export function RichTextField({
     imageReferencedModule,
     addAndUploadPatchWithFileOps,
     addModuleFilePatch,
+    imageEncode,
   ]);
 
   const handleDirty = useCallback(() => {
@@ -311,16 +374,57 @@ export function RichTextField({
       return;
     }
 
+    hasUnsentEditRef.current = true;
+    // Captured now, not in the timer: the unmount flush needs a document that
+    // does not depend on the editor still being mounted.
+    pendingDocRef.current = editorRef.current?.getDocument() ?? null;
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
-      const doc = editorRef.current?.getDocument();
-      if (!doc) return;
-
-      const patch = createRichTextPatch(patchPath, doc);
-      sourceRef.current = doc;
-      addPatch(patch, "richtext");
+      debounceTimerRef.current = null;
+      writePendingRef.current();
     }, DEBOUNCE_MS);
-  }, [patchPath, addPatch]);
+  }, []);
+
+  /**
+   * Write whatever was typed, now.
+   *
+   * In a ref because the unmount cleanup below runs after the last render and
+   * must use the current `patchPath` and `addPatch`, not the ones it closed over
+   * when it was attached.
+   */
+  const writePendingRef = useRef<() => void>(() => undefined);
+  writePendingRef.current = () => {
+    const doc = pendingDocRef.current ?? editorRef.current?.getDocument();
+    if (!doc) return;
+    pendingDocRef.current = null;
+    const patch = createRichTextPatch(patchPath, doc);
+    sourceRef.current = doc;
+    addPatch(patch, "richtext");
+    // Cleared only once the patch exists: from here `clientSideOnly` is what
+    // keeps the server's document out until this one has been saved.
+    hasUnsentEditRef.current = false;
+  };
+
+  /**
+   * An edit still inside the debounce window when the field goes away is
+   * WRITTEN, not dropped.
+   *
+   * This used to clear the timer and forget it, which loses the last thing
+   * typed — navigating away, closing the canvas, or switching page mid-sentence
+   * silently threw those characters out. The window is short, so the loss looked
+   * random, which is the worst way for it to look.
+   */
+  useEffect(
+    () => () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+        writePendingRef.current();
+      }
+      hasUnsentEditRef.current = false;
+    },
+    [],
+  );
 
   if (schemaAtPath.status === "error") {
     return (
@@ -364,9 +468,24 @@ export function RichTextField({
   }
   return (
     <div id={path} className="m-1">
-      <ValidationErrors path={path} />
       <RichTextEditor
         ref={editorRef}
+        /**
+         * The document the editor MOUNTS with.
+         *
+         * It used to be given none, so the view was always built empty and the
+         * content arrived afterwards through `reset()` in the sync effect above.
+         * That made the effect load-bearing for the initial paint, and the
+         * effect's deps are the source — so anything that rebuilt the view
+         * without moving source (a toolbar feature settling, a portal container
+         * arriving) left a permanently blank field with nothing to refill it.
+         *
+         * Uncontrolled still: this is read once, at mount. `reset()` remains how
+         * a FOREIGN change lands.
+         */
+        defaultValue={
+          (currentSourceData as unknown as EditorDocument | null) ?? []
+        }
         features={features}
         linkCatalog={linkCatalog}
         readOnly={readonly || disabledRef.current}

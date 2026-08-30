@@ -14,6 +14,7 @@ import { file } from "./schema/file";
 import { files } from "./schema/files";
 import { date } from "./schema/date";
 import { datetime } from "./schema/datetime";
+import { color } from "./schema/color";
 import { route } from "./schema/route";
 import { router } from "./schema/router";
 import { images } from "./schema/images";
@@ -102,19 +103,28 @@ export type InitSchema = {
   /**
    * Define an image.
    *
-   * Use c.image to create an image source.
+   * An image is an object with a `path`. `width`, `height` and `mimeType` are
+   * read from the file — the VS Code extension fills them in as you type the
+   * path, and `npx val validate --fix` adds any that are missing. `alt` and
+   * `hotspot` are yours to set.
    *
    * @example
    * const schema = s.image();
-   * export default c.define("/example.val.ts", schema, c.image("/public/val/example.png", {
-   *  width: 100,
-   *  height: 100,
-   *  mimeType: "image/png",
-   *  hotspot: {
-   *    x: 0.5,
-   *    y: 0.5
-   *  }
-   * }));
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/example.png",
+   *   width: 100,
+   *   height: 100,
+   *   mimeType: "image/png",
+   *   alt: "An example",
+   *   hotspot: { x: 0.5, y: 0.5 },
+   * });
+   *
+   * @example
+   * // Backed by a gallery: width, height and mimeType live there.
+   * const schema = s.image(galleryVal);
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/example.png",
+   * });
    *
    */
   readonly image: typeof image;
@@ -149,11 +159,15 @@ export type InitSchema = {
   /**
    * Define a file.
    *
-   * Use `c.file` to create a file source.
+   * A file is an object with a `path`. `mimeType` comes from the extension —
+   * `npx val validate --fix` adds it.
    *
    * @example
    * const schema = s.file();
-   * export default c.define("/example.val.ts", schema, c.file("/public/val/example.png"));
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/example.pdf",
+   *   mimeType: "application/pdf",
+   * });
    *
    */
   readonly file: typeof file;
@@ -177,6 +191,25 @@ export type InitSchema = {
    *
    */
   readonly datetime: typeof datetime;
+  /**
+   * Define a color.
+   *
+   * Stored as a CSS color string, so it can be used directly in `style`
+   * attributes or set as a CSS custom property.
+   *
+   * The notation is decided by the `format` option, which defaults to `"hsl"`.
+   * Set `alpha: true` to allow transparency.
+   *
+   * @example
+   * const schema = s.color();
+   * export default c.define("/example.val.ts", schema, "hsl(217.22 91.22% 59.8%)");
+   *
+   * @example
+   * const schema = s.color({ format: "hex" });
+   * export default c.define("/example.val.ts", schema, "#3b82f6");
+   *
+   */
+  readonly color: typeof color;
   /**
    * Define a string that references a route path in your application.
    *
@@ -275,6 +308,7 @@ export function initSchema() {
     files,
     date,
     datetime,
+    color,
     route,
     router,
     images,

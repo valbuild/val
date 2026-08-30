@@ -6,7 +6,13 @@ import {
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
-import { ReifiedRender } from "../render";
+import {
+  ItemPreviewInput,
+  PreviewItem,
+  ReifiedPreview,
+  PreviewScope,
+} from "../preview";
+import { FieldRender } from "../render";
 import {
   createValPathOfItem,
   unsafeCreateSourcePath,
@@ -26,6 +32,10 @@ export type SerializedUnionSchema =
   | SerializedObjectUnionSchema;
 export type SerializedStringUnionSchema = {
   type: "union";
+  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
+  render?: FieldRender;
+  /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
+  preview?: true;
   key: SerializedLiteralSchema;
   items: SerializedLiteralSchema[];
   opt: boolean;
@@ -36,6 +46,10 @@ export type SerializedStringUnionSchema = {
 };
 export type SerializedObjectUnionSchema = {
   type: "union";
+  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
+  render?: FieldRender;
+  /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
+  preview?: true;
   key: string;
   items: SerializedObjectSchema[];
   opt: boolean;
@@ -80,6 +94,8 @@ export class UnionSchema<
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -94,6 +110,8 @@ export class UnionSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -489,7 +507,8 @@ export class UnionSchema<
   }
 
   nullable(): UnionSchema<Key, T, Src | null> {
-    return new UnionSchema(
+    // Explicit type args: `previewInput` would otherwise pin inference to `Src`.
+    return new UnionSchema<Key, T, Src | null>(
       this.key,
       this.items,
       true,
@@ -497,6 +516,8 @@ export class UnionSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -509,6 +530,8 @@ export class UnionSchema<
       true,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -521,6 +544,132 @@ export class UnionSchema<
       this.isReadonly,
       true,
       this.description,
+      this.renderInput,
+      this.previewInput,
+    );
+  }
+
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    const errors = this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
+    // A tagged union's variants share the union's path, so `Internal.resolvePath`
+    // stops here and a variant's OWN validator would never be reached. Dispatch
+    // into the variant this value takes — the union is the only node that knows
+    // which one that is.
+    const matched = this.matchedVariant(src);
+    if (matched) {
+      errors.push(
+        ...matched["executeCustomValidateAt"](path, src as SelectorSource),
+      );
+    }
+    return errors;
+  }
+
+  /**
+   * The variant schema a value takes, for a TAGGED union (string `key`). `null`
+   * for a literal union (its variants are leaves with nothing to descend into) or
+   * when the value matches none of them — a structural error `executeValidate`
+   * already reports.
+   */
+  private matchedVariant(src: Src): Schema<SelectorSource> | null {
+    const key = this.key;
+    if (typeof key !== "string" || !Array.isArray(this.items)) {
+      return null;
+    }
+    if (src === null || typeof src !== "object" || Array.isArray(src)) {
+      return null;
+    }
+    const tag = (src as Record<string, unknown>)[key];
+    if (typeof tag !== "string") {
+      return null;
+    }
+    const objectSchemas = this.items as unknown as ObjectSchema<
+      { [key: string]: Schema<SelectorSource> },
+      { [key: string]: SelectorSource }
+    >[];
+    for (const item of objectSchemas) {
+      if (!(item instanceof ObjectSchema)) {
+        continue;
+      }
+      const tagSchema = item["items"][key];
+      if (tagSchema instanceof LiteralSchema && tagSchema["value"] === tag) {
+        return item as unknown as Schema<SelectorSource>;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * How this field is laid out in the editor when it is the item of an array
+   * or record: `{ as: "inline" }` renders the field itself inside each row,
+   * instead of a preview row that navigates to it.
+   *
+   * Static configuration, not a callback — see `render.ts`.
+   */
+  render(input: FieldRender): UnionSchema<Key, T, Src> {
+    return new UnionSchema<Key, T, Src>(
+      this.key,
+      this.items,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      input,
+      this.previewInput,
+    );
+  }
+
+  /**
+   * How this VALUE is shown where a preview of it is needed — a row in a
+   * sortable list, a reference dropdown, a search hit. Never how the field
+   * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * Without one of its own, a tagged union previews as the VARIANT the value
+   * takes — declare `preview` on the member objects and the union dispatches.
+   */
+  preview(select: ItemPreviewInput<Src>): UnionSchema<Key, T, Src> {
+    return new UnionSchema<Key, T, Src>(
+      this.key,
+      this.items,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.renderInput,
+      select,
+    );
+  }
+
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput !== null) {
+      return this.previewInput({ val: src });
+    }
+    // Only the union knows which variant the value takes; the variant's own
+    // `preview` is what it previews as.
+    const matched = this.matchedVariant(src);
+    if (matched) {
+      return matched["executePreviewItem"](src);
+    }
+    return null;
+  }
+
+  protected override declaresItemPreview(): boolean {
+    if (this.previewInput !== null) {
+      return true;
+    }
+    return (
+      Array.isArray(this.items) &&
+      this.items.some((item) => item["declaresItemPreview"]())
     );
   }
 
@@ -528,6 +677,8 @@ export class UnionSchema<
     if (typeof this.key === "string") {
       return {
         type: "union",
+        render: this.renderInput ?? undefined,
+        preview: this.previewInput ? true : undefined,
         key: this.key,
         items: this.items.map((o) => o["executeSerialize"]()),
         opt: this.opt,
@@ -541,6 +692,8 @@ export class UnionSchema<
     }
     return {
       type: "union",
+      render: this.renderInput ?? undefined,
+      preview: this.previewInput ? true : undefined,
       key: this.key["executeSerialize"](),
       items: this.items.map((o) => o["executeSerialize"]()),
       opt: this.opt,
@@ -561,15 +714,18 @@ export class UnionSchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly renderInput: FieldRender | null = null,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
   ) {
     super();
   }
 
-  protected executeRender(
+  protected executePreview(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
-  ): ReifiedRender {
-    const res: ReifiedRender = {};
+    scope?: PreviewScope,
+  ): ReifiedPreview {
+    const res: ReifiedPreview = {};
     if (src === null) {
       return res;
     }
@@ -595,7 +751,7 @@ export class UnionSchema<
         },
       );
       if (thisSchema) {
-        const itemResult = thisSchema["executeRender"](sourcePath, src);
+        const itemResult = thisSchema["executePreview"](sourcePath, src, scope);
         for (const keyS in itemResult) {
           const key = keyS as SourcePath | ModuleFilePath;
           res[key] = itemResult[key];

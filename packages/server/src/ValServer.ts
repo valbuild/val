@@ -10,10 +10,12 @@ import {
   ValConfig,
   Internal,
   FileSource,
-  RemoteSource,
+  MediaSource,
   Schema,
   SelectorSource,
+  hasRemoteFileSchema,
 } from "@valbuild/core";
+import { ReifiedPreview } from "@valbuild/core";
 import {
   Api,
   ParentRef,
@@ -29,6 +31,7 @@ import {
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import { z } from "zod";
 import { ValOpsFS } from "./ValOpsFS";
+import { computePatchesToDrop, DroppedPatch } from "./computePatchesToDrop";
 import {
   AuthorId,
   BaseSha,
@@ -47,8 +50,6 @@ import {
   parsePersonalAccessTokenFile,
 } from "./personalAccessTokens";
 import path from "path";
-import { hasRemoteFileSchema } from "./hasRemoteFileSchema";
-import { ReifiedRender } from "@valbuild/core";
 import { getErrorMessageFromUnknownJson } from "@valbuild/shared/internal";
 
 export type ValServerOptions = {
@@ -904,6 +905,8 @@ export const ValServer = (
           schemaSha: SchemaSha;
           patches: PatchId[];
           profileId?: AuthorId;
+          // FS mode only; http never sends or returns it.
+          jsonEntriesSha?: string;
         } | null);
         if (currentStat.type === "error" && currentStat.networkError) {
           return {
@@ -1209,7 +1212,8 @@ export const ValServer = (
                 status: 409,
                 json: {
                   type: "patch-head-conflict",
-                  message: "Patch id conflict",
+                  message:
+                    "The change was written against a different starting point than the server has.",
                 },
               };
             } else {
@@ -1433,6 +1437,92 @@ export const ValServer = (
       },
     },
 
+    // #region json
+    // Loads the content of a single `.jsonValues()` entry by key, so the Studio
+    // can lazily load just the entry being opened, and the runtime can read draft
+    // edits. With apply_patches (default true) pending patches for the entry are
+    // replayed server-side; the Studio passes false and overlays its own.
+    "/json": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+          return { status: 401, json: { message: "Unauthorized" } };
+        }
+        const moduleFilePath = req.query.path as ModuleFilePath;
+        const { key, keys, offset, limit } = req.query;
+        // Defaults to true, mirroring /sources/~. The Studio opts out.
+        const applyPatches = req.query.apply_patches !== false;
+        const isWindow = offset !== undefined || limit !== undefined;
+        const shapes = [key !== undefined, keys !== undefined, isWindow].filter(
+          Boolean,
+        ).length;
+        if (shapes !== 1) {
+          return {
+            status: 400,
+            json: {
+              message:
+                "Exactly one of 'key', 'keys' or 'offset'+'limit' must be given",
+            },
+          };
+        }
+        if (isWindow && (offset === undefined || limit === undefined)) {
+          return {
+            status: 400,
+            json: { message: "'offset' and 'limit' must be given together" },
+          };
+        }
+        if (key !== undefined) {
+          const res = await serverOps.getJsonEntry(moduleFilePath, key, {
+            applyPatches,
+          });
+          if (res.status === "unauthorized") {
+            return { status: 401, json: { message: res.message } };
+          }
+          if (res.status === "not-found") {
+            return { status: 404, json: { message: res.message } };
+          }
+          if (res.status === "error") {
+            return { status: 500, json: { message: res.message } };
+          }
+          return {
+            status: 200,
+            json: { path: moduleFilePath, key, content: res.content },
+          };
+        }
+        const res = await serverOps.getJsonEntries(
+          moduleFilePath,
+          keys !== undefined
+            ? { keys }
+            : { offset: offset as number, limit: limit as number },
+          { applyPatches },
+        );
+        if (res.status === "unauthorized") {
+          return { status: 401, json: { message: res.message } };
+        }
+        if (res.status === "not-found") {
+          return { status: 404, json: { message: res.message } };
+        }
+        if (res.status === "error") {
+          return { status: 500, json: { message: res.message } };
+        }
+        return {
+          status: 200,
+          json: {
+            path: moduleFilePath,
+            entries: res.entries,
+            missing: res.missing,
+            errors: res.errors,
+            ...(res.offset !== undefined ? { offset: res.offset } : {}),
+            ...(res.limit !== undefined ? { limit: res.limit } : {}),
+            total: res.total,
+          },
+        };
+      },
+    },
+
     // #region sources
     "/sources/~": {
       PUT: async (req) => {
@@ -1493,27 +1583,37 @@ export const ValServer = (
         const unpatchedSources = sourcesRes.sources;
         // Default to true to keep the legacy contract for older clients.
         // The studio client always passes false: it owns patch application
-        // and rendering, and treats /sources/~ as a pure un-patched read.
+        // and validation, and treats /sources/~ as a pure un-patched read.
         const applyPatches = query.apply_patches !== false;
-        if (applyPatches) {
+        // NOTE: previews are computed here even when the client applies patches
+        // itself: the preview functions live on the Schema instances and are not
+        // part of the serialized schema, so the client cannot derive them. They
+        // are computed on the patched sources, so that previews (list titles /
+        // subtitles / images) reflect the patches that apply.
+        let patchedSources = sourcesRes.sources;
+        if ((patchOps.patches?.length ?? 0) > 0) {
           const onlyPatchedTreeModules = await serverOps.getSources({
             ...patchAnalysis,
             ...patchOps,
           });
-          sourcesRes = {
-            sources: {
-              ...sourcesRes.sources,
-              ...(onlyPatchedTreeModules.sources || {}),
-            },
-            errors: {
-              ...sourcesRes.errors,
-              ...(onlyPatchedTreeModules.errors || {}),
-            },
+          patchedSources = {
+            ...sourcesRes.sources,
+            ...(onlyPatchedTreeModules.sources || {}),
           };
+          if (applyPatches) {
+            sourcesRes = {
+              sources: patchedSources,
+              errors: {
+                ...sourcesRes.errors,
+                ...(onlyPatchedTreeModules.errors || {}),
+              },
+            };
+          }
         }
-        const renderRes = applyPatches
-          ? await serverOps.getRenders(schemasRes, sourcesRes.sources)
-          : { renders: {} as Record<ModuleFilePath, ReifiedRender | null> };
+        const previewRes = await serverOps.getPreviews(
+          schemasRes,
+          patchedSources,
+        );
 
         let sourcesValidation: {
           errors: Record<
@@ -1524,7 +1624,7 @@ export const ValServer = (
             }
           >;
           files: Record<SourcePath, FileSource>;
-          remoteFiles: Record<SourcePath, RemoteSource>;
+          remoteFiles: Record<SourcePath, MediaSource>;
         } = {
           errors: {},
           files: {},
@@ -1559,7 +1659,7 @@ export const ValServer = (
           {
             source: Json;
             baseSource?: Json;
-            render: ReifiedRender | null;
+            preview: ReifiedPreview | null;
             patches?: {
               applied: PatchId[];
               skipped?: PatchId[];
@@ -1603,7 +1703,7 @@ export const ValServer = (
                 applyPatches && hasPatches
                   ? unpatchedSources[moduleFilePath]
                   : undefined,
-              render: renderRes.renders[moduleFilePath] || null,
+              preview: previewRes.previews[moduleFilePath] || null,
               patches:
                 appliedPatches.length > 0 ||
                 skippedPatches.length > 0 ||
@@ -1831,15 +1931,71 @@ export const ValServer = (
           patchIds,
           excludePatchOps: false,
         });
+        /*
+         * Exactly the patches this request consumes, and the ONLY ones it may
+         * delete afterwards.
+         *
+         * Taken from what was fetched rather than from what was asked for, and
+         * held across everything below, because the store keeps accepting writes
+         * while this runs. A change typed during a save is not in this list, is
+         * not applied, and must still be here when the save finishes — that is
+         * the whole contract, and `deleteAllPatches` broke it by removing the
+         * store wholesale.
+         */
+        const consumed = patches.patches.map((patch) => patch.patchId);
         const analysis = serverOps.analyzePatches(
           patches.patches,
           patches.commits,
           commit,
         );
-        const preparedCommit = await serverOps.prepare({
+        let preparedCommit = await serverOps.prepare({
           ...analysis,
           ...patches,
         });
+        /*
+         * In `fs` mode a change that cannot be applied is removed rather than
+         * blocking the save.
+         *
+         * Refusing the whole commit is right for a git commit — it is one
+         * atomic thing, and the content api owns its own patches. It is wrong
+         * for auto-save: the editor keeps typing, every save fails on the same
+         * patch, and nothing is ever written again. So the failing change and
+         * the rest of its module's chain go, the rest is written, and the person
+         * editing is told what was thrown away.
+         */
+        let removed: DroppedPatch[] = [];
+        if (preparedCommit.hasErrors && serverOps instanceof ValOpsFS) {
+          removed = computePatchesToDrop(preparedCommit);
+          /*
+           * Nothing to drop means nothing a second `prepare` could do better.
+           *
+           * `hasErrors` covers failures no patch is to blame for — a binary file
+           * that could not be written, a module that could not be formatted, a
+           * `.val.ts` that could not be read at all. Re-preparing every module
+           * with an unchanged patch set would fail identically, and logging
+           * "removed unpublished changes []" on the way would say something
+           * untrue. It falls through to the 400 instead, which is the honest
+           * answer: this save did not happen and the changes are still here.
+           */
+          if (removed.length > 0) {
+            const doomed = new Set(removed.map((entry) => entry.patchId));
+            const survivors = patches.patches.filter(
+              (patch) => !doomed.has(patch.patchId),
+            );
+            const survivingPatches = { ...patches, patches: survivors };
+            // One retry is enough: what is left of each module is the prefix
+            // that already applied, and `prepare` walks modules independently,
+            // so nothing new can fail.
+            preparedCommit = await serverOps.prepare({
+              ...serverOps.analyzePatches(survivors, patches.commits, commit),
+              ...survivingPatches,
+            });
+            console.error(
+              "Val: removed unpublished changes that could not be applied",
+              removed,
+            );
+          }
+        }
         if (preparedCommit.hasErrors) {
           console.error(
             "Failed to create commit",
@@ -1868,6 +2024,10 @@ export const ValServer = (
                   ),
                 ),
                 binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
+                // Attributed to the patch that caused it, so the studio can
+                // name the offending change and offer to remove it instead of
+                // leaving the editor with "Failed to publish changes".
+                unappliablePatches: preparedCommit.unappliablePatches,
               },
             },
           };
@@ -1909,15 +2069,54 @@ export const ValServer = (
               },
             };
           }
-          const deleteRes = await serverOps.deleteAllPatches();
-          if (deleteRes.error) {
+          /*
+           * The files on disk are the committed content now, so say so here too.
+           *
+           * Nothing else will: the sources are memoised per `ValOps` instance
+           * and are re-read by awaiting each module's `def`, which is the app's
+           * own `import()` — that resolves from the module registry, not from
+           * the file this save just rewrote. So until the host rebuilds its
+           * module graph, every read of committed content answers with what was
+           * there before the save. A page rendering draft content sees exactly
+           * that once the patches below are gone: `getJsonEntry` resolves the
+           * committed entry and has no patches left to replay over it.
+           *
+           * Before `deletePatches`, because it needs the patches it is adopting
+           * the result of. See `ValOps.promoteCommittedSources` for why the SHAs
+           * move with them.
+           */
+          await serverOps.adoptCommittedSources(
+            { ...analysis, ...patches },
+            preparedCommit,
+          );
+          /*
+           * Only what this request consumed.
+           *
+           * This used to be `deleteAllPatches()`, which renamed the whole store
+           * aside and deleted it. Anything typed while the save was in flight
+           * went with it — never applied, and indistinguishable on the client
+           * from having been published, because both look like "the patch is
+           * gone and the base moved". A visible edit that exists nowhere on
+           * disk, with nothing reporting a problem.
+           */
+          const deleteRes = await serverOps.deletePatches(consumed);
+          if ("error" in deleteRes && deleteRes.error !== undefined) {
             console.error(
               `Val got an error while cleaning up patches after publish: ${deleteRes.error.message}`,
+            );
+          } else if ("errors" in deleteRes && deleteRes.errors !== undefined) {
+            // Per patch, and not fatal: the files are written, so the save
+            // succeeded. A patch left behind is announced again on the next
+            // stat, applies to a base that already contains it, and is removed
+            // then.
+            console.error(
+              "Val: could not clean up some patches after publish",
+              deleteRes.errors,
             );
           }
           return {
             status: 200,
-            json: {} as Record<string, never>, // TODO:
+            json: removed.length > 0 ? { removed } : {},
           };
         } else if (serverOps instanceof ValOpsHttp) {
           if (auth.error === undefined && auth.id) {
@@ -2667,7 +2866,6 @@ export const ValServer = (
         //     3) the benefit an attacker would get is an image that is not yet published (i.e. most cases: not very interesting)
         // Thus: attack surface + ease of attack + benefit = low probability of attack
         // If we couldn't argue that patch ids are secret enough, then this would be a problem.
-        let cacheControl: string | undefined;
         let fileBuffer;
         let mimeType: string | undefined;
         const remote = query.remote === "true";
@@ -2678,8 +2876,6 @@ export const ValServer = (
             remote,
           );
           mimeType = Internal.filenameToMimeType(filePath);
-          // TODO: reenable this:
-          // cacheControl = "public, max-age=20000, immutable";
         } else {
           if (serverOps instanceof ValOpsHttp && remote) {
             console.error(
@@ -2695,8 +2891,12 @@ export const ValServer = (
             headers: {
               // TODO: we could use ETag and return 304 instead
               "Content-Type": mimeType || "application/octet-stream",
-              "Cache-Control":
-                cacheControl || "public, max-age=0, must-revalidate",
+              // TODO: a file requested with a patch_id is immutable for that
+              // patch, so it could be served "public, max-age=20000, immutable"
+              // instead. There used to be a `cacheControl` variable here for
+              // that, but its only assignment was commented out, so every
+              // response has always taken the revalidate branch.
+              "Cache-Control": "public, max-age=0, must-revalidate",
             },
             body: bufferToReadableStream(fileBuffer),
           };

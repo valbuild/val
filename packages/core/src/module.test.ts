@@ -1,6 +1,8 @@
 import {
   resolvePath as resolveAtPath,
+  define,
   getSourceAtPath,
+  isValModule,
   splitModulePath,
   splitModuleFilePathAndModulePath,
   parentOfSourcePath,
@@ -189,5 +191,19 @@ describe("module", () => {
         parentOfSourcePath(parentOfSourcePath(parentOfSourcePath(base))),
       ),
     ).toStrictEqual("/content/test");
+  });
+
+  test("isValModule tells a module apart from what else a .val.ts might export", () => {
+    const schema = object({ text: string() });
+    expect(
+      isValModule(define("/content/test.val.ts", schema, { text: "hi" })),
+    ).toBe(true);
+    // A bare schema is the mistake this is here to catch: `export default
+    // s.image()` in a file named `*.val.ts`.
+    expect(isValModule(schema)).toBe(false);
+    expect(isValModule({ text: "hi" })).toBe(false);
+    expect(isValModule(null)).toBe(false);
+    expect(isValModule(undefined)).toBe(false);
+    expect(isValModule("/content/test.val.ts")).toBe(false);
   });
 });

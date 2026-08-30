@@ -42,6 +42,7 @@
 
 - [Installation](#installation)
 - [Getting started](#getting-started)
+- [Previewing unpublished pages](#previewing-unpublished-pages)
 - [Schema types](#schema-types):
   - [String](#string)
   - [Number](#number)
@@ -55,6 +56,9 @@
   - [Image](#image)
   - [keyOf](#keyof)
   - [Route](#route)
+  - [Color](#color)
+  - [Date](#date)
+  - [DateTime](#datetime)
 
 ## Installation
 
@@ -231,6 +235,50 @@ const { s, c, val, config } = initVal({
 export type { t } from "@valbuild/next";
 export { s, c, val, config };
 ```
+
+# Previewing unpublished pages
+
+An editor who creates a page in the Val editor has not published it yet: the new
+route exists only as a pending change. Your app knows nothing about it, so
+opening that URL hits a `page.tsx` whose content lookup finds no such key — and
+a page component that answers a missing key with `notFound()` shows the editor a
+404 for the page they just made.
+
+`suspend` on `ValProvider` is what makes that page load. Set it when the editor
+should be able to preview unpublished pages:
+
+```tsx
+// ./app/layout.tsx
+<ValProvider config={config} suspend>
+  <ValModulesClient />
+  {children}
+</ValProvider>
+```
+
+With it set, a component reading content through `useVal`, `useValRoute`,
+`fetchVal` or `fetchValRoute` suspends until the editor's pending changes have
+been applied, instead of resolving against published content and rendering
+something the editor did not ask for. Put a `Suspense` boundary where you want
+the loading state to show; without one, Next uses the nearest `loading.tsx`.
+
+**It only ever waits for editors.** Nothing here runs for a visitor: the gate is
+behind the same `val_enable` cookie the editor overlay is, so a normal request
+makes no extra requests, waits for nothing, and renders exactly as it would
+without `suspend`. It is safe to leave on in production, which is the point —
+previewing unpublished content is something editors do against the deployed site.
+
+**What it costs an editor.** Pending changes come from the editor's browser, so a
+page opened with the editor active waits for them to arrive before it renders.
+That is the trade: a short wait instead of published content flashing up and
+being replaced, or a 404 for a page that exists.
+
+**Known limitation.** A page whose route exists _only_ in an unpublished change
+can still 404 on the very first render: `suspend` is activated in the browser
+after hydration, and the render before that resolves against published content.
+A page that calls `notFound()` at that point cannot recover, since the response
+has already been sent. Reloading the page in the editor works around it. Pages
+that read content for a route they already have — the common case, editing an
+existing page — are not affected.
 
 # Formatting published content
 
@@ -457,6 +505,8 @@ export default c.define("/app/[slug]/page.val.ts", pageSchema, {
 
 To consume a page route from a NextJS "page component", it is recommended you use `fetchValRoute` or `useValRoute`.
 
+NOTE: a page an editor has created but not published yet is not in the record, so `fetchValRoute` / `useValRoute` return `null` for it and a page component that calls `notFound()` shows the editor a 404. See [previewing unpublished pages](#previewing-unpublished-pages).
+
 NOTE: to be refactor proof (i.e. not break when changing the route), you should always provide the params of the NextJS page component.
 
 #### Example fetchValRoute
@@ -470,30 +520,91 @@ export default async function MyPage({ params }: { params:
 }
 ```
 
-### Custom render
+### Previews
 
-You can customize how records are displayed in the Val editor interface by using the `.render` method on `record`. This allows you to control how individual record items appear in the editor's preview.
-
-The only currently supported layout is `list`, which provides a customizable list view for record previews.
+A **preview** is how a VALUE is shown wherever the Val editor shows a preview of
+it rather than opening it: a row in a list, an entry in a `keyOf` dropdown, a
+search hit, a reference. Declare one with `.preview()` on the schema of the value
+being previewed, and return a `title`, and optionally a `subtitle` and an `image`.
 
 #### Example
 
 ```ts
-const pagesSchema = s
-  .record(s.object({ title: s.string(), image: s.image() }))
-  .router(nextAppRouter)
-  .render({
-    layout: "list", // Use list layout for record preview
-    select({ key, val }) {
-      return {
-        // Capitalize the first letter of the key for display
-        title: key?.[0]?.toUpperCase() + key?.slice(1),
-        // Show the image from the record
-        image: val.image,
-      };
-    },
-  });
+const pageSchema = s
+  .object({ title: s.string(), image: s.image() })
+  .preview(({ val }) => ({ title: val.title, image: val.image }));
+
+// Every row of this record previews with the closure above
+const pagesSchema = s.record(pageSchema).router(nextAppRouter);
 ```
+
+The container reifies its rows by running each ITEM's closure, so an array works
+the same way:
+
+```ts
+const sectionsSchema = s.array(
+  s
+    .object({ heading: s.string(), body: s.string() })
+    .preview(({ val }) => ({ title: val.heading, subtitle: val.body })),
+);
+```
+
+A tagged union with no preview of its own previews as the VARIANT the value
+takes, so a page-builder list previews each block by its own block type.
+
+Your function is run on demand, for the rows actually on screen, so it is fine
+for it to read into the value's content.
+
+> **Changed in the release that added `.render({ as: "inline" })`.** A
+> `.preview()` on `s.array(...)` / `s.record(...)` used to describe the
+> container's ROWS; it now describes the container ITSELF as a value, for when
+> it is someone else's item. Move the closure onto the item schema. The record
+> closure no longer receives `key` — derive the title from `val`. And
+> `.jsonValues()` must come before `.preview(...)`, like `.validate(...)`.
+
+### Field rendering
+
+A **render** is how ONE field is laid out in the editor when you are LOOKING at
+that field. It is static configuration rather than a function, and it is a
+different thing from a preview: a render is the field's own layout, a preview is
+how the value shows where it is navigable to. A schema can carry both, and a
+second `.render(...)` replaces the first rather than merging with it.
+
+```ts
+const articleSchema = s.object({
+  title: s.string(),
+  // A multi-line box instead of a single-line input
+  summary: s.string().render({ as: "textarea" }),
+  // A syntax-highlighted code editor
+  snippet: s.string().render({ as: "code", language: "typescript" }),
+});
+```
+
+`as: "code"` takes a `language` — `typescript`, `javascript`, `json`, `html`,
+`css`, `markdown`, `python`, `sql` and others; see `CodeLanguage` in
+`@valbuild/core` for the full list.
+
+#### Editing list items in place
+
+Every field takes `.render({ as: "inline" })`. On the ITEM of an array or record
+it means: edit the item right there in the (sortable) list row, instead of
+showing a preview row that navigates into it. This is what a page-builder list is
+made of.
+
+```ts
+const sectionsSchema = s.array(
+  s.object({ title: s.string(), body: s.richtext() }).render({ as: "inline" }),
+);
+```
+
+> **Breaking.** Strings in arrays are no longer inlined implicitly.
+> `s.array(s.string())` now renders preview rows and its items are navigation
+> stops, like every other item type. Add `.render({ as: "inline" })` to the
+> string schema for the old behavior:
+>
+> ```ts
+> s.array(s.string().render({ as: "inline" }));
+> ```
 
 ## RichText
 
@@ -727,7 +838,9 @@ import { s, c } from "../val.config";
 
 export const schema = s.image();
 
-export default c.define("/image", schema, c.image("/public/myfile.jpg"));
+export default c.define("/image", schema, {
+  path: "/public/myfile.jpg",
+});
 ```
 
 **NOTE**: This will not validate, since images requires `width`, `height` and `mimeType`. You can fix validation errors like this by using the CLI or by using the VS Code plugin.
@@ -885,6 +998,235 @@ export default c.define("/components/link.val.ts", linkSchema, {
   href: "/", // This must exist in a router module
 });
 ```
+
+## Color
+
+The `color` schema represents a color, stored as a CSS color string. Because the value is a plain CSS string, it can be used directly in a `style` attribute or set as a CSS custom property - there is nothing to convert in your components.
+
+### Color Schema
+
+```ts
+s.color(); // <- Schema<string>
+```
+
+### Output format
+
+The `format` option decides which CSS notation the color is stored in. It defaults to `"hsl"`.
+
+```ts
+s.color(); // hsl(217.22 91.22% 59.8%)
+s.color({ format: "hex" }); // #3b82f6
+s.color({ format: "rgb" }); // rgb(59 130 246)
+s.color({ format: "oklch" }); // oklch(0.6231 0.188 259.81)
+```
+
+The Val editor writes the value back in this format, so an editor who pastes `#3b82f6` into a field declared as `s.color()` gets `hsl(217.22 91.22% 59.8%)` stored.
+
+### Transparency
+
+Colors are fully opaque unless you opt into an alpha channel with `alpha: true`. A color with an alpha channel is a validation error in a field that does not allow it, so you can be sure an opaque color stays opaque.
+
+```ts
+s.color({ format: "hsl", alpha: true }); // hsl(217.22 91.22% 59.8% / 0.5)
+```
+
+With `alpha: true` the editor also gets an alpha slider next to the color picker.
+
+### Validation
+
+Validation is lenient about the syntax and strict about the format:
+
+- both the modern and the legacy notation of the declared format are accepted, so `hsl(0 100% 50%)` and `hsl(0, 100%, 50%)` are both valid `hsl` values, and `#f00` is a valid `hex` value
+- a color written in another format is an error which tells you the equivalent value in the right notation:
+  `Expected a color in the 'hsl' format (e.g. 'hsl(217.22 91.22% 59.8%)'), got '#ff0000'. Did you mean 'hsl(0 100% 50%)'?`
+- named colors (`red`), `lab()`, `color()` and `color-mix()` are not supported
+
+Colors can be nullable and can use `.describe()` and `.validate()` like any other schema:
+
+```ts
+s.color().nullable().describe("Optional highlight color");
+
+s.color({ format: "hex" }).validate((color) => {
+  if (color === "#000000") {
+    return "Pure black is too harsh - pick a dark grey instead";
+  }
+  return false;
+});
+```
+
+### Initializing color content
+
+```ts
+import { s, c, type t } from "../val.config";
+
+export const schema = s.object({
+  brand: s.color().describe("Primary brand color"),
+  background: s.color({ format: "hex" }).describe("Page background"),
+  overlay: s.color({ format: "hsl", alpha: true }).describe("Overlay tint"),
+});
+
+export type Theme = t.inferSchema<typeof schema>;
+export default c.define("/content/theme.val.ts", schema, {
+  brand: "hsl(217.22 91.22% 59.8%)",
+  background: "#0b1020",
+  overlay: "hsl(217.22 91.22% 59.8% / 0.15)",
+});
+```
+
+### Using colors
+
+The value is a string, so use it wherever CSS expects a color:
+
+```tsx
+import { fetchVal } from "../val/rsc";
+import themeVal from "../content/theme.val";
+
+export default async function Hero() {
+  const theme = await fetchVal(themeVal);
+  return (
+    <section style={{ background: theme.background, color: theme.brand }}>
+      <h1 style={{ borderBottom: `2px solid ${theme.brand}` }}>Hello</h1>
+    </section>
+  );
+}
+```
+
+To hand a color to a stylesheet instead, set it as a CSS custom property:
+
+```tsx
+<div style={{ "--brand": theme.brand } as React.CSSProperties}>
+```
+
+**NOTE**: colors are not steganographically tagged, since the value ends up in CSS where the invisible characters would break the declaration. Colors therefore do not participate in click-then-edit visual editing (the same is true of dates) - edit them from the studio instead.
+
+## Date
+
+The `date` schema represents a calendar day, with no time and no timezone. It is stored as a `YYYY-MM-DD` string.
+
+### Date Schema
+
+```ts
+s.date(); // <- Schema<string>
+```
+
+### Date bounds
+
+Use `.from()` and `.to()` to constrain which days are valid. Both bounds are inclusive.
+
+```ts
+s.date().from("1900-01-01"); // this day or later
+s.date().to("2024-01-01"); // this day or earlier
+s.date().from("1900-01-01").to("2024-01-01"); // within the range
+```
+
+These are methods, not options - `s.date({ from: "1900-01-01" })` does not type check.
+
+Bounds are compared as strings, which is exactly right for `YYYY-MM-DD` (it sorts chronologically) and wrong for anything else, so write bounds in that format.
+
+**NOTE**: the schema checks the bounds, but not the shape of the string: a value like `"the 3rd of May"` is stored and validated without complaint. The editor always writes `YYYY-MM-DD`, so this only bites hand-written content. Use `.validate()` if you want it enforced:
+
+```ts
+s.date().validate((day) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(day) ? false : "Must be a YYYY-MM-DD date",
+);
+```
+
+### Editing dates
+
+Editors get a calendar. `from` and `to` limit which days can be picked, and a value already outside the bounds is shown clamped to the nearest one.
+
+### Initializing date content
+
+```ts
+import { s, c } from "../val.config";
+
+export const schema = s.object({
+  birthdate: s
+    .date()
+    .from("1900-01-01")
+    .to("2024-01-01")
+    .nullable()
+    .describe("Author's birthdate"),
+});
+
+export default c.define("/content/author.val.ts", schema, {
+  birthdate: "1981-12-30",
+});
+```
+
+### Using dates
+
+The value is a plain string, so it can be compared and sorted as one:
+
+```tsx
+const authors = [...allAuthors].sort((a, b) =>
+  (a.birthdate ?? "").localeCompare(b.birthdate ?? ""),
+);
+```
+
+To format it, hand it to `Date` or a date library. Note that `new Date("2024-05-03")` parses as UTC midnight, so formatting it in a local timezone west of UTC shows the previous day - format from the parts, or use a library that treats the value as a plain day:
+
+```tsx
+const [year, month, day] = author.birthdate.split("-").map(Number);
+const label = new Date(year, month - 1, day).toLocaleDateString();
+```
+
+## DateTime
+
+The `dateTime` schema represents an instant in time. It is stored as an ISO 8601 string in UTC, for example `2023-04-12T09:30:00.000Z`.
+
+### DateTime Schema
+
+```ts
+s.datetime(); // <- Schema<string>
+```
+
+The factory is spelled `datetime`, all lowercase. The schema type it serializes to is `dateTime` - that name shows up in validation output and in the editor, but you never write it yourself.
+
+### DateTime bounds
+
+As with `date`, use the inclusive `.from()` and `.to()` methods. They accept any ISO 8601 datetime that `Date.parse` understands, and are compared as instants rather than as strings, so bounds and values may be written in different notations:
+
+```ts
+s.datetime().from("2020-01-01T00:00:00Z");
+s.datetime().from("2020-01-01T00:00:00Z").to("2030-12-31T23:59:59Z");
+```
+
+Unlike `date`, the value itself is checked: a string that `Date.parse` cannot read is a validation error.
+
+> Value 'yesterday' is not a valid ISO 8601 datetime
+
+### Editing datetimes
+
+The editor shows a calendar, a time input (down to seconds) and a timezone picker. The picker starts on the browser's timezone and remembers the last choice, so an editor in one place can enter a time as it will be experienced somewhere else. Whichever zone is chosen, the value is converted and stored as UTC - the timezone is a property of the editor, never of the content.
+
+### Initializing datetime content
+
+```ts
+import { s, c } from "../val.config";
+
+export const schema = s.object({
+  joinedAt: s.datetime().nullable().describe("When the author joined"),
+});
+
+export default c.define("/content/author.val.ts", schema, {
+  joinedAt: "2023-04-12T09:30:00.000Z",
+});
+```
+
+### Using datetimes
+
+Since the value is an ISO 8601 UTC string, `Date` parses it directly:
+
+```tsx
+<time dateTime={author.joinedAt}>
+  {new Date(author.joinedAt).toLocaleString()}
+</time>
+```
+
+Rendering a UTC instant in the visitor's local timezone means server and client can format it differently. In Next.js that shows up as a hydration mismatch, so format inside a client component (or pass a fixed `timeZone` to `toLocaleString`) when the exact time matters.
+
+**NOTE**: neither `date` nor `dateTime` values are steganographically tagged, so they do not participate in click-then-edit visual editing - edit them from the studio instead. Both support `.nullable()`, `.describe()`, `.validate()`, `.readonly()` and `.hidden()` like any other schema.
 
 # Custom validation
 

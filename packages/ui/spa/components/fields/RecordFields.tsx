@@ -1,12 +1,17 @@
+import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
+import { useMemo } from "react";
 import {
-  ListRecordRender as ListRecordRender,
-  SourcePath,
-} from "@valbuild/core";
-import {
-  useRenderOverrideAtPath,
+  usePreviewAtPath,
   useSchemaAtPath,
   useShallowSourceAtPath,
+  useSourceAtPath,
 } from "../ValFieldProvider";
+import {
+  RecordRowError,
+  RecordRowSkeleton,
+  VirtualizedRecordList,
+} from "./VirtualizedRecordList";
+import { useValSystem } from "../../stores/react/SystemContext";
 import { ModuleGallery } from "./ModuleGallery";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
@@ -17,8 +22,8 @@ import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchEr
 import { FieldSourceError } from "../../components/FieldSourceError";
 import { useNavigation } from "../../components/ValRouter";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { PreviewWithRender } from "../../components/PreviewWithRender";
-import { ValidationErrors } from "../../components/ValidationError";
+import { RefPreview } from "../../components/RefPreview";
+import type { ValidationError } from "@valbuild/core";
 import { isParentError } from "../../utils/isParentError";
 import { ErrorIndicator } from "../ErrorIndicator";
 import classNames from "classnames";
@@ -41,9 +46,8 @@ export function RecordFields({
 }) {
   const type = "record";
   const validationErrors = useAllValidationErrors() || {};
-  const { navigate } = useNavigation();
   const schemaAtPath = useSchemaAtPath(path);
-  const renderAtPath = useRenderOverrideAtPath(path);
+  const previewAtPath = usePreviewAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   if (schemaAtPath.status === "error") {
     return (
@@ -86,14 +90,18 @@ export function RecordFields({
   const source = sourceAtPath.data;
   const schema = schemaAtPath.data;
 
-  if (inline) {
+  // Entries are rendered in place either because the caller asked for it
+  // (`inline` prop) or because the item schema opted in with
+  // `.render({ as: "inline" })` — the record counterpart of the inline rows in
+  // `SortableList`. Records are unordered, so there is nothing to sort; the key
+  // is the row's label.
+  if (inline || schema.item.render?.as === "inline") {
     const sourceEntries = source as Record<string, SourcePath> | null;
     if (sourceEntries === null) {
       return null;
     }
     return (
       <div id={path}>
-        <ValidationErrors path={path} />
         <div className={`flex flex-col ${compact ? "gap-3" : "gap-4"}`}>
           {schema.item.hidden
             ? null
@@ -122,76 +130,254 @@ export function RecordFields({
     );
   }
 
-  const renderListAtPathData =
-    renderAtPath &&
-    "data" in renderAtPath &&
-    renderAtPath.data &&
-    renderAtPath.data.layout === "list" &&
-    renderAtPath.data.parent === "record"
-      ? renderAtPath.data
+  const previewAtPathData =
+    previewAtPath &&
+    "data" in previewAtPath &&
+    previewAtPath.data &&
+    previewAtPath.data.parent === "record"
+      ? previewAtPath.data
       : undefined;
   return (
     <div id={path}>
-      <ValidationErrors path={path} />
-      {renderAtPath?.status === "error" && (
-        <PreviewError error={renderAtPath.message} path={path} />
+      {previewAtPath?.status === "error" && (
+        <PreviewError error={previewAtPath.message} path={path} />
       )}
-      {renderListAtPathData && (
-        <ListRecordRenderComponent path={path} {...renderListAtPathData} />
+      {previewAtPathData && source && (
+        <RecordPreviewList
+          path={path}
+          // The KEYS come from the source, not from the preview's `items`: for a
+          // `.jsonValues()` record `items` covers only the loaded entries, and a
+          // list that rendered just those could never scroll far enough to load
+          // the rest. Each row looks its own item up by key (resolveRefPreview),
+          // so a key with no item falls back to a skeleton or the default preview.
+          keys={Object.keys(source)}
+          jsonValues={schema.jsonValues === true}
+        />
       )}
-      {!renderListAtPathData && (
-        <div className="grid grid-cols-1 gap-4">
-          {source &&
-            Object.entries(source).map(([key]) => (
-              <div
-                key={key}
-                onClick={() => navigate(sourcePathOfItem(path, key))}
-                className={classNames(
-                  "bg-primary-foreground cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
-                  "hover:bg-bg-secondary-hover",
-                )}
-              >
-                <div className="flex justify-between items-start">
-                  <div className="pb-4 font-semibold text-md">{key}</div>
-                  {isParentError(
-                    sourcePathOfItem(path, key),
-                    validationErrors,
-                  ) && <ErrorIndicator />}
-                </div>
-                <div>
-                  <PreviewWithRender path={sourcePathOfItem(path, key)} />
-                </div>
-              </div>
-            ))}
-        </div>
+      {!previewAtPathData && source && (
+        <RecordCardList
+          path={path}
+          keys={Object.keys(source)}
+          jsonValues={schema.jsonValues === true}
+          validationErrors={validationErrors}
+        />
       )}
     </div>
   );
 }
 
-function ListRecordRenderComponent({
+/**
+ * Row height estimate for the default card layout: gap (16) + border (2) +
+ * card padding (32) + key header (40) + {@link PREVIEW_ROW_CONTENT_HEIGHT}.
+ */
+const CARD_ROW_HEIGHT = 146;
+/**
+ * Row height estimate for a `.preview(...)` row: gap (16) + border (2) +
+ * {@link PREVIEW_ROW_CONTENT_HEIGHT}.
+ */
+const PREVIEW_ROW_HEIGHT = 74;
+/**
+ * What `ListPreviewItem` occupies: its own `p-2` (16) around a 40px thumbnail,
+ * which is also the tallest the title + subtitle column gets. The skeleton for
+ * an un-loaded entry is fixed to this so the virtualizer's measurements do not
+ * jump when the entry arrives and the row becomes a real preview.
+ */
+const PREVIEW_ROW_CONTENT_HEIGHT = 56;
+
+function RecordCardList({
   path,
-  items,
+  keys,
+  jsonValues,
+  validationErrors,
 }: {
   path: SourcePath;
-  items: ListRecordRender["items"];
+  keys: string[];
+  jsonValues: boolean;
+  validationErrors: Record<SourcePath, ValidationError[]>;
 }) {
   const { navigate } = useNavigation();
+  const val = useValSystem();
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const { unloadedKeys, errorByKey } = useJsonEntryRowStates(
+    moduleFilePath,
+    jsonValues,
+  );
   return (
-    <div className="flex flex-col space-y-4 w-full">
-      {items.map(([key]) => (
-        <button
-          key={key}
-          onClick={() => navigate(sourcePathOfItem(path, key))}
-          className={classNames(
-            "hover:bg-bg-secondary-hover",
-            "border rounded-lg cursor-pointer border-border-primary",
-          )}
-        >
-          <PreviewWithRender path={sourcePathOfItem(path, key)} />
-        </button>
-      ))}
-    </div>
+    <VirtualizedRecordList
+      moduleFilePath={moduleFilePath}
+      keys={keys}
+      estimatedRowHeight={CARD_ROW_HEIGHT}
+      jsonValues={jsonValues}
+      className="grid grid-cols-1"
+      renderRow={(key) => {
+        const loadError = errorByKey.get(key);
+        if (loadError !== undefined) {
+          return (
+            <div className="pb-4">
+              <RecordRowError
+                path={sourcePathOfItem(path, key)}
+                label={key}
+                message={loadError}
+                height={96}
+                onRetry={() =>
+                  void val?.system.sourceStore.retryEntry(moduleFilePath, key)
+                }
+              />
+            </div>
+          );
+        }
+        return (
+          <div className="pb-4">
+            <div
+              onClick={() => navigate(sourcePathOfItem(path, key))}
+              className={classNames(
+                "bg-primary-foreground cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
+                "hover:bg-bg-secondary-hover",
+              )}
+            >
+              <div className="flex justify-between items-start">
+                <div className="pb-4 font-semibold text-md">{key}</div>
+                {isParentError(
+                  sourcePathOfItem(path, key),
+                  validationErrors,
+                ) && <ErrorIndicator />}
+              </div>
+              <div>
+                {unloadedKeys.has(key) ? (
+                  // An un-loaded `.jsonValues()` entry: a preview here would read
+                  // the opaque marker, which is what made these lists a wall of
+                  // spinners.
+                  <RecordRowSkeleton
+                    path={sourcePathOfItem(path, key)}
+                    height={PREVIEW_ROW_CONTENT_HEIGHT}
+                  />
+                ) : (
+                  <RefPreview path={sourcePathOfItem(path, key)} />
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      }}
+    />
+  );
+}
+
+/**
+ * Which rows of a `.jsonValues()` record cannot render a preview yet: the ones
+ * whose value in the patched source is still a lazy marker, split by whether the
+ * load merely has not happened (`unloadedKeys` → skeleton) or FAILED
+ * (`errorByKey` → error + retry). A failure is memoized by the engine, so
+ * without the split a failed row pulses as a skeleton forever.
+ *
+ * Computed once for the whole list rather than per row: one source subscription
+ * instead of one per visible row.
+ */
+function useJsonEntryRowStates(
+  moduleFilePath: ModuleFilePath,
+  jsonValues: boolean,
+): {
+  unloadedKeys: ReadonlySet<string>;
+  errorByKey: ReadonlyMap<string, string>;
+} {
+  const val = useValSystem();
+  const moduleSource = useSourceAtPath(moduleFilePath);
+  const data = "data" in moduleSource ? moduleSource.data : undefined;
+  return useMemo(() => {
+    const unloadedKeys = new Set<string>();
+    const errorByKey = new Map<string, string>();
+    if (
+      !jsonValues ||
+      data === undefined ||
+      data === null ||
+      typeof data !== "object" ||
+      Array.isArray(data)
+    ) {
+      return { unloadedKeys, errorByKey };
+    }
+    for (const [key, value] of Object.entries(data)) {
+      if (!Internal.isJson(value)) {
+        continue;
+      }
+      const error = val?.system.sourceStore.entryError(moduleFilePath, key);
+      if (error !== undefined) {
+        errorByKey.set(key, error);
+      } else {
+        unloadedKeys.add(key);
+      }
+    }
+    return { unloadedKeys, errorByKey };
+    // `SourceStore.loadEntry` records the failure before it settles, and a
+    // failure leaves the marker in place — so the module source this memo
+    // depends on has not changed, and the memo would not re-run on its own.
+    // It does not need to: `peek` reports `entry-failed` for a path inside the
+    // entry, which is what wakes the row, and this map is read on that render.
+  }, [jsonValues, data, val, moduleFilePath]);
+}
+
+function RecordPreviewList({
+  path,
+  keys,
+  jsonValues,
+}: {
+  path: SourcePath;
+  /** Every key of the record, in source order — see the call site. */
+  keys: string[];
+  jsonValues: boolean;
+}) {
+  const { navigate } = useNavigation();
+  const val = useValSystem();
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const { unloadedKeys, errorByKey } = useJsonEntryRowStates(
+    moduleFilePath,
+    jsonValues,
+  );
+  return (
+    <VirtualizedRecordList
+      moduleFilePath={moduleFilePath}
+      keys={keys}
+      estimatedRowHeight={PREVIEW_ROW_HEIGHT}
+      jsonValues={jsonValues}
+      className="flex flex-col w-full"
+      renderRow={(key) => {
+        const loadError = errorByKey.get(key);
+        if (loadError !== undefined) {
+          return (
+            <div className="pb-4">
+              <RecordRowError
+                path={sourcePathOfItem(path, key)}
+                label={key}
+                message={loadError}
+                height={72}
+                onRetry={() =>
+                  void val?.system.sourceStore.retryEntry(moduleFilePath, key)
+                }
+              />
+            </div>
+          );
+        }
+        return (
+          <div className="pb-4">
+            <button
+              onClick={() => navigate(sourcePathOfItem(path, key))}
+              className={classNames(
+                "w-full hover:bg-bg-secondary-hover",
+                "border rounded-lg cursor-pointer border-border-primary",
+              )}
+            >
+              {unloadedKeys.has(key) ? (
+                <RecordRowSkeleton
+                  path={sourcePathOfItem(path, key)}
+                  height={PREVIEW_ROW_CONTENT_HEIGHT}
+                />
+              ) : (
+                <RefPreview path={sourcePathOfItem(path, key)} />
+              )}
+            </button>
+          </div>
+        );
+      }}
+    />
   );
 }
 

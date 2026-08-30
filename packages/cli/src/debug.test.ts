@@ -1,5 +1,8 @@
+import fs from "fs";
+import os from "os";
 import path from "path";
 import { ModuleFilePath } from "@valbuild/core";
+import { readPatchStore } from "@valbuild/server";
 import { createDebugContext } from "./debug/context";
 import { buildSnapshot } from "./debug/snapshot";
 
@@ -71,25 +74,43 @@ describe("val debug snapshot", () => {
     expect(entries["val.modules.original.ts"]).toContain("unrelated");
   });
 
-  test("writes the patch chain in the layout ValOpsFS reads back", async () => {
+  test("writes a patch store ValOpsFS can actually read back", async () => {
     const { entries } = await build();
 
-    // The directory is named after the PARENT patch; the first is "head".
-    const head = JSON.parse(entries[".val/patches/head/patch.json"]);
-    expect(head.patchId).toBe("11111111-1111-4111-8111-111111111111");
-    expect(head.parentRef.type).toBe("head");
-    // A head ref without headBaseSha does not parse, so the snapshot would be
-    // unreadable.
-    expect(typeof head.parentRef.headBaseSha).toBe("string");
+    // Materialise it and read it with the real store, rather than asserting on
+    // path strings: "the layout ValOpsFS reads back" is the property, and a
+    // snapshot that merely looks right is exactly what a debug tool must not
+    // produce.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "val-snapshot-"));
+    for (const [name, content] of Object.entries(entries)) {
+      const file = path.join(dir, name);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, content);
+    }
 
-    const second = JSON.parse(
-      entries[".val/patches/11111111-1111-4111-8111-111111111111/patch.json"],
-    );
-    expect(second.patchId).toBe("22222222-2222-4222-8222-222222222222");
-    expect(second.parentRef).toEqual({
-      type: "patch",
-      patchId: "11111111-1111-4111-8111-111111111111",
-    });
+    const read = readPatchStore(path.join(dir, ".val", "patches"));
+    if (read.status !== "ok") {
+      throw new Error(`expected ok, got ${read.status}`);
+    }
+    expect(read.problems).toEqual([]);
+    expect(read.entries.map((entry) => entry.patchId)).toEqual([
+      "11111111-1111-4111-8111-111111111111",
+      "22222222-2222-4222-8222-222222222222",
+      "33333333-3333-4333-8333-333333333333",
+    ]);
+
+    // Each record sits under its own id and points at nothing. A record that
+    // named its parent is how a snapshot could carry a chain that had already
+    // lost a link.
+    for (const entry of read.entries) {
+      const raw = JSON.parse(
+        entries[`.val/patches/${entry.patchId}/patch.json`],
+      );
+      expect(raw.patchId).toBe(entry.patchId);
+      expect(raw).not.toHaveProperty("parentRef");
+    }
+
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   test("records why the snapshot may be incomplete rather than failing silently", async () => {

@@ -1,37 +1,28 @@
 import { SourcePath } from "@valbuild/core";
-import { useAllSources, useSchemaAtPath, useSchemas } from "./ValFieldProvider";
+import { useSchemaAtPath } from "./ValFieldProvider";
 import { useValidationErrors } from "./ValErrorProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { FieldSchemaError } from "./FieldSchemaError";
 import { FieldLoading } from "./FieldLoading";
 import { FieldNotFound } from "./FieldNotFound";
 import { AnyField } from "./AnyField";
-import { Fragment, useCallback, useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import { FieldPatchAuthors } from "./FieldPatchAuthors";
-import { useNavigation } from "./ValRouter";
 import {
   ArrayAndRecordTools,
   splitIntoInitAndLastParts,
 } from "./ArrayAndRecordTools";
 import { isParentArray, isParentRecord, useParent } from "../hooks/useParent";
-import { getNavPathFromAll } from "./getNavPath";
 import { FieldValidationError } from "./FieldValidationError";
 import { cn } from "./designSystem/cn";
 import {
   Breadcrumb,
   BreadcrumbItem,
-  BreadcrumbLink,
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
   BreadcrumbEllipsis,
 } from "./designSystem/breadcrumb";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "./designSystem/dropdown-menu";
 import {
   HoverCard,
   HoverCardContent,
@@ -45,6 +36,7 @@ import {
   PendingPatch,
 } from "./ValProvider";
 import { ModuleGallery } from "./fields/ModuleGallery";
+import { ScopeTrail } from "./ModuleScope";
 
 export function Module({
   path,
@@ -55,9 +47,6 @@ export function Module({
 }) {
   const schemaAtPath = useSchemaAtPath(path);
   const { path: maybeParentPath, schema: parentSchema } = useParent(path);
-  const { navigate } = useNavigation();
-  const sources = useAllSources();
-  const schemasRes = useSchemas();
   const validationErrors = useValidationErrors(path);
   const pendingPatchesRes = usePendingPatches(path);
   const hasPendingPatches = pendingPatchesRes
@@ -76,24 +65,6 @@ export function Module({
     return byAuthors;
   }, [pendingPatchesRes]);
   const portalContainer = useValPortal();
-  const onNavigate = useCallback(
-    (path: SourcePath) => {
-      if ("data" in schemasRes) {
-        const schemas = schemasRes.data;
-        const navPath = getNavPathFromAll(path, sources, schemas);
-        if (navPath) {
-          navigate(navPath);
-        } else {
-          navigate(path);
-          console.error(`Error navigating to path: ${path} - no schemas found`);
-        }
-      } else {
-        console.warn("Schemas not loaded yet");
-        navigate(path);
-      }
-    },
-    [schemasRes, sources, navigate],
-  );
   const parent = useParent(path);
   const isParentGallery = useMemo(() => {
     if (
@@ -150,58 +121,93 @@ export function Module({
       ? parentSchema.key?.description
       : undefined;
 
+  /** The record tools, beside the title. */
+  const tools = !isMediaGallery && (
+    <div className="shrink-0 flex gap-2 items-center">
+      {hasPendingPatches && (
+        <FieldPatchAuthors
+          patchesByAuthorIds={patchesByAuthorIds}
+          profilesByAuthorIds={profilesByAuthorIds}
+          sourcePath={path}
+        />
+      )}
+      <ArrayAndRecordTools path={path} variant={"module"} />
+    </div>
+  );
+
+  /** What this module is called. */
+  const titleNode = showNumber ? (
+    <span className="shrink-0">#{Number(last.text)}</span>
+  ) : isParentRouter ? (
+    <UrlPathBreadcrumb path={last.text} portalContainer={portalContainer} />
+  ) : isCurrentRouter ? (
+    <span className="inline-flex items-center gap-2">
+      <Globe size={20} className="text-fg-tertiary shrink-0" />
+      <span>Pages</span>
+    </span>
+  ) : (
+    <span className="truncate block">{last.text}</span>
+  );
+
   return (
     <div className="flex flex-col gap-6 pt-4 pb-40">
       <div className="flex flex-col gap-2 text-left overflow-hidden">
-        {parts.length > 1 && (
-          <ModuleBreadcrumb
-            init={init}
-            onNavigate={onNavigate}
-            portalContainer={portalContainer}
-          />
-        )}
         <div
           className={cn({
             "border rounded-lg border-bg-warning-secondary p-4":
               keyErrors.length > 0,
           })}
         >
-          <div className="flex gap-4 justify-between items-center min-h-6 text-xl">
-            {!showNumber && (
-              <div className="min-w-0 flex-1">
-                {isParentRouter ? (
-                  <UrlPathBreadcrumb
-                    path={last.text}
-                    portalContainer={portalContainer}
-                  />
-                ) : isCurrentRouter ? (
-                  <span className="inline-flex items-center gap-2">
-                    <Globe size={20} className="text-fg-tertiary shrink-0" />
-                    <span>Pages</span>
-                  </span>
-                ) : (
-                  <span className="truncate block">{last.text}</span>
-                )}
+          {/*
+           * Title first, scope beneath.
+           *
+           * The name of the thing being edited leads, at a size that can lead;
+           * the path is provenance and sits under it as links. The other way
+           * round — a line of grey crumbs above a smaller title — spent the top
+           * of the column on the part that does not change.
+           */}
+          <div className="flex gap-4 justify-between items-start min-h-6">
+            {/*
+             * The title and its description, in ONE column.
+             *
+             * The description was a sibling of this whole row, so its top
+             * margin was measured from the row's bottom — and the row is as
+             * tall as the tools on its right, not as tall as the title. That
+             * put a fixed 12px between title and description no matter what
+             * was asked for, the same 12px that then separated it from the
+             * scope: three evenly spaced lines, with nothing saying which one
+             * the description belonged to. Inside the column it sits against
+             * the title, and the tools cannot push it around.
+             */}
+            <div className="min-w-0 flex-1">
+              {/*
+               * A heading, in the role sense: the editor column had none, so
+               * nothing announced what was being edited and nothing could jump
+               * to it. Not an `<h1>` element, because the title of a router
+               * page is a breadcrumb — and a `<nav>` inside a heading element
+               * is not valid HTML.
+               */}
+              <div
+                role="heading"
+                aria-level={1}
+                className="text-2xl leading-tight"
+              >
+                {titleNode}
               </div>
-            )}
-            {showNumber && (
-              <span className="shrink-0">#{Number(last.text)}</span>
-            )}
-            {!isMediaGallery && (
-              <div className="shrink-0 flex gap-2 items-center">
-                {hasPendingPatches && (
-                  <FieldPatchAuthors
-                    patchesByAuthorIds={patchesByAuthorIds}
-                    profilesByAuthorIds={profilesByAuthorIds}
-                    sourcePath={path}
-                  />
-                )}
-                <ArrayAndRecordTools path={path} variant={"module"} />
-              </div>
-            )}
+              {keyDescription && (
+                <div className="mt-1 text-sm text-fg-tertiary">
+                  {keyDescription}
+                </div>
+              )}
+            </div>
+            {tools}
           </div>
-          {keyDescription && (
-            <div className="text-sm text-fg-tertiary">{keyDescription}</div>
+          {init.length > 0 && (
+            <ScopeTrail
+              parts={init}
+              portalContainer={portalContainer}
+              className={keyDescription ? "mt-3" : "mt-1.5"}
+            />
           )}
           {keyErrors.length > 0 && (
             <FieldValidationError validationErrors={keyErrors} />
@@ -226,6 +232,9 @@ export function Module({
               key={path}
               path={path}
               showChildPath={showModuleGalleryChild}
+              // A readonly gallery module offered upload, delete and alt text
+              // regardless, and every one of them wrote a patch.
+              readonly={schema.readonly}
             />
           ) : (
             <AnyField key={path} path={path} schema={schema} />
@@ -248,81 +257,6 @@ function Home() {
         </p>
       </div>
     </div>
-  );
-}
-
-// Max visible items before showing ellipsis (first + ellipsis + last N)
-const MAX_VISIBLE_ITEMS = 3;
-
-function ModuleBreadcrumb({
-  init,
-  onNavigate,
-  portalContainer,
-}: {
-  init: ReturnType<typeof splitIntoInitAndLastParts>;
-  onNavigate: (path: SourcePath) => void;
-  portalContainer: HTMLElement | null;
-}) {
-  const shouldCollapse = init.length > MAX_VISIBLE_ITEMS;
-  const visibleStart = shouldCollapse ? init.slice(0, 1) : init;
-  const collapsed = shouldCollapse ? init.slice(1, -2) : [];
-  const visibleEnd = shouldCollapse ? init.slice(-2) : [];
-
-  return (
-    <Breadcrumb>
-      <BreadcrumbList className="flex-nowrap text-fg-quaternary">
-        {visibleStart.map((part, i) => (
-          <Fragment key={`start-${i}`}>
-            <BreadcrumbItem className="shrink-0">
-              <BreadcrumbLink asChild>
-                <button onClick={() => onNavigate(part.sourcePath)}>
-                  {part.text}
-                </button>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator className="shrink-0" />
-          </Fragment>
-        ))}
-
-        {shouldCollapse && collapsed.length > 0 && (
-          <>
-            <BreadcrumbItem className="shrink-0">
-              <DropdownMenu>
-                <DropdownMenuTrigger className="flex items-center gap-1">
-                  <BreadcrumbEllipsis className="h-4 w-4" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" container={portalContainer}>
-                  {collapsed.map((part, i) => (
-                    <DropdownMenuItem
-                      key={i}
-                      onClick={() => onNavigate(part.sourcePath)}
-                    >
-                      {part.text}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator className="shrink-0" />
-          </>
-        )}
-
-        {visibleEnd.map((part, i) => (
-          <Fragment key={`end-${i}`}>
-            <BreadcrumbItem className="shrink-0">
-              <BreadcrumbLink asChild>
-                <button onClick={() => onNavigate(part.sourcePath)}>
-                  {part.text}
-                </button>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            {i < visibleEnd.length - 1 && (
-              <BreadcrumbSeparator className="shrink-0" />
-            )}
-          </Fragment>
-        ))}
-      </BreadcrumbList>
-    </Breadcrumb>
   );
 }
 
@@ -367,7 +301,7 @@ function UrlPathBreadcrumb({
         <HoverCardTrigger asChild>
           <div className="cursor-default">
             <Breadcrumb>
-              <BreadcrumbList className="flex-nowrap text-xl font-normal">
+              <BreadcrumbList className="flex-nowrap font-normal">
                 <BreadcrumbItem className="shrink-0">
                   <span className="text-fg-tertiary">{protocol}//</span>
                   <span>{host}</span>
@@ -398,7 +332,7 @@ function UrlPathBreadcrumb({
 
   const breadcrumbContent = (
     <Breadcrumb>
-      <BreadcrumbList className="flex-nowrap text-xl font-normal">
+      <BreadcrumbList className="flex-nowrap font-normal">
         {/* Show protocol and host for full URLs */}
         {isFullUrl && (
           <>

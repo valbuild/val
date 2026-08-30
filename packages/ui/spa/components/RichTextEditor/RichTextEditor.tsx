@@ -101,10 +101,19 @@ function LinkPickerOverlay({
   return (
     <div
       ref={overlayRef}
+      /*
+       * `z-window`, not a number of its own.
+       *
+       * This is a floating piece of the *editor*, so it belongs on the scale
+       * with everything else that floats: above the content it is attached to,
+       * below the app's own chrome. It used to be `z-[60]`, which beat every
+       * token on that scale — so the shell's floating panels, rail and bars all
+       * rendered underneath a link toolbar.
+       */
       className={
         isCatalog
-          ? `${positionClass} z-[60] flex flex-col rounded-md border border-border-primary bg-bg-primary shadow-xl min-w-[280px]`
-          : `${positionClass} z-[60] flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-primary p-1.5 shadow-xl`
+          ? `${positionClass} z-window flex flex-col rounded-md border border-border-primary bg-bg-primary shadow-xl min-w-[280px]`
+          : `${positionClass} z-window flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-primary p-1.5 shadow-xl`
       }
       style={{
         left: state.anchorRect.left,
@@ -244,6 +253,31 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
   const uploadProgressRef = useRef(uploadProgress);
   const buttonVariantsRef = useRef(buttonVariants);
   const detailsVariantsRef = useRef(detailsVariants);
+  /**
+   * Where a popup mounts, read at USE time rather than at view-creation time.
+   *
+   * This used to be closed over by `getPortalContainer` and therefore had to be
+   * a dependency of the effect that builds the `EditorView` — so a portal
+   * container that arrives after the first paint (which is the normal order:
+   * `useValPortal` is filled on commit) destroyed and rebuilt the view. A ref
+   * takes it out of the deps entirely: the popups ask when they open, and the
+   * answer is whatever is current then.
+   */
+  const portalContainerRef = useRef(portalContainer);
+  /**
+   * The live document, carried across a view REBUILD.
+   *
+   * The view is recreated whenever `readOnly` or one of the toolbar features
+   * changes, and a recreated view used to parse `defaultValue` again — which for
+   * an uncontrolled editor means the document it mounted with, or nothing. Since
+   * `schema` is fixed at mount, the ProseMirror node is still valid, so carrying
+   * it is exact and costs no serialization.
+   *
+   * The alternative — asking the consumer to re-seed after a rebuild — is what
+   * `RichTextField` was implicitly relying on, and it cannot work: the consumer
+   * re-seeds from source, and source has not moved.
+   */
+  const carriedDocRef = useRef<PMNode | null>(null);
   const isControlled = value !== undefined;
 
   useEffect(() => {
@@ -259,6 +293,7 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     uploadProgressRef.current = uploadProgress;
     buttonVariantsRef.current = buttonVariants;
     detailsVariantsRef.current = detailsVariants;
+    portalContainerRef.current = portalContainer;
     if (hasGalleryImages) {
       imageSelectRendererRef.current = (currentSrc, onSelectUrl) => (
         <MediaPickerList
@@ -310,15 +345,29 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
 
     const initialDoc = isControlled ? value : (defaultValue ?? []);
     let doc;
-    try {
-      doc = parseEditorDocument(initialDoc ?? [], schema);
-    } catch {
-      doc = schema.node("doc", null, [schema.node("paragraph")]);
+    /**
+     * A REBUILD keeps the document it was showing.
+     *
+     * `carriedDocRef` is only set by this effect's own cleanup, so it is null on
+     * the first mount and a live node on every rebuild after it. The schema
+     * guard is belt and braces: `schema` is memoised on `[]` today, so it never
+     * changes under a mounted editor, but a node from another schema cannot be
+     * put in this view and failing loudly here would be worse than re-parsing.
+     */
+    const carried = carriedDocRef.current;
+    carriedDocRef.current = null;
+    if (carried !== null && carried.type.schema === schema) {
+      doc = carried;
+    } else {
+      try {
+        doc = parseEditorDocument(initialDoc ?? [], schema);
+      } catch {
+        doc = schema.node("doc", null, [schema.node("paragraph")]);
+      }
+      prevDocRef.current = initialDoc ?? [];
     }
 
-    prevDocRef.current = initialDoc ?? [];
-
-    const getPortalContainer = () => portalContainer ?? null;
+    const getPortalContainer = () => portalContainerRef.current ?? null;
 
     const plugins = [
       ...buildKeymap(schema, features),
@@ -468,6 +517,10 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     viewRef.current = view;
 
     return () => {
+      // Handed to whatever runs next. React clears this on unmount too, but a
+      // ref on an unmounted component is unreachable, so there is nothing to
+      // release.
+      carriedDocRef.current = view.state.doc;
       linkHelper.destroy();
       view.destroy();
       viewRef.current = null;
@@ -478,7 +531,6 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     features.fixedToolbar,
     features.floatingToolbar,
     features.gutter,
-    portalContainer,
   ]);
 
   useEffect(() => {
@@ -634,7 +686,9 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
           ref={fixedToolbarMountRef}
           className={[
             "rounded-t-md border border-input",
-            "bg-bg-secondary absolute left-0 top-0 z-5 w-full",
+            // `z-hover`: a bar pinned over the top of the editor's own content,
+            // and nothing more. `z-5` put it over the shell's chrome as well.
+            "bg-bg-secondary absolute left-0 top-0 z-hover w-full",
           ].join(" ")}
         />
       )}

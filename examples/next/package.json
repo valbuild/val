@@ -3,32 +3,35 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3456",
-    "build": "next build",
+    "dev": "next dev --webpack -p 3456",
+    "build": "next build --webpack",
     "start": "next start",
-    "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "fixtures": "node scripts/jsonvalues-fixtures.mjs",
+    "handbook": "node scripts/handbook-fixture.mjs"
   },
   "dependencies": {
     "@preconstruct/next": "^4.0.0",
     "@valbuild/cli": "workspace:*",
+    "@valbuild/core": "workspace:*",
     "@valbuild/next": "workspace:*",
-    "next": "^14.0.4",
-    "prettier": "^3.3.3",
-    "react": ">=18.2.0",
-    "react-dom": ">=18.2.0",
+    "next": "^16.3.3",
+    "prettier": "~3.8.5",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "styled-jsx": "^5.1.2"
   },
   "devDependencies": {
-    "@types/node": "20.10.0",
-    "@types/react": "18.2.38",
-    "@types/react-dom": "18.2.17",
+    "@types/node": "26.4.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
     "@valbuild/cli": "workspace:*",
     "@valbuild/eslint-plugin": "workspace:*",
-    "eslint": "8.23.0",
-    "eslint-config-next": "12.2.5",
+    "eslint": "^10.9.1",
+    "eslint-config-next": "^16.3.3",
     "ts-node": "^10.9.1",
-    "typescript": "5.1.3"
+    "typescript": "6.0.3"
   },
   "peerDependencies": {
     "react": ">=18.2.0 || ^19.0 || ^19.0.0-rc",

@@ -2,6 +2,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useSyncExternalStore,
@@ -9,22 +10,27 @@ import React, {
 import {
   DEFAULT_APP_HOST,
   DEFAULT_VAL_REMOTE_HOST,
-  FILE_REF_PROP,
   Internal,
   Json,
   ModuleFilePath,
-  ModuleFilePathSep,
   ModulePath,
   PatchId,
+  ReifiedPreview,
   SerializedSchema,
   SourcePath,
   ValConfig,
 } from "@valbuild/core";
-import { Operation, Patch, FileOperation } from "@valbuild/core/patch";
-import { ParentRef } from "@valbuild/shared/internal";
+import { useValSystem, type ValSystem } from "../stores/react/SystemContext";
+import type { UploadProgress } from "../stores/PatchStore";
+import type { SourcePeek } from "../stores/SourceStore";
+import { Patch } from "@valbuild/core/patch";
 import { isJsonArray } from "../utils/isJsonArray";
-import { ValSyncEngine } from "../ValSyncEngine";
-import { z } from "zod";
+import {
+  getNavPathFromAll,
+  NavPathResolution,
+  resolveNavPath,
+} from "./getNavPath";
+import { concatModulePath } from "../utils/sourcePath";
 
 // --- Source override context ---
 // When rendering the "before" side of a diff, the parent `Field` component
@@ -44,7 +50,6 @@ export { FieldSourceOverrideContext };
 export type { SourceOverride };
 
 type ValFieldContextValue = {
-  syncEngine: ValSyncEngine;
   getDirectFileUploadSettings: () => Promise<
     | {
         status: "success";
@@ -79,12 +84,10 @@ export function useIsInsideValFieldProvider(): boolean {
 
 export function ValFieldProvider({
   children,
-  syncEngine,
   getDirectFileUploadSettings,
   config,
 }: {
   children: React.ReactNode;
-  syncEngine: ValSyncEngine;
   getDirectFileUploadSettings: () => Promise<
     | {
         status: "success";
@@ -105,7 +108,6 @@ export function ValFieldProvider({
   return (
     <ValFieldContext.Provider
       value={{
-        syncEngine,
         getDirectFileUploadSettings,
         config,
       }}
@@ -115,38 +117,276 @@ export function ValFieldProvider({
   );
 }
 
-const useSyncEngineInitializedAt = (syncEngine: ValSyncEngine) => {
-  const initializedAt = useSyncExternalStore(
-    syncEngine.subscribe("initialized-at"),
-    () => syncEngine.getInitializedAtSnapshot(),
-    () => syncEngine.getInitializedAtSnapshot(),
-  );
-  return initializedAt.data;
-};
+/**
+ * `useSyncExternalStore` needs a subscribe function that is stable when there is
+ * nothing to subscribe to. Shared by every hook below that tolerates rendering
+ * outside a system.
+ */
+const noopSubscribe = () => () => {};
 
-export function useSyncEngine(): ValSyncEngine {
-  return useValFieldContext().syncEngine;
+/**
+ * Has the project been taken in?
+ *
+ * Every read hook checks this first, and for a reason that is not obvious: a
+ * module whose schema has not arrived and a module that does not exist look
+ * identical to a reader, and only the answer to this question tells them apart.
+ * Before intake, absent means "not yet"; after it, absent means "no such
+ * module". The engine spent three snapshot statuses (`no-schemas`,
+ * `schema-not-found`, `source-not-found`) on that distinction; it is one
+ * timestamp and a lookup.
+ */
+function useInitialized(val: ValSystem | null): number | null {
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.host.events.on("host:receive", onChange);
+    },
+    [val],
+  );
+  const getSnapshot = useCallback(
+    () => (val === null ? null : val.system.host.initializedAt()),
+    [val],
+  );
+  return useSyncExternalStore(
+    val === null ? noopSubscribe : subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
+}
+
+/**
+ * The peek at one path, subscribed PER PATH.
+ *
+ * The single most important line of the port. The engine subscribed per MODULE
+ * and walked the path inside each hook, so every mounted field in an edited
+ * module re-rendered on every keystroke — 16 of 16 at the benchmark's screen
+ * size. This subscribes to the path, and the walk happens in the store, so a
+ * keystroke wakes only the fields whose own value moved: 0 in the same
+ * measurement, because the only field on that path was the one being typed into
+ * and per-instance suppression leaves it alone.
+ *
+ * The whole reason `SourceStore.peek` is reference-stable is so this can hand it
+ * straight to `useSyncExternalStore` with no cache in between.
+ */
+function usePeek(
+  val: ValSystem | null,
+  path: SourcePath,
+  fieldId: string,
+): SourcePeek | null {
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.sourceStore.addListener(path, fieldId, onChange);
+    },
+    [val, path, fieldId],
+  );
+  const getSnapshot = useCallback(
+    () => (val === null ? null : val.system.sourceStore.peek(path)),
+    [val, path],
+  );
+  return useSyncExternalStore(
+    val === null ? noopSubscribe : subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
+}
+
+/**
+ * Ask for `.jsonValues()` content the peek says is not here.
+ *
+ * From an effect, never during render: a fetch started in a render React may
+ * re-run or discard is how a fetch storm begins. And only on `entry-missing` —
+ * `entry-failed` is deliberately excluded, because retrying from an effect that
+ * re-runs when the status changes is an infinite loop that renders as a spinner.
+ * That distinction is the entire reason the store has two statuses for it.
+ */
+function useEntryDemand(
+  val: ValSystem | null,
+  path: SourcePath,
+  seen: SourcePeek | null,
+): void {
+  useEffect(() => {
+    if (val === null || seen === null || seen.status !== "entry-missing") {
+      return;
+    }
+    void val.system.sourceStore.get(path, null);
+  }, [val, path, seen]);
+}
+
+/**
+ * A number that moves when ANY module's source could answer differently.
+ *
+ * For the whole-project readers only — `useAllSources`, `useSchemas` and the
+ * few components built on them. Everything a field reads goes through
+ * {@link usePeek} instead, and the difference is the point: this wakes on every
+ * keystroke anywhere in the project, which is exactly why `perFieldSubscriptions`
+ * has a test forbidding it inside a field.
+ */
+function useSourcesVersion(val: ValSystem | null): number {
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.sourceStore.events.on("source:change", onChange);
+    },
+    [val],
+  );
+  const getSnapshot = useCallback(
+    () => (val === null ? 0 : val.system.sourceStore.sourcesVersion()),
+    [val],
+  );
+  return useSyncExternalStore(
+    val === null ? noopSubscribe : subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
+}
+
+/**
+ * Does this field instance have an edit the server has not acknowledged?
+ *
+ * Its own hook, and subscribed to `patch:chain` rather than to source, because
+ * the answer moves WITHOUT source moving: saving a patch changes its durability,
+ * not its value, so nothing emits `source:change` and anything memoised beside a
+ * source read keeps the answer it had when the edit was made.
+ *
+ * That is exactly what froze the array field. `clientSideOnly` was computed
+ * inside {@link useShallowSourceAtPath}'s memo, whose deps are the source read —
+ * so one drag set it true and it stayed true until some unrelated change moved
+ * source at that path. `ArrayFields` fed it to `disabled`, and the drag handle is
+ * a `<button disabled>`, so a single reorder disabled reordering.
+ *
+ * `patch:chain` fires for every patch anywhere in the project, which would be a
+ * whole-project subscription in a per-field component if the snapshot were an
+ * object. It is a BOOLEAN: `useSyncExternalStore` compares with `Object.is` and
+ * bails out, so an unrelated patch costs one walk of the pending set and no
+ * re-render. That is the difference from the reads
+ * `perFieldSubscriptions.test.ts` forbids.
+ *
+ * ## NOT for a text input
+ *
+ * This wakes the field that made the edit, because its own answer is what
+ * changed — and that is precisely what per-instance suppression exists to
+ * prevent: a controlled input re-rendered by its own keystroke loses the caret.
+ * `useShallowSourceAtPath` therefore reads the same fact WITHOUT subscribing, so
+ * it is fresh on every render it has anyway and forces none.
+ *
+ * Use this only where there is no caret to lose and a stale indicator would be
+ * visible — an array field's "saving" hint is the case it was written for.
+ */
+export function useHasUnsavedFrom(
+  moduleFilePath: ModuleFilePath,
+  creatorId: string | undefined,
+): boolean {
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.patchStore.events.on("patch:chain", onChange);
+    },
+    [val],
+  );
+  const getSnapshot = useCallback(
+    () =>
+      val === null || creatorId === undefined
+        ? false
+        : val.system.patchStore.hasUnsavedFrom(moduleFilePath, creatorId),
+    [val, moduleFilePath, creatorId],
+  );
+  return useSyncExternalStore(
+    // No creator, no question — so no subscription either. `useValField` calls
+    // this unconditionally and passes an id only when the caller asked to watch,
+    // which is what lets it stay a hook while costing nothing for the fields
+    // (every text input) that must NOT be woken by their own writes.
+    val === null || creatorId === undefined ? noopSubscribe : subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
+}
+
+/** Bumped whenever any module's schema is received or replaced. */
+function useSchemasVersion(val: ValSystem | null): number {
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.schemaStore.events.on("schema:init", onChange);
+    },
+    [val],
+  );
+  // The COUNT of modules with a schema, not a version number: `SchemaStore`
+  // keeps versions per module and has no global one, and intake replaces the
+  // whole map at once, so the count changes exactly when the map does. The
+  // subscription is what actually drives the re-read; this only has to be a
+  // stable value that differs afterwards.
+  const getSnapshot = useCallback(
+    () => (val === null ? 0 : Object.keys(val.system.schemaStore.all()).length),
+    [val],
+  );
+  return useSyncExternalStore(
+    val === null ? noopSubscribe : subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
 }
 
 export type LoadingStatus = "loading" | "not-asked" | "error" | "success";
-export function useLoadingStatus(): LoadingStatus {
-  const { syncEngine } = useValFieldContext();
-  const pendingOpsCount = useSyncExternalStore(
-    syncEngine.subscribe("pending-ops-count"),
-    () => syncEngine.getPendingOpsSnapshot(),
-    () => syncEngine.getPendingOpsSnapshot(),
-  );
-  if (pendingOpsCount > 0) {
-    return "loading";
-  }
-  return "success";
+
+/**
+ * Has the project been taken in yet?
+ *
+ * The cheap half of {@link useLoadingStatus}, and the half most callers
+ * actually want. It wakes exactly once per session — `host:receive` — where
+ * `useLoadingStatus` also carries the WRITE QUEUE, which moves on every save.
+ *
+ * Use this wherever the question is "is there anything to show yet". Reach for
+ * `useLoadingStatus` only where the answer is genuinely about whether edits have
+ * reached the server, and never from a component mounted once per field: see
+ * `perFieldSubscriptions.test.ts`.
+ */
+export function useIsInitialized(): boolean {
+  const val = useValSystem();
+  return useInitialized(val) !== null;
 }
 
-const textEncoder = new TextEncoder();
-const SavePatchFileResponse = z.object({
-  patchId: z.string().refine((v): v is PatchId => v.length > 0),
-  filePath: z.string().refine((v): v is ModuleFilePath => v.length > 0),
-});
+/**
+ * Is the system busy?
+ *
+ * The engine counted queued operations, most of which were reads it had issued
+ * itself; the stores have no such queue, because a read is demand-driven and
+ * belongs to whoever asked. What is left is the one thing this was ever used to
+ * show: whether the user's edits have reached the server.
+ *
+ * Callers use it as a gate ("don't report not-found while still loading"), so
+ * `loading` before intake matters more than the write state does.
+ */
+export function useLoadingStatus(): LoadingStatus {
+  const val = useValSystem();
+  const initializedAt = useInitialized(val);
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.patchSync.events.on("patch:sync-state", onChange);
+    },
+    [val],
+  );
+  const getSyncState = useCallback(
+    () => (val === null ? null : val.system.patchSync.currentState()),
+    [val],
+  );
+  const syncState = useSyncExternalStore(
+    val === null ? noopSubscribe : subscribe,
+    getSyncState,
+    getSyncState,
+  );
+  if (val === null) {
+    return "not-asked";
+  }
+  if (initializedAt === null) {
+    return "loading";
+  }
+  return syncState !== null && syncState.status === "in-sync"
+    ? "success"
+    : "loading";
+}
 
 // Module-scoped monotonic counter; useRef captures the value once per mount,
 // so each component instance gets a unique stable id for its lifetime.
@@ -163,37 +403,94 @@ export function useAddPatch(
   sourcePath: SourcePath | ModuleFilePath,
   creatorId?: string,
 ) {
-  const { syncEngine, getDirectFileUploadSettings } = useValFieldContext();
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const patchPath = useMemo(() => {
     return Internal.createPatchPath(modulePath);
   }, [modulePath]);
+  /**
+   * The single choke point for field writes.
+   *
+   * `addPatch`, `addPatchAwaitable` and `addModuleFilePatch` all come here, which
+   * is why the store system became the writer in one function rather than at
+   * twenty call sites.
+   *
+   * ## One writer, and why it has to be
+   *
+   * The server keeps ONE linear patch chain and checks every `parentRef`, so two
+   * systems minting ids means a 409 on every keystroke. Only the system that
+   * writes may mint, and this is it: `PatchStore.createPatch` mints the id,
+   * applies the patch to source, and hands it to `PatchSync` to be saved.
+   *
+   * ## What a caller sees when it fails
+   *
+   * `createPatch` can genuinely fail before any patch exists — an upload can
+   * fail — and that is the real outcome of a write, not something happening in a
+   * mirror. So a failure is NOT swallowed and nothing is applied locally either:
+   * showing an edit the server will never have is how a user comes to trust a
+   * value that does not exist.
+   *
+   * ## Ordering, for a patch that carries bytes
+   *
+   * `PatchStore.createPatch` uploads first, then records the patch, then runs
+   * deletes — and rolls back the uploads if any of them fails, so nothing ever
+   * references a file that is not there. That is why the whole patch is handed
+   * over rather than split here: the ordering rule lives with the store that
+   * owns it.
+   */
+  const val = useValSystem();
+  const writePatch = useCallback(
+    async (
+      target: ModuleFilePath,
+      patch: Patch,
+      onProgress?: UploadProgress,
+      /** What kind of binary any `file` ops carry. See `PatchStore.createPatch`. */
+      fileType?: "image" | "file",
+    ): Promise<
+      { status: "ok"; patchId: PatchId } | { status: "error"; message: string }
+    > => {
+      if (val === null) {
+        // Said out loud rather than dropped silently. Reachable only for a
+        // Studio rendered with no system at all — a story, a preview — where an
+        // edit genuinely has nowhere to go.
+        return {
+          status: "error",
+          message:
+            "Cannot write: no store system is mounted. The edit was dropped.",
+        };
+      }
+      const res = await val.system.patchStore.createPatch(
+        target,
+        patch,
+        undefined,
+        creatorId,
+        onProgress,
+        undefined,
+        undefined,
+        fileType,
+      );
+      if (res.status !== "created") {
+        return { status: "error", message: res.message };
+      }
+      return { status: "ok", patchId: res.record.patchId };
+    },
+    [val, creatorId],
+  );
+
   const addPatch = useCallback(
     (patch: Patch, type: SerializedSchema["type"]) => {
-      syncEngine.addPatch(moduleFilePath, type, patch, Date.now(), creatorId);
+      // `type` existed so the engine could decide whether two consecutive patches
+      // were mergeable. Nothing merges any more — the store creates one patch per
+      // edit — so it is unused. Kept in the signature because ~30 call sites pass
+      // it, and changing them all is noise in a diff about who writes.
+      void type;
+      void writePatch(moduleFilePath, patch).then((res) => {
+        if (res.status === "error") {
+          console.error("Val: could not write patch", res.message);
+        }
+      });
     },
-    [syncEngine, moduleFilePath, creatorId],
-  );
-  const addPatchAwaitable = useCallback(
-    (
-      patch: Patch,
-      type: SerializedSchema["type"],
-      patchId: PatchId,
-      parentRefOverride?: ParentRef,
-    ) => {
-      return syncEngine.addPatchAwaitable(
-        moduleFilePath,
-        type,
-        patch,
-        patchId,
-        null,
-        Date.now(),
-        creatorId,
-        parentRefOverride,
-      );
-    },
-    [syncEngine, moduleFilePath, creatorId],
+    [moduleFilePath, writePatch],
   );
   const addModuleFilePatch = useCallback(
     (
@@ -201,158 +498,24 @@ export function useAddPatch(
       patch: Patch,
       type: SerializedSchema["type"],
     ) => {
-      syncEngine.addPatch(moduleFilePath, type, patch, Date.now(), creatorId);
+      void type;
+      void writePatch(moduleFilePath, patch);
     },
-    [syncEngine, creatorId],
+    [writePatch],
   );
 
-  const uploadPatchFile = useCallback(
-    async (
-      baseUrl: string,
-      nonce: string | null,
-      parentRef: ParentRef,
-      patchId: PatchId,
-      type: "file" | "image",
-      op: FileOperation,
-      onProgress: (bytesUploaded: number, totalBytes: number) => void,
-    ): Promise<
-      | { status: "done"; patchId: PatchId; filePath: string }
-      | {
-          status: "error";
-          error: {
-            message: string;
-          };
-        }
-    > => {
-      const authHeaders = nonce
-        ? {
-            "x-val-auth-nonce": nonce,
-          }
-        : {};
-      const { filePath: filePathOrRef, value: data, metadata, remote } = op;
-
-      let filePath: string;
-      if (remote) {
-        const splitRemoteRefDataRes =
-          Internal.remote.splitRemoteRef(filePathOrRef);
-        if (splitRemoteRefDataRes.status === "error") {
-          return Promise.reject({
-            status: "error",
-            error: {
-              message: `Could not create correct file path of remote file (${splitRemoteRefDataRes.error}). This is most likely a Val bug.`,
-            },
-          });
-        }
-        filePath = "/" + splitRemoteRefDataRes.filePath;
-      } else {
-        filePath = filePathOrRef;
-      }
-      const payload = JSON.stringify({
-        filePath,
-        parentRef,
-        data,
-        type,
-        metadata,
-        remote,
-      });
-
-      const totalBytes = textEncoder.encode(payload).length;
-
-      onProgress(0, totalBytes);
-
-      return new Promise((resolve) => {
-        const xhr = new XMLHttpRequest();
-
-        xhr.upload.addEventListener("progress", (event) => {
-          if (event.lengthComputable) {
-            onProgress(event.loaded, event.total);
-          }
-        });
-
-        xhr.addEventListener("load", () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const responseText = xhr.responseText;
-              const responseData = JSON.parse(responseText);
-              const parsed = SavePatchFileResponse.safeParse(responseData);
-
-              if (parsed.success) {
-                resolve({
-                  status: "done",
-                  patchId: parsed.data.patchId,
-                  filePath: parsed.data.filePath,
-                });
-              } else {
-                resolve({
-                  status: "error",
-                  error: {
-                    message: `While saving a file we got an unexpected response (${responseText?.slice(
-                      0,
-                      100,
-                    )}...)`,
-                  },
-                });
-              }
-            } catch (e) {
-              resolve({
-                status: "error",
-                error: {
-                  message: `Got an exception while saving a file. Error: ${
-                    e instanceof Error ? e.message : String(e)
-                  }`,
-                },
-              });
-            }
-          } else {
-            resolve({
-              status: "error",
-              error: {
-                message:
-                  "Could not save patch file. HTTP error: " +
-                  xhr.status +
-                  " " +
-                  xhr.statusText,
-              },
-            });
-          }
-        });
-
-        xhr.addEventListener("error", () => {
-          resolve({
-            status: "error",
-            error: {
-              message: `Could save source file (network error?)`,
-            },
-          });
-        });
-
-        xhr.addEventListener("abort", () => {
-          resolve({
-            status: "error",
-            error: {
-              message: "Upload was aborted",
-            },
-          });
-        });
-
-        xhr.responseType = "text";
-        xhr.open("POST", `${baseUrl}/patches/${patchId}/files`);
-
-        xhr.setRequestHeader("Content-Type", "application/json");
-        for (const [key, value] of Object.entries(authHeaders)) {
-          xhr.setRequestHeader(key, value);
-        }
-
-        xhr.send(payload);
-      });
-    },
-    [],
-  );
-  const parentRef = useSyncExternalStore(
-    syncEngine.subscribe("parent-ref"),
-    () => syncEngine.getParentRefSnapshot(),
-    () => syncEngine.getParentRefSnapshot(),
-  );
+  /**
+   * The direct file upload used to live here: split the patch, POST each file's
+   * bytes under an id this hook minted, then send the hashed ops.
+   *
+   * It is gone because the store system owns writes, and therefore owns patch
+   * ids: bytes uploaded under an id chosen here would be attached to a patch that
+   * never exists. The same protocol now lives in `createValSystem`'s `uploadFile`
+   * seam, still on `XMLHttpRequest` so upload progress is still reported, and
+   * `PatchStore.createPatch` does the ordering — upload, then record, and roll the
+   * uploads back if any of them fails so nothing references a file that is not
+   * there.
+   */
   const addAndUploadPatchWithFileOps = useCallback(
     async (
       patch: Patch,
@@ -365,72 +528,134 @@ export function useAddPatch(
         totalFiles: number,
       ) => void,
     ) => {
-      if (parentRef === null) {
-        onError("Cannot upload files yet. Not initialized.");
-        return;
-      }
-      const directFileUploadSettings = await getDirectFileUploadSettings();
-      if (directFileUploadSettings.status !== "success") {
-        onError(directFileUploadSettings.error);
-        return;
-      }
-      const { baseUrl, nonce } = directFileUploadSettings.data;
-      const fileOps: FileOperation[] = [];
-      const patchOps: Operation[] = [];
-      for (const op of patch) {
-        if (op.op === "file") {
-          fileOps.push(op);
-          patchOps.push({
-            ...op,
-            value:
-              typeof op.value === "string"
-                ? Internal.getSHA256Hash(textEncoder.encode(op.value))
-                : op.value,
-          });
-        } else {
-          patchOps.push(op);
-        }
-      }
-      const patchId = syncEngine.createPatchId();
-      let currentFile = 0;
-      for (const fileOp of fileOps) {
-        const res = await uploadPatchFile(
-          baseUrl,
-          nonce,
-          parentRef,
-          patchId,
-          type,
-          fileOp,
-          (bytesUploaded, totalBytes) => {
-            onProgress(bytesUploaded, totalBytes, currentFile, fileOps.length);
-          },
-        );
-        if (res.status === "error") {
-          onError(res.error.message);
-          return;
-        }
-        currentFile++;
-      }
-      const addPatchRes = await addPatchAwaitable(
-        patchOps,
-        type,
-        patchId,
-        parentRef,
-      );
-      if (addPatchRes.status !== "patch-synced") {
-        onError(addPatchRes.message);
+      // Handed to the store WHOLE, file ops included.
+      //
+      // This function used to split the patch itself, upload each file under an
+      // id it minted, and then send the hashed ops. It cannot any more, and the
+      // reason is the flip: the store mints patch ids now, because the store is
+      // what writes. Files uploaded under an id chosen here would be attached to
+      // a patch that never exists.
+      //
+      // Handing the whole patch over is also strictly better ordering than what
+      // this did. `PatchStore.createPatch` uploads the bytes, then records the
+      // patch, then runs deletes — and if an upload fails it rolls back the ones
+      // that landed and creates no patch at all, so nothing ever references a
+      // file that is not there. `splitPatchFileOps` still does the splitting; it
+      // just does it inside the store, where the ordering rule lives.
+      // `type` reaches the store now. It used to stop here, and the store then
+      // guessed the kind from `op.remote` — a different question, so a remote
+      // image was uploaded as a "file".
+      const res = await writePatch(moduleFilePath, patch, onProgress, type);
+      if (res.status === "error") {
+        onError(res.message);
         return;
       }
     },
-    [
-      getDirectFileUploadSettings,
-      addPatchAwaitable,
-      uploadPatchFile,
-      parentRef,
-      syncEngine,
-    ],
+    [moduleFilePath, writePatch],
   );
   return {
+    patchPath,
+    addPatch,
+    addAndUploadPatchWithFileOps,
+    addModuleFilePatch,
+  };
+}
+
+/**
+ * Everything an EDITABLE field needs, under one identity.
+ *
+ * ## Why this exists rather than four hooks
+ *
+ * A field's read id and its write id have to be the same string. `SourceStore`
+ * compares the id that registered a listener with the id that created a patch
+ * and leaves the match asleep, so a field that reads under one id and writes
+ * under another is woken by its own keystroke — and a controlled input
+ * re-rendered by its own keystroke loses the caret.
+ *
+ * Assembled by hand, that rule lives in a doc comment: mint an id, pass it to
+ * `useShallowSourceAtPath`, pass the SAME id to `useAddPatch`, and remember
+ * that `clientSideOnly` must be read fresh rather than subscribed to. Four
+ * calls, one invariant between them, and nothing checking it. Here the id never
+ * leaves the hook, so there is nothing to thread and nothing to get wrong.
+ *
+ * ## What it deliberately does not do
+ *
+ * It does not replace the individual hooks. A READ-ONLY reader of a path — a
+ * preview row, a compare view, an overlay that shows a value it does not
+ * write — wants a distinct instance so that it IS woken by everything,
+ * including the studio field's edits. `useShallowSourceAtPath` with no creator
+ * id is right there, and stays.
+ */
+export function useValField<SchemaType extends SerializedSchema["type"]>(
+  path: SourcePath,
+  type: SchemaType,
+  options?: {
+    /**
+     * Also report, LIVE, whether this instance has an edit the server has not
+     * acknowledged.
+     *
+     * Off by default, and the default is the important one. `source` already
+     * carries `clientSideOnly`, read fresh on each render and subscribing to
+     * nothing — which is what a text input needs, because being woken when its
+     * own edit saves is a re-render that loses the caret.
+     *
+     * Turn this on where there is no caret to lose and a stale indicator would
+     * be visible. An array field's drag handle is the case it was written for:
+     * it is a `<button disabled>` driven by this answer, so a value frozen at
+     * the moment of the drag disables reordering until something unrelated
+     * moves.
+     */
+    watchUnsaved?: boolean;
+  },
+): {
+  /** The value, plus `clientSideOnly` for this instance. */
+  source: ShallowSourceOf<SchemaType>;
+  schema: SchemaAtPathResult;
+  /** Always `false` unless `watchUnsaved` was asked for. See the option. */
+  hasUnsavedOwnEdit: boolean;
+  /** The patch path to write ops at. */
+  patchPath: string[];
+  addPatch: (patch: Patch, type: SerializedSchema["type"]) => void;
+  addAndUploadPatchWithFileOps: (
+    patch: Patch,
+    type: "image" | "file",
+    onError: (message: string) => void,
+    onProgress: (
+      bytesUploaded: number,
+      totalBytes: number,
+      currentFile: number,
+      totalFiles: number,
+    ) => void,
+  ) => Promise<void>;
+  addModuleFilePatch: (
+    moduleFilePath: ModuleFilePath,
+    patch: Patch,
+    type: SerializedSchema["type"],
+  ) => void;
+} {
+  // Minted here and never returned: this IS the seam. See the note above.
+  const creatorId = useFieldCreatorId();
+  const source = useShallowSourceAtPath(path, type, creatorId);
+  // The same id, so this hook's own source listener is not a second instance —
+  // see `useSchemaAtPathInternal`.
+  const schema = useSchemaAtPath(path, creatorId);
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const hasUnsavedOwnEdit = useHasUnsavedFrom(
+    moduleFilePath,
+    // Passing no id is what makes this free — see `useHasUnsavedFrom`, which
+    // does not even subscribe without one.
+    options?.watchUnsaved === true ? creatorId : undefined,
+  );
+  const {
+    patchPath,
+    addPatch,
+    addAndUploadPatchWithFileOps,
+    addModuleFilePatch,
+  } = useAddPatch(path, creatorId);
+  return {
+    source,
+    schema,
+    hasUnsavedOwnEdit,
     patchPath,
     addPatch,
     addAndUploadPatchWithFileOps,
@@ -476,35 +701,112 @@ export function useValConfig() {
   return lastConfig.current;
 }
 
-export function useRenderOverrideAtPath(
+/** `undefined` when the module has nothing to preview at this path. */
+type PreviewAtPathResult = ReifiedPreview[SourcePath] | undefined;
+
+/**
+ * The preview at a path — a container's rows, computed by the host on demand.
+ *
+ * NOT where a field's layout comes from: `s.string().render(...)` is static
+ * config carried by the serialized schema, so a field reads it off
+ * `useSchemaAtPath`. See `core/src/render.ts`.
+ */
+export function usePreviewAtPath(
   sourcePath: SourcePath | ModuleFilePath,
-) {
-  const { syncEngine } = useValFieldContext();
-  const [moduleFilePath] = useMemo(() => {
-    return Internal.splitModuleFilePathAndModulePath(sourcePath);
-  }, [sourcePath]);
-  const renderRes = useSyncExternalStore(
-    syncEngine.subscribe("render", moduleFilePath),
-    () => syncEngine.getRenderSnapshot(moduleFilePath),
-    () => syncEngine.getRenderSnapshot(moduleFilePath),
+): PreviewAtPathResult {
+  const val = useValSystem();
+  const path = sourcePath as SourcePath;
+  const initializedAt = useInitialized(val);
+  /**
+   * Registering interest IS the demand signal.
+   *
+   * `PreviewStore` listens for `source:listen` and computes a preview for the
+   * paths that have listeners on them — which is what makes one visible row cost
+   * one closure call instead of the whole module. So this hook subscribes even
+   * though it does not read source: mounting is the thing that asks.
+   */
+  const ownId = useId();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      const offSource = val.system.sourceStore.addListener(
+        path,
+        ownId,
+        onChange,
+      );
+      const offResult = val.system.previewStore.events.on(
+        "preview:result",
+        onChange,
+      );
+      const offInvalidate = val.system.previewStore.events.on(
+        "preview:invalidate",
+        onChange,
+      );
+      const offError = val.system.previewStore.events.on(
+        "preview:error",
+        onChange,
+      );
+      return () => {
+        offSource();
+        offResult();
+        offInvalidate();
+        offError();
+      };
+    },
+    [val, path, ownId],
   );
-  const sourcesRes = useSyncExternalStore(
-    syncEngine.subscribe("source", moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath),
+  const getSnapshot = useCallback(
+    () => (val === null ? null : val.system.previewStore.peek(path)),
+    [val, path],
   );
-  const initializedAt = useSyncEngineInitializedAt(syncEngine);
-  return useMemo(() => {
-    const isOptimistic =
-      sourcesRes.status === "success" && sourcesRes.optimistic;
-    const renderAtPath = renderRes?.[sourcePath];
-    if (initializedAt === null || isOptimistic) {
-      const renderData =
-        renderAtPath && "data" in renderAtPath ? renderAtPath?.data : undefined;
-      return { status: "loading" as const, data: renderData };
+  const seen = useSyncExternalStore(
+    val === null ? noopSubscribe : subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
+
+  /**
+   * Compute a preview this module does not have.
+   *
+   * Only on `needs-preview`, which is exactly the state that says asking would
+   * help. `no-preview` means the schema declares none, and asking for it forever
+   * is the loop the store added `needs-preview` to make impossible — the same
+   * distinction, for the same reason, as `entry-missing` against `entry-failed`.
+   */
+  useEffect(() => {
+    if (val === null || seen === null || seen.status !== "needs-preview") {
+      return;
     }
-    return renderAtPath;
-  }, [renderRes, initializedAt, sourcesRes, sourcePath]);
+    void val.system.previewStore.get(path);
+  }, [val, path, seen]);
+
+  return useMemo<PreviewAtPathResult>(() => {
+    if (val === null || seen === null) {
+      return undefined;
+    }
+    if (initializedAt === null || seen.status === "needs-preview") {
+      // Before intake, and while a preview is owed, `loading` — with no data,
+      // because there is none yet. The engine returned the previous preview's
+      // data here; it could, because it recomputed eagerly and therefore always
+      // had one. Nothing shows a stale preview in the meantime, which is the
+      // honest reading of "not computed".
+      return { status: "loading" };
+    }
+    switch (seen.status) {
+      case "previewed":
+        // Already a `WithStatus<PreviewTypes>` — the store caches what the host
+        // produced, statuses and all — so it is returned as it is rather than
+        // wrapped again.
+        return seen.preview;
+      case "error":
+        // `message`, not `error`: `WithStatus` in core names it that, and this
+        // hook returns core's own shape rather than a translation of it.
+        return { status: "error", message: seen.message };
+      case "no-preview":
+      case "no-preview-at-path":
+        return undefined;
+    }
+  }, [val, seen, initializedAt]);
 }
 
 type SchemaAtPathResult =
@@ -519,65 +821,122 @@ type SchemaWithResolvedPathResult =
   | { status: "success"; data: SerializedSchema; resolvedPath: SourcePath }
   | { status: "error"; error: string };
 
+/**
+ * Everything resolving a path against the module's schema and source can come
+ * back with — including the sync engine's own snapshot statuses, which are
+ * returned as-is. {@link useSchemaAtPathInternal} narrows this down to the four
+ * states of {@link SchemaWithResolvedPathResult} that a field renders.
+ */
+type ResolvedSchemaAtPathResult =
+  | { status: "loading" }
+  | {
+      status:
+        | "no-schemas"
+        | "module-schema-not-found"
+        | "schema-not-found"
+        | "source-not-found"
+        | "resolved-schema-not-found";
+      message?: string;
+    }
+  | { status: "error"; error: string }
+  | { status: "success"; data: SerializedSchema; resolvedPath: SourcePath };
+
 function useSchemaAtPathInternal(
   sourcePath: SourcePath | ModuleFilePath,
+  /**
+   * The field INSTANCE this resolution belongs to, where there is one.
+   *
+   * Resolving a schema needs the module's source, so this hook registers a
+   * source listener of its own — and a listener under an id of its own is a
+   * SECOND instance as far as suppression is concerned. So a component that
+   * renders this hook alongside `useShallowSourceAtPath` under its own creator
+   * id was woken by its own keystroke through this one, which is precisely what
+   * per-instance suppression exists to prevent. Every editable field does render
+   * both.
+   *
+   * `useValField` passes its id, so the two listeners are one instance.
+   * `useId()` remains the fallback for a standalone reader, which is correctly
+   * woken by everything.
+   */
+  creatorId?: string,
 ): SchemaWithResolvedPathResult {
-  const { syncEngine } = useValFieldContext();
+  const val = useValSystem();
   const sourceOverride = useContext(FieldSourceOverrideContext);
+  const path = sourcePath as SourcePath;
   const [moduleFilePath, modulePath] = useMemo(() => {
-    return Internal.splitModuleFilePathAndModulePath(sourcePath);
-  }, [sourcePath]);
-  const schemaRes = useSyncExternalStore(
-    syncEngine.subscribe("schema"),
-    () => syncEngine.getSchemaSnapshot(moduleFilePath),
-    () => syncEngine.getSchemaSnapshot(moduleFilePath),
-  );
-  const sourcesRes = useSyncExternalStore(
-    syncEngine.subscribe("source", moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath),
-  );
-  const resolvedSchemaAtPathRes = useMemo(() => {
-    if (schemaRes.status !== "success") {
-      return schemaRes;
+    return Internal.splitModuleFilePathAndModulePath(path);
+  }, [path]);
+  const initializedAt = useInitialized(val);
+  const schemaVersion = useSchemasVersion(val);
+  /**
+   * Per PATH, not per module — see {@link usePeek}.
+   *
+   * Resolving a schema against a path needs the module's source, which this hook
+   * reads on demand below. But it only needs to RESOLVE AGAIN when something on
+   * this path changed shape, and `touchesPath` already matches both directions:
+   * an ancestor being replaced wakes this, and so does an edit beneath it. A
+   * sibling's keystroke does neither, and must not.
+   */
+  const ownId = useId();
+  const seen = usePeek(val, path, creatorId ?? ownId);
+  useEntryDemand(val, path, seen);
+
+  const resolvedSchemaAtPathRes = useMemo<ResolvedSchemaAtPathResult>(() => {
+    if (val === null) {
+      return { status: "loading" };
     }
+    void schemaVersion;
+    const schema = val.system.schemaStore.get(moduleFilePath);
+    if (schema === undefined) {
+      // Before intake this is "not yet"; after it, there is no such module. The
+      // timestamp is the only thing that tells them apart — see
+      // {@link useInitialized}.
+      return initializedAt === null
+        ? { status: "loading" }
+        : { status: "module-schema-not-found" };
+    }
+    /**
+     * The override wins, and it is not a fallback.
+     *
+     * A compare view renders the "before" side by handing the committed module
+     * source down through context. Reading the store instead would show the
+     * patched value on both sides of a diff, which is a diff that always looks
+     * empty.
+     */
     const sourceData =
       sourceOverride && sourceOverride.moduleFilePath === moduleFilePath
         ? sourceOverride.moduleSource
-        : sourcesRes.status === "success"
-          ? sourcesRes.data
-          : undefined;
-    if (sourceData === undefined) {
-      if (sourcesRes.status !== "success") {
-        return sourcesRes;
+        : val.system.sourceStore.moduleSource(moduleFilePath);
+    if (seen !== null && sourceOverride === null) {
+      if (seen.status === "entry-loading" || seen.status === "entry-missing") {
+        return { status: "loading" };
       }
-      return { status: "source-not-found" as const };
+      if (seen.status === "entry-failed") {
+        // A failed load must not render as a perpetual spinner.
+        return {
+          status: "error",
+          error: `Could not load entry '${seen.key}': ${seen.message}`,
+        };
+      }
+    }
+    if (sourceData === undefined) {
+      return initializedAt === null
+        ? { status: "loading" }
+        : { status: "source-not-found" };
     }
 
     try {
-      const resolvedSchemaAtPathRes = Internal.safeResolvePath(
-        modulePath,
-        sourceData,
-        schemaRes.data,
-      );
-      if (resolvedSchemaAtPathRes.status === "error") {
-        return {
-          status: "error" as const,
-          error: resolvedSchemaAtPathRes.message,
-        };
+      const resolved = Internal.safeResolvePath(modulePath, sourceData, schema);
+      if (resolved.status === "error") {
+        return { status: "error", error: resolved.message };
       }
-      if (resolvedSchemaAtPathRes.status === "source-undefined") {
-        return {
-          status: "source-not-found" as const,
-        };
+      if (resolved.status === "source-undefined") {
+        return { status: "source-not-found" };
       }
-      if (!resolvedSchemaAtPathRes.schema) {
-        return {
-          status: "resolved-schema-not-found" as const,
-        };
+      if (!resolved.schema) {
+        return { status: "resolved-schema-not-found" };
       }
-      const resolvedModulePath =
-        resolvedSchemaAtPathRes.path as unknown as ModulePath;
+      const resolvedModulePath = resolved.path as unknown as ModulePath;
       const resolvedSourcePath = resolvedModulePath
         ? Internal.joinModuleFilePathAndModulePath(
             moduleFilePath,
@@ -585,8 +944,8 @@ function useSchemaAtPathInternal(
           )
         : (moduleFilePath as unknown as SourcePath);
       return {
-        status: "success" as const,
-        data: resolvedSchemaAtPathRes.schema,
+        status: "success",
+        data: resolved.schema,
         resolvedPath: resolvedSourcePath,
       };
     } catch (e) {
@@ -595,59 +954,83 @@ function useSchemaAtPathInternal(
         sourcePath,
         modulePath,
         sourceData,
-        schemaRes.data,
+        schema,
         e,
       );
       return {
-        status: "error" as const,
+        status: "error",
         error: `Error resolving schema at path: ${
           e instanceof Error ? e.message : String(e)
         }`,
       };
     }
-  }, [schemaRes, sourcesRes, moduleFilePath, modulePath, sourceOverride]);
-  const initializedAt = useSyncEngineInitializedAt(syncEngine);
-  if (initializedAt === null) {
-    return { status: "loading" };
-  }
-  if (resolvedSchemaAtPathRes.status !== "success") {
-    if (resolvedSchemaAtPathRes.status === "resolved-schema-not-found") {
-      return { status: "not-found" };
+  }, [
+    val,
+    schemaVersion,
+    seen,
+    sourceOverride,
+    moduleFilePath,
+    modulePath,
+    sourcePath,
+    initializedAt,
+  ]);
+
+  /**
+   * Memoised, and it is not a micro-optimisation: this hook's result is a
+   * dependency of effects all over the app, so an unstable reference is a render
+   * loop. The narrowing below built a FRESH object on every render for every
+   * status — `{ status: "loading" }`, `{ status: "not-found" }` — and the one
+   * memoised branch (`resolvedSchemaAtPathRes`) was the success case only. On a
+   * `.jsonValues()` record that was 346 renders in 15 seconds, ending in
+   * "Maximum update depth exceeded" out of a Radix ref callback.
+   *
+   * Same rule as `SourceStore.peek` and `ValidationStore.peek`: whatever a
+   * render path reads owes it a stable reference.
+   */
+  return useMemo<SchemaWithResolvedPathResult>(() => {
+    if (initializedAt === null) {
+      return { status: "loading" };
     }
-    if (resolvedSchemaAtPathRes.status === "source-not-found") {
-      return { status: "not-found" };
+    if (resolvedSchemaAtPathRes.status !== "success") {
+      switch (resolvedSchemaAtPathRes.status) {
+        case "resolved-schema-not-found":
+        case "source-not-found":
+        case "module-schema-not-found":
+        case "schema-not-found":
+          return { status: "not-found" };
+        case "no-schemas":
+          return { status: "error", error: "No schemas" };
+        case "error":
+          return { status: "error", error: resolvedSchemaAtPathRes.error };
+        case "loading":
+          return { status: "loading" };
+      }
     }
-    if (resolvedSchemaAtPathRes.status === "no-schemas") {
-      return { status: "error", error: "No schemas" };
-    }
-    if (resolvedSchemaAtPathRes.status === "module-schema-not-found") {
-      return { status: "not-found" };
-    }
-    if (resolvedSchemaAtPathRes.status === "error") {
-      return { status: "error", error: resolvedSchemaAtPathRes.error };
-    }
-    return {
-      status: "loading",
-    };
-  }
-  return resolvedSchemaAtPathRes;
+    return resolvedSchemaAtPathRes;
+  }, [resolvedSchemaAtPathRes, initializedAt]);
 }
 
 export function useSchemaAtPath(
   sourcePath: SourcePath | ModuleFilePath,
+  /** See {@link useSchemaAtPathInternal}. Omit unless you also write here. */
+  creatorId?: string,
 ): SchemaAtPathResult {
-  const res = useSchemaAtPathInternal(sourcePath);
-  if (res.status === "success") {
-    return { status: "success", data: res.data };
-  }
-  return res;
+  const res = useSchemaAtPathInternal(sourcePath, creatorId);
+  // Memoised for the same reason as the internal hook above: dropping
+  // `resolvedPath` by building a new object made every render a new reference.
+  return useMemo<SchemaAtPathResult>(() => {
+    if (res.status === "success") {
+      return { status: "success", data: res.data };
+    }
+    return res;
+  }, [res]);
 }
 
 /**
  * Like {@link useSchemaAtPath} but also returns the effective source path
  * that the schema resolved to. For most schema types, this equals the input
  * path. For leaf schemas like `image` / `file` that absorb sub-paths
- * (e.g. `metadata.hotspot`), the resolved path is truncated to the
+ * (e.g. `hotspot`), the resolved path is truncated to the
  * schema boundary.
  */
 export function useSchemaWithResolvedPath(
@@ -668,56 +1051,218 @@ export function useSchemas():
       status: "success";
       data: Record<ModuleFilePath, SerializedSchema>;
     } {
-  const { syncEngine } = useValFieldContext();
-  const schemas = useSyncExternalStore(
-    syncEngine.subscribe("schema"),
-    () => syncEngine.getAllSchemasSnapshot(),
-    () => syncEngine.getAllSchemasSnapshot(),
-  );
-
-  const initializedAt = useSyncEngineInitializedAt(syncEngine);
-  if (initializedAt === null) {
-    return { status: "loading" } as const;
-  }
-  if (schemas === null) {
-    console.warn("Schemas: not found");
-    return {
-      status: "error",
-      error: "Schemas not found",
-    } as const;
-  }
-  const definedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
-  for (const [moduleFilePathS, moduleSchema] of Object.entries(schemas)) {
-    const moduleFilePath = moduleFilePathS as ModuleFilePath;
-    if (moduleSchema) {
-      definedSchemas[moduleFilePath] = moduleSchema;
+  const val = useValSystem();
+  const initializedAt = useInitialized(val);
+  const schemaVersion = useSchemasVersion(val);
+  return useMemo(() => {
+    if (val === null || initializedAt === null) {
+      return { status: "loading" };
     }
-  }
-  return {
-    status: "success",
-    data: definedSchemas,
-  } as const;
+    void schemaVersion;
+    // The store's own record, not a copy. The engine deep-cloned every schema on
+    // every read of this; nothing downstream writes to a schema, so the clone
+    // bought only the cost of copying the project's schemas on each keystroke
+    // that invalidated the cache.
+    return { status: "success", data: val.system.schemaStore.all() };
+  }, [val, initializedAt, schemaVersion]);
 }
 
-export function useAllSources() {
-  const { syncEngine } = useValFieldContext();
-  const sources = useSyncExternalStore(
-    syncEngine.subscribe("all-sources"),
-    () => syncEngine.getAllSourcesSnapshot(),
-    () => syncEngine.getAllSourcesSnapshot(),
+/**
+ * One module's schema.
+ *
+ * For a field that needs a schema OTHER than its own — a gallery-backed media
+ * field reading the gallery's `accept` and `directory`, say. `useSchemas()`
+ * answers the same question and is a whole-project subscription, so reaching for
+ * it from a per-field component makes a keystroke O(project) for one lookup.
+ *
+ * `schema:init` only, which fires on intake and on an HMR schema swap. There is
+ * no source subscription here on purpose: a schema is not a function of source,
+ * and adding one would put this back on the keystroke path.
+ */
+export function useModuleSchema(
+  moduleFilePath: ModuleFilePath | undefined,
+): SerializedSchema | undefined {
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.schemaStore.events.on("schema:init", onChange);
+    },
+    [val],
   );
-  return sources;
+  const getSnapshot = useCallback(
+    () =>
+      val === null || moduleFilePath === undefined
+        ? undefined
+        : val.system.schemaStore.get(moduleFilePath),
+    [val, moduleFilePath],
+  );
+  return useSyncExternalStore(
+    val === null ? noopSubscribe : subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
 }
 
-export function useAllRenders() {
-  const { syncEngine } = useValFieldContext();
-  const renders = useSyncExternalStore(
-    syncEngine.subscribe("all-renders"),
-    () => syncEngine.getAllRendersSnapshot(),
-    () => syncEngine.getAllRendersSnapshot(),
-  );
-  return renders;
+export function useAllSources(): Record<ModuleFilePath, Json> {
+  const val = useValSystem();
+  const version = useSourcesVersion(val);
+  return useMemo(() => {
+    if (val === null) {
+      return {};
+    }
+    void version;
+    return val.system.sourceStore.allSources();
+  }, [val, version]);
 }
+
+/**
+ * Resolves a navigation path, reading every module's source and schema ON DEMAND
+ * rather than subscribing to them.
+ *
+ * Use this - never `useAllSources()` + `useSchemas()` - whenever the data is only
+ * ever read inside an event handler.
+ *
+ * Both of those are whole-PROJECT subscriptions: they wake on every keystroke
+ * anywhere in the Studio. `Field` wraps every leaf field, so subscribing there
+ * made a single keystroke O(project size) - for data that only a click handler
+ * ever looked at. `perFieldSubscriptions.test.ts` is what keeps that from coming
+ * back.
+ */
+export function useGetNavPath(): (
+  path: SourcePath | ModuleFilePath,
+) => SourcePath | ModuleFilePath | null {
+  const val = useValSystem();
+  return useCallback(
+    (path: SourcePath | ModuleFilePath) => {
+      if (val === null) {
+        return null;
+      }
+      return getNavPathFromAll(
+        path,
+        val.system.sourceStore.allSources(),
+        val.system.schemaStore.all(),
+      );
+    },
+    [val],
+  );
+}
+
+/**
+ * The same resolution as {@link useGetNavPath}, with the reason it failed.
+ *
+ * For callers that have to SAY something when a path cannot be opened. The
+ * canvas is the one that must: the thing that was clicked is visibly there on
+ * the page, so "nothing happened" is not a plausible answer to have given.
+ *
+ * Reads on demand, exactly as `useGetNavPath` does and for the same reason —
+ * see the note there about whole-project subscriptions.
+ */
+export function useResolveNavPath(): (
+  path: SourcePath | ModuleFilePath,
+) => NavPathResolution {
+  const val = useValSystem();
+  return useCallback(
+    (path: SourcePath | ModuleFilePath): NavPathResolution => {
+      if (val === null) {
+        return { status: "schemas-not-loaded" };
+      }
+      return resolveNavPath(
+        path,
+        val.system.sourceStore.allSources(),
+        val.system.schemaStore.all(),
+      );
+    },
+    [val],
+  );
+}
+
+/**
+ * Progress of the `.jsonValues()` entries the project has loaded so far.
+ *
+ * NOTE: `percentage` is 100 while `status` is `"idle"`, so check the status
+ * before showing it.
+ *
+ * Counted from source and the loaded map on every read, rather than accumulated
+ * as fetches are issued. The engine counted requests and resolutions, which made
+ * the total the number of entries someone had ASKED for — so the bar restarted
+ * every time a new module was opened, and reached 100% while entries were still
+ * missing. These two numbers come from the same place a read does, so a full bar
+ * means the content is actually there.
+ */
+export function useJsonEntriesProgress(): JsonEntriesProgress {
+  const val = useValSystem();
+  const version = useSourcesVersion(val);
+  return useMemo<JsonEntriesProgress>(() => {
+    if (val === null) {
+      return { status: "idle", loaded: 0, total: 0, percentage: 100 };
+    }
+    void version;
+    const { total, loaded } = val.system.sourceStore.allEntriesProgress();
+    if (total === 0 || loaded === total) {
+      return { status: "idle", loaded, total, percentage: 100 };
+    }
+    return {
+      status: "loading",
+      loaded,
+      total,
+      percentage: Math.round((loaded / total) * 100),
+    };
+  }, [val, version]);
+}
+
+export function useAllPreviews(): Record<
+  ModuleFilePath,
+  ReifiedPreview | null
+> {
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      const offResult = val.system.previewStore.events.on(
+        "preview:result",
+        onChange,
+      );
+      const offInvalidate = val.system.previewStore.events.on(
+        "preview:invalidate",
+        onChange,
+      );
+      const offError = val.system.previewStore.events.on(
+        "preview:error",
+        onChange,
+      );
+      return () => {
+        offResult();
+        offInvalidate();
+        offError();
+      };
+    },
+    [val],
+  );
+  const getSnapshot = useCallback(
+    () => (val === null ? EMPTY_PREVIEWS : val.system.previewStore.all()),
+    [val],
+  );
+  return useSyncExternalStore(
+    val === null ? noopSubscribe : subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
+}
+
+const EMPTY_PREVIEWS: Record<ModuleFilePath, ReifiedPreview | null> = {};
+
+/**
+ * How far the `.jsonValues()` entry load has got. See
+ * {@link useJsonEntriesProgress}.
+ */
+export type JsonEntriesProgress = {
+  status: "idle" | "loading";
+  loaded: number;
+  total: number;
+  /** 100 while idle — check `status` first. */
+  percentage: number;
+};
 
 function walkSourcePath(
   modulePath: ModulePath,
@@ -813,46 +1358,22 @@ type ShallowSource = {
   string: string;
   date: string;
   dateTime: string;
+  color: string;
   file: {
-    [FILE_REF_PROP]: string;
-    metadata?: { readonly [key: string]: Json };
+    path: string;
+    mimeType?: string;
   };
   image: {
-    [FILE_REF_PROP]: string;
-    metadata?: { readonly [key: string]: Json };
+    path: string;
+    width?: number;
+    height?: number;
+    mimeType?: string;
+    alt?: string;
+    hotspot?: { x: number; y: number };
   };
   literal: string;
   richtext: unknown[];
 };
-
-function getShallowSourceAtSourcePath<
-  SchemaType extends SerializedSchema["type"],
->(
-  moduleFilePath: ModuleFilePath,
-  modulePath: ModulePath,
-  type: SchemaType,
-  sources: Json,
-  clientSideOnly: boolean,
-): ShallowSourceOf<SchemaType> {
-  const source = walkSourcePath(modulePath, sources);
-  if ("data" in source && source.data !== undefined) {
-    const mappedSource = mapSource(
-      moduleFilePath,
-      modulePath,
-      type,
-      source.data,
-    );
-    if (mappedSource.status === "success") {
-      return {
-        status: "success",
-        data: mappedSource.data,
-        clientSideOnly,
-      };
-    }
-    return mappedSource;
-  }
-  return source as ShallowSourceOf<SchemaType>;
-}
 
 function mapSource<SchemaType extends SerializedSchema["type"]>(
   moduleFilePath: ModuleFilePath,
@@ -944,6 +1465,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
   } else if (
     type === "date" ||
     type === "dateTime" ||
+    type === "color" ||
     type === "string" ||
     type === "literal"
   ) {
@@ -962,22 +1484,12 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
   } else if (type === "file" || type === "image") {
     if (
       typeof source !== "object" ||
-      !(FILE_REF_PROP in source) ||
-      source[FILE_REF_PROP] === undefined
+      !("path" in source) ||
+      typeof source.path !== "string"
     ) {
       return {
         status: "error",
-        error: `Expected object with ${FILE_REF_PROP} property, got ${typeof source}`,
-      };
-    }
-    if (
-      "metadata" in source &&
-      source.metadata &&
-      typeof source.metadata !== "object"
-    ) {
-      return {
-        status: "error",
-        error: `Expected metadata of ${type} to be an object, got ${typeof source.metadata}`,
+        error: `Expected object with a path property, got ${typeof source}`,
       };
     }
     return {
@@ -1042,21 +1554,6 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
   }
 }
 
-function concatModulePath(
-  moduleFilePath: ModuleFilePath,
-  modulePath: ModulePath,
-  key: string | number,
-): SourcePath {
-  if (!modulePath) {
-    return (moduleFilePath + ModuleFilePathSep + key) as SourcePath;
-  }
-  return (moduleFilePath +
-    ModuleFilePathSep +
-    modulePath +
-    "." +
-    JSON.stringify(key)) as SourcePath;
-}
-
 export function useShallowSourceAtPath<
   SchemaType extends SerializedSchema["type"],
 >(
@@ -1064,20 +1561,53 @@ export function useShallowSourceAtPath<
   type?: SchemaType,
   creatorId?: string,
 ): ShallowSourceOf<SchemaType> {
-  const { syncEngine } = useValFieldContext();
+  const val = useValSystem();
   const sourceOverride = useContext(FieldSourceOverrideContext);
+  const path = (sourcePath ?? "") as SourcePath;
   const [moduleFilePath, modulePath] = sourcePath
-    ? Internal.splitModuleFilePathAndModulePath(sourcePath)
+    ? Internal.splitModuleFilePathAndModulePath(path)
     : (["", ""] as [ModuleFilePath, ModulePath]);
-  const sourcesRes = useSyncExternalStore(
-    syncEngine.subscribe("source", moduleFilePath),
-    () => syncEngine.getSourceSnapshot(moduleFilePath, creatorId),
-    () => syncEngine.getSourceSnapshot(moduleFilePath, creatorId),
-  );
-  const initializedAt = useSyncEngineInitializedAt(syncEngine);
+  const initializedAt = useInitialized(val);
+  /**
+   * The creator id is the READ id too, and that is the whole of per-instance
+   * suppression.
+   *
+   * `SourceStore` compares the id that registered the listener with the id that
+   * created the patch, and leaves the match asleep. A field that reads under one
+   * id and writes under another is therefore woken by its own keystroke — which
+   * is the bug `useValField` exists to make unrepresentable, and which
+   * `hooks.test.tsx` pins by asserting the broken behaviour when the ids differ.
+   *
+   * `useId` is the fallback for a read-only reader: a distinct instance, so it
+   * is correctly woken by everything.
+   */
+  const ownId = useId();
+  const seen = usePeek(val, path, creatorId ?? ownId);
+  useEntryDemand(val, path, seen);
+  /**
+   * Read on every render, and a DEPENDENCY of the memo below — but deliberately
+   * not through a subscription.
+   *
+   * Two requirements pull against each other here. The value has to be fresh:
+   * computing it inside the memo, whose inputs are all source-shaped, meant it
+   * kept whatever answer it had when the edit was made, because saving a patch
+   * moves the chain and not source. And this field must not be WOKEN when it
+   * changes: for the field that made the edit, its own answer is what moved, and
+   * re-rendering a controlled input on its own keystroke loses the caret —
+   * `valFieldHooks.test.tsx` pins exactly zero extra renders for that case.
+   *
+   * A plain read satisfies both. Nothing is forced, and any render this field has
+   * for another reason recomputes the memo with the current answer. A consumer
+   * that needs the value to be live rather than merely correct-when-rendered
+   * subscribes explicitly with {@link useHasUnsavedFrom}.
+   */
+  const clientSideOnly =
+    val !== null &&
+    creatorId !== undefined &&
+    val.system.patchStore.hasUnsavedFrom(moduleFilePath, creatorId);
 
-  const source = useMemo((): ShallowSourceOf<SchemaType> => {
-    if (initializedAt === null) {
+  return useMemo((): ShallowSourceOf<SchemaType> => {
+    if (val === null || initializedAt === null || seen === null) {
       return { status: "loading" };
     }
     if (
@@ -1085,7 +1615,7 @@ export function useShallowSourceAtPath<
       sourceOverride.moduleFilePath === moduleFilePath &&
       type !== undefined
     ) {
-      return getShallowSourceAtSourcePath(
+      return walkShallowSource(
         moduleFilePath,
         modulePath,
         type,
@@ -1093,45 +1623,108 @@ export function useShallowSourceAtPath<
         false,
       );
     }
-    if (sourcesRes.status === "success") {
-      const moduleSources = sourcesRes.data;
-      if (moduleSources !== undefined && type !== undefined) {
-        const sourceAtSourcePath = getShallowSourceAtSourcePath(
+    if (type === undefined) {
+      return { status: "not-found" };
+    }
+    switch (seen.status) {
+      case "module-loading":
+      case "entry-missing":
+      case "entry-loading":
+        return { status: "loading" };
+      case "entry-failed":
+        return {
+          status: "error",
+          error: `Could not load entry '${seen.key}': ${seen.message}`,
+        };
+      case "absent":
+        return { status: "not-found" };
+      case "ready":
+        return mapShallowSource(
           moduleFilePath,
           modulePath,
           type,
-          moduleSources,
-          sourcesRes.optimistic,
+          seen.data,
+          /**
+           * `clientSideOnly` — does this field have an unsaved edit of its own?
+           *
+           * A controlled input holds its own draft and resets it from source;
+           * it must not do that while showing an edit the server has not
+           * acknowledged, or the caret jumps and a fast typist loses characters.
+           *
+           * The engine asked "is the LAST patch in the chain yours", which goes
+           * false the moment anyone else writes even though your edit is still
+           * unsaved. This asks whether you have an unsaved patch at all, which
+           * is what the input is actually asking. Without a `creatorId` there is
+           * no instance to ask about, and the answer is no — the same as the
+           * engine, which returned `false` for a missing creator.
+           */
+          clientSideOnly,
         );
-        return sourceAtSourcePath;
-      } else {
-        return { status: "not-found" };
-      }
     }
-    return {
-      status: "error",
-      error: sourcesRes.message || "Unknown error",
-    };
   }, [
-    sourcesRes,
+    val,
+    seen,
+    initializedAt,
     modulePath,
     moduleFilePath,
-    initializedAt,
     type,
     sourceOverride,
+    creatorId,
+    clientSideOnly,
   ]);
-  return source;
 }
 
-const noopSubscribe = () => () => {};
-const getNull = () => null;
-const NOT_FOUND = { status: "not-found" as const };
+/**
+ * A value already AT the path, mapped to the shallow shape a field renders.
+ *
+ * The common case: `peek` resolved the path in the store, so there is nothing
+ * left to walk. {@link walkShallowSource} is the other one.
+ */
+function mapShallowSource<SchemaType extends SerializedSchema["type"]>(
+  moduleFilePath: ModuleFilePath,
+  modulePath: ModulePath,
+  type: SchemaType,
+  data: Json,
+  clientSideOnly: boolean,
+): ShallowSourceOf<SchemaType> {
+  const mapped = mapSource(moduleFilePath, modulePath, type, data);
+  if (mapped.status === "success") {
+    return { status: "success", data: mapped.data, clientSideOnly };
+  }
+  return mapped;
+}
+
+/**
+ * The same, for a whole MODULE source that still has to be walked.
+ *
+ * Only the compare view needs this: it supplies the committed module through
+ * `FieldSourceOverrideContext`, so no store resolved the path and the walk has
+ * to happen here.
+ */
+function walkShallowSource<SchemaType extends SerializedSchema["type"]>(
+  moduleFilePath: ModuleFilePath,
+  modulePath: ModulePath,
+  type: SchemaType,
+  moduleSource: Json,
+  clientSideOnly: boolean,
+): ShallowSourceOf<SchemaType> {
+  const walked = walkSourcePath(modulePath, moduleSource);
+  if (walked.status !== "success") {
+    return walked;
+  }
+  return mapShallowSource(
+    moduleFilePath,
+    modulePath,
+    type,
+    walked.data,
+    clientSideOnly,
+  );
+}
+
+const NOT_FOUND: { status: "not-found" } = { status: "not-found" };
 const EMPTY_PATCH_IDS: ReadonlyMap<string, string> = new Map();
 
-export function useSourceAtPath(
-  sourcePath: SourcePath | ModuleFilePath,
-  creatorId?: string,
-):
+export function useSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
   | {
       status: "success";
       data: Json;
@@ -1146,50 +1739,42 @@ export function useSourceAtPath(
   | {
       status: "loading";
     } {
-  const ctx = useContext(ValFieldContext);
-  const syncEngine = ctx?.syncEngine ?? null;
+  const val = useValSystem();
   const sourceOverride = useContext(FieldSourceOverrideContext);
+  const path = sourcePath as SourcePath;
   const [moduleFilePath, modulePath] =
-    Internal.splitModuleFilePathAndModulePath(sourcePath);
-  const sourceSnapshot = useSyncExternalStore(
-    syncEngine ? syncEngine.subscribe("source", moduleFilePath) : noopSubscribe,
-    syncEngine
-      ? () => syncEngine.getSourceSnapshot(moduleFilePath, creatorId)
-      : getNull,
-    syncEngine
-      ? () => syncEngine.getSourceSnapshot(moduleFilePath, creatorId)
-      : getNull,
-  );
-  const initializedAt = useSyncExternalStore(
-    syncEngine ? syncEngine.subscribe("initialized-at") : noopSubscribe,
-    syncEngine ? () => syncEngine.getInitializedAtSnapshot() : getNull,
-    syncEngine ? () => syncEngine.getInitializedAtSnapshot() : getNull,
-  );
+    Internal.splitModuleFilePathAndModulePath(path);
+  const initializedAt = useInitialized(val);
+  const ownId = useId();
+  const seen = usePeek(val, path, ownId);
+  useEntryDemand(val, path, seen);
+
   return useMemo(() => {
-    if (!syncEngine) {
+    if (val === null) {
       return NOT_FOUND;
     }
-    if (initializedAt === null || initializedAt.data === null) {
+    if (initializedAt === null || seen === null) {
       return { status: "loading" };
     }
     if (sourceOverride && sourceOverride.moduleFilePath === moduleFilePath) {
       return walkSourcePath(modulePath, sourceOverride.moduleSource);
     }
-    if (sourceSnapshot && sourceSnapshot.status === "success") {
-      return walkSourcePath(modulePath, sourceSnapshot.data);
+    switch (seen.status) {
+      case "ready":
+        return { status: "success", data: seen.data };
+      case "absent":
+        return NOT_FOUND;
+      case "module-loading":
+      case "entry-missing":
+      case "entry-loading":
+        return { status: "loading" };
+      case "entry-failed":
+        return {
+          status: "error",
+          error: `Could not load entry '${seen.key}': ${seen.message}`,
+        };
     }
-    return {
-      status: "error",
-      error: (sourceSnapshot && sourceSnapshot.message) || "Unknown error",
-    };
-  }, [
-    syncEngine,
-    sourceSnapshot,
-    initializedAt,
-    modulePath,
-    moduleFilePath,
-    sourceOverride,
-  ]);
+  }, [val, seen, initializedAt, modulePath, moduleFilePath, sourceOverride]);
 }
 
 /**
@@ -1214,53 +1799,89 @@ export function useServerSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
   | {
       status: "loading";
     } {
-  const { syncEngine } = useValFieldContext();
-  const [moduleFilePath, modulePath] =
-    Internal.splitModuleFilePathAndModulePath(sourcePath);
-  // Subscribe to the module-level "source" channel so we re-render when the
-  // server source changes (e.g. after a successful publish).
-  const sourceSnapshot = useSyncExternalStore(
-    syncEngine.subscribe("source", moduleFilePath),
-    () => syncEngine.getBaseSourceSnapshot(moduleFilePath),
-    () => syncEngine.getBaseSourceSnapshot(moduleFilePath),
+  const val = useValSystem();
+  const path = sourcePath as SourcePath;
+  const initializedAt = useInitialized(val);
+  /**
+   * Subscribed at the path like every other reader, even though base source only
+   * moves on intake and on a publish.
+   *
+   * `peekBase` walks the same path against `baseSources`, so the two answers are
+   * comparable by construction — which is the entire point of a compare view. And
+   * a publish promotes patched source to base, which wakes the path: without the
+   * subscription the "before" side would still show the pre-publish value after
+   * the change had shipped.
+   */
+  const ownId = useId();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.sourceStore.addListener(path, ownId, onChange);
+    },
+    [val, path, ownId],
   );
-  const initializedAt = useSyncEngineInitializedAt(syncEngine);
+  const getSnapshot = useCallback(
+    () => (val === null ? null : val.system.sourceStore.peekBase(path)),
+    [val, path],
+  );
+  const seen = useSyncExternalStore(
+    val === null ? noopSubscribe : subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
+
   return useMemo(() => {
-    if (initializedAt === null) {
+    if (val === null) {
+      return NOT_FOUND;
+    }
+    if (initializedAt === null || seen === null) {
       return { status: "loading" };
     }
-    if (sourceSnapshot.status === "success") {
-      return walkSourcePath(modulePath, sourceSnapshot.data);
+    switch (seen.status) {
+      case "ready":
+        return { status: "success", data: seen.data };
+      case "absent":
+        return NOT_FOUND;
+      case "module-loading":
+      case "entry-missing":
+      case "entry-loading":
+        return { status: "loading" };
+      case "entry-failed":
+        return {
+          status: "error",
+          error: `Could not load entry '${seen.key}': ${seen.message}`,
+        };
     }
-    return {
-      status: "error",
-      error: sourceSnapshot.status,
-    };
-  }, [sourceSnapshot, initializedAt, modulePath]);
+  }, [val, seen, initializedAt]);
 }
 
+/**
+ * File path -> the pending patch that carries its bytes, so a just-uploaded
+ * image can be fetched from `/api/val/files{path}?patch_id=...` before it is
+ * published.
+ */
 export function useFilePatchIds(): ReadonlyMap<string, string> {
-  const ctx = useContext(ValFieldContext);
-  const syncEngine = ctx?.syncEngine ?? null;
-  const patchesSnapshot = useSyncExternalStore(
-    syncEngine ? syncEngine.subscribe("all-patches") : noopSubscribe,
-    syncEngine ? () => syncEngine.getAllPatchesSnapshot() : getNull,
-    syncEngine ? () => syncEngine.getAllPatchesSnapshot() : getNull,
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      // One event, from the one place the chain version moves. Listing the five
+      // specific ones instead is a list that has to stay complete forever — and
+      // it was already incomplete: `markSaved` emits none of them.
+      return val.system.patchStore.events.on("patch:chain", onChange);
+    },
+    [val],
   );
-  return useMemo(() => {
-    if (!patchesSnapshot) return EMPTY_PATCH_IDS;
-    const map = new Map<string, string>();
-    for (const [patchId, data] of Object.entries(patchesSnapshot)) {
-      if (data && !data.isCommitted) {
-        for (const op of data.patch) {
-          if (op.op === "file" && "filePath" in op) {
-            map.set(op.filePath as string, patchId);
-          }
-        }
-      }
-    }
-    return map;
-  }, [patchesSnapshot]);
+  const getSnapshot = useCallback(
+    () =>
+      val === null ? EMPTY_PATCH_IDS : val.system.patchStore.filePatchIds(),
+    [val],
+  );
+  return useSyncExternalStore(
+    val === null ? noopSubscribe : subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
 }
 
 export type { ShallowSource };

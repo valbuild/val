@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/shared",
-  "version": "0.97.4",
+  "version": "0.109.0",
   "private": false,
   "description": "Val shared types and utilities",
   "repository": {
@@ -34,7 +34,7 @@
   },
   "dependencies": {
     "@valbuild/core": "workspace:*",
-    "zod": "^4.3.5",
+    "zod": "^4.4.3",
     "zod-validation-error": "^5.0.0"
   },
   "files": [
@@ -43,6 +43,6 @@
     "internal/package.json"
   ],
   "devDependencies": {
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.3"
   }
 }

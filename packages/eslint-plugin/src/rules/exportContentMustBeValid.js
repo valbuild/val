@@ -28,7 +28,7 @@ export default {
           node.declaration.callee.property.type === "Identifier" &&
           node.declaration.callee.property.name === "define"
         ) {
-          const filename = context.filename || context.getFilename();
+          const filename = context.filename;
           if (
             !(
               filename?.endsWith(".val.ts") ||

@@ -1,30 +1,25 @@
-import {
-  ImageMetadata,
-  ImageSource,
-  Internal,
-  RemoteSource,
-  VAL_EXTENSION,
-} from "@valbuild/core";
+import { ImageSource, Internal } from "@valbuild/core";
 import { ReactNode } from "react";
 import { cn } from "./designSystem/cn";
 
-export type DropdownPreviewImage =
-  | ImageSource
-  | RemoteSource<ImageMetadata>
-  | string
-  | null
-  | undefined;
+export type DropdownPreviewImage = ImageSource | string | null | undefined;
 
 export function DropdownPreviewRow({
   title,
   subtitle,
   image,
   className,
+  imageSize = "md",
 }: {
   title?: ReactNode;
   subtitle?: ReactNode;
   image?: DropdownPreviewImage;
   className?: string;
+  /**
+   * `sm` where the row is a menu item rather than a card — see
+   * `ReferencesList`, whose rows carry a border of their own and have less room.
+   */
+  imageSize?: "sm" | "md";
 }) {
   const imageUrl = resolveImageUrl(image);
   return (
@@ -48,7 +43,12 @@ export function DropdownPreviewRow({
           ))}
       </div>
       {imageUrl && (
-        <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-bg-secondary">
+        <div
+          className={cn(
+            "shrink-0 overflow-hidden rounded bg-bg-secondary",
+            imageSize === "sm" ? "h-7 w-7" : "h-8 w-8",
+          )}
+        >
           <img
             src={imageUrl}
             alt={typeof title === "string" ? title : ""}
@@ -68,11 +68,5 @@ function resolveImageUrl(image: DropdownPreviewImage): string | null {
   if (typeof image === "string") {
     return image;
   }
-  if (image[VAL_EXTENSION] === "file") {
-    return Internal.convertFileSource(image).url;
-  }
-  if (image[VAL_EXTENSION] === "remote") {
-    return Internal.convertRemoteSource(image).url;
-  }
-  return null;
+  return Internal.mediaUrl(image);
 }

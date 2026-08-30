@@ -1,6 +1,8 @@
-import { Loader2, Save, Upload, X } from "lucide-react";
+import { CloudUpload, Rocket, Save, TriangleAlert, X } from "lucide-react";
+import { SourcePath } from "@valbuild/core";
 import { Button } from "./designSystem/button";
 import {
+  useAllPatchErrors,
   useAutoPublish,
   usePendingClientSidePatchIds,
   usePendingServerSidePatchIds,
@@ -9,6 +11,11 @@ import {
 } from "./ValProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useValPortal } from "./ValPortalProvider";
+import { useNavigation, VAL_ERRORS_ROUTE } from "./ValRouter";
+import {
+  describePublishButton,
+  type PublishButtonKind,
+} from "./publishButtonState";
 import {
   Popover,
   PopoverContent,
@@ -26,12 +33,39 @@ import {
 // Matches the size of the MenuButton in ValOverlay: 16px icon + p-2 + border
 const compactButtonClassName = "h-auto w-auto p-2";
 
-// What the button does, rather than what state it is in: used both as the
-// tooltip text and - when the button is icon-only - as its accessible name
-const saveDescription = "Save to disk";
-const savingDescription = "Saving changes to disk";
-const publishDescription = "Publish pending changes";
-const pushingDescription = "Pushing changes";
+/**
+ * The icon for each state, at one size, always present.
+ *
+ * Always present is the point: the button used to render an icon in some states
+ * and not others, so it changed width as it changed state — and on a phone,
+ * where it is half the bottom bar, that moved the control next to it. The slot
+ * is a fixed box whatever is in it.
+ *
+ * `CloudUpload` while in flight, because that is where the bytes are going. A
+ * distinct icon for ready, because "about to send" and "sending" must not look
+ * the same at a glance.
+ */
+function PublishIcon({
+  kind,
+  saving,
+}: {
+  kind: PublishButtonKind;
+  saving: boolean;
+}) {
+  return (
+    <span className="grid size-4 shrink-0 place-items-center">
+      {kind === "blocked" ? (
+        <TriangleAlert size={16} />
+      ) : kind === "in-flight" ? (
+        <CloudUpload size={16} className="animate-pulse" />
+      ) : saving ? (
+        <Save size={16} />
+      ) : (
+        <Rocket size={16} />
+      )}
+    </span>
+  );
+}
 
 export function PublishButton({
   /**
@@ -53,110 +87,127 @@ export function PublishButton({
     canGenerate,
   } = usePublishSummary();
   const allValidationErrors = useAllValidationErrors();
-  const hasValidationErrors =
-    allValidationErrors !== undefined &&
-    Object.keys(allValidationErrors).length > 0;
+  const validationErrorPaths = Object.keys(allValidationErrors ?? {});
+  const { patchErrors } = useAllPatchErrors();
+  const conflictingChangeCount = Object.values(patchErrors || {}).reduce(
+    (count, errors) => count + Object.keys(errors || {}).length,
+    0,
+  );
   const pendingServerSidePatchIds = usePendingServerSidePatchIds();
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
   const mode = useValMode();
   const portalContainer = useValPortal();
   const { autoPublish } = useAutoPublish();
+  const { navigate } = useNavigation();
+
+  const state = describePublishButton({
+    mode: mode === "fs" ? "fs" : mode === null ? "unknown" : "http",
+    validationErrorCount: validationErrorPaths.length,
+    conflictingChangeCount,
+    isPublishing,
+    publishDisabled,
+    autoPublish,
+    pendingServerSidePatchCount: pendingServerSidePatchIds.length,
+    pendingClientSidePatchCount: pendingClientSidePatchIds.length,
+  });
+  const saving = mode === "fs";
+  /*
+   * One size in every state.
+   *
+   * The labels differ in length — "Save", "Saving", "Publish", "Fix 3" — so a
+   * button that hugged its text moved every time the state changed. A minimum
+   * width sized for the longest of them, and the icon in a fixed box, means the
+   * only thing that changes is what it says.
+   */
   const buttonClassName = compact
     ? compactButtonClassName
-    : "flex gap-2 items-center";
+    : /*
+       * `h-8`, matching `PreviewButton` — its neighbour in the top bar.
+       *
+       * The design system's `Button` is `h-10` by default, so this stood two
+       * pixels short of a quarter-inch taller than everything else on the row and
+       * made the bar look mis-set. `text-xs font-medium` for the same reason: the
+       * row is one scale.
+       */
+      "flex h-8 min-w-[6.5rem] items-center justify-center gap-2 px-3 text-xs font-medium";
 
-  if (hasValidationErrors) {
-    // when compact the button is icon-only, so its name has to say what it
-    // does; otherwise it has to match the label the button actually shows
-    const label = compact
-      ? mode === "fs"
-        ? saveDescription
-        : publishDescription
-      : mode === "fs"
-        ? "Save"
-        : "Ready";
-    return (
-      <PublishTooltip
-        label={label}
-        description="Fix validation errors to continue"
-        disabled={true}
-        container={portalContainer}
-      >
-        <Button className={buttonClassName} disabled={true}>
-          {mode === "fs" ? (
-            compact ? (
-              <Save size={16} />
-            ) : (
-              "Save"
-            )
-          ) : (
-            <>
-              {!compact && <span>{"Ready"}</span>}
-              <Upload size={16} />
-            </>
-          )}
-        </Button>
-      </PublishTooltip>
-    );
-  }
+  /** Everything except "press me": rendered the same way in every state. */
+  const face = (
+    <>
+      <PublishIcon kind={state.kind} saving={saving} />
+      {!compact && <span>{state.label}</span>}
+    </>
+  );
+  const tooltip = state.reason ?? state.description;
 
-  if (mode === "fs") {
-    const label = isPublishing ? "Saving" : "Save";
-    const description = isPublishing ? savingDescription : saveDescription;
-    const saveDisabled =
-      publishDisabled ||
-      autoPublish ||
-      pendingServerSidePatchIds.length === 0 ||
-      pendingClientSidePatchIds.length > 0;
-    const saveButton = (
+  if (state.kind === "blocked") {
+    /*
+     * Pressable, and it goes to the errors.
+     *
+     * This used to be a disabled button with the reason in a tooltip — which on
+     * a phone is nothing at all: no hover, and the errors are behind a panel. A
+     * button that names a problem should be the way to it.
+     */
+    const button = (
       <Button
         className={buttonClassName}
-        disabled={saveDisabled}
-        // icon-only: the accessible name has to say what the button does
-        aria-label={compact ? description : undefined}
+        variant={state.action === "show-errors" ? "destructive" : "default"}
+        disabled={state.action === "none"}
+        aria-label={compact ? state.description : undefined}
         onClick={() => {
-          publish("No summary provided");
+          if (state.action === "show-errors") {
+            navigate(VAL_ERRORS_ROUTE, {
+              errorFields: validationErrorPaths as SourcePath[],
+            });
+          }
         }}
       >
-        {compact ? (
-          isPublishing ? (
-            <Loader2 className="animate-spin" size={16} />
-          ) : (
-            <Save size={16} />
-          )
-        ) : (
-          <>
-            <span>{label}</span>
-            {isPublishing && <Loader2 className="animate-spin" size={16} />}
-          </>
-        )}
+        {face}
       </Button>
     );
-    if (!compact) {
-      return saveButton;
-    }
     return (
       <PublishTooltip
-        label={description}
-        description={description}
-        disabled={saveDisabled}
+        label={state.description}
+        description={tooltip}
+        disabled={state.action === "none"}
         container={portalContainer}
       >
-        {saveButton}
+        {button}
       </PublishTooltip>
     );
   }
-  const description = isPublishing ? pushingDescription : publishDescription;
-  const publishIsDisabled =
-    publishDisabled ||
-    pendingServerSidePatchIds.length === 0 ||
-    pendingClientSidePatchIds.length > 0;
+
+  if (saving || state.kind !== "ready") {
+    const button = (
+      <Button
+        className={buttonClassName}
+        disabled={state.action === "none"}
+        aria-label={compact ? state.description : undefined}
+        onClick={() => {
+          if (state.action === "save") {
+            publish("No summary provided");
+          }
+        }}
+      >
+        {face}
+      </Button>
+    );
+    return (
+      <PublishTooltip
+        label={state.description}
+        description={tooltip}
+        disabled={state.action === "none"}
+        container={portalContainer}
+      >
+        {button}
+      </PublishTooltip>
+    );
+  }
+
   const publishButton = (
     <Button
       className={buttonClassName}
-      disabled={publishIsDisabled}
-      // icon-only: the accessible name has to say what the button does
-      aria-label={compact ? description : undefined}
+      aria-label={compact ? state.description : undefined}
       onClick={() => {
         setSummaryOpen(true);
         // Always generate a new summary when opening
@@ -177,18 +228,7 @@ export function PublishButton({
         }
       }}
     >
-      {!isPublishing && (
-        <>
-          {!compact && <span>{"Ready"}</span>}
-          <Upload size={16} />
-        </>
-      )}
-      {isPublishing && (
-        <>
-          {!compact && <span>{"Pushing"}</span>}
-          <Loader2 className="animate-spin" size={16} />
-        </>
-      )}
+      {face}
     </Button>
   );
   return (
@@ -204,9 +244,9 @@ export function PublishButton({
       >
         {compact ? (
           <PublishTooltip
-            label={description}
-            description={description}
-            disabled={publishIsDisabled}
+            label={state.description}
+            description={tooltip}
+            disabled={false}
             container={portalContainer}
           >
             <PopoverTrigger asChild>{publishButton}</PopoverTrigger>

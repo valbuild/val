@@ -6,6 +6,7 @@ import React, {
   useId,
   useImperativeHandle,
   forwardRef,
+  type RefObject,
 } from "react";
 import ReactMarkdown from "react-markdown";
 import { ScrollArea } from "./designSystem/scroll-area";
@@ -15,13 +16,13 @@ import {
   Send,
   RotateCcw,
   Sparkles,
-  Check,
   Loader2,
   LogIn,
   Search,
   FileText,
   Database,
   ShieldCheck,
+  Check,
   Pencil,
   XCircle,
   Plus,
@@ -35,14 +36,31 @@ import {
   GitCompareArrows,
   X,
   HelpCircle,
+  Copy,
+  FilePlus,
+  Hash,
+  List,
+  AlertTriangle,
 } from "lucide-react";
 import type { AISession } from "../hooks/useAIWebSocket";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
 import { ToolName } from "../utils/toolNames";
 import { useValConfig } from "./ValFieldProvider";
+import { useValPortal } from "./ValPortalProvider";
 import { DEFAULT_APP_HOST } from "@valbuild/core";
 import { urlOf } from "@valbuild/shared/internal";
 import { CopyableCodeBlock } from "./designSystem/CopyableCodeBlock";
+import { AIChatEditor } from "./AIChatEditor";
+import type {
+  ChatBlockNode,
+  ChatDocument,
+  ChatEditorRef,
+  ChatInlineNode,
+} from "./AIChatEditor";
+import {
+  chatDocumentToPlainText,
+  collectImageKeysFromDoc,
+} from "./AIChatEditor";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -104,6 +122,12 @@ export type ChatMessage = {
   errorCode?: string;
   toolActivities?: ToolActivity[];
   attachments?: ChatMessageAttachment[];
+  /**
+   * For user messages composed in the rich editor, the original document so
+   * the bubble can render inline images / field refs without re-parsing HTML
+   * (which would lose `previewUrl`s for image nodes).
+   */
+  userDoc?: ChatDocument;
 };
 
 type AttachedFile = {
@@ -148,11 +172,13 @@ export type AIChatHandle = {
 export type AIChatProps = {
   /** Called when the user submits a message (via input or suggestion chip). Returns true if sent successfully. */
   onSendMessage?: (
-    text: string,
+    content: string | ChatDocument,
     attachments?: ChatMessageAttachment[],
   ) => boolean;
   /** Called to upload a file to the current AI session. Returns the server key. */
   onUploadFile?: (file: File) => Promise<{ key: string }>;
+  /** Shared ref to the inner rich text editor (used by Field.tsx to insert field references). */
+  chatEditorRef?: RefObject<ChatEditorRef | null>;
   /** Called when the user clicks "New Chat" to start a fresh session */
   onNewSession?: () => void;
   /** Prompt suggestion chips shown on the empty state */
@@ -163,18 +189,31 @@ export type AIChatProps = {
   isConnected: boolean;
   /** Set when /ai/initialize returned 401 — the user needs to authenticate */
   authError: boolean;
+  /**
+   * Why the assistant cannot be reached, once the studio has stopped retrying.
+   *
+   * Replaces the composer — and the "Connecting…" strip with it — and nothing
+   * else. A composer with nothing listening is an invitation to type a question
+   * that goes nowhere, with silence as the only feedback; but the conversation
+   * above it is still worth reading, and blanking it is not an improvement on a
+   * dead input. `authError` is NOT this: being signed out has its own prompt,
+   * which is the only thing that can say how to sign in.
+   */
+  unavailable?: { message: string; onRetry: () => void };
   /** Val server mode — controls which auth instructions to show on authError */
   mode: "http" | "fs" | "unknown";
   /** List of past sessions (fetched on demand) */
   sessions?: AISession[];
-  /** The currently active session ID */
-  currentSessionId?: string;
+  /** The currently active session ID; null when the session is unborn (no message sent yet). */
+  currentSessionId?: string | null;
   /** Called to load a previous session */
   onLoadSession?: (sessionId: string) => void;
   /** Called to trigger a sessions fetch */
   onFetchSessions?: () => void;
   /** Called to rename a session */
   onSetSessionName?: (sessionId: string, name: string) => void;
+  /** True while a previous session's messages are being fetched from the server. */
+  isLoadingSession?: boolean;
   /** Called when the user submits answers to an ask_user_question tool call */
   onAnswerToolQuestions?: (
     toolCallId: string,
@@ -221,6 +260,251 @@ function getTextContent(content: AIMessageContent): string {
     .join("\n\n");
 }
 
+// HTML-esque tag set that the rich chat editor produces (see
+// chatDocumentToHtmlText). Restored sessions arrive as strings containing
+// these tags, so we re-render them as formatted React instead of literal text.
+//
+// Must stay in sync with the cases renderHtmlNode handles - including the
+// b/i/s aliases it accepts for strong/em/del. A tag the renderer supports but
+// this gate omits makes the whole message fall through and render its markup
+// as literal text.
+const USER_HTML_TAG_RE =
+  /<\/?(?:p|h[1-3]|blockquote|ul|ol|li|strong|b|em|i|del|s|code|br|img|field)\b/i;
+
+function renderHtmlChildren(nodes: ArrayLike<ChildNode>): React.ReactNode[] {
+  return Array.from(nodes).map((n, i) => renderHtmlNode(n, i));
+}
+
+function renderHtmlNode(node: ChildNode, key: number): React.ReactNode {
+  if (node.nodeType === 3 /* TEXT_NODE */) return node.nodeValue ?? "";
+  if (node.nodeType !== 1 /* ELEMENT_NODE */) return null;
+  const el = node as Element;
+  const children = renderHtmlChildren(el.childNodes);
+  switch (el.tagName.toLowerCase()) {
+    case "p":
+      return (
+        <p key={key} className="whitespace-pre-wrap">
+          {children}
+        </p>
+      );
+    case "h1":
+      return (
+        <h1 key={key} className="text-base font-semibold">
+          {children}
+        </h1>
+      );
+    case "h2":
+      return (
+        <h2 key={key} className="text-base font-semibold">
+          {children}
+        </h2>
+      );
+    case "h3":
+      return (
+        <h3 key={key} className="text-sm font-semibold">
+          {children}
+        </h3>
+      );
+    case "blockquote":
+      return (
+        <blockquote
+          key={key}
+          className="border-l-2 border-border-primary pl-2 italic"
+        >
+          {children}
+        </blockquote>
+      );
+    case "ul":
+      return (
+        <ul key={key} className="list-disc pl-5">
+          {children}
+        </ul>
+      );
+    case "ol":
+      return (
+        <ol key={key} className="list-decimal pl-5">
+          {children}
+        </ol>
+      );
+    case "li":
+      return <li key={key}>{children}</li>;
+    case "strong":
+    case "b":
+      return <strong key={key}>{children}</strong>;
+    case "em":
+    case "i":
+      return <em key={key}>{children}</em>;
+    case "del":
+    case "s":
+      return <del key={key}>{children}</del>;
+    case "code":
+      return (
+        <code
+          key={key}
+          className="rounded bg-bg-tertiary px-1 py-0.5 font-mono text-[0.85em]"
+        >
+          {children}
+        </code>
+      );
+    case "br":
+      return <br key={key} />;
+    case "img": {
+      const alt = el.getAttribute("alt");
+      return (
+        <span key={key} className="italic text-fg-secondary">
+          [{alt ? `image: ${alt}` : "image"}]
+        </span>
+      );
+    }
+    case "field": {
+      const path = el.getAttribute("path") ?? "";
+      return (
+        <span
+          key={key}
+          className="rounded bg-bg-tertiary px-1 py-0.5 text-fg-brand-primary"
+        >
+          @{path}
+        </span>
+      );
+    }
+    default:
+      // Rendered from renderHtmlChildren's map, so this needs a key like every
+      // other branch - a shorthand fragment cannot carry one.
+      return <React.Fragment key={key}>{children}</React.Fragment>;
+  }
+}
+
+function renderUserMessageText(text: string): React.ReactNode {
+  if (!USER_HTML_TAG_RE.test(text)) {
+    return <p className="whitespace-pre-wrap">{text}</p>;
+  }
+  const doc = new DOMParser().parseFromString(
+    `<body>${text}</body>`,
+    "text/html",
+  );
+  return <>{renderHtmlChildren(doc.body.childNodes)}</>;
+}
+
+// Render a ChatDocument from the rich editor directly to React. Used for
+// freshly-sent user messages so inline images keep their preview blob URLs
+// (re-parsing HTML would strip the previewUrl off image nodes).
+function ChatDocumentRenderer({
+  doc,
+}: {
+  doc: ChatDocument;
+}): React.ReactElement {
+  return <>{doc.map((block, i) => renderChatBlock(block, i))}</>;
+}
+
+function renderChatBlock(block: ChatBlockNode, key: number): React.ReactNode {
+  switch (block.tag) {
+    case "p":
+      return (
+        <p key={key} className="whitespace-pre-wrap">
+          {block.children.map((c, i) => renderChatInline(c, i))}
+        </p>
+      );
+    case "h1":
+      return (
+        <h1 key={key} className="text-base font-semibold">
+          {block.children.map((c, i) => renderChatInline(c, i))}
+        </h1>
+      );
+    case "h2":
+      return (
+        <h2 key={key} className="text-base font-semibold">
+          {block.children.map((c, i) => renderChatInline(c, i))}
+        </h2>
+      );
+    case "h3":
+      return (
+        <h3 key={key} className="text-sm font-semibold">
+          {block.children.map((c, i) => renderChatInline(c, i))}
+        </h3>
+      );
+    case "blockquote":
+      return (
+        <blockquote
+          key={key}
+          className="border-l-2 border-border-primary pl-2 italic"
+        >
+          {block.children.map((c, i) => renderChatBlock(c, i))}
+        </blockquote>
+      );
+    case "ul":
+      return (
+        <ul key={key} className="list-disc pl-5">
+          {block.children.map((item, i) => (
+            <li key={i}>
+              {item.children.map((c, j) => renderChatBlock(c, j))}
+            </li>
+          ))}
+        </ul>
+      );
+    case "ol":
+      return (
+        <ol key={key} className="list-decimal pl-5">
+          {block.children.map((item, i) => (
+            <li key={i}>
+              {item.children.map((c, j) => renderChatBlock(c, j))}
+            </li>
+          ))}
+        </ol>
+      );
+  }
+}
+
+function renderChatInline(node: ChatInlineNode, key: number): React.ReactNode {
+  if (typeof node === "string") return node;
+  if (node.tag === "br") return <br key={key} />;
+  if (node.tag === "span") {
+    let el: React.ReactNode = node.children[0];
+    for (const style of node.styles) {
+      if (style === "bold") el = <strong key={key}>{el}</strong>;
+      else if (style === "italic") el = <em key={key}>{el}</em>;
+      else if (style === "line-through") el = <del key={key}>{el}</del>;
+      else if (style === "code")
+        el = (
+          <code
+            key={key}
+            className="rounded bg-bg-tertiary px-1 py-0.5 font-mono text-[0.85em]"
+          >
+            {el}
+          </code>
+        );
+    }
+    return <React.Fragment key={key}>{el}</React.Fragment>;
+  }
+  if (node.tag === "img") {
+    if (node.previewUrl) {
+      return (
+        <img
+          key={key}
+          src={node.previewUrl}
+          alt={node.alt ?? ""}
+          className="inline-block max-h-16 rounded border border-border-primary align-baseline mx-0.5"
+        />
+      );
+    }
+    return (
+      <span key={key} className="italic text-fg-secondary">
+        [{node.alt ? `image: ${node.alt}` : "image"}]
+      </span>
+    );
+  }
+  if (node.tag === "field_ref") {
+    return (
+      <span
+        key={key}
+        className="rounded bg-bg-tertiary px-1 py-0.5 text-fg-brand-primary"
+      >
+        @{node.path}
+      </span>
+    );
+  }
+  return null;
+}
+
 function getImageUrls(content: AIMessageContent): string[] {
   if (typeof content === "string") {
     return [];
@@ -246,15 +530,18 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     className,
     isConnected,
     authError,
+    unavailable,
     mode,
     sessions,
     currentSessionId,
     onLoadSession,
     onFetchSessions,
     onSetSessionName,
+    isLoadingSession,
     onAnswerToolQuestions,
     onCancelToolQuestion,
     initialMessages,
+    chatEditorRef: chatEditorRefProp,
   },
   ref,
 ) {
@@ -264,10 +551,13 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const [currentMessage, setCurrentMessage] = useState<CurrentMessage | null>(
     null,
   );
-  const [inputValue, setInputValue] = useState("");
+  const [isEditorEmpty, setIsEditorEmpty] = useState(true);
+  const [hasPendingInlineImage, setHasPendingInlineImage] = useState(false);
+  const [isAwaitingAssistant, setIsAwaitingAssistant] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const internalEditorRef = useRef<ChatEditorRef | null>(null);
+  const editorRef = chatEditorRefProp ?? internalEditorRef;
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showSessions, setShowSessions] = useState(false);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(
@@ -275,6 +565,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   );
   const [renameValue, setRenameValue] = useState("");
   const config = useValConfig();
+  const portalContainer = useValPortal();
   const effectiveSuggestions = config?.ai?.chat?.suggestions ?? suggestions;
   const emptyTitle = config?.ai?.chat?.title;
   const emptyDescription = config?.ai?.chat?.description;
@@ -291,6 +582,12 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     });
   }, [messages]);
 
+  // Once the assistant message actually starts streaming, drop the
+  // "thinking" placeholder so the StreamingCursor takes over.
+  useEffect(() => {
+    if (currentMessage) setIsAwaitingAssistant(false);
+  }, [currentMessage]);
+
   // 2-minute timeout for in-progress assistant messages. Suspended while an
   // ask_user_question card is open: that tool sets timeoutMs: null server-side
   // precisely because it blocks on the user, so the client must not time out
@@ -299,33 +596,58 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const awaitingUserAnswer = (
     currentMessage?.message.toolActivities ?? []
   ).some(isPendingQuestion);
+
+  /**
+   * Move the in-progress message into the finished list. Exactly once.
+   *
+   * The append has to happen from INSIDE the `setCurrentMessage` updater: the
+   * message being retired lives in `currentMessage`, and reading it from the
+   * render closure instead would drop a chunk that streamed in the same tick.
+   * But React may call an updater more than once — twice under `StrictMode`,
+   * which the Studio mounts in — so an unconditional append ran twice and every
+   * assistant reply appeared TWICE in dev, tool activity and all. Appending by
+   * id is what makes it idempotent.
+   *
+   * `id` of `null` means "whatever is in progress", which is what the timeout
+   * wants: it fires for the message it was scheduled for, not for one named by
+   * the server.
+   */
+  const retireCurrentMessage = useCallback(
+    (id: string | null, finish: (message: ChatMessage) => ChatMessage) => {
+      setCurrentMessage((prev) => {
+        if (!prev) return null;
+        if (id !== null && prev.message.id !== id) return prev;
+        const finished = finish(prev.message);
+        setCompletedMessages((msgs) =>
+          msgs.some((msg) => msg.id === finished.id)
+            ? msgs
+            : [...msgs, finished],
+        );
+        return null;
+      });
+    },
+    [],
+  );
+  const timedOut = useCallback(
+    (message: ChatMessage): ChatMessage => ({
+      ...message,
+      status: "error",
+      error: "Response timed out",
+    }),
+    [],
+  );
   useEffect(() => {
     if (!currentMessage || awaitingUserAnswer) return;
     const remaining = 2 * 60 * 1000 - (Date.now() - currentMessage.startedAt);
     if (remaining <= 0) {
-      setCompletedMessages((prev) => [
-        ...prev,
-        {
-          ...currentMessage.message,
-          status: "error",
-          error: "Response timed out",
-        },
-      ]);
-      setCurrentMessage(null);
+      retireCurrentMessage(currentMessage.message.id, timedOut);
       return;
     }
     const timer = setTimeout(() => {
-      setCurrentMessage((prev) => {
-        if (!prev) return null;
-        setCompletedMessages((msgs) => [
-          ...msgs,
-          { ...prev.message, status: "error", error: "Response timed out" },
-        ]);
-        return null;
-      });
+      retireCurrentMessage(null, timedOut);
     }, remaining);
     return () => clearTimeout(timer);
-  }, [currentMessage, awaitingUserAnswer]);
+  }, [currentMessage, awaitingUserAnswer, retireCurrentMessage, timedOut]);
 
   // ---- Local state mutators (shared by imperative handle and inline UI) ----
 
@@ -408,24 +730,18 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       );
     },
     completeAssistantMessage(id: string) {
-      setCurrentMessage((prev) => {
-        if (!prev || prev.message.id !== id) return prev;
-        setCompletedMessages((msgs) => [
-          ...msgs,
-          { ...prev.message, status: "complete" },
-        ]);
-        return null;
-      });
+      retireCurrentMessage(id, (message) => ({
+        ...message,
+        status: "complete",
+      }));
     },
     errorAssistantMessage(id: string, error: string, code?: string) {
-      setCurrentMessage((prev) => {
-        if (!prev || prev.message.id !== id) return prev;
-        setCompletedMessages((msgs) => [
-          ...msgs,
-          { ...prev.message, status: "error", error, errorCode: code },
-        ]);
-        return null;
-      });
+      retireCurrentMessage(id, (message) => ({
+        ...message,
+        status: "error",
+        error,
+        errorCode: code,
+      }));
     },
     addToolCall(
       messageId: string,
@@ -559,9 +875,33 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   }, []);
 
   const handleSend = useCallback(
-    (text?: string) => {
-      const content = (text ?? inputValue).trim();
-      if (!content || isStreaming) return;
+    (suggestion?: string) => {
+      if (isStreaming) return;
+
+      let outgoing: string | ChatDocument;
+      let displayText: string;
+      let outgoingDoc: ChatDocument | undefined;
+      if (suggestion !== undefined) {
+        const trimmed = suggestion.trim();
+        if (!trimmed) return;
+        outgoing = trimmed;
+        displayText = trimmed;
+      } else {
+        const editor = editorRef.current;
+        if (!editor || editor.isEmpty()) return;
+        const doc = editor.getDocument();
+        if (
+          collectImageKeysFromDoc(doc).some((k) => k.startsWith("pending:"))
+        ) {
+          // Image still uploading — Send button should already be disabled,
+          // but bail out defensively so a stale pending key never reaches the
+          // server (it would 404 when the AI tries to use it).
+          return;
+        }
+        outgoing = doc;
+        outgoingDoc = doc;
+        displayText = chatDocumentToPlainText(doc);
+      }
 
       const doneAttachments: ChatMessageAttachment[] = attachedFiles
         .filter(
@@ -575,7 +915,6 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
           previewUrl: f.previewUrl,
         }));
 
-      // Revoke object URLs for files we're sending (they'll be in the message)
       attachedFiles.forEach((f) => {
         if (f.previewUrl && f.status !== "done")
           URL.revokeObjectURL(f.previewUrl);
@@ -586,16 +925,21 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       const userMsg: ChatMessage = {
         id: msgId,
         role: "user",
-        content,
+        content: displayText,
         status: "complete",
         attachments: doneAttachments.length > 0 ? doneAttachments : undefined,
+        userDoc: outgoingDoc,
       };
       setCompletedMessages((prev) => [...prev, userMsg]);
-      setInputValue("");
+
+      if (suggestion === undefined) {
+        editorRef.current?.clear();
+        setIsEditorEmpty(true);
+      }
 
       const sent = onSendMessage
         ? onSendMessage(
-            content,
+            outgoing,
             doneAttachments.length > 0 ? doneAttachments : undefined,
           )
         : true;
@@ -607,12 +951,13 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               : m,
           ),
         );
+      } else {
+        setIsAwaitingAssistant(true);
       }
 
-      // Refocus textarea after send
-      requestAnimationFrame(() => textareaRef.current?.focus());
+      requestAnimationFrame(() => editorRef.current?.focus());
     },
-    [inputValue, isStreaming, attachedFiles, onSendMessage],
+    [isStreaming, attachedFiles, onSendMessage, editorRef],
   );
 
   const handleRetry = useCallback(
@@ -628,9 +973,10 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               : m,
           ),
         );
-        const retryText = getTextContent(errorMsg.content);
+        const retryPayload: string | ChatDocument =
+          errorMsg.userDoc ?? getTextContent(errorMsg.content);
         const sent = onSendMessage
-          ? onSendMessage(retryText, errorMsg.attachments)
+          ? onSendMessage(retryPayload, errorMsg.attachments)
           : true;
         if (!sent) {
           setCompletedMessages((prev) =>
@@ -640,6 +986,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                 : m,
             ),
           );
+        } else {
+          setIsAwaitingAssistant(true);
         }
         return;
       }
@@ -656,22 +1004,13 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
       // Remove the errored assistant message
       setCompletedMessages((prev) => prev.filter((m) => m.id !== errorMsgId));
-      onSendMessage?.(
-        getTextContent(prevUserMsg.content),
-        prevUserMsg.attachments,
-      );
+      const retryPayload: string | ChatDocument =
+        prevUserMsg.userDoc ?? getTextContent(prevUserMsg.content);
+      const sent =
+        onSendMessage?.(retryPayload, prevUserMsg.attachments) ?? true;
+      if (sent) setIsAwaitingAssistant(true);
     },
     [messages, onSendMessage],
-  );
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
-      }
-    },
-    [handleSend],
   );
 
   // ---- Render ----
@@ -833,9 +1172,14 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
       {/* Message list */}
       <ScrollArea className="flex-1 min-h-0">
-        <div className="flex flex-col gap-4 p-4">
+        <div className="flex flex-col gap-4 p-4 min-w-0 max-w-full">
           {authError ? (
             <AuthPrompt mode={mode} />
+          ) : isLoadingSession && isEmpty ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-12 text-fg-secondary">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="text-sm">Loading conversation…</span>
+            </div>
           ) : isEmpty ? (
             <EmptyState
               suggestions={effectiveSuggestions}
@@ -860,128 +1204,176 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               />
             ))
           )}
+          {isAwaitingAssistant && !currentMessage && <ThinkingIndicator />}
           <div ref={bottomRef} />
         </div>
       </ScrollArea>
 
       {/* Input area */}
       <div className="shrink-0 border-t border-border-primary bg-bg-primary p-3">
-        {!isConnected && !authError && (
-          <div className="mb-2 flex items-center justify-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1.5 text-xs text-fg-secondary">
-            <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse" />
-            Connecting…
-          </div>
-        )}
-        {/* Attached file previews */}
-        {attachedFiles.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-2">
-            {attachedFiles.map((f) => (
-              <div
-                key={f.id}
-                className="relative flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1 text-xs text-fg-primary"
-              >
-                {f.previewUrl ? (
-                  <img
-                    src={f.previewUrl}
-                    alt={f.file.name}
-                    className="h-8 w-8 rounded object-cover"
-                  />
-                ) : (
-                  <FileText className="h-4 w-4 shrink-0 text-fg-secondary" />
-                )}
-                <span className="max-w-[120px] truncate">{f.file.name}</span>
-                {f.status === "uploading" && (
-                  <Loader2 className="h-3 w-3 animate-spin text-fg-secondary" />
-                )}
-                {f.status === "error" && (
-                  <XCircle className="h-3 w-3 text-fg-error-primary" />
-                )}
-                <button
-                  type="button"
-                  onClick={() => removeAttachedFile(f.id)}
-                  className="ml-0.5 text-fg-secondary hover:text-fg-primary"
-                  aria-label={`Remove ${f.file.name}`}
-                >
-                  <X className="h-3 w-3" />
-                </button>
+        {unavailable && !authError ? (
+          <AIUnavailable {...unavailable} />
+        ) : (
+          <>
+            {!isConnected && !authError && (
+              <div className="mb-2 flex items-center justify-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1.5 text-xs text-fg-secondary">
+                <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse" />
+                Connecting…
               </div>
-            ))}
-          </div>
-        )}
-        {onUploadFile && (
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={handleFileChange}
-            accept="image/*"
-          />
-        )}
-        <div className="flex items-end gap-2">
-          {onUploadFile && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              disabled={!isConnected || isStreaming || authError}
-              onClick={() => fileInputRef.current?.click()}
-              aria-label="Attach files"
-              className="mb-1"
-            >
-              <Paperclip className="h-4 w-4" />
-            </Button>
-          )}
-          <div className="flex-1 grid">
-            <textarea
-              ref={textareaRef}
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={authError}
-              placeholder={isConnected && !authError ? "Ask something…" : ""}
-              rows={1}
-              className={cn(
-                "resize-none overflow-hidden",
-                "flex rounded-md border border-border-primary bg-bg-primary px-3 py-2",
-                "text-fg-primary",
-                "ring-offset-background placeholder:text-muted-foreground",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              )}
-              style={{ gridArea: "1 / 1 / 2 / 2" }}
-            />
-            {/* Hidden mirror for auto-grow */}
+            )}
+            {/* Attached file previews */}
+            {attachedFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {attachedFiles.map((f) => (
+                  <div
+                    key={f.id}
+                    className="relative flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1 text-xs text-fg-primary"
+                  >
+                    {f.previewUrl ? (
+                      <img
+                        src={f.previewUrl}
+                        alt={f.file.name}
+                        className="h-8 w-8 rounded object-cover"
+                      />
+                    ) : (
+                      <FileText className="h-4 w-4 shrink-0 text-fg-secondary" />
+                    )}
+                    <span className="max-w-[120px] truncate">
+                      {f.file.name}
+                    </span>
+                    {f.status === "uploading" && (
+                      <Loader2 className="h-3 w-3 animate-spin text-fg-secondary" />
+                    )}
+                    {f.status === "error" && (
+                      <XCircle className="h-3 w-3 text-fg-error-primary" />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeAttachedFile(f.id)}
+                      className="ml-0.5 text-fg-secondary hover:text-fg-primary"
+                      aria-label={`Remove ${f.file.name}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {onUploadFile && (
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={handleFileChange}
+                accept="image/*"
+              />
+            )}
             <div
               className={cn(
-                "whitespace-pre-wrap invisible",
-                "flex rounded-md border border-border-primary bg-bg-primary px-3 py-2",
-                "text-sm",
+                "flex flex-col rounded-md border border-border-primary bg-bg-primary",
+                "focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
               )}
-              style={{ gridArea: "1 / 1 / 2 / 2" }}
             >
-              {inputValue + " "}
+              <AIChatEditor
+                ref={editorRef}
+                disabled={authError || !isConnected || isStreaming}
+                placeholder={isConnected && !authError ? "Ask something…" : ""}
+                onSubmit={() => handleSend()}
+                onUploadAiImage={onUploadFile}
+                getPortalContainer={() => portalContainer}
+                onChange={(doc) => {
+                  const empty =
+                    doc.length === 0 ||
+                    (doc.length === 1 &&
+                      doc[0].tag === "p" &&
+                      doc[0].children.length === 0);
+                  setIsEditorEmpty(empty);
+                  const keys = collectImageKeysFromDoc(doc);
+                  setHasPendingInlineImage(
+                    keys.some((k) => k.startsWith("pending:")),
+                  );
+                }}
+                className={cn(
+                  "max-h-[18rem] overflow-y-auto px-3 pt-3 pb-1",
+                  "text-fg-primary text-base",
+                )}
+              />
+              <div className="flex items-center border-t border-border-primary px-2 py-1.5">
+                {onUploadFile && (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    disabled={!isConnected || isStreaming || authError}
+                    onClick={() => fileInputRef.current?.click()}
+                    aria-label="Attach files"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={
+                    !isConnected ||
+                    isStreaming ||
+                    isUploading ||
+                    hasPendingInlineImage ||
+                    authError ||
+                    isEditorEmpty
+                  }
+                  onClick={() => handleSend()}
+                  aria-label="Send message"
+                  className="ml-auto"
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            disabled={
-              !isConnected ||
-              isStreaming ||
-              isUploading ||
-              authError ||
-              !inputValue.trim()
-            }
-            onClick={() => handleSend()}
-            aria-label="Send message"
-            className="mb-1"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
-        </div>
+          </>
+        )}
       </div>
     </div>
   );
 });
+
+/**
+ * The assistant is not there, and this is what is known about why.
+ *
+ * The retry matters more than the message: the usual causes are a key missing
+ * from the server's config or the AI service being down, both of which can be
+ * fixed in another window while this is on screen — and without a button the
+ * only way to find out is to reload the studio.
+ */
+function AIUnavailable({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="rounded-md border border-border-primary bg-bg-secondary p-2.5">
+      <div className="flex gap-2">
+        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-fg-error-primary" />
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-fg-primary">
+            The assistant is unavailable
+          </p>
+          <p className="mt-0.5 text-[0.6875rem] text-fg-secondary">{message}</p>
+        </div>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onRetry}
+        className="mt-2 text-xs"
+      >
+        Try again
+      </Button>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -1096,10 +1488,13 @@ function MessageBubble({
   const fileUrls = getImageUrls(message.content);
 
   return (
-    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+    <div
+      className={cn("flex min-w-0", isUser ? "justify-end" : "justify-start")}
+    >
       <div
         className={cn(
-          "rounded-lg px-4 py-2.5 text-sm leading-relaxed",
+          "min-w-0 overflow-hidden rounded-lg px-4 py-2.5 text-sm leading-relaxed",
+          "[overflow-wrap:anywhere]",
           isUser
             ? "bg-bg-secondary text-fg-primary max-w-[80%]"
             : "bg-bg-tertiary text-fg-primary w-full max-w-full",
@@ -1142,20 +1537,22 @@ function MessageBubble({
                 ))}
               </div>
             )}
-            {textContent && (
-              <p className="whitespace-pre-wrap">{textContent}</p>
-            )}
-            {message.status === "complete" && (
-              <div className="mt-1 flex justify-end">
-                <span className="flex items-center gap-0.5 text-[10px] text-fg-secondary">
-                  <Check className="h-2.5 w-2.5" />
-                  Sent
-                </span>
-              </div>
+            {message.userDoc ? (
+              <ChatDocumentRenderer doc={message.userDoc} />
+            ) : (
+              textContent && renderUserMessageText(textContent)
             )}
           </>
         ) : (
-          <div className="prose prose-sm dark:prose-invert max-w-none">
+          <div
+            className={cn(
+              "prose prose-sm dark:prose-invert max-w-none",
+              "[&_pre]:overflow-x-auto [&_pre]:max-w-full",
+              "[&_code]:break-words",
+              "[&_table]:block [&_table]:overflow-x-auto [&_table]:max-w-full",
+              "[&_a]:break-all",
+            )}
+          >
             {message.toolActivities && message.toolActivities.length > 0 && (
               <ToolActivitiesIndicator
                 activities={message.toolActivities}
@@ -1240,6 +1637,24 @@ function StreamingCursor() {
   );
 }
 
+function ThinkingIndicator() {
+  return (
+    <div className="flex justify-start">
+      <div className="flex items-center gap-1 rounded-lg bg-bg-tertiary px-4 py-3">
+        <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse" />
+        <span
+          className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse"
+          style={{ animationDelay: "150ms" }}
+        />
+        <span
+          className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse"
+          style={{ animationDelay: "300ms" }}
+        />
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Tool activity display
 // ---------------------------------------------------------------------------
@@ -1301,6 +1716,22 @@ const TOOL_DISPLAY: Record<ToolName, { label: string; icon: React.ReactNode }> =
     ask_user_question: {
       label: "Asking a question",
       icon: <HelpCircle className="h-3 w-3" />,
+    },
+    duplicate_source: {
+      label: "Duplicating content",
+      icon: <Copy className="h-3 w-3" />,
+    },
+    empty_at_path: {
+      label: "Creating empty entry",
+      icon: <FilePlus className="h-3 w-3" />,
+    },
+    count_entries: {
+      label: "Counting entries",
+      icon: <Hash className="h-3 w-3" />,
+    },
+    get_record_keys: {
+      label: "Listing keys",
+      icon: <List className="h-3 w-3" />,
     },
   };
 

@@ -31,6 +31,7 @@ import {
 } from "../hooks/useParent";
 import { useKeysOf } from "./useKeysOf";
 import { useEagerRouteReferences } from "./useRouteReferences";
+import { mergeReferences } from "./useJsonValuesLoad";
 import { DeleteRecordPopover } from "./DeleteRecordPopover";
 import { AddRecordPopover } from "./AddRecordPopover";
 import { RoutePattern, parseRoutePattern } from "@valbuild/shared/internal";
@@ -63,32 +64,52 @@ export function ArrayAndRecordTools({
       : undefined,
   );
   const srcFolder = useNextAppRouterSrcFolder();
-  const routePattern =
-    isRecord("data" in schemaAtPath ? schemaAtPath.data : undefined) &&
-    srcFolder.status === "success" &&
-    srcFolder.data &&
-    "data" in schemaAtPath &&
-    schemaAtPath.data.type === "record" &&
-    schemaAtPath.data.router
-      ? getRouterPattern(
-          moduleFilePath,
-          srcFolder.data,
-          schemaAtPath.data.router,
-        )
-      : null;
-  const parentRoutePattern =
-    isParentRecord(path, maybeParentPath, parentSchemaAtPath) &&
-    srcFolder.status === "success" &&
-    srcFolder.data &&
-    parentSchemaAtPath &&
-    parentSchemaAtPath.type === "record" &&
-    parentSchemaAtPath.router
-      ? getRouterPattern(
-          moduleFilePath,
-          srcFolder.data,
-          parentSchemaAtPath.router,
-        )
-      : null;
+  /**
+   * Memoised, because these arrays are PROPS that end up in a dependency list.
+   *
+   * `getRouterPattern` parses into a fresh array on every call, and both are
+   * passed down to `RouteForm` (via the add and change popovers), whose
+   * `useEffect(..., [defaultValue, routePattern])` calls `setParams` with a
+   * freshly built object. Unstable in, unstable out: the effect re-ran every
+   * render and its own `setParams` caused the next one.
+   *
+   * The code here is unchanged from `main` — this is a latent loop that only
+   * needed something to re-render this component often enough to enter it, which
+   * `.jsonValues()` entry loading duly provided. Verified load-bearing: reverting
+   * this memo alone brings the crash back on a 121-entry record.
+   */
+  const routePattern = React.useMemo(
+    () =>
+      isRecord("data" in schemaAtPath ? schemaAtPath.data : undefined) &&
+      srcFolder.status === "success" &&
+      srcFolder.data &&
+      "data" in schemaAtPath &&
+      schemaAtPath.data.type === "record" &&
+      schemaAtPath.data.router
+        ? getRouterPattern(
+            moduleFilePath,
+            srcFolder.data,
+            schemaAtPath.data.router,
+          )
+        : null,
+    [schemaAtPath, srcFolder, moduleFilePath],
+  );
+  const parentRoutePattern = React.useMemo(
+    () =>
+      isParentRecord(path, maybeParentPath, parentSchemaAtPath) &&
+      srcFolder.status === "success" &&
+      srcFolder.data &&
+      parentSchemaAtPath &&
+      parentSchemaAtPath.type === "record" &&
+      parentSchemaAtPath.router
+        ? getRouterPattern(
+            moduleFilePath,
+            srcFolder.data,
+            parentSchemaAtPath.router,
+          )
+        : null,
+    [path, maybeParentPath, parentSchemaAtPath, srcFolder, moduleFilePath],
+  );
   const isParentFixedRoute =
     parentRoutePattern?.every((part) => part.type === "literal") || false;
   const canParentDelete =
@@ -115,10 +136,11 @@ export function ArrayAndRecordTools({
   // Get route references eagerly for the delete check (only for router items)
   const routeRefs = useEagerRouteReferences(currentRouteKey);
 
-  // Combine keyOf refs and route refs for delete protection
-  const allRefs = isParentRouter
-    ? [...refs, ...routeRefs.filter((ref) => !refs.includes(ref))]
-    : refs;
+  // Combine keyOf refs and route refs for delete protection. The STATUS travels
+  // with them: a delete or rename must not act on the union until both scans are
+  // complete, or it acts on refs it could not see (an un-loaded `.jsonValues()`
+  // entry is opaque to a scan).
+  const allRefs = isParentRouter ? mergeReferences(refs, routeRefs) : refs;
 
   const parentKeyDescription =
     parentSchemaAtPath?.type === "record"
@@ -133,7 +155,7 @@ export function ArrayAndRecordTools({
     <span className="inline-flex gap-2 items-center">
       {isParentRecord(path, maybeParentPath, parentSchemaAtPath) && (
         <>
-          <ReferencesPopover refs={allRefs} variant={variant} />
+          <ReferencesPopover refs={allRefs.refs} variant={variant} />
           {canParentChange && (
             <ChangeRecordPopover
               defaultValue={last.text}
@@ -142,7 +164,7 @@ export function ArrayAndRecordTools({
               variant={getButtonVariant(variant)}
               size={getButtonSize(variant)}
               routePattern={parentRoutePattern}
-              existingKeys={allRefs}
+              references={allRefs}
               keyDescription={parentKeyDescription}
             >
               <Edit size={getIconSize(variant)} />
@@ -154,7 +176,7 @@ export function ArrayAndRecordTools({
               parentPath={maybeParentPath}
               variant={getButtonVariant(variant)}
               size={getButtonSize(variant)}
-              refs={allRefs}
+              references={allRefs}
               confirmationMessage={`This will delete the ${last.text} record.`}
             >
               <Trash size={getIconSize(variant)} />
@@ -167,7 +189,7 @@ export function ArrayAndRecordTools({
       )}
       {isRecord("data" in schemaAtPath ? schemaAtPath.data : undefined) && (
         <>
-          <ReferencesPopover refs={refs} variant={variant} />
+          <ReferencesPopover refs={refs.refs} variant={variant} />
           {canAdd && (
             <AddRecordPopover
               path={path}
@@ -303,7 +325,9 @@ function AddArrayButton({
           ],
           schema.type,
         );
-        if (schema.item.type !== "string") {
+        // An inline item is edited in place in the list, so adding one should
+        // not navigate away from it. Everything else opens as its own page.
+        if (schema.item.render?.as !== "inline") {
           navigate(
             Internal.joinModuleFilePathAndModulePath(
               moduleFilePath,
@@ -321,15 +345,24 @@ function AddArrayButton({
 export function splitIntoInitAndLastParts(path: SourcePath) {
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(path);
-  const moduleFilePathParts = Internal.splitModuleFilePath(moduleFilePath).map(
-    (part) => {
-      return {
-        text: prettifyFilename(part),
-        part,
-        sourcePath: moduleFilePath as unknown as SourcePath,
-      };
-    },
-  );
+  /*
+   * Every segment of the module file path, and only the LAST one is a place.
+   *
+   * `/content/authors.val.ts` splits into `content` and `authors.val.ts`, and
+   * both used to be handed the whole module file path as their `sourcePath` — so
+   * a trail rendered two links to the same destination, one of them labelled with
+   * a directory that is not a thing you can open. `isDirectory` says which are
+   * which; the scope trail renders those as text.
+   */
+  const moduleFilePathSegments = Internal.splitModuleFilePath(moduleFilePath);
+  const moduleFilePathParts = moduleFilePathSegments.map((part, index) => {
+    return {
+      text: prettifyFilename(part),
+      part,
+      sourcePath: moduleFilePath as unknown as SourcePath,
+      isDirectory: index < moduleFilePathSegments.length - 1,
+    };
+  });
   if (!modulePath) {
     return moduleFilePathParts;
   }
@@ -338,6 +371,7 @@ export function splitIntoInitAndLastParts(path: SourcePath) {
     text: string;
     part: string;
     sourcePath: SourcePath;
+    isDirectory: boolean;
   }[] = [];
   let lastPart = "";
   for (let i = 0; i < splittedModulePath.length; i++) {
@@ -356,6 +390,8 @@ export function splitIntoInitAndLastParts(path: SourcePath) {
         moduleFilePath,
         modulePathPart as ModulePath,
       ),
+      // A path inside a module is always somewhere you can go.
+      isDirectory: false,
     });
   }
   return moduleFilePathParts.concat(modulePathParts);

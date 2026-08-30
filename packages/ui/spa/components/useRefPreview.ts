@@ -1,29 +1,15 @@
 import { useMemo } from "react";
-import {
-  ImageMetadata,
-  ImageSource,
-  Internal,
-  ListArrayRender,
-  ListRecordRender,
-  RemoteSource,
-  SourcePath,
-} from "@valbuild/core";
+import { Internal, PreviewItem, SourcePath } from "@valbuild/core";
 import { useParent } from "../hooks/useParent";
-import { useRenderOverrideAtPath } from "./ValFieldProvider";
+import { usePreviewAtPath } from "./ValFieldProvider";
 
-export type RefPreview = {
-  title: string;
-  subtitle?: string | null;
-  image?: ImageSource | RemoteSource<ImageMetadata> | null;
-};
-
-export function useRefPreview(path: SourcePath): RefPreview | undefined {
+export function useRefPreview(path: SourcePath): PreviewItem | undefined {
   const { path: parentPath, schema: parentSchema } = useParent(path);
-  const renderAtPath = useRenderOverrideAtPath(parentPath);
+  const previewAtPath = usePreviewAtPath(parentPath);
 
   return useMemo(
-    () => resolveRefPreview(path, parentPath, parentSchema, renderAtPath),
-    [path, parentPath, parentSchema, renderAtPath],
+    () => resolveRefPreview(path, parentPath, parentSchema, previewAtPath),
+    [path, parentPath, parentSchema, previewAtPath],
   );
 }
 
@@ -31,19 +17,19 @@ export function resolveRefPreview(
   path: SourcePath,
   parentPath: SourcePath,
   parentSchema: ReturnType<typeof useParent>["schema"],
-  renderAtPath: ReturnType<typeof useRenderOverrideAtPath>,
-): RefPreview | undefined {
+  previewAtPath: ReturnType<typeof usePreviewAtPath>,
+): PreviewItem | undefined {
   if (
     parentPath === path ||
     !parentSchema ||
-    !renderAtPath ||
-    !("data" in renderAtPath) ||
-    !renderAtPath.data
+    !previewAtPath ||
+    !("data" in previewAtPath) ||
+    !previewAtPath.data
   ) {
     return undefined;
   }
 
-  const renderData = renderAtPath.data;
+  const previewData = previewAtPath.data;
   const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
   if (!modulePath) {
     return undefined;
@@ -52,34 +38,23 @@ export function resolveRefPreview(
   const pathParts = Internal.splitModulePath(modulePath);
   const lastPart = pathParts[pathParts.length - 1];
 
-  if (
-    parentSchema.type === "array" &&
-    renderData.layout === "list" &&
-    renderData.parent === "array"
-  ) {
-    const arrayRender = renderData as ListArrayRender;
-    let index: number;
-    try {
-      index = JSON.parse(lastPart);
-    } catch {
-      index = Number(lastPart);
-    }
-    if (!Number.isNaN(index) && arrayRender.items[index]) {
-      return arrayRender.items[index];
+  // `splitModulePath` has already unquoted the segment, so `lastPart` IS the
+  // key/index as written. It must not be run through `JSON.parse` again: a
+  // record key that looks like a number (`"0"`) came back as the number `0`
+  // and then matched no entry, because a record's keys are strings.
+  if (parentSchema.type === "array" && previewData.parent === "array") {
+    const index = Number(lastPart);
+    // By index, not by position: a windowed preview carries only the items that
+    // were asked for. See ArrayPreview.
+    const item = previewData.items.find(([itemIndex]) => itemIndex === index);
+    if (!Number.isNaN(index) && item) {
+      return item[1];
     }
   } else if (
     parentSchema.type === "record" &&
-    renderData.layout === "list" &&
-    renderData.parent === "record"
+    previewData.parent === "record"
   ) {
-    const recordRender = renderData as ListRecordRender;
-    let key: string;
-    try {
-      key = JSON.parse(lastPart);
-    } catch {
-      key = lastPart;
-    }
-    const item = recordRender.items.find(([itemKey]) => itemKey === key);
+    const item = previewData.items.find(([itemKey]) => itemKey === lastPart);
     if (item) {
       return item[1];
     }

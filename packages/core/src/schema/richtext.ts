@@ -5,17 +5,17 @@ import {
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
-import { ReifiedRender } from "../render";
+import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
+import { FieldRender } from "../render";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
-import { ImageSource } from "../source/image";
-import { RemoteSource } from "../source/remote";
+import { ImageSource } from "../source/media";
 import {
   RichTextSource,
   RichTextOptions,
   SerializedRichTextOptions,
 } from "../source/richtext";
 import { SourcePath } from "../val";
-import { ImageMetadata, ImageSchema, SerializedImageSchema } from "./image";
+import { ImageSchema, SerializedImageSchema } from "./image";
 import { RouteSchema, SerializedRouteSchema } from "./route";
 import { SerializedStringSchema, StringSchema } from "./string";
 import {
@@ -29,6 +29,10 @@ type ValidationOptions = {
 };
 export type SerializedRichTextSchema = {
   type: "richtext";
+  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
+  render?: FieldRender;
+  /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
+  preview?: true;
   opt: boolean;
   options?: SerializedRichTextOptions & ValidationOptions;
   customValidate?: boolean;
@@ -48,6 +52,8 @@ export class RichTextSchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly renderInput: FieldRender | null = null,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
   ) {
     super();
   }
@@ -60,6 +66,8 @@ export class RichTextSchema<
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -74,6 +82,8 @@ export class RichTextSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -88,6 +98,8 @@ export class RichTextSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -101,6 +113,8 @@ export class RichTextSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -354,15 +368,9 @@ export class RichTextSchema<
             const imgSchema = this.options.inline?.img;
             const imageValidationErrors =
               typeof imgSchema === "object"
-                ? (
-                    imgSchema as ImageSchema<
-                      ImageSource | RemoteSource<ImageMetadata | undefined>
-                    >
-                  )["executeValidate"](
+                ? (imgSchema as ImageSchema<ImageSource>)["executeValidate"](
                     srcPath,
-                    node.src as
-                      | ImageSource
-                      | RemoteSource<ImageMetadata | undefined>,
+                    node.src as ImageSource,
                   )
                 : new ImageSchema({}, false, false)["executeValidate"](
                     srcPath,
@@ -653,13 +661,15 @@ export class RichTextSchema<
   }
 
   nullable(): RichTextSchema<O, Src | null> {
-    return new RichTextSchema(
+    return new RichTextSchema<O, Src | null>(
       this.options,
       true,
       [],
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -671,6 +681,8 @@ export class RichTextSchema<
       true,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -682,7 +694,71 @@ export class RichTextSchema<
       this.isReadonly,
       true,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
+  }
+
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
+  }
+
+  /**
+   * How this field is laid out in the editor when it is the item of an array
+   * or record: `{ as: "inline" }` renders the field itself inside each row,
+   * instead of a preview row that navigates to it.
+   *
+   * Static configuration, not a callback — see `render.ts`.
+   */
+  render(input: FieldRender): RichTextSchema<O, Src> {
+    return new RichTextSchema(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      input,
+      this.previewInput,
+    );
+  }
+
+  /**
+   * How this VALUE is shown where a preview of it is needed — a row in a
+   * sortable list, a reference dropdown, a search hit. Never how the field
+   * itself is edited (that is `render`). See `preview.ts`.
+   */
+  preview(select: ItemPreviewInput<Src>): RichTextSchema<O, Src> {
+    return new RichTextSchema(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.renderInput,
+      select,
+    );
+  }
+
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -720,6 +796,8 @@ export class RichTextSchema<
     };
     return {
       type: "richtext",
+      render: this.renderInput ?? undefined,
+      preview: this.previewInput ? true : undefined,
       opt: this.opt,
       options: serializedOptions,
       customValidate:
@@ -731,7 +809,7 @@ export class RichTextSchema<
     };
   }
 
-  protected executeRender(): ReifiedRender {
+  protected executePreview(): ReifiedPreview {
     return {};
   }
 }

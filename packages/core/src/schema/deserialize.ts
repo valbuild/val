@@ -1,14 +1,14 @@
 import { SerializedSchema, Schema } from ".";
 import { SelectorSource } from "../selector";
-import { ImageSource } from "../source/image";
-import { RemoteSource } from "../source/remote";
+import { ImageSource } from "../source/media";
 import { SourcePath } from "../val";
 import { ArraySchema } from "./array";
 import { BooleanSchema } from "./boolean";
+import { ColorSchema } from "./color";
 import { DateSchema } from "./date";
 import { DateTimeSchema } from "./datetime";
 import { FileSchema } from "./file";
-import { ImageMetadata, ImageSchema } from "./image";
+import { ImageSchema } from "./image";
 import { KeyOfSchema } from "./keyOf";
 import { LiteralSchema } from "./literal";
 import { NumberSchema } from "./number";
@@ -51,7 +51,10 @@ function deserializeSchemaImpl(
         serialized.opt,
         serialized.raw,
         [],
-        null,
+        // A render is static data, so it survives serialization and must be
+        // carried back: it is the schema's own configuration now, not something
+        // recomputed from an instance.
+        serialized.render ?? null,
         false,
         false,
         serialized.description,
@@ -64,6 +67,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "boolean":
       return new BooleanSchema(
@@ -72,6 +76,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "number":
       return new NumberSchema(
@@ -81,6 +86,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "object":
       return new ObjectSchema(
@@ -94,6 +100,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "array":
       return new ArraySchema(
@@ -103,6 +110,9 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        // The preview closure cannot survive serialization; the render can.
+        null,
+        serialized.render ?? null,
       );
     case "union":
       return new UnionSchema(
@@ -117,6 +127,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "richtext": {
       const deserializedOptions = {
@@ -135,9 +146,7 @@ function deserializeSchemaImpl(
                   typeof serialized.options?.inline?.img === "object"
                     ? (deserializeSchema(
                         serialized.options.inline.img,
-                      ) as ImageSchema<
-                        ImageSource | RemoteSource<ImageMetadata>
-                      >)
+                      ) as ImageSchema<ImageSource>)
                     : serialized.options?.inline?.img,
               }
             : (serialized.options?.inline as
@@ -154,6 +163,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     }
     case "record":
@@ -179,6 +189,10 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.jsonValues ?? false,
+        // The preview closure cannot survive serialization; the render can.
+        null,
+        serialized.render ?? null,
       );
     case "keyOf":
       return new KeyOfSchema(
@@ -189,6 +203,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "route": {
       const routeOptions = serialized.options
@@ -214,6 +229,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     }
     case "file":
@@ -226,6 +242,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "image":
       return new ImageSchema(
@@ -237,6 +254,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "date":
       return new DateSchema(
@@ -246,6 +264,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "dateTime":
       return new DateTimeSchema(
@@ -255,6 +274,17 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
+      );
+    case "color":
+      return new ColorSchema(
+        serialized.options,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+        serialized.render ?? null,
       );
     default: {
       const exhaustiveCheck: never = serialized;

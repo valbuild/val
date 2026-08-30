@@ -1,13 +1,23 @@
-import {
-  ImageSource,
-  ImageMetadata,
-  Internal,
-  RemoteSource,
-  VAL_EXTENSION,
-} from "@valbuild/core";
+import { ImageSource, Internal } from "@valbuild/core";
 import { cn } from "./designSystem/cn";
 import { useState } from "react";
 
+/**
+ * A value that HAS a preview, drawn as a compact media row: thumbnail on the
+ * left, title and subtitle stacked tight beside it, one line each.
+ *
+ * The point is that it should not look like the fallback. When a schema
+ * declares `.preview(...)` we know exactly what the row is made of — a title,
+ * maybe a subtitle, maybe an image — so the row is laid out for that shape
+ * instead of dumping whatever the value happens to contain (which is what
+ * `Preview` does, and what a reader sees when no preview is declared). Rows
+ * are deliberately short: a page-builder tree wants several list levels on one
+ * laptop screen, not three tall cards.
+ *
+ * Padding lives HERE, not in the callers: `RefPreview` picks between this and
+ * the fallback, and the two used to be padded differently by whoever wrapped
+ * them, so the same list changed density depending on which branch a row took.
+ */
 export function ListPreviewItem({
   title,
   image,
@@ -16,54 +26,80 @@ export function ListPreviewItem({
   size,
 }: {
   title: string;
-  image: ImageSource | RemoteSource<ImageMetadata> | null;
+  /**
+   * Three states, not two, because the preview tells us which it is:
+   * an `ImageSource` draws the thumbnail, `null` means the preview declares an
+   * image that this value does not have — so the column is still reserved,
+   * with a placeholder, and rows in the same list stay aligned — and
+   * `undefined` means it declares no image at all, so there is no column and
+   * the title starts at the edge.
+   */
+  image?: ImageSource | null;
   subtitle: string | null;
   className?: string;
   size?: "compact";
 }) {
+  const compact = size === "compact";
   return (
     <div
       className={cn(
-        "flex w-full items-start justify-between pl-2 flex-grow text-left",
-        size === "compact" && "h-[60px] overflow-hidden",
+        "flex items-center gap-3 p-2 w-full min-w-0 text-left",
         className,
       )}
     >
-      <div className="flex flex-col flex-shrink py-2 overflow-x-clip">
-        <div className="font-semibold">{title}</div>
+      {image !== undefined &&
+        (image === null ? (
+          <div
+            className={cn(
+              "flex-shrink-0 rounded opacity-25 bg-bg-brand-secondary",
+              compact ? "w-8 h-8" : "w-10 h-10",
+            )}
+          />
+        ) : (
+          <Thumbnail src={image} alt={title} compact={compact} />
+        ))}
+      <div className="flex flex-col flex-1 gap-0.5 min-w-0">
+        <div
+          className={cn("font-medium leading-tight truncate", {
+            "text-sm": compact,
+          })}
+        >
+          {title}
+        </div>
         {subtitle && (
-          <div className="block overflow-hidden flex-shrink max-h-5 text-sm text-gray-500 text-ellipsis">
+          <div
+            className={cn(
+              "leading-tight truncate text-fg-tertiary",
+              compact ? "text-xs" : "text-sm",
+            )}
+          >
             {subtitle}
           </div>
         )}
       </div>
-      {image && <ImageOrPlaceholder src={image} alt={title} />}
     </div>
   );
 }
 
-function ImageOrPlaceholder({
+function Thumbnail({
   src,
   alt,
+  compact,
 }: {
-  src: ImageSource | RemoteSource<ImageMetadata> | null | undefined;
+  src: ImageSource;
   alt: string;
+  compact: boolean;
 }) {
   const [isLoaded, setIsLoaded] = useState(false);
-
-  if (src === null || src === undefined) {
-    return (
-      <div className="flex-shrink-0 ml-4 w-20 h-20 opacity-25 bg-bg-brand-secondary"></div>
-    );
-  }
-
-  const imageUrl =
-    src[VAL_EXTENSION] === "file"
-      ? Internal.convertFileSource(src).url
-      : Internal.convertRemoteSource(src).url;
+  const imageUrl = Internal.mediaUrl(src);
 
   return (
-    <div className="relative flex-shrink-0 ml-4 w-20 h-20">
+    <div
+      className={cn(
+        "flex-shrink-0 relative rounded overflow-hidden",
+        compact ? "w-8 h-8" : "w-10 h-10",
+      )}
+    >
       {!isLoaded && (
         <div className="absolute inset-0 opacity-25 bg-bg-brand-secondary animate-in"></div>
       )}
@@ -72,12 +108,13 @@ function ImageOrPlaceholder({
         alt={alt}
         onLoad={() => setIsLoaded(true)}
         onError={() => setIsLoaded(false)}
-        className={`absolute inset-0 object-cover w-full h-full rounded-r-lg ${
-          isLoaded ? "opacity-100" : "opacity-0"
-        }`}
+        className={cn(
+          "absolute inset-0 object-cover w-full h-full",
+          isLoaded ? "opacity-100" : "opacity-0",
+        )}
         style={{
-          objectPosition: src.metadata?.hotspot
-            ? `${src.metadata.hotspot.x * 100}% ${src.metadata.hotspot.y * 100}%`
+          objectPosition: src.hotspot
+            ? `${src.hotspot.x * 100}% ${src.hotspot.y * 100}%`
             : "",
           transition: "opacity 0.2s ease-in-out",
         }}

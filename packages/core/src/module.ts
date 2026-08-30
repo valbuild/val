@@ -14,18 +14,13 @@ import { ArraySchema, SerializedArraySchema } from "./schema/array";
 import { UnionSchema, SerializedUnionSchema } from "./schema/union";
 import { Json } from "./Json";
 import { RichTextSchema, SerializedRichTextSchema } from "./schema/richtext";
-import {
-  ImageMetadata,
-  ImageSchema,
-  SerializedImageSchema,
-} from "./schema/image";
-import { FILE_REF_PROP, FileSource } from "./source/file";
+import { ImageSchema, SerializedImageSchema } from "./schema/image";
+import { isJson } from "./source/json";
 import { AllRichTextOptions, RichTextSource } from "./source/richtext";
 import { RecordSchema, SerializedRecordSchema } from "./schema/record";
 import { RawString } from "./schema/string";
-import { ImageSelector } from "./selector/image";
-import { ImageSource } from "./source/image";
-import { FileMetadata, FileSchema, ModuleFilePathSep } from ".";
+import { ImageSource } from "./source/media";
+import { ModuleFilePathSep } from ".";
 
 const brand = Symbol("ValModule");
 export type ValModule<T extends SelectorSource> = SelectorOf<T> &
@@ -43,15 +38,13 @@ export type ReplaceRawStringWithString<T extends SelectorSource> =
     ? T
     : T extends RawString
       ? string
-      : T extends ImageSelector
-        ? ImageSource
-        : T extends { [key in string]: SelectorSource }
-          ? {
-              [key in keyof T]: ReplaceRawStringWithString<T[key]>;
-            }
-          : T extends SelectorSource[]
-            ? ReplaceRawStringWithString<T[number]>[]
-            : T;
+      : T extends { [key in string]: SelectorSource }
+        ? {
+            [key in keyof T]: ReplaceRawStringWithString<T[key]>;
+          }
+        : T extends SelectorSource[]
+          ? ReplaceRawStringWithString<T[number]>[]
+          : T;
 
 export function define<T extends Schema<SelectorSource>>(
   id: string, // TODO: `/${string}`
@@ -65,83 +58,29 @@ export function define<T extends Schema<SelectorSource>>(
   } as unknown as ValModule<SelectorOfSchema<T>>;
 }
 
-export function enrichFileImageRemoteSourceWithMetadata<
-  T extends SelectorSource,
->(source: T, schema: Schema<SelectorSource>): T {
-  const addedModules = new Set<string>();
-  let filesLookup: Record<string, ImageMetadata | FileMetadata> = {};
-  function traverseSchema(schema: Schema<SelectorSource>) {
-    if (schema instanceof ImageSchema || schema instanceof FileSchema) {
-      const moduleMetadata =
-        schema instanceof ImageSchema
-          ? schema["moduleMetadata"]
-          : schema["moduleMetadata"];
-      for (const [modulePath, valModule] of Object.entries(
-        moduleMetadata || {},
-      )) {
-        if (addedModules.has(modulePath)) {
-          continue;
-        }
-        addedModules.add(modulePath);
-        filesLookup = {
-          ...filesLookup,
-          ...valModule,
-        };
-      }
-    } else if (schema instanceof ObjectSchema) {
-      for (const value of Object.values(schema["items"])) {
-        if (value instanceof Schema) {
-          traverseSchema(value);
-        }
-      }
-    } else if (schema instanceof ArraySchema) {
-      traverseSchema(schema["item"]);
-    } else if (schema instanceof RecordSchema) {
-      traverseSchema(schema["item"]);
-    } else if (schema instanceof UnionSchema) {
-      for (const value of schema["items"]) {
-        if (value instanceof ObjectSchema) {
-          traverseSchema(value);
-        }
-      }
-    } else if (schema instanceof RichTextSchema) {
-      if (schema["options"]?.inline?.img instanceof ImageSchema) {
-        traverseSchema(schema["options"].inline.img);
-      }
-    }
-  }
-  function injectMetadataIntoSource(source: SelectorSource): SelectorSource {
-    if (!source) {
-      return source;
-    }
-    if (
-      typeof source === "object" &&
-      FILE_REF_PROP in source &&
-      typeof source[FILE_REF_PROP] === "string"
-    ) {
-      const fileRef = source[FILE_REF_PROP];
-      const metadata = filesLookup[fileRef];
-      (source as { [FILE_REF_PROP]: string; metadata?: unknown }).metadata =
-        metadata;
-    } else if (typeof source === "object") {
-      if (Array.isArray(source)) {
-        for (const item of source) {
-          injectMetadataIntoSource(item);
-        }
-      } else {
-        for (const value of Object.values(source)) {
-          injectMetadataIntoSource(value);
-        }
-      }
-    }
-  }
-  traverseSchema(schema);
-  injectMetadataIntoSource(source);
-  return source;
-}
-
 export function getSource<T extends Source>(valModule: ValModule<T>): T {
   return valModule[GetSource] as T;
+}
+
+/**
+ * Whether `value` is a Val module, i.e. something {@link define} produced.
+ *
+ * Checks for the three symbols `define` writes, rather than a class identity:
+ * a module may have been created by a different copy of `@valbuild/core` (the
+ * editor SPA and the host bundle each ship their own, and the CLI evaluates
+ * user modules inside a `node:vm` context). The symbols are created with
+ * `Symbol.for`, so they are shared across all of those; a constructor is not.
+ */
+export function isValModule(
+  value: unknown,
+): value is ValModule<SelectorSource> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    GetSource in value &&
+    GetSchema in value &&
+    Path in value
+  );
 }
 
 export function splitModuleFilePathAndModulePath(
@@ -257,9 +196,7 @@ function isRichTextSchema(
 
 function isImageSchema(
   schema: Schema<SelectorSource> | SerializedSchema,
-): schema is
-  | ImageSchema<FileSource<ImageMetadata> | null>
-  | SerializedImageSchema {
+): schema is ImageSchema<ImageSource | null> | SerializedImageSchema {
   return (
     schema instanceof ImageSchema ||
     (typeof schema === "object" && "type" in schema && schema.type === "image")
@@ -342,6 +279,15 @@ export function resolvePath<
         resolvedSchema instanceof RecordSchema
           ? resolvedSchema?.["item"]
           : resolvedSchema.item;
+      // A `.jsonValues()` entry value is a lazily-loaded JsonSource marker. We
+      // can resolve the entry itself (schema is now `item`), but we cannot
+      // descend deeper until the backing `*.val.json` content has been loaded
+      // and substituted into the source tree (done by the UI/server layer).
+      if (isJson(resolvedSource) && parts.length > 0) {
+        throw Error(
+          `Cannot resolve path into a jsonValues entry until its content is loaded. Path: ${path}`,
+        );
+      }
     } else if (isObjectSchema(resolvedSchema)) {
       if (typeof resolvedSource !== "object") {
         throw Error(
@@ -593,6 +539,14 @@ export function safeResolvePath<
         resolvedSchema instanceof RecordSchema
           ? resolvedSchema?.["item"]
           : resolvedSchema.item;
+      // jsonValues entry: cannot descend deeper until the backing `*.val.json`
+      // content is loaded into the source tree.
+      if (isJson(resolvedSource) && parts.length > 0) {
+        return {
+          status: "error",
+          message: `Cannot resolve path into a jsonValues entry until its content is loaded. Path: ${path}`,
+        };
+      }
     } else if (isObjectSchema(resolvedSchema)) {
       if (resolvedSource === undefined) {
         return {

@@ -6,7 +6,7 @@ import {
   SelectorSource,
   Schema,
 } from "@valbuild/core";
-import React, { CSSProperties, ReactNode } from "react";
+import React, { CSSProperties, type JSX, ReactNode } from "react";
 import { attrs, raw, RichText, StegaOfRichTextSource } from "../stega";
 
 type DefaultThemes = Partial<{
@@ -155,8 +155,8 @@ export function ValRichText<O extends RichTextOptions>({
         className,
         src: child.src.url,
         // alt: child.alt, TODO: add alt to the img html object
-        width: child.src.metadata?.width,
-        height: child.src.metadata?.height,
+        width: child.src.width,
+        height: child.src.height,
       });
     }
     const children =

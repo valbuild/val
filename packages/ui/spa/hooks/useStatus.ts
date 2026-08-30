@@ -14,7 +14,7 @@ import { z } from "zod";
 const PatchId = z
   .string()
   .uuid()
-  .refine((p): p is PatchId => true);
+  .refine((_p): _p is PatchId => true);
 
 export const AIModel = z.enum(["openai-gpt-5.1"]);
 export type AIModel = z.infer<typeof AIModel>;
@@ -59,7 +59,7 @@ const WebSocketServerMessage = z.union([
   }),
 ]);
 
-const StatData = z.object({
+export const StatData = z.object({
   type: z.union([
     z.literal("did-change"),
     z.literal("no-change"),
@@ -89,6 +89,20 @@ const StatData = z.object({
       .optional(),
   }),
   commitSha: z.string().optional(), // Only use-websocket has this (refactor this zod schema?)
+  /**
+   * FS mode only: fingerprint of the `.jsonValues()` entry files on disk. No
+   * other sha here can see an entry edit, because a jsonValues module's source is
+   * markers and the content sits behind a thunk.
+   */
+  jsonEntriesSha: z.string().optional(),
+  /**
+   * FS mode only: unpublished changes the store threw away because it could not
+   * read them. Said once — the server drains it when it hands it over — so this
+   * is absent on every stat but the one that reports it.
+   */
+  removed: z
+    .array(z.object({ patchId: PatchId, reason: z.string() }))
+    .optional(),
   sourcesSha: z.string(),
   schemaSha: z.string(),
   baseSha: z.string(),
@@ -97,7 +111,7 @@ const StatData = z.object({
   deployments: z.array(ValDeployment).optional(),
   mode: z.union([z.literal("fs"), z.literal("http")]),
 });
-type StatData = z.infer<typeof StatData>;
+export type StatData = z.infer<typeof StatData>;
 
 export type StatState =
   | {
@@ -166,7 +180,14 @@ export function useStatus(client: ValClient) {
       if (stat.status === "error") {
         console.error("Stat error", stat.status, "error:", stat.error);
       }
-      if (stat.wait === 0) {
+      // Never wait longer than a publish that has not reached the site yet can
+      // afford: `/stat` is the only thing that reports which commit the site
+      // actually serves.
+      const wait = Math.min(
+        stat.wait,
+        awaitingDeploymentInterval(stat.data, Date.now()),
+      );
+      if (wait === 0) {
         console.debug(
           "Executing stat immediately",
           stat.status,
@@ -188,7 +209,7 @@ export function useStatus(client: ValClient) {
       } else {
         console.debug(
           "Executing stat in ",
-          stat.wait,
+          wait,
           " status: ",
           stat.status,
           "Now:",
@@ -206,7 +227,7 @@ export function useStatus(client: ValClient) {
             setIsAuthenticated,
             setServiceUnavailable,
           );
-        }, stat.wait);
+        }, wait);
         return () => clearTimeout(timeout);
       }
     }
@@ -242,7 +263,70 @@ export function useStatus(client: ValClient) {
   ] as const;
 }
 
+/** How long the Studio leaves between `/stat` calls once a socket is up. */
 const WebSocketStatInterval = 2 * 60 * 10 * 1000;
+
+/** The shortest gap between `/stat` calls while a publish is on its way out. */
+const AwaitingDeploymentMinInterval = 5 * 1000;
+
+/**
+ * How long to wait before asking `/stat` again while a publish has not landed.
+ *
+ * `/stat` is the ONLY thing that reports which commit the site is actually
+ * serving — `commitSha` is read from the environment when the app boots, so a
+ * finished deploy is a new process answering with a new sha — and that is how
+ * Val decides a publish is live. Nothing pushes it: the socket carries patches,
+ * commits and deployments, none of which can say "the site is now serving this".
+ * So on the idle interval a publish that went out two minutes after it was made
+ * still read as "Building" for another eighteen.
+ *
+ * A quarter of however long the publish has been waiting, floored at five
+ * seconds and capped at the idle interval: quick right after a publish, and
+ * cheaper the longer the build runs, so a deploy that never lands settles back
+ * onto the idle interval rather than polling forever.
+ *
+ * `Infinity` — i.e. "no opinion, use the idle interval" — when every commit and
+ * deployment Val knows about is one the site already answers with.
+ */
+export function awaitingDeploymentInterval(
+  data: StatData | undefined,
+  now: number,
+): number {
+  // fs mode has no deployments and long-polls anyway, and a stat that has not
+  // reported a commit sha cannot tell us what is outstanding.
+  if (!data?.commitSha) {
+    return Infinity;
+  }
+  /**
+   * Commits and deployments alike: both are "something was published that the
+   * site does not answer with yet", and either can be the only record of one.
+   */
+  const published: { commitSha: string; createdAt: string }[] = [
+    ...(data.commits || []).map((commit) => ({
+      commitSha: commit.commitSha,
+      createdAt: commit.createdAt,
+    })),
+    ...(data.deployments || []).map((deployment) => ({
+      commitSha: deployment.commitSha,
+      createdAt: deployment.createdAt,
+    })),
+  ];
+  const awaiting = published
+    .filter((entry) => entry.commitSha !== data.commitSha)
+    .map((entry) => new Date(entry.createdAt).getTime())
+    .filter((at) => !Number.isNaN(at));
+  if (awaiting.length === 0) {
+    return Infinity;
+  }
+  // The one that started waiting most recently, so a publish that will never
+  // land does not slow down the poll for a fresh one behind it.
+  const waitedFor = Math.max(0, now - Math.max(...awaiting));
+  return Math.min(
+    WebSocketStatInterval,
+    Math.max(AwaitingDeploymentMinInterval, waitedFor / 4),
+  );
+}
+
 async function execStat(
   client: ValClient,
   webSocketRef: React.MutableRefObject<WebSocket | null>,
@@ -262,6 +346,9 @@ async function execStat(
       sourcesSha: stat.data.sourcesSha,
       baseSha: stat.data.baseSha,
       patches: stat.data.patches,
+      // Echoed back so FS mode can tell us a `.jsonValues()` entry file changed:
+      // no other sha here can see that (a jsonValues module's source is markers).
+      jsonEntriesSha: stat.data.jsonEntriesSha,
     };
   }
 
@@ -355,7 +442,12 @@ async function execStat(
                         "waitStart" in prev ? prev.waitStart : Date.now(),
                       wait:
                         "waitStart" in prev
-                          ? Math.max(0, Date.now() - prev.waitStart)
+                          ? Math.max(
+                              0,
+                              prev.waitStart +
+                                WebSocketStatInterval -
+                                Date.now(),
+                            )
                           : WebSocketStatInterval,
                     };
                   }
@@ -380,7 +472,12 @@ async function execStat(
                         "waitStart" in prev ? prev.waitStart : Date.now(),
                       wait:
                         "waitStart" in prev
-                          ? Math.max(0, Date.now() - prev.waitStart)
+                          ? Math.max(
+                              0,
+                              prev.waitStart +
+                                WebSocketStatInterval -
+                                Date.now(),
+                            )
                           : WebSocketStatInterval,
                     };
                   }
@@ -406,7 +503,12 @@ async function execStat(
                         "waitStart" in prev ? prev.waitStart : Date.now(),
                       wait:
                         "waitStart" in prev
-                          ? Math.max(0, Date.now() - prev.waitStart)
+                          ? Math.max(
+                              0,
+                              prev.waitStart +
+                                WebSocketStatInterval -
+                                Date.now(),
+                            )
                           : WebSocketStatInterval,
                     };
                   }

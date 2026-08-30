@@ -22,6 +22,7 @@ import {
   useClient,
 } from "./ValProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
+import type { TransientError } from "../stores/StatusStore";
 import { useValPortal } from "./ValPortalProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
@@ -220,8 +221,11 @@ export function PatchErrorsDisplay() {
     <div className="border-b border-border-primary bg-bg-error-primary text-fg-error-primary">
       <div className="flex flex-col gap-4 p-4">
         <div className="px-4 text-pretty">
-          <div>Unfortunately, one or more changes have errors.</div>
-          <div>No changes can currently be applied.</div>
+          <div>
+            One or more changes conflict with newer ones and can no longer be
+            applied.
+          </div>
+          <div>Remove them below to continue publishing.</div>
         </div>
         {Object.entries(patchErrors).map(([moduleFilePath, errors], i) => (
           <div key={moduleFilePath + "#" + i} className="pb-4">
@@ -361,12 +365,14 @@ export function ValidationErrorsDisplay() {
   );
 }
 
-export type TransientError = {
-  message: string;
-  timestamp: number;
-  details?: string;
-  id: string;
-};
+/**
+ * Re-exported from `StatusStore`, which is where these are produced.
+ *
+ * There were two identical declarations of this — one here, one in the store —
+ * and only a `readonly` on the store's array kept them apart. One definition,
+ * owned by the thing that makes them.
+ */
+export type { TransientError };
 
 /**
  * Container that wires the transient-error queue (the history) to the
@@ -406,7 +412,7 @@ export function TransientErrorsList({
   onClear,
   container,
 }: {
-  errors: TransientError[];
+  errors: readonly TransientError[];
   onDismiss: (id: string) => void;
   onClear: () => void;
   container?: HTMLElement | null;
@@ -649,7 +655,7 @@ function PatchCard({
 }: {
   moduleFilePath: ModuleFilePath;
   patchMetadata: PatchMetadata;
-  committedPatchIds: Set<PatchId>;
+  committedPatchIds: ReadonlySet<PatchId>;
 }) {
   const changeDescription = useChangeDescription(
     [patchMetadata.opType],
@@ -749,7 +755,7 @@ function PatchSetCard({
   patchErrors,
 }: {
   patchSet: PatchSetMetadata;
-  committedPatchIds: Set<PatchId>;
+  committedPatchIds: ReadonlySet<PatchId>;
   patchErrors: Record<PatchId, { message: string }> | null;
 }) {
   const [isOpen, setOpen] = useState(false);

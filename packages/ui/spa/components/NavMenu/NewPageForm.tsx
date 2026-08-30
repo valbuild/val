@@ -1,0 +1,538 @@
+import { useMemo, useState } from "react";
+import { ModuleFilePath } from "@valbuild/core";
+import { RoutePattern } from "@valbuild/shared/internal";
+import { cn } from "../designSystem/cn";
+import { Button } from "../designSystem/button";
+
+/**
+ * A route a user can create new pages under.
+ */
+export type AvailableRoute = {
+  moduleFilePath: ModuleFilePath;
+  routePattern: RoutePattern[];
+  /** Human-readable pattern, e.g. "/blogs/[blog]". */
+  patternString: string;
+  /** Existing URL paths that would collide if reused. */
+  existingKeys: string[];
+  /**
+   * Description of the router's key schema, if it has one.
+   *
+   * This is the schema author's own explanation of what a key should look like
+   * ("URL slug, lowercase, no spaces"), so it belongs next to the inputs the
+   * editor is filling in - not in a tooltip they have to go looking for.
+   */
+  keyDescription?: string;
+};
+
+export type NewPageFormProps = {
+  /** One or more routes the user can create pages under. */
+  routes: AvailableRoute[];
+  /** Called with the moduleFilePath and the fully built URL path. */
+  onSubmit: (moduleFilePath: ModuleFilePath, urlPath: string) => void;
+  /** Called when the user dismisses the form. */
+  onCancel: () => void;
+  /**
+   * The page the editor is on, so the form can start on its route.
+   *
+   * A project with several routers offers several patterns, and the first one
+   * in the list is nobody's answer in particular: someone adding a blog post
+   * from a blog post had to notice the select, work out which of
+   * `/blogs/[blog]` and `/products/[category]/[product]` they wanted, and pick
+   * it — every time. What they are looking at is the best available guess at
+   * what they are about to make.
+   *
+   * Both parts, because either alone can be wrong. One router module can define
+   * several patterns, so the module does not always name one route; and two
+   * routers can accept the same URL shape, so the URL does not always name one
+   * module. Together they do.
+   */
+  currentPage?: { moduleFilePath: ModuleFilePath; urlPath: string };
+};
+
+/**
+ * Form for creating a new page in the sitemap.
+ *
+ * Supports:
+ * - single dynamic segment routes (`/blogs/[blog]`)
+ * - multi-segment routes (`/products/[category]/[product]`)
+ * - catch-all routes (`/docs/[...slug]`)
+ *
+ * Visual treatment matches the redesigned sitemap: the static parts of the route
+ * are rendered as non-editable chips, dynamic parts as inputs.
+ */
+export function NewPageForm({
+  routes,
+  onSubmit,
+  onCancel,
+  currentPage,
+}: NewPageFormProps) {
+  /**
+   * What the form starts on, and what the user picked instead.
+   *
+   * Two values rather than one piece of state seeded from the preference,
+   * because `routes` can arrive after the form does — and a state initialiser
+   * runs once, against whatever was there at the time, which for an empty list
+   * is nothing. Derived, the preference still applies when the routes turn up,
+   * and a choice still outranks it the moment one is made.
+   */
+  const preferred = useMemo(
+    () => preferredRoute(routes, currentPage),
+    [routes, currentPage],
+  );
+  const [chosenRouteKey, setChosenRouteKey] = useState<string | null>(null);
+  const selectedRoute = useMemo(
+    () =>
+      routes.find((r) => routeKey(r) === chosenRouteKey) ?? preferred ?? null,
+    [routes, chosenRouteKey, preferred],
+  );
+  const selectedRouteKey = selectedRoute ? routeKey(selectedRoute) : "";
+
+  const [paramsByRoute, setParamsByRoute] = useState<
+    Record<string, Record<string, string>>
+  >({});
+  const [errorsByRoute, setErrorsByRoute] = useState<
+    Record<string, Record<string, string | undefined>>
+  >({});
+
+  const params = selectedRoute
+    ? (paramsByRoute[routeKey(selectedRoute)] ?? {})
+    : {};
+  const errors = selectedRoute
+    ? (errorsByRoute[routeKey(selectedRoute)] ?? {})
+    : {};
+
+  const fullPath = useMemo(() => {
+    if (!selectedRoute) return "";
+    return buildFullPath(selectedRoute.routePattern, params);
+  }, [selectedRoute, params]);
+
+  const isComplete = useMemo(() => {
+    if (!selectedRoute) return false;
+    return selectedRoute.routePattern.every((part) => {
+      if (part.type === "string-param" || part.type === "array-param") {
+        // An OPTIONAL segment (`[[category]]`, `[[...query]]`) may be left
+        // blank - that is the base route, which Next.js serves. Requiring a
+        // value made the base route impossible to create from here.
+        if (!params[part.paramName]) {
+          return part.optional;
+        }
+        return !errors[part.paramName];
+      }
+      return true;
+    });
+  }, [selectedRoute, params, errors]);
+
+  const alreadyExists =
+    !!selectedRoute && selectedRoute.existingKeys.includes(fullPath);
+  const disabled = !isComplete || alreadyExists;
+
+  // Focus the first dynamic input when the selected route changes.
+  // We rely on autoFocus on render, so changing the key forces remount.
+  const inputRenderKey = selectedRoute ? routeKey(selectedRoute) : "";
+
+  if (!selectedRoute) {
+    return (
+      <div className="p-3 text-sm text-fg-secondary">
+        No routes accept new pages.
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="p-3 space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (disabled) return;
+        onSubmit(selectedRoute.moduleFilePath, fullPath);
+      }}
+    >
+      <div className="text-sm font-medium text-fg-primary">New page</div>
+
+      {routes.length > 1 ? (
+        <div className="space-y-1">
+          <label className="text-xs text-fg-secondary">Route</label>
+          <RouteSelect
+            routes={routes}
+            value={selectedRouteKey}
+            onChange={setChosenRouteKey}
+          />
+        </div>
+      ) : (
+        <div className="space-y-1">
+          <span className="text-xs text-fg-secondary">Route</span>
+          <RoutePatternDisplay pattern={selectedRoute.routePattern} />
+        </div>
+      )}
+
+      {selectedRoute.keyDescription && (
+        <div className="max-w-[240px] text-pretty text-xs text-fg-tertiary">
+          {selectedRoute.keyDescription}
+        </div>
+      )}
+
+      <div className="space-y-1">
+        <span className="text-xs text-fg-secondary">URL</span>
+        <RoutePatternInputs
+          key={inputRenderKey}
+          pattern={selectedRoute.routePattern}
+          params={params}
+          errors={errors}
+          onChange={(paramName, value, error) => {
+            const key = routeKey(selectedRoute);
+            setParamsByRoute((prev) => ({
+              ...prev,
+              [key]: { ...(prev[key] ?? {}), [paramName]: value },
+            }));
+            setErrorsByRoute((prev) => ({
+              ...prev,
+              [key]: { ...(prev[key] ?? {}), [paramName]: error },
+            }));
+          }}
+        />
+        <RouteHint pattern={selectedRoute.routePattern} />
+      </div>
+
+      {alreadyExists && (
+        <p className="text-xs text-fg-error-on-surface">
+          A page with this path already exists
+        </p>
+      )}
+
+      <div className="flex gap-2 justify-end pt-1">
+        <Button size="sm" variant="ghost" type="button" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button size="sm" disabled={disabled} type="submit">
+          Create
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function routeKey(route: AvailableRoute | undefined): string {
+  if (!route) return "";
+  return `${route.moduleFilePath}::${route.patternString}`;
+}
+
+/**
+ * The route the form should open on: the one the page being edited is on.
+ *
+ * Scored rather than found, because "the route you are on" can be answered to
+ * different degrees. A route whose pattern the current URL fits AND whose
+ * module the current page lives in is that route. Either half on its own is
+ * still a better guess than the head of the list, so it is still preferred —
+ * and where nothing is known, or nothing matches, the head of the list is what
+ * is left.
+ */
+export function preferredRoute(
+  routes: AvailableRoute[],
+  currentPage: { moduleFilePath: ModuleFilePath; urlPath: string } | undefined,
+): AvailableRoute | undefined {
+  if (!currentPage) return routes[0];
+  let best: AvailableRoute | undefined = routes[0];
+  let bestScore = 0;
+  for (const route of routes) {
+    const sameModule = route.moduleFilePath === currentPage.moduleFilePath;
+    const samePattern = patternMatchesPath(
+      route.routePattern,
+      currentPage.urlPath,
+    );
+    const score = (samePattern ? 2 : 0) + (sameModule ? 1 : 0);
+    // Strictly greater, so the first route wins a tie — the same rule the
+    // untouched form followed.
+    if (score > bestScore) {
+      best = route;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+/**
+ * Whether a URL is one of the URLs this pattern makes.
+ *
+ * The same grammar `buildFullPath` writes, read back: literals have to be
+ * themselves, a `[param]` stands for exactly one segment, a `[...param]` for
+ * the rest of them, and an optional segment may stand for nothing at all —
+ * which is how `/categories` and `/categories/shoes` are both
+ * `/categories/[[category]]`.
+ */
+export function patternMatchesPath(
+  pattern: RoutePattern[],
+  urlPath: string,
+): boolean {
+  const segments = urlPath.split("/").filter((segment) => segment !== "");
+  let at = 0;
+  for (const part of pattern) {
+    if (part.type === "array-param") {
+      // Catch-all takes everything left. Nothing left is only a match when the
+      // segment is allowed to be absent.
+      const remaining = segments.length - at;
+      if (remaining === 0) return part.optional;
+      return true;
+    }
+    if (part.type === "string-param") {
+      if (at >= segments.length) {
+        // An omitted optional segment is the base route; a missing required one
+        // means this is a different pattern.
+        if (!part.optional) return false;
+        continue;
+      }
+      at++;
+      continue;
+    }
+    if (segments[at] !== part.name) return false;
+    at++;
+  }
+  return at === segments.length;
+}
+
+/**
+ * Build the full URL path from a route pattern and the user-filled params.
+ * Mirrors the behavior of the old AddRouteForm.
+ */
+export function buildFullPath(
+  pattern: RoutePattern[],
+  params: Record<string, string>,
+): string {
+  const segments: string[] = [];
+  for (const part of pattern) {
+    if (part.type === "string-param" || part.type === "array-param") {
+      const value = params[part.paramName];
+      if (!value) {
+        // An empty OPTIONAL segment is omitted, not emitted as "": joining ""
+        // produced a trailing slash (`/categories/`) rather than the base route
+        // (`/categories`), and those are different keys.
+        if (part.optional) {
+          continue;
+        }
+        segments.push("");
+        continue;
+      }
+      segments.push(value);
+      continue;
+    }
+    segments.push(part.name);
+  }
+  // A pattern that is nothing but omitted optional segments is the root.
+  return segments.length === 0 ? "/" : "/" + segments.join("/");
+}
+
+/**
+ * Render the route pattern as a non-editable display, with dynamic
+ * segments shown as purple pills.
+ */
+function RoutePatternDisplay({ pattern }: { pattern: RoutePattern[] }) {
+  return (
+    <div className="flex items-center flex-wrap gap-0 px-2 py-1.5 rounded-md bg-bg-secondary font-mono text-xs text-fg-primary">
+      <span className="text-fg-secondary">/</span>
+      {pattern.map((part, i) => (
+        <span key={i} className="flex items-center">
+          {part.type === "literal" ? (
+            <span>{part.name}</span>
+          ) : (
+            <DynamicSegmentPill part={part} />
+          )}
+          {i < pattern.length - 1 && (
+            <span className="text-fg-secondary">/</span>
+          )}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Render the route pattern as a mix of static prefix chips and editable
+ * inputs for dynamic segments.
+ */
+function RoutePatternInputs({
+  pattern,
+  params,
+  errors,
+  onChange,
+}: {
+  pattern: RoutePattern[];
+  params: Record<string, string>;
+  errors: Record<string, string | undefined>;
+  onChange: (
+    paramName: string,
+    value: string,
+    error: string | undefined,
+  ) => void;
+}) {
+  // Group adjacent literals so they render as a single chip like "/blogs/".
+  const groups = useMemo(() => groupPattern(pattern), [pattern]);
+  const firstDynamicIndex = useMemo(
+    () => groups.findIndex((g) => g.type !== "literal-run"),
+    [groups],
+  );
+
+  return (
+    <div className="flex items-stretch flex-wrap gap-1 font-mono text-xs">
+      {groups.map((group, i) => {
+        if (group.type === "literal-run") {
+          return (
+            <span
+              key={i}
+              className="inline-flex items-center px-2 rounded-md bg-bg-secondary text-fg-secondary"
+            >
+              /{group.parts.map((p) => p.name).join("/")}
+              {i < groups.length - 1 ? "/" : ""}
+            </span>
+          );
+        }
+
+        const part = group.part;
+        const value = params[part.paramName] || "";
+        const error = errors[part.paramName];
+        const isCatchAll = part.type === "array-param";
+
+        return (
+          <span key={i} className="inline-flex flex-col">
+            <input
+              autoFocus={i === firstDynamicIndex}
+              className={cn(
+                "h-7 px-2 rounded-md bg-bg-primary border border-border-primary text-fg-primary font-mono text-xs",
+                "focus:outline-none focus:ring-1 focus:ring-border-focus",
+                isCatchAll ? "min-w-[16ch]" : "min-w-[10ch]",
+                {
+                  "border-fg-error": !!error,
+                },
+              )}
+              placeholder={part.paramName}
+              value={value}
+              onChange={(e) => {
+                const next = e.target.value;
+                const compare = isCatchAll ? next.replace(/\//g, "") : next;
+                const invalid =
+                  next.length > 0 && encodeURIComponent(compare) !== compare;
+                onChange(
+                  part.paramName,
+                  next,
+                  invalid ? "Invalid characters" : undefined,
+                );
+              }}
+            />
+            {error && (
+              <span className="mt-0.5 text-[10px] text-fg-error-on-surface">
+                {error}
+              </span>
+            )}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+type PatternGroup =
+  | { type: "literal-run"; parts: { name: string }[] }
+  | {
+      type: "dynamic";
+      part: Extract<
+        RoutePattern,
+        { type: "string-param" } | { type: "array-param" }
+      >;
+    };
+
+function groupPattern(pattern: RoutePattern[]): PatternGroup[] {
+  const groups: PatternGroup[] = [];
+  let currentRun: { name: string }[] | null = null;
+  for (const part of pattern) {
+    if (part.type === "literal") {
+      if (!currentRun) {
+        currentRun = [];
+        groups.push({ type: "literal-run", parts: currentRun });
+      }
+      currentRun.push({ name: part.name });
+    } else {
+      currentRun = null;
+      groups.push({ type: "dynamic", part });
+    }
+  }
+  return groups;
+}
+
+function DynamicSegmentPill({
+  part,
+}: {
+  part: Extract<
+    RoutePattern,
+    { type: "string-param" } | { type: "array-param" }
+  >;
+}) {
+  const label =
+    part.type === "array-param" ? `...${part.paramName}` : part.paramName;
+  return (
+    <span className="inline-flex items-center px-1.5 py-0 rounded text-[11px] bg-bg-brand-secondary text-fg-brand-secondary">
+      [{label}]
+    </span>
+  );
+}
+
+function RouteHint({ pattern }: { pattern: RoutePattern[] }) {
+  const hasCatchAll = pattern.some((p) => p.type === "array-param");
+  const dynamicCount = pattern.filter(
+    (p) => p.type === "string-param" || p.type === "array-param",
+  ).length;
+
+  if (hasCatchAll) {
+    return (
+      <p className="text-[11px] text-fg-secondary">
+        Catch-all segments can contain <code>/</code> for nested paths.
+      </p>
+    );
+  }
+  if (dynamicCount > 1) {
+    return (
+      <p className="text-[11px] text-fg-secondary">
+        Fill in each segment. Slashes will be added automatically.
+      </p>
+    );
+  }
+  return (
+    <p className="text-[11px] text-fg-secondary">
+      Use lowercase letters, numbers, and hyphens.
+    </p>
+  );
+}
+
+/**
+ * Native select used for picking the route when multiple are available.
+ * Kept simple — the Radix Select needs a portal container and complicates the
+ * popover. A native select is a reasonable default for the count of routes
+ * a project will typically have.
+ */
+function RouteSelect({
+  routes,
+  value,
+  onChange,
+}: {
+  routes: AvailableRoute[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  // No "force the value to be valid" effect: `value` is derived from these same
+  // routes by the form above, so it cannot name one that is not here.
+  return (
+    <select
+      aria-label="Route"
+      className={cn(
+        "w-full h-8 px-2 rounded-md bg-bg-primary border border-border-primary",
+        "font-mono text-xs text-fg-primary",
+        "focus:outline-none focus:ring-1 focus:ring-border-focus",
+      )}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {routes.map((route) => (
+        <option key={routeKey(route)} value={routeKey(route)}>
+          {route.patternString}
+        </option>
+      ))}
+    </select>
+  );
+}

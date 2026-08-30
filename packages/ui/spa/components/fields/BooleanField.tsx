@@ -1,4 +1,5 @@
 import { SourcePath } from "@valbuild/core";
+import { type JSX } from "react";
 import { Checkbox } from "../designSystem/checkbox";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
@@ -13,7 +14,6 @@ import {
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { Check } from "lucide-react";
-import { ValidationErrors } from "../../components/ValidationError";
 
 export function BooleanField({
   path,
@@ -67,13 +67,12 @@ export function BooleanField({
   const current = source === null ? "indeterminate" : source;
   return (
     <div id={path}>
-      <ValidationErrors path={path} />
       <Checkbox
         disabled={readonly}
         checked={current}
         onCheckedChange={() => {
           if (readonly) return;
-          let nextValue: boolean | null = false;
+          let nextValue: boolean | null;
           // If optional/nullable: we cycle like this: true -> indeterminate / null -> false -> true
           if (schemaAtPath.data.opt) {
             if (current === true) {

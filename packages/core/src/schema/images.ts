@@ -4,6 +4,7 @@ import { RecordSchema } from "./record";
 import { ObjectSchema } from "./object";
 import { StringSchema, string } from "./string";
 import { NumberSchema } from "./number";
+import type { ImageEncodeOption } from "./image";
 
 /**
  * Alt schema type - can be a string, nullable string, or a record of locale to string
@@ -25,9 +26,13 @@ export type ImagesOptions<Accept extends `image/${string}`> = {
   /**
    * The directory where images should be stored.
    * Must start with "/public" (e.g., "/public/val/images")
-   * @default "/public/val"
+   *
+   * Required, and deliberately so: it decides where every uploaded file in this
+   * collection lands, and it used to default to "/public/val" — which meant a
+   * gallery that had simply not said where it wanted its files silently shared a
+   * directory with every other one.
    */
-  directory?: "/public" | `/public/${string}`;
+  directory: "/public" | `/public/${string}`;
   /**
    * Alt text schema. Can be:
    * - s.string() for required alt text
@@ -40,6 +45,13 @@ export type ImagesOptions<Accept extends `image/${string}`> = {
    * @default false
    */
   remote?: boolean;
+  /**
+   * Re-encode uploads in the browser before they are uploaded.
+   *
+   * Off unless set. A field backed by this gallery (`s.image(galleryVal)`)
+   * inherits it, the same way it inherits `accept` and `directory`.
+   */
+  encode?: ImageEncodeOption;
 };
 
 /**
@@ -75,8 +87,9 @@ type ImagesItemSrc = {
 /**
  * Define a collection of images.
  *
- * All options are optional: `s.images()` accepts any image type (`"image/*"`) in
- * the default `/public/val` directory, with nullable alt text and remote disabled.
+ * `directory` is required — it decides where uploads land, so it is not something
+ * to be inferred. The rest defaults: any image type (`"image/*"`), nullable alt
+ * text, remote disabled.
  *
  * @example
  * ```typescript
@@ -96,14 +109,14 @@ type ImagesItemSrc = {
  * ```
  */
 export const images = <Accept extends `image/${string}`>(
-  options?: ImagesOptions<Accept>,
+  options: ImagesOptions<Accept>,
 ): RecordSchema<
   ObjectSchema<ImagesItemProps, ImagesItemSrc>,
   Schema<string>,
   Record<string, ImagesEntryMetadata>
 > => {
-  const directory = options?.directory ?? "/public/val";
-  const altSchema = options?.alt ?? string().nullable();
+  const directory = options.directory;
+  const altSchema = options.alt ?? string().nullable();
   const itemSchema = new ObjectSchema(
     {
       width: new NumberSchema<number>(undefined, false),
@@ -115,9 +128,10 @@ export const images = <Accept extends `image/${string}`>(
   ) as ObjectSchema<ImagesItemProps, ImagesItemSrc>;
   return new RecordSchema(itemSchema, false, [], null, null, {
     type: "images",
-    accept: options?.accept ?? "image/*",
+    accept: options.accept ?? "image/*",
     directory,
-    remote: options?.remote ?? false,
+    remote: options.remote ?? false,
     altSchema,
+    encode: options.encode,
   });
 };

@@ -2,7 +2,10 @@ export { initVal, type ConfigDirectory } from "./initVal";
 export { modules, type ValModules } from "./modules";
 export {
   extractValModules,
+  computeValModuleShas,
   type ExtractedValModules,
+  type ValModuleShaEntry,
+  type ValModuleShas,
   type ExtractedModuleError,
 } from "./extractValModules";
 export type {
@@ -12,15 +15,27 @@ export type {
   ContentConstructor,
 } from "./initVal";
 export { Schema, type SerializedSchema, type SelectorOfSchema } from "./schema";
-export type { ImageMetadata } from "./schema/image";
+export { hasRemoteFileSchema } from "./schema/hasRemoteFileSchema";
+export type {
+  ImageMetadata,
+  ImageEncodeOption,
+  ImageEncodeOptions,
+} from "./schema/image";
 export type { FileMetadata } from "./schema/file";
 export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
-export type { FileSource } from "./source/file";
-export type { RemoteSource, RemoteRef } from "./source/remote";
+export type { FileSource } from "./source/media";
+export type { JsonSource, JsonOf, JsonImportThunk } from "./source/json";
+export type { RemoteRef } from "./source/remote";
 export { DEFAULT_VAL_REMOTE_HOST } from "./schema/remote";
 export type { RawString } from "./schema/string";
-export type { ImageSource } from "./source/image";
+export type { ImageSource } from "./source/media";
+export type {
+  MediaHotspot,
+  MediaSource,
+  GalleryImageSource,
+  GalleryFileSource,
+} from "./source/media";
 export type {
   AllRichTextOptions,
   Bold,
@@ -58,7 +73,6 @@ export type {
   ValidationErrors,
 } from "./schema/validation/ValidationError";
 export type { ValidationFix } from "./schema/validation/ValidationFix";
-export { FILE_REF_PROP, FILE_REF_SUBTYPE_TAG } from "./source/file";
 export { VAL_EXTENSION, type SourceArray } from "./source";
 export { derefPatch } from "./patch/deref";
 export {
@@ -68,6 +82,7 @@ export {
 } from "./selector";
 import {
   getSource,
+  isValModule,
   splitModulePath,
   splitModuleFilePath,
   resolvePath,
@@ -83,7 +98,6 @@ const ModuleFilePathSep = "?p=";
 export { ModuleFilePathSep };
 import { SelectorSource, getSchema } from "./selector";
 import { ModulePath, SourcePath, getValPath, isVal } from "./val";
-import { convertFileSource } from "./schema/file";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getSHA256Hash } from "./getSha256";
 import { Operation } from "./patch";
@@ -97,7 +111,7 @@ import {
 } from "./mimeType";
 import { type ImageMetadata } from "./schema/image";
 import { type FileMetadata } from "./schema/file";
-import { isFile } from "./source/file";
+import { isJson, getJsonImport, resolveJsonValues } from "./source/json";
 import { createRemoteRef } from "./source/remote";
 import {
   getValidationBasis,
@@ -105,7 +119,19 @@ import {
 } from "./remote/validationBasis";
 import { getFileHash, hashToRemoteFileHash } from "./remote/fileHash";
 import { splitRemoteRef } from "./remote/splitRemoteRef";
-import { convertRemoteSource } from "./schema/remote";
+import {
+  fillFromGallery,
+  isRemoteMediaPath,
+  mediaUrl,
+  resolveMedia,
+} from "./source/media";
+import {
+  colorToHex,
+  convertColor,
+  detectColorFormat,
+  formatColor,
+  parseColor,
+} from "./schema/colorFormat";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
 export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
@@ -115,6 +141,17 @@ export { type SerializedBooleanSchema, BooleanSchema } from "./schema/boolean";
 export { type SerializedImageSchema, ImageSchema } from "./schema/image";
 export { type SerializedFileSchema, FileSchema } from "./schema/file";
 export { type SerializedDateSchema, DateSchema } from "./schema/date";
+export {
+  type SerializedColorSchema,
+  type ColorOptions,
+  ColorSchema,
+} from "./schema/color";
+export {
+  type ColorFormat,
+  type ParsedColor,
+  COLOR_FORMATS,
+  DEFAULT_COLOR_FORMAT,
+} from "./schema/colorFormat";
 export {
   type SerializedDateTimeSchema,
   DateTimeSchema,
@@ -134,11 +171,20 @@ export {
 export { type SerializedLiteralSchema, LiteralSchema } from "./schema/literal";
 export { deserializeSchema } from "./schema/deserialize";
 export {
-  type ListRecordRender,
-  type ListArrayRender,
-  type ReifiedRender,
+  type PreviewItem,
+  type ItemPreviewInput,
+  type RecordPreview,
+  type ArrayPreview,
+  type ReifiedPreview,
+  type PreviewScope,
+  previewScope,
+} from "./preview";
+export {
   type CodeLanguage,
-  type CodeRender,
+  type StringRender,
+  type InlineRender,
+  type FieldRender,
+  CODE_LANGUAGES,
 } from "./render";
 export type { ValRouter, RouteValidationError } from "./router";
 export { getSourcePathFromRoute } from "./getSourcePathFromRoute";
@@ -167,17 +213,29 @@ const Internal = {
       }
     })(),
   },
-  convertFileSource,
-  convertRemoteSource,
+  mediaUrl,
+  resolveMedia,
+  isRemoteMediaPath,
+  media: {
+    fillFromGallery,
+  },
   getSchema,
   getValPath,
   getSource,
+  isValModule,
   resolvePath,
   safeResolvePath,
   splitModuleFilePathAndModulePath,
   joinModuleFilePathAndModulePath,
   nextAppRouter,
   externalPageRouter,
+  color: {
+    parseColor,
+    formatColor,
+    convertColor,
+    detectColorFormat,
+    colorToHex,
+  },
   remote: {
     createRemoteRef,
     getValidationBasis,
@@ -196,7 +254,9 @@ const Internal = {
     );
   },
   isVal,
-  isFile,
+  isJson,
+  getJsonImport,
+  resolveJsonValues,
   createValPathOfItem,
   getSHA256Hash,
   initSchema,

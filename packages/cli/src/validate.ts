@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import { glob } from "fast-glob";
 import { DEFAULT_CONTENT_HOST, DEFAULT_VAL_REMOTE_HOST } from "@valbuild/core";
 import { getSettings, uploadRemoteFile } from "@valbuild/server";
-import { evalValConfigFile } from "./utils/evalValConfigFile";
+import { findAndEvalValConfigFile } from "./utils/evalValConfigFile";
 import { createDefaultValFSHost, runValidation } from "./runValidation";
 import {
   sourcePathToCodeFrame,
@@ -49,9 +49,7 @@ export async function validate({
   // errors found. Re-reads config and val files each call so it always reflects
   // the latest state on disk (used both for one-shot and watch mode).
   async function runOnce(): Promise<number> {
-    const valConfigFile =
-      (await evalValConfigFile(projectRoot, "val.config.ts")) ||
-      (await evalValConfigFile(projectRoot, "val.config.js"));
+    const valConfigFile = await findAndEvalValConfigFile(projectRoot);
 
     const resolvedValConfigFile = valConfigFile
       ? {

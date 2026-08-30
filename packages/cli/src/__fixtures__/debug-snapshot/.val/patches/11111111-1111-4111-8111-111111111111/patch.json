@@ -1,19 +1,16 @@
 {
   "patch": [
     {
-      "op": "remove",
-      "path": ["BBL", "summary", "services", "2"]
+      "op": "replace",
+      "path": ["BBL", "title"],
+      "value": "BBL Housing"
     }
   ],
-  "patchId": "22222222-2222-4222-8222-222222222222",
-  "parentRef": {
-    "type": "patch",
-    "patchId": "11111111-1111-4111-8111-111111111111"
-  },
+  "patchId": "11111111-1111-4111-8111-111111111111",
   "path": "/content/projects.val.ts",
-  "authorId": "author-b",
+  "authorId": "author-a",
   "sessionId": null,
   "baseSha": "0000000000000000000000000000000000000000000000000000000000000000",
   "coreVersion": null,
-  "createdAt": "2026-08-11T09:00:00.000Z"
+  "createdAt": "2026-08-10T12:00:00.000Z"
 }

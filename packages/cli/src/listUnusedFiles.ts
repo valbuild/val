@@ -1,21 +1,13 @@
-import {
-  FILE_REF_PROP,
-  ModuleFilePath,
-  ModulePath,
-  SourcePath,
-  VAL_EXTENSION,
-} from "@valbuild/core";
+import { ModuleFilePath, ModulePath, SourcePath } from "@valbuild/core";
 import { createService } from "@valbuild/server";
 import { glob } from "fast-glob";
 import path from "path";
-import { evalValConfigFile } from "./utils/evalValConfigFile";
+import { findAndEvalValConfigFile } from "./utils/evalValConfigFile";
 
 export async function listUnusedFiles({ root }: { root?: string }) {
   const projectRoot = root ? path.resolve(root) : process.cwd();
 
-  const valConfigFile =
-    (await evalValConfigFile(projectRoot, "val.config.ts")) ||
-    (await evalValConfigFile(projectRoot, "val.config.js"));
+  const valConfigFile = await findAndEvalValConfigFile(projectRoot);
   // Strip the leading "/" so it is relative to the project root (e.g. "public/val").
   const managedDir = (valConfigFile?.files?.directory ?? "/public/val").replace(
     /^\//,
@@ -51,7 +43,7 @@ export async function listUnusedFiles({ root }: { root?: string }) {
             if (isFileRef(value)) {
               const absoluteFilePathUsedByVal = path.join(
                 projectRoot,
-                ...value[FILE_REF_PROP].split("/"),
+                ...value.path.split("/"),
               );
               filesUsedByVal.push(absoluteFilePathUsedByVal);
             }
@@ -80,18 +72,17 @@ export async function listUnusedFiles({ root }: { root?: string }) {
   return;
 }
 
-function isFileRef(
-  value: unknown,
-): value is { [FILE_REF_PROP]: string; [VAL_EXTENSION]: "file" } {
-  if (!value) return false;
-  if (typeof value !== "object") return false;
-  if (FILE_REF_PROP in value && VAL_EXTENSION in value) {
-    if (
-      value[VAL_EXTENSION] === "file" &&
-      typeof value[FILE_REF_PROP] === "string"
-    ) {
-      return true;
-    }
-  }
-  return false;
+/**
+ * Whether a flagged validation value names a file.
+ *
+ * A `ValidationError` carries no schema, so the shape is all there is to go on —
+ * the same heuristic this whole function documents as a TODO.
+ */
+function isFileRef(value: unknown): value is { path: string } {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    "path" in value &&
+    typeof value.path === "string"
+  );
 }

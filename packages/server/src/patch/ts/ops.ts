@@ -6,16 +6,8 @@ import {
   findObjectPropertyAssignment,
   ValSyntaxErrorTree,
   shallowValidateExpression,
-  isValFileMethodCall,
-  findValFileNodeArg,
-  findValFileMetadataArg,
-  findValImageNodeArg,
-  isValImageMethodCall,
-  findValImageMetadataArg,
-  isValRemoteMethodCall,
-  findValRemoteNodeArg,
-  findValRemoteMetadataArg,
 } from "./syntax";
+import { analyzeValModule } from "./valModule";
 import {
   deepEqual,
   isNotRoot,
@@ -24,14 +16,6 @@ import {
   JSONValue,
   parseAndValidateArrayIndex,
 } from "@valbuild/core/patch";
-import {
-  FILE_REF_PROP,
-  FILE_REF_SUBTYPE_TAG,
-  FileSource,
-  VAL_EXTENSION,
-} from "@valbuild/core";
-import { JsonPrimitive } from "@valbuild/core";
-import { RemoteSource } from "@valbuild/core";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
@@ -72,57 +56,139 @@ function createPropertyAssignment(key: string, value: JSONValue) {
   );
 }
 
-function createValFileReference(value: FileSource) {
-  const args: ts.Expression[] = [
-    ts.factory.createStringLiteral(value[FILE_REF_PROP]),
-  ];
-  if (value.metadata) {
-    args.push(toExpression(value.metadata as JSONValue));
-  }
-
+/**
+ * Builds the expression `c.json(() => import("<importPath>"))` used to reference
+ * a lazily-loaded `*.val.json` entry of a `.jsonValues()` record.
+ */
+export function createValJsonReference(importPath: string): ts.Expression {
+  // () => import("<importPath>")
+  // NOTE: an `import` identifier prints as the dynamic-import keyword call,
+  // which avoids casting the ImportKeyword token (not typed as an Expression).
+  const importCall = ts.factory.createCallExpression(
+    ts.factory.createIdentifier("import"),
+    undefined,
+    [ts.factory.createStringLiteral(importPath)],
+  );
+  const thunk = ts.factory.createArrowFunction(
+    undefined,
+    undefined,
+    [],
+    undefined,
+    ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+    importCall,
+  );
+  // c.json(<thunk>)
   return ts.factory.createCallExpression(
     ts.factory.createPropertyAccessExpression(
       ts.factory.createIdentifier("c"),
-      ts.factory.createIdentifier("file"),
+      ts.factory.createIdentifier("json"),
     ),
     undefined,
-    args,
+    [thunk],
   );
 }
 
-function createValImageReference(value: FileSource) {
-  const args: ts.Expression[] = [
-    ts.factory.createStringLiteral(value[FILE_REF_PROP]),
-  ];
-  if (value.metadata) {
-    args.push(toExpression(value.metadata as JSONValue));
-  }
-
-  return ts.factory.createCallExpression(
-    ts.factory.createPropertyAccessExpression(
-      ts.factory.createIdentifier("c"),
-      ts.factory.createIdentifier("image"),
-    ),
-    undefined,
-    args,
+/**
+ * Inserts a new `.jsonValues()` entry `"<key>": c.json(() => import("<importPath>"))`
+ * into the record's object literal in a `.val.ts` module. `recordPath` is the
+ * path from the module source to the record (empty for a root record/router).
+ * Fails if the entry key already exists.
+ */
+export function insertValJsonEntry(
+  document: ts.SourceFile,
+  recordPath: string[],
+  key: string,
+  importPath: string,
+): TSOpsResult<ts.SourceFile> {
+  return pipe(
+    analyzeValModule(document),
+    result.flatMap(({ source }) => getAtPath(source, recordPath)),
+    result.flatMap((recordNode: ts.Expression): TSOpsResult<ts.SourceFile> => {
+      if (!ts.isObjectLiteralExpression(recordNode)) {
+        return result.err(
+          new PatchError(
+            "Cannot add jsonValues entry: record source is not an object literal",
+          ),
+        );
+      }
+      return pipe(
+        findObjectPropertyAssignment(recordNode, key),
+        result.flatMap(
+          (
+            assignment: ts.PropertyAssignment | undefined,
+          ): TSOpsResult<ts.SourceFile> => {
+            if (assignment) {
+              return result.err(
+                new PatchError(
+                  `Cannot add jsonValues entry '${key}': it already exists`,
+                ),
+              );
+            }
+            const property = ts.factory.createPropertyAssignment(
+              isValidIdentifier(key)
+                ? ts.factory.createIdentifier(key)
+                : ts.factory.createStringLiteral(key),
+              createValJsonReference(importPath),
+            );
+            return result.ok(
+              insertAt(
+                document,
+                recordNode.properties,
+                recordNode.properties.length,
+                property,
+              ),
+            );
+          },
+        ),
+      );
+    }),
   );
 }
 
-function createValRemoteReference(value: RemoteSource) {
-  const args: ts.Expression[] = [
-    ts.factory.createStringLiteral(value[FILE_REF_PROP]),
-  ];
-  if (value.metadata) {
-    args.push(toExpression(value.metadata as JSONValue));
-  }
-
-  return ts.factory.createCallExpression(
-    ts.factory.createPropertyAccessExpression(
-      ts.factory.createIdentifier("c"),
-      ts.factory.createIdentifier("remote"),
-    ),
-    undefined,
-    args,
+/**
+ * Removes the `.jsonValues()` entry `"<key>"` from the record's object literal
+ * in a `.val.ts` module. `recordPath` is the path from the module source to the
+ * record (empty for a root record/router). Fails if the entry key is missing.
+ */
+export function removeValJsonEntry(
+  document: ts.SourceFile,
+  recordPath: string[],
+  key: string,
+): TSOpsResult<ts.SourceFile> {
+  return pipe(
+    analyzeValModule(document),
+    result.flatMap(({ source }) => getAtPath(source, recordPath)),
+    result.flatMap((recordNode: ts.Expression): TSOpsResult<ts.SourceFile> => {
+      if (!ts.isObjectLiteralExpression(recordNode)) {
+        return result.err(
+          new PatchError(
+            "Cannot remove jsonValues entry: record source is not an object literal",
+          ),
+        );
+      }
+      return pipe(
+        findObjectPropertyAssignment(recordNode, key),
+        result.flatMap(
+          (
+            assignment: ts.PropertyAssignment | undefined,
+          ): TSOpsResult<ts.SourceFile> => {
+            if (!assignment) {
+              return result.err(
+                new PatchError(
+                  `Cannot remove jsonValues entry '${key}': it does not exist`,
+                ),
+              );
+            }
+            const [doc] = removeAt(
+              document,
+              recordNode.properties,
+              recordNode.properties.indexOf(assignment),
+            );
+            return result.ok(doc);
+          },
+        ),
+      );
+    }),
   );
 }
 
@@ -155,19 +221,14 @@ function toExpression(value: JSONValue): ts.Expression {
   } else if (Array.isArray(value)) {
     return ts.factory.createArrayLiteralExpression(value.map(toExpression));
   } else if (typeof value === "object") {
-    if (isValFileValue(value)) {
-      return createValFileReference(value);
-    }
-    if (isValImageValue(value)) {
-      return createValImageReference(value);
-    }
-    if (isValRemoteValue(value)) {
-      return createValRemoteReference(value);
-    }
     return ts.factory.createObjectLiteralExpression(
-      Object.entries(value).map(([key, value]) =>
-        createPropertyAssignment(key, value),
-      ),
+      Object.entries(value)
+        // `patch_id` is injected server-side onto a media source whose bytes are
+        // not committed yet. It describes the draft, not the content, and a
+        // whole-object write built from the client's optimistic view would
+        // otherwise print it into the user's file.
+        .filter(([key]) => key !== "patch_id")
+        .map(([key, value]) => createPropertyAssignment(key, value)),
     );
   } else {
     return ts.factory.createStringLiteral(value);
@@ -402,135 +463,6 @@ function replaceInNode(
         replaceNodeValue(document, assignment.initializer, value),
       ),
     );
-  } else if (isValFileMethodCall(node)) {
-    if (key === FILE_REF_PROP) {
-      if (typeof value !== "string") {
-        return result.err(
-          new PatchError(
-            "Cannot replace c.file reference with non-string value",
-          ),
-        );
-      }
-      return pipe(
-        findValFileNodeArg(node),
-        result.map((refNode) => replaceNodeValue(document, refNode, value)),
-      );
-    } else {
-      return pipe(
-        findValFileMetadataArg(node),
-        result.flatMap((metadataArgNode) => {
-          if (!metadataArgNode) {
-            return result.err(
-              new PatchError(
-                "Cannot replace in c.file metadata when it does not exist",
-              ),
-            );
-          }
-          if (key !== "metadata") {
-            return result.err(
-              new PatchError(
-                `Cannot replace c.file metadata key ${key} when it does not exist`,
-              ),
-            );
-          }
-          return replaceInNode(
-            document,
-            // TODO: creating a fake object here might not be right - seems to work though
-            ts.factory.createObjectLiteralExpression([
-              ts.factory.createPropertyAssignment(key, metadataArgNode),
-            ]),
-            key,
-            value,
-          );
-        }),
-      );
-    }
-  } else if (isValImageMethodCall(node)) {
-    if (key === FILE_REF_PROP) {
-      if (typeof value !== "string") {
-        return result.err(
-          new PatchError(
-            "Cannot replace c.image reference with non-string value",
-          ),
-        );
-      }
-      return pipe(
-        findValImageNodeArg(node),
-        result.map((refNode) => replaceNodeValue(document, refNode, value)),
-      );
-    } else {
-      return pipe(
-        findValImageMetadataArg(node),
-        result.flatMap((metadataArgNode) => {
-          if (!metadataArgNode) {
-            return result.err(
-              new PatchError(
-                "Cannot replace in c.image metadata when it does not exist",
-              ),
-            );
-          }
-          if (key !== "metadata") {
-            return result.err(
-              new PatchError(
-                `Cannot replace c.image metadata key ${key} when it does not exist`,
-              ),
-            );
-          }
-          return replaceInNode(
-            document,
-            // TODO: creating a fake object here might not be right - seems to work though
-            ts.factory.createObjectLiteralExpression([
-              ts.factory.createPropertyAssignment(key, metadataArgNode),
-            ]),
-            key,
-            value,
-          );
-        }),
-      );
-    }
-  } else if (isValRemoteMethodCall(node)) {
-    if (key === FILE_REF_PROP) {
-      if (typeof value !== "string") {
-        return result.err(
-          new PatchError(
-            "Cannot replace c.image reference with non-string value",
-          ),
-        );
-      }
-      return pipe(
-        findValRemoteNodeArg(node),
-        result.map((refNode) => replaceNodeValue(document, refNode, value)),
-      );
-    } else {
-      return pipe(
-        findValRemoteMetadataArg(node),
-        result.flatMap((metadataArgNode) => {
-          if (!metadataArgNode) {
-            return result.err(
-              new PatchError(
-                "Cannot replace in c.remote metadata when it does not exist",
-              ),
-            );
-          }
-          if (key !== "metadata") {
-            return result.err(
-              new PatchError(
-                `Cannot replace c.remote metadata key ${key} when it does not exist`,
-              ),
-            );
-          }
-          return replaceInNode(
-            document,
-            // TODO: creating a fake object here might not be right - seems to work though
-            ts.factory.createObjectLiteralExpression([
-              ts.factory.createPropertyAssignment(key, metadataArgNode),
-            ]),
-            key,
-            value,
-          );
-        }),
-      );
-    }
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -574,21 +506,6 @@ export function getFromNode(
           assignment?.initializer,
       ),
     );
-  } else if (isValFileMethodCall(node)) {
-    if (key === FILE_REF_PROP) {
-      return findValFileNodeArg(node);
-    }
-    return findValFileMetadataArg(node);
-  } else if (isValImageMethodCall(node)) {
-    if (key === FILE_REF_PROP) {
-      return findValImageNodeArg(node);
-    }
-    return findValImageMetadataArg(node);
-  } else if (isValRemoteMethodCall(node)) {
-    if (key === FILE_REF_PROP) {
-      return findValRemoteNodeArg(node);
-    }
-    return findValRemoteMetadataArg(node);
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -681,60 +598,6 @@ function removeFromNode(
         assignment.initializer,
       ]),
     );
-  } else if (isValFileMethodCall(node)) {
-    if (key === FILE_REF_PROP) {
-      return result.err(new PatchError("Cannot remove a ref from c.file"));
-    } else {
-      return pipe(
-        findValFileMetadataArg(node),
-        result.flatMap((metadataArgNode) => {
-          if (!metadataArgNode) {
-            return result.err(
-              new PatchError(
-                "Cannot remove from c.file metadata when it does not exist",
-              ),
-            );
-          }
-          return removeFromNode(document, metadataArgNode, key);
-        }),
-      );
-    }
-  } else if (isValImageMethodCall(node)) {
-    if (key === FILE_REF_PROP) {
-      return result.err(new PatchError("Cannot remove a ref from c.image"));
-    } else {
-      return pipe(
-        findValImageMetadataArg(node),
-        result.flatMap((metadataArgNode) => {
-          if (!metadataArgNode) {
-            return result.err(
-              new PatchError(
-                "Cannot remove from c.image metadata when it does not exist",
-              ),
-            );
-          }
-          return removeFromNode(document, metadataArgNode, key);
-        }),
-      );
-    }
-  } else if (isValRemoteMethodCall(node)) {
-    if (key === FILE_REF_PROP) {
-      return result.err(new PatchError("Cannot remove a ref from c.remote"));
-    } else {
-      return pipe(
-        findValRemoteMetadataArg(node),
-        result.flatMap((metadataArgNode) => {
-          if (!metadataArgNode) {
-            return result.err(
-              new PatchError(
-                "Cannot remove from c.remote metadata when it does not exist",
-              ),
-            );
-          }
-          return removeFromNode(document, metadataArgNode, key);
-        }),
-      );
-    }
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -756,45 +619,6 @@ function removeAtPath(
   );
 }
 
-export function isValFileValue(value: JSONValue): value is FileSource<{
-  [key: string]: JsonPrimitive;
-}> {
-  return !!(
-    typeof value === "object" &&
-    value &&
-    VAL_EXTENSION in value &&
-    value[VAL_EXTENSION] === "file" &&
-    FILE_REF_PROP in value &&
-    typeof value[FILE_REF_PROP] === "string" &&
-    value[FILE_REF_SUBTYPE_TAG] !== "image"
-  );
-}
-export function isValImageValue(value: JSONValue): value is FileSource<{
-  [key: string]: JsonPrimitive;
-}> {
-  return !!(
-    typeof value === "object" &&
-    value &&
-    VAL_EXTENSION in value &&
-    value[VAL_EXTENSION] === "file" &&
-    FILE_REF_PROP in value &&
-    typeof value[FILE_REF_PROP] === "string" &&
-    value[FILE_REF_SUBTYPE_TAG] === "image"
-  );
-}
-export function isValRemoteValue(value: JSONValue): value is RemoteSource<{
-  [key: string]: JsonPrimitive;
-}> {
-  return !!(
-    typeof value === "object" &&
-    value &&
-    VAL_EXTENSION in value &&
-    value[VAL_EXTENSION] === "remote" &&
-    FILE_REF_PROP in value &&
-    typeof value[FILE_REF_PROP] === "string"
-  );
-}
-
 function addToNode(
   document: ts.SourceFile,
   node: ts.Expression,
@@ -809,9 +633,6 @@ function addToNode(
       ]),
     );
   } else if (ts.isObjectLiteralExpression(node)) {
-    if (key === FILE_REF_PROP) {
-      return result.err(new PatchError("Cannot add a key ref to object"));
-    }
     return pipe(
       findObjectPropertyAssignment(node, key),
       result.map(
@@ -833,138 +654,6 @@ function addToNode(
         },
       ),
     );
-  } else if (isValFileMethodCall(node)) {
-    if (key === FILE_REF_PROP) {
-      if (typeof value !== "string") {
-        return result.err(
-          new PatchError(
-            `Cannot add ${FILE_REF_PROP} key to c.file with non-string value`,
-          ),
-        );
-      }
-      return pipe(
-        findValFileNodeArg(node),
-        result.map((arg: ts.Expression) =>
-          replaceNodeValue(document, arg, value),
-        ),
-      );
-    } else {
-      return pipe(
-        findValFileMetadataArg(node),
-        result.flatMap((metadataArgNode) => {
-          if (metadataArgNode) {
-            return result.err(
-              new PatchError(
-                "Cannot add metadata to c.file when it already exists",
-              ),
-            );
-          }
-          if (key !== "metadata") {
-            return result.err(
-              new PatchError(
-                `Cannot add ${key} key to c.file: only metadata is allowed`,
-              ),
-            );
-          }
-          return result.ok([
-            insertAt(
-              document,
-              node.arguments,
-              node.arguments.length,
-              toExpression(value),
-            ),
-          ]);
-        }),
-      );
-    }
-  } else if (isValImageMethodCall(node)) {
-    if (key === FILE_REF_PROP) {
-      if (typeof value !== "string") {
-        return result.err(
-          new PatchError(
-            `Cannot add ${FILE_REF_PROP} key to c.image with non-string value`,
-          ),
-        );
-      }
-      return pipe(
-        findValImageNodeArg(node),
-        result.map((arg: ts.Expression) =>
-          replaceNodeValue(document, arg, value),
-        ),
-      );
-    } else {
-      return pipe(
-        findValImageMetadataArg(node),
-        result.flatMap((metadataArgNode) => {
-          if (metadataArgNode) {
-            return result.err(
-              new PatchError(
-                "Cannot add metadata to c.image when it already exists",
-              ),
-            );
-          }
-          if (key !== "metadata") {
-            return result.err(
-              new PatchError(
-                `Cannot add ${key} key to c.image: only metadata is allowed`,
-              ),
-            );
-          }
-          return result.ok([
-            insertAt(
-              document,
-              node.arguments,
-              node.arguments.length,
-              toExpression(value),
-            ),
-          ]);
-        }),
-      );
-    }
-  } else if (isValRemoteMethodCall(node)) {
-    if (key === FILE_REF_PROP) {
-      if (typeof value !== "string") {
-        return result.err(
-          new PatchError(
-            `Cannot add ${FILE_REF_PROP} key to c.remote with non-string value`,
-          ),
-        );
-      }
-      return pipe(
-        findValRemoteNodeArg(node),
-        result.map((arg: ts.Expression) =>
-          replaceNodeValue(document, arg, value),
-        ),
-      );
-    } else {
-      return pipe(
-        findValRemoteMetadataArg(node),
-        result.flatMap((metadataArgNode) => {
-          if (metadataArgNode) {
-            return result.err(
-              new PatchError(
-                "Cannot add metadata to c.remote when it already exists",
-              ),
-            );
-          }
-          if (key !== "metadata") {
-            return result.err(
-              new PatchError(
-                `Cannot add ${key} key to c.remote: only metadata is allowed`,
-              ),
-            );
-          }
-          return result.ok([
-            insertAt(
-              document,
-              node.arguments,
-              node.arguments.length,
-              toExpression(value),
-            ),
-          ]);
-        }),
-      );
-    }
   } else {
     return result.err(
       shallowValidateExpression(node) ??

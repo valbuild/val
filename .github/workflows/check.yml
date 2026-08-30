@@ -92,3 +92,66 @@ jobs:
           version: 10
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
+  e2e:
+    name: E2E (${{ matrix.project }} ${{ matrix.shard }}/${{ matrix.shards }})
+    runs-on: ubuntu-latest
+    # Each shard is ~4 minutes of tests on top of ~4 minutes of fixed setup, so
+    # this is a hang detector rather than a budget.
+    timeout-minutes: 30
+    # Reports, does not block. Two consecutive runs of identical fs-mode code
+    # gave 0 failures and then 5, and a gate that goes red for reasons unrelated
+    # to the change under review teaches people to ignore it. Take this off once
+    # chromium has been green across several runs -- not after one.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      # Sharded, and the counts are measured rather than picked.
+      #
+      # `playwright.config.ts` sets `fullyParallel: false`, so a shard's unit is
+      # a FILE, not a test -- and this suite's files are very uneven (canvas has
+      # 12 tests, smoke has 2). That makes the shard count a balance question,
+      # not just a division: at 4 shards chromium splits 26/22/34/12, so 37% of
+      # the suite sits on the critical path and two runners idle. 6 splits it
+      # 18/14/17/20/15/12, which is 22%. chromium-http splits 28/16 at two
+      # shards and 15/16/13 at three.
+      #
+      # Re-measure with `--list` after adding or splitting a spec file:
+      #   pnpm exec playwright test --project=chromium --shard=1/6 --list | tail -1
+      matrix:
+        include:
+          - { project: chromium, shard: 1, shards: 6 }
+          - { project: chromium, shard: 2, shards: 6 }
+          - { project: chromium, shard: 3, shards: 6 }
+          - { project: chromium, shard: 4, shards: 6 }
+          - { project: chromium, shard: 5, shards: 6 }
+          - { project: chromium, shard: 6, shards: 6 }
+          - { project: chromium-http, shard: 1, shards: 3 }
+          - { project: chromium-http, shard: 2, shards: 3 }
+          - { project: chromium-http, shard: 3, shards: 3 }
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v3
+        with:
+          node-version-file: ".nvmrc"
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 10
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      # The `warmup` project is a dependency of `chromium`, and Playwright runs
+      # project dependencies in EVERY shard rather than distributing them, so
+      # each shard starts against an app that has already compiled its routes.
+      # Verified with `--list`: the warmup test appears in all six.
+      - run: pnpm exec playwright test --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          # Unique per job: upload-artifact@v4 rejects a name that already
+          # exists in the run, so the shard has to be in it.
+          name: playwright-report-${{ matrix.project }}-${{ matrix.shard }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

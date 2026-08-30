@@ -2,7 +2,7 @@ import {
   Internal,
   Json,
   ModuleFilePath,
-  ReifiedRender,
+  ReifiedPreview,
   Source,
   SerializedSchema,
   ValModule,
@@ -299,27 +299,24 @@ function createMockData() {
     },
   );
 
-  // Team members record with list view rendering
+  // Team members record with a list preview
   const team = c.define(
     "/content/team.val.ts",
-    s
-      .record(
-        s.object({
+    s.record(
+      s
+        .object({
           name: s.string(),
           position: s.string(),
           bio: s.string(),
           email: s.string(),
-        }),
-      )
-      .render({
-        as: "list",
-        select({ val }) {
+        })
+        .preview(({ val }) => {
           return {
             title: val.name,
             subtitle: val.position,
           };
-        },
-      }),
+        }),
+    ),
     {
       "team-1": {
         name: "Alice Johnson",
@@ -342,28 +339,26 @@ function createMockData() {
     },
   );
 
-  // Product pages router with list view rendering
+  // Product pages router with a list preview
   const productPages = c.define(
     "/app/products/[product]/page.val.ts",
     s
       .record(
-        s.object({
-          name: s.string(),
-          description: s.string().render({ as: "textarea" }),
-          price: s.number(),
-          code: s.string().render({ as: "code", language: "json" }),
-        }),
+        s
+          .object({
+            name: s.string(),
+            description: s.string().render({ as: "textarea" }),
+            price: s.number(),
+            code: s.string().render({ as: "code", language: "json" }),
+          })
+          .preview(({ val }) => {
+            return {
+              title: val.name,
+              subtitle: `$${val.price}`,
+            };
+          }),
       )
-      .router(mockRouter)
-      .render({
-        as: "list",
-        select({ val }) {
-          return {
-            title: val.name,
-            subtitle: `$${val.price}`,
-          };
-        },
-      }),
+      .router(mockRouter),
     {
       "/products/product-1": {
         name: "Premium Subscription",
@@ -414,26 +409,23 @@ function createMockData() {
     },
   );
 
-  // Configuration array with render methods
+  // Configuration array with renders on its string fields
   const config = c.define(
     "/content/config.val.ts",
-    s
-      .array(
-        s.object({
+    s.array(
+      s
+        .object({
           key: s.string(),
           value: s.string().render({ as: "code", language: "typescript" }),
           description: s.string().render({ as: "textarea" }),
-        }),
-      )
-      .render({
-        as: "list",
-        select({ val }) {
+        })
+        .preview(({ val }) => {
           return {
             title: val.key,
             subtitle: val.description,
           };
-        },
-      }),
+        }),
+    ),
     [
       {
         key: "customHook",
@@ -477,7 +469,7 @@ function createMockData() {
   ];
   const schemas: Record<string, SerializedSchema> = {};
   const sources: Record<string, Source> = {};
-  const renders: Record<string, ReifiedRender> = {};
+  const previews: Record<string, ReifiedPreview> = {};
   for (const module of modules) {
     const moduleFilePath = Internal.getValPath(module);
     const schema = Internal.getSchema(module);
@@ -489,19 +481,19 @@ function createMockData() {
       const path = moduleFilePath as unknown as ModuleFilePath;
       schemas[path] = schema["executeSerialize"]();
       sources[path] = source;
-      renders[path] = schema["executeRender"](path, source);
+      previews[path] = schema["executePreview"](path, source);
     }
   }
 
   return {
     schemas: schemas as Record<ModuleFilePath, SerializedSchema>,
     sources: sources as Record<ModuleFilePath, Json>,
-    renders: renders as Record<ModuleFilePath, ReifiedRender>,
+    previews: previews as Record<ModuleFilePath, ReifiedPreview>,
   };
 }
 
 export const {
   schemas: mockSchemas,
   sources: mockSources,
-  renders: mockRenders,
+  previews: mockPreviews,
 } = createMockData();

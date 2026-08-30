@@ -1,7 +1,7 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
-import { CodeLanguage, ReifiedRender } from "../render";
-import { ModuleFilePath, SourcePath } from "../val";
+import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
+import { StringRender } from "../render";
+import { SourcePath } from "../val";
 import {
   ValidationError,
   ValidationErrors,
@@ -16,6 +16,18 @@ type StringOptions = {
 
 export type SerializedStringSchema = {
   type: "string";
+  /**
+   * How this field is laid out in the editor, carried WHOLE rather than as a
+   * marker.
+   *
+   * A render is static configuration — no closure, no dependency on source — so
+   * unlike a `preview` it serializes in full, and the editor reads it straight
+   * off the schema it already has. See `render.ts` for what that assumption
+   * buys, and what to do if a render ever needs to stop being static.
+   */
+  render?: StringRender;
+  /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
+  preview?: true;
   options?: {
     maxLength?: number;
     minLength?: number;
@@ -45,13 +57,11 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     private readonly customValidateFunctions: ((
       src: Src,
     ) => false | string)[] = [],
-    private readonly renderInput:
-      | { as: "textarea" }
-      | { as: "code"; language: CodeLanguage }
-      | null = null,
+    private readonly renderInput: StringRender | null = null,
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
   ) {
     super();
   }
@@ -66,6 +76,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.previewInput,
     );
   }
 
@@ -86,6 +97,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
@@ -106,6 +118,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
@@ -119,6 +132,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
@@ -134,6 +148,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
@@ -230,6 +245,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     ) as unknown as StringSchema<Src | null>;
   }
 
@@ -243,6 +259,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       true,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
@@ -256,6 +273,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       true,
       this.description,
+      this.previewInput,
     );
   }
 
@@ -269,14 +287,28 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     ) as unknown as StringSchema<
       Src extends null ? RawString | null : RawString
     >;
   }
 
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
+  }
+
   protected executeSerialize(): SerializedSchema {
     return {
       type: "string",
+      render: this.renderInput ?? undefined,
+      preview: this.previewInput ? true : undefined,
       options: {
         maxLength: this.options?.maxLength,
         minLength: this.options?.minLength,
@@ -300,9 +332,14 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     };
   }
 
-  render(
-    input: { as: "textarea" } | { as: "code"; language: CodeLanguage },
-  ): StringSchema<Src> {
+  /**
+   * How this field is laid out in the editor: a textarea, or a code editor for
+   * the given language.
+   *
+   * Static configuration, not a callback — see `render.ts`. What a CONTAINER
+   * shows for its items is a `preview`, which is a different thing entirely.
+   */
+  render(input: StringRender): StringSchema<Src> {
     return new StringSchema<Src>(
       this.options,
       this.opt,
@@ -312,34 +349,48 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
-  protected executeRender(
-    sourcePath: SourcePath | ModuleFilePath,
-    src: Src,
-  ): ReifiedRender {
-    if (this.renderInput) {
-      if (this.renderInput.as === "code") {
-        return {
-          [sourcePath]: {
-            status: "success" as const,
-            data: {
-              layout: this.renderInput.as,
-              language: this.renderInput.language,
-            },
-          },
-        };
-      }
-      return {
-        [sourcePath]: {
-          status: "success" as const,
-          data: {
-            layout: this.renderInput.as,
-          },
-        },
-      };
+  /**
+   * How this VALUE is shown where a preview of it is needed — a row in a
+   * sortable list, a reference dropdown, a search hit. Never how the field
+   * itself is edited (that is `render`). See `preview.ts`.
+   */
+  preview(select: ItemPreviewInput<Src>): StringSchema<Src> {
+    return new StringSchema<Src>(
+      this.options,
+      this.opt,
+      this.isRaw,
+      this.customValidateFunctions,
+      this.renderInput,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      select,
+    );
+  }
+
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
     }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
+  }
+
+  /**
+   * Nothing: a string has no items, so there is nothing to preview. Its layout
+   * is a `render`, which travels in the serialized schema instead of through
+   * this pipeline.
+   */
+  protected executePreview(): ReifiedPreview {
     return {};
   }
 }

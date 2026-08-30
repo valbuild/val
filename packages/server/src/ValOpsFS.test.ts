@@ -60,11 +60,9 @@ describe("ValOpsFS", () => {
         }),
         {
           test: "Test 1 2 3",
-          testImage: c.file("/public/val/test.png", {
-            height: 12,
+          testImage: { path: "/public/val/test.png", height: 12,
             width: 1,
-            mimeType: "image/png",
-          }),
+            mimeType: "image/png" },
         }
       );
       `,
@@ -82,11 +80,9 @@ describe("ValOpsFS", () => {
         }),
         {
           test: "Test 1 2 3",
-          testImage: c.file("/public/val/test.png", {
-            height: 1,
+          testImage: { path: "/public/val/test.png", height: 1,
             width: 1,
-            mimeType: "image/png",
-          }),
+            mimeType: "image/png" },
         }
       );
       `,
@@ -153,13 +149,10 @@ describe("ValOpsFS", () => {
           op: "replace",
           path: ["testImage"],
           value: {
-            _ref: "/public/val/images/smallest.png",
-            _type: "file",
-            metadata: {
-              width: 8,
-              height: 1,
-              mimeType: "image/png",
-            },
+            path: "/public/val/images/smallest.png",
+            width: 8,
+            height: 1,
+            mimeType: "image/png",
           },
         },
         {
@@ -243,13 +236,10 @@ describe("ValOpsFS", () => {
             op: "replace",
             path: ["testImage"],
             value: {
-              _ref: "/public/val/images/smallest.png",
-              _type: "file",
-              metadata: {
-                width: 8,
-                height: 1,
-                mimeType: "image/png",
-              },
+              path: "/public/val/images/smallest.png",
+              width: 8,
+              height: 1,
+              mimeType: "image/png",
             },
           },
           {

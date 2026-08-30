@@ -20,9 +20,8 @@ import { DragEndEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { Copy, EllipsisVertical, GripVertical, Trash2 } from "lucide-react";
 import { SourcePath, SerializedArraySchema } from "@valbuild/core";
-import type { ListArrayRender } from "@valbuild/core";
-import { PreviewWithRender } from "./PreviewWithRender";
-import { StringField } from "./fields/StringField";
+import { RefPreview } from "./RefPreview";
+import { InlineAnyField } from "./InlineAnyField";
 import { isParentError } from "../utils/isParentError";
 import { ErrorIndicator } from "./ErrorIndicator";
 import { useAllValidationErrors } from "./ValErrorProvider";
@@ -52,6 +51,27 @@ export function SortableContainer({
   }) => React.ReactNode;
   className?: string;
 }) {
+  /**
+   * The rendered order, which is `source`'s order plus a transient optimistic lie.
+   *
+   * ## Why this is re-derived from `source`, and must stay that way
+   *
+   * An array item's path is POSITIONAL (`?p="0"`, `?p="1"`), so a reorder does not
+   * move paths — it moves content between fixed paths. `handleDragEnd` permutes
+   * these entries for immediate feedback, and that permutation has to be undone
+   * the moment the patch applies, or it is applied a second time and cancels the
+   * move out.
+   *
+   * Measured, because it is not obvious and it looks like churn worth removing:
+   * with this reset suppressed for a reorder (paths compared as a set, which is
+   * what "the list owns its order" amounts to), dragging row 1 below row 2 ends
+   * with the list showing its ORIGINAL order. The patch is correct, source is
+   * correct, and the drag silently does nothing.
+   *
+   * So this is not the controlled/uncontrolled question that text fields answer
+   * with `defaultValue`. A text field owns a value at a fixed path; a list row
+   * owns nothing — its path is its index.
+   */
   const [items, setItems] = useState<{ path: SourcePath; id: number }[]>([]);
   useEffect(() => {
     const nextItems: {
@@ -95,7 +115,7 @@ export function SortableContainer({
       }
       setActiveId(null);
     },
-    [items],
+    [items, onMove],
   );
   return (
     <DndContext
@@ -121,7 +141,15 @@ export function SortableContainer({
           ))}
         </div>
       </SortableContext>
-      <DragOverlay>
+      {/*
+       * No drop animation, deliberately.
+       *
+       * The overlay renders a positional path, so while it animates back into
+       * place the patch lands and the content AT that path changes — the card
+       * under the cursor turns into a different row. Removing the animation
+       * unmounts it at drop instead, before there is anything to change.
+       */}
+      <DragOverlay dropAnimation={null}>
         {activeItem
           ? renderItem({
               path: activeItem.path,
@@ -136,7 +164,6 @@ export function SortableContainer({
 
 export function SortableList({
   source,
-  render,
   schema,
   disabled,
   onClick,
@@ -147,13 +174,15 @@ export function SortableList({
   source: SourcePath[];
   path: SourcePath;
   disabled?: boolean;
-  render?: ListArrayRender;
   schema: SerializedArraySchema;
   onMove: (from: number, to: number) => void;
   onClick: (path: SourcePath) => void;
   onDelete: (item: number) => void;
   onDuplicate: (item: number) => void;
 }) {
+  // No per-row preview data here: whether a row is a preview card or an inline
+  // editor is decided by the ITEM schema (`.render({ as: "inline" })`), and a
+  // preview card resolves its own preview via `RefPreview`.
   return (
     <SortableContainer
       source={source}
@@ -164,11 +193,6 @@ export function SortableList({
           id={id}
           schema={schema}
           disabled={disabled}
-          renderLayout={render?.layout}
-          render={
-            /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
-            render?.items[id - 1]
-          }
           path={path}
           onClick={onClick}
           onDelete={(id) => {
@@ -196,15 +220,12 @@ export function SortableItemRow({
   path,
   schema,
   disabled,
-  render,
   onClick,
   onDelete,
   onDuplicate,
 }: {
   id: number;
   path: SourcePath;
-  renderLayout?: "list";
-  render?: ListArrayRender["items"][number];
   schema: SerializedArraySchema;
   disabled?: boolean;
   onClick: (path: SourcePath) => void;
@@ -227,6 +248,7 @@ export function SortableItemRow({
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: id, disabled: disabled === true });
   const validationErrors = useAllValidationErrors() || {};
+  const isInline = schema?.item?.render?.as === "inline";
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -251,20 +273,35 @@ export function SortableItemRow({
         })}
         disabled={disabled}
         onClick={() => {
-          onClick(path);
+          // An inline row is edited in place — there is no page to go to.
+          if (!isInline) {
+            onClick(path);
+          }
         }}
       >
         <GripVertical />
       </button>
-      {/** Changing this behavior means we need to change the getNavPath behavior */}
-      {!render && schema?.item?.type === "string" && (
+      {/** Changing this behavior means we need to change the getNavPath behavior.
+       * Inlining is opt-in per item schema (`.render({ as: "inline" })`) and wins
+       * over a `.preview(...)` on the array: the explicit item-level declaration
+       * is the more specific of the two. */}
+      {isInline && (
         <div
           className={cn("flex-grow w-full", {
             "p-2 border border-bg-warning-secondary rounded-lg":
               !!validationErrors[path],
           })}
         >
-          <StringField path={path} />
+          <InlineAnyField
+            path={path}
+            schema={schema.item}
+            readonly={disabled === true}
+            /* This row shows the item's errors itself, just below. Without
+               this the field shows them too whenever no `Field` wrapper above
+               has claimed them — which is every list at a module root — and
+               the same message appears twice. */
+            errorDisplay="none"
+          />
           {validationErrors[path] && (
             <div className="px-2">
               <FieldValidationError validationErrors={validationErrors[path]} />
@@ -272,7 +309,7 @@ export function SortableItemRow({
           )}
         </div>
       )}
-      {(render || schema?.item?.type !== "string") && (
+      {!isInline && (
         <button
           className={cn(
             "flex-grow",
@@ -289,7 +326,7 @@ export function SortableItemRow({
             onClick(path);
           }}
         >
-          <PreviewWithRender path={path} className="flex-grow p-4 w-full" />
+          <RefPreview path={path} className="flex-grow w-full" />
           {isTruncated && (
             <div
               className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-card/90 to-card"

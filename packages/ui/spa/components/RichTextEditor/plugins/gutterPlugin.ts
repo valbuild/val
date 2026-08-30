@@ -28,7 +28,7 @@ export function createGutterPlugin(
   function createMenu(useFixed: boolean): HTMLElement {
     const el = document.createElement("div");
     el.className = [
-      `${useFixed ? "fixed" : "absolute"} z-50 flex flex-col rounded-md border border-border-primary`,
+      `${useFixed ? "fixed" : "absolute"} z-window flex flex-col rounded-md border border-border-primary`,
       "bg-bg-primary p-1 shadow-lg text-sm min-w-[140px]",
     ].join(" ");
     el.style.display = "none";

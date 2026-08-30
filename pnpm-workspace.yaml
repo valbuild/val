@@ -3,6 +3,7 @@ packages:
   - packages/ui
   - packages/shared
   - packages/server
+  - packages/language-server
   - packages/next
   - packages/react
   - packages/cli
@@ -11,6 +12,11 @@ packages:
   - packages/eslint-plugin
   - examples/next
   - packages/server/test/example-projects/*
+
+allowBuilds:
+  esbuild: true
+  less: true
+  unrs-resolver: true
 
 ignoredBuiltDependencies:
   - less
@@ -21,3 +27,41 @@ minimumReleaseAgeExclude:
 
 onlyBuiltDependencies:
   - esbuild
+
+# Minimum patched versions for advisories that reach us only through
+# transitive dependencies, where no in-range bump of a direct dependency
+# pulls the fix in yet. The key selects which requested range to override;
+# the value is the lowest patched release, upper-bounded so a future major
+# cannot slip in silently. Drop an entry once the parent resolves it itself.
+#
+# Not covered: image-size. The GHSA advisories for its ICNS, JXL and HEIF
+# parsers have no patched release at all (2.0.2 is latest), and vite -> less
+# pulls 0.5.5. There is no version to pin, so it is deliberately left alone.
+overrides:
+  "@babel/plugin-transform-modules-systemjs": ">=7.29.4 <8"
+  "@tootallnate/once": ">=2.0.1 <3"
+  ajv@6: ">=6.14.0 <7"
+  ajv@8: ">=8.18.0 <9"
+  brace-expansion@1: ">=1.1.18 <2"
+  brace-expansion@2: ">=2.1.4 <3"
+  fast-uri@3: ">=3.1.5 <4"
+  flatted: ">=3.4.2 <4"
+  form-data: ">=4.0.6 <5"
+  js-yaml@3: ">=3.15.1 <4"
+  js-yaml@4: ">=4.3.1 <5"
+  minimatch@3: ">=3.1.4 <4"
+  minimatch@9: ">=9.0.7 <10"
+  path-to-regexp@0.1: ">=0.1.13 <0.2"
+  picomatch@2: ">=2.3.2 <3"
+  picomatch@4: ">=4.0.4 <5"
+  # Scoped to the parent: a bare `rollup@2` key also rewrites the rollup
+  # peer range of every @rollup/* plugin in packages/ui, which needs 4.x.
+  "@preconstruct/cli>rollup": ">=2.80.0 <3"
+  # The fix for GHSA on 6.x only exists on the 7 line, so this one has to
+  # cross a major. Reached solely through Storybook's webpack, which the
+  # shipped ui build (vite + rollup) does not use.
+  serialize-javascript: ">=7.0.5 <8"
+  shell-quote: ">=1.9.0 <2"
+  svgo@2: ">=2.8.3 <3"
+  tmp: ">=0.2.6 <0.3"
+  yaml@1: ">=1.10.3 <2"

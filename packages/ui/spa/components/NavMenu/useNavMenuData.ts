@@ -1,11 +1,16 @@
 import { useMemo } from "react";
-import { ModuleFilePath, SourcePath } from "@valbuild/core";
+import {
+  Internal,
+  ModuleFilePath,
+  SerializedSchema,
+  SourcePath,
+} from "@valbuild/core";
 import { useTrees } from "../useTrees";
 import {
   useShallowModulesAtPaths,
   useNextAppRouterSrcFolder,
 } from "../ValProvider";
-import { Internal } from "@valbuild/core";
+import { useSchemas } from "../ValFieldProvider";
 import {
   getNextAppRouterSitemapTree,
   SitemapNode,
@@ -13,13 +18,29 @@ import {
   parseRoutePattern,
 } from "@valbuild/shared/internal";
 import { NavMenuData, SitemapItem, ExplorerItem } from "./types";
+import { collectMediaModules } from "./media";
+import {
+  NavErrorsIndex,
+  errorsForModuleFilePath,
+  errorsForSitemapEntry,
+  indexNavErrors,
+} from "./navErrors";
 import { PathNode } from "../../utils/pathTree";
 import { Remote } from "../../utils/Remote";
+import { useAllValidationErrors } from "../ValErrorProvider";
 
 /**
  * Transforms a SitemapNode (from shared/internal) to our SitemapItem type.
+ *
+ * Each row carries `errors.ownCount` and `errors.firstMessage` derived from
+ * validation errors keyed under this row's sourcePath. Descendant totals are
+ * computed at render time by recursing children.
  */
-function transformSitemapNode(node: SitemapNode | PageNode): SitemapItem {
+function transformSitemapNode(
+  node: SitemapNode | PageNode,
+  navErrors: NavErrorsIndex,
+  schemas?: Record<ModuleFilePath, SerializedSchema>,
+): SitemapItem {
   const canAddChild = !!node.pattern?.includes("[");
   const routePattern =
     canAddChild && node.pattern ? parseRoutePattern(node.pattern) : undefined;
@@ -29,27 +50,68 @@ function transformSitemapNode(node: SitemapNode | PageNode): SitemapItem {
     ? node.children.map((child) => "/" + child.name)
     : undefined;
 
+  const sourcePath = node.sourcePath as SourcePath | undefined;
+  const errors = sourcePath
+    ? errorsForSitemapEntry(navErrors, sourcePath)
+    : undefined;
+  const moduleFilePath = node.moduleFilePath as ModuleFilePath | undefined;
+  const routerSchema =
+    canAddChild && moduleFilePath ? schemas?.[moduleFilePath] : undefined;
+  const keyDescription =
+    routerSchema?.type === "record" ? routerSchema.key?.description : undefined;
+
+  // The URL this row resolves to, which is what navigation, key creation and
+  // the row's own label all need. `pattern` is the route *pattern*
+  // (`/blogs/[blog]`), shared by every sibling under a dynamic segment, so
+  // taking it would give two blog posts the same URL. `fullPath` is the
+  // resolved one; only a folder row that is not itself a page lacks it, and
+  // there the pattern is all there is.
+  const resolvedUrlPath =
+    (node.type === "leaf" ? node.fullPath : node.page?.fullPath) ||
+    node.pattern ||
+    "/";
+
   return {
     name: node.name,
-    urlPath: node.pattern || "/",
-    sourcePath: node.sourcePath as SourcePath | undefined,
-    moduleFilePath: node.moduleFilePath as ModuleFilePath | undefined,
+    urlPath: resolvedUrlPath,
+    sourcePath,
+    moduleFilePath,
     canAddChild,
     routePattern,
     existingKeys,
-    children: node.children.map(transformSitemapNode),
+    keyDescription,
+    errors,
+    children: node.children.map((child) =>
+      transformSitemapNode(child, navErrors, schemas),
+    ),
   };
 }
 
 /**
  * Transforms a PathNode to our ExplorerItem type.
+ *
+ * Files attribute every error whose sourcePath starts with the file's
+ * fullPath. Directories don't get own errors — descendants are aggregated at
+ * render time.
  */
-function transformPathNode(node: PathNode): ExplorerItem {
+function transformPathNode(
+  node: PathNode,
+  navErrors: NavErrorsIndex,
+  excludedPaths: ReadonlySet<string>,
+): ExplorerItem {
+  const isDirectory = !!node.isDirectory;
+  const errors =
+    !isDirectory && node.fullPath
+      ? errorsForModuleFilePath(navErrors, node.fullPath)
+      : undefined;
   return {
     name: node.name,
     fullPath: node.fullPath,
-    isDirectory: !!node.isDirectory,
-    children: node.children.map(transformPathNode),
+    isDirectory,
+    errors,
+    children: node.children
+      .filter((child) => !excludedPaths.has(child.fullPath))
+      .map((child) => transformPathNode(child, navErrors, excludedPaths)),
   };
 }
 
@@ -66,13 +128,24 @@ export function useNavMenuData(): Remote<NavMenuData> {
 
   const shallowModules = useShallowModulesAtPaths(sitemapPaths, "record");
   const srcFolder = useNextAppRouterSrcFolder();
+  const validationErrors = useAllValidationErrors();
+  const schemas = useSchemas();
 
   return useMemo((): Remote<NavMenuData> => {
     if (trees.status !== "success") {
       return trees;
     }
 
-    const data: NavMenuData = {};
+    // Indexed ONCE per render: the trees used to scan the whole error map for
+    // every row, which is O(rows x errors) on every validation update.
+    const navErrors = indexNavErrors(validationErrors ?? {});
+    // Every router the project declares, of whatever kind: a project with only
+    // external URLs still has pages to show, so the answer is about routers
+    // existing rather than about the app router specifically.
+    const routerIds = Object.keys(trees.data.routers).filter(
+      (routerId) => (trees.data.routers[routerId] ?? []).length > 0,
+    );
+    const data: NavMenuData = { hasRouters: routerIds.length > 0 };
 
     // Transform sitemap if available
     if (sitemapPaths.length > 0) {
@@ -96,7 +169,11 @@ export function useNavMenuData(): Remote<NavMenuData> {
           }
         }
         const sitemapTree = getNextAppRouterSitemapTree(srcFolder.data, paths);
-        data.sitemap = transformSitemapNode(sitemapTree);
+        data.sitemap = transformSitemapNode(
+          sitemapTree,
+          navErrors,
+          schemas.status === "success" ? schemas.data : undefined,
+        );
       } else if (
         srcFolder.status === "loading" ||
         shallowModules.status === "loading"
@@ -105,9 +182,31 @@ export function useNavMenuData(): Remote<NavMenuData> {
       }
     }
 
+    const media =
+      schemas.status === "success"
+        ? collectMediaModules(schemas.data, (moduleFilePath) =>
+            errorsForModuleFilePath(navErrors, moduleFilePath),
+          )
+        : [];
+    if (media.length > 0) {
+      data.media = media;
+    }
+    const mediaPaths: ReadonlySet<string> = new Set(
+      media.map((m) => m.moduleFilePath as string),
+    );
+
     // Transform explorer tree if available
     if (trees.data.root && trees.data.root.children.length > 0) {
-      data.explorer = transformPathNode(trees.data.root);
+      const explorer = transformPathNode(
+        trees.data.root,
+        navErrors,
+        mediaPaths,
+      );
+      // A tree that held nothing but galleries is now empty, so drop the
+      // section rather than render an empty Explorer.
+      if (explorer.children.length > 0) {
+        data.explorer = explorer;
+      }
     }
 
     // Add external module if available
@@ -122,5 +221,12 @@ export function useNavMenuData(): Remote<NavMenuData> {
       status: "success",
       data,
     };
-  }, [trees, sitemapPaths, srcFolder, shallowModules]);
+  }, [
+    trees,
+    sitemapPaths,
+    srcFolder,
+    shallowModules,
+    validationErrors,
+    schemas,
+  ]);
 }

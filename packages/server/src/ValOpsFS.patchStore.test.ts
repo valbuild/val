@@ -1,0 +1,894 @@
+import fs from "fs";
+import os from "os";
+import path from "node:path";
+import { initVal, ModuleFilePath, PatchId } from "@valbuild/core";
+import { ParentRef } from "@valbuild/shared/internal";
+import { ValOpsFS } from "./ValOpsFS";
+import type { BaseSha, OpsMetadata, SchemaSha, SourcesSha } from "./ValOps";
+import {
+  patchDir,
+  patchesLogFile,
+  patchRecordFile,
+  patchUploadDir,
+} from "./patchStore";
+
+const { s, c, config } = initVal();
+
+/**
+ * The real thing, with one `protected` reader opened up.
+ *
+ * A subclass rather than a cast: reading a patch file's metadata is a genuine
+ * seam of this class, and a test is allowed to be one of its subclasses. `as any`
+ * would stop the signature being checked, which is the part worth keeping.
+ */
+class TestValOpsFS extends ValOpsFS {
+  readPatchFileMetadata(
+    filePath: string,
+    patchId: PatchId,
+  ): Promise<OpsMetadata<"image">> {
+    return this.getBase64EncodedBinaryFileMetadataFromPatch(
+      filePath,
+      "image",
+      patchId,
+    );
+  }
+}
+
+const MODULE_PATH = "/test/page.val.ts" as ModuleFilePath;
+
+/**
+ * End-to-end cover for the failure this store was rewritten around.
+ *
+ * A real `.val/patches` holding 410 unpublished changes lost one record. `/stat`
+ * counted the directories and announced 410; `GET /patches` walked the parent
+ * links between them and delivered 359; the 51 changes written after the lost
+ * one were announced, never delivered, and never errored, so the studio sat on
+ * "Loading unpublished changes…" until it gave up.
+ *
+ * These tests drive the real `ValOpsFS` - both endpoints, against a real
+ * directory - because the bug lived precisely in the gap between two methods
+ * that each looked correct on their own.
+ */
+describe("ValOpsFS patch store", () => {
+  let rootDir: string;
+  let ops: TestValOpsFS;
+
+  const patchesDir = (): string => path.join(rootDir, ".val", "patches");
+
+  beforeEach(() => {
+    rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "val-ops-fs-store-"));
+    fs.mkdirSync(path.join(rootDir, "test"), { recursive: true });
+    fs.writeFileSync(
+      path.join(rootDir, "test", "page.val.ts"),
+      `import { s, c } from "val.config";\n\nexport default c.define(\n  "${MODULE_PATH}",\n  s.object({ title: s.string() }),\n  { title: "start" },\n);\n`,
+    );
+    ops = new TestValOpsFS(
+      "http://localhost:4000",
+      rootDir,
+      {
+        config,
+        modules: [
+          {
+            def: async () => ({
+              default: c.define(MODULE_PATH, s.object({ title: s.string() }), {
+                title: "start",
+              }),
+            }),
+          },
+        ],
+      },
+      {
+        config,
+        // Short, so the long-poll test does not sit out a 20 second fallback.
+        // Every other test here uses shas that cannot match, so `getStat`
+        // answers before it ever reaches the wait.
+        statPollingInterval: 2000,
+        statFilePollingInterval: 25,
+      },
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  });
+
+  /** Create `count` patches, each chained onto the one before, as a client does. */
+  const createPatches = async (count: number): Promise<PatchId[]> => {
+    const created: PatchId[] = [];
+    let parentRef: ParentRef = {
+      type: "head",
+      headBaseSha: await ops.getBaseSha(),
+    };
+    for (let n = 0; n < count; n++) {
+      const patchId = `patch-${n}` as PatchId;
+      const res = await ops.createPatch(
+        MODULE_PATH,
+        [{ op: "replace", path: ["title"], value: `title ${n}` }],
+        patchId,
+        parentRef,
+        null,
+        null,
+      );
+      if (res.kind !== "ok") {
+        throw new Error(
+          `could not create patch ${n}: ${JSON.stringify(res.error)}`,
+        );
+      }
+      created.push(patchId);
+      parentRef = { type: "patch", patchId };
+    }
+    return created;
+  };
+
+  /** A whole stat answer, taken with shas that cannot match so it returns at once. */
+  const announcedStat = async (): Promise<{
+    baseSha: string;
+    patches: PatchId[];
+    /**
+     * Carried here as well, because the server DRAINS it on handover: taking one
+     * stat to read the patches and another to read the notice loses it.
+     */
+    removed?: { patchId: PatchId; reason: string }[];
+  }> => {
+    const stat = await ops.getStat({
+      baseSha: "never-matches" as BaseSha,
+      schemaSha: "never-matches" as SchemaSha,
+      sourcesSha: "never-matches" as SourcesSha,
+      patches: [],
+    });
+    if (stat.type === "error") {
+      throw new Error(`getStat failed: ${stat.error.message}`);
+    }
+    if (stat.type !== "did-change") {
+      throw new Error(`expected did-change, got ${stat.type}`);
+    }
+    return {
+      baseSha: stat.baseSha,
+      patches: stat.patches,
+      removed: stat.removed,
+    };
+  };
+
+  const announced = async (): Promise<PatchId[]> =>
+    (await announcedStat()).patches;
+
+  /** What the next stat tells the studio it threw away. */
+  const removedNotice = async (): Promise<
+    { patchId: PatchId; reason: string }[] | undefined
+  > => {
+    const stat = await ops.getStat({
+      baseSha: "never-matches" as BaseSha,
+      schemaSha: "never-matches" as SchemaSha,
+      sourcesSha: "never-matches" as SourcesSha,
+      patches: [],
+    });
+    if (stat.type !== "did-change") {
+      throw new Error(`expected did-change, got ${stat.type}`);
+    }
+    return stat.removed;
+  };
+
+  const delivered = async (): Promise<PatchId[]> => {
+    const res = await ops.fetchPatches({ excludePatchOps: false });
+    if (res.error) {
+      throw new Error(`fetchPatches failed: ${res.error.message}`);
+    }
+    return res.patches.map((patch) => patch.patchId);
+  };
+
+  test("patches come back in the order they were created", async () => {
+    await createPatches(4);
+    expect(await delivered()).toEqual([
+      "patch-0",
+      "patch-1",
+      "patch-2",
+      "patch-3",
+    ]);
+    expect(await announced()).toEqual(await delivered());
+  });
+
+  test("a patch directory is named after the patch itself", async () => {
+    await createPatches(2);
+    expect(fs.existsSync(patchDir(patchesDir(), "patch-0" as PatchId))).toBe(
+      true,
+    );
+    expect(fs.existsSync(patchDir(patchesDir(), "patch-1" as PatchId))).toBe(
+      true,
+    );
+  });
+
+  describe("what /stat announces is what GET /patches delivers", () => {
+    const faults: [string, (dir: string) => void][] = [
+      [
+        "a patch directory removed behind the server's back",
+        (dir) =>
+          fs.rmSync(patchDir(dir, "patch-2" as PatchId), { recursive: true }),
+      ],
+      [
+        "a patch record left empty by an interrupted write",
+        (dir) =>
+          fs.writeFileSync(
+            path.join(patchDir(dir, "patch-2" as PatchId), "patch.json"),
+            "",
+          ),
+      ],
+      [
+        "a log whose last line never finished being written",
+        (dir) => fs.appendFileSync(patchesLogFile(dir), "patch-9 2026-01"),
+      ],
+      ["the log removed entirely", (dir) => fs.rmSync(patchesLogFile(dir))],
+    ];
+
+    test.each(faults)("%s", async (_name, injectFault) => {
+      await createPatches(5);
+      injectFault(patchesDir());
+
+      // Read the delivered set FIRST, so that if the announce path were the one
+      // repairing the store the two would still be compared honestly.
+      const deliveredIds = await delivered();
+      expect(await announced()).toEqual(deliveredIds);
+    });
+  });
+
+  test("losing one patch does not strand the patches created after it", async () => {
+    await createPatches(5);
+    fs.rmSync(patchDir(patchesDir(), "patch-1" as PatchId), {
+      recursive: true,
+    });
+
+    // The old layout chained patch-2 onto patch-1, so this took patch-2, -3 and
+    // -4 with it - silently, and only on the delivering side.
+    expect(await delivered()).toEqual([
+      "patch-0",
+      "patch-2",
+      "patch-3",
+      "patch-4",
+    ]);
+  });
+
+  test("the ops of every delivered patch actually arrive", async () => {
+    await createPatches(3);
+    const res = await ops.fetchPatches({ excludePatchOps: false });
+    for (const patch of res.patches) {
+      expect(patch.patch).toHaveLength(1);
+    }
+  });
+
+  describe("parentRef", () => {
+    /**
+     * It is ignored, and that is the point of the log.
+     *
+     * It used to be the directory name, which is how a client working from a
+     * stale view could write a patch whose parent had never landed and strand
+     * every patch behind it. With the order in one append-only list the server
+     * decides where a patch goes — last — so there is no parent to name and
+     * nothing that can point at nothing.
+     */
+    test("naming a parent that never existed just appends", async () => {
+      await createPatches(2);
+
+      const res = await ops.createPatch(
+        MODULE_PATH,
+        [
+          {
+            op: "replace",
+            path: ["title"],
+            value: "on a parent that is not there",
+          },
+        ],
+        "no-such-parent" as PatchId,
+        { type: "patch", patchId: "never-existed" as PatchId },
+        null,
+        null,
+      );
+
+      expect(res.kind).toBe("ok");
+      expect(await delivered()).toEqual([
+        "patch-0",
+        "patch-1",
+        "no-such-parent",
+      ]);
+      expect(await announced()).toEqual(await delivered());
+    });
+
+    test("naming a stale parent appends in arrival order, not at the parent", async () => {
+      await createPatches(3);
+
+      // A second tab that missed the last two writes. Its edit is still an edit;
+      // putting it last is the only ordering that exists.
+      await ops.createPatch(
+        MODULE_PATH,
+        [{ op: "replace", path: ["title"], value: "from a stale tab" }],
+        "stale" as PatchId,
+        { type: "patch", patchId: "patch-0" as PatchId },
+        null,
+        null,
+      );
+
+      expect(await delivered()).toEqual([
+        "patch-0",
+        "patch-1",
+        "patch-2",
+        "stale",
+      ]);
+    });
+
+    test("naming head on a store that is not empty appends too", async () => {
+      await createPatches(1);
+
+      const res = await ops.createPatch(
+        MODULE_PATH,
+        [{ op: "replace", path: ["title"], value: "second head" }],
+        "second-head" as PatchId,
+        { type: "head", headBaseSha: await ops.getBaseSha() },
+        null,
+        null,
+      );
+
+      expect(res.kind).toBe("ok");
+      expect(await delivered()).toEqual(["patch-0", "second-head"]);
+    });
+  });
+
+  describe("repair", () => {
+    test("drops what it cannot read, and says so", async () => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      await createPatches(3);
+      fs.rmSync(patchDir(patchesDir(), "patch-1" as PatchId), {
+        recursive: true,
+      });
+
+      expect(await delivered()).toEqual(["patch-0", "patch-2"]);
+
+      expect(warn.mock.calls.flat().join("\n")).toContain("patch-1");
+      // And the next read is clean, rather than warning forever.
+      warn.mockClear();
+      expect(await delivered()).toEqual(["patch-0", "patch-2"]);
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    test("leaves a healthy store completely alone", async () => {
+      await createPatches(3);
+      const before = fs.readFileSync(patchesLogFile(patchesDir()), "utf-8");
+
+      await delivered();
+      await announced();
+
+      expect(fs.readFileSync(patchesLogFile(patchesDir()), "utf-8")).toBe(
+        before,
+      );
+    });
+  });
+
+  describe("a store written by an older Val", () => {
+    const writeLegacyStore = (): void => {
+      // The old layout: a directory named after the record's PARENT, and a
+      // record that points at it.
+      const dir = path.join(patchesDir(), "head");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "patch.json"),
+        JSON.stringify({
+          path: MODULE_PATH,
+          patch: [{ op: "replace", path: ["title"], value: "old" }],
+          patchId: "from-an-older-val",
+          baseSha: "whatever",
+          parentRef: { type: "head", headBaseSha: "whatever" },
+          authorId: null,
+          createdAt: new Date().toISOString(),
+          coreVersion: "0.101.0",
+          sessionId: null,
+        }),
+      );
+    };
+
+    /**
+     * Not special-cased, and not converted. There is nothing to recover: the
+     * order lived in links that are exactly what goes wrong, so an old store is
+     * read as a pile of directories that do not hold the patch they are named
+     * after — the same as any other unusable directory — and removed.
+     */
+    test("is cleaned up rather than refused, so the studio still loads", async () => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      writeLegacyStore();
+
+      const res = await ops.fetchPatches({ excludePatchOps: false });
+
+      expect(res.error).toBeUndefined();
+      expect(res.patches).toEqual([]);
+      expect(fs.existsSync(path.join(patchesDir(), "head"))).toBe(false);
+      warn.mockRestore();
+    });
+
+    test("tells the person editing that their changes were thrown away", async () => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      writeLegacyStore();
+
+      // On STAT, not on the fetch. Repair here removes everything, so there is
+      // nothing left for the studio to fetch - a notice riding on GET /patches
+      // would never be collected. Discarding unpublished work silently is the
+      // one thing this must not do.
+      expect(await removedNotice()).toEqual([
+        {
+          patchId: "head",
+          reason: expect.stringContaining(
+            "not the patch its directory is named after",
+          ),
+        },
+      ]);
+      warn.mockRestore();
+    });
+
+    test("says it once, not on every stat", async () => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      writeLegacyStore();
+
+      await removedNotice();
+
+      // A notice that never clears is a toast on the screen forever.
+      expect(await removedNotice()).toBeUndefined();
+      warn.mockRestore();
+    });
+
+    test("writes down what it removed, for whoever has to explain it later", async () => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      writeLegacyStore();
+
+      await ops.fetchPatches({ excludePatchOps: false });
+
+      const audit = fs.readFileSync(
+        path.join(patchesDir(), "patches.repair.log"),
+        "utf-8",
+      );
+      expect(audit).toContain("removed head");
+      warn.mockRestore();
+    });
+
+    test("does not take a healthy store's patches with it", async () => {
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      await createPatches(2);
+      writeLegacyStore();
+
+      const res = await ops.fetchPatches({ excludePatchOps: false });
+
+      expect(res.patches.map((patch) => patch.patchId)).toEqual([
+        "patch-0",
+        "patch-1",
+      ]);
+      expect(await removedNotice()).toHaveLength(1);
+      warn.mockRestore();
+    });
+  });
+
+  describe("delete", () => {
+    test("removes the named patches and keeps the rest in order", async () => {
+      await createPatches(4);
+
+      const res = await ops.deletePatches(["patch-1", "patch-2"] as PatchId[]);
+
+      expect(res.deleted).toEqual(["patch-1", "patch-2"]);
+      expect(res.errors).toBeUndefined();
+      expect(await delivered()).toEqual(["patch-0", "patch-3"]);
+      expect(await announced()).toEqual(["patch-0", "patch-3"]);
+    });
+
+    test("takes the files with it", async () => {
+      await createPatches(2);
+      await ops.deletePatches(["patch-0"] as PatchId[]);
+      expect(fs.existsSync(patchDir(patchesDir(), "patch-0" as PatchId))).toBe(
+        false,
+      );
+    });
+
+    test("a patch created after a delete chains onto the new tail", async () => {
+      await createPatches(3);
+      await ops.deletePatches(["patch-2"] as PatchId[]);
+
+      const res = await ops.createPatch(
+        MODULE_PATH,
+        [{ op: "replace", path: ["title"], value: "after the delete" }],
+        "after" as PatchId,
+        { type: "patch", patchId: "patch-1" as PatchId },
+        null,
+        null,
+      );
+
+      expect(res.kind).toBe("ok");
+      expect(await delivered()).toEqual(["patch-0", "patch-1", "after"]);
+    });
+  });
+
+  test("concurrent creates against the same parent both survive", async () => {
+    await createPatches(1);
+    const parentRef: ParentRef = {
+      type: "patch",
+      patchId: "patch-0" as PatchId,
+    };
+
+    // Both name patch-0 as their parent. The old store wrote both into a
+    // directory named after that parent, so the one that arrived second silently
+    // overwrote the first and everything chained behind the overwritten patch
+    // became unreachable. Now they are two lines in a list.
+    const [a, b] = await Promise.all([
+      ops.createPatch(
+        MODULE_PATH,
+        [{ op: "replace", path: ["title"], value: "a" }],
+        "concurrent-a" as PatchId,
+        parentRef,
+        null,
+        null,
+      ),
+      ops.createPatch(
+        MODULE_PATH,
+        [{ op: "replace", path: ["title"], value: "b" }],
+        "concurrent-b" as PatchId,
+        parentRef,
+        null,
+        null,
+      ),
+    ]);
+
+    expect([a.kind, b.kind]).toEqual(["ok", "ok"]);
+    const ids = await delivered();
+    expect(ids[0]).toBe("patch-0");
+    expect(ids.slice(1).sort()).toEqual(["concurrent-a", "concurrent-b"]);
+    expect(await announced()).toEqual(ids);
+  });
+
+  /**
+   * A long poll answers about the moment it ANSWERS.
+   *
+   * `getStat` reads the store, and if nothing has changed it waits — up to a
+   * whole polling interval — for a file to move. What usually moves the file is
+   * the studio's own `/save`, which in `fs` mode commits the patches and deletes
+   * them. Answering with the list read before the wait therefore names patches
+   * that no longer exist, and the studio then puts them back in its chain and
+   * fetches them from a server that correctly no longer has them: "unpublished
+   * changes could not be loaded", for changes that were published. With auto-save
+   * on that is every pause in typing.
+   */
+  describe("what a long poll answers with", () => {
+    it("names the patches the store holds now, not the ones it held when the poll opened", async () => {
+      const [patchId] = await createPatches(1);
+      // The params a client sends when it is up to date, so `getStat` finds
+      // nothing changed and waits.
+      const poll = ops.getStat({
+        baseSha: await ops.getBaseSha(),
+        schemaSha: await ops.getSchemaSha(),
+        sourcesSha: await ops.getSourcesSha(),
+        patches: [patchId],
+      });
+      // Let it get past its read and into the wait before anything moves.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // What `/save` does to a patch it has committed.
+      await ops.deletePatches([patchId]);
+
+      const stat = await poll;
+      if (stat.type === "error") {
+        throw new Error(`getStat failed: ${stat.error.message}`);
+      }
+      expect(stat.type).toBe("request-again");
+      expect(stat.patches).toEqual([]);
+    });
+
+    /**
+     * The other half: what it announces still comes out of the read
+     * `fetchPatches` delivers from, so the two cannot disagree at the moment of
+     * the answer either.
+     */
+    it("announces exactly what the fetch will deliver", async () => {
+      const created = await createPatches(2);
+      const poll = ops.getStat({
+        baseSha: await ops.getBaseSha(),
+        schemaSha: await ops.getSchemaSha(),
+        sourcesSha: await ops.getSourcesSha(),
+        patches: created,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await ops.deletePatches([created[0]]);
+
+      const stat = await poll;
+      if (stat.type === "error") {
+        throw new Error(`getStat failed: ${stat.error.message}`);
+      }
+      const fetched = await ops.fetchPatches({ excludePatchOps: true });
+      expect(stat.patches).toEqual(
+        fetched.patches.map((patch) => patch.patchId),
+      );
+      expect(stat.patches).toEqual([created[1]]);
+    });
+  });
+
+  /**
+   * What the server serves as COMMITTED content after it has just written it.
+   *
+   * The sources are memoised per `ValOps` instance, and the way they are re-read
+   * is by awaiting each module's `def` — in a real app the app's own `import()`,
+   * which resolves from the module registry rather than from the file on disk. So
+   * invalidating the memo after a save gets the PRE-SAVE content back and stores
+   * it as fresh. This suite's `def` models that exactly: it builds the module
+   * from a literal, so re-evaluating always answers `title: "start"` no matter
+   * what is on disk.
+   *
+   * It matters because committed content is what a page rendering DRAFT content
+   * falls back on once a publish has removed the patches. Stale there means the
+   * page shows what was there before the publish, with nothing left to correct
+   * it.
+   */
+  describe("adopting the sources a save has written", () => {
+    /** What `/save` does, in the order it does it. */
+    const publish = async (
+      title: string,
+      options?: { adopt?: boolean },
+    ): Promise<void> => {
+      await ops.createPatch(
+        MODULE_PATH,
+        [{ op: "replace", path: ["title"], value: title }],
+        crypto.randomUUID() as PatchId,
+        { type: "head", headBaseSha: await ops.getBaseSha() },
+        null,
+        null,
+      );
+      const patches = await ops.fetchPatches({ excludePatchOps: false });
+      const analysis = ops.analyzePatches(patches.patches);
+      const prepared = await ops.prepare({ ...analysis, ...patches });
+      expect(prepared.hasErrors).toBe(false);
+      const saved = await ops.saveOrUploadFiles(prepared, "skip-remote");
+      expect(saved.errors).toEqual({});
+      if (options?.adopt !== false) {
+        await ops.adoptCommittedSources({ ...analysis, ...patches }, prepared);
+      }
+      await ops.deletePatches(patches.patches.map((entry) => entry.patchId));
+    };
+
+    const committedTitle = async (): Promise<unknown> => {
+      const { sources } = await ops.getSources();
+      const source = sources[MODULE_PATH];
+      if (source === null || typeof source !== "object") {
+        throw new Error(`expected an object, got ${JSON.stringify(source)}`);
+      }
+      return (source as Record<string, unknown>)["title"];
+    };
+
+    it("serves the published content once the patches are gone", async () => {
+      await publish("published");
+
+      expect(await ops.fetchPatches({ excludePatchOps: true })).toMatchObject({
+        patches: [],
+      });
+      expect(await committedTitle()).toBe("published");
+    });
+
+    /**
+     * The same run without the adoption, so what it is for is on the record: the
+     * file on disk is right and the answer is still the old one.
+     */
+    it("would answer with the pre-save content without it", async () => {
+      await publish("published", { adopt: false });
+
+      expect(
+        fs.readFileSync(path.join(rootDir, "test", "page.val.ts"), "utf-8"),
+      ).toContain("published");
+      expect(await committedTitle()).toBe("start");
+    });
+
+    it("moves the source shas with the sources, and leaves the schema sha alone", async () => {
+      const before = {
+        baseSha: await ops.getBaseSha(),
+        sourcesSha: await ops.getSourcesSha(),
+        schemaSha: await ops.getSchemaSha(),
+      };
+
+      await publish("published");
+
+      expect(await ops.getSourcesSha()).not.toBe(before.sourcesSha);
+      // The moved base is what tells a second studio "these were published, not
+      // discarded" — see `PatchStore.reconcileVanished`.
+      expect(await ops.getBaseSha()).not.toBe(before.baseSha);
+      // Nothing about the schemas moved, and the client refetches `/schema` on
+      // this one.
+      expect(await ops.getSchemaSha()).toBe(before.schemaSha);
+    });
+
+    it("leaves the shas alone when there is nothing to adopt", async () => {
+      const before = await ops.getBaseSha();
+
+      await ops.adoptCommittedSources(
+        { ...ops.analyzePatches([]), patches: [] },
+        { patchedJsonEntries: {} },
+      );
+
+      expect(await ops.getBaseSha()).toBe(before);
+    });
+
+    /**
+     * `/stat` answers with the SHAs, so a publish has to be visible there — that
+     * is the whole channel a second studio learns anything on.
+     */
+    it("shows up on the next stat", async () => {
+      const before = await announcedStat();
+      await publish("published");
+      const after = await announcedStat();
+
+      expect(after.baseSha).not.toBe(before.baseSha);
+      expect(after.patches).toEqual([]);
+    });
+  });
+
+  /**
+   * The window between a file upload and the patch record that will reference
+   * it.
+   *
+   * Replacing an image is TWO requests, in this order: the bytes go up first
+   * (`POST /upload/patches/:patchId/files`), and the patch that points at them
+   * is written after (`PUT /patches`) — the patch alone is useless, since its
+   * `file` op carries only a sha. So between them the store holds a directory
+   * with `files/` in it and no `patch.json`.
+   *
+   * Anything reading the store in that window used to classify that as an
+   * unreadable patch — "there is no .../patch.json" — and repair removed it and
+   * reported it as unpublished work thrown away. The bytes went with it, so the
+   * image 404ed from `?patch_id=...` and the replacement silently did not happen.
+   *
+   * And the read is not hypothetical: writing into the patches directory is
+   * exactly what breaks `getStat`'s long poll, so the upload itself summons the
+   * read that destroys it. Which is why replacing an image worked only when the
+   * two requests happened to land close enough together.
+   */
+  describe("a file uploaded before its patch record", () => {
+    const PNG =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQAAAAA3bvkkAAAACklEQVR4AWNgAAAAAgABc3UBGAAAAABJRU5ErkJggg==";
+    const FILE_PATH = "/public/val/replaced_a1b2c.png";
+
+    /** The upload half, as `POST /upload/patches/:patchId/files` does it. */
+    const upload = async (patchId: PatchId) => {
+      const res = await ops.saveBase64EncodedBinaryFileFromPatch(
+        FILE_PATH,
+        { type: "head", headBaseSha: await ops.getBaseSha() },
+        patchId,
+        PNG,
+        "image",
+        { width: 1, height: 1, mimeType: "image/png" },
+      );
+      if ("error" in res && res.error !== undefined) {
+        throw new Error(`upload failed: ${res.error.message}`);
+      }
+    };
+
+    /** The patch half, as `PUT /patches` does it. */
+    const writeRecord = async (patchId: PatchId) => {
+      const res = await ops.createPatch(
+        MODULE_PATH,
+        [
+          {
+            op: "file",
+            path: ["image"],
+            filePath: FILE_PATH,
+            value: "sha256-placeholder",
+            remote: false,
+          },
+        ],
+        patchId,
+        { type: "head", headBaseSha: await ops.getBaseSha() },
+        null,
+        null,
+      );
+      if (res.kind !== "ok") {
+        throw new Error(`createPatch failed: ${JSON.stringify(res.error)}`);
+      }
+    };
+
+    it("survives a stat taken before the record lands", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+
+      // The read the upload's own write used to wake up.
+      expect(await announcedStat()).toMatchObject({ patches: [] });
+
+      // Served from staging, because the studio asks for the new image before
+      // the patch that references it has been written.
+      expect(
+        await ops.getBase64EncodedBinaryFileFromPatch(FILE_PATH, patchId),
+      ).not.toBeNull();
+    });
+
+    it("is not reported as unpublished work that was thrown away", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+
+      // Nothing was lost, so the person editing must not be told anything was.
+      expect((await announcedStat()).removed).toBeUndefined();
+    });
+
+    it("is still there for the record that arrives after it", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+      await announcedStat();
+      await writeRecord(patchId);
+
+      expect(await announcedStat()).toMatchObject({ patches: [patchId] });
+      expect(
+        await ops.getBase64EncodedBinaryFileFromPatch(FILE_PATH, patchId),
+      ).not.toBeNull();
+    });
+
+    /**
+     * The property the whole design rests on, asserted directly: there is no
+     * moment at which the store holds a patch directory without a record. The
+     * bytes are outside the store until they belong to something.
+     */
+    it("does not put anything in the store before the record", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+
+      expect(fs.existsSync(patchDir(patchesDir(), patchId))).toBe(false);
+      expect(fs.existsSync(patchUploadDir(patchesDir(), patchId))).toBe(true);
+    });
+
+    /**
+     * And the record comes first when they do move in, so an interrupted append
+     * leaves a directory the log does not name WITH a record — the benign half
+     * of a crash, swept silently — rather than the shape that gets reported as
+     * lost work.
+     */
+    it("moves them in behind the record, and empties the staging area", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+      await writeRecord(patchId);
+
+      expect(fs.existsSync(patchRecordFile(patchesDir(), patchId))).toBe(true);
+      expect(fs.existsSync(patchUploadDir(patchesDir(), patchId))).toBe(false);
+    });
+
+    /**
+     * A delete that arrives before the record does — nothing has been moved in,
+     * so the bytes are still in staging and have to go from there.
+     */
+    it("takes staged bytes with it when the patch is deleted", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+
+      await ops.deletePatches([patchId]);
+
+      expect(fs.existsSync(patchUploadDir(patchesDir(), patchId))).toBe(false);
+    });
+
+    /**
+     * Both readers of those bytes, not just the one serving the image. A
+     * validation that ran in the window used to answer "Metadata file not found"
+     * for a file that was on disk.
+     */
+    it("serves the metadata from staging too", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+
+      const res = await ops.readPatchFileMetadata(FILE_PATH, patchId);
+      if (res.errors !== undefined) {
+        throw new Error(`expected metadata, got ${JSON.stringify(res.errors)}`);
+      }
+      expect(res.metadata).toMatchObject({ mimeType: "image/png" });
+    });
+
+    /**
+     * And a directory in the store with no record is STILL reported as lost
+     * work, unchanged. That reading was never wrong — it was the upload putting
+     * the store into a shape the reading does not describe. With the bytes kept
+     * outside until they belong to something, there is nothing to soften.
+     */
+    it("still reports a record-less directory in the store", async () => {
+      fs.mkdirSync(patchDir(patchesDir(), "junk" as PatchId), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(patchDir(patchesDir(), "junk" as PatchId), "something.txt"),
+        "not a patch",
+      );
+
+      expect((await announcedStat()).removed).toMatchObject([
+        { patchId: "junk" },
+      ]);
+    });
+  });
+});

@@ -4,16 +4,16 @@ import {
   Internal,
   Json,
   ModuleFilePath,
-  ReifiedRender,
+  ReifiedPreview,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
 import { ValClient } from "@valbuild/shared/internal";
-import { JSONValue } from "@valbuild/core/patch";
 import { useMemo, useState } from "react";
 import { Field } from "./Field";
 import { AnyField } from "./AnyField";
-import { ValSyncEngine } from "../ValSyncEngine";
+import { createStorySystem } from "../stores/react/storySystem";
+import { ValSystemProvider } from "../stores/react/SystemContext";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
@@ -56,7 +56,7 @@ function createMockData(
 ) {
   const schemas: Record<string, SerializedSchema> = {};
   const sources: Record<string, Json> = {};
-  const renders: Record<string, ReifiedRender> = {};
+  const previews: Record<string, ReifiedPreview> = {};
 
   for (const module of modules) {
     const moduleFilePath = Internal.getValPath(module);
@@ -67,13 +67,13 @@ function createMockData(
       const path = moduleFilePath as unknown as ModuleFilePath;
       schemas[path] = schema["executeSerialize"]();
       sources[path] = source;
-      renders[path] = schema["executeRender"](path, source);
+      previews[path] = schema["executePreview"](path, source);
     }
   }
   return {
     schemas: schemas as Record<ModuleFilePath, SerializedSchema>,
     sources: sources as Record<ModuleFilePath, Json>,
-    renders: renders as Record<ModuleFilePath, ReifiedRender>,
+    previews: previews as Record<ModuleFilePath, ReifiedPreview>,
   };
 }
 
@@ -85,21 +85,17 @@ function StoryProviders({
   mockData: {
     schemas: Record<ModuleFilePath, SerializedSchema>;
     sources: Record<ModuleFilePath, Json>;
-    renders: Record<ModuleFilePath, ReifiedRender>;
+    previews: Record<ModuleFilePath, ReifiedPreview>;
   };
 }) {
   const client = useMemo(() => createMockClient(), []);
   const [theme, setTheme] = useState<Themes | null>("dark");
-  const syncEngine = useMemo(() => {
-    const engine = new ValSyncEngine(client, undefined);
-    engine.setSchemas(mockData.schemas);
-    engine.setSources(
-      mockData.sources as Record<ModuleFilePath, JSONValue | undefined>,
-    );
-    engine.setRenders(mockData.renders);
-    engine.setBaseSha("storybook-mock-sha");
-    engine.setInitializedAt(Date.now());
-    return engine;
+  const system = useMemo(() => {
+    return createStorySystem({
+      schemas: mockData.schemas,
+      sources: mockData.sources,
+      previews: mockData.previews,
+    });
   }, [client, mockData]);
 
   const getDirectFileUploadSettings = useMemo(
@@ -116,23 +112,24 @@ function StoryProviders({
   );
 
   return (
-    <ValThemeProvider theme={theme} setTheme={setTheme} config={undefined}>
-      <TooltipProvider>
-        <ValRouter>
-          <ValErrorProvider syncEngine={syncEngine}>
-            <ValPortalProvider>
-              <ValFieldProvider
-                syncEngine={syncEngine}
-                getDirectFileUploadSettings={getDirectFileUploadSettings}
-                config={undefined}
-              >
-                {children}
-              </ValFieldProvider>
-            </ValPortalProvider>
-          </ValErrorProvider>
-        </ValRouter>
-      </TooltipProvider>
-    </ValThemeProvider>
+    <ValSystemProvider system={system}>
+      <ValThemeProvider theme={theme} setTheme={setTheme} config={undefined}>
+        <TooltipProvider>
+          <ValRouter>
+            <ValErrorProvider>
+              <ValPortalProvider>
+                <ValFieldProvider
+                  getDirectFileUploadSettings={getDirectFileUploadSettings}
+                  config={undefined}
+                >
+                  {children}
+                </ValFieldProvider>
+              </ValPortalProvider>
+            </ValErrorProvider>
+          </ValRouter>
+        </TooltipProvider>
+      </ValThemeProvider>
+    </ValSystemProvider>
   );
 }
 

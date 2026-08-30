@@ -5,23 +5,29 @@ import {
   SelectorOfSchema,
   SerializedSchema,
 } from ".";
-import { RenderSelector, ReifiedRender } from "../render";
+import {
+  RecordPreview,
+  ItemPreviewInput,
+  PreviewItem,
+  ReifiedPreview,
+  PreviewScope,
+} from "../preview";
 import { splitModuleFilePathAndModulePath } from "../module";
+import { FieldRender } from "../render";
 import { ValRouter } from "../router";
 import { SelectorSource } from "../selector";
 import {
   createValPathOfItem,
   unsafeCreateSourcePath,
 } from "../selector/SelectorProxy";
-import { ImageSource } from "../source/image";
-import { RemoteSource } from "../source/remote";
+import { JsonOf, JsonSource, isJson } from "../source/json";
 import { ModuleFilePath, SourcePath } from "../val";
-import { ImageMetadata } from "./image";
 import {
   ValidationError,
   ValidationErrors,
 } from "./validation/ValidationError";
 import { splitRemoteRef } from "../remote/splitRemoteRef";
+import type { ImageEncodeOption } from "./image";
 
 type MediaOptions = {
   type: "files" | "images";
@@ -29,6 +35,8 @@ type MediaOptions = {
   directory: string;
   remote: boolean;
   altSchema?: Schema<SelectorSource>;
+  /** Images only: how uploads are re-encoded in the browser. See `image.ts`. */
+  encode?: ImageEncodeOption;
 };
 
 export type SerializedRecordSchema = {
@@ -36,6 +44,14 @@ export type SerializedRecordSchema = {
   item: SerializedSchema;
   key?: SerializedSchema;
   opt: boolean;
+  /**
+   * Set when this schema declares a `preview` — of the RECORD ITSELF as a
+   * value. Whether its ENTRIES preview is carried by the item's serialized
+   * schema. See `SerializedArraySchema`.
+   */
+  preview?: true;
+  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
+  render?: FieldRender;
   router?: string;
   customValidate?: boolean;
   // Optional media collection marker for files/images that are backed by a record
@@ -43,16 +59,44 @@ export type SerializedRecordSchema = {
   accept?: string;
   directory?: string;
   remote?: boolean;
+  encode?: ImageEncodeOption;
   alt?: SerializedSchema;
+  // When true, entry values are stored in separate lazily-loaded `*.val.json`
+  // files (see `.jsonValues()`).
+  jsonValues?: boolean;
   readonly?: boolean;
   hidden?: boolean;
   description?: string;
 };
 
+/**
+ * The source type of a `.jsonValues()` record: every entry value is EITHER a
+ * lazily loaded {@link JsonSource} whose resolved content is the (loosened, see
+ * {@link JsonOf}) item type, OR the item value written inline.
+ *
+ * Inline values are accepted by the TYPE on purpose: hand-authoring an entry
+ * directly in the `.val.ts` (or copying one in from a non-jsonValues record) is
+ * the natural first thing to write, and a type error there is a dead end — the
+ * author cannot see what to write instead. Validation reports the inline entry
+ * (`jsonValues:extract-entry`) and `val validate --fix` moves it into its own
+ * `*.val.json`, so the mistake is caught and repaired instead of blocking
+ * authoring.
+ */
+export type JsonValuesRecordSrc<
+  T extends Schema<SelectorSource>,
+  K extends Schema<string>,
+> = Record<
+  SelectorOfSchema<K>,
+  JsonSource<JsonOf<SelectorOfSchema<T>>> | SelectorOfSchema<T>
+>;
+
 export class RecordSchema<
   T extends Schema<SelectorSource>,
   K extends Schema<string>,
-  Src extends Record<SelectorOfSchema<K>, SelectorOfSchema<T>> | null,
+  Src extends
+    | Record<SelectorOfSchema<K>, SelectorOfSchema<T>>
+    | JsonValuesRecordSrc<T, K>
+    | null,
 > extends Schema<Src> {
   constructor(
     private readonly item: T,
@@ -64,6 +108,10 @@ export class RecordSchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    /** When true, entry values are lazily loaded {@link JsonSource} thunks. */
+    private readonly isJsonValues: boolean = false,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
+    private readonly renderInput: FieldRender | null = null,
   ) {
     super();
   }
@@ -79,6 +127,9 @@ export class RecordSchema<
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.isJsonValues,
+      this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -95,6 +146,9 @@ export class RecordSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.isJsonValues,
+      this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -134,9 +188,7 @@ export class RecordSchema<
       } as ValidationErrors;
     }
     const routerValidations = this.getRouterValidations(path, src);
-    if (routerValidations) {
-      return routerValidations;
-    }
+    error = this.mergeValidationErrors(error, routerValidations);
     for (const customValidationError of customValidationErrors) {
       error = this.appendValidationError(
         error,
@@ -202,15 +254,7 @@ export class RecordSchema<
             ...err,
             keyError: true,
           }));
-          if (error) {
-            if (error[keyPath]) {
-              error[keyPath] = [...error[keyPath], ...keyError[keyPath]];
-            } else {
-              error[keyPath] = keyError[keyPath];
-            }
-          } else {
-            error = keyError;
-          }
+          error = this.mergeValidationErrors(error, keyError);
         }
       }
 
@@ -231,26 +275,27 @@ export class RecordSchema<
         const keyErr = this.validateMediaKey(subPath, key);
         if (keyErr) {
           this.markKeyErrorsAtPath(keyErr, subPath);
-          error = error ? { ...error, ...keyErr } : keyErr;
         }
+        error = this.mergeValidationErrors(error, keyErr);
         const entryErr = this.validateMediaEntry(subPath, elem);
         if (entryErr) {
           this.markKeyErrorsAtPath(entryErr, subPath);
-          error = error ? { ...error, ...entryErr } : entryErr;
         }
+        error = this.mergeValidationErrors(error, entryErr);
+      } else if (this.isJsonValues && isJson(elem)) {
+        // jsonValues record, entry not loaded: the value is a lazy JsonSource
+        // marker. Deep validation is deferred and run per-entry once the backing
+        // `*.val.json` is loaded (server: validateJsonEntryContent; UI: the
+        // loaded content is substituted and validated by the branch below).
       } else {
+        // Falls through for a jsonValues record whose entry content is inlined
+        // (loaded in the UI, or hand-authored): same as a plain record — validate
+        // the value against the item schema.
         const subError = this.item["executeValidate"](
           subPath,
           elem as SelectorSource,
         );
-        if (subError && error) {
-          error = {
-            ...subError,
-            ...error,
-          };
-        } else if (subError) {
-          error = subError;
-        }
+        error = this.mergeValidationErrors(error, subError);
       }
     });
     return error;
@@ -323,6 +368,22 @@ export class RecordSchema<
           ],
         };
       }
+      // Local path in a remote gallery: needs to be uploaded to remote.
+      const uploadRemoteFix =
+        type === "images"
+          ? ("images:upload-remote" as const)
+          : ("files:upload-remote" as const);
+      return {
+        [path]: [
+          {
+            message: `Expected a remote ${
+              type === "images" ? "image" : "file"
+            }, but got a local path. Use Val tooling (CLI --fix, VS Code extension, or Val Studio) to upload it. Got: ${key}`,
+            value: key,
+            fixes: [uploadRemoteFix],
+          },
+        ],
+      };
     } else {
       // When remote is disabled, only accept local paths
       if (isRemoteUrl) {
@@ -532,6 +593,9 @@ export class RecordSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.isJsonValues,
+      this.previewInput,
+      this.renderInput,
     ) as RecordSchema<T, K, Src | null>;
   }
 
@@ -546,6 +610,9 @@ export class RecordSchema<
       true,
       this.isHidden,
       this.description,
+      this.isJsonValues,
+      this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -560,6 +627,9 @@ export class RecordSchema<
       this.isReadonly,
       true,
       this.description,
+      this.isJsonValues,
+      this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -574,6 +644,9 @@ export class RecordSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.isJsonValues,
+      this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -588,6 +661,66 @@ export class RecordSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.isJsonValues,
+      this.previewInput,
+      this.renderInput,
+    );
+  }
+
+  /**
+   * Store each entry's value in its own lazily-loaded `*.val.json` file instead
+   * of inlining it in the `.val.ts` module. Entry values become
+   * {@link JsonSource} thunks (`c.json(() => import("./entry.val.json"))`),
+   * which lets the runtime, the Studio and validation work one entry at a time
+   * so a record/router can scale to many thousands of entries.
+   *
+   * Not supported on image/file galleries (`s.images()` / `s.files()`).
+   *
+   * Only supported on a module's ROOT record/router — a `.jsonValues()` record
+   * nested inside an object/array/record is rejected at startup with a module
+   * error, because the single-entry fetch endpoint, the Studio's content
+   * substitution and content validation are all root-only.
+   */
+  jsonValues(): RecordSchema<T, K, JsonValuesRecordSrc<T, K>> {
+    if (this.mediaOptions) {
+      throw new Error(
+        ".jsonValues() cannot be used with image/file galleries (s.images()/s.files())",
+      );
+    }
+    if (this.customValidateFunctions.length > 0) {
+      // `.jsonValues()` changes the source shape to JsonSource entries, so a
+      // validator typed against the previous Src cannot be carried over. Refusing
+      // is the point: silently dropping it left the developer looking at a
+      // `.validate(...)` in their source file that never ran anywhere.
+      throw new Error(
+        ".jsonValues() must come BEFORE .validate(): a validator added first is typed against the un-lazy source shape and cannot be carried over. Write s.record(...).jsonValues().validate(...) instead.",
+      );
+    }
+    if (this.previewInput !== null) {
+      // Same reasoning as the validator guard above: the record's own preview
+      // closure is typed against the un-lazy source shape.
+      throw new Error(
+        ".jsonValues() must come BEFORE .preview(): a preview added first is typed against the un-lazy source shape and cannot be carried over. Write s.record(...).jsonValues().preview(...) instead.",
+      );
+    }
+    // Explicit type args instead of a cast on the result: `previewInput` would
+    // otherwise pin inference to `Src`, and the two record source shapes no
+    // longer overlap enough for the old assertion.
+    return new RecordSchema<T, K, JsonValuesRecordSrc<T, K>>(
+      this.item,
+      this.opt,
+      // Empty by construction: the guard above rejects any that were registered.
+      [],
+      this.currentRouter,
+      this.keySchema,
+      this.mediaOptions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      true,
+      // Null by construction: the guard above rejects any that was declared.
+      null,
+      this.renderInput,
     );
   }
 
@@ -653,16 +786,30 @@ export class RecordSchema<
     return false;
   }
 
+  protected override executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[] {
+    return this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+      { path },
+    );
+  }
+
   protected executeSerialize(): SerializedRecordSchema {
     const result: SerializedRecordSchema = {
       type: "record",
+      render: this.renderInput ?? undefined,
       item: this.item["executeSerialize"](),
       key: this.keySchema?.["executeSerialize"](),
       opt: this.opt,
+      preview: this.previewInput ? true : undefined,
       router: this.currentRouter?.getRouterId(),
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      jsonValues: this.isJsonValues ? true : undefined,
       readonly: this.isReadonly,
       hidden: this.isHidden,
       description: this.description,
@@ -672,6 +819,9 @@ export class RecordSchema<
       result.accept = this.mediaOptions.accept;
       result.directory = this.mediaOptions.directory;
       result.remote = this.mediaOptions.remote;
+      if (this.mediaOptions.encode !== undefined) {
+        result.encode = this.mediaOptions.encode;
+      }
       if (this.mediaOptions.altSchema) {
         result.alt = this.mediaOptions.altSchema["executeSerialize"]();
       }
@@ -679,20 +829,25 @@ export class RecordSchema<
     return result;
   }
 
-  private renderInput: {
-    layout: "list";
-    select: (input: { key: string; val: RenderSelector<T> }) => {
-      title: string;
-      subtitle?: string | null;
-      image?: ImageSource | RemoteSource<ImageMetadata> | null;
-    };
-  } | null = null;
+  /**
+   * Validate the loaded content of a single `.jsonValues()` entry against the
+   * item schema. The server calls this once it has loaded the backing
+   * `*.val.json` for an entry (the deep validation that `executeValidate`
+   * defers).
+   */
+  validateJsonEntryContent(
+    path: SourcePath,
+    content: SelectorSource,
+  ): ValidationErrors {
+    return this.item["executeValidate"](path, content);
+  }
 
-  protected override executeRender(
+  protected override executePreview(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
-  ): ReifiedRender {
-    const res: ReifiedRender = {};
+    scope?: PreviewScope,
+  ): ReifiedPreview {
+    const res: ReifiedPreview = {};
     if (src === null) {
       return res;
     }
@@ -701,60 +856,132 @@ export class RecordSchema<
       if (itemSrc === null || itemSrc === undefined) {
         continue;
       }
+      if (isJson(itemSrc)) {
+        // An un-loaded `.jsonValues()` entry: an opaque marker, not the item this
+        // schema describes. Skipping it is what makes previewing a partially
+        // loaded record work — the result comes out covering exactly the loaded
+        // keys, and the caller shows a placeholder for the rest.
+        continue;
+      }
       const subPath = unsafeCreateSourcePath(sourcePath, key);
-      const itemResult = this.item["executeRender"](subPath, itemSrc);
+      if (scope !== undefined && !scope.wantsUnder(subPath)) {
+        continue;
+      }
+      const itemResult = this.item["executePreview"](subPath, itemSrc, scope);
       for (const keyS in itemResult) {
         const key = keyS as SourcePath | ModuleFilePath;
         res[key] = itemResult[key];
       }
     }
-    if (this.renderInput) {
-      const { select: prepare, layout: layout } = this.renderInput;
-      if (layout !== "list") {
-        res[sourcePath] = {
-          status: "error",
-          message: "Unknown layout type: " + layout,
-        };
+    // The entries preview comes from the ITEM schema's own `preview` — the
+    // container just runs it per entry. Asked as a fact rather than by running
+    // the closure, so an empty record still previews as an empty record.
+    if (this.item["declaresItemPreview"]()) {
+      // See the same block in `array`: the whole record when the record is what
+      // is being shown, only the wanted entries when it is not.
+      const window =
+        scope !== undefined && !scope.wants(sourcePath) ? scope : null;
+      const items: RecordPreview["items"] = [];
+      for (const [key, val] of Object.entries(src)) {
+        if (isJson(val)) {
+          continue; // as above: nothing to select from an un-loaded entry
+        }
+        if (val === null || val === undefined) {
+          continue;
+        }
+        if (
+          window !== null &&
+          !window.wantsUnder(unsafeCreateSourcePath(sourcePath, key))
+        ) {
+          continue;
+        }
+        // Per KEY, not per record: the closure is user code, and one entry whose
+        // data trips it up must not take out the whole list.
+        try {
+          // NB NB: display is actually defined by the user
+          const item = this.item["executePreviewItem"](
+            val as NonNullable<SelectorOfSchema<T>>,
+          );
+          if (item !== null) {
+            const { title, subtitle, image } = item;
+            items.push([key, { title, subtitle, image }]);
+          }
+        } catch (e) {
+          res[unsafeCreateSourcePath(sourcePath, key)] = {
+            status: "error",
+            message: e instanceof Error ? e.message : "Unknown error",
+          };
+        }
       }
-      try {
-        res[sourcePath] = {
-          status: "success",
-          data: {
-            layout: "list",
-            parent: "record",
-            items: Object.entries(src).map(([key, val]) => {
-              // NB NB: display is actually defined by the user
-              const { title, subtitle, image } = prepare({
-                key,
-                val: val as SelectorOfSchema<T>,
-              });
-              return [key, { title, subtitle, image }];
-            }),
-          },
-        };
-      } catch (e) {
-        res[sourcePath] = {
-          status: "error",
-          message: e instanceof Error ? e.message : "Unknown error",
-        };
-      }
+      res[sourcePath] = {
+        status: "success",
+        data: {
+          parent: "record",
+          items,
+        },
+      };
     }
     return res;
   }
 
-  render(input: {
-    as: "list";
-    select: (input: { key: string; val: RenderSelector<T> }) => {
-      title: string;
-      subtitle?: string | null;
-      image?: ImageSource | RemoteSource<ImageMetadata> | null;
-    };
-  }) {
-    this.renderInput = {
-      layout: input.as,
-      select: input.select,
-    };
-    return this;
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
+  }
+
+  /**
+   * How this RECORD ITSELF is shown where a preview of it is needed — when it
+   * is the item of another container, in search, in references. What its
+   * entries show is the ITEM schema's `preview`, not this. Never how the field
+   * is edited (that is `render`). See `preview.ts`.
+   */
+  preview(select: ItemPreviewInput<Src>): RecordSchema<T, K, Src> {
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.currentRouter,
+      this.keySchema,
+      this.mediaOptions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.isJsonValues,
+      select,
+      this.renderInput,
+    );
+  }
+
+  /**
+   * How this field is laid out in the editor when it is the item of an array
+   * or record: `{ as: "inline" }` renders the field itself inside each row,
+   * instead of a preview row that navigates to it.
+   *
+   * Static configuration, not a callback — see `render.ts`.
+   */
+  render(input: FieldRender): RecordSchema<T, K, Src> {
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.currentRouter,
+      this.keySchema,
+      this.mediaOptions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.isJsonValues,
+      this.previewInput,
+      input,
+    );
   }
 }
 

@@ -20,10 +20,92 @@ import { useConfigStorageSave } from "./useConfigStorageSave";
 import { initSessionTheme } from "./initSessionTheme";
 import { cn, prefixStyles, valPrefixedClass } from "./cssUtils";
 import { hasValEnableCookie } from "./valEnableCookie";
+import { floatDarkBg, floatLightBg } from "./fallbackColors";
+import { isValCanvasFrame } from "@valbuild/shared/internal";
+import { ValCanvasBridge } from "./ValCanvasBridge";
+import { shouldSafetyRefresh } from "./safetyRefresh";
 
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
  */
+/**
+ * The floor between server re-renders.
+ *
+ * `router.refresh()` re-requests the whole route — Next has no per-module
+ * invalidation — so this is about not queueing a request per keystroke, not
+ * about batching for its own sake.
+ */
+const REFRESH_INTERVAL_MS = 500;
+
+/**
+ * How often the page re-reads the server on its own, without being told to.
+ *
+ * A safety net for a race no amount of care on this side can close. An edit is
+ * applied to the client store immediately and saved to the server
+ * asynchronously, so `router.refresh()` fired on the edit can reach a server
+ * that has not written the patch yet: the RSC payload comes back with the old
+ * content, the counter has already been cleared, and nothing schedules another
+ * look. What you see is a canvas that flickered and did not change — which is
+ * indistinguishable from an edit that did not work.
+ *
+ * The honest fix would be for the page to know when its patch has been
+ * persisted, and it has no way to ask. So it asks again a little later instead.
+ */
+const SAFETY_REFRESH_MS = 10_000;
+
+/**
+ * How long after an edit the safety net keeps looking.
+ *
+ * The reason to stop is that this is a whole-route request: in development Next
+ * re-renders (and sometimes recompiles) the page for every one, and a preview
+ * nobody is editing has nothing to catch up on. So the net is armed by editing
+ * and disarms itself when the editing stops — long enough after the last
+ * keystroke that any write still in flight has certainly landed.
+ */
+const SAFETY_REFRESH_WINDOW_MS = 30_000;
+
+/**
+ * Fired on this window when an edit has been applied to the client store.
+ *
+ * The refresh loop listens for it so it can start the round trip immediately
+ * rather than on its next tick. A DOM event rather than state, because the
+ * counter it accompanies is a ref and the loop lives in an effect that must not
+ * be torn down and rebuilt per keystroke.
+ */
+const VAL_EDIT_LANDED = "val-edit-landed";
+
+/**
+ * How often `/draft/stat` is asked when nothing is in progress.
+ *
+ * Draft mode changes when someone toggles it, which the handshake below already
+ * covers — so this is only there to notice it being changed somewhere else.
+ */
+const DRAFT_IDLE_POLL_MS = 20_000;
+
+/**
+ * And how often while the enable/disable handshake is in flight.
+ *
+ * Fast on purpose: the hidden iframe redirects through `/draft/enable`, and the
+ * page cannot do anything useful until that has landed.
+ */
+const DRAFT_HANDSHAKE_POLL_MS = 100;
+
+/**
+ * How long that fast phase may last before it gives up.
+ *
+ * Without a deadline it does not end: the only thing that clears `iframeSrc` is
+ * a `val-ready` message posted by the redirect target, so a frame that fails to
+ * load — a 500, an auth redirect, a dev server still compiling — left the page
+ * asking ten times a second, forever. A browser runs about six connections per
+ * origin, so that is enough to push `/stat`, `/patches` and the canvas document
+ * itself into the browser's own queue, where they are indistinguishable from a
+ * slow server.
+ *
+ * Generous enough for a first compile in `next dev`, which is the slowest case
+ * that is not a fault.
+ */
+const DRAFT_HANDSHAKE_TIMEOUT_MS = 10_000;
+
 export const ValNextProvider = (props: {
   children: React.ReactNode | React.ReactNode[];
   config: ValConfig;
@@ -47,6 +129,13 @@ export const ValNextProvider = (props: {
    * When omitted (or `false`), `useValStega` never suspends — components
    * render with the static committed source and update on the client once
    * draft data has loaded.
+   *
+   * A route that exists ONLY in a draft is the case this is for, and the case
+   * it does not fully cover: the render before the gate activates resolves
+   * against committed source, and a page that answers a missing route with
+   * `notFound()` cannot take that back. See `architecture/quirks.md`
+   * ("`suspend` is three waits") for why, and the README section
+   * "Previewing unpublished pages" for what to tell users.
    */
   suspend?: boolean;
 }) => {
@@ -73,14 +162,78 @@ export const ValNextProvider = (props: {
   // and then swaps to draft data as a normal update — no Suspense fallback
   // flash and no hydration mismatch.
   const [suspendActive, setSuspendActive] = React.useState(false);
+  /**
+   * Whether the studio has said it sent everything it holds.
+   *
+   * Until then, a module missing from the store might still be on its way. After
+   * it, a missing module simply has no draft — see `sourcesSynced` in the canvas
+   * protocol. Without this the page could only wait out `waitForLoad`'s timeout,
+   * ten seconds per module nobody had edited.
+   */
+  const [draftSourcesSynced, setDraftSourcesSynced] = React.useState(false);
   const [mountOverlay, setMountOverlay] = React.useState<boolean>();
+  /**
+   * Whether this document is the studio's canvas frame.
+   *
+   * The canvas needs everything `mountOverlay` turns on — draft content,
+   * `data-val-path` on every tracked element, the refresh loop that brings an
+   * edit across — and none of what it *shows*, because the studio around the
+   * frame is already that UI. So it is a second flag rather than a different
+   * value of the first one: two overlays on one screen, one of them inside the
+   * other, is the thing to avoid.
+   *
+   * Read once, in the same effect as `mountOverlay`: it is a property of how
+   * the document was loaded, and it cannot change without a navigation.
+   */
+  const [isCanvas, setIsCanvas] = React.useState(false);
   const [draftMode, setDraftMode] = React.useState<boolean | null>(null);
+  /**
+   * Resolves when `draftMode` stops being unknown.
+   *
+   * `null` is the state before `/draft/stat` has answered, and it is NOT a
+   * synonym for "off": the reader that turns a selector into content treats it
+   * as off, so a render that happens while draft mode is still unknown resolves
+   * against committed source. For a route that only exists in an uncommitted
+   * patch that means `notFound()` — terminal, before the answer even arrives.
+   *
+   * So a page that is going to suspend waits for the answer first. A promise
+   * rather than a re-render, because the thing that has to wait is a render.
+   */
+  const draftModeReady = React.useRef<{
+    promise: Promise<void>;
+    resolve: () => void;
+  } | null>(null);
+  // Only for a page that opted in. A visitor with Val off never reads it, and
+  // an object created per mount for nobody is the kind of cost that is invisible
+  // until it is in every page of every app.
+  if (props.suspend && draftModeReady.current === null) {
+    let resolve = () => undefined as void;
+    const promise = new Promise<void>((r) => {
+      resolve = r;
+    });
+    draftModeReady.current = { promise, resolve };
+  }
+  React.useEffect(() => {
+    if (draftMode !== null) {
+      draftModeReady.current?.resolve();
+    }
+  }, [draftMode]);
   const [spaReady, setSpaReady] = React.useState(false); // TODO: consider removing spaReady - it is not used? If we remove, clean up the custom events that send the message too...
   const router = useRouter();
-  const [, startTransition] = React.useTransition();
+  const [isRefreshing, startTransition] = React.useTransition();
+  /**
+   * The same answer as `isRefreshing`, readable from the refresh effect.
+   *
+   * The effect must not be rebuilt every time a refresh starts and ends — it
+   * owns the timers and the "when did we last edit" bookkeeping, and tearing
+   * that down mid-flurry loses it. A ref updated on render is the value without
+   * the dependency.
+   */
+  const isRefreshingRef = React.useRef(false);
   const rerenderCounterRef = React.useRef(0);
   const [iframeSrc, setIframeSrc] = React.useState<string | null>(null);
   const pathname = usePathname();
+  isRefreshingRef.current = isRefreshing;
   useEffect(() => {
     window.dispatchEvent(
       new CustomEvent("val-provider:pathname", {
@@ -99,6 +252,7 @@ export const ValNextProvider = (props: {
       setMountOverlay(false);
       return;
     }
+    setIsCanvas(isValCanvasFrame(location.search));
     setMountOverlay(hasValEnableCookie(document.cookie));
   }, []);
 
@@ -116,22 +270,101 @@ export const ValNextProvider = (props: {
     }
   }, [props.suspend]);
 
+  /**
+   * Re-render the server tree when an edit lands, then at most every 500ms.
+   *
+   * Leading edge, which is the whole point. This polled every 500ms and only
+   * refreshed on the tick, so a keystroke waited up to half a second before the
+   * round trip even began — pure dead time on top of a request that is already
+   * the slow part in development. Refreshing on arrival and *then* enforcing the
+   * gap keeps the same ceiling on requests while removing the wait.
+   *
+   * Still a counter rather than a boolean: edits that arrive during the gap have
+   * to be picked up by the next refresh, and the count is what says whether
+   * there are any.
+   */
   React.useEffect(() => {
-    if (!mountOverlay) {
+    if (!mountOverlay || props.disableRefresh) {
       return;
     }
-    const interval = setInterval(() => {
-      if (rerenderCounterRef.current > 0) {
-        if (!props.disableRefresh) {
-          rerenderCounterRef.current = 0;
-          startTransition(() => {
-            router.refresh();
-          });
-        }
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let lastRefreshAt = 0;
+    /** When an edit last landed here. 0 means this page has never been edited. */
+    let lastEditAt = 0;
+    /** Whether a safety tick was skipped because nobody was looking. */
+    let missedWhileHidden = false;
+    const refresh = () => {
+      rerenderCounterRef.current = 0;
+      lastRefreshAt = Date.now();
+      startTransition(() => {
+        router.refresh();
+      });
+    };
+    const tick = () => {
+      timer = null;
+      if (rerenderCounterRef.current === 0) return;
+      const since = Date.now() - lastRefreshAt;
+      if (since >= REFRESH_INTERVAL_MS) {
+        refresh();
+      } else {
+        timer = setTimeout(tick, REFRESH_INTERVAL_MS - since);
       }
-    }, 500);
+    };
+    const onEdit = () => {
+      lastEditAt = Date.now();
+      if (timer !== null) return;
+      timer = setTimeout(tick, 0);
+    };
+    window.addEventListener(VAL_EDIT_LANDED, onEdit);
+    // A backstop for the counter being bumped without the event — the two are
+    // incremented in the same places today, but the poll is what made this
+    // correct regardless of who bumped it.
+    const interval = setInterval(tick, REFRESH_INTERVAL_MS);
+
+    /**
+     * The safety net: look again, whether or not anything told us to.
+     *
+     * The reasons not to are in `shouldSafetyRefresh`, where they can be tested.
+     * `hidden` is the one this side has to remember something about: a skipped
+     * tick is worth one look when the tab comes back.
+     */
+    const safetyTick = () => {
+      if (document.hidden) {
+        missedWhileHidden = true;
+        return;
+      }
+      const go = shouldSafetyRefresh({
+        now: Date.now(),
+        lastEditAt,
+        lastRefreshAt,
+        hidden: false,
+        isRefreshing: isRefreshingRef.current,
+        windowMs: SAFETY_REFRESH_WINDOW_MS,
+        minIntervalMs: REFRESH_INTERVAL_MS,
+      });
+      if (go) refresh();
+    };
+    const safety = setInterval(safetyTick, SAFETY_REFRESH_MS);
+    /**
+     * Coming back to the tab is worth one look.
+     *
+     * Otherwise a background tab skips its ticks and then has to wait out a
+     * whole interval on return — which is exactly the moment someone is looking
+     * at the page to see whether their edit took.
+     */
+    const onVisibilityChange = () => {
+      if (document.hidden || !missedWhileHidden) return;
+      missedWhileHidden = false;
+      safetyTick();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
+      window.removeEventListener(VAL_EDIT_LANDED, onEdit);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       clearInterval(interval);
+      clearInterval(safety);
+      if (timer !== null) clearTimeout(timer);
     };
   }, [mountOverlay, props.disableRefresh]);
 
@@ -239,6 +472,7 @@ export const ValNextProvider = (props: {
           setDraftMode((prev) => {
             if (prev !== res.json.draftMode) {
               rerenderCounterRef.current++;
+              window.dispatchEvent(new Event(VAL_EDIT_LANDED));
               return res.json.draftMode;
             }
             return prev;
@@ -252,12 +486,41 @@ export const ValNextProvider = (props: {
             return;
           }
           pollDraftStatIdRef.current--;
+          const handshaking = iframeSrc !== null;
+          if (
+            handshaking &&
+            Date.now() - startedAt > DRAFT_HANDSHAKE_TIMEOUT_MS
+          ) {
+            /**
+             * The handshake did not complete, so stop hammering.
+             *
+             * Clearing `iframeSrc` unmounts the hidden frame and takes the poll
+             * back to its idle interval — which is the honest state: nothing is
+             * in progress any more. Leaving it set is what made this
+             * unrecoverable, because the ONLY other thing that clears it is the
+             * `val-ready` message the frame never sent.
+             */
+            console.warn(
+              "Val: draft mode did not confirm in time. Falling back to the " +
+                "idle poll — try toggling preview again.",
+            );
+            setIframeSrc(null);
+            return;
+          }
           timeout = setTimeout(
             pollCurrentDraftMode,
-            iframeSrc === null ? 20000 : 100,
+            handshaking ? DRAFT_HANDSHAKE_POLL_MS : DRAFT_IDLE_POLL_MS,
           );
         });
     }
+    /**
+     * When this spell of polling began.
+     *
+     * The effect re-runs when `iframeSrc` changes, so for the fast phase this is
+     * the moment the handshake started — which is what the deadline below is
+     * measured from.
+     */
+    const startedAt = Date.now();
     pollCurrentDraftMode();
     return () => {
       clearTimeout(timeout);
@@ -286,13 +549,36 @@ export const ValNextProvider = (props: {
         SET_AUTO_TAG_JSX_ENABLED(true);
         const reactServerComponentRefreshListener = (event: Event) => {
           if (event instanceof CustomEvent) {
+            if (event.detail?.type === "sources-synced") {
+              setDraftSourcesSynced(true);
+              return;
+            }
             if (event.detail?.type === "source-update") {
               const moduleFilePath = event.detail?.moduleFilePath;
               const source = event.detail?.source;
               if (typeof moduleFilePath === "string" && source !== undefined) {
-                valStore.update(moduleFilePath as ModuleFilePath, source);
-                if (!props.disableRefresh) {
+                const changed = valStore.update(
+                  moduleFilePath as ModuleFilePath,
+                  source,
+                );
+                /**
+                 * Armed by a CHANGE, not by a message.
+                 *
+                 * The editor re-sends everything it holds whenever this page
+                 * becomes a new document — a reload, or the one `next dev` does
+                 * when a publish rewrites the `.val.ts` files — and most of that
+                 * snapshot is content this page already has. Counting those
+                 * bought a whole-route request per publish whether or not the
+                 * page was out of date, which with auto-save on is one per pause
+                 * in typing.
+                 *
+                 * The catch-up that MATTERS still refreshes: a page whose server
+                 * render predates the write has no value for that module, so the
+                 * first arrival counts as a change.
+                 */
+                if (changed && !props.disableRefresh) {
                   rerenderCounterRef.current++;
+                  window.dispatchEvent(new Event(VAL_EDIT_LANDED));
                 }
               } else {
                 console.error("Val: invalid event detail", event.detail);
@@ -366,12 +652,13 @@ export const ValNextProvider = (props: {
       window.removeEventListener("val-ui-created", listener);
     };
   }, []);
-  const [backgroundColor, textColor] = React.useMemo(() => {
+  // The pill is Val's chrome floating over the customer's page, so it takes
+  // the float background rather than the studio's canvas.
+  const [backgroundColor, textColor] = React.useMemo((): [string, string] => {
     if (initTheme !== "light") {
-      return ["#0c111d", "white"];
-    } else {
-      return ["white", "black"];
+      return [floatDarkBg, "white"];
     }
+    return [floatLightBg, "black"];
   }, [initTheme]);
   const commonStyles = React.useMemo(() => {
     return {
@@ -395,6 +682,8 @@ export const ValNextProvider = (props: {
   return (
     <ValOverlayProvider
       draftMode={draftMode}
+      draftModeReady={draftModeReady.current?.promise}
+      draftSourcesSynced={draftSourcesSynced}
       suspend={suspendActive}
       store={valStore}
     >
@@ -402,6 +691,8 @@ export const ValNextProvider = (props: {
       {dropZone !== null &&
         !spaLoaded &&
         mountOverlay &&
+        // The canvas frame loads no SPA, so its pill would spin for ever.
+        !isCanvas &&
         initTheme !== null && (
           <React.Fragment>
             <style>
@@ -463,7 +754,7 @@ ${prefixStyles(commonStyles)}
             </div>
           </React.Fragment>
         )}
-      {mountOverlay && (
+      {mountOverlay && !isCanvas && (
         <React.Fragment>
           <Script
             type="module"
@@ -473,6 +764,17 @@ ${prefixStyles(commonStyles)}
           {/* TODO: use portal to mount overlay */}
           <div id={VAL_OVERLAY_ID} ref={container}></div>
         </React.Fragment>
+      )}
+      {/**
+       * In the studio's canvas the page reports itself instead of decorating
+       * itself: where the elements Val tracks are, and which one was clicked.
+       * The studio draws the rest.
+       */}
+      {mountOverlay && isCanvas && (
+        <ValCanvasBridge
+          draftMode={draftMode === true}
+          isRefreshing={isRefreshing}
+        />
       )}
       {/**
        * This iframe is used to enable or disable draft mode.

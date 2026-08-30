@@ -1,12 +1,5 @@
 import * as React from "react";
-import {
-  ImageMetadata,
-  ImageSource,
-  Internal,
-  ListRecordRender,
-  RemoteSource,
-  SourcePath,
-} from "@valbuild/core";
+import { ImageSource, Internal, SourcePath } from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
@@ -15,7 +8,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
-  useRenderOverrideAtPath,
+  usePreviewAtPath,
 } from "../ValFieldProvider";
 import { useValPortal } from "../ValPortalProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
@@ -37,13 +30,14 @@ import { cn } from "../designSystem/cn";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useNavigation } from "../../components/ValRouter";
 import { Link, Check, ChevronsUpDown } from "lucide-react";
-import { ValidationErrors } from "../../components/ValidationError";
 import { DropdownPreviewRow } from "../DropdownPreviewRow";
+import { ReadonlyGuard } from "./ReadonlyGuard";
+import { AnyField } from "../AnyField";
 
 export type KeyPreview = {
   title: string;
   subtitle?: string | null;
-  image?: ImageSource | RemoteSource<ImageMetadata> | string | null;
+  image?: ImageSource | string | null;
 };
 
 export interface KeySelectorProps {
@@ -175,9 +169,16 @@ export function KeyOfField({
     keyOf?.path,
     keyOf?.type as "record" | "object",
   );
-  const referencedRender = useRenderOverrideAtPath(
+  const referencedPreview = usePreviewAtPath(
     (keyOf?.path ?? path) as SourcePath,
   );
+  // For `.render({ as: "inline" })` the selected entry's CONTENT is rendered
+  // below the selector, so the referenced module's schema is needed too.
+  const inlineRender =
+    "data" in schemaAtPath &&
+    schemaAtPath.data?.type === "keyOf" &&
+    schemaAtPath.data.render?.as === "inline";
+  const referencedSchemaAtPath = useSchemaAtPath(keyOf?.path ?? path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const { patchPath, addPatch } = useAddPatch(path);
   const portalContainer = useValPortal();
@@ -269,15 +270,32 @@ export function KeyOfField({
       ? Object.keys(referencedSource.data)
       : undefined;
   const source = sourceAtPath.data as string | null;
-  const previews = buildKeyPreviews(referencedRender);
+  const previews = buildKeyPreviews(referencedPreview);
   const isLoading =
     schemaAtPath.status === "loading" ||
     keyOf === undefined ||
     keys === undefined;
 
+  // The schema of the entry the key points at: a record's item schema, or the
+  // selected key's field schema when the reference is to an object.
+  const referencedItemSchema =
+    inlineRender && "data" in referencedSchemaAtPath
+      ? referencedSchemaAtPath.data?.type === "record"
+        ? referencedSchemaAtPath.data.item
+        : referencedSchemaAtPath.data?.type === "object" && source !== null
+          ? referencedSchemaAtPath.data.items[source]
+          : undefined
+      : undefined;
+  // `source !== null`, not a truthiness check: the empty string is a valid
+  // record/object key, and treating it as "nothing selected" is what left the
+  // referenced content unrendered for it.
+  const referencedItemPath =
+    inlineRender && keyOf?.path && source !== null
+      ? Internal.createValPathOfItem(keyOf.path, source)
+      : undefined;
+
   const content = (
     <div id={path}>
-      <ValidationErrors path={path} />
       <div className="flex justify-between items-center">
         <KeySelector
           keys={keys ?? []}
@@ -312,31 +330,44 @@ export function KeyOfField({
           </button>
         )}
       </div>
+      {inlineRender &&
+        referencedItemPath !== undefined &&
+        referencedItemSchema !== undefined && (
+          <div className="mt-2 rounded-md border border-border-primary p-3">
+            {/* Edits here go to the referenced module (this is the SHARED
+                entry, not a copy), which is what a reference means — but it is
+                worth a label so nobody mistakes it for row-local content. */}
+            <div className="pb-2 text-xs text-fg-quaternary truncate">
+              {source}
+            </div>
+            <AnyField
+              path={referencedItemPath}
+              schema={referencedItemSchema}
+              readonly={readonly === true}
+              compact
+            />
+          </div>
+        )}
     </div>
   );
   if (readonly) {
-    return (
-      <div className="pointer-events-none opacity-70" aria-disabled="true">
-        {content}
-      </div>
-    );
+    return <ReadonlyGuard>{content}</ReadonlyGuard>;
   }
   return content;
 }
 
 function buildKeyPreviews(
-  renderAtPath: ReturnType<typeof useRenderOverrideAtPath>,
+  previewAtPath: ReturnType<typeof usePreviewAtPath>,
 ): Record<string, KeyPreview> | undefined {
-  if (!renderAtPath || !("data" in renderAtPath) || !renderAtPath.data) {
+  if (!previewAtPath || !("data" in previewAtPath) || !previewAtPath.data) {
     return undefined;
   }
-  const renderData = renderAtPath.data;
-  if (renderData.layout !== "list" || renderData.parent !== "record") {
+  const previewData = previewAtPath.data;
+  if (previewData.parent !== "record") {
     return undefined;
   }
-  const recordRender = renderData as ListRecordRender;
   const out: Record<string, KeyPreview> = {};
-  for (const [key, value] of recordRender.items) {
+  for (const [key, value] of previewData.items) {
     out[key] = {
       title: value.title,
       subtitle: value.subtitle ?? null,

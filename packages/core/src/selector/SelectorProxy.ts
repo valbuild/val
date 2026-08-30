@@ -1,10 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Path, GenericSelector, GetSource, GetSchema } from "./index";
 import { Schema } from "../schema";
-import { convertFileSource } from "../schema/file";
-import { Source, SourcePrimitive, VAL_EXTENSION } from "../source";
-import { FILE_REF_PROP } from "../source/file";
-import { isSerializedVal, ModulePath, SourcePath } from "../val";
+import { Source, SourcePrimitive } from "../source";
+import {
+  isSerializedVal,
+  ModuleFilePath,
+  ModulePath,
+  SourcePath,
+} from "../val";
 import { Internal } from "..";
 
 function hasOwn<T extends PropertyKey>(obj: object, prop: T): boolean {
@@ -37,14 +40,6 @@ export function newSelectorProxy(
     } else if (isSerializedVal(source)) {
       return newSelectorProxy(source.val, source.valPath);
     }
-  }
-
-  if (source && source[FILE_REF_PROP] && source[VAL_EXTENSION] === "file") {
-    const fileRef = source[FILE_REF_PROP];
-    if (typeof fileRef !== "string") {
-      throw Error("Invalid file ref: " + fileRef);
-    }
-    return newSelectorProxy(convertFileSource(source), path, moduleSchema);
   }
 
   switch (typeof source) {
@@ -206,7 +201,13 @@ function selectorAsVal(sel: any): any {
 }
 
 export function createValPathOfItem(
-  arrayPath: SourcePath | ModulePath | undefined,
+  /**
+   * `ModuleFilePath` is accepted because the no-separator branch below is
+   * exactly that case: a path with no `?p=` yet gets one, and the key becomes
+   * the first module-path segment. Callers walking a module from its root had
+   * to widen the type themselves, and hand-rolled the concatenation instead.
+   */
+  arrayPath: SourcePath | ModulePath | ModuleFilePath | undefined,
   prop: string | number | symbol,
 ) {
   if (typeof prop === "symbol") {

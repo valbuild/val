@@ -1,12 +1,25 @@
 {
   "compilerOptions": {
-    "lib": ["es2020", "DOM"],
+    // es2022 for `Array.prototype.at`, which runValidation.test.ts uses. Under
+    // es2020 this only typechecks by accident: meow 9 depends on type-fest,
+    // whose types carry a `/// <reference lib="esnext" />` that leaks into this
+    // program. Declare what the code actually needs instead of relying on that.
+    "lib": ["es2022", "DOM"],
+    // Declared, not auto-discovered: TypeScript 6 no longer includes every
+    // @types package it can find, so leaving this unset loses the node and
+    // jest globals. The packages are still resolved through the default
+    // typeRoots walk up to the workspace root.
+    "types": ["node", "jest"],
     "strict": true,
     "isolatedModules": true,
     "esModuleInterop": true,
     "module": "esnext",
-    "moduleResolution": "node",
+    // `bundler`, not `node`: typechecking pulls in @valbuild/language-server's
+    // source (via preconstruct dev), and vscode-languageserver 10 ships its
+    // types behind an `exports` map that the legacy `node` resolver cannot see.
+    "moduleResolution": "bundler",
     "skipLibCheck": true,
-    "target": "ESNext"
+    "target": "ESNext",
+    "resolveJsonModule": true
   }
 }

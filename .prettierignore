@@ -1,5 +1,6 @@
 # next.js
 examples/next*/.next/
+examples/next*/.next-http/
 examples/next*/out/
 
 # production
@@ -13,6 +14,9 @@ tsconfig.tsbuildinfo
 packages/ui/server/.tmp
 out
 
+# `storybook build` output.
+packages/ui/storybook-static/
+
 .tmp
 examples/next*/.val/*
 
@@ -20,3 +24,9 @@ pnpm-lock.yaml
 
 # Unzipped `val debug` snapshots: customer source, not ours to format.
 debug/*/
+
+# Git worktrees checked out inside the repo (Claude Code puts them here).
+# `prettier --check .` walks the whole tree, so a second checkout means the
+# format gate reports on someone else's in-progress work — and `--write` would
+# reformat it under them.
+.claude/worktrees/

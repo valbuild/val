@@ -90,3 +90,59 @@ describe("ValExternalStore.get", () => {
     expect(store.get([path])).toBe(a);
   });
 });
+
+/**
+ * Whether an update actually MOVED the value.
+ *
+ * `ValNextProvider` arms its `router.refresh()` loop on this, and it has to,
+ * because the same source arrives more than once by design: the editor sends a
+ * catch-up snapshot of everything it holds every time the page becomes a new
+ * document — a reload, or the one `next dev` does when a publish rewrites the
+ * `.val.ts` files. Counting those bought a whole-route request per publish
+ * whether or not the page was out of date, which with auto-save on is one per
+ * pause in typing.
+ */
+describe("ValExternalStore.update reports whether anything changed", () => {
+  const path = "/content/page.val.ts" as ModuleFilePath;
+
+  it("is a change the first time a module arrives", () => {
+    const store = new ValExternalStore();
+    expect(store.update(path, { foo: "bar" })).toBe(true);
+  });
+
+  it("is NOT a change when the same value arrives again", () => {
+    const store = new ValExternalStore();
+    store.update(path, { foo: "bar" });
+    // A fresh object with the same content: the canvas relays over
+    // `postMessage`, so identity never survives the trip.
+    expect(store.update(path, { foo: "bar" })).toBe(false);
+  });
+
+  it("is a change when the value differs", () => {
+    const store = new ValExternalStore();
+    store.update(path, { foo: "bar" });
+    expect(store.update(path, { foo: "baz" })).toBe(true);
+  });
+
+  it("does not wake subscribers for an unchanged value", () => {
+    const store = new ValExternalStore();
+    let woken = 0;
+    store.subscribe([path])(() => {
+      woken++;
+    });
+    store.update(path, { foo: "bar" });
+    const afterFirst = woken;
+
+    store.update(path, { foo: "bar" });
+
+    expect(woken).toBe(afterFirst);
+  });
+
+  it("still resolves waitForLoad on the first arrival", async () => {
+    const store = new ValExternalStore();
+    store.subscribe([path])(() => {});
+    const promise = store.waitForLoad([path]);
+    store.update(path, { foo: "bar" });
+    await expect(promise).resolves.toBeUndefined();
+  });
+});

@@ -1,6 +1,6 @@
 import {
+  Internal,
   ModuleFilePath,
-  ModuleFilePathSep,
   SerializedArraySchema,
   SerializedObjectSchema,
   SerializedRecordSchema,
@@ -9,6 +9,7 @@ import {
   Source,
   SourcePath,
 } from "@valbuild/core";
+import { sourcePathOfChild } from "../utils/sourcePath";
 
 export type LeafSerializedSchema = Exclude<
   SerializedSchema,
@@ -34,6 +35,12 @@ export function traverseSchemas(
     schema: SerializedSchema | undefined,
     source: Source,
   ) => {
+    if (Internal.isJson(source)) {
+      // An un-loaded `.jsonValues()` entry is an opaque lazy marker
+      // ({ _type:"json" }). Skip it: once its content is loaded the
+      // substituted value is the real content and is traversed normally.
+      return;
+    }
     if (schema === undefined) {
       console.error(`Schema not found for ${sourcePath}`);
       return;
@@ -49,7 +56,7 @@ export function traverseSchemas(
           const schemaValue =
             schema.type === "object" ? schema.items?.[key] : schema.item;
           if (sourceValue !== undefined) {
-            go(sourcePathConcat(sourcePath, key), schemaValue, sourceValue);
+            go(sourcePathOfChild(sourcePath, key), schemaValue, sourceValue);
           }
         }
       }
@@ -57,7 +64,7 @@ export function traverseSchemas(
       if (isArraySource(source)) {
         let i = 0;
         for (const sourceValue of source) {
-          go(sourcePathConcat(sourcePath, i), schema.item, sourceValue);
+          go(sourcePathOfChild(sourcePath, i), schema.item, sourceValue);
           i++;
         }
       }
@@ -94,18 +101,6 @@ export function traverseSchemas(
       sources[moduleFilePath],
     );
   }
-}
-
-export function sourcePathConcat(
-  sourcePath: SourcePath,
-  key: string | number,
-): SourcePath {
-  if (sourcePath.includes(ModuleFilePathSep)) {
-    return `${sourcePath}.${JSON.stringify(key)}` as SourcePath;
-  }
-  return `${sourcePath}${ModuleFilePathSep}${JSON.stringify(
-    key,
-  )}` as SourcePath;
 }
 
 function isObjectOrRecordSource(

@@ -7,14 +7,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "./designSystem/tooltip";
-import {
-  useAllSources,
-  useLoadingStatus,
-  useSchemas,
-} from "./ValFieldProvider";
+import { useGetNavPath, useIsInitialized } from "./ValFieldProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useNavigation } from "./ValRouter";
-import { getNavPathFromAll } from "./getNavPath";
 
 /**
  * Inline error display rendered below a field in the editor.
@@ -39,11 +34,16 @@ export function FieldValidationError({
 
 export function FieldValidationErrorCompact({ path }: { path: SourcePath }) {
   const { navigate } = useNavigation();
-  const schemas = useSchemas();
-  const allSources = useAllSources();
+  const getNavPath = useGetNavPath();
   const validationErrors = useAllValidationErrors();
-  const loadingStatus = useLoadingStatus();
-  const isLoading = loadingStatus === "loading";
+  /**
+   * The spinner means "the project has not been taken in yet", which is what
+   * this badge can honestly say. `useLoadingStatus()` also carries the write
+   * queue, so every compact row's icon flipped between a spinner and a warning
+   * triangle on every save round trip — a flicker with no information in it,
+   * on a component that is mounted once per row.
+   */
+  const isLoading = !useIsInitialized();
   const messages: string[] = [];
   if (validationErrors) {
     for (const errorPath in validationErrors) {
@@ -61,9 +61,7 @@ export function FieldValidationErrorCompact({ path }: { path: SourcePath }) {
       <TooltipTrigger asChild>
         <button
           onClick={() => {
-            const schemasData =
-              schemas.status === "success" ? schemas.data : undefined;
-            const navPath = getNavPathFromAll(path, allSources, schemasData);
+            const navPath = getNavPath(path);
             navigate(navPath ?? path, {
               scrollToPath: path,
             });

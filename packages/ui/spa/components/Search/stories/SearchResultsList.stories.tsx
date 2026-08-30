@@ -3,15 +3,15 @@ import { useMemo, useState } from "react";
 import {
   Json,
   ModuleFilePath,
-  ReifiedRender,
+  ReifiedPreview,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
-import { JSONValue } from "@valbuild/core/patch";
 import { SearchResultsList, type SearchResult } from "../../SearchResultsList";
 import { Command } from "../../designSystem/command";
-import { mockSchemas, mockSources, mockRenders } from "./mockData";
-import { ValSyncEngine } from "../../../ValSyncEngine";
+import { mockSchemas, mockSources, mockPreviews } from "./mockData";
+import { createStorySystem } from "../../../stores/react/storySystem";
+import { ValSystemProvider } from "../../../stores/react/SystemContext";
 import { ValThemeProvider, Themes } from "../../ValThemeProvider";
 import { ValErrorProvider } from "../../ValErrorProvider";
 import { ValPortalProvider } from "../../ValPortalProvider";
@@ -111,26 +111,25 @@ function createAuthorResults(
 function SearchResultsListWithProviders({
   results,
   schemas = mockSchemas,
-  sources = mockSources as Record<ModuleFilePath, JSONValue | undefined>,
-  renders = mockRenders,
+  sources = mockSources,
+  previews = mockPreviews,
 }: {
   results: SearchResult[];
   schemas?: Record<ModuleFilePath, SerializedSchema | undefined>;
-  sources?: Record<ModuleFilePath, JSONValue | undefined>;
-  renders?: Record<ModuleFilePath, ReifiedRender | null>;
+  sources?: Record<ModuleFilePath, Json | undefined>;
+  previews?: Record<ModuleFilePath, ReifiedPreview | null>;
 }) {
   const client = useMemo(() => createMockClient(), []);
   const [theme, setTheme] = useState<Themes | null>(null);
 
   // Create syncEngine and initialize with mock data
-  const syncEngine = useMemo(() => {
-    const engine = new ValSyncEngine(client, undefined);
-    engine.setSchemas(schemas);
-    engine.setSources(sources);
-    engine.setRenders(renders);
-    engine.setInitializedAt(Date.now());
-    return engine;
-  }, [client, schemas, sources, renders]);
+  const system = useMemo(() => {
+    return createStorySystem({
+      schemas: schemas,
+      sources: sources,
+      previews: previews,
+    });
+  }, [client, schemas, sources, previews]);
 
   // Mock getDirectFileUploadSettings callback
   const getDirectFileUploadSettings = useMemo(
@@ -162,55 +161,32 @@ function SearchResultsListWithProviders({
     console.log("Selected:", path);
   };
 
-  const loadedSources = useMemo(() => {
-    const loadedSources: Record<ModuleFilePath, Json> = {};
-    for (const key in sources) {
-      if (sources[key as ModuleFilePath] !== undefined) {
-        loadedSources[key as ModuleFilePath] = sources[
-          key as ModuleFilePath
-        ] as Json;
-      }
-    }
-    return loadedSources;
-  }, [sources]);
-  const loadedSchemas = useMemo(() => {
-    const loadedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
-    for (const key in schemas) {
-      if (schemas[key as ModuleFilePath] !== undefined) {
-        loadedSchemas[key as ModuleFilePath] = schemas[
-          key as ModuleFilePath
-        ] as SerializedSchema;
-      }
-    }
-    return loadedSchemas;
-  }, [schemas]);
   return (
-    <ValThemeProvider theme={theme} setTheme={setTheme} config={undefined}>
-      <ValErrorProvider syncEngine={syncEngine}>
-        <ValPortalProvider>
-          <ValRemoteProvider remoteFiles={remoteFiles}>
-            <ValFieldProvider
-              syncEngine={syncEngine}
-              getDirectFileUploadSettings={getDirectFileUploadSettings}
-              config={undefined}
-            >
-              <ValRouter>
-                <div className="relative w-full max-w-md">
-                  <Command shouldFilter={false}>
-                    <SearchResultsList
-                      results={results}
-                      sources={loadedSources}
-                      schemas={loadedSchemas}
-                      onSelect={handleSelect}
-                    />
-                  </Command>
-                </div>
-              </ValRouter>
-            </ValFieldProvider>
-          </ValRemoteProvider>
-        </ValPortalProvider>
-      </ValErrorProvider>
-    </ValThemeProvider>
+    <ValSystemProvider system={system}>
+      <ValThemeProvider theme={theme} setTheme={setTheme} config={undefined}>
+        <ValErrorProvider>
+          <ValPortalProvider>
+            <ValRemoteProvider remoteFiles={remoteFiles}>
+              <ValFieldProvider
+                getDirectFileUploadSettings={getDirectFileUploadSettings}
+                config={undefined}
+              >
+                <ValRouter>
+                  <div className="relative w-full max-w-md">
+                    <Command shouldFilter={false}>
+                      <SearchResultsList
+                        results={results}
+                        onSelect={handleSelect}
+                      />
+                    </Command>
+                  </div>
+                </ValRouter>
+              </ValFieldProvider>
+            </ValRemoteProvider>
+          </ValPortalProvider>
+        </ValErrorProvider>
+      </ValThemeProvider>
+    </ValSystemProvider>
   );
 }
 

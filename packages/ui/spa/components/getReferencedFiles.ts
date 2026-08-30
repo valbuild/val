@@ -1,5 +1,4 @@
 import {
-  FILE_REF_PROP,
   Json,
   ModuleFilePath,
   SerializedSchema,
@@ -12,7 +11,7 @@ export function getReferencedFiles(
   schemas: Record<ModuleFilePath, SerializedSchema>,
   sources: Record<ModuleFilePath, Source>,
   parent: ModuleFilePath,
-  fileRef?: string, // if provided, filter to only paths whose source has _ref === fileRef
+  fileRef?: string, // if provided, filter to only paths whose source has path === fileRef
 ): SourcePath[] {
   const results: SourcePath[] = [];
   traverseSchemas(schemas, sources, (sourcePath, schema, source) => {
@@ -25,8 +24,8 @@ export function getReferencedFiles(
           typeof source === "object" &&
           source !== null &&
           !Array.isArray(source) &&
-          FILE_REF_PROP in source &&
-          (source as Record<string, Json>)[FILE_REF_PROP] === fileRef
+          "path" in source &&
+          (source as Record<string, Json>).path === fileRef
         ) {
           if (!results.includes(sourcePath)) {
             results.push(sourcePath);
@@ -44,6 +43,7 @@ export function getReferencedFiles(
       schema.type === "literal" ||
       schema.type === "date" ||
       schema.type === "dateTime" ||
+      schema.type === "color" ||
       schema.type === "keyOf" ||
       schema.type === "image" ||
       schema.type === "file" ||

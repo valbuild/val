@@ -14,5 +14,7 @@
     "target": "ES2017",
     "types": [],
     "stripInternal": true
-  }
+  },
+  "//": "Each package owns its own tsconfig (jsx, lib, types). Without this exclude, editors resolve THIS config for files under packages/ and examples/ — it has `types: []`, so every test file loses `describe`/`it`/`expect`, and `jsx: \"react\"` breaks every .tsx. CI never hit it: typechecking is per-package (`pnpm run -r typecheck`), so this config only ever affected the editor.",
+  "exclude": ["packages", "examples"]
 }

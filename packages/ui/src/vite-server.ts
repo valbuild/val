@@ -24,6 +24,16 @@ export function createUIRequestHandler(): ValUIRequestHandler {
       "Val UI files missing (error: is not an object)! This Val version or build is corrupted!",
     );
   }
+  // A build whose version was not substituted still carries the raw build
+  // placeholder here, and a placeholder can never match a request path: every
+  // request for the app bundle would fall through to the SPA fallback below,
+  // and the only symptom would be the browser refusing an HTML response where
+  // it expected JS. `$` cannot occur in a version, so this is that build.
+  if (VERSION.includes("$")) {
+    throw new Error(
+      "Val UI version was not substituted at build time! This Val version or build is corrupted!",
+    );
+  }
   const jsFiles = Object.keys(decodedFiles).filter(
     (path) => path.endsWith(".js") || path.endsWith(".jsx"),
   );
@@ -94,10 +104,13 @@ export function createUIRequestHandler(): ValUIRequestHandler {
           body: decodedFiles[path],
         };
       } else {
+        // The SPA fallback: whatever was asked for, what is returned is the
+        // index page, so that is the content type - never the one the
+        // requested path implies.
         return {
           status: 200,
           headers: {
-            "Content-Type": getServerMimeType(path) || "",
+            "Content-Type": "text/html; charset=utf-8",
             "Cache-Control": "max-age=90", // TODO: change this to something more aggressive
           },
           body: htmlPage,

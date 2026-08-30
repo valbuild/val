@@ -13,6 +13,7 @@ import { SerializedRecordSchema } from "./record";
 import { SerializedRichTextSchema } from "./richtext";
 import { RawString, SerializedStringSchema } from "./string";
 import { SerializedUnionSchema } from "./union";
+import { SerializedColorSchema } from "./color";
 import { SerializedDateSchema } from "./date";
 import { SerializedDateTimeSchema } from "./datetime";
 import { SerializedRouteSchema } from "./route";
@@ -20,9 +21,9 @@ import {
   ValidationError,
   ValidationErrors,
 } from "./validation/ValidationError";
-import { FileSource } from "../source/file";
+import { FileSource } from "../source/media";
 import { GenericRichTextSourceNode, RichTextSource } from "../source/richtext";
-import { ReifiedRender } from "../render";
+import { ReifiedPreview, PreviewScope, PreviewItem } from "../preview";
 // import { SerializedI18nSchema } from "./future/i18n";
 // import { SerializedOneOfSchema } from "./future/oneOf";
 
@@ -42,6 +43,7 @@ export type SerializedSchema =
   | SerializedFileSchema
   | SerializedDateSchema
   | SerializedDateTimeSchema
+  | SerializedColorSchema
   | SerializedRouteSchema
   | SerializedImageSchema;
 
@@ -87,6 +89,32 @@ export abstract class Schema<Src extends SelectorSource> {
     path: SourcePath,
     src: Src,
   ): ValidationErrors;
+  /**
+   * Runs the custom validate functions declared on THIS node (not its children)
+   * against `src`.
+   *
+   * Abstract because every schema class holds its validators in its own
+   * `private readonly customValidateFunctions`, which no base implementation can
+   * reach — and a base implementation returning `[]` would let a class that
+   * forgot to implement this silently skip its user's validators. A compile error
+   * is the better failure.
+   *
+   * `src` stays a PARAMETER (as in {@link executeValidate}) rather than the
+   * functions being returned: `CustomValidateFunction<Src>` puts `Src` in a
+   * parameter position, so returning them would make `Schema<Src>` invariant and
+   * break every `Schema<Source>` → `Schema<SelectorSource>` assignment in the
+   * codebase.
+   *
+   * Deliberately independent of `executeValidate`: the Studio gets its structural
+   * errors from a worker, which holds a DESERIALIZED schema where user functions
+   * cannot survive, and then executes the custom validators on the main thread
+   * against the real instance. Structural errors publish first; these merge in.
+   */
+  protected abstract executeCustomValidateAt(
+    path: SourcePath,
+    src: Src,
+  ): ValidationError[];
+
   protected executeCustomValidateFunctions(
     src: Src,
     customValidateFunctions: CustomValidateFunction<Src>[],
@@ -144,10 +172,43 @@ export abstract class Schema<Src extends SelectorSource> {
    */
   abstract hidden(): Schema<Src>;
   protected abstract executeSerialize(): SerializedSchema;
-  protected abstract executeRender(
+  /**
+   * @param scope Which paths the caller needs a preview for. Absent means the
+   * whole module, which is what every caller passed before scoping existed.
+   * See {@link PreviewScope}: a container prunes recursion where nothing is
+   * wanted, and previews a WINDOW when its own path is not wanted but some of
+   * its items are — which is the single-visible-row case.
+   */
+  protected abstract executePreview(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
-  ): ReifiedRender;
+    scope?: PreviewScope,
+  ): ReifiedPreview;
+  /**
+   * This value AS A PREVIEW — what a container's row, a reference dropdown or
+   * a search hit shows for it. Runs the schema's own `preview` closure;
+   * `null` when none is declared (the consumer falls back to a generic
+   * preview). A union dispatches to the matching member's closure.
+   *
+   * Containers call this on their ITEM schema per item — that is how
+   * `executePreview` reifies an {@link ArrayPreview} / {@link RecordPreview}
+   * from item-level declarations.
+   */
+  protected executePreviewItem(src: NonNullable<Src>): PreviewItem | null {
+    // Default for schemas without a closure; every class that stores a
+    // `previewInput` overrides both this and {@link declaresItemPreview}.
+    void src;
+    return null;
+  }
+  /**
+   * Could {@link executePreviewItem} ever answer? A container reifies a rows
+   * preview only when its item schema says yes — asked here rather than by
+   * running the closure, so an EMPTY list still previews as an empty list
+   * instead of not at all.
+   */
+  protected declaresItemPreview(): boolean {
+    return false;
+  }
   // remote(): Src extends RemoteCompatibleSource
   //   ? Schema<RemoteSource<Src>>
   //   : never {
@@ -175,6 +236,35 @@ export abstract class Schema<Src extends SelectorSource> {
         [path]: [{ message, value, schemaError }],
       } as ValidationErrors;
     }
+  }
+
+  /**
+   * Merges two sets of validation errors path-wise: errors on the same path are
+   * concatenated, not overwritten. Object spread cannot be used for this, since
+   * it replaces the array of the colliding path. A record, for example, validates
+   * the key and the item on the same path, so both sets must survive.
+   *
+   * MUTATES! since internal and perf sensitive
+   */
+  protected mergeValidationErrors(
+    current: ValidationErrors,
+    incoming: ValidationErrors,
+  ): ValidationErrors {
+    if (!incoming) {
+      return current;
+    }
+    if (!current) {
+      return incoming;
+    }
+    for (const pathS in incoming) {
+      const path = pathS as SourcePath;
+      if (current[path]) {
+        current[path] = current[path].concat(incoming[path]);
+      } else {
+        current[path] = incoming[path];
+      }
+    }
+    return current;
   }
 }
 

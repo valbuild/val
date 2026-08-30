@@ -6,7 +6,8 @@ import { ValPortalProvider } from "../../ValPortalProvider";
 import { ValThemeProvider } from "../../ValThemeProvider";
 import { ValRouter } from "../../ValRouter";
 import { ValFieldProvider } from "../../ValFieldProvider";
-import { ValSyncEngine } from "../../../ValSyncEngine";
+import { createStorySystem } from "../../../stores/react/storySystem";
+import { ValSystemProvider } from "../../../stores/react/SystemContext";
 import { ValClient } from "@valbuild/shared/internal";
 
 const meta: Meta<typeof FileGallery> = {
@@ -27,12 +28,11 @@ const meta: Meta<typeof FileGallery> = {
             })) as unknown as ValClient,
         [],
       );
-      const syncEngine = useMemo(() => {
-        const engine = new ValSyncEngine(mockClient, undefined);
-        engine.setSchemas({});
-        engine.setBaseSha("storybook-mock-sha");
-        engine.setInitializedAt(Date.now());
-        return engine;
+      const system = useMemo(() => {
+        return createStorySystem({
+          schemas: {},
+          sources: {},
+        });
       }, [mockClient]);
       const getDirectFileUploadSettings = useMemo(
         () => async () => ({
@@ -47,19 +47,20 @@ const meta: Meta<typeof FileGallery> = {
         [],
       );
       return (
-        <ValThemeProvider theme="dark" setTheme={() => {}} config={undefined}>
-          <ValRouter>
-            <ValPortalProvider>
-              <ValFieldProvider
-                syncEngine={syncEngine}
-                getDirectFileUploadSettings={getDirectFileUploadSettings}
-                config={undefined}
-              >
-                <Story />
-              </ValFieldProvider>
-            </ValPortalProvider>
-          </ValRouter>
-        </ValThemeProvider>
+        <ValSystemProvider system={system}>
+          <ValThemeProvider theme="dark" setTheme={() => {}} config={undefined}>
+            <ValRouter>
+              <ValPortalProvider>
+                <ValFieldProvider
+                  getDirectFileUploadSettings={getDirectFileUploadSettings}
+                  config={undefined}
+                >
+                  <Story />
+                </ValFieldProvider>
+              </ValPortalProvider>
+            </ValRouter>
+          </ValThemeProvider>
+        </ValSystemProvider>
       );
     },
   ],
