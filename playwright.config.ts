@@ -13,6 +13,21 @@ const PREINSTALLED_CHROMIUM =
   "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
 
 /**
+ * Whether `--project=screens` was asked for by name.
+ *
+ * Declaring a project is NOT how you make one opt-in: `playwright test` with no
+ * `--project` runs every configured project, so `pnpm run test:e2e` would still
+ * run the screenshot script and could still be failed by it — which is the one
+ * thing keeping it out of `chromium` was supposed to prevent. It has to be
+ * absent from the config entirely unless it was named.
+ */
+const screensRequested = process.argv.some(
+  (arg, index) =>
+    arg === "--project=screens" ||
+    (arg === "--project" && process.argv[index + 1] === "screens"),
+);
+
+/**
  * End-to-end tests for the Val Studio.
  *
  * These exist because of what the unit tests could not see. Removing
@@ -103,23 +118,28 @@ export default defineConfig({
         },
       },
     },
-    {
-      // Not a test project: `npx playwright test --project=screens` (or
-      // `screens.spec.ts` by file name, which still resolves to this project)
-      // takes screenshots of the shell for a human to look at. Kept out of
-      // `chromium` so it cannot fail a run; kept as its own project rather than
-      // deleted so it stays one command to re-run after a redesign.
-      name: "screens",
-      testMatch: "screens.spec.ts",
-      use: {
-        launchOptions: {
-          ...(existsSync(PREINSTALLED_CHROMIUM)
-            ? { executablePath: PREINSTALLED_CHROMIUM }
-            : {}),
-          args: ["--no-sandbox", "--disable-dev-shm-usage"],
-        },
-      },
-    },
+    // Not a test project, and only present when asked for by name:
+    // `pnpm exec playwright test --project=screens` takes screenshots of the
+    // shell for a human to look at. It asserts nothing about correctness and
+    // spends ~40s in fixed `waitForTimeout`s, so it must not be able to turn a
+    // run red — and merely keeping it out of `chromium` does not achieve that,
+    // since a bare `playwright test` runs every project there is.
+    ...(screensRequested
+      ? [
+          {
+            name: "screens",
+            testMatch: "screens.spec.ts",
+            use: {
+              launchOptions: {
+                ...(existsSync(PREINSTALLED_CHROMIUM)
+                  ? { executablePath: PREINSTALLED_CHROMIUM }
+                  : {}),
+                args: ["--no-sandbox", "--disable-dev-shm-usage"],
+              },
+            },
+          },
+        ]
+      : []),
   ],
   webServer: [
     {

@@ -21,8 +21,9 @@ none of the 8 is a _flake_ in the strict sense: on a clean tree they fail
 deterministically, each for one of three findable reasons (§1a, §1f). The
 timing-suspect jest suites were run 5×: 54/54 green every time.
 
-**Update — every finding below has been fixed and reverified.** All ten items
-in §4's priority list are done, each verified in isolation (patchLock and
+**Update — items 1–10 of §4 have been fixed and reverified; 11–13 have not.**
+Everything diagnosed in §1a–§1f and §2a–§2g is done, each verified in isolation
+(patchLock and
 pendingValidation 5× each, the language-server suite 3× full-run under
 `--detectOpenHandles`), and then together: a full run of the fs-mode
 (`chromium`) Playwright project — the same 24-minute-scale run that originally
@@ -372,9 +373,13 @@ left for a deliberate follow-up decision rather than a mechanical fix.
    ("shows the written value through the hooks") that never flushed its write
    before its page closed. Added the same flush + pending-count check the
    other writing tests already had. (§1c)
-10. ~~Exclude `screens.spec.ts`~~ — moved to its own Playwright project
-    (`testIgnore` in `chromium`); reachable by name or `--project=screens`,
-    never by a default run. (§1e)
+10. ~~Exclude `screens.spec.ts`~~ — its project is added to the config only
+    when `--project=screens` is passed. Declaring a project is not enough on
+    its own: a bare `playwright test` (which is what `pnpm run test:e2e` is)
+    runs every project there is, so the screenshot script would still have run
+    and could still have failed the suite. Run it with
+    `pnpm exec playwright test --project=screens`; the bare file name no
+    longer resolves to anything. (§1e)
 11. Small determinizations: `canvas-history` poll, `deployments` explicit
     `updatedAt`, `studio-ui` keystroke assertion, `testSystem` waiter deadline
     to seconds, `diagnostics` ordering-based negative. (§1h, §2f, §2g) — not
