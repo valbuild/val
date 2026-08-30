@@ -12,7 +12,11 @@ describe("validateJsonValuesEntries", () => {
       "/a": c.json(() => Promise.resolve({ default: { title: "ok" } })),
       "/b": c.json(() => Promise.resolve({ default: { title: "ok2" } })),
     };
-    const errors = await validateJsonValuesEntries(schema, source, modulePath);
+    const { errors } = await validateJsonValuesEntries(
+      schema,
+      source,
+      modulePath,
+    );
     expect(errors).toEqual({});
   });
 
@@ -22,7 +26,11 @@ describe("validateJsonValuesEntries", () => {
       // wrong leaf type for title — caught by the deferred content validation
       "/bad": c.json(() => Promise.resolve({ default: { title: 123 } })),
     };
-    const errors = await validateJsonValuesEntries(schema, source, modulePath);
+    const { errors } = await validateJsonValuesEntries(
+      schema,
+      source,
+      modulePath,
+    );
     const keys = Object.keys(errors);
     expect(keys.length).toBeGreaterThan(0);
     expect(keys.some((k) => k.includes("/bad"))).toBe(true);
@@ -32,7 +40,11 @@ describe("validateJsonValuesEntries", () => {
     const source = {
       "/boom": c.json(() => Promise.reject(new Error("disk gone"))),
     };
-    const errors = await validateJsonValuesEntries(schema, source, modulePath);
+    const { errors } = await validateJsonValuesEntries(
+      schema,
+      source,
+      modulePath,
+    );
     const keys = Object.keys(errors);
     expect(keys.length).toBe(1);
     expect(errors[keys[0] as keyof typeof errors][0].message).toContain(
@@ -46,7 +58,11 @@ describe("validateJsonValuesEntries", () => {
       // hand-authored inline instead of c.json(() => import(...))
       "/inline": { title: "legal shape, wrong place" },
     };
-    const errors = await validateJsonValuesEntries(schema, source, modulePath);
+    const { errors } = await validateJsonValuesEntries(
+      schema,
+      source,
+      modulePath,
+    );
     const keys = Object.keys(errors);
     expect(keys).toHaveLength(1);
     expect(keys[0]).toContain("/inline");
@@ -64,7 +80,7 @@ describe("validateJsonValuesEntries", () => {
         return Promise.resolve({ default: { title: "ok" } });
       }),
     };
-    const errors = await validateJsonValuesEntries(
+    const { errors } = await validateJsonValuesEntries(
       plainSchema,
       source,
       modulePath,
@@ -91,7 +107,7 @@ describe("validateJsonValuesEntries", () => {
         }),
       },
     };
-    const errors = await validateJsonValuesEntries(
+    const { errors } = await validateJsonValuesEntries(
       nestedSchema,
       source,
       modulePath,

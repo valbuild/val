@@ -735,6 +735,130 @@ describe("runValidation", () => {
       expect(events.at(-1)).toEqual({ type: "summary-errors", count: 2 });
     });
 
+    test("reports a fixable error INSIDE an entry instead of throwing", async () => {
+      // Regression: every image validation ends in a fix (whether the stored
+      // dimensions match the bytes can only be answered by reading the file), and
+      // the fix handlers resolved the reported path against the module source —
+      // which for a jsonValues module holds a `c.json(...)` marker where the
+      // entry content should be. `Internal.resolvePath` refuses to walk into a
+      // marker, so a single `s.image()` inside an entry aborted the whole run
+      // with "Cannot resolve path into a jsonValues entry until its content is
+      // loaded" — no report, no exit code, nothing fixable.
+      const events = await runOn(["content/basic-json-values-image.val.ts"]);
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "validation-fixable-error",
+            sourcePath:
+              '/content/basic-json-values-image.val.ts?p="/with-image"."image"',
+            fixable: true,
+          }),
+        ]),
+      );
+      expect(events.at(-1)).toEqual({ type: "summary-errors", count: 1 });
+    });
+
+    test("--fix writes the entry's metadata into its *.val.json", async () => {
+      const events: ValidationEvent[] = [];
+      for await (const event of runValidation({
+        root: tmpDir,
+        fix: true,
+        valFiles: ["content/basic-json-values-image.val.ts"],
+        project: undefined,
+        remote: mockRemote,
+        fs: createDefaultValFSHost(),
+      })) {
+        events.push(event);
+      }
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "fix-applied",
+            sourcePath:
+              '/content/basic-json-values-image.val.ts?p="/with-image"."image"',
+          }),
+        ]),
+      );
+
+      // The metadata belongs in the entry's own file: the `.val.ts` has no place
+      // to put it, and a patch applied there would either fail or corrupt the
+      // `c.json(...)` reference.
+      const jsonPath = path.join(
+        tmpDir,
+        "content/json-entries/with-image.val.json",
+      );
+      expect(JSON.parse(fs.readFileSync(jsonPath, "utf8"))).toEqual({
+        title: "An entry with an image",
+        image: {
+          path: "/public/val/image.png",
+          width: 1,
+          height: 1,
+          mimeType: "image/png",
+        },
+      });
+      const valTs = fs.readFileSync(
+        path.join(tmpDir, "content/basic-json-values-image.val.ts"),
+        "utf8",
+      );
+      expect(valTs).toContain(
+        'c.json(() => import("./json-entries/with-image.val.json"))',
+      );
+      expect(valTs).not.toContain("mimeType");
+
+      // The bug the user hit was the SECOND run: fixing once and then failing
+      // forever is the same as never fixing at all.
+      const afterFix = await runOn(["content/basic-json-values-image.val.ts"]);
+      expect(afterFix.at(-1)).toEqual({ type: "summary-success" });
+    });
+
+    test("--fix reaches into a ROUTER's entry file too", async () => {
+      // The reported bug was on a router (`s.router(nextAppRouter, ...).jsonValues()`),
+      // not a plain record. A router serializes as a record so it takes the same
+      // path, but nothing covered it — and a router's entry keys are URL paths,
+      // which is what the failing report showed: `"/jobb/student"."pageImage"`.
+      const before = await runOn(["app/jobb/[slug]/page.val.ts"]);
+      expect(before).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "validation-fixable-error",
+            sourcePath:
+              '/app/jobb/[slug]/page.val.ts?p="/jobb/student"."pageImage"',
+          }),
+        ]),
+      );
+
+      const events: ValidationEvent[] = [];
+      for await (const event of runValidation({
+        root: tmpDir,
+        fix: true,
+        valFiles: ["app/jobb/[slug]/page.val.ts"],
+        project: undefined,
+        remote: mockRemote,
+        fs: createDefaultValFSHost(),
+      })) {
+        events.push(event);
+      }
+      expect(events.at(-1)).toEqual({ type: "summary-success" });
+
+      const jsonPath = path.join(
+        tmpDir,
+        "app/jobb/[slug]/page/jobb/student.val.json",
+      );
+      expect(JSON.parse(fs.readFileSync(jsonPath, "utf8"))).toEqual({
+        header: "Student",
+        pageImage: {
+          path: "/public/val/image.png",
+          width: 1,
+          height: 1,
+          mimeType: "image/png",
+        },
+      });
+      expect((await runOn(["app/jobb/[slug]/page.val.ts"])).at(-1)).toEqual({
+        type: "summary-success",
+      });
+    });
+
     test("rejects a nested .jsonValues() instead of reporting it valid", async () => {
       // Root-only is a hard contract: a nested one would silently get NO content
       // validation. The Studio refuses to load such a project, so the CLI saying

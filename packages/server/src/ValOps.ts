@@ -1114,7 +1114,7 @@ export abstract class ValOps {
       );
       // For `.jsonValues()` records, executeValidate only checks the entry
       // markers; load + validate each entry's backing `*.val.json` content here.
-      const jsonValuesErrors = await validateJsonValuesEntries(
+      const { errors: jsonValuesErrors } = await validateJsonValuesEntries(
         schema,
         source,
         path,
