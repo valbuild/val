@@ -66,11 +66,15 @@ async function createPage(
  * Val Enable cookie and draft mode, which is the state an editor is in by the
  * time they create a page.
  */
-async function enablePreview(page: Page): Promise<void> {
+async function enablePreview(page: Page, baseURL: string): Promise<void> {
   const enabling = await page.context().newPage();
+  // `redirect_to` is followed by the browser, so it has to be absolute AND has
+  // to name THIS worker's app. It used to be hardcoded to `localhost:3456`,
+  // the port of the single shared dev server; with an app per worker that URL
+  // belongs to nothing and the redirect lands on a refused connection.
   await enabling.goto(
     "/api/val/enable?redirect_to=" +
-      encodeURIComponent("http://localhost:3456/blogs/blog1"),
+      encodeURIComponent(`${baseURL}/blogs/blog1`),
   );
   await expect
     .poll(
@@ -130,9 +134,10 @@ test.describe("a route that has not been committed", () => {
   test("renders in the canvas from a client component", async ({
     page,
     request,
+    workerApp,
   }) => {
     await clearPatchChain(request);
-    await enablePreview(page);
+    await enablePreview(page, workerApp.baseURL);
     await openStudio(page);
     const studio = page.locator("#val-shadow-root");
     await createPage(page, studio, "/blogs/[blog]", "blog", "uncommitted");
@@ -188,9 +193,10 @@ test.describe("a route that has not been committed", () => {
   test.fixme("renders a route whose module is the only one it reads", async ({
     page,
     request,
+    workerApp,
   }) => {
     await clearPatchChain(request);
-    await enablePreview(page);
+    await enablePreview(page, workerApp.baseURL);
     await openStudio(page);
     const studio = page.locator("#val-shadow-root");
     await createPage(
@@ -220,9 +226,10 @@ test.describe("a route that has not been committed", () => {
   test("renders in the canvas from a server component", async ({
     page,
     request,
+    workerApp,
   }) => {
     await clearPatchChain(request);
-    await enablePreview(page);
+    await enablePreview(page, workerApp.baseURL);
     await openStudio(page);
     const studio = page.locator("#val-shadow-root");
     await createPage(page, studio, "/notes/[note]", "note", "uncommitted");
