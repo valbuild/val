@@ -79,7 +79,27 @@ export default defineConfig({
   },
   projects: [
     {
+      // Not a test: it asks the dev server to build the routes the suite is
+      // about to visit, so no later test is the one paying for a compile inside
+      // its own timeout. See `e2e/warmup.setup.ts`.
+      name: "warmup",
+      testMatch: "warmup.setup.ts",
+      use: {
+        launchOptions: {
+          ...(existsSync(PREINSTALLED_CHROMIUM)
+            ? { executablePath: PREINSTALLED_CHROMIUM }
+            : {}),
+          args: ["--no-sandbox", "--disable-dev-shm-usage"],
+        },
+      },
+    },
+    {
       name: "chromium",
+      // Every fs-mode test starts against an app that has already compiled its
+      // routes, rather than against whichever route the run happened to hit
+      // first. This is why the timeouts below can be read as claims about the
+      // app rather than about the runner.
+      dependencies: ["warmup"],
       // The `fs`-mode suites. `e2e/http/` is excluded because those tests need
       // the other app, on the other port. `screens.spec.ts` is excluded because
       // it is not a test — it takes screenshots for a human to look at, on a
