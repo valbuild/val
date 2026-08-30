@@ -27,6 +27,7 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 import { splitRemoteRef } from "../remote/splitRemoteRef";
+import type { ImageEncodeOption } from "./image";
 
 type MediaOptions = {
   type: "files" | "images";
@@ -34,6 +35,8 @@ type MediaOptions = {
   directory: string;
   remote: boolean;
   altSchema?: Schema<SelectorSource>;
+  /** Images only: how uploads are re-encoded in the browser. See `image.ts`. */
+  encode?: ImageEncodeOption;
 };
 
 export type SerializedRecordSchema = {
@@ -56,6 +59,7 @@ export type SerializedRecordSchema = {
   accept?: string;
   directory?: string;
   remote?: boolean;
+  encode?: ImageEncodeOption;
   alt?: SerializedSchema;
   // When true, entry values are stored in separate lazily-loaded `*.val.json`
   // files (see `.jsonValues()`).
@@ -815,6 +819,9 @@ export class RecordSchema<
       result.accept = this.mediaOptions.accept;
       result.directory = this.mediaOptions.directory;
       result.remote = this.mediaOptions.remote;
+      if (this.mediaOptions.encode !== undefined) {
+        result.encode = this.mediaOptions.encode;
+      }
       if (this.mediaOptions.altSchema) {
         result.alt = this.mediaOptions.altSchema["executeSerialize"]();
       }

@@ -4,6 +4,7 @@ import { RecordSchema } from "./record";
 import { ObjectSchema } from "./object";
 import { StringSchema, string } from "./string";
 import { NumberSchema } from "./number";
+import type { ImageEncodeOption } from "./image";
 
 /**
  * Alt schema type - can be a string, nullable string, or a record of locale to string
@@ -44,6 +45,13 @@ export type ImagesOptions<Accept extends `image/${string}`> = {
    * @default false
    */
   remote?: boolean;
+  /**
+   * Re-encode uploads in the browser before they are uploaded.
+   *
+   * Off unless set. A field backed by this gallery (`s.image(galleryVal)`)
+   * inherits it, the same way it inherits `accept` and `directory`.
+   */
+  encode?: ImageEncodeOption;
 };
 
 /**
@@ -124,5 +132,6 @@ export const images = <Accept extends `image/${string}`>(
     directory,
     remote: options.remote ?? false,
     altSchema,
+    encode: options.encode,
   });
 };

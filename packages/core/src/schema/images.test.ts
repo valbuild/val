@@ -304,6 +304,31 @@ describe("ImagesSchema", () => {
       const serialized = schema["executeSerialize"]();
       expect(serialized.opt).toBe(true);
     });
+
+    /**
+     * A field backed by this gallery reads `encode` from here: `s.image(gallery)`
+     * serializes with EMPTY options, so the gallery's copy is the only one there
+     * is. See `resolveEncodeSettings` in the ui package.
+     */
+    test("should serialize the encode option so a backed field can inherit it", () => {
+      expect(
+        images({
+          directory: "/public/val",
+          encode: { type: "webp", maxWidth: 1200 },
+        })["executeSerialize"]().encode,
+      ).toEqual({ type: "webp", maxWidth: 1200 });
+      expect(
+        images({ directory: "/public/val", encode: false })[
+          "executeSerialize"
+        ]().encode,
+      ).toBe(false);
+    });
+
+    test("should not invent an encode option when the schema said nothing", () => {
+      expect(
+        images({ directory: "/public/val" })["executeSerialize"]().encode,
+      ).toBeUndefined();
+    });
   });
 
   describe("remote", () => {

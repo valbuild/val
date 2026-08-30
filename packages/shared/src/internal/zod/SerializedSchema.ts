@@ -151,13 +151,19 @@ export const SerializedUnionSchema: z.ZodType<SerializedUnionSchemaT> = z.lazy(
   },
 );
 
+export const ImageEncodeOption = z.union([
+  z.literal(false),
+  z.object({
+    type: z.literal("webp"),
+    quality: z.number().optional(),
+    maxWidth: z.number().optional(),
+    maxHeight: z.number().optional(),
+  }),
+]);
 export const ImageOptions = z.object({
-  ext: z
-    .union([z.tuple([z.literal("jpg")]), z.tuple([z.literal("webp")])])
-    .optional(),
   directory: z.string().optional(),
-  prefix: z.string().optional(),
   accept: z.string().optional(),
+  encode: ImageEncodeOption.optional(),
 });
 export const SerializedImageSchema: z.ZodType<SerializedImageSchemaT> =
   z.object({
@@ -230,6 +236,7 @@ export const SerializedRecordSchema: z.ZodType<SerializedRecordSchemaT> =
         accept: z.string().optional(),
         directory: z.string().optional(),
         remote: z.boolean().optional(),
+        encode: ImageEncodeOption.optional(),
         alt: SerializedSchema.optional(),
         moduleMetadata: z
           .record(z.string(), z.record(z.string(), z.any()))
