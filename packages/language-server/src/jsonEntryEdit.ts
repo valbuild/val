@@ -152,6 +152,15 @@ function entryOpsOf(
     if (cls.recordPath.length > 0 || cls.subPath.length === 0) {
       return undefined;
     }
+    // `move` and `copy` carry a second path, and `rebaseContentOp` slices `from`
+    // by the same prefix as `path` -- so an op reaching outside this entry would
+    // have its source silently reinterpreted as a path inside this entry's file.
+    if (op.op === "move" || op.op === "copy") {
+      const fromCls = classifyJsonValuesOp(schema, op.from);
+      if (fromCls.kind !== "entry" || fromCls.entryKey !== cls.entryKey) {
+        return undefined;
+      }
+    }
     if (entryKey !== undefined && entryKey !== cls.entryKey) {
       return undefined;
     }
