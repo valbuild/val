@@ -68,6 +68,8 @@ export function MobileBottomBar({
   onOpenQuickActions,
   onToggleCanvas,
   isCanvasOpen,
+  canvasActionLabel,
+  onExitCanvas,
 }: {
   pendingChanges: number;
   onPreview: () => void;
@@ -86,6 +88,10 @@ export function MobileBottomBar({
   /** Absent when the selection has no route Val can put on a canvas. */
   onToggleCanvas?: () => void;
   isCanvasOpen?: boolean;
+  /** What the canvas half does next. See `PreviewButton`. */
+  canvasActionLabel?: string;
+  /** Leaving the canvas, where that is a separate act. See `PreviewButton`. */
+  onExitCanvas?: () => void;
 }) {
   return (
     <div className="absolute z-full bottom-0 inset-x-0 flex items-center gap-2 px-3 py-2.5 bg-bg-float border-t border-border-float">
@@ -121,6 +127,8 @@ export function MobileBottomBar({
         previewHref={previewHref}
         onToggleCanvas={onToggleCanvas}
         isCanvasOpen={isCanvasOpen}
+        canvasActionLabel={canvasActionLabel}
+        onExitCanvas={onExitCanvas}
         menuPlacement="above"
         alwaysShowLabel
         className="h-9 flex-1"

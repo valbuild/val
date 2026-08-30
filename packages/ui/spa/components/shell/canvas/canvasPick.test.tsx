@@ -21,14 +21,15 @@ import { CanvasFrame } from "./CanvasFrame";
  * Asking for it anyway was not merely redundant. The page's scroll does not stop
  * at the page: `scrollIntoView` inside a same-origin frame walks out of the
  * frame and scrolls the EMBEDDER's scroll containers too (measured in Chromium).
- * On a phone the embedder is the pane scroller, so the studio's answer to "I
+ * On a phone the embedder held the two panes, so the studio's answer to "I
  * picked this" was to switch to the fields column and then have the page drag it
  * back to the canvas — or, since what is being revealed is an element rather
  * than a pane, to somewhere between the two.
  *
- * `ValCanvasBridge` no longer calls `scrollIntoView` at all, and the pane
- * scroller now corrects anything that moves it. This is the third of the three:
- * do not ask for a scroll there was never a reason to ask for.
+ * `ValCanvasBridge` no longer calls `scrollIntoView` at all, and the phone's
+ * panes are no longer a scroll offset for anything to move (`overflow-clip` in
+ * `PageWorkspace`). This is the third of the three: do not ask for a scroll
+ * there was never a reason to ask for.
  */
 describe("a pick on the page", () => {
   let posted: ValCanvasStudioMessage[];

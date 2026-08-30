@@ -8,11 +8,10 @@ import {
   useState,
 } from "react";
 import {
-  Layers,
+  Eye,
   ListTree,
   LucideIcon,
   MousePointerSquareDashed,
-  PanelLeft,
   X,
 } from "lucide-react";
 import { cn } from "../../designSystem/cn";
@@ -29,7 +28,6 @@ import {
 import { FieldsPanel } from "./FieldsPanel";
 import { CanvasFields } from "./CanvasFields";
 import { CanvasRouteBar } from "./CanvasRouteBar";
-import { usePaneScroller, WorkspacePane } from "./usePaneScroller";
 import { CANVAS_MAX_WIDTH } from "../EditorCanvas";
 import { SourcePath } from "@valbuild/core";
 import { ShellBreakpoint } from "../types";
@@ -46,8 +44,6 @@ import {
 // Re-exported: this module named the type before the canvas had a types file,
 // and the whole shell imports it from here.
 export type { CanvasView };
-// Named here first, and moved to `usePaneScroller` with the state it describes.
-export type { WorkspacePane };
 
 export type PageWorkspaceProps = {
   /** The module editor for the current selection. Shown when it is on. */
@@ -156,6 +152,18 @@ export type PageWorkspaceProps = {
   onCloseCanvas: () => void;
   view: CanvasView;
   onViewChange: (view: CanvasView) => void;
+  /**
+   * Which of the phone's two panes is on screen. Ignored above that breakpoint,
+   * where both are.
+   *
+   * Owned by the shell rather than here, because the shell's Preview button is
+   * the main way between them: on a phone it does not open a region beside the
+   * editor, it takes you to the page and back again. Keeping the pane here as
+   * well would give that button and this switch two different ideas of where
+   * you are.
+   */
+  pane: WorkspacePane;
+  onPaneChange: (pane: WorkspacePane) => void;
   isDevMode?: boolean;
   /** Hand a field to the assistant, which opens the AI panel. */
   /**
@@ -192,11 +200,20 @@ const MIN_CANVAS_PX = 280;
 const MAX_COLUMN_SHARE = 0.72;
 /** How far an arrow key moves the divider. */
 const KEYBOARD_STEP_PX = 24;
+/** Where the phone's strip of switches sits, below the floating top bar. */
+const PHONE_STRIP_TOP = "4.5rem";
 /**
- * Where a phone's pane content starts: below the top bar and below the strip
- * of switches under it.
+ * Where a phone's pane content starts: below the top bar, below the strip of
+ * switches under it, and clear of it.
+ *
+ * The strip ends at 6.625rem — {@link PHONE_STRIP_TOP} plus the switch's own
+ * 2.125rem — so the rest of this is deliberate air. It used to be 2px, which
+ * read as the switches being stuck to the top of the fields rather than being
+ * a row of their own above them.
  */
-const PHONE_STRIP_CLEARANCE = "6.75rem";
+const PHONE_STRIP_CLEARANCE = "8.25rem";
+/** The height of everything on the phone's strip, switches and exit alike. */
+const PHONE_STRIP_CONTROL_HEIGHT = "2.125rem";
 /** Long enough to follow the column across, short enough not to wait. */
 const OPEN_MS = 320;
 /** The switch thumb moves faster: it is a short distance and a direct answer. */
@@ -212,9 +229,9 @@ const OPEN_EASE = "cubic-bezier(0.4, 0, 0.2, 1)";
  * still the thing in front of you. That is the whole point of adding rather
  * than switching: there is no "back", because you never left.
  *
- * On a phone there is no room to put two things side by side, so the same
- * two regions become panes that snap horizontally — editor first, canvas
- * second — which keeps both reachable without either being cramped.
+ * On a phone there is no room to put two things side by side, so the same two
+ * regions become panes on a track that slides — editor first, canvas second —
+ * which keeps both reachable without either being cramped.
  */
 export function PageWorkspace({
   children,
@@ -233,6 +250,8 @@ export function PageWorkspace({
   onCloseCanvas,
   view,
   onViewChange,
+  pane,
+  onPaneChange,
   isDevMode,
   onAttachToChat,
   skipTransition,
@@ -248,24 +267,24 @@ export function PageWorkspace({
    * button appeared, the frame mounted, and the column never moved.
    */
   const hasCanvas = page !== undefined || renderCanvas !== undefined;
-  const open = isCanvasOpen && hasCanvas;
   /**
-   * Whether the canvas has ever been opened.
+   * Whether the canvas is on screen, and therefore whether it exists at all.
    *
-   * The pane's wrapper stays mounted while closed so opening it can animate,
-   * but what is inside must not be built until it is asked for: in the app
-   * `renderCanvas` is an iframe on the running site, and mounting it while the
-   * canvas is closed loads the entire site on every studio load — a page load
-   * nobody asked for, whose console output arrives as the studio's own.
+   * The canvas is built exactly while it is open — never before, and not one
+   * render after it closes. Before, because in the app `renderCanvas` is an
+   * iframe on the running site, and mounting it while the canvas is closed
+   * loads the entire site on every studio load: a page load nobody asked for,
+   * whose console output arrives as the studio's own. After, because a closed
+   * canvas that is merely hidden is still a second copy of the site running in
+   * this tab, still polling, still holding whatever it holds.
    *
-   * A ref, because it is derived from `open` and changes in the same render
-   * `open` does: state here would mean a second render to catch up, and the
-   * frame would mount one frame after the pane became visible.
+   * What must NOT unmount it is anything short of closing: switching between
+   * the phone's modes moves the panes and changes what the left one holds, and
+   * the frame keeps its scroll position, its client state and its route
+   * throughout. That is the whole point of the modes — edit, look, edit again —
+   * and a reload between each of those is the one thing that would ruin it.
    */
-  const hasBeenOpen = useRef(false);
-  if (open) {
-    hasBeenOpen.current = true;
-  }
+  const open = isCanvasOpen && hasCanvas;
 
   const ease = (properties: string[]) =>
     reducedMotion || skipTransition
@@ -317,18 +336,18 @@ export function PageWorkspace({
   const [attachedFieldIds, setAttachedFieldIds] = useState<string[]>([]);
 
   /**
-   * The phone's two panes, and where they are.
+   * Leaving the canvas leaves nothing behind.
    *
-   * One owner for the pane and the scroll position, because they are one fact.
-   * See {@link usePaneScroller} for the invariant that keeps them from resting
-   * anywhere between the two.
+   * Both of these describe a session with a page — what you had picked on it,
+   * what you had handed to the assistant from it — and a page that is no longer
+   * mounted has neither. Kept, they would come back with the NEXT page opened on
+   * the canvas, pointing at fields that are not on it.
    */
-  const panes = usePaneScroller({
-    enabled: isPhone,
-    paneCount: open ? 2 : 1,
-    animate: !reducedMotion && !skipTransition,
-  });
-  const pane = panes.pane;
+  useEffect(() => {
+    if (open) return;
+    setSelectedFieldId(null);
+    setAttachedFieldIds((current) => (current.length === 0 ? current : []));
+  }, [open]);
 
   const canvasWindowRef = useRef<CanvasWindowHandle>(null);
   const splitRef = useRef<HTMLDivElement>(null);
@@ -504,18 +523,6 @@ export function PageWorkspace({
     canvasWindowRef.current?.pinch(gesture);
   }, []);
 
-  /**
-   * Opening the canvas on a phone means going to it; closing means coming back.
-   *
-   * The one place the pane follows something other than a person, and it goes
-   * through the same door every other placement does — see
-   * {@link usePaneScroller}. Nothing else in here touches the scroller.
-   */
-  const goToPane = panes.goTo;
-  useEffect(() => {
-    goToPane(open ? "canvas" : "editor");
-  }, [open, goToPane]);
-
   const attachField = useCallback(
     (fieldId: string) => {
       setAttachedFieldIds((current) =>
@@ -544,23 +551,22 @@ export function PageWorkspace({
    * switched the view left you looking at the page you had just selected on,
    * with the answer on a screen you had to know to swipe to.
    *
+   * Both unconditionally, so that a pick always ends in the same place: asking
+   * first whether the pane was already the editor's made the answer depend on
+   * where you happened to be, which is exactly the kind of "sometimes" this
+   * screen had too much of.
+   *
    * The caller acts on the pick itself — it owns navigation — and only calls
    * this once that has SUCCEEDED. A pick that could not be turned into a field
    * to open must not move anything: half a transition, with the fields column
    * in front of you and the field it was opened for missing from it, is the
    * state that reads as the canvas being broken.
-   *
-   * The placement lands rather than glides. A pick is a jump to somewhere else,
-   * not the continuation of a gesture, so there is no motion to preserve — and
-   * the frame the click just focused is liable to be scrolled back into view by
-   * the browser, which an animation in flight loses to and a landing does not.
    */
   const onPicked = useCallback(() => {
     if (!isPicking) return;
     onViewChange("fields");
-    if (!isPhone) return;
-    goToPane("editor", { animate: false });
-  }, [isPicking, onViewChange, isPhone, goToPane]);
+    if (isPhone) onPaneChange("editor");
+  }, [isPicking, onViewChange, isPhone, onPaneChange]);
 
   /**
    * Whether the page is re-rendering because of an edit.
@@ -582,15 +588,6 @@ export function PageWorkspace({
     breakpoint === "desktop" && open ? { paddingLeft: "5.5rem" } : undefined;
 
   /**
-   * Whether the close button spells out what it does.
-   *
-   * Only where the canvas is a region beside the editor. On a phone it is a
-   * pane of its own, narrow enough that a labelled button starts competing
-   * with the page for the top of the frame.
-   */
-  const showExitLabel = !isPhone;
-
-  /**
    * The switch that decides what the column holds.
    *
    * Only offered when there is something to switch to: the fields view is a
@@ -608,9 +605,42 @@ export function PageWorkspace({
         onChange={onViewChange}
         fieldCount={fieldCount}
         animate={!reducedMotion}
-        compact={isPhone}
       />
     ) : null;
+
+  /**
+   * The phone's one switch, and the three places it can put you.
+   *
+   * On a phone the view and the pane are not two questions. "Fields or normal"
+   * only ever describes the left pane, and "editor or canvas" only ever moves
+   * between that pane and the page — so asking them separately produced a
+   * control whose two halves each changed meaning depending on the other, which
+   * is how "Editor" came to mean "not the page" rather than anything about the
+   * editor. One control over the three states there actually are says what it
+   * does at every press: Normal is the module editor, Fields is the page's own
+   * fields, Preview is the page. Leaving is the X beside it, and nothing else.
+   *
+   * Fields only where the page reported some — the same rule the desktop switch
+   * follows, so a page Val cannot see into offers Normal and Preview and no
+   * dead third option.
+   */
+  const mobileMode: MobileMode =
+    pane === "canvas"
+      ? "preview"
+      : view === "fields" && fieldCount > 0
+        ? "fields"
+        : "normal";
+  const setMobileMode = useCallback(
+    (next: MobileMode) => {
+      if (next === "preview") {
+        onPaneChange("canvas");
+        return;
+      }
+      onPaneChange("editor");
+      onViewChange(next);
+    },
+    [onPaneChange, onViewChange],
+  );
 
   /**
    * Whether the row above the column is there to clear the floating top bar.
@@ -624,11 +654,11 @@ export function PageWorkspace({
    * Whether the column has to clear the shell's floating top bar itself.
    *
    * Something above it usually does: the switch row on desktop, and on a phone
-   * with the canvas open the pane's own `PHONE_STRIP_CLEARANCE`, which is sized
+   * with the canvas open the track's own `PHONE_STRIP_CLEARANCE`, which is sized
    * for the top bar AND the strip of switches under it. The phone case was
-   * missing, so the column added its own 80px on top of that 108px — 188px of
-   * emptiness above the first field, with the switches sitting in the middle of
-   * it.
+   * missing, so the column added its own 80px on top of that clearance — 188px
+   * of emptiness above the first field, with the switches sitting in the middle
+   * of it.
    */
   const columnClearsTopBar = !columnHasHeaderRow && !(open && isPhone);
 
@@ -734,7 +764,7 @@ export function PageWorkspace({
     />
   );
 
-  const canvasPane = hasCanvas && hasBeenOpen.current && (
+  const canvasPane = open && (
     <div
       className={cn(
         "relative h-full overflow-hidden rounded-xl border border-border-float bg-bg-float-raised",
@@ -792,26 +822,30 @@ export function PageWorkspace({
        *
        * An X in the corner of a pane is ambiguous — it could close the page,
        * the studio, or the thing the page is showing — and this one does
-       * something worth being sure about. Where there is room the word is
-       * there; on a phone, where the canvas is a pane you swipe back out of,
-       * the icon alone keeps the page's corner clear.
+       * something worth being sure about, so where the canvas is a region
+       * beside the editor the word is there beside the icon.
+       *
+       * Not on a phone. There the canvas is one of three modes, and the way out
+       * of all three is one X on the strip that switches between them — a
+       * second one inside the page's own corner would be a way out that exists
+       * in one mode and not the others, which is the sort of "sometimes" this
+       * screen is meant to be rid of.
        */}
-      <button
-        type="button"
-        aria-label="Exit Preview"
-        onClick={onCloseCanvas}
-        className={cn(
-          "absolute top-3 right-3 inline-flex h-8 items-center gap-1.5 rounded-md",
-          "border border-border-float bg-bg-float text-fg-secondary shadow-lg",
-          "hover:text-fg-primary",
-          showExitLabel ? "pl-2.5 pr-3" : "w-8 justify-center",
-        )}
-      >
-        <X size={15} />
-        {showExitLabel && (
+      {!isPhone && (
+        <button
+          type="button"
+          aria-label="Exit Preview"
+          onClick={onCloseCanvas}
+          className={cn(
+            "absolute top-3 right-3 inline-flex h-8 items-center gap-1.5 rounded-md pl-2.5 pr-3",
+            "border border-border-float bg-bg-float text-fg-secondary shadow-lg",
+            "hover:text-fg-primary",
+          )}
+        >
+          <X size={15} />
           <span className="text-xs font-medium">Exit Preview</span>
-        )}
-      </button>
+        </button>
+      )}
 
       <CanvasToolbar
         className="absolute bottom-3 left-1/2 -translate-x-1/2"
@@ -836,54 +870,109 @@ export function PageWorkspace({
   if (isPhone) {
     return (
       <div className="absolute inset-0 bg-bg-canvas">
+        {/*
+         * The two panes, on a track that is MOVED rather than scrolled.
+         *
+         * This was a scroll-snap container, and the trouble with it was never
+         * the animation: it was that "which mode am I in" was a scroll offset,
+         * so anything that touched the layout could answer the question. The
+         * panes change contents as they sit there — the fields column fills in
+         * one row at a time as each schema resolves — and a snap container
+         * re-snaps to the area it last considered current whenever its contents
+         * change, so a mode you had just chosen would be quietly undone a frame
+         * later. Reading the offset back to find the mode then agreed with the
+         * undo and scrolled the rest of the way, and a tap looked like it did
+         * nothing. Clicking inside the frame made it worse, because focusing a
+         * frame makes the browser scroll it back into view and that cancels a
+         * smooth scroll trying to take it off screen.
+         *
+         * Three refs and two timers existed to paper over that, and all of it
+         * came down to owning a number the browser also owned. A transform is
+         * not a position anything else writes to: the mode is the state, the
+         * track follows it, and there is nothing to read back. The move is
+         * still smooth, and swiping — which the snap container gave for free —
+         * is what the strip of switches above replaces.
+         *
+         * `overflow-clip` rather than `overflow-hidden`, and that is the
+         * load-bearing half of it. A hidden box whose content overflows is
+         * still a scroll PORT — it just has no scrollbar — so anything that
+         * reveals an element can move it. Which is not hypothetical here: the
+         * canvas pane holds a same-origin frame, `scrollIntoView` inside such a
+         * frame walks out of it and scrolls the embedder's containers, and
+         * clicking inside a frame makes the browser reveal the frame itself.
+         * Both reveal an ELEMENT rather than a pane, so both can leave the track
+         * anywhere — half the editor and half the page, which is the state the
+         * phone kept getting stuck in. A clipped box is not a scroll port at
+         * all, so there is no offset for any of that to write to.
+         */}
         <div
-          ref={panes.ref}
-          className={cn(
-            "flex h-full snap-x snap-mandatory overflow-x-auto overscroll-x-contain",
-            !open && "overflow-x-hidden",
-          )}
+          className="h-full overflow-clip"
+          style={open ? { paddingTop: PHONE_STRIP_CLEARANCE } : undefined}
         >
-          {/* Both panes start below the switch strip, so the strip never
-              covers the top of either one. */}
           <div
-            className="h-full w-full shrink-0 snap-start"
-            style={open ? { paddingTop: PHONE_STRIP_CLEARANCE } : undefined}
+            className="flex h-full w-full"
+            style={{
+              transform: `translateX(${open && pane === "canvas" ? "-100%" : "0%"})`,
+              transition: ease(["transform"]),
+            }}
           >
-            {column}
+            <div className="h-full w-full shrink-0">{column}</div>
+            {/*
+             * Mounted for as long as the canvas is open, whichever mode is on
+             * screen. Switching modes must not cost a page load — see `open`.
+             */}
+            {open && (
+              <div className="h-full w-full shrink-0 p-3 pb-14">
+                {canvasPane}
+              </div>
+            )}
           </div>
-          {open && (
-            <div
-              style={{ paddingTop: PHONE_STRIP_CLEARANCE }}
-              className="h-full w-full shrink-0 snap-start p-3 pb-14"
-            >
-              {canvasPane}
-            </div>
-          )}
         </div>
         {/*
-         * Both switches ride above the panes rather than inside one of them:
-         * the pane switch has to be reachable from either side, and the view
-         * switch changes both halves at once, so neither belongs to a pane.
+         * The switches ride above the panes rather than inside one of them:
+         * they reach across both, and belong to neither.
          *
-         * A visible switch as well as a swipe, because a pane you can only
-         * reach by guessing that it swipes is a pane most people never find.
+         * `z-window` because the canvas pane's own route bar is at that level
+         * and `relative` alone does not scope it — without this the address bar
+         * of a page you are not looking at can paint over the strip.
          */}
         {open && (
-          <div className="absolute inset-x-3 top-[4.5rem] flex items-center gap-2">
+          <div
+            className="absolute inset-x-3 z-window flex items-center gap-2"
+            style={{ top: PHONE_STRIP_TOP }}
+          >
+            <MobileModeToggle
+              mode={mobileMode}
+              onChange={setMobileMode}
+              // Absent means the page reported no fields, and the switch then
+              // offers Normal and Preview rather than a dead third option.
+              fieldCount={fieldCount > 0 ? fieldCount : undefined}
+              animate={!reducedMotion}
+            />
             {/*
-             * What the pane HOLDS on the left, which pane you are LOOKING at on
-             * the right — the reading order the desktop layout already has: the
-             * view switch sits at the top of the column it changes, and the
-             * canvas is the thing off to the right.
+             * The way out, from any of the three modes.
+             *
+             * Same height and same shell as the switch beside it. It is a
+             * different kind of thing — a way out rather than a way around, so
+             * it stands apart rather than being a fourth option — but one that
+             * is a couple of pixels shorter than its neighbour reads as a
+             * mistake, not as a distinction.
              */}
-            {pane === "editor" && viewToggle}
-            <span className="ml-auto">
-              <PaneToggle
-                pane={pane}
-                onChange={goToPane}
-                animate={!reducedMotion}
-              />
-            </span>
+            <button
+              type="button"
+              aria-label="Exit Preview"
+              onClick={onCloseCanvas}
+              style={{
+                height: PHONE_STRIP_CONTROL_HEIGHT,
+                width: PHONE_STRIP_CONTROL_HEIGHT,
+              }}
+              className={cn(
+                "ml-auto grid shrink-0 place-items-center rounded-md",
+                "border border-border-float bg-bg-float text-fg-secondary",
+              )}
+            >
+              <X size={15} />
+            </button>
           </div>
         )}
       </div>
@@ -998,15 +1087,35 @@ function SplitDivider({
   );
 }
 
+/** Which half of the workspace a phone is showing. */
+export type WorkspacePane = "editor" | "canvas";
+
+/**
+ * Where a phone is looking: one of the two left-hand views, or the page.
+ *
+ * The view and the pane, as the one question they are on a screen that can only
+ * show one of them at a time. See `mobileMode` in `PageWorkspace`.
+ */
+type MobileMode = "normal" | "fields" | "preview";
+
+/** One option on {@link MobileModeToggle}. */
+type MobileModeOption = {
+  value: MobileMode;
+  label: string;
+  icon: LucideIcon;
+  badge?: number;
+};
+
 /** Where the thumb sits, in pixels from the inside of the control's border. */
 type SegmentedThumb = { left: number; width: number };
 
 /**
- * A two-state switch whose selected state travels between the options.
+ * A switch whose selected state travels between the options.
  *
  * The thumb moves rather than the highlight jumping, because on a phone the
- * pane switch and the swipe do the same thing — and a control that slides
- * says that, where one that blinks between two colours does not.
+ * switch and the panes do the same thing — the track slides to the mode the
+ * thumb slid to — and a control that slides says that, where one that blinks
+ * between two colours does not.
  *
  * Each option is as wide as what is written on it, so every label gets the
  * SAME padding either side of it. Equal columns (`auto-cols-fr`) did not: the
@@ -1042,10 +1151,10 @@ function SegmentedControl<T extends string>({
   /**
    * The tighter padding, for where the room is not there.
    *
-   * The phone strip carries BOTH switches on one line that does not wrap, in
-   * `viewport - 24`; at the roomier padding that line runs off a 390px screen
-   * and takes the pane switch — the only visible way to the canvas — with it.
-   * Every option still gets the same padding as every other, which is what
+   * The phone strip carries three options and the exit button on one line that
+   * does not wrap, in `viewport - 24`; at the roomier padding that line runs off
+   * a 390px screen and takes Preview — the only visible way to the page — with
+   * it. Every option still gets the same padding as every other, which is what
    * this control is for; there is just less of it.
    */
   compact?: boolean;
@@ -1162,32 +1271,54 @@ function SegmentedControl<T extends string>({
 }
 
 /**
- * The phone's editor/canvas switch.
+ * The phone's one switch: the module editor, the page's fields, or the page.
  *
- * A visible switch as well as a swipe, because a pane you can only reach by
- * guessing that it swipes is a pane most people never find.
+ * Three options in reading order, left to right, matching where each one puts
+ * you: Normal and Fields are both the left pane and sit together on the left;
+ * Preview is the pane to their right and sits on the right. Every option names
+ * a destination — there is no "Editor" meaning "away from the page", which is
+ * what the pair of two-state switches this replaces ended up saying.
  */
-function PaneToggle({
-  pane,
+function MobileModeToggle({
+  mode,
   onChange,
+  fieldCount,
   animate,
 }: {
-  pane: WorkspacePane;
-  onChange: (pane: WorkspacePane) => void;
+  mode: MobileMode;
+  onChange: (mode: MobileMode) => void;
+  /** How many fields the page reported. Absent hides the Fields option. */
+  fieldCount?: number;
   animate: boolean;
 }) {
+  // Its own annotated binding rather than a spread inside the array below: an
+  // array literal in a conditional gets no contextual type, so `"fields"` there
+  // would widen to `string` and stop being a `MobileMode` at all.
+  const fieldsOption: MobileModeOption[] =
+    fieldCount === undefined
+      ? []
+      : [
+          {
+            value: "fields",
+            label: "Fields",
+            icon: ListTree,
+            badge: fieldCount,
+          },
+        ];
+  const options: ReadonlyArray<MobileModeOption> = [
+    { value: "normal", label: "Normal", icon: MousePointerSquareDashed },
+    ...fieldsOption,
+    { value: "preview", label: "Preview", icon: Eye },
+  ];
   return (
     <SegmentedControl
-      label="Workspace pane"
-      value={pane}
+      label="Workspace view"
+      value={mode}
       onChange={onChange}
       animate={animate}
+      options={options}
       // Only ever on the phone strip, which is where the room runs out.
       compact
-      options={[
-        { value: "editor", label: "Editor", icon: PanelLeft },
-        { value: "canvas", label: "Canvas", icon: Layers },
-      ]}
     />
   );
 }
@@ -1203,23 +1334,19 @@ function ViewToggle({
   onChange,
   fieldCount,
   animate,
-  compact,
 }: {
   view: CanvasView;
   onChange: (view: CanvasView) => void;
   /** How many fields the page reported. Shown on the Fields tab. */
   fieldCount?: number;
   animate: boolean;
-  /** See `SegmentedControl`: on the phone it shares its line with the panes. */
-  compact?: boolean;
 }) {
   return (
     <SegmentedControl
-      label="Canvas view"
+      label="Preview view"
       value={view}
       onChange={onChange}
       animate={animate}
-      compact={compact}
       options={[
         {
           value: "normal",
