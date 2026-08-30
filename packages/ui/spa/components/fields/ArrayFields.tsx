@@ -23,7 +23,7 @@ import { PreviewError } from "../PreviewError";
 import { Loader2 } from "lucide-react";
 import { Field } from "../../components/Field";
 import { AnyField } from "../../components/AnyField";
-import { InlineSortableItem } from "../../components/InlineAnyField";
+import { InlineSortableItem } from "../../components/InlineSortableItem";
 
 export function ArrayFields({
   path,
@@ -256,7 +256,6 @@ export function ArrayFields({
             schema.type,
           );
         }}
-        schema={schema}
         source={shallowSourceAtPath.data || []}
       />
     </div>

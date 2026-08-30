@@ -1,25 +1,34 @@
 import { expect, test } from "@playwright/test";
-import type { Locator, Page } from "@playwright/test";
-import { chainLength, clearPatchChain, openStudio } from "./studio";
+import type { APIRequestContext, Locator, Page } from "@playwright/test";
+import { clearPatchChain, openStudio } from "./studio";
 
 /**
  * `.render({ as: "inline" })` on the items of an array, end to end.
  *
- * The rule this pins is the one that was quietly not happening: an inline item
- * is EDITED IN ITS ROW, and it counts as inline even when the render is
- * declared on the VARIANTS of a tagged union rather than on the union itself —
- * which is how a page-builder list is written (`s.array(s.union("type", block,
- * block))`). Declared that way it used to fall all the way back to preview
- * rows, so the list looked exactly the same with the render as without it.
+ * The spec `studio-ui.spec.ts` says the generic page's inline rows deserve: it
+ * is the only thing covering them, and it covers the two rules that made them
+ * do nothing at all.
  *
- * The second rule is precedence: the `code` block in this fixture declares BOTH
+ * The first is that an inline item is EDITED IN ITS ROW, and counts as inline
+ * even when the render is declared on the VARIANTS of a tagged union rather
+ * than on the union itself — which is how a page-builder list is written
+ * (`s.array(s.union("type", block, block))`). Declared that way it used to fall
+ * all the way back to preview rows, so the list looked exactly the same with
+ * the render as without it.
+ *
+ * The second is precedence: the `code` block in this fixture declares BOTH
  * `.render({ as: "inline" })` and a `.preview(...)`. The render decides the
  * field — the row is an editor, not a preview card — and the preview is left to
  * describe the value where it is only referred to, which in this list is the
  * row's own collapsible header.
+ *
+ * Every assertion here reads a boundary (see `e2e/README.md`): the DOM, the
+ * browser's own URL, or the patches the SERVER holds. Whether an edit reached
+ * the chain is a fact about the server, and the store's own record of it is the
+ * thing under test rather than the oracle for it.
  */
-const PAGE =
-  "/val/~/app/generic/[[...path]]/page.val.ts?p=%22%2Fgeneric%2Ftest%2Ffoo%22";
+const MODULE = "/app/generic/[[...path]]/page.val.ts";
+const PAGE = `/val/~${MODULE}?p=%22%2Fgeneric%2Ftest%2Ffoo%22`;
 
 const TEXT = "This is a test page with some text content.";
 const CODE = 'console.log("This is a code section in the test page.");';
@@ -32,6 +41,22 @@ const CODE = 'console.log("This is a code section in the test page.");';
  */
 function rows(studio: Locator): Locator {
   return studio.locator("[data-val-studio-path*='\"sections\".']");
+}
+
+/** What the SERVER holds for this module, as patch ops. */
+async function serverOps(
+  request: APIRequestContext,
+): Promise<{ op: string; path: string[] }[]> {
+  const res = await request.get("/api/val/patches");
+  expect(res.ok(), `the server refused the request: ${res.status()}`).toBe(
+    true,
+  );
+  const body = (await res.json()) as {
+    patches: { path: string; patch?: { op: string; path: string[] }[] }[];
+  };
+  return body.patches
+    .filter((patch) => patch.path === MODULE)
+    .flatMap((patch) => patch.patch ?? []);
 }
 
 async function openPage(page: Page): Promise<Locator> {
@@ -84,18 +109,27 @@ test.describe("an array of inline items", () => {
 
   test("adding an item appends a row instead of opening a page", async ({
     page,
+    request,
   }) => {
     const studio = await openPage(page);
-    const before = await chainLength(page);
 
     await studio.getByRole("button", { name: "Add" }).last().click();
 
     await expect(rows(studio)).toHaveCount(3);
+    // The row is not the whole claim: an inline list that renders an item it
+    // never wrote is the same screen as one that did. The chain starts empty
+    // (`clearPatchChain`), so the server should now hold exactly the one add,
+    // against the list this button belongs to.
     await expect
-      .poll(() => chainLength(page), {
-        message: "adding an inline item never reached the patch chain",
+      .poll(() => serverOps(request), {
+        message: "adding an inline item never reached the server",
       })
-      .toBeGreaterThan(before);
+      .toEqual([
+        expect.objectContaining({
+          op: "add",
+          path: expect.arrayContaining(["sections"]),
+        }),
+      ]);
     // An inline item has no page of its own to be sent to — see `getNavPath`.
     expect(new URL(page.url()).searchParams.get("p")).toBe(
       '"/generic/test/foo"',
