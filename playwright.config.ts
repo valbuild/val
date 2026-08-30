@@ -89,7 +89,22 @@ export default defineConfig({
    * spreading the tests inside a file across workers would break them for a
    * reason that has nothing to do with the product.
    */
-  workers: process.env.CI ? 4 : undefined,
+  /**
+   * Two, not one per core, and measured rather than guessed.
+   *
+   * Every worker runs a `next dev` that compiles the app's routes with webpack
+   * as the tests hit them, so a worker is CPU-hungry in bursts and not merely
+   * an extra browser. On a 4-core box, four workers took 17.2 minutes against
+   * a 19.9-minute serial run — 40 minutes of CPU inside 17 of wall clock, so
+   * the work parallelised fine and the machine simply had nowhere to put it —
+   * and the contention timed two tests out that pass at lower concurrency.
+   *
+   * GitHub's standard `ubuntu-latest` runner is also 4 vCPU, so a high worker
+   * count buys little there either. If the suite's wall clock matters, the
+   * lever is `--shard` across several runners — each shard gets its own
+   * machine, and no shard contends with another — not more workers inside one.
+   */
+  workers: process.env.CI ? 2 : undefined,
   fullyParallel: false,
   // A generous timeout, and not because the app is slow: `next dev` compiles the
   // route on first request, so the first test pays for a build.
