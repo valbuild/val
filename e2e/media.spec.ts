@@ -1,10 +1,10 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
-  chainLength,
   clearPatchChain,
   closeNavPanel,
   discardAll,
   expandRow,
+  expectNoPatchesOnServer,
   openNavPanel,
   openSiteMap,
   openStudio,
@@ -251,6 +251,7 @@ test.describe("an s.images() gallery in a non-default directory", () => {
 
   test("uploads into the directory the schema names, and the tile renders", async ({
     page,
+    request,
   }) => {
     await openStudio(page, `/val/~${MODULE}`);
     const studio = page.locator("#val-shadow-root");
@@ -298,14 +299,17 @@ test.describe("an s.images() gallery in a non-default directory", () => {
       .toBe(8);
 
     await discardAll(page);
-    await expect.poll(() => chainLength(page)).toBe(0);
+    await expectNoPatchesOnServer(request);
   });
 });
 
 test.describe("an s.files() gallery", () => {
   const MODULE = "/content/fileGallery.val.ts";
 
-  test("uploads a non-image into its own directory", async ({ page }) => {
+  test("uploads a non-image into its own directory", async ({
+    page,
+    request,
+  }) => {
     await openStudio(page, `/val/~${MODULE}`);
     const studio = page.locator("#val-shadow-root");
     await picker(studio).first().setInputFiles(IMAGE);
@@ -319,7 +323,7 @@ test.describe("an s.files() gallery", () => {
       .toContain("image/png");
 
     await discardAll(page);
-    await expect.poll(() => chainLength(page)).toBe(0);
+    await expectNoPatchesOnServer(request);
   });
 });
 
@@ -344,6 +348,7 @@ test.describe("single media fields", () => {
 
   test("s.image() with no directory stores under /public/val", async ({
     page,
+    request,
   }) => {
     await openStudio(page, `/val/~${MODULE}?p=%22image%22`);
     const studio = page.locator("#val-shadow-root");
@@ -353,7 +358,7 @@ test.describe("single media fields", () => {
       .poll(() => uploadedRefs(page), { timeout: 30_000 })
       .toEqual(["/public/val/blue-8x8_8b441.png"]);
     await discardAll(page);
-    await expect.poll(() => chainLength(page)).toBe(0);
+    await expectNoPatchesOnServer(request);
   });
 
   /**
@@ -363,6 +368,7 @@ test.describe("single media fields", () => {
    */
   test("s.image({ directory }) stores where the field says", async ({
     page,
+    request,
   }) => {
     await openStudio(page, `/val/~${MODULE}?p=%22imageInSubdir%22`);
     const studio = page.locator("#val-shadow-root");
@@ -372,12 +378,13 @@ test.describe("single media fields", () => {
       .poll(() => uploadedRefs(page), { timeout: 30_000 })
       .toEqual(["/public/test/fields/green-8x8_24c3f.png"]);
     await discardAll(page);
-    await expect.poll(() => chainLength(page)).toBe(0);
+    await expectNoPatchesOnServer(request);
   });
 
   /** A gallery-backed field stores in the GALLERY's directory. */
   test("s.image(gallery) stores in the gallery's directory", async ({
     page,
+    request,
   }) => {
     await openStudio(page, `/val/~${MODULE}?p=%22fromGallery%22`);
     const studio = page.locator("#val-shadow-root");
@@ -387,7 +394,7 @@ test.describe("single media fields", () => {
       .poll(() => uploadedRefs(page), { timeout: 30_000 })
       .toEqual(["/public/test/subdir/blue-8x8_8b441.png"]);
     await discardAll(page);
-    await expect.poll(() => chainLength(page)).toBe(0);
+    await expectNoPatchesOnServer(request);
   });
 
   /**
@@ -401,6 +408,7 @@ test.describe("single media fields", () => {
    */
   test("keeps the focal point folded, and opens the image large", async ({
     page,
+    request,
   }) => {
     await openStudio(page, `/val/~${MODULE}?p=%22image%22`);
     const studio = page.locator("#val-shadow-root");
@@ -440,10 +448,10 @@ test.describe("single media fields", () => {
 
     await page.keyboard.press("Escape");
     await discardAll(page);
-    await expect.poll(() => chainLength(page)).toBe(0);
+    await expectNoPatchesOnServer(request);
   });
 
-  test("s.file() uploads a non-image", async ({ page }) => {
+  test("s.file() uploads a non-image", async ({ page, request }) => {
     await openStudio(page, `/val/~${MODULE}?p=%22file%22`);
     const studio = page.locator("#val-shadow-root");
     await picker(studio).first().setInputFiles(FILE);
@@ -452,7 +460,7 @@ test.describe("single media fields", () => {
       .poll(() => uploadedRefs(page), { timeout: 30_000 })
       .toEqual(["/public/val/note_7dae5.txt"]);
     await discardAll(page);
-    await expect.poll(() => chainLength(page)).toBe(0);
+    await expectNoPatchesOnServer(request);
   });
 });
 
