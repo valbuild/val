@@ -312,6 +312,31 @@ describe("code actions over LSP", () => {
     expect(applied.split("\n")[0]).toBe(ENTRY_TEXT.split("\n")[0]);
   });
 
+  test("stops offering the fix once the dirty entry buffer is closed", async () => {
+    // Closing an unsaved entry REMOVES an overlay. The modules that read it stay
+    // open, so without invalidating on close they keep answering from a buffer
+    // that no longer exists — here, still offering to write 944x944 over an
+    // entry that on disk already says 944x944.
+    const { fixable } = await openEntryFixture();
+    expect(
+      (await session.requestCodeActions(ENTRY_MODULE_URI, fixable)).length,
+    ).toBeGreaterThan(0);
+
+    session.closeDocument(ENTRY_URI);
+    const afterClose = await session.nextDiagnostics(ENTRY_MODULE_URI);
+    const stillFixable = afterClose.diagnostics.filter((d) =>
+      d.data?.fixes?.some((f) => f.endsWith("check-metadata")),
+    );
+    // The diagnostic itself survives — core reports check-metadata for a direct
+    // `s.image()` whether or not the metadata is right — but there is nothing
+    // left to change, so no action is offered.
+    const actions = await session.requestCodeActions(
+      ENTRY_MODULE_URI,
+      stillFixable,
+    );
+    expect(actions.filter((a) => a.edit !== undefined)).toEqual([]);
+  });
+
   test("offers a quick fix that corrects gallery metadata", async () => {
     // media.val.ts is a gallery whose stored entry says 800x600 for an image
     // that is really 944x944, reported as images:check-all-files. The fix reads

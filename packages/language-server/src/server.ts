@@ -797,6 +797,19 @@ export function createValLanguageServer(connection: Connection): {
     }
     // Clear our diagnostics so they do not linger for a file the user closed.
     connection.sendDiagnostics({ uri: document.uri, diagnostics: [] });
+    // Closing an entry file REMOVES an overlay: whatever the buffer said stops
+    // being what the module reads, and the modules that read it are still open,
+    // still showing diagnostics computed from a buffer that no longer exists.
+    // (Opening one needs no case of its own -- `TextDocuments` fires
+    // onDidChangeContent for a didOpen too, which the handler above catches.)
+    if (isValJsonEntryUri(document.uri)) {
+      project?.invalidate();
+      for (const open of documents.all()) {
+        if (isValModuleUri(open.uri)) {
+          scheduleValidation(open.uri);
+        }
+      }
+    }
   });
 
   connection.onShutdown(() => {

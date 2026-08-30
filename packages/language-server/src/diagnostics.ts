@@ -400,7 +400,7 @@ function rangeOf(
   if (!modulePathMap) {
     return FALLBACK_RANGE;
   }
-  let modulePath: string;
+  let modulePath: ModulePath;
   try {
     [, modulePath] = Internal.splitModuleFilePathAndModulePath(
       sourcePath as never,
@@ -446,12 +446,12 @@ function rangeOf(
  * offered from.
  */
 function longestResolvedPrefixRange(
-  modulePath: string,
+  modulePath: ModulePath,
   modulePathMap: NonNullable<ReturnType<typeof createModulePathMap>>,
 ): Range | undefined {
   let segments: string[];
   try {
-    segments = Internal.splitModulePath(modulePath as ModulePath);
+    segments = Internal.splitModulePath(modulePath);
   } catch {
     return undefined;
   }
