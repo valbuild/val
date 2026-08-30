@@ -648,11 +648,12 @@ export function PageWorkspace({
   /**
    * Whether the row above the column is there to clear the floating top bar.
    *
-   * With the canvas open the switch normally supplies that gap, so the column
-   * itself does not — but when there is no switch nothing does, and the editor
-   * starts underneath the top bar.
+   * Wherever the switch is in a row of its own — beside the editor, with the
+   * canvas open — that row supplies the gap and the column does not pay for it
+   * again. It used to also ask whether there WAS a switch, which stopped being
+   * a question when the switch stopped coming and going.
    */
-  const columnHasHeaderRow = open && !isPhone && viewToggle !== null;
+  const columnHasHeaderRow = open && !isPhone;
   /**
    * Whether the column has to clear the shell's floating top bar itself.
    *
