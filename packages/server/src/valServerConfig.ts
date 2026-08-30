@@ -115,16 +115,28 @@ export async function initHandlerOptions(
 /**
  * Build the data layer a {@link ValServerConfig} calls for.
  *
- * The `apiKey` handed to `ValOpsHttp` here is the app's own credential. A caller
- * that needs to act as a specific *user* — the MCP registry, for instance —
- * passes that user's personal access token per request instead, rather than
- * constructing a second instance around it. See `docs/plans/mcp.md` D.2.
+ * `auth` decides *whose* credential the http backend sees. Left out, it is the
+ * app's own API key — which is what the Studio wants, because there the app has
+ * already verified a session cookie and is acting on the user's behalf under its
+ * own authority.
+ *
+ * A caller acting for a user it has *not* authenticated itself must pass that
+ * user's personal access token instead, so the backend is the one that decides
+ * what the caller may do. That is the whole of `docs/plans/mcp.md` D.2: the app
+ * stops being an authority and goes back to being a pipe. Passing the app's API
+ * key on such a request is the D.6 confused deputy, and it is worth being blunt
+ * about why it is tempting — it works, and it works for every project the key
+ * can reach, including the ones the caller cannot.
  */
 export function createValOps(
   valModules: ValModules,
   options: ValServerConfig,
+  auth?: { pat: string },
 ): ValOpsFS | ValOpsHttp {
   if (options.mode === "fs") {
+    // No credential in fs mode: this reads and writes the developer's own
+    // working tree, and there is no backend to authenticate to. A PAT handed in
+    // here is not ignored quietly — the caller is told, in createValTools.
     return new ValOpsFS(options.valContentUrl, options.cwd, valModules, {
       formatter: options.formatter,
       config: options.config,
@@ -136,7 +148,7 @@ export function createValOps(
       options.project,
       options.commit,
       options.branch,
-      { apiKey: options.apiKey },
+      auth ?? { apiKey: options.apiKey },
       valModules,
       {
         formatter: options.formatter,

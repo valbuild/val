@@ -1,6 +1,5 @@
 import type { Json } from "@valbuild/core";
 import type { z } from "zod";
-import type { AuthorId } from "../ValOps";
 
 /**
  * The public surface of Val's server-side tool registry.
@@ -82,14 +81,18 @@ export type ValToolDefinitionJson = Omit<ValToolDefinition, "inputSchema"> & {
 /**
  * Who is calling, established once per request by the host.
  *
- * The credential travels with the identity on purpose. In proxy mode the
- * caller's own personal access token is what authenticates every downstream
- * call, so the backend rather than the app decides who the caller is — see
- * `docs/plans/mcp.md` D.2, and D.6 for why the app must not instead assert an
- * identity under its own API key.
+ * There is deliberately no identity field here, only the credential. In proxy
+ * mode the caller's own personal access token authenticates every downstream
+ * call, so the backend decides who the caller is (`docs/plans/mcp.md` D.2). An
+ * `authorId` alongside it would have to be filled in by the host, and the host
+ * has no way to verify a PAT — so the field would be an unverified claim that
+ * looks like a checked one, which is the confused-deputy shape D.6 rejects.
  *
  * `null` means local fs mode, where there is no credential to hold and patches
- * are written with no author, exactly as the Studio does locally (D.1).
+ * are written with no author, exactly as the Studio does locally (D.1). In
+ * proxy mode `null` is refused rather than falling back to the app's own API
+ * key: that key can do more than any single user, and quietly substituting it
+ * would turn a missing credential into full access.
  */
 export type ValToolContext = {
   auth: {
@@ -98,8 +101,6 @@ export type ValToolContext = {
      * it reach a tool result.
      */
     pat: string;
-    /** Resolved from the PAT by the host, not taken from a request header. */
-    authorId: AuthorId;
   } | null;
   /** Groups a run of related edits, when the host has such a notion. */
   sessionId: string | null;

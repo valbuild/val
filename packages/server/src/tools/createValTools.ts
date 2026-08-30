@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ValModules } from "@valbuild/core";
 import { z } from "zod";
 import type { ValServerConfig } from "../ValServer";
@@ -17,6 +18,17 @@ import type {
 export type ValToolsOptions = ValServerConfig;
 
 /**
+ * How many callers' data layers to keep around in proxy mode.
+ *
+ * Each entry holds one `ValOpsHttp`, and each of those caches the project's
+ * evaluated modules once `initSources` has run — so this bounds memory, not just
+ * entry count. Small on purpose: the cost of a miss is re-evaluating the
+ * modules on the next call, which is what happened on *every* call before this
+ * cache existed.
+ */
+const MAX_CACHED_OPS = 8;
+
+/**
  * Val's server-side tool registry.
  *
  * This is the piece Val did not have: the Studio's chat tools are defined *and
@@ -32,7 +44,7 @@ export function createValTools(
   valModules: ValModules,
   options: ValToolsOptions,
 ): ValTools {
-  const ops = createValOps(valModules, options);
+  const resolveOps = createOpsResolver(valModules, options);
   const tools = [...readTools(), ...writeTools()];
   const byName = new Map<string, ValToolImpl>(
     tools.map((tool) => [tool.name, tool]),
@@ -78,6 +90,12 @@ export function createValTools(
         };
       }
 
+      const resolved = resolveOps(ctx);
+      if (resolved.status === "error") {
+        return resolved.result;
+      }
+      const ops = resolved.ops;
+
       try {
         const state = await loadState(ops);
         if (state.status === "error") {
@@ -105,6 +123,95 @@ export function createValTools(
     },
   };
 }
+
+/**
+ * Pick the data layer for a call, which in proxy mode means picking whose
+ * credential the backend will see.
+ *
+ * This is the one place authorization is decided, and it decides it by *not*
+ * deciding: in proxy mode the caller's own personal access token goes to the
+ * backend, which is the only party that can say what that token may do. The app
+ * never inspects it, never caches a verdict about it, and never substitutes its
+ * own API key for a missing one — see `docs/plans/mcp.md` D.2.
+ *
+ * The alternative shape, and the reason this function exists at all, is an
+ * `authenticate()` that checks the PAT once and then acts under the app's key.
+ * That reads as more secure and is strictly less so: the check happens in the
+ * app, so every bug in it becomes full access to every project the app's key
+ * can reach, and the backend's own permission model stops being consulted (D.6).
+ */
+function createOpsResolver(
+  valModules: ValModules,
+  options: ValToolsOptions,
+): (ctx: ValToolContext) => OpsResolution {
+  if (options.mode === "fs") {
+    // One instance, built once: fs mode is a developer's own working tree, so
+    // there is no credential to vary by and no reason to re-evaluate modules.
+    const ops = createValOps(valModules, options);
+    return (ctx) => {
+      if (ctx.auth) {
+        // Refused rather than ignored. A host that thinks it is passing a
+        // credential should not silently get local filesystem access instead —
+        // and the difference matters, because fs mode writes straight to disk
+        // with no backend permission check at all.
+        return {
+          status: "error",
+          result: {
+            status: "error",
+            code: "unsupported",
+            message:
+              "This Val project is running in local filesystem mode, where there is nothing to authenticate against. Do not send a credential.",
+          },
+        };
+      }
+      return { status: "ok", ops };
+    };
+  }
+
+  // Keyed by a hash of the PAT, so the same caller reuses their own instance and
+  // two callers can never share one. Hashing is not a security boundary — the
+  // instance holds the token regardless — but it keeps credentials out of the
+  // key set, which is the thing that ends up in a heap dump or an error dump.
+  const byPatHash = new Map<string, ValOps>();
+
+  return (ctx) => {
+    if (!ctx.auth) {
+      return {
+        status: "error",
+        result: {
+          status: "error",
+          code: "forbidden",
+          message:
+            "This Val project talks to the Val content backend, so every call needs the caller's own personal access token. Run `val login` to get one.",
+        },
+      };
+    }
+    const key = createHash("sha256").update(ctx.auth.pat).digest("hex");
+    const cached = byPatHash.get(key);
+    if (cached) {
+      // Re-inserted so eviction drops the least recently used rather than the
+      // oldest — a long-running caller should not be evicted by a burst of
+      // one-off ones.
+      byPatHash.delete(key);
+      byPatHash.set(key, cached);
+      return { status: "ok", ops: cached };
+    }
+    const ops = createValOps(valModules, options, { pat: ctx.auth.pat });
+    byPatHash.set(key, ops);
+    while (byPatHash.size > MAX_CACHED_OPS) {
+      const oldest = byPatHash.keys().next();
+      if (oldest.done) {
+        break;
+      }
+      byPatHash.delete(oldest.value);
+    }
+    return { status: "ok", ops };
+  };
+}
+
+type OpsResolution =
+  | { status: "ok"; ops: ValOps }
+  | { status: "error"; result: ValToolResult };
 
 /**
  * The content as the caller should see it, loaded once per call.

@@ -204,7 +204,13 @@ export async function savePatch(
     return speculative.result;
   }
 
-  const authorId = ctx.auth?.authorId ?? null;
+  // Always null, and deliberately so. The app cannot resolve a PAT to a
+  // profile, so any id it put here would be an unverified claim dressed up as a
+  // checked one — and the request already carries the caller's own token, which
+  // is a better answer to "who did this" than anything the app could assert.
+  // Attributing the patch from that token is a backend concern; see
+  // `docs/plans/mcp.md` D.3.
+  const authorId = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     const patchId = mintPatchId();
     // Re-derived on the retry rather than reused: reusing the ref that just
