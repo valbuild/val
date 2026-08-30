@@ -59,6 +59,15 @@ An inlined `s.keyOf(...)` also renders the CONTENT of the referenced entry
 below the key selector (the shared entry itself — edits go to the referenced
 module).
 
+A value that HAS a preview now looks unlike one that does not. `ListPreviewItem`
+is a compact media row — thumbnail left, title and subtitle stacked beside it,
+one line each, truncated rather than wrapped — laid out for the shape the
+preview told us the row has, instead of the generic per-type fallback. Rows are
+roughly 56px instead of ~96px, which is what puts several list levels on one
+laptop screen. `PreviewItem.image` now distinguishes `null` (the preview
+declares an image this value does not have — the column stays, so rows in a
+list stay aligned) from `undefined` (no image declared — no column).
+
 Also adds a Storybook-only prototype of a denser sortable list
 (`BlockList`, working name) aimed at page-builder trees: three nested list
 levels on one laptop screen, rows collapse, nested rows share their parent's

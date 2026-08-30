@@ -166,10 +166,23 @@ export function RecordFields({
   );
 }
 
-/** Row height estimate for the default card layout (`max-h-[170px]` + gap). */
-const CARD_ROW_HEIGHT = 186;
-/** Row height estimate for a `.preview(...)` row. */
-const PREVIEW_ROW_HEIGHT = 104;
+/**
+ * Row height estimate for the default card layout: gap (16) + border (2) +
+ * card padding (32) + key header (40) + {@link PREVIEW_ROW_CONTENT_HEIGHT}.
+ */
+const CARD_ROW_HEIGHT = 146;
+/**
+ * Row height estimate for a `.preview(...)` row: gap (16) + border (2) +
+ * {@link PREVIEW_ROW_CONTENT_HEIGHT}.
+ */
+const PREVIEW_ROW_HEIGHT = 74;
+/**
+ * What `ListPreviewItem` occupies: its own `p-2` (16) around a 40px thumbnail,
+ * which is also the tallest the title + subtitle column gets. The skeleton for
+ * an un-loaded entry is fixed to this so the virtualizer's measurements do not
+ * jump when the entry arrives and the row becomes a real preview.
+ */
+const PREVIEW_ROW_CONTENT_HEIGHT = 56;
 
 function RecordCardList({
   path,
@@ -236,7 +249,7 @@ function RecordCardList({
                   // spinners.
                   <RecordRowSkeleton
                     path={sourcePathOfItem(path, key)}
-                    height={96}
+                    height={PREVIEW_ROW_CONTENT_HEIGHT}
                   />
                 ) : (
                   <RefPreview path={sourcePathOfItem(path, key)} />
@@ -355,7 +368,7 @@ function RecordPreviewList({
               {unloadedKeys.has(key) ? (
                 <RecordRowSkeleton
                   path={sourcePathOfItem(path, key)}
-                  height={72}
+                  height={PREVIEW_ROW_CONTENT_HEIGHT}
                 />
               ) : (
                 <RefPreview path={sourcePathOfItem(path, key)} />

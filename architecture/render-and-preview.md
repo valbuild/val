@@ -48,3 +48,21 @@ A `preview` is a user closure over source, so only the host can run it: the
 serialized schema carries just a `preview: true` marker, and the Studio asks
 the host on demand, scoped to what is on screen (`core/src/preview.ts`,
 `ui/spa/stores/PreviewStore.ts`).
+
+## What a declared preview buys, visually
+
+A value that HAS a preview is drawn by `ListPreviewItem`: a compact media row —
+thumbnail left, title and subtitle stacked beside it, one line each, truncated
+rather than wrapped. It can be laid out that tightly precisely because the
+preview told us what the row is made of.
+
+A value with no preview falls back to `Preview`, which renders whatever the
+value happens to be, per type. `RefPreview` picks between the two, and pads
+both the same so a list does not change density row by row depending on which
+branch each row took — callers must not add their own padding on top.
+
+`PreviewItem.image` has three states and they are all load-bearing: an
+`ImageSource` draws the thumbnail, `null` means the preview declares an image
+this particular value does not have (the column is still reserved, so rows in
+a list stay aligned), and `undefined` means no image is declared at all (no
+column). Coalescing `null` and `undefined` is what left mixed lists ragged.

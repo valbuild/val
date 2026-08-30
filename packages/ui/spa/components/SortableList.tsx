@@ -326,7 +326,7 @@ export function SortableItemRow({
             onClick(path);
           }}
         >
-          <RefPreview path={path} className="flex-grow p-4 w-full" />
+          <RefPreview path={path} className="flex-grow w-full" />
           {isTruncated && (
             <div
               className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-card/90 to-card"

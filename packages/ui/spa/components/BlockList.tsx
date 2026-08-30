@@ -407,7 +407,7 @@ function BlockRow({
             style={{ maxHeight: 96 }}
             onClick={() => onNavigate(path)}
           >
-            <RefPreview path={path} className="w-full p-1.5" />
+            <RefPreview path={path} className="w-full" />
           </button>
           {menu}
         </div>
