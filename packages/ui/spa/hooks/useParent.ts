@@ -1,17 +1,20 @@
-import {
-  Internal,
-  ModulePath,
-  SerializedSchema,
-  SourcePath,
-} from "@valbuild/core";
+import { Internal, SerializedSchema, SourcePath } from "@valbuild/core";
 import { useSchemaAtPath } from "../components/ValFieldProvider";
 
 export function useParent(path: SourcePath) {
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(path);
+  // `splitModulePath` returns UNQUOTED segments, so the re-join must re-quote
+  // them (`patchPathToModulePath`), not `.join(".")`: that produced
+  // `?p=testimonials` where every store keys on `?p="testimonials"`. The schema
+  // lookup happened to tolerate the unquoted form, which is what hid it — the
+  // preview lookup does not, so `useRefPreview` found nothing for any container
+  // that is not at the module root.
   const maybeParentPath = Internal.joinModuleFilePathAndModulePath(
     moduleFilePath,
-    Internal.splitModulePath(modulePath).slice(0, -1).join(".") as ModulePath,
+    Internal.patchPathToModulePath(
+      Internal.splitModulePath(modulePath).slice(0, -1),
+    ),
   );
   const parentSchemaAtPath = useSchemaAtPath(maybeParentPath);
   return {
