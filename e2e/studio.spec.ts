@@ -219,25 +219,66 @@ test.describe("the Studio runs on the store system", () => {
   test("shows the written value through the hooks", async ({ page }) => {
     await openStudio(page);
 
-    await page.evaluate(async () => {
+    /**
+     * Unique per run, so the assertion cannot be satisfied by anything already
+     * in the chain.
+     *
+     * This suite composes on purpose, and the test before this one writes to the
+     * same field. A fixed string would still be the right assertion — the two
+     * values differ — but it makes the FAILURE ambiguous: seeing the earlier
+     * test's value here could mean this write never landed, or that it landed
+     * and was somehow undone. A value no earlier run could have produced settles
+     * that: whatever the probe shows instead, it is a value that was already
+     * there.
+     */
+    const written = `Shown by e2e ${Date.now()}`;
+
+    await page.evaluate(async (value) => {
       const bag = window as unknown as {
         __VAL_STORE_PROBE__: (path: string) => void;
         __VAL_STORES__: {
           system: {
             patchStore: {
-              createPatch(mfp: string, patch: unknown[]): Promise<unknown>;
+              /**
+               * Declared as one shape rather than as a union of the success and
+               * failure results, for the reason the sibling test above spells
+               * out: the failure branch's `status` is a plain `string`, so it
+               * overlaps `"created"` and TypeScript cannot narrow on it — a
+               * union here would only make `message` unreachable on the branch
+               * that carries it.
+               */
+              createPatch(
+                mfp: string,
+                patch: unknown[],
+              ): Promise<{ status: string; message?: string }>;
             };
           };
         };
       };
-      await bag.__VAL_STORES__.system.patchStore.createPatch(
+      const res = await bag.__VAL_STORES__.system.patchStore.createPatch(
         "/content/authors.val.ts",
-        [{ op: "replace", path: ["teddy", "name"], value: "Shown by e2e" }],
+        [{ op: "replace", path: ["teddy", "name"], value }],
       );
+      /**
+       * Checked, because the alternative is a twenty-second silence.
+       *
+       * `createPatch` reports a refused write in its return value rather than by
+       * throwing. Ignoring it meant a write that never happened was indis-
+       * tinguishable from one still in flight: the probe kept showing whatever
+       * was there before, the poll below ran out its timeout, and the report was
+       * a value mismatch with no mention of the store having said no. The
+       * message it carries is the actual diagnosis, so it belongs in the
+       * failure.
+       */
+      if (res.status !== "created") {
+        throw new Error(
+          `the store refused the write: ${res.message ?? res.status}`,
+        );
+      }
       // Drive the probe component, which reads through `useSourceAtPath` — the
       // same hook a real field uses.
       bag.__VAL_STORE_PROBE__('/content/authors.val.ts?p="teddy"."name"');
-    });
+    }, written);
 
     /**
      * Polled, not slept on.
@@ -266,7 +307,7 @@ test.describe("the Studio runs on the store system", () => {
       .poll(async () => (await read())?.source, {
         message: "the probe never rendered the written value",
       })
-      .toMatchObject({ status: "success", data: "Shown by e2e" });
+      .toMatchObject({ status: "success", data: written });
     // And the module validated, which is the other half of a field being ready.
     await expect
       .poll(async () => (await read())?.validation, {
