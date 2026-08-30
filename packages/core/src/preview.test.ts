@@ -80,10 +80,13 @@ describe("scoped executePreview", () => {
 
   function listSchema() {
     let calls = 0;
-    const schema = array(object({ name: string() })).preview(({ val }) => {
-      calls++;
-      return { title: val.name };
-    });
+    // The preview is declared on the ITEM: the container reifies rows from it.
+    const schema = array(
+      object({ name: string() }).preview(({ val }) => {
+        calls++;
+        return { title: val.name };
+      }),
+    );
     return { schema, calls: () => calls };
   }
 
@@ -147,12 +150,14 @@ describe("scoped executePreview", () => {
    * loop the natural place for the try.
    */
   it("keeps the rows a throwing preview did not touch", () => {
-    const schema = array(object({ name: string() })).preview(({ val }) => {
-      if (val.name === "Grace") {
-        throw new Error("nope");
-      }
-      return { title: val.name };
-    });
+    const schema = array(
+      object({ name: string() }).preview(({ val }) => {
+        if (val.name === "Grace") {
+          throw new Error("nope");
+        }
+        return { title: val.name };
+      }),
+    );
 
     const res = schema["executePreview"](sp("/test.val.ts"), rows);
 
@@ -169,11 +174,11 @@ describe("scoped executePreview", () => {
 
   it("windows a record to the wanted entry", () => {
     let calls = 0;
-    const schema = record(object({ name: string() })).preview(
-      ({ key, val }) => {
+    const schema = record(
+      object({ name: string() }).preview(({ val }) => {
         calls++;
-        return { title: `${key}: ${val.name}` };
-      },
+        return { title: val.name };
+      }),
     );
     const src = { a: { name: "Ada" }, b: { name: "Grace" } };
 
@@ -202,15 +207,17 @@ describe("scoped executePreview", () => {
     const schema = array(
       object({
         title: string(),
-        sections: array(object({ heading: string() })).preview(({ val }) => {
-          inner++;
-          return { title: val.heading };
-        }),
+        sections: array(
+          object({ heading: string() }).preview(({ val }) => {
+            inner++;
+            return { title: val.heading };
+          }),
+        ),
+      }).preview(({ val }) => {
+        outer++;
+        return { title: val.title };
       }),
-    ).preview(({ val }) => {
-      outer++;
-      return { title: val.title };
-    });
+    );
     const src = [
       { title: "One", sections: [{ heading: "1.1" }, { heading: "1.2" }] },
       { title: "Two", sections: [{ heading: "2.1" }, { heading: "2.2" }] },

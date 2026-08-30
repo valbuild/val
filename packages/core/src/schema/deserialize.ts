@@ -67,6 +67,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "boolean":
       return new BooleanSchema(
@@ -75,6 +76,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "number":
       return new NumberSchema(
@@ -84,6 +86,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "object":
       return new ObjectSchema(
@@ -97,6 +100,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "array":
       return new ArraySchema(
@@ -106,6 +110,9 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        // The preview closure cannot survive serialization; the render can.
+        null,
+        serialized.render ?? null,
       );
     case "union":
       return new UnionSchema(
@@ -120,6 +127,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "richtext": {
       const deserializedOptions = {
@@ -155,6 +163,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     }
     case "record":
@@ -181,6 +190,9 @@ function deserializeSchemaImpl(
         false,
         serialized.description,
         serialized.jsonValues ?? false,
+        // The preview closure cannot survive serialization; the render can.
+        null,
+        serialized.render ?? null,
       );
     case "keyOf":
       return new KeyOfSchema(
@@ -191,6 +203,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "route": {
       const routeOptions = serialized.options
@@ -216,6 +229,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     }
     case "file":
@@ -228,6 +242,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "image":
       return new ImageSchema(
@@ -239,6 +254,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "date":
       return new DateSchema(
@@ -248,6 +264,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "dateTime":
       return new DateTimeSchema(
@@ -257,6 +274,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     case "color":
       return new ColorSchema(
@@ -266,6 +284,7 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        serialized.render ?? null,
       );
     default: {
       const exhaustiveCheck: never = serialized;

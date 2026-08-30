@@ -10,18 +10,18 @@ import { resolvePatchPath } from "../resolvePatchPath";
 /**
  * This defines the logic for when we should stop while moving up the path.
  * It must be in sync with the logic in the rest of UX - we should consider if there's a way to avoid an implicit contract
+ *
+ * An array/record item marked `.render({ as: "inline" })` is edited inside its
+ * parent's list, so it is not a place navigation can stop — we keep walking up
+ * to the nearest ancestor that is shown as its own page. (Strings in arrays
+ * used to be inlined implicitly; inlining is now opt-in via `render`.)
  */
 function isSchemaNavStop(
   schema: SerializedSchema,
   parentSchema: SerializedSchema | null,
 ): boolean {
-  if (parentSchema?.type === "array") {
-    if (schema.type === "string") {
-      return false;
-    }
-    return true;
-  } else if (parentSchema?.type === "record") {
-    return true;
+  if (parentSchema?.type === "array" || parentSchema?.type === "record") {
+    return schema.render?.as !== "inline";
   }
   return false;
 }

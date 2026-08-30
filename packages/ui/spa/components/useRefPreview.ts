@@ -38,13 +38,12 @@ export function resolveRefPreview(
   const pathParts = Internal.splitModulePath(modulePath);
   const lastPart = pathParts[pathParts.length - 1];
 
+  // `splitModulePath` has already unquoted the segment, so `lastPart` IS the
+  // key/index as written. It must not be run through `JSON.parse` again: a
+  // record key that looks like a number (`"0"`) came back as the number `0`
+  // and then matched no entry, because a record's keys are strings.
   if (parentSchema.type === "array" && previewData.parent === "array") {
-    let index: number;
-    try {
-      index = JSON.parse(lastPart);
-    } catch {
-      index = Number(lastPart);
-    }
+    const index = Number(lastPart);
     // By index, not by position: a windowed preview carries only the items that
     // were asked for. See ArrayPreview.
     const item = previewData.items.find(([itemIndex]) => itemIndex === index);
@@ -55,13 +54,7 @@ export function resolveRefPreview(
     parentSchema.type === "record" &&
     previewData.parent === "record"
   ) {
-    let key: string;
-    try {
-      key = JSON.parse(lastPart);
-    } catch {
-      key = lastPart;
-    }
-    const item = previewData.items.find(([itemKey]) => itemKey === key);
+    const item = previewData.items.find(([itemKey]) => itemKey === lastPart);
     if (item) {
       return item[1];
     }

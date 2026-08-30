@@ -226,10 +226,12 @@ import authorsVal from "./authors.val";
 // Regenerate with a different size: pnpm handbook generate ${chapterCount} ${sectionCount}
 
 /**
- * A handbook: chapters of sections, with a \`preview\` at BOTH array levels.
+ * A handbook: chapters of sections, with a \`preview\` at BOTH list levels —
+ * declared on the ITEM schemas (the section and the chapter), which is where a
+ * preview lives: the containers reify their rows from it.
  *
  * This is the shape the store benchmark exists to measure. Two nested
- * \`.preview()\` calls mean an UNSCOPED preview of one visible section has to walk
+ * previews mean an UNSCOPED preview of one visible section has to walk
  * every chapter and every section and run the user's closure for each — which is
  * exactly the worst case \`packages/ui/spa/stores/architecture.md\` names, and the
  * reason \`PreviewScope\` was added to \`packages/core\`.
@@ -239,29 +241,36 @@ import authorsVal from "./authors.val";
  * \`s.route()\` for the reference scan, and an image per chapter for the file
  * reference scan.
  */
-export const handbookSectionSchema = s.object({
-  heading: s.string().minLength(2),
-  body: s.richtext({
-    style: { bold: true, italic: true },
-    block: { h2: true, ul: true },
-    inline: { a: true },
-  }),
-  /** A route this section points at, so route references have something to find. */
-  seeAlso: s.route().nullable(),
-});
-
-export const handbookChapterSchema = s.object({
-  title: s.string().minLength(2),
-  slug: s.string().regexp(/^[a-z0-9-]+$/),
-  summary: s.string().render({ as: "textarea" }),
-  owner: s.keyOf(authorsVal),
-  sections: s.array(handbookSectionSchema).preview(({ val }) => ({
+export const handbookSectionSchema = s
+  .object({
+    heading: s.string().minLength(2),
+    body: s.richtext({
+      style: { bold: true, italic: true },
+      block: { h2: true, ul: true },
+      inline: { a: true },
+    }),
+    /** A route this section points at, so route references have something to find. */
+    seeAlso: s.route().nullable(),
+  })
+  .preview(({ val }) => ({
     title: val.heading,
     // Deliberately reads INTO the richtext: a preview that only returned a
     // string would be cheap in a way a real one is not.
     subtitle: firstText(val.body) ?? null,
-  })),
-});
+  }));
+
+export const handbookChapterSchema = s
+  .object({
+    title: s.string().minLength(2),
+    slug: s.string().regexp(/^[a-z0-9-]+$/),
+    summary: s.string().render({ as: "textarea" }),
+    owner: s.keyOf(authorsVal),
+    sections: s.array(handbookSectionSchema),
+  })
+  .preview(({ val }) => ({
+    title: val.title,
+    subtitle: \`\${val.sections.length} sections\`,
+  }));
 
 export type HandbookChapter = t.inferSchema<typeof handbookChapterSchema>;
 
@@ -285,10 +294,7 @@ function firstText(body: unknown): string | null {
 
 export default c.define(
   "/content/handbook.val.ts",
-  s.array(handbookChapterSchema).preview(({ val }) => ({
-    title: val.title,
-    subtitle: \`\${val.sections.length} sections\`,
-  })),
+  s.array(handbookChapterSchema),
   ${literal(chapters, 2)},
 );
 `;

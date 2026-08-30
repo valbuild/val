@@ -1,5 +1,5 @@
 import { SerializedSchema, SourcePath } from "@valbuild/core";
-import { AnyField } from "./AnyField";
+import { AnyField, ErrorDisplay } from "./AnyField";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
@@ -9,13 +9,23 @@ export function InlineAnyField({
   path,
   schema,
   readonly,
+  errorDisplay,
 }: {
   path: SourcePath;
   schema: SerializedSchema;
   readonly: boolean;
+  /** Pass `"none"` when the row around this field shows the errors itself. */
+  errorDisplay?: ErrorDisplay;
 }) {
   return (
-    <AnyField path={path} schema={schema} readonly={readonly} compact inline />
+    <AnyField
+      path={path}
+      schema={schema}
+      readonly={readonly}
+      errorDisplay={errorDisplay}
+      compact
+      inline
+    />
   );
 }
 

@@ -325,7 +325,9 @@ function AddArrayButton({
           ],
           schema.type,
         );
-        if (schema.item.type !== "string") {
+        // An inline item is edited in place in the list, so adding one should
+        // not navigate away from it. Everything else opens as its own page.
+        if (schema.item.render?.as !== "inline") {
           navigate(
             Internal.joinModuleFilePathAndModulePath(
               moduleFilePath,

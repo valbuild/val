@@ -1,5 +1,5 @@
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
-import { ReifiedPreview } from "../preview";
+import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
 import { StringRender } from "../render";
 import { SourcePath } from "../val";
 import {
@@ -26,6 +26,8 @@ export type SerializedStringSchema = {
    * buys, and what to do if a render ever needs to stop being static.
    */
   render?: StringRender;
+  /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
+  preview?: true;
   options?: {
     maxLength?: number;
     minLength?: number;
@@ -59,6 +61,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
   ) {
     super();
   }
@@ -73,6 +76,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.previewInput,
     );
   }
 
@@ -93,6 +97,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
@@ -113,6 +118,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
@@ -126,6 +132,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
@@ -141,6 +148,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
@@ -237,6 +245,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     ) as unknown as StringSchema<Src | null>;
   }
 
@@ -250,6 +259,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       true,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
   }
 
@@ -263,6 +273,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       true,
       this.description,
+      this.previewInput,
     );
   }
 
@@ -276,6 +287,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     ) as unknown as StringSchema<
       Src extends null ? RawString | null : RawString
     >;
@@ -296,6 +308,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     return {
       type: "string",
       render: this.renderInput ?? undefined,
+      preview: this.previewInput ? true : undefined,
       options: {
         maxLength: this.options?.maxLength,
         minLength: this.options?.minLength,
@@ -336,7 +349,40 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.previewInput,
     );
+  }
+
+  /**
+   * How this VALUE is shown where a preview of it is needed — a row in a
+   * sortable list, a reference dropdown, a search hit. Never how the field
+   * itself is edited (that is `render`). See `preview.ts`.
+   */
+  preview(select: ItemPreviewInput<Src>): StringSchema<Src> {
+    return new StringSchema<Src>(
+      this.options,
+      this.opt,
+      this.isRaw,
+      this.customValidateFunctions,
+      this.renderInput,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      select,
+    );
+  }
+
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
   }
 
   /**
