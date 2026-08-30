@@ -5,6 +5,7 @@ import {
   closeNavPanel,
   discardAll,
   expandRow,
+  expectNoPatchesOnServer,
   openNavPanel,
   openSiteMap,
   openStudio,
@@ -175,17 +176,33 @@ test.describe("the Studio, through its own UI", () => {
   });
 
   /**
-   * A word typed a character at a time is ONE patch.
+   * A word typed a character at a time arrives, whole, on the server.
    *
-   * `fill()` above sets the value in one event, which is exactly the case that
-   * hid this: a field wrote a patch per keystroke, so a paragraph left a few
-   * hundred patches in the chain — enough to slow every stat, make the publish
-   * a wall of one-character diffs, and eventually to break the request that
-   * reads the chain back (see `chunkPatchIds`). It also made a validation
-   * error appear and clear mid-word, jumping everything below the field.
+   * `fill()` above sets the value in one event; this types it, which is the case
+   * a real editor produces.
+   *
+   * ## The coalescing claim moved, on purpose
+   *
+   * This test used to assert that five keystrokes produced exactly ONE patch —
+   * the regression being a field that wrote per keystroke, so a paragraph left a
+   * few hundred patches in the chain, enough to slow every stat, make the
+   * publish a wall of one-character diffs, and eventually break the request that
+   * reads the chain back (see `chunkPatchIds`).
+   *
+   * That claim is about which timer the field arms, and it cannot be made
+   * honestly from here. It needed 60ms between keystrokes against a 250ms
+   * debounce — 190ms of slack, with every keystroke a CDP round trip on a box
+   * also running `next dev`, Vite and Chromium — so one stall over 190ms split
+   * the burst and failed the run for a reason that had nothing to do with the
+   * field. It now lives in `StringField.test.tsx` ("a burst of keystrokes is one
+   * write, carrying the last value"), on a fake clock where the margin is exact.
+   *
+   * What is left here is the half only a browser can show: real keystrokes into
+   * the real field put the typed value on screen AND on the server.
    */
-  test("types a word a key at a time and writes one patch", async ({
+  test("types a word a key at a time, and it reaches the server", async ({
     page,
+    request,
   }) => {
     await studioRoot(page);
     const studio = await openSiteMap(page);
@@ -193,32 +210,57 @@ test.describe("the Studio, through its own UI", () => {
     await closeNavPanel(studio, "Pages");
     await expect.poll(() => fieldValues(page)).toContain("Generic");
 
-    const before = await chainLength(page);
     const title = studio
       .locator("input")
       .filter({ hasNot: page.locator("[type=file]") })
       .first();
     await title.click();
     await title.fill("");
-    // Slower than a debounce window would coalesce by accident, so passing
-    // means the writes were actually collapsed rather than merely fast.
     for (const key of "Typed".split("")) {
       await title.press(key);
-      await page.waitForTimeout(60);
     }
     await title.blur();
 
+    // What the editor sees.
     await expect(title).toHaveValue("Typed");
+    // And that it left the browser. A field that wrote only locally renders
+    // exactly like one that saved — which is the shape of the four AI write
+    // paths that reported success and persisted nothing — so the value has to
+    // be read back out of the server, not out of the page or the chain.
     await expect
-      .poll(() => chainLength(page), {
-        message: "typing produced no patch at all",
-      })
-      .toBeGreaterThan(before);
-    // Five keystrokes, and the value cleared first: one patch, not six.
-    expect(await chainLength(page)).toBe(before + 1);
+      .poll(
+        async () => {
+          const res = await request.get(
+            "/api/val/patches?exclude_patch_ops=false",
+          );
+          if (!res.ok())
+            return `the server refused the request: ${res.status()}`;
+          const body = (await res.json()) as {
+            patches: { patch: { value?: unknown }[] }[];
+          };
+          return body.patches.some((entry) =>
+            entry.patch.some((op) => op.value === "Typed"),
+          );
+        },
+        { message: "what was typed never reached the server" },
+      )
+      .toBe(true);
 
+    /**
+     * Put the chain back — the same hazard the test above spells out.
+     *
+     * The next test publishes whatever is pending, and in `fs` mode publishing
+     * WRITES THE `.val.ts` FILES. A patch left here is committed by it, and the
+     * value it then restores is this test's "Typed" rather than the fixture's —
+     * so the suite quietly rewrites the repository, one run at a time.
+     *
+     * This was dropped when the test was rewritten to stop counting patches, and
+     * CI caught it immediately: `studio-ui.spec.ts`'s save test failed on the
+     * very next shard. The counting went away; the cleanup was never the part
+     * that had to.
+     */
     await discardAll(page);
-    await expect.poll(() => chainLength(page)).toBe(before);
+    await expectNoPatchesOnServer(request);
   });
 
   /**

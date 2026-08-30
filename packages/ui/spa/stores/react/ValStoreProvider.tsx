@@ -7,7 +7,6 @@ import type {
 } from "@valbuild/core";
 import type { System } from "../createSystem";
 import { ValSystemProvider } from "./SystemContext";
-import { ValStoreProbe } from "./ValStoreProbe";
 
 /**
  * Put the store system in context, take the project in, and feed it `/stat`.
@@ -183,7 +182,6 @@ export function ValStoreProvider({
         shadow mount shows the SYSTEM takes real modules; this shows a COMPONENT
         can get a value out of it. Only ever mounted when the shadow is on.
       */}
-      {process.env.NODE_ENV !== "production" && <ValStoreProbe />}
       {children}
     </ValSystemProvider>
   );
