@@ -1096,9 +1096,10 @@ function FieldsAwaitingPage({
           Nothing reported yet
         </h2>
         <p className="text-[0.6875rem] leading-relaxed text-fg-secondary-alt">
-          This page has not told Val what is on it. Turn on preview mode in the
-          Preview — until it is on, the page mounts none of Val's client code
-          and tags nothing.
+          Usually that means preview mode is off: without it the page mounts
+          none of Val's client code and tags nothing, and the Preview has the
+          button that turns it on. A page that is already in preview mode and
+          simply has no Val content on it looks the same from here.
         </p>
       </div>
       {onGoToPreview && (

@@ -349,7 +349,21 @@ export function PreviewButton({
             canvasActionLabel ??
             (isCanvasOpen ? "Close the canvas" : "Open the canvas")
           }
-          aria-pressed={isCanvasOpen}
+          /*
+           * Pressed only where this really is a toggle.
+           *
+           * Beside the editor it is one: the canvas is a region that is either
+           * there or not, and `isCanvasOpen` says which. On a phone it is not —
+           * the canvas stays open while you look at the editor pane, and the
+           * button navigates between the two — so `aria-pressed` there would
+           * announce "Preview, pressed" at someone who is looking at the
+           * editor. A caller that supplies its own action label is saying it
+           * has taken over what the button MEANS, which is exactly the case
+           * where the pressed state stops being true.
+           */
+          aria-pressed={
+            canvasActionLabel === undefined ? isCanvasOpen : undefined
+          }
           onClick={onToggleCanvas}
           className="inline-flex flex-1 items-center justify-center gap-1.5 px-2.5 text-xs font-medium hover:bg-bg-float-raised hover:text-fg-primary"
         >

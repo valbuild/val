@@ -147,8 +147,11 @@ test.describe("the preview modes on a phone", () => {
       "Normal",
     ];
     for (const name of hops) {
+      // Clicked without asking whether it is there. Skipping a missing mode
+      // would let this pass on the very regression it is here to catch: the
+      // three states are always all three, so an absent one is a failure and
+      // not a case to step over.
       const tab = mode(page, name);
-      if ((await tab.count()) === 0) continue;
       await tab.click();
       await expect(tab).toHaveAttribute("aria-selected", "true");
       await expect(
