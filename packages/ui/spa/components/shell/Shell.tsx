@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ModuleFilePath } from "@valbuild/core";
+import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { AIChatPanel } from "./AIChatPanel";
 import { DataPanel } from "./DataPanel";
 import { EmptyEditorState, PageEditor } from "./EditorCanvas";
@@ -16,6 +16,11 @@ import {
   PageWorkspaceProps,
 } from "./canvas/PageWorkspace";
 import { CanvasPageData, CanvasTransform } from "./canvas/types";
+import {
+  canvasModulesFromKey,
+  canvasModulesKey,
+  canvasShowsEditedContent,
+} from "./canvasPageScope";
 import {
   GlobalSearch,
   SearchResult,
@@ -553,14 +558,42 @@ export function Shell({
   );
 
   /**
-   * Anything that is not a page leaves the canvas.
+   * What the canvas page is made of, and what the editor is on.
+   *
+   * Refs, read by the effect below and deliberately NOT among its dependencies.
+   * Both change for reasons that are not a move: the page re-reports its
+   * elements whenever anything on it shifts, and the edited path changes when
+   * you go from one field to the next inside the same module. The effect closes
+   * the canvas, so a dependency on either would close a canvas that had been
+   * opened deliberately from a data module — which is exactly when you want to
+   * watch a page react to a setting.
+   *
+   * See {@link canvasModulesKey} for why the modules are keyed by a string.
+   */
+  const modulesKey = useMemo(
+    () => canvasModulesKey(canvasPaths),
+    [canvasPaths],
+  );
+  const canvasModules = useMemo(
+    () => canvasModulesFromKey(modulesKey),
+    [modulesKey],
+  );
+  const canvasScope = useRef<{
+    canvasModules: ReadonlySet<ModuleFilePath>;
+    editedPath: SourcePath | null;
+  }>({ canvasModules, editedPath: selectedCanvasPath ?? null });
+  canvasScope.current = {
+    canvasModules,
+    editedPath: selectedCanvasPath ?? null,
+  };
+
+  /**
+   * Moving to something that is not on the page leaves the canvas.
    *
    * The canvas is still offered everywhere — the Preview button does not come
-   * and go with the selection — but landing on something that is not on a route
-   * means the canvas is showing a page you are no longer editing. In the fields
-   * view it is worse than stale: the editor column IS the page's fields, so the
-   * module you navigated to does not appear at all and the navigation looks like
-   * it did nothing.
+   * and go with the selection. What decides is whether it is still showing the
+   * thing being edited; see {@link canvasShowsEditedContent}, which is also
+   * where the reason a pick must not close it is written down.
    *
    * Here rather than in `select` below, because a selection is not the only way
    * to move: a breadcrumb, a deep link and a validation error all change the
@@ -572,7 +605,14 @@ export function Shell({
    */
   useEffect(() => {
     if (isLoading) return;
-    if (selection?.kind === "page") return;
+    if (
+      canvasShowsEditedContent({
+        selectionKind: selection?.kind ?? null,
+        ...canvasScope.current,
+      })
+    ) {
+      return;
+    }
     setIsCanvasOpen(false);
     setCanvasView("normal");
   }, [isLoading, selection?.kind]);

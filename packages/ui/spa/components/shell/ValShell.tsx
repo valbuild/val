@@ -49,8 +49,14 @@ import {
   usePendingChangesProgress,
   useValMode,
   useAutoPublish,
+  useReportError,
 } from "../ValProvider";
-import { useFilePatchIds, useGetNavPath } from "../ValFieldProvider";
+import {
+  useFilePatchIds,
+  useGetNavPath,
+  useResolveNavPath,
+} from "../ValFieldProvider";
+import type { NavPathResolution } from "../getNavPath";
 import { refToUrl } from "../MediaPicker/refToUrl";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { AIChatSurface } from "../AIChatSurface";
@@ -572,18 +578,54 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   );
 
   /**
-   * A pick on the page opens the field it belongs to.
+   * A pick on the page opens the field it belongs to, or says why it cannot.
    *
    * An element can carry more than one path — a heading built from two fields
    * is one element with two paths — and nothing says which was meant, so the
    * first is opened. The overlay makes the same choice.
+   *
+   * ## Why this returns something
+   *
+   * A pick is one act with two halves in two owners: the shell opens the field,
+   * because it owns navigation, and the canvas goes to the fields column,
+   * because where to LOOK is its business. They used to run one after the other
+   * unconditionally, so a pick that could not be opened still moved the whole
+   * workspace — on a phone, off the page and onto a fields column that did not
+   * contain the field, because the field had not been openable in the first
+   * place. That is the state that reads as the studio having broken.
+   *
+   * So the first half reports whether it happened, and the second half only
+   * runs if it did. A pick either lands completely or changes nothing and says
+   * why.
    */
-  const onPick = useCallback(
-    (paths: SourcePath[]) => {
-      const first = paths[0];
-      if (first !== undefined) openPath(first);
+  const resolveNavPath = useResolveNavPath();
+  const reportError = useReportError();
+  const openPickedPath = useCallback(
+    (paths: SourcePath[]): boolean => {
+      const path = paths[0];
+      if (path === undefined) {
+        // The page tags an element with at least one path, so an empty list
+        // means the two sides disagree about the attribute's format — a version
+        // skew between `@valbuild/next` and the studio, most likely.
+        reportError(
+          "That element on the page has no content behind it",
+          "The page reported a selection with no source path. Check that @valbuild/next and @valbuild/ui are on the same version.",
+        );
+        return false;
+      }
+      const resolution = resolveNavPath(path);
+      if (resolution.status === "resolved") {
+        // No assertion: what it resolves to is a module as often as a path
+        // inside one — a field whose nearest nav stop is the module root gives
+        // the former — and `navigate` takes either. Narrowing it to a
+        // `SourcePath` here would be claiming something this does not know.
+        navigation.navigate(resolution.path, { scrollToPath: path });
+        return true;
+      }
+      reportError(...describeUnopenablePick(resolution, path));
+      return false;
     },
-    [openPath],
+    [navigation, resolveNavPath, reportError],
   );
 
   /**
@@ -631,10 +673,13 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
          * The shell opens the field, because it owns navigation; the canvas is
          * told one happened, because where to LOOK afterwards is its business —
          * the fields column, and on a phone the pane that holds it.
+         *
+         * In that order, and the second only if the first worked. See
+         * `openPickedPath`: a workspace moved for a field that never opened is
+         * the broken-looking state this used to leave behind.
          */
         onPick={(paths) => {
-          onPick(paths);
-          onPicked();
+          if (openPickedPath(paths)) onPicked();
         }}
         onPinch={onPinch}
         onZoom={onZoom}
@@ -642,7 +687,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         onRefreshingChange={onRefreshingChange}
       />
     );
-  }, [canvasUrl, focusedPath, onPick]);
+  }, [canvasUrl, focusedPath, openPickedPath]);
 
   /**
    * Every field with a validation error, as source paths.
@@ -925,6 +970,38 @@ function isPathWithin(path: string, id: string): boolean {
   if (!path.startsWith(id)) return false;
   const next = path[id.length];
   return next === "?" || next === ".";
+}
+
+/**
+ * What to tell someone whose click on the page opened nothing.
+ *
+ * The failure is entirely invisible from where they are standing: the thing
+ * they pointed at is right there on the page, drawn by the app, outlined by
+ * Val. Every one of these has a different next step, which is the reason they
+ * are told apart at all — and the details line carries the path, because the
+ * person who can act on two of the three is a developer reading it over their
+ * shoulder.
+ */
+function describeUnopenablePick(
+  resolution: Exclude<NavPathResolution, { status: "resolved" }>,
+  path: SourcePath,
+): [message: string, details: string] {
+  if (resolution.status === "schemas-not-loaded") {
+    return [
+      "Still loading — try that again in a moment",
+      `The content schema had not arrived yet, so ${path} could not be opened.`,
+    ];
+  }
+  if (resolution.status === "module-not-loaded") {
+    return [
+      "That field's content file is not loaded",
+      `The page points at ${resolution.moduleFilePath}, which the studio does not have. It may have been deleted or renamed since the page was built.`,
+    ];
+  }
+  return [
+    "That field is no longer where the page says it is",
+    `${path} does not resolve in ${resolution.moduleFilePath}: ${resolution.reason}. The page is probably rendering content from before a change to the schema — reload the canvas.`,
+  ];
 }
 
 /**
