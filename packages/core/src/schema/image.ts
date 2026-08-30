@@ -20,11 +20,34 @@ import { FieldRender } from "../render";
 import { ImagesEntryMetadata } from "./images";
 import { getSource } from "../module";
 
+/**
+ * How an uploaded image is re-encoded in the browser, before it is uploaded.
+ *
+ * Off unless a schema asks for it. When it is on, the image is converted to
+ * `type` and scaled down to fit `maxWidth` x `maxHeight` - unless the result
+ * would be BIGGER than the original and no downscale was needed, in which case
+ * the original bytes are kept. See `architecture/media.md`.
+ *
+ * `type` is required so that adding a format later is additive: a schema
+ * written today keeps saying exactly which format it asked for.
+ */
+export type ImageEncodeOptions = {
+  type: "webp";
+  /** Passed to `canvas.toBlob`. Between 0 and 1. @default 0.8 */
+  quality?: number;
+  /** @default 2560 */
+  maxWidth?: number;
+  /** @default 2560 */
+  maxHeight?: number;
+};
+
+/** `false` (or absent) uploads the bytes exactly as the editor picked them. */
+export type ImageEncodeOption = false | ImageEncodeOptions;
+
 export type ImageOptions = {
-  ext?: ["jpg"] | ["webp"];
   directory?: string;
-  prefix?: string;
   accept?: string;
+  encode?: ImageEncodeOption;
 };
 
 export type SerializedImageSchema = {
