@@ -234,6 +234,18 @@ before it did, one `s.image()` inside an entry aborted the entire run, because
 image metadata can only be checked by reading the bytes and therefore ALWAYS ends
 in a fix.
 
+**In an editor, both halves of an entry error land somewhere surprising.** The
+diagnostic has no range to sit on — the `.val.ts` contains the entry key and
+nothing below it — so it is reported on the KEY, via the longest prefix of the
+path that the file's own AST knows (`longestResolvedPrefixRange` in
+`diagnostics.ts`); without that it fell through to line 1, and a record with
+hundreds of entries stacked hundreds of diagnostics there. The quick fix then
+edits a **different file** from the one it was requested on, as a cross-file
+workspace edit into the entry's `*.val.json`. And because nothing validates a
+`*.val.json` on its own, it has to be watched explicitly: editing one — or
+applying that quick fix — invalidates the whole project, since the parsed JSON
+is cached inside the `Service`.
+
 **A patch into an entry does not touch the `.val.ts`.** The value being edited is
 not in that file, so an op whose path descends into an entry is rebased and
 replayed against the entry's `*.val.json` instead — `classifyJsonValuesOp` +
