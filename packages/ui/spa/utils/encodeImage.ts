@@ -39,12 +39,28 @@ const MIME_TYPE_OF: Record<EncodeSettings["type"], string> = {
  */
 const NEVER_ENCODED = ["image/svg+xml", "image/gif", "image/avif"];
 
+/** A dimension bound the encoder can act on, else the default. */
+function usableBound(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isFinite(value) && value > 0
+    ? value
+    : fallback;
+}
+
 /**
  * The schema's own option first, then the gallery it references, then off.
  *
  * Mirrors how `ImageField` resolves `accept` and `directory`. A gallery-backed
  * field (`s.image(galleryVal)`) serializes with EMPTY options, so without the
- * gallery fallback it could never inherit what the gallery asked for.
+ * gallery fallback it could never inherit what the gallery asked for — and
+ * `s.image(galleryVal, { encode: false })` is how such a field opts back out.
+ *
+ * Nonsense numbers fall back to the defaults rather than through. `fitWithin`
+ * reads a bound of 0 (or NaN, or a negative) as "everything already fits", so
+ * an unusable `maxWidth` would otherwise SILENTLY disable the downscale it was
+ * asking for, and a `quality` outside 0–1 is ignored by `canvas.toBlob` just as
+ * quietly. Falling back is deliberately not throwing: a schema is evaluated by
+ * the CLI's `node:vm` sandbox and by the Next server, so a typo'd quality would
+ * take a whole project down over a client-side optimisation.
  */
 export function resolveEncodeSettings(
   fieldOption: ImageEncodeOption | undefined,
@@ -54,11 +70,15 @@ export function resolveEncodeSettings(
   if (!option) {
     return null;
   }
+  const quality = option.quality;
   return {
     type: option.type,
-    quality: option.quality ?? ENCODE_DEFAULTS.quality,
-    maxWidth: option.maxWidth ?? ENCODE_DEFAULTS.maxWidth,
-    maxHeight: option.maxHeight ?? ENCODE_DEFAULTS.maxHeight,
+    quality:
+      quality !== undefined && Number.isFinite(quality) && quality > 0
+        ? Math.min(quality, 1)
+        : ENCODE_DEFAULTS.quality,
+    maxWidth: usableBound(option.maxWidth, ENCODE_DEFAULTS.maxWidth),
+    maxHeight: usableBound(option.maxHeight, ENCODE_DEFAULTS.maxHeight),
   };
 }
 
@@ -197,10 +217,16 @@ export async function encodeImage(
     // `accept` wins: it is what validation checks the stored mimeType against.
     return file;
   }
-  // Decoded ONLY through createImageBitmap, for `imageOrientation`. It is what
-  // applies EXIF rotation, and the webp we write carries no EXIF - so decoding
-  // through an <img> instead would silently rotate portrait photos. Uploading
-  // the original is strictly better than uploading a rotated one.
+  // Decoded through createImageBitmap with `imageOrientation` asked for
+  // explicitly, because the webp we write carries no EXIF: whatever rotation
+  // the source described has to be baked into the pixels here or it is lost.
+  //
+  // Chromium applies EXIF on every decode path anyway - measured, an <img> and
+  // both `imageOrientation` values all report the same oriented size - so this
+  // is not the difference between right and rotated THERE. It is a guarantee
+  // asked for rather than inherited, which is what makes it portable, and it is
+  // why an engine without `createImageBitmap` re-encodes nothing at all:
+  // uploading the original beats uploading one silently rotated.
   if (typeof createImageBitmap !== "function") {
     return file;
   }

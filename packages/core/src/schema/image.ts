@@ -44,6 +44,19 @@ export type ImageEncodeOptions = {
 /** `false` (or absent) uploads the bytes exactly as the editor picked them. */
 export type ImageEncodeOption = false | ImageEncodeOptions;
 
+/**
+ * What a GALLERY-BACKED field may say for itself.
+ *
+ * Not `ImageOptions`: `directory` and `accept` belong to the gallery, and a
+ * field repeating them is how two copies of one fact get to disagree. `encode`
+ * is different — it describes what happens to the bytes on their way IN, so a
+ * field that wants the original where its gallery re-encodes has to be able to
+ * say `encode: false`, and there is nowhere else to say it.
+ */
+export type GalleryImageOptions = {
+  encode?: ImageEncodeOption;
+};
+
 export type ImageOptions = {
   directory?: string;
   accept?: string;
@@ -576,11 +589,13 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
  */
 export function image(
   galleryModule: ValModule<Record<string, ImagesEntryMetadata>>,
+  galleryOptions?: GalleryImageOptions,
 ): ImageSchema<GalleryImageSource>;
 /** An image of its own, carrying its own dimensions and mime type. */
 export function image(options?: ImageOptions): ImageSchema<ImageSource>;
 export function image(
   options?: ImageOptions | ValModule<Record<string, ImagesEntryMetadata>>,
+  galleryOptions?: GalleryImageOptions,
 ): ImageSchema<ImageSource> | ImageSchema<GalleryImageSource> {
   const isModule =
     !!options &&
@@ -604,7 +619,9 @@ export function image(
       >;
     }
     return new ImageSchema<GalleryImageSource>(
-      {},
+      galleryOptions?.encode !== undefined
+        ? { encode: galleryOptions.encode }
+        : {},
       false,
       false,
       [],

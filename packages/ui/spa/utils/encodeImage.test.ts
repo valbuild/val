@@ -71,6 +71,56 @@ describe("resolveEncodeSettings", () => {
   it("lets the field turn off what the gallery turned on", () => {
     expect(resolveEncodeSettings(false, { type: "webp" })).toBeNull();
   });
+
+  /*
+   * Nonsense numbers fall back rather than through.
+   *
+   * `fitWithin` reads a bound of 0 as "everything already fits", so an unusable
+   * `maxWidth` would otherwise silently disable the very downscale it asks for.
+   */
+  it.each([0, -100, NaN, Infinity])(
+    "falls back to the default bound for maxWidth %p",
+    (maxWidth) => {
+      expect(
+        resolveEncodeSettings({ type: "webp", maxWidth }, undefined)?.maxWidth,
+      ).toBe(ENCODE_DEFAULTS.maxWidth);
+    },
+  );
+
+  it.each([0, -100, NaN, Infinity])(
+    "falls back to the default bound for maxHeight %p",
+    (maxHeight) => {
+      expect(
+        resolveEncodeSettings({ type: "webp", maxHeight }, undefined)
+          ?.maxHeight,
+      ).toBe(ENCODE_DEFAULTS.maxHeight);
+    },
+  );
+
+  /** `canvas.toBlob` ignores a quality outside 0-1 just as quietly. */
+  it.each([0, -1, NaN, Infinity])(
+    "falls back to the default quality for %p",
+    (quality) => {
+      expect(
+        resolveEncodeSettings({ type: "webp", quality }, undefined)?.quality,
+      ).toBe(ENCODE_DEFAULTS.quality);
+    },
+  );
+
+  it("clamps a quality above 1 rather than dropping it", () => {
+    expect(
+      resolveEncodeSettings({ type: "webp", quality: 4 }, undefined)?.quality,
+    ).toBe(1);
+  });
+
+  it("keeps a usable quality and bounds untouched", () => {
+    expect(
+      resolveEncodeSettings(
+        { type: "webp", quality: 0.35, maxWidth: 1, maxHeight: 9999 },
+        undefined,
+      ),
+    ).toEqual({ type: "webp", quality: 0.35, maxWidth: 1, maxHeight: 9999 });
+  });
 });
 
 describe("fitWithin", () => {
