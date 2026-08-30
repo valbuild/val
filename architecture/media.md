@@ -87,6 +87,43 @@ The filename comes from `Internal.createFilename`: basename plus the first five
 hex of the content hash, so `red-8x8.png` → `red-8x8_bfbd0.png`. Identical bytes
 always produce the same ref.
 
+## Re-encoding, and why it is a one-line seam
+
+`s.image({ encode })` / `s.images({ encode })` convert an upload to WebP in the
+**browser**, before it is uploaded. Off unless asked for; `{type: "webp"}` is
+the whole opt-in, with `quality` (0.8), `maxWidth` and `maxHeight` (2560)
+defaulted. A field inherits its gallery's setting the way it inherits `accept`
+and `directory` — it has to, because `s.image(galleryVal)` serializes with
+**empty options** and has nothing of its own to read.
+
+It is one seam (`encodeImage`, called from `readImageFromFile`) because
+`createFilename` derives the extension from the data URL's mime type rather
+than from the filename. Swap the bytes before the hash and the filename, the
+recorded `mimeType`, the dimensions and the remote validation hash all follow;
+swap them after and each of those describes a file nobody uploaded.
+
+Four rules, each of which is a bug if dropped:
+
+- **`accept` beats `encode`.** Validation checks the stored `mimeType` against
+  `accept`, so converting under `accept: "image/png"` would upload a file the
+  schema rejects on arrival. The original goes up instead.
+- **Bigger output loses**, unless the image was downscaled — then the original
+  is the wrong size whatever it weighs. Measured: the 74-byte 8×8 fixture PNG
+  becomes a **548-byte** WebP, while a 1200×900 gradient goes 155 KB → 12 KB.
+- **SVG, GIF and AVIF are never touched**, nor is a WebP that already fits.
+- **Decoding is `createImageBitmap(file, {imageOrientation: "from-image"})`,
+  never `new Image()`** — that flag is what applies EXIF rotation, and the WebP
+  we write carries no EXIF, so the other path would silently rotate portrait
+  photos. Where it is unavailable, nothing is re-encoded.
+
+`encode` is stripped in `getValidationBasis`: it says how bytes were produced,
+not whether the bytes that arrived are valid, so leaving it in would re-validate
+every remote file in the project whenever a quality setting moved.
+
+The AI chat's image attachments (`useAI.uploadAiImage`) are **not** re-encoded.
+They are posted straight to the content service for the model to look at and
+never become a patch, so they are not on this path at all.
+
 ## Three patch shapes, one per path
 
 Worth knowing because each has had its own bugs, and a test for one proves

@@ -30,6 +30,8 @@ import { useRichTextEditorConfig } from "../RichTextEditor/useRichTextEditorConf
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useValPortal } from "../ValPortalProvider";
 import { readImageFromFile } from "../../utils/readImage";
+import type { ReadImageEncode } from "../../utils/readImage";
+import { resolveEncodeSettings } from "../../utils/encodeImage";
 import { createFilePatch } from "./FileField";
 
 const DEBOUNCE_MS = 400;
@@ -168,6 +170,21 @@ export function RichTextField({
     [imageModuleSchema],
   );
 
+  /** Resolved the same way as `imageAcceptOptions`: the nested schema, then the gallery. */
+  const imageEncode = useMemo<ReadImageEncode>(() => {
+    const galleryEncode =
+      imageModuleSchema?.type === "record"
+        ? imageModuleSchema.encode
+        : undefined;
+    return {
+      settings: resolveEncodeSettings(
+        imageSchema?.options?.encode,
+        galleryEncode,
+      ),
+      accept: imageAcceptOptions,
+    };
+  }, [imageSchema, imageModuleSchema, imageAcceptOptions]);
+
   const imageRemoteData = useMemo(() => {
     if (
       !hasImageEnabled ||
@@ -209,7 +226,7 @@ export function RichTextField({
       ) => string[] | null,
     ): Promise<{ filePath: string; ref: string } | null> => {
       try {
-        const res = await readImageFromFile(file);
+        const res = await readImageFromFile(file, imageEncode);
 
         let metadata: ImageMetadata | undefined;
         if (res.width && res.height && res.mimeType) {
@@ -347,6 +364,7 @@ export function RichTextField({
     imageReferencedModule,
     addAndUploadPatchWithFileOps,
     addModuleFilePatch,
+    imageEncode,
   ]);
 
   const handleDirty = useCallback(() => {
