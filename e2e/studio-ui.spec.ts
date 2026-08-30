@@ -117,7 +117,18 @@ test.describe("the Studio, through its own UI", () => {
         message: "the module's fields never showed their values",
       })
       .toContain("Generic");
-    expect(await fieldValues(page)).toContain("Generic content in a textarea");
+
+    /*
+     * A second field, of a different type, read by TEXT rather than by input
+     * value: the page's `sections` are inline blocks (`.render({ as: "inline"
+     * })` on the union's variants), so the block's rich text lives in a
+     * contenteditable and `fieldValues` — which reads `input,textarea` — cannot
+     * see it. This used to assert on `content`, a textarea the schema no longer
+     * has at all.
+     */
+    await expect(
+      studio.getByText("This is a generic page with some text content."),
+    ).toBeVisible();
   });
 
   /**
