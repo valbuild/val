@@ -58,7 +58,7 @@ import { getSourcePathFromRoute } from "@valbuild/core";
 import { Patch } from "@valbuild/shared/internal";
 import { useNavigation } from "../components/ValRouter";
 import { getNavPathFromAll } from "../components/getNavPath";
-import { filterBlockingValidationErrors } from "../validation/blockingValidationErrors";
+import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
 import { readImageFromFile } from "../utils/readImage";
 import { z } from "zod";
 import {
@@ -66,12 +66,12 @@ import {
   buildRemoveImageGalleryEntryPatch,
   isRemoteSchema,
   type BuildResult,
-} from "./aiImageToolPatches";
+} from "@valbuild/shared/internal";
 import {
   buildDuplicatePatch,
   buildEmptyAtPathPatch,
   describeContainerAtPath,
-} from "./aiSourceToolPatches";
+} from "@valbuild/shared/internal";
 import {
   expandSessionKeysInPatch,
   type ExpandResult,

@@ -24,7 +24,7 @@ import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { FieldSourceError } from "../../components/FieldSourceError";
-import { emptyOf } from "../../components/fields/emptyOf";
+import { emptyOf } from "@valbuild/shared/internal";
 import { AnyField } from "../../components/AnyField";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { useEffect, useRef } from "react";

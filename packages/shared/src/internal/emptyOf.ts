@@ -4,7 +4,22 @@ import {
   Internal,
   DEFAULT_COLOR_FORMAT,
 } from "@valbuild/core";
-import { format } from "date-fns";
+
+/**
+ * Local `yyyy-MM-dd`, which is the one thing this module used `date-fns` for.
+ *
+ * Inlined rather than carried along: `@valbuild/shared` depends on nothing but
+ * `@valbuild/core` and zod, and a whole date library is not worth adding to
+ * that for a single format string. Deliberately the *local* date, not
+ * `toISOString().slice(0, 10)` — the latter is UTC, so anyone west of
+ * Greenwich would get yesterday's date as their "today" default.
+ */
+function formatLocalDate(date: Date): string {
+  const year = String(date.getFullYear()).padStart(4, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 function clampDateString(
   value: string,
@@ -73,7 +88,7 @@ export function emptyOf(schema: SerializedSchema): Json {
     }
     return schema.key.value;
   } else if (schema.type === "date") {
-    return clampDateString(format(new Date(), "yyyy-MM-dd"), schema.options);
+    return clampDateString(formatLocalDate(new Date()), schema.options);
   } else if (schema.type === "dateTime") {
     return clampDateTimeString(new Date().toISOString(), schema.options);
   } else if (schema.type === "color") {

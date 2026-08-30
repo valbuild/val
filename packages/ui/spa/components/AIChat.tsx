@@ -44,7 +44,7 @@ import {
 } from "lucide-react";
 import type { AISession } from "../hooks/useAIWebSocket";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
-import { ToolName } from "../utils/toolNames";
+import { ToolName } from "@valbuild/shared/internal";
 import { useValConfig } from "./ValFieldProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { DEFAULT_APP_HOST } from "@valbuild/core";

@@ -1,12 +1,12 @@
 import type { SerializedSchema, Source } from "@valbuild/core";
-import { emptyOf } from "../components/fields/emptyOf";
+import { emptyOf } from "../emptyOf";
 import {
   getSourceAt,
   resolveSerializedSchemaAtPath,
   safeParsePatch,
   type BuildResult,
 } from "./aiImageToolPatches";
-import type { ToolName } from "../utils/toolNames";
+import type { ToolName } from "./toolNames";
 
 type OpDecision =
   | { kind: "ok"; op: "add" | "replace" }
