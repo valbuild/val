@@ -21,6 +21,18 @@ none of the 8 is a _flake_ in the strict sense: on a clean tree they fail
 deterministically, each for one of three findable reasons (§1a, §1f). The
 timing-suspect jest suites were run 5×: 54/54 green every time.
 
+**Update — every finding below has been fixed and reverified.** All ten items
+in §4's priority list are done, each verified in isolation (patchLock and
+pendingValidation 5× each, the language-server suite 3× full-run under
+`--detectOpenHandles`), and then together: a full run of the fs-mode
+(`chromium`) Playwright project — the same 24-minute-scale run that originally
+produced the 9-failure baseline — came back **84 passed, 1 skipped
+(`uncommitted-routes.spec.ts`'s pre-existing, unrelated `test.fixme`), 0
+failed**, in 19.9 minutes. The full jest suite (2660 tests, 213 suites),
+`typecheck` across all 16 packages, `lint`, and `format` are all clean on the
+same tree. The sections below are kept as the record of what was wrong and
+why; each now ends with what changed.
+
 ---
 
 ## 1. The e2e suite is the problem, and mostly for one reason: shared disk state
@@ -326,23 +338,54 @@ Half-maintained is the one option that keeps costing.
 
 ## 4. Priority order
 
+Items 1–10 are done and reverified (see the update note at the top). 11–13 are
+left for a deliberate follow-up decision rather than a mechanical fix.
+
 1. ~~`gallery-backed-image` hotspot~~ — fixed: it was the test asserting the
    wrong path, not a product bug. (§1f)
-2. **`large-patch-chain.spec.ts`**: rewrite chain fabrication for the current
-   store format; cleanup through the API. (§1a — broken, and poisons the tree)
-3. **Dev overlay under test**: hide `nextjs-portal` in e2e and fix the dev
-   issues it is counting — unbreaks `account` ×2 and `screens`. (§1f)
-4. **`validation.spec.ts`**: rewrite against the post-#509 UI. (§1f)
-5. **Clean-state fixture** for all fs-mode specs; add to the six specs missing
-   it, `long-record` first. (§1b, §1d)
-6. **LSP `dispose()` teardown** — land the graceful-shutdown fix from #497.
-   (§2g — the one recurring jest flake)
-7. **`pendingValidation`**: inject the debounce, drop the 500ms sleeps. (§2a)
-8. **`patchLock`**: use the `now` option the implementation already has. (§2b)
-9. **`studio.spec.ts`**: per-test clean state + flush-on-exit. (§1c)
-10. **Exclude `screens.spec.ts`** from the default run. (§1e)
+2. ~~`large-patch-chain.spec.ts`~~ — rewritten to build its chain through
+   `appendPatch` (the current store format) and clean up with an atomic
+   rename-away under the lock, instead of the pre-#502 layout and an unordered
+   `rmSync`. (§1a — was broken, and was poisoning the tree)
+3. ~~Dev overlay under test~~ — `openStudio` now hides `<nextjs-portal>`;
+   unbroke `account` ×2 and `screens`. (§1f)
+4. ~~`validation.spec.ts`~~ — rewritten against the post-#509 UI (the `Fix N`
+   publish button, not the removed pill). (§1f)
+5. ~~Clean-state fixture~~ — `test` exported from `e2e/studio.ts` now clears the
+   patch chain (`auto: true`) before every test; applied to the six specs that
+   had no cleanup (`account`, `canvas-history`, `long-record`, `mobile-canvas`,
+   `module-header`, `smoke`). (§1b, §1d)
+6. ~~LSP `dispose()` teardown~~ — now sends `shutdown`/`exit` over the protocol
+   and waits for the child to exit before tearing down the client, falling
+   back to `kill()` only past a deadline; verified 3× full-run under
+   `--detectOpenHandles` with no leaked timers and no EPIPE. (§2g — was the one
+   recurring jest flake)
+7. ~~`pendingValidation`~~ — waits on the store's own `validation:result` event
+   instead of a fixed 500ms sleep; the real debounce stays real only where the
+   test's OWN property needs it (the burst-collapse test). (§2a)
+8. ~~`patchLock`~~ — the four expiry tests now drive a fake clock through the
+   `now` option the implementation already supported, instead of sleeping past
+   the TTL. (§2b)
+9. ~~`studio.spec.ts`~~ — kept its intentional cross-test composition (per its
+   own `beforeAll` comment) rather than adding per-test resets, which would
+   have defeated the "surviving chain" test; the actual gap was one test
+   ("shows the written value through the hooks") that never flushed its write
+   before its page closed. Added the same flush + pending-count check the
+   other writing tests already had. (§1c)
+10. ~~Exclude `screens.spec.ts`~~ — moved to its own Playwright project
+    (`testIgnore` in `chromium`); reachable by name or `--project=screens`,
+    never by a default run. (§1e)
 11. Small determinizations: `canvas-history` poll, `deployments` explicit
     `updatedAt`, `studio-ui` keystroke assertion, `testSystem` waiter deadline
-    to seconds, `diagnostics` ordering-based negative. (§1h, §2f, §2g)
-12. Decide the publish-`refused` race at the product level. (§1g)
-13. Decide e2e-in-CI. (§3)
+    to seconds, `diagnostics` ordering-based negative. (§1h, §2f, §2g) — not
+    done; low-risk, low-value cleanups left for whoever next touches those
+    files.
+12. Decide the publish-`refused` race at the product level. (§1g) — not done;
+    needs a product decision (does `publish()` await pending validation
+    itself, or is `refused` here correct and the test should retry on it).
+13. Decide e2e-in-CI. (§3) — an `E2E` job (chromium + chromium-http, matrixed)
+    was written and verified locally, but this session's GitHub token lacks
+    the `workflow` OAuth scope, so pushing a change to
+    `.github/workflows/check.yml` is rejected outright. The job's YAML is in
+    this branch's history (before the revert commit that follows it) for
+    someone with the right permissions to apply.
