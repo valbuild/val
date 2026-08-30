@@ -1,4 +1,9 @@
-import type { Json, ModuleFilePath, SerializedSchema } from "@valbuild/core";
+import type {
+  Json,
+  ModuleFilePath,
+  PatchId,
+  SerializedSchema,
+} from "@valbuild/core";
 import type { z } from "zod";
 import type {
   ValOps,
@@ -49,6 +54,19 @@ export type ValToolState = {
   sources: Sources;
   patches: OrderedPatches;
   analysis: PatchAnalysis;
+  /**
+   * Pending patches that would not apply, by the module they belong to.
+   *
+   * A module listed here has `sources` that silently lack those changes, so its
+   * content is not what publishing would produce. Reads still return it — it is
+   * what the Studio would show too, and a project has to stay diagnosable — but
+   * a write to such a module is refused, because it would be based on a state
+   * that does not exist.
+   */
+  unappliedPatches: Record<
+    ModuleFilePath,
+    { patchId: PatchId; skipped: boolean; error: { message: string } }[]
+  >;
 };
 
 export type ValToolImpl = ValToolDefinition & {

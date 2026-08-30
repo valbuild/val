@@ -175,8 +175,14 @@ function refuseUnsafeRequest(
 
   const host = requestHost(request);
   const origin = request.headers.get("origin");
-  if (origin !== null && origin !== "null") {
-    const originHost = hostOf(origin);
+  if (origin !== null) {
+    // `Origin: null` is refused along with the rest. It is the *opaque* origin —
+    // a sandboxed iframe, a `file://` page, some redirects — so it cannot be
+    // compared to anything, and "cannot be compared" has to mean refuse: a page
+    // that would fail the check can otherwise pass it by arranging to have no
+    // origin at all. Absent entirely is the case that is allowed, and that is
+    // the one MCP clients produce.
+    const originHost = origin === "null" ? null : hostOf(origin);
     if (originHost === null || host === null || originHost !== host) {
       return jsonResponse(403, {
         error: `Val: refusing a cross-origin MCP request from ${JSON.stringify(
@@ -205,17 +211,21 @@ const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 /**
  * Which host the request was addressed to, as `hostname:port`.
  *
- * `X-Forwarded-Host` wins where it is set, because behind a proxy `Host` is the
- * internal name and the forwarded one is what the client actually asked for.
- * Note that a client can send either header, which is fine for the loopback
- * check — a browser cannot forge `Host`, and `X-Forwarded-Host` only ever
- * relaxes the check for a request that already reached a loopback listener.
+ * `Host` only, and deliberately **not** `X-Forwarded-Host`. The forwarded header
+ * is what a client asked for behind a proxy, but nothing stops a client sending
+ * it directly — so preferring it hands an attacker the value both checks below
+ * are decided on. `Host`, by contrast, a browser sets from the URL and page
+ * script cannot override, which is exactly the property the loopback check
+ * depends on.
+ *
+ * The cost is that behind a proxy that rewrites `Host`, a *browser* request
+ * whose `Origin` is the public name no longer matches. That is acceptable: such
+ * a request carries no personal access token, so proxy mode refuses it anyway,
+ * and a non-browser MCP client sends no `Origin` and never reaches the
+ * comparison. Trusting the forwarded header would need an explicit trusted-proxy
+ * configuration, which is a bigger thing than this needs.
  */
 function requestHost(request: Request): string | null {
-  const forwarded = request.headers.get("x-forwarded-host");
-  if (forwarded) {
-    return forwarded.split(",")[0]?.trim().toLowerCase() ?? null;
-  }
   const host = request.headers.get("host");
   if (host) {
     return host.trim().toLowerCase();

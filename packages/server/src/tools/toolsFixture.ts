@@ -61,7 +61,11 @@ export default c.define(
 );
 `;
 
-export function setup(): { tools: ValTools } {
+export function setup(): {
+  tools: ValTools;
+  /** Where the project lives, for a test that has to reach past the tools. */
+  rootDir: string;
+} {
   const { s, c, config } = initVal();
   // The OS temp dir, NOT the repo-local ".tmp" that other suites in this package
   // wipe on startup.
@@ -114,7 +118,7 @@ export function setup(): { tools: ValTools } {
     },
     options,
   );
-  return { tools };
+  return { tools, rootDir };
 }
 
 /** Unwrap an `ok` result, failing with the tool's own message if it errored. */

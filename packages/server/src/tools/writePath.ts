@@ -266,6 +266,25 @@ export async function savePatch(
 ): Promise<ValToolResult> {
   const { ops, ctx, state } = deps;
 
+  const unapplied = state.unappliedPatches[moduleFilePath];
+  if (unapplied && unapplied.length > 0) {
+    // Refused before anything is validated, because the state to validate
+    // against is wrong. `sources` for this module silently lacks these pending
+    // changes, so a patch built on it would be based on content that will never
+    // exist -- and its parent ref would chain onto changes that do not apply.
+    return {
+      status: "error",
+      code: "internal",
+      message: `Cannot write to ${moduleFilePath}: it has ${
+        unapplied.length
+      } pending change${
+        unapplied.length === 1 ? "" : "s"
+      } that will not apply, so what is stored is not what publishing would produce. Resolve or discard ${unapplied
+        .map((u) => u.patchId)
+        .join(", ")} first -- get_patches shows them.`,
+    };
+  }
+
   const speculative = await validateSpeculatively(
     ops,
     state,

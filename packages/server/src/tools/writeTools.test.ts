@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import {
   CTX,
   ITEMS_PATH,
@@ -333,5 +335,81 @@ describe("authorless writes in local mode", () => {
     // a profile, so asserting an author would be a claim it has not checked.
     expect(patches).toMatchObject([{ authorId: null, published: false }]);
     expect(CTX.auth).toBeNull();
+  });
+});
+
+describe("a module whose pending patch will not apply", () => {
+  /**
+   * Break a stored patch so it no longer applies.
+   *
+   * Rewriting the record on disk is the only honest way to reach this: a patch
+   * that applied when it was created only stops applying once something moves
+   * underneath it, which is exactly the state a unit test cannot arrange by
+   * calling the tools. The layout is `architecture/patch-store.md`.
+   */
+  function breakStoredPatch(rootDir: string): void {
+    const patchesDir = path.join(rootDir, ".val", "patches");
+    const entries = fs
+      .readdirSync(patchesDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory());
+    expect(entries).toHaveLength(1);
+    const recordPath = path.join(patchesDir, entries[0].name, "patch.json");
+    const record = JSON.parse(fs.readFileSync(recordPath, "utf-8"));
+    // A path that is not there, so applying it fails rather than doing nothing.
+    record.patch = [
+      { op: "replace", path: ["nope", "title"], value: "Whatever" },
+    ];
+    fs.writeFileSync(recordPath, JSON.stringify(record));
+  }
+
+  test("get_patches says the change does not apply, and why", async () => {
+    const { tools, rootDir } = setup();
+    await callOk(tools, "create_patch", {
+      moduleFilePath: PAGES_PATH,
+      patch: [{ op: "replace", path: ["home", "title"], value: "Renamed" }],
+    });
+    breakStoredPatch(rootDir);
+
+    // Otherwise a module's content silently differs from what publishing would
+    // produce and nothing anywhere says why.
+    const patches = await callOk(tools, "get_patches", {});
+    expect(patches).toMatchObject([
+      { appliesCleanly: false, applyError: expect.any(String) },
+    ]);
+  });
+
+  test("writing to it is refused", async () => {
+    const { tools, rootDir } = setup();
+    await callOk(tools, "create_patch", {
+      moduleFilePath: PAGES_PATH,
+      patch: [{ op: "replace", path: ["home", "title"], value: "Renamed" }],
+    });
+    breakStoredPatch(rootDir);
+
+    // The state to validate against is wrong: the sources for this module lack
+    // the pending change, so a patch built on them would be based on content
+    // that will never exist.
+    const res = await callErr(tools, "create_patch", {
+      moduleFilePath: PAGES_PATH,
+      patch: [{ op: "replace", path: ["about", "title"], value: "Renamed" }],
+    });
+    expect(res.message).toContain("will not apply");
+  });
+
+  test("another module is still writable", async () => {
+    const { tools, rootDir } = setup();
+    await callOk(tools, "create_patch", {
+      moduleFilePath: PAGES_PATH,
+      patch: [{ op: "replace", path: ["home", "title"], value: "Renamed" }],
+    });
+    breakStoredPatch(rootDir);
+
+    // Scoped to the module that is actually affected. One bad patch must not
+    // make the whole project read-only.
+    const res = await callOk(tools, "create_patch", {
+      moduleFilePath: ITEMS_PATH,
+      patch: [{ op: "replace", path: ["0", "label"], value: "Renamed" }],
+    });
+    expect(res).toMatchObject({ moduleFilePath: ITEMS_PATH });
   });
 });

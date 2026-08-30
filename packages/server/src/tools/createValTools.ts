@@ -288,6 +288,12 @@ async function loadState(
       sources: sourcesRes.sources,
       patches,
       analysis,
+      // Which modules hold a pending patch that would not apply. Carried rather
+      // than discarded because their `sources` silently lack that change: the
+      // content here is not what publishing would produce, so a write against
+      // it would be based on a state that does not exist. See
+      // `unappliedPatchesFor`.
+      unappliedPatches: sourcesRes.errors,
     },
   };
 }

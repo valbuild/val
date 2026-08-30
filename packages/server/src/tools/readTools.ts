@@ -277,7 +277,7 @@ export function readTools(): ValToolImpl[] {
         name: "get_patches",
         title: "Get patches",
         description:
-          "List the unpublished changes in the project, oldest first, with who made each one.",
+          "List the unpublished changes in the project, oldest first, with who made each one. A change reported as not applying is why a module's content may not match what publishing would produce, and why writing to that module is refused.",
         inputSchema: z.object({
           moduleFilePath: ModuleFilePathSchema.optional().describe(
             "Limit to changes touching one module.",
@@ -290,16 +290,32 @@ export function readTools(): ValToolImpl[] {
           moduleFilePath === undefined
             ? state.patches.patches
             : state.patches.patches.filter((p) => p.path === moduleFilePath);
+        // Which patches would not apply, flattened to one lookup by id: without
+        // this a module's content can silently differ from what publishing
+        // would produce, and nothing anywhere says why.
+        const failures = new Map<string, string>();
+        for (const unapplied of Object.values(state.unappliedPatches)) {
+          for (const failure of unapplied) {
+            failures.set(failure.patchId, failure.error.message);
+          }
+        }
         return ok(
-          wanted.map((patch) => ({
-            patchId: patch.patchId,
-            moduleFilePath: patch.path,
-            createdAt: patch.createdAt,
-            authorId: patch.authorId,
-            // `appliedAt` non-null means this change is already committed, so it
-            // is history rather than something still pending.
-            published: patch.appliedAt !== null,
-          })),
+          wanted.map((patch) => {
+            const failure = failures.get(patch.patchId);
+            return {
+              patchId: patch.patchId,
+              moduleFilePath: patch.path,
+              createdAt: patch.createdAt,
+              authorId: patch.authorId,
+              // `appliedAt` non-null means this change is already committed, so
+              // it is history rather than something still pending.
+              published: patch.appliedAt !== null,
+              // Always present, so "applies cleanly" is stated rather than
+              // inferred from the absence of a field.
+              appliesCleanly: failure === undefined,
+              ...(failure === undefined ? {} : { applyError: failure }),
+            };
+          }),
         );
       },
     ),

@@ -137,6 +137,37 @@ describe("local filesystem mode", () => {
     expect(res.response.status).toBe(403);
   });
 
+  test("X-Forwarded-Host cannot be used to fake a loopback host", async () => {
+    // The forwarded header is client-controlled in a direct-to-app deployment,
+    // so honouring it would hand an attacker the value this check is decided
+    // on. `Host` is set by the browser from the URL and page script cannot
+    // override it, which is the property the check depends on.
+    const res = await withNodeEnv("development", async () =>
+      mcp().valMcpAuthorize(
+        request({
+          host: "rebind.example.com",
+          "x-forwarded-host": "localhost:3000",
+        }),
+      ),
+    );
+
+    expect(res.status).toBe("refused");
+  });
+
+  test("X-Forwarded-Host cannot be used to fake a same-origin request", async () => {
+    const res = await withNodeEnv("development", async () =>
+      mcp().valMcpAuthorize(
+        request({
+          host: "localhost:3000",
+          origin: "https://evil.example.com",
+          "x-forwarded-host": "evil.example.com",
+        }),
+      ),
+    );
+
+    expect(res.status).toBe("refused");
+  });
+
   test("accepts the IPv6 loopback address, brackets and port included", async () => {
     const res = await withNodeEnv("development", async () =>
       mcp().valMcpAuthorize(request({ host: "[::1]:3000" })),
@@ -189,6 +220,23 @@ describe("cross-origin requests", () => {
     );
 
     expect(res.status).toBe("refused");
+  });
+
+  test("the opaque Origin, sent as the string null, is refused", async () => {
+    // A sandboxed iframe or a file:// page. It cannot be compared to anything,
+    // and "cannot be compared" has to mean refuse -- otherwise a page that
+    // would fail the check passes it by arranging to have no origin.
+    const res = await withNodeEnv("development", async () =>
+      mcp().valMcpAuthorize(
+        request({ host: "localhost:3000", origin: "null" }),
+      ),
+    );
+
+    expect(res.status).toBe("refused");
+    if (res.status !== "refused") {
+      return;
+    }
+    expect(res.response.status).toBe(403);
   });
 
   test("no Origin at all is allowed", async () => {
