@@ -46,6 +46,11 @@ export default modules(config, [
   { def: () => import("./content/mediaFixtures.val") },
   { def: () => import("./content/fileGallery.val") },
   { def: () => import("./content/mediaFields.val") },
+  // Uploads that are re-encoded in the browser. Deliberately their OWN modules
+  // rather than fields and entries added to the fixtures above — see the note
+  // in content/encodedFields.val.ts.
+  { def: () => import("./content/encodedImages.val") },
+  { def: () => import("./content/encodedFields.val") },
   // `hidden()` and `readonly()`, which the Studio is the only thing enforcing.
   { def: () => import("./content/access.val") },
   // Lists of primitives, the one shape the compare view diffs by content.
