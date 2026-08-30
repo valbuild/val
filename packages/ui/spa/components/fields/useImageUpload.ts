@@ -8,7 +8,7 @@ import {
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { JSONValue } from "@valbuild/core/patch";
-import { readImageFromFile } from "../../utils/readImage";
+import { readImageFromFile, ReadImageEncode } from "../../utils/readImage";
 import { createFilePatch } from "./FileField";
 
 export interface ImageUploadConfig {
@@ -46,6 +46,11 @@ export interface ImageUploadConfig {
    * the normal richtext patch flow.
    */
   fileUploadOnly?: boolean;
+  /**
+   * Re-encode the upload before hashing it, when the schema asks for it.
+   * Undefined uploads the bytes exactly as the editor picked them.
+   */
+  encode?: ReadImageEncode;
 }
 
 export interface ImageUploadResult {
@@ -76,7 +81,7 @@ export function useImageUpload(
       setProgressPercentage(0);
 
       try {
-        const res = await readImageFromFile(file);
+        const res = await readImageFromFile(file, config.encode);
 
         let metadata: ImageMetadata | undefined;
         if (res.width && res.height && res.mimeType) {

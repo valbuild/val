@@ -19,14 +19,16 @@ export function getValidationBasis(
   fileHash: string,
 ) {
   const metadataValidationBasis = `${metadata?.width || ""}${metadata?.height || ""}${metadata?.mimeType}`;
+  const options: Record<string, unknown> = { ...schema.options };
+  // Ignore options that do not affect the validation basis below:
+  // `encode` says how the bytes were PRODUCED in the browser, not whether the
+  // bytes that arrived are valid. Leaving it in would mean that changing a
+  // quality setting re-validates every remote file in the project.
+  delete options.encode;
   const schemaValidationBasis = {
     type: schema.type,
     opt: schema.opt,
-    options: {
-      ...schema.options,
-      // Ignore options that are does not affect the validation basis below:
-      // Currently we do not have any options that can be ignored.
-    },
+    options,
   };
   return (
     coreVersion +
