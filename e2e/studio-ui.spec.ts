@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import {
   chainLength,
   clearPatchChain,
@@ -8,6 +8,7 @@ import {
   openNavPanel,
   openSiteMap,
   openStudio,
+  test,
 } from "./studio";
 
 /**

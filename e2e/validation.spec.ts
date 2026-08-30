@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { clearPatchChain, openStudio } from "./studio";
+import { expect } from "@playwright/test";
+import { clearPatchChain, openStudio, test } from "./studio";
 
 /**
  * Validation errors appear where the editing happens, and gate the publish.

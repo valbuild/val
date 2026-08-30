@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import {
   clearPatchChain,
   closeNavPanel,
@@ -7,6 +7,7 @@ import {
   openNavPanel,
   openSiteMap,
   openStudio,
+  test,
 } from "./studio";
 
 /**

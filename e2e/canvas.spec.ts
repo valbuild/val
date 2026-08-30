@@ -1,10 +1,11 @@
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
 import {
   clearPatchChain,
   closeNavPanel,
   expandRow,
   openSiteMap,
   openStudio,
+  test,
 } from "./studio";
 
 /**

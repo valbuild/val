@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { clearPatchChain, openStudio } from "./studio";
+import { expect } from "@playwright/test";
+import { clearPatchChain, openStudio, test } from "./studio";
 
 /**
  * A record key's description: said once, and next to the thing it describes.

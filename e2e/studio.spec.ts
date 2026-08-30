@@ -1,5 +1,9 @@
-import { expect, test, type Page } from "@playwright/test";
-import { clearPatchChain, openStudio } from "./studio";
+import { expect, type Page } from "@playwright/test";
+import {
+  clearPatchChain,
+  openStudio,
+  testKeepingChain as test,
+} from "./studio";
 
 /**
  * The Studio, driven the way an editor drives it.

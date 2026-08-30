@@ -1,10 +1,10 @@
 import {
   expect,
-  test as base,
   type APIRequestContext,
   type Locator,
   type Page,
 } from "@playwright/test";
+import { test as appTest } from "./workerApp";
 
 /**
  * Shared helpers for the two Studio suites.
@@ -114,7 +114,7 @@ export async function clearPatchChain(
  * own fabricated fixture — keep importing `test` from `@playwright/test`
  * directly and call `clearPatchChain` on whatever schedule they need.
  */
-export const test = base.extend<{ cleanPatches: void }>({
+export const test = appTest.extend<{ cleanPatches: void }>({
   cleanPatches: [
     async ({ request }, use) => {
       await clearPatchChain(request);
@@ -123,6 +123,18 @@ export const test = base.extend<{ cleanPatches: void }>({
     { auto: true },
   ],
 });
+
+/**
+ * The same per-worker app, without the automatic reset.
+ *
+ * For the two files that build a chain deliberately and would be defeated by
+ * a reset between tests: `studio.spec.ts`, whose tests compose on each other's
+ * writes on purpose, and `large-patch-chain.spec.ts`, which fabricates a
+ * 650-patch fixture in `beforeAll`. Importing `test` from `@playwright/test`
+ * used to be how those opted out; that no longer works, because a bare `test`
+ * has no `baseURL` — every worker is on a port of its own now.
+ */
+export { appTest as testKeepingChain };
 
 /** How many patches the store currently holds, straight from the system. */
 export async function chainLength(page: Page): Promise<number> {

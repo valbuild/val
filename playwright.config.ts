@@ -13,6 +13,32 @@ const PREINSTALLED_CHROMIUM =
   "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
 
 /**
+ * Which projects this invocation will run, read off the command line.
+ *
+ * `webServer` is global — Playwright has no per-project form — so without this
+ * every run would start every server: an `fs`-mode run, whose workers bring up
+ * their own apps, would still pay for a `next dev` and a mock content host it
+ * never touches, and `next dev`'s first-request compile is most of what this
+ * whole change removes. Reading `--project` is unlovely, but the alternative is
+ * a config that cannot express "this server belongs to that project".
+ *
+ * No `--project` means "all of them", which is what Playwright itself does.
+ */
+const selectedProjects: string[] = process.argv.reduce<string[]>(
+  (found, arg, index) => {
+    if (arg === "--project" && process.argv[index + 1]) {
+      found.push(process.argv[index + 1]);
+    } else if (arg.startsWith("--project=")) {
+      found.push(arg.slice("--project=".length));
+    }
+    return found;
+  },
+  [],
+);
+const willRun = (project: string): boolean =>
+  selectedProjects.length === 0 || selectedProjects.includes(project);
+
+/**
  * End-to-end tests for the Val Studio.
  *
  * These exist because of what the unit tests could not see. Removing
@@ -46,10 +72,24 @@ const PREINSTALLED_CHROMIUM =
  */
 export default defineConfig({
   testDir: "./e2e",
-  // One at a time. These tests write patches to the same `.val` directory on
-  // disk, so parallel workers would be editing each other's content — and the
-  // failure would look like a bug in the store rather than in the harness.
-  workers: 1,
+  /**
+   * Parallel, because each worker now gets an app of its own.
+   *
+   * This used to be `workers: 1`, and had to be: every spec drove one server
+   * against one `examples/next/.val`, so two workers would have been editing
+   * each other's content and the failure would have read as a bug in the store
+   * rather than in the harness. `e2e/workerApp.ts` removes the shared thing —
+   * a copied tree and a `next dev` of its own per worker, isolated by nothing
+   * more exotic than `process.cwd()`, which is what `fs` mode takes as its
+   * root. The Vite server below stays shared: it holds no per-app state.
+   *
+   * `fullyParallel` stays off: files still run whole, on one worker. Several
+   * specs are written as a sequence (`studio.spec.ts` composes on its own
+   * writes; `large-patch-chain.spec.ts` builds a fixture in `beforeAll`), so
+   * spreading the tests inside a file across workers would break them for a
+   * reason that has nothing to do with the product.
+   */
+  workers: process.env.CI ? 4 : undefined,
   fullyParallel: false,
   // A generous timeout, and not because the app is slow: `next dev` compiles the
   // route on first request, so the first test pays for a build.
@@ -57,7 +97,9 @@ export default defineConfig({
   expect: { timeout: 20_000 },
   reporter: process.env.CI ? "list" : [["list"], ["html", { open: "never" }]],
   use: {
-    baseURL: "http://localhost:3456",
+    // No `baseURL` here on purpose: `fs`-mode tests get one per worker from
+    // `e2e/workerApp.ts`, and `chromium-http` sets its own below. A default
+    // would silently point a mis-wired test at whatever happens to be running.
     // Kept only for a failure: a passing run should leave nothing behind.
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
@@ -122,67 +164,74 @@ export default defineConfig({
     },
   ],
   webServer: [
+    /**
+     * The SPA, and the one server that is still shared.
+     *
+     * `/api/val/static` is where the Next app expects to find it, on a port
+     * hardcoded in `packages/ui/src/server.ts`. That looked like the blocker
+     * for running workers in parallel — one port, no config knob — but it is
+     * not: this server only serves SPA assets and holds no per-app state, so
+     * every worker's app can proxy to the same one. The app is the only thing
+     * that had to become per-worker, and `e2e/workerApp.ts` is where that
+     * happens.
+     */
     {
-      // The SPA. `/api/val/static` is where the Next app expects to find it.
       command: "pnpm --filter @valbuild/ui run dev",
       url: "http://localhost:5173/api/val/static",
       reuseExistingServer: true,
       timeout: 120_000,
       cwd: ".",
     },
-    {
-      command: "pnpm run dev",
-      url: "http://localhost:3456",
-      reuseExistingServer: true,
-      timeout: 180_000,
-      cwd: "./examples/next",
-    },
-    {
-      // The fake content.val.build. Must be up before the app below: the app
-      // asks it for patches on the first `/stat`.
-      command: "pnpm exec tsx e2e/mock-content-host/server.ts",
-      url: `http://localhost:${MOCK_CONTENT_PORT}/__test__/ping`,
-      reuseExistingServer: true,
-      timeout: 60_000,
-      cwd: ".",
-      env: {
-        MOCK_CONTENT_PORT: String(MOCK_CONTENT_PORT),
-        MOCK_CONTENT_API_KEY: MOCK_API_KEY,
-        MOCK_CONTENT_PROJECT: MOCK_PROJECT,
-        MOCK_CONTENT_REPO_ROOT: process.cwd(),
-        MOCK_CONTENT_INITIAL_COMMIT: MOCK_INITIAL_COMMIT,
-      },
-    },
-    {
-      /**
-       * The same example app, in proxy mode.
-       *
-       * `initHandlerOptions` picks proxy mode from the environment alone —
-       * `VAL_API_KEY` and `VAL_SECRET` present means `http` — so this needs no
-       * product code and no second config file. `NEXT_DIST_DIR` keeps its build
-       * output away from the `fs`-mode server's.
-       */
-      // `--webpack` for the same reason the `dev` script has it, see next.config.js.
-      command: `pnpm exec next dev --webpack -p ${HTTP_APP_PORT}`,
-      url: `http://localhost:${HTTP_APP_PORT}`,
-      reuseExistingServer: true,
-      timeout: 180_000,
-      cwd: "./examples/next",
-      env: {
-        NEXT_DIST_DIR: ".next-http",
-        // The remote-file example, which only this server registers: a remote
-        // schema makes the Studio ask for remote settings and makes every publish
-        // require remote credentials, so the fs-mode server has to stay without
-        // one. See examples/next/val.modules.ts.
-        NEXT_PUBLIC_VAL_EXAMPLE_REMOTE_MEDIA: "true",
-        VAL_API_KEY: MOCK_API_KEY,
-        VAL_SECRET: MOCK_SECRET,
-        VAL_PROJECT: MOCK_PROJECT,
-        VAL_GIT_COMMIT: MOCK_INITIAL_COMMIT,
-        VAL_GIT_BRANCH: "main",
-        VAL_CONTENT_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
-        VAL_BUILD_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
-      },
-    },
+    ...(willRun("chromium-http")
+      ? [
+          {
+            // The fake content.val.build. Must be up before the app below: the app
+            // asks it for patches on the first `/stat`.
+            command: "pnpm exec tsx e2e/mock-content-host/server.ts",
+            url: `http://localhost:${MOCK_CONTENT_PORT}/__test__/ping`,
+            reuseExistingServer: true,
+            timeout: 60_000,
+            cwd: ".",
+            env: {
+              MOCK_CONTENT_PORT: String(MOCK_CONTENT_PORT),
+              MOCK_CONTENT_API_KEY: MOCK_API_KEY,
+              MOCK_CONTENT_PROJECT: MOCK_PROJECT,
+              MOCK_CONTENT_REPO_ROOT: process.cwd(),
+              MOCK_CONTENT_INITIAL_COMMIT: MOCK_INITIAL_COMMIT,
+            },
+          },
+          {
+            /**
+             * The same example app, in proxy mode.
+             *
+             * `initHandlerOptions` picks proxy mode from the environment alone —
+             * `VAL_API_KEY` and `VAL_SECRET` present means `http` — so this needs no
+             * product code and no second config file. `NEXT_DIST_DIR` keeps its build
+             * output away from the `fs`-mode server's.
+             */
+            // `--webpack` for the same reason the `dev` script has it, see next.config.js.
+            command: `pnpm exec next dev --webpack -p ${HTTP_APP_PORT}`,
+            url: `http://localhost:${HTTP_APP_PORT}`,
+            reuseExistingServer: true,
+            timeout: 180_000,
+            cwd: "./examples/next",
+            env: {
+              NEXT_DIST_DIR: ".next-http",
+              // The remote-file example, which only this server registers: a remote
+              // schema makes the Studio ask for remote settings and makes every publish
+              // require remote credentials, so the fs-mode server has to stay without
+              // one. See examples/next/val.modules.ts.
+              NEXT_PUBLIC_VAL_EXAMPLE_REMOTE_MEDIA: "true",
+              VAL_API_KEY: MOCK_API_KEY,
+              VAL_SECRET: MOCK_SECRET,
+              VAL_PROJECT: MOCK_PROJECT,
+              VAL_GIT_COMMIT: MOCK_INITIAL_COMMIT,
+              VAL_GIT_BRANCH: "main",
+              VAL_CONTENT_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
+              VAL_BUILD_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
+            },
+          },
+        ]
+      : []),
   ],
 });

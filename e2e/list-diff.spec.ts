@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { clearPatchChain, openStudio, patchThroughStore } from "./studio";
+import { expect } from "@playwright/test";
+import { clearPatchChain, openStudio, patchThroughStore, test } from "./studio";
 import type { Locator, Page } from "@playwright/test";
 
 const MODULE = "/content/lists.val.ts";

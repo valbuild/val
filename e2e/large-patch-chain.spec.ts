@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { openStudio } from "./studio";
+import { expect } from "@playwright/test";
+import { openStudio, testKeepingChain as test } from "./studio";
 import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -23,9 +23,18 @@ import {
  * it builds its own chain: nothing a person does in a test writes 650 patches.
  */
 
-const VAL_DIR = join(__dirname, "..", "examples/next/.val");
-const PATCHES_DIR = join(VAL_DIR, "patches");
-const LOCK_FILE = join(VAL_DIR, PATCH_LOCK_FILE_NAME);
+/**
+ * The store lives under the WORKER's own app copy, not the checkout's.
+ *
+ * Each worker runs its own server with its own cwd, which is what `fs` mode
+ * takes as its root (see `workerApp.ts`), so a path baked in at module scope
+ * would have every worker fabricating its chain into one shared directory —
+ * the exact interference the copies exist to remove.
+ */
+const valDir = (rootDir: string) => join(rootDir, ".val");
+const patchesDir = (rootDir: string) => join(valDir(rootDir), "patches");
+const lockFile = (rootDir: string) =>
+  join(valDir(rootDir), PATCH_LOCK_FILE_NAME);
 const CHAIN_LENGTH = 650;
 const MODULE = "/content/access.val.ts";
 /** Matched against the running core, or the server treats the patch as foreign. */
@@ -57,9 +66,13 @@ const CORE_VERSION = (
  * schema is the one place that type exists, so parsing through it is the way
  * to produce one without asserting past the type.
  */
-async function writeChain(length: number, baseSha: string): Promise<void> {
+async function writeChain(
+  rootDir: string,
+  length: number,
+  baseSha: string,
+): Promise<void> {
   const locked = await withPatchLock(
-    LOCK_FILE,
+    lockFile(rootDir),
     { ttlMs: 30_000, op: "e2e large-patch-chain setup" },
     () => {
       for (let i = 0; i < length; i++) {
@@ -73,7 +86,7 @@ async function writeChain(length: number, baseSha: string): Promise<void> {
           coreVersion: CORE_VERSION,
           createdAt: new Date(Date.UTC(2026, 7, 26, 20, 0, i)).toISOString(),
         });
-        appendPatch(PATCHES_DIR, record);
+        appendPatch(patchesDir(rootDir), record);
       }
     },
   );
@@ -98,14 +111,17 @@ async function writeChain(length: number, baseSha: string): Promise<void> {
  * reader's point of view the store either fully exists or does not exist at
  * all, with nothing in between to observe.
  */
-async function clearPatches(): Promise<void> {
+async function clearPatches(rootDir: string): Promise<void> {
   const locked = await withPatchLock(
-    LOCK_FILE,
+    lockFile(rootDir),
     { ttlMs: 30_000, op: "e2e large-patch-chain cleanup" },
     () => {
-      if (!existsSync(PATCHES_DIR)) return;
-      const tmpDir = join(VAL_DIR, `patches-e2e-cleanup-${randomUUID()}`);
-      renameSync(PATCHES_DIR, tmpDir);
+      if (!existsSync(patchesDir(rootDir))) return;
+      const tmpDir = join(
+        valDir(rootDir),
+        `patches-e2e-cleanup-${randomUUID()}`,
+      );
+      renameSync(patchesDir(rootDir), tmpDir);
       rmSync(tmpDir, { recursive: true, force: true });
     },
   );
@@ -115,7 +131,7 @@ async function clearPatches(): Promise<void> {
 }
 
 test.describe("a long patch chain", () => {
-  test.beforeAll(async ({ request }) => {
+  test.beforeAll(async ({ request, workerApp }) => {
     /**
      * An EMPTY chain first, and this is not tidiness.
      *
@@ -124,19 +140,19 @@ test.describe("a long patch chain", () => {
      * reporting that the store loaded no patches, which is true and says
      * nothing about the code under test.
      */
-    await clearPatches();
+    await clearPatches(workerApp.rootDir);
     // Rooted at the base the server is actually on, or every patch in it is
     // refused as belonging to a different one.
     const listed = await request.get("/api/val/patches");
     expect(listed.ok(), "could not read the current base").toBe(true);
     const { baseSha } = (await listed.json()) as { baseSha: string };
-    await writeChain(CHAIN_LENGTH, baseSha);
+    await writeChain(workerApp.rootDir, CHAIN_LENGTH, baseSha);
   });
 
-  test.afterAll(async () => {
+  test.afterAll(async ({ workerApp }) => {
     // Six hundred patches left for the next spec make its failure somebody
     // else's puzzle.
-    await clearPatches();
+    await clearPatches(workerApp.rootDir);
   });
 
   test("loads every patch, in requests the server accepts", async ({
@@ -202,16 +218,16 @@ test.describe("a long patch chain", () => {
  * Indistinguishable from the edits having been discarded.
  */
 test.describe("a patch fetch the server refuses", () => {
-  test.beforeAll(async ({ request }) => {
-    await clearPatches();
+  test.beforeAll(async ({ request, workerApp }) => {
+    await clearPatches(workerApp.rootDir);
     const listed = await request.get("/api/val/patches");
     expect(listed.ok()).toBe(true);
     const { baseSha } = (await listed.json()) as { baseSha: string };
-    await writeChain(1, baseSha);
+    await writeChain(workerApp.rootDir, 1, baseSha);
   });
 
-  test.afterAll(async () => {
-    await clearPatches();
+  test.afterAll(async ({ workerApp }) => {
+    await clearPatches(workerApp.rootDir);
   });
 
   test("is reported to the user, not only to the console", async ({ page }) => {

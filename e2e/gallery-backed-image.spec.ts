@@ -1,9 +1,10 @@
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
 import {
   clearPatchChain,
   discardAll,
   openStudio,
   peekThroughStore,
+  test,
 } from "./studio";
 
 const MODULE = "/content/mediaFields.val.ts";

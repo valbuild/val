@@ -1,5 +1,5 @@
-import { expect, test, type Locator } from "@playwright/test";
-import { clearPatchChain, openStudio } from "./studio";
+import { expect, type Locator } from "@playwright/test";
+import { clearPatchChain, openStudio, test } from "./studio";
 
 /**
  * The fields are held until the server's pending changes have landed.

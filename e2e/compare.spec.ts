@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { clearPatchChain, openStudio } from "./studio";
+import { expect } from "@playwright/test";
+import { clearPatchChain, openStudio, test } from "./studio";
 import type { Locator, Page } from "@playwright/test";
 
 /**
