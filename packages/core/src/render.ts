@@ -1,3 +1,5 @@
+import type { SerializedSchema } from "./schema";
+
 /**
  * A RENDER is how the FIELD ITSELF is laid out in the editor, and it applies
  * only when you are looking at the field: `s.string().render({ as: "textarea"
@@ -83,3 +85,37 @@ export type StringRender =
   | { as: "textarea" }
   | { as: "code"; language: CodeLanguage }
   | InlineRender;
+
+/**
+ * Is this item schema edited INSIDE its list row, rather than behind a
+ * clickable preview row that navigates to it?
+ *
+ * The one answer, so that the list rows, the nav-stop rule (`getNavPath`) and
+ * the add buttons cannot drift apart — they are three readings of the same
+ * question, and a disagreement between them is a row you can edit in place but
+ * that "add" navigates away from.
+ *
+ * A tagged union counts as inline when the union itself declares it OR when
+ * ANY of its variants does. A page-builder list is `s.array(s.union("type",
+ * block, block, ...))` and the natural place to write the render is on the
+ * blocks, one per block type — the union is a dispatch, not something the
+ * author thinks of as the field. `some` rather than `every` because the row
+ * draws the union's own editor (the tag selector plus the matched variant's
+ * fields), which handles every variant either way: with `every`, adding one
+ * variant and forgetting its `.render` would silently turn the whole list back
+ * into preview rows.
+ *
+ * This is the ONLY place a render is allowed to be read from anywhere but the
+ * schema it was declared on. It stays static (see the top of this file): the
+ * answer is a function of the serialized schema alone, never of the value the
+ * row happens to hold.
+ */
+export function isInlineRender(schema: SerializedSchema): boolean {
+  if (schema.render?.as === "inline") {
+    return true;
+  }
+  if (schema.type === "union") {
+    return schema.items.some((item) => item.render?.as === "inline");
+  }
+  return false;
+}

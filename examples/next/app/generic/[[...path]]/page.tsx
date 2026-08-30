@@ -1,5 +1,6 @@
 "use client";
 import { notFound } from "next/navigation";
+import { ValRichText } from "@valbuild/next";
 import { useValRoute } from "../../../val/client";
 import pageVal from "./page.val";
 
@@ -15,8 +16,12 @@ export default function GenericPage({
   return (
     <main>
       <h1>{content.title}</h1>
-      <p>{content.content}</p>
-      <pre>{content.exampleCode}</pre>
+      {content.sections.map((section, i) => {
+        if (section.type === "text") {
+          return <ValRichText key={i} content={section.text} />;
+        }
+        return <pre key={i}>{section.code}</pre>;
+      })}
     </main>
   );
 }

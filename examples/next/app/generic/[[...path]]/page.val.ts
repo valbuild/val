@@ -15,9 +15,14 @@ const genericPageSchema = s.object({
       s
         .object({
           type: s.literal("code"),
-          code: s.string(),
+          code: s.string().render({ as: "code", language: "typescript" }),
         })
-        .render({ as: "inline" }),
+        .render({ as: "inline" })
+        // Both, on purpose: the render decides that the block is EDITED in the
+        // list row, the preview decides what it is CALLED everywhere it is only
+        // referred to — a search hit, a reference, this row's own collapsed
+        // header. See architecture/render-and-preview.md.
+        .preview(({ val }) => ({ title: val.code })),
     ),
   ),
 });

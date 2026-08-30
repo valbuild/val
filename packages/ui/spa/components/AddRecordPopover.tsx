@@ -1,4 +1,9 @@
-import { SourcePath, Internal, ModuleFilePath } from "@valbuild/core";
+import {
+  SourcePath,
+  Internal,
+  ModuleFilePath,
+  isInlineRender,
+} from "@valbuild/core";
 import { JSONValue } from "@valbuild/core/patch";
 import { useState, useEffect, useCallback } from "react";
 import { emptyOf } from "./fields/emptyOf";
@@ -89,7 +94,7 @@ export function AddRecordPopover({
       // An inline entry is edited in place in the list, so adding one should
       // not navigate away from it — the same rule `AddArrayButton` follows,
       // and the one `getNavPath` encodes: an inline item is not a nav stop.
-      if (schema.item.render?.as !== "inline") {
+      if (!isInlineRender(schema.item)) {
         navigate(
           Internal.joinModuleFilePathAndModulePath(
             moduleFilePath,

@@ -19,7 +19,11 @@ import { useSortable } from "@dnd-kit/sortable";
 import { DragEndEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { Copy, EllipsisVertical, GripVertical, Trash2 } from "lucide-react";
-import { SourcePath, SerializedArraySchema } from "@valbuild/core";
+import {
+  SourcePath,
+  SerializedArraySchema,
+  isInlineRender,
+} from "@valbuild/core";
 import { RefPreview } from "./RefPreview";
 import { InlineAnyField } from "./InlineAnyField";
 import { isParentError } from "../utils/isParentError";
@@ -248,7 +252,7 @@ export function SortableItemRow({
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: id, disabled: disabled === true });
   const validationErrors = useAllValidationErrors() || {};
-  const isInline = schema?.item?.render?.as === "inline";
+  const isInline = schema?.item ? isInlineRender(schema.item) : false;
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
