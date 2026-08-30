@@ -1,8 +1,13 @@
 import { expect, test } from "@playwright/test";
 import { openStudio } from "./studio";
-import { mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { appendPatch, FSPatch } from "../packages/server/src/patchStore";
+import {
+  withPatchLock,
+  PATCH_LOCK_FILE_NAME,
+} from "../packages/server/src/patchLock";
 
 /**
  * A chain long enough to break the request that reads it.
@@ -18,7 +23,9 @@ import { randomUUID } from "node:crypto";
  * it builds its own chain: nothing a person does in a test writes 650 patches.
  */
 
-const PATCHES_DIR = join(__dirname, "..", "examples/next/.val/patches");
+const VAL_DIR = join(__dirname, "..", "examples/next/.val");
+const PATCHES_DIR = join(VAL_DIR, "patches");
+const LOCK_FILE = join(VAL_DIR, PATCH_LOCK_FILE_NAME);
 const CHAIN_LENGTH = 650;
 const MODULE = "/content/access.val.ts";
 /** Matched against the running core, or the server treats the patch as foreign. */
@@ -29,79 +36,107 @@ const CORE_VERSION = (
 ).version;
 
 /**
- * Write a chain of patches straight onto disk, the way `ValOpsFS` stores them:
- * one directory per patch, NAMED BY ITS PARENT, holding a `patch.json`. The
- * first directory is `head`, and each one after it is named by the patch before
- * it. Written rather than typed because the point is the length — nothing a
- * person does in a test produces 650 patches.
+ * Build a chain of patches through the store's own write path.
+ *
+ * `appendPatch` writes exactly what the running server would: the record
+ * under `<patchId>/patch.json`, then a line in `patches.log` — the CURRENT
+ * on-disk contract (see `architecture/patch-store.md`), which replaced a
+ * layout where a directory was named after its PARENT rather than itself.
+ * Fabricating the old shape by hand is what silently rotted this spec when
+ * that store was rewritten: a chain in the old format is not merely
+ * unreadable, every one of its directories reads as crash debris and gets
+ * swept, so the spec failed claiming the store never loaded a chain that was
+ * never really written.
+ *
+ * `appendPatch` must run under the same lock the server takes for every write
+ * — done once here, around the whole loop, rather than 650 separate
+ * acquisitions or 650 real `PUT /patches` round trips: the point of this
+ * fixture is the chain's LENGTH, not exercising the HTTP path a second time,
+ * and 650 synchronous file writes take a fraction of a second held once.
+ * `FSPatch.parse` is what gives each record its branded `baseSha` — the
+ * schema is the one place that type exists, so parsing through it is the way
+ * to produce one without asserting past the type.
  */
-function writeChain(length: number, baseSha: string): string[] {
-  const written: string[] = [];
-  let parentDir = "head";
-  let parentRef: Record<string, unknown> = {
-    type: "head",
-    headBaseSha: baseSha,
-  };
-  for (let i = 0; i < length; i++) {
-    const patchId = randomUUID();
-    const dir = join(PATCHES_DIR, parentDir);
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(
-      join(dir, "patch.json"),
-      JSON.stringify({
-        patch: [{ op: "replace", path: ["editable"], value: `Typed ${i}` }],
-        patchId,
-        parentRef,
-        path: MODULE,
-        authorId: null,
-        sessionId: null,
-        baseSha,
-        coreVersion: CORE_VERSION,
-        createdAt: new Date(Date.UTC(2026, 7, 26, 20, 0, i)).toISOString(),
-      }),
-    );
-    written.push(dir);
-    parentDir = patchId;
-    parentRef = { type: "patch", patchId };
+async function writeChain(length: number, baseSha: string): Promise<void> {
+  const locked = await withPatchLock(
+    LOCK_FILE,
+    { ttlMs: 30_000, op: "e2e large-patch-chain setup" },
+    () => {
+      for (let i = 0; i < length; i++) {
+        const record = FSPatch.parse({
+          patch: [{ op: "replace", path: ["editable"], value: `Typed ${i}` }],
+          patchId: randomUUID(),
+          path: MODULE,
+          authorId: null,
+          sessionId: null,
+          baseSha,
+          coreVersion: CORE_VERSION,
+          createdAt: new Date(Date.UTC(2026, 7, 26, 20, 0, i)).toISOString(),
+        });
+        appendPatch(PATCHES_DIR, record);
+      }
+    },
+  );
+  if (locked.status !== "ok") {
+    throw new Error(`could not build the fixture chain: ${locked.message}`);
   }
-  return written;
 }
 
-/** Remove every patch on disk, fabricated or otherwise. */
-function clearPatches(): void {
-  rmSync(PATCHES_DIR, { recursive: true, force: true });
+/**
+ * Remove every patch on disk, fabricated or otherwise — the same way
+ * `ValOpsFS.deleteAllPatches` does, and for the same reason.
+ *
+ * `readPatchStore`'s reads are deliberately lock-free (`architecture/patch-
+ * store.md`), which is only safe because every WRITE is ordered so a reader
+ * mid-write can never see a log entry whose directory is already gone. A
+ * plain recursive `rmSync` over the whole tree does not honor that: it can
+ * delete a patch's directory before it gets to `patches.log`, and a reader
+ * polling in that window sees the log still naming the patch and its
+ * `patch.json` already missing — "something is wrong with the patch store",
+ * which is exactly what a first version of this cleanup produced under load.
+ * Renaming the directory away first is a single atomic syscall: from any
+ * reader's point of view the store either fully exists or does not exist at
+ * all, with nothing in between to observe.
+ */
+async function clearPatches(): Promise<void> {
+  const locked = await withPatchLock(
+    LOCK_FILE,
+    { ttlMs: 30_000, op: "e2e large-patch-chain cleanup" },
+    () => {
+      if (!existsSync(PATCHES_DIR)) return;
+      const tmpDir = join(VAL_DIR, `patches-e2e-cleanup-${randomUUID()}`);
+      renameSync(PATCHES_DIR, tmpDir);
+      rmSync(tmpDir, { recursive: true, force: true });
+    },
+  );
+  if (locked.status !== "ok") {
+    throw new Error(`could not clear the fixture chain: ${locked.message}`);
+  }
 }
 
 test.describe("a long patch chain", () => {
-  let written: string[] = [];
-
   test.beforeAll(async ({ request }) => {
     /**
      * An EMPTY chain first, and this is not tidiness.
      *
-     * The fabricated chain is rooted at `head`, so a patch another spec left
-     * behind is overwritten by the first link of this one — and its remaining
-     * directories stay on disk with parents that no longer exist. The server
-     * then resolves a chain that applies to nothing, and this spec fails
-     * reporting that the store loaded no patches, which is true and says nothing
-     * about the code under test.
+     * A patch another spec left behind can carry a `baseSha` this run's server
+     * is not on, and reading a chain that applies to nothing fails this spec
+     * reporting that the store loaded no patches, which is true and says
+     * nothing about the code under test.
      */
-    clearPatches();
+    await clearPatches();
     // Rooted at the base the server is actually on, or every patch in it is
     // refused as belonging to a different one.
     const listed = await request.get("/api/val/patches");
     expect(listed.ok(), "could not read the current base").toBe(true);
     const { baseSha } = (await listed.json()) as { baseSha: string };
-    written = writeChain(CHAIN_LENGTH, baseSha);
+    await writeChain(CHAIN_LENGTH, baseSha);
   });
 
   test.afterAll(async () => {
-    for (const dir of written) {
-      rmSync(dir, { recursive: true, force: true });
-    }
-    // And the directory itself: six hundred patches left for the next spec make
-    // its failure somebody else's puzzle.
-    clearPatches();
+    // Six hundred patches left for the next spec make its failure somebody
+    // else's puzzle.
+    await clearPatches();
   });
 
   test("loads every patch, in requests the server accepts", async ({
@@ -167,21 +202,16 @@ test.describe("a long patch chain", () => {
  * Indistinguishable from the edits having been discarded.
  */
 test.describe("a patch fetch the server refuses", () => {
-  let written: string[] = [];
-
   test.beforeAll(async ({ request }) => {
-    clearPatches();
+    await clearPatches();
     const listed = await request.get("/api/val/patches");
     expect(listed.ok()).toBe(true);
     const { baseSha } = (await listed.json()) as { baseSha: string };
-    written = writeChain(1, baseSha);
+    await writeChain(1, baseSha);
   });
 
   test.afterAll(async () => {
-    for (const dir of written) {
-      rmSync(dir, { recursive: true, force: true });
-    }
-    clearPatches();
+    await clearPatches();
   });
 
   test("is reported to the user, not only to the console", async ({ page }) => {

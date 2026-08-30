@@ -49,8 +49,8 @@ describe("commands over LSP", () => {
   beforeEach(async () => {
     session = await startLspSession();
   });
-  afterEach(() => {
-    session.dispose();
+  afterEach(async () => {
+    await session.dispose();
   });
 
   test("advertises the command names and the matching features", () => {

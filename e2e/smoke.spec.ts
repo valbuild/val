@@ -1,4 +1,5 @@
-import { test, expect, type Page, type ConsoleMessage } from "@playwright/test";
+import { expect, type Page, type ConsoleMessage } from "@playwright/test";
+import { test } from "./studio";
 
 /**
  * The fast smoke test: does the Studio come up, and does it render?

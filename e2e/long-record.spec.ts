@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { openStudio } from "./studio";
+import { expect } from "@playwright/test";
+import { openStudio, test } from "./studio";
 
 /**
  * A record with a thousand entries, and where its scrollbar ends.

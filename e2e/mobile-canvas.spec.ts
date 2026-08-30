@@ -1,5 +1,5 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
-import { openStudio } from "./studio";
+import { expect, type Locator, type Page } from "@playwright/test";
+import { openStudio, test } from "./studio";
 
 /**
  * The phone's preview layout.
