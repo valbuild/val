@@ -1,10 +1,15 @@
 ---
-"@valbuild/server": major
+"@valbuild/server": minor
 "@valbuild/cli": minor
 "@valbuild/language-server": minor
 ---
 
 `val login` is now an RFC 8628 device authorization grant
+
+**This is a breaking change to `@valbuild/server`'s login exports**, released as a
+minor because the packages are pre-1.0 and `linked` bumps every `@valbuild/*`
+together — marking it `major` would ship 1.0.0 for the whole family. The
+breaking surface is listed at the bottom.
 
 The old flow had one value doing two jobs: the token in the verification URL the
 user opened was also the credential the CLI polled with to collect the personal
