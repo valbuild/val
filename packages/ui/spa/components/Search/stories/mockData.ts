@@ -302,21 +302,21 @@ function createMockData() {
   // Team members record with a list preview
   const team = c.define(
     "/content/team.val.ts",
-    s
-      .record(
-        s.object({
+    s.record(
+      s
+        .object({
           name: s.string(),
           position: s.string(),
           bio: s.string(),
           email: s.string(),
+        })
+        .preview(({ val }) => {
+          return {
+            title: val.name,
+            subtitle: val.position,
+          };
         }),
-      )
-      .preview(({ val }) => {
-        return {
-          title: val.name,
-          subtitle: val.position,
-        };
-      }),
+    ),
     {
       "team-1": {
         name: "Alice Johnson",
@@ -344,20 +344,21 @@ function createMockData() {
     "/app/products/[product]/page.val.ts",
     s
       .record(
-        s.object({
-          name: s.string(),
-          description: s.string().render({ as: "textarea" }),
-          price: s.number(),
-          code: s.string().render({ as: "code", language: "json" }),
-        }),
+        s
+          .object({
+            name: s.string(),
+            description: s.string().render({ as: "textarea" }),
+            price: s.number(),
+            code: s.string().render({ as: "code", language: "json" }),
+          })
+          .preview(({ val }) => {
+            return {
+              title: val.name,
+              subtitle: `$${val.price}`,
+            };
+          }),
       )
-      .router(mockRouter)
-      .preview(({ val }) => {
-        return {
-          title: val.name,
-          subtitle: `$${val.price}`,
-        };
-      }),
+      .router(mockRouter),
     {
       "/products/product-1": {
         name: "Premium Subscription",
@@ -411,20 +412,20 @@ function createMockData() {
   // Configuration array with renders on its string fields
   const config = c.define(
     "/content/config.val.ts",
-    s
-      .array(
-        s.object({
+    s.array(
+      s
+        .object({
           key: s.string(),
           value: s.string().render({ as: "code", language: "typescript" }),
           description: s.string().render({ as: "textarea" }),
+        })
+        .preview(({ val }) => {
+          return {
+            title: val.key,
+            subtitle: val.description,
+          };
         }),
-      )
-      .preview(({ val }) => {
-        return {
-          title: val.key,
-          subtitle: val.description,
-        };
-      }),
+    ),
     [
       {
         key: "customHook",

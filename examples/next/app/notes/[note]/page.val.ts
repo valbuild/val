@@ -15,16 +15,16 @@ import { c, nextAppRouter, s } from "../../../val.config";
  */
 export default c.define(
   "/app/notes/[note]/page.val.ts",
-  s
-    .router(
-      nextAppRouter,
-      s.string().describe("The URL of the note"),
-      s.object({
+  s.router(
+    nextAppRouter,
+    s.string().describe("The URL of the note"),
+    s
+      .object({
         title: s.string(),
         body: s.string(),
-      }),
-    )
-    .preview(({ val }) => ({ title: val.title, subtitle: val.body })),
+      })
+      .preview(({ val }) => ({ title: val.title, subtitle: val.body })),
+  ),
   {
     "/notes/first": {
       title: "First note",

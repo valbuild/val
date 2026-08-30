@@ -5,8 +5,29 @@ import { splitModuleFilePathAndModulePath, splitModulePath } from "./module";
 import { ModuleFilePath, SourcePath } from "./val";
 
 /**
- * What a container shows for ONE of its items: the user's `preview` callback
- * returns this, and the Studio draws a row from it.
+ * A PREVIEW is how a VALUE is shown wherever a preview of it is needed — a row
+ * in a sortable list, a key in a reference dropdown, a search hit, a
+ * reference — which is everywhere the value is NAVIGABLE to rather than open.
+ * It is never how the field itself is edited: that is a RENDER (`render.ts`),
+ * which applies only when you are looking at the field. The two do not
+ * intersect — a schema can carry both, and each is read in its own places.
+ *
+ * A preview is declared on the schema of the VALUE being previewed:
+ *
+ * ```ts
+ * const author = s.object({ name: s.string() })
+ *   .preview(({ val }) => ({ title: val.name }));
+ * const authors = s.array(author);
+ * ```
+ *
+ * The container reifies its rows by running each ITEM's preview closure — see
+ * {@link ArrayPreview} / {@link RecordPreview}. (Previews used to be declared
+ * on the container instead; a `.preview` on an array/record now previews the
+ * array/record itself as a value, for when IT is the item of something.)
+ */
+/**
+ * What a preview shows for one value: the user's `preview` callback returns
+ * this, and the Studio draws a row from it.
  *
  * NB: {@link ArrayPreview} / {@link RecordPreview} name the DATA a container
  * previews with. The Studio also has React components called `ArrayPreview` /
@@ -20,6 +41,22 @@ export type PreviewItem = {
   subtitle?: string | null;
   image?: ImageSource | null;
 };
+
+/**
+ * What `.preview(...)` takes, on every schema: the value's own source in, a
+ * {@link PreviewItem} out. `NonNullable` because a container skips null items
+ * rather than previewing them.
+ *
+ * Declared through method syntax deliberately (the same bivariance shape
+ * React's event handler types use): `nullable()` copies a schema's closure
+ * into the `Src | null` variant of the same class, and with a plain function
+ * type the checker cannot see that `NonNullable<Src | null>` IS
+ * `NonNullable<Src>` while `Src` is still a type parameter — every schema's
+ * `nullable()` would need a cast instead.
+ */
+export type ItemPreviewInput<Src> = {
+  bivarianceHack(input: { val: NonNullable<Src> }): PreviewItem;
+}["bivarianceHack"];
 
 export type RecordPreview = {
   parent: "record";

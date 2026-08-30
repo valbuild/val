@@ -168,13 +168,20 @@ export { type SerializedLiteralSchema, LiteralSchema } from "./schema/literal";
 export { deserializeSchema } from "./schema/deserialize";
 export {
   type PreviewItem,
+  type ItemPreviewInput,
   type RecordPreview,
   type ArrayPreview,
   type ReifiedPreview,
   type PreviewScope,
   previewScope,
 } from "./preview";
-export { type CodeLanguage, type StringRender, CODE_LANGUAGES } from "./render";
+export {
+  type CodeLanguage,
+  type StringRender,
+  type InlineRender,
+  type FieldRender,
+  CODE_LANGUAGES,
+} from "./render";
 export type { ValRouter, RouteValidationError } from "./router";
 export { getSourcePathFromRoute } from "./getSourcePathFromRoute";
 import { nextAppRouter, externalPageRouter } from "./router";

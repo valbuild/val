@@ -117,16 +117,13 @@ export class SchemaStore {
 /**
  * Does this schema, or anything under it, declare a preview?
  *
- * Only two schemas can: `array` and `record`, the containers that have items to
- * preview. Every other node is pure recursion, which is why the walk only has to
- * look for the `preview` marker and descend.
- *
- * There is deliberately NO `string` arm. `s.string().render({as:"textarea"})` is
- * a render, not a preview: static config that travels WITH the serialized schema
- * and is read where the field is drawn, so a module whose only such declaration
- * is a string layout must never be sent to the host. Restoring an arm here would
- * put that whole-module walk back for a fact the schema already carried. See
- * `core/src/render.ts`.
+ * Any node can carry the marker now that `preview` is declared on the ITEM
+ * schema (a container reifies its rows from its item's closure), so the walk
+ * checks every node and descends where there is somewhere to descend to. A
+ * `render` is deliberately NOT a hit: `s.string().render({as:"textarea"})` is
+ * static config that travels WITH the serialized schema and is read where the
+ * field is drawn, so a module whose only such declaration is a layout must
+ * never be sent to the host. See `core/src/render.ts`.
  *
  * `seen` guards a schema that refers to itself structurally, so this cannot
  * recurse forever — the same guard `collectReferences` and
@@ -138,11 +135,14 @@ function declaresPreview(
 ): boolean {
   if (seen.has(schema)) return false;
   seen.add(schema);
+  if (schema.preview === true) {
+    return true;
+  }
   switch (schema.type) {
     case "array":
-      return schema.preview === true || declaresPreview(schema.item, seen);
+      return declaresPreview(schema.item, seen);
     case "record":
-      return schema.preview === true || declaresPreview(schema.item, seen);
+      return declaresPreview(schema.item, seen);
     case "object":
       return Object.values(schema.items).some((item) =>
         declaresPreview(item, seen),

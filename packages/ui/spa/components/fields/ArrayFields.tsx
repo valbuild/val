@@ -230,9 +230,6 @@ export function ArrayFields({
           );
         }}
         schema={schema}
-        preview={
-          previewAtPathData?.parent === "array" ? previewAtPathData : undefined
-        }
         source={shallowSourceAtPath.data || []}
       />
     </div>

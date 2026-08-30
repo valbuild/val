@@ -9,12 +9,11 @@ import { encodeJwt } from "./jwt";
 describe("ValRouter", () => {
   const route = "/api/val";
   const { c, s, config } = initVal();
-  const authorsSchema = s.record(
-    s.object({
-      name: s.string(),
-      birthdate: s.date().from("1900-01-01").to("2024-01-01"),
-    }),
-  );
+  const authorItemSchema = s.object({
+    name: s.string(),
+    birthdate: s.date().from("1900-01-01").to("2024-01-01"),
+  });
+  const authorsSchema = s.record(authorItemSchema);
   const authorsSource = {
     teddy: {
       name: "Theodor René Carlsen",
@@ -136,10 +135,12 @@ describe("ValRouter", () => {
       const onRouteWithPreview = createOnRoute(
         c.define(
           "/content/authors.val.ts",
-          authorsSchema.preview(({ val }) => ({
-            title: val.name,
-            subtitle: val.birthdate,
-          })),
+          s.record(
+            authorItemSchema.preview(({ val }) => ({
+              title: val.name,
+              subtitle: val.birthdate,
+            })),
+          ),
           authorsSource,
         ),
       );
