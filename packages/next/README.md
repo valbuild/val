@@ -522,42 +522,53 @@ export default async function MyPage({ params }: { params:
 
 ### Previews
 
-A **preview** is what the Val editor shows for each ITEM of a container — the row
-you see in a list of records, or of array items. Declare one with `.preview()` on
-a `record` or an `array`, and return a `title`, and optionally a `subtitle` and an
-`image`.
+A **preview** is how a VALUE is shown wherever the Val editor shows a preview of
+it rather than opening it: a row in a list, an entry in a `keyOf` dropdown, a
+search hit, a reference. Declare one with `.preview()` on the schema of the value
+being previewed, and return a `title`, and optionally a `subtitle` and an `image`.
 
 #### Example
 
 ```ts
-const pagesSchema = s
-  .record(s.object({ title: s.string(), image: s.image() }))
-  .router(nextAppRouter)
-  .preview(({ key, val }) => ({
-    // Capitalize the first letter of the key for display
-    title: key?.[0]?.toUpperCase() + key?.slice(1),
-    // Show the image from the record
-    image: val.image,
-  }));
+const pageSchema = s
+  .object({ title: s.string(), image: s.image() })
+  .preview(({ val }) => ({ title: val.title, image: val.image }));
+
+// Every row of this record previews with the closure above
+const pagesSchema = s.record(pageSchema).router(nextAppRouter);
 ```
 
-An array's preview gets the item alone, since there is no key:
+The container reifies its rows by running each ITEM's closure, so an array works
+the same way:
 
 ```ts
-const sectionsSchema = s
-  .array(s.object({ heading: s.string(), body: s.string() }))
-  .preview(({ val }) => ({ title: val.heading, subtitle: val.body }));
+const sectionsSchema = s.array(
+  s
+    .object({ heading: s.string(), body: s.string() })
+    .preview(({ val }) => ({ title: val.heading, subtitle: val.body })),
+);
 ```
 
+A tagged union with no preview of its own previews as the VARIANT the value
+takes, so a page-builder list previews each block by its own block type.
+
 Your function is run on demand, for the rows actually on screen, so it is fine
-for it to read into the item's content.
+for it to read into the value's content.
+
+> **Changed in the release that added `.render({ as: "inline" })`.** A
+> `.preview()` on `s.array(...)` / `s.record(...)` used to describe the
+> container's ROWS; it now describes the container ITSELF as a value, for when
+> it is someone else's item. Move the closure onto the item schema. The record
+> closure no longer receives `key` — derive the title from `val`. And
+> `.jsonValues()` must come before `.preview(...)`, like `.validate(...)`.
 
 ### Field rendering
 
-A **render** is how ONE field is laid out in the editor. It is static
-configuration rather than a function, and it is a different thing from a
-preview: a preview describes a container's items, a render describes a single
-field.
+A **render** is how ONE field is laid out in the editor when you are LOOKING at
+that field. It is static configuration rather than a function, and it is a
+different thing from a preview: a render is the field's own layout, a preview is
+how the value shows where it is navigable to. A schema can carry both, and a
+second `.render(...)` replaces the first rather than merging with it.
 
 ```ts
 const articleSchema = s.object({
@@ -572,6 +583,28 @@ const articleSchema = s.object({
 `as: "code"` takes a `language` — `typescript`, `javascript`, `json`, `html`,
 `css`, `markdown`, `python`, `sql` and others; see `CodeLanguage` in
 `@valbuild/core` for the full list.
+
+#### Editing list items in place
+
+Every field takes `.render({ as: "inline" })`. On the ITEM of an array or record
+it means: edit the item right there in the (sortable) list row, instead of
+showing a preview row that navigates into it. This is what a page-builder list is
+made of.
+
+```ts
+const sectionsSchema = s.array(
+  s.object({ title: s.string(), body: s.richtext() }).render({ as: "inline" }),
+);
+```
+
+> **Breaking.** Strings in arrays are no longer inlined implicitly.
+> `s.array(s.string())` now renders preview rows and its items are navigation
+> stops, like every other item type. Add `.render({ as: "inline" })` to the
+> string schema for the old behavior:
+>
+> ```ts
+> s.array(s.string().render({ as: "inline" }));
+> ```
 
 ## RichText
 

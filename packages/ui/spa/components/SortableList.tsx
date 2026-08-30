@@ -296,6 +296,11 @@ export function SortableItemRow({
             path={path}
             schema={schema.item}
             readonly={disabled === true}
+            /* This row shows the item's errors itself, just below. Without
+               this the field shows them too whenever no `Field` wrapper above
+               has claimed them — which is every list at a module root — and
+               the same message appears twice. */
+            errorDisplay="none"
           />
           {validationErrors[path] && (
             <div className="px-2">

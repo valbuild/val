@@ -325,7 +325,12 @@ function BlockRow({
       <GripVertical size={14} />
     </button>
   );
-  const menu = <RowMenu onDelete={onDelete} onDuplicate={onDuplicate} />;
+  // Readonly means readonly: with the menu still rendered, Delete and
+  // Duplicate stayed live and wrote patches even though the grip and every
+  // field were disabled.
+  const menu = readonly ? null : (
+    <RowMenu onDelete={onDelete} onDuplicate={onDuplicate} />
+  );
 
   return (
     <div

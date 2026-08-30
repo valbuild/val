@@ -282,12 +282,15 @@ export function KeyOfField({
     inlineRender && "data" in referencedSchemaAtPath
       ? referencedSchemaAtPath.data?.type === "record"
         ? referencedSchemaAtPath.data.item
-        : referencedSchemaAtPath.data?.type === "object" && source
+        : referencedSchemaAtPath.data?.type === "object" && source !== null
           ? referencedSchemaAtPath.data.items[source]
           : undefined
       : undefined;
+  // `source !== null`, not a truthiness check: the empty string is a valid
+  // record/object key, and treating it as "nothing selected" is what left the
+  // referenced content unrendered for it.
   const referencedItemPath =
-    inlineRender && keyOf?.path && source
+    inlineRender && keyOf?.path && source !== null
       ? Internal.createValPathOfItem(keyOf.path, source)
       : undefined;
 

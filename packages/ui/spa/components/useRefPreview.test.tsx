@@ -7,7 +7,9 @@ import {
   initVal,
   Internal,
   type ModuleFilePath,
+  type SelectorSource,
   type SourcePath,
+  type ValModule,
 } from "@valbuild/core";
 import React from "react";
 import { createStorySystem } from "../stores/react/storySystem";
@@ -50,19 +52,27 @@ const mod = c.define(
 );
 
 const moduleFilePath = Internal.getValPath(mod) as unknown as ModuleFilePath;
-const schema = Internal.getSchema(mod)!;
 const containerPath =
   `${moduleFilePath}?p=${JSON.stringify("testimonials")}` as SourcePath;
 const rowPath = `${containerPath}.0` as SourcePath;
 
-function Providers({ children }: { children: React.ReactNode }) {
+function Providers({
+  children,
+  module: forModule = mod,
+}: {
+  children: React.ReactNode;
+  /** Which fixture to build the story system from; the array one by default. */
+  module?: ValModule<SelectorSource>;
+}) {
+  const filePath = Internal.getValPath(forModule) as unknown as ModuleFilePath;
+  const forSchema = Internal.getSchema(forModule)!;
   const system = createStorySystem({
-    schemas: { [moduleFilePath]: schema["executeSerialize"]() },
-    sources: { [moduleFilePath]: Internal.getSource(mod) },
+    schemas: { [filePath]: forSchema["executeSerialize"]() },
+    sources: { [filePath]: Internal.getSource(forModule) },
     previews: {
-      [moduleFilePath]: schema["executePreview"](
-        moduleFilePath,
-        Internal.getSource(mod),
+      [filePath]: forSchema["executePreview"](
+        filePath,
+        Internal.getSource(forModule),
       ),
     },
   });
@@ -111,4 +121,56 @@ test("useRefPreview resolves a nested container's preview for a row", async () =
     title: "Ada",
     subtitle: "Q1",
   });
+});
+
+/**
+ * A record whose keys LOOK like array indices. `splitModulePath` hands back
+ * `"0"` for both an array index and this key, so a parent path rebuilt by
+ * re-quoting from the text alone (`patchPathToModulePath`) emits it unquoted
+ * and points at nothing — the row falls back to the generic preview. The
+ * parent path is sliced out of the original string instead, which keeps
+ * whatever quoting it already had.
+ */
+const numericKeyMod = c.define(
+  "/content/numericKeys.val.ts",
+  s.object({
+    entries: s.record(
+      s
+        .object({ name: s.string() })
+        .preview(({ val }) => ({ title: val.name })),
+    ),
+  }),
+  { entries: { "0": { name: "Zero" }, "1": { name: "One" } } },
+);
+
+const numericKeyFilePath = Internal.getValPath(
+  numericKeyMod,
+) as unknown as ModuleFilePath;
+const numericKeyContainerPath =
+  `${numericKeyFilePath}?p=${JSON.stringify("entries")}` as SourcePath;
+const numericKeyRowPath =
+  `${numericKeyContainerPath}.${JSON.stringify("0")}` as SourcePath;
+
+function NumericKeyList() {
+  useValField(numericKeyContainerPath, "record", { watchUnsaved: true });
+  return <NumericKeyRow />;
+}
+
+function NumericKeyRow() {
+  const preview = useRefPreview(numericKeyRowPath);
+  return <div data-testid="numeric-row">{JSON.stringify(preview) ?? ""}</div>;
+}
+
+test("useRefPreview resolves a preview for a numeric-looking record key", async () => {
+  render(
+    <Providers module={numericKeyMod}>
+      <NumericKeyList />
+    </Providers>,
+  );
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  expect(
+    JSON.parse(screen.getByTestId("numeric-row").textContent || "null"),
+  ).toEqual({ title: "Zero" });
 });

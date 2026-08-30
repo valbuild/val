@@ -86,12 +86,17 @@ export function AddRecordPopover({
         ],
         "record",
       );
-      navigate(
-        Internal.joinModuleFilePathAndModulePath(
-          moduleFilePath,
-          Internal.patchPathToModulePath(newPatchPath),
-        ) as SourcePath,
-      );
+      // An inline entry is edited in place in the list, so adding one should
+      // not navigate away from it — the same rule `AddArrayButton` follows,
+      // and the one `getNavPath` encodes: an inline item is not a nav stop.
+      if (schema.item.render?.as !== "inline") {
+        navigate(
+          Internal.joinModuleFilePathAndModulePath(
+            moduleFilePath,
+            Internal.patchPathToModulePath(newPatchPath),
+          ) as SourcePath,
+        );
+      }
       setOpen(false);
     },
     [addPatch, navigate, schemaAtPath, path],
