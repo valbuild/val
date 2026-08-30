@@ -14,6 +14,7 @@ import React, {
 import {
   hasRemoteFileSchema,
   ImageMetadata,
+  Internal,
   Json,
   ModuleFilePath,
   ModulePath,
@@ -1269,18 +1270,6 @@ export function useDeployingCommitShas(): string[] {
 }
 
 /**
- * A module file path addresses that module's root value.
- *
- * The two are the same string with different brands, and the source store's
- * reads are typed on `SourcePath`. `useServerSourceAtPath` takes the union and
- * narrows it the same way; this is that narrowing, named, so the assertion
- * lives in one place instead of at every call.
- */
-function asSourcePath(path: SourcePath | ModuleFilePath): SourcePath {
-  return path as SourcePath;
-}
-
-/**
  * Of these paths, the ones whose value is the same as the server's.
  *
  * A change that has been undone by a later change is still a change: the
@@ -1351,32 +1340,57 @@ export function useHasNetChanges(): boolean {
   const val = useValSystem();
   const sourcesVersion = useSourcesVersion();
   const chainVersion = useChainVersion();
-  const patchSets = usePatchSets();
   const committed = useCommittedPatches();
 
+  /*
+   * Read off the CHAIN, not off the patch sets.
+   *
+   * `usePatchSets` is grouped asynchronously in a worker and reports
+   * `not-asked` until the first result. Mapping that to "no modules" made this
+   * hook answer "nothing changes" during the window — which disables Publish
+   * and zeroes Review as though everything had been reverted, on a project
+   * where nothing has. `patchStore.allRecords()` already names each record's
+   * module and is synchronous, so there is no window.
+   */
   const modules = useMemo((): ModuleFilePath[] => {
-    if (patchSets.status !== "success") return [];
+    if (val === null) return [];
+    void chainVersion;
     const seen = new Set<ModuleFilePath>();
-    for (const set of patchSets.data) {
-      // A patch set whose every patch has shipped is history, not pending
-      // work, and the two sides of it are equal BECAUSE it shipped.
-      if (set.patches.every((patch) => committed.has(patch.patchId))) continue;
-      seen.add(set.moduleFilePath);
+    for (const record of val.system.patchStore.allRecords()) {
+      // A patch that has shipped is history, not pending work: its two sides
+      // are equal BECAUSE it shipped, which is the opposite of a no-op.
+      if (committed.has(record.patchId)) continue;
+      seen.add(record.moduleFilePath);
     }
     return [...seen];
-  }, [patchSets, committed]);
+  }, [val, chainVersion, committed]);
 
   return useMemo(() => {
     // As in the loop below: what is not known yet counts as a change. `false`
     // would mean "nothing to publish", and it is not this hook's place to
     // disable Publish because the system has not finished arriving.
     if (val === null) return true;
+    /*
+     * Nothing uncommitted means nothing has been REVERTED — there is no
+     * pending work to cancel out. Answering `false` here labelled a chain of
+     * already-published records, which is what an `http` publish leaves
+     * behind, as "every change has been reverted, discard them" — about
+     * records that cannot be discarded.
+     */
+    if (modules.length === 0) return true;
     void sourcesVersion;
     void chainVersion;
     const store = val.system.sourceStore;
     for (const moduleFilePath of modules) {
       const after = store.moduleSource(moduleFilePath);
-      const before = store.peekBase(asSourcePath(moduleFilePath));
+      // The module root as a source path — core's own conversion, rather than
+      // an assertion between two brands that do not overlap.
+      const before = store.peekBase(
+        Internal.joinModuleFilePathAndModulePath(
+          moduleFilePath,
+          "" as ModulePath,
+        ),
+      );
       // Unknown counts AS a change: a module still loading must not be able to
       // disable Publish, which would silently drop real work.
       if (after === undefined || before.status !== "ready") return true;

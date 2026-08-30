@@ -116,6 +116,17 @@ export type ShellProps = {
    */
   autoSave?: boolean;
   onAutoSaveChange?: (autoSave: boolean) => void;
+  /**
+   * Show source paths beside fields.
+   *
+   * A prop, not state, and no longer a setting. It used to be a "Dev mode"
+   * toggle in the settings panel, which did nothing in the Studio: its only
+   * consumers are `PageEditor` and `FieldsPanel`, and the app mounts neither —
+   * `ValShell` always passes `renderEditor`, and never passes a `page`. So the
+   * toggle changed a flag nothing downstream could see. It stays as a prop
+   * because Storybook DOES reach those components and uses it there.
+   */
+  isDevMode?: boolean;
   /** Number of changes Publish would ship. */
   pendingChanges?: number;
   /**
@@ -336,6 +347,7 @@ export function Shell({
   saveState = "saved",
   autoSave = false,
   onAutoSaveChange = () => undefined,
+  isDevMode = true,
   pendingChanges = 12,
   reviewCount,
   publishState = "idle",
@@ -388,7 +400,6 @@ export function Shell({
 }: ShellProps) {
   const breakpoint = useShellBreakpoint();
   const [openPanel, setOpenPanel] = useState<ShellPanel | null>(initialPanel);
-  const [isDevMode, setIsDevMode] = useState(true);
   const [notifications, setNotifications] = useState<ShellNotification[]>(
     data.notifications ?? [],
   );
@@ -888,8 +899,6 @@ export function Shell({
           accountError={accountError}
           theme={theme}
           onThemeChange={onThemeChange}
-          isDevMode={isDevMode}
-          onDevModeChange={setIsDevMode}
           autoSave={autoSave}
           onAutoSaveChange={onAutoSaveChange}
           branch={data.branch}
@@ -927,6 +936,7 @@ export function Shell({
           destinations={destinations}
           onOpenAI={aiEnabled ? () => setOpenPanel("ai") : undefined}
           onCompare={onCompare}
+          reviewCount={reviewCount ?? pendingChanges}
           onDiscardAll={onDiscardAll}
           discardAllDescription={discardAllDescription}
           portalContainer={portalContainer}

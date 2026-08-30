@@ -37,7 +37,10 @@ const buttonVariants = cva(
         outline: cn(
           "cursor-pointer",
           "border border-transparent",
-          "bg-bg-background hover:bg-bg-secondary",
+          // `bg-transparent`, not `bg-bg-background`: there is no
+          // `bg-background` key in the colour map, so that class compiled to
+          // nothing and this variant has always been transparent.
+          "bg-transparent hover:bg-bg-secondary",
           disabledVariant,
         ),
         secondary: cn(
@@ -49,7 +52,8 @@ const buttonVariants = cva(
         ghost: cn(
           "cursor-pointer",
           "border border-transparent",
-          "bg-bg-background hover:bg-bg-secondary",
+          // See `outline`: `bg-bg-background` was never a real class.
+          "bg-transparent hover:bg-bg-secondary",
           disabledVariant,
           "hover:bg-bg-secondary-hover hover:text-fg-secondary",
         ),

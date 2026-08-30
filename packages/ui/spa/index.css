@@ -666,8 +666,13 @@
  *
  * `select` covers a native one; the Radix trigger is a `<button>` and carries
  * `touch:` at its own call site, as does anything that is not a form control.
+ *
+ * `any-pointer`, not `pointer`: `pointer` reports only the PRIMARY device, so
+ * an iPad with a keyboard case or a touch laptop answers `fine` and this stops
+ * matching — while the touchscreen still zooms. `any-pointer` asks whether any
+ * input on the device is coarse.
  */
-@media (pointer: coarse) {
+@media (any-pointer: coarse) {
   input,
   textarea,
   select,

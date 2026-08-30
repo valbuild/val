@@ -364,6 +364,8 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
       features,
       styleConfig,
       canInsertImage: !!onImageUpload || !!images?.length || !!imageModulePath,
+      buttonVariants,
+      detailsVariants,
     });
 
   useLayoutEffect(() => {
@@ -557,6 +559,32 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     showFixedToolbar,
     features.floatingToolbar,
     features.gutter,
+  ]);
+
+  /**
+   * Repaint the toolbar when the gallery finally answers.
+   *
+   * The image control is gated on entries that arrive a round trip after
+   * mount, and the toolbar is an imperative plugin: it re-renders on a
+   * ProseMirror `update` and on nothing else. So an image-only field mounted
+   * its bar, found no entries, and left it empty until the user happened to
+   * click into the text.
+   *
+   * An EMPTY transaction is the fix rather than a view rebuild. `docChanged`
+   * is false for one, so it does not mark the field dirty, does not re-parse
+   * `defaultValue`, and cannot drop a keystroke still inside the debounce —
+   * which is exactly what rebuilding the view on this would risk.
+   */
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch(view.state.tr);
+  }, [
+    imageModuleEntries,
+    images,
+    onImageUpload,
+    buttonVariants,
+    detailsVariants,
   ]);
 
   useEffect(() => {

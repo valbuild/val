@@ -594,12 +594,22 @@ export function hasFixedToolbarContent({
   features,
   styleConfig,
   canInsertImage,
+  buttonVariants,
+  detailsVariants,
 }: {
   schema: Schema;
   features?: ResolvedEditorFeatures;
   styleConfig?: EditorStyleConfig;
   /** Whether an image could actually be inserted — see `ToolbarButtons`. */
   canInsertImage: boolean;
+  /**
+   * The insert dropdowns, which `ToolbarButtons` renders whenever the feature
+   * is on AND the variant list is non-empty. A schema configured with only
+   * button or details variants has a real toolbar, and left out of this
+   * predicate it lost it.
+   */
+  buttonVariants?: readonly unknown[];
+  detailsVariants?: readonly unknown[];
 }): boolean {
   if (getFormattingButtons(schema, features).length > 0) return true;
   if (getCustomStyleButtons(schema, styleConfig).length > 0) return true;
@@ -607,6 +617,20 @@ export function hasFixedToolbarContent({
   // One item is "Normal" on its own, which is not a choice.
   if (getBlockTypeItems(schema, features).length > 1) return true;
   if (schema.nodes.image && (!features || features.image) && canInsertImage) {
+    return true;
+  }
+  if (
+    buttonVariants !== undefined &&
+    buttonVariants.length > 0 &&
+    (!features || features.button)
+  ) {
+    return true;
+  }
+  if (
+    detailsVariants !== undefined &&
+    detailsVariants.length > 0 &&
+    (!features || features.details)
+  ) {
     return true;
   }
   return false;

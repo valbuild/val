@@ -204,6 +204,32 @@ export function ComparePatchSets({
     () => collectPatchIds(reverted.flatMap(flattenChanges)),
     [reverted],
   );
+  /*
+   * Every unshipped patch, straight off the patch sets.
+   *
+   * Not every no-op leaves a TREE to notice. `determineChangeType` returns
+   * `null` for an add followed by a remove at the same path — the two cancel,
+   * so there is nothing to describe — and `insertHalf` drops the patch set
+   * entirely. A chain made only of those produces no trees at all, which used
+   * to take the "No pending changes" path: the patches were real, Publish was
+   * disabled, and the view said there was nothing there and offered no way to
+   * clear it. So the empty case is answered from the patch sets, which still
+   * know about them, rather than from the trees, which by design do not.
+   */
+  const unshippedPatches = useMemo(() => {
+    const ids: PatchId[] = [];
+    const authors = new Set<string>();
+    const seen = new Set<string>();
+    for (const set of patchSets) {
+      for (const patch of set.patches) {
+        if (committed.has(patch.patchId) || seen.has(patch.patchId)) continue;
+        seen.add(patch.patchId);
+        ids.push(patch.patchId);
+        if (patch.author !== null) authors.add(patch.author);
+      }
+    }
+    return { ids, authorIds: [...authors] };
+  }, [patchSets, committed]);
   // Until the first result is in, an empty `trees` means "not computed yet",
   // not "nothing changed": showing the empty state here would flash "No
   // pending changes" at every reader before the real changes appear. Once
@@ -214,6 +240,22 @@ export function ComparePatchSets({
   }
 
   if (flatRows.length === 0) {
+    // Patches with nothing to show for them still have to be reachable: this
+    // is the add-then-remove chain, where the grouping deliberately produces
+    // no rows. See `unshippedPatches`.
+    if (unshippedPatches.ids.length > 0) {
+      return (
+        <div className="mx-auto max-w-7xl min-w-0">
+          <AllRevertedNotice
+            patchIds={unshippedPatches.ids}
+            authorIds={unshippedPatches.authorIds}
+            profilesByAuthorIds={profilesByAuthorIds}
+            canDiscard={canDiscard}
+            portalContainer={portalContainer}
+          />
+        </div>
+      );
+    }
     return (
       <div className="text-sm text-fg-secondary py-8 text-center">
         No pending changes.

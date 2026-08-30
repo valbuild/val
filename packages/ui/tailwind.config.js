@@ -51,8 +51,14 @@ module.exports = {
          * phone — so the question is the INPUT DEVICE, not the width, and a
          * `md:` breakpoint would answer the wrong one. `raw` emits the media
          * query verbatim rather than as a min-width.
+         *
+         * `any-pointer`, not `pointer`: `pointer` describes only the PRIMARY
+         * device, so an iPad with a keyboard case — or any touch laptop —
+         * reports `fine` and stops matching, while its touchscreen goes on
+         * zooming. `any-pointer` asks whether the device has a coarse input at
+         * all, which is the question.
          */
-        touch: { raw: "(pointer: coarse)" },
+        touch: { raw: "(any-pointer: coarse)" },
       },
       colors: {
         "bg-selection": "var(--bg-selection)",

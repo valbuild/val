@@ -874,8 +874,17 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
        * view is where Discard is, and Publish is disabled until it is used.
        */
       reviewCount={hasNetChanges ? (data.pendingChanges ?? 0) : 0}
+      /*
+       * Offered only once the metadata behind the confirm has arrived.
+       *
+       * The confirm names the other people whose work would go, and those
+       * names come from the patch sets. While those are still grouping the
+       * list is empty — so an eager button could throw away a colleague's
+       * work having promised, and shown, nothing about it. A row that appears
+       * a moment late is the cheaper mistake.
+       */
       onDiscardAll={
-        discardablePatchIds.length > 0
+        discardablePatchIds.length > 0 && patchSets.status === "success"
           ? () => deletePatches(discardablePatchIds)
           : undefined
       }

@@ -88,6 +88,15 @@ export type UtilityPanelProps = {
    * nothing to review.
    */
   onCompare?: () => void;
+  /**
+   * The number Review announces — see `TopBarProps.reviewCount`.
+   *
+   * Separate from `pendingChanges`, which decides VISIBILITY: work that has all
+   * been reverted is still worth reviewing (Discard lives there), it just is
+   * not N changes. Without this the phone said "Review 3 changes" while the
+   * desktop badge said none, about the same chain.
+   */
+  reviewCount?: number;
   /** How many changes `onCompare` would show. */
   pendingChanges?: number;
   onSelectActivity: (entry: ShellActivityEntry) => void;
@@ -109,6 +118,7 @@ export function UtilityPanel({
   onOpenAI,
   destinations,
   onCompare,
+  reviewCount,
   onDiscardAll,
   discardAllDescription,
   portalContainer,
@@ -180,9 +190,15 @@ export function UtilityPanel({
           {onCompare && pendingChanges > 0 && breakpoint === "mobile" && (
             <QuickAction
               icon={GitCompare}
-              label={`Review ${pendingChanges} ${
-                pendingChanges === 1 ? "change" : "changes"
-              }`}
+              label={
+                reviewCount === undefined || reviewCount > 0
+                  ? `Review ${reviewCount ?? pendingChanges} ${
+                      (reviewCount ?? pendingChanges) === 1
+                        ? "change"
+                        : "changes"
+                    }`
+                  : "Review changes"
+              }
               onClick={onCompare}
             />
           )}
