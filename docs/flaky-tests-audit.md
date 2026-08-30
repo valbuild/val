@@ -34,6 +34,15 @@ failed**, in 19.9 minutes. The full jest suite (2660 tests, 213 suites),
 same tree. The sections below are kept as the record of what was wrong and
 why; each now ends with what changed.
 
+**Update 2 — that green run did not hold in CI, and §5 says what was still
+wrong.** A later CI run of the same fs-mode code produced 5 failures where its
+immediate predecessor had produced 0. Three distinct causes came out of it, all
+now fixed and reproduced first (§5a–§5c) — including one spec that this audit
+had filed as flaky and which was in fact failing on every single run. Read §5
+before trusting the paragraph above: a single green full run is not evidence
+that a suite is stable, and treating it as such is what put the wrong verdict
+in §1c.
+
 ---
 
 ## 1. The e2e suite is the problem, and mostly for one reason: shared disk state
@@ -120,6 +129,11 @@ reading the ids and the discard returning (`e2e/studio.ts:92-99`).
 flushing (`patchSync.flush()`) before returning, so nothing bleeds into the next
 test. The "operations compose" property is better pinned where it already is
 deterministic — the store suites (`patchSync.test.ts`, `systemFlow.test.ts`).
+
+> **Partly wrong — see §5c.** The missing flush was real and is fixed, but the
+> failure that survived into CI was not residue at all: this test discarded
+> `createPatch`'s return value, so a refused write presented as the previous
+> test's value still being on screen. Composition was not the cause.
 
 ### 1d. Make clean state impossible to forget
 
@@ -394,3 +408,73 @@ left for a deliberate follow-up decision rather than a mechanical fix.
     `.github/workflows/check.yml` is rejected outright. The job's YAML is in
     this branch's history (before the revert commit that follows it) for
     someone with the right permissions to apply.
+
+---
+
+## 5. What the first real CI runs found
+
+The job above (PR #539) went red on `chromium` after everything in §4 was
+fixed, and the three failures it kept producing are worth recording, because
+two of them say something about this audit's method rather than about the
+tests.
+
+### 5a. `list-diff.spec.ts` was never flaky — it was broken, every run
+
+All three of its tests failed waiting 30s for
+`getByRole("textbox").first()`, which reads exactly like the intermittent
+timeouts elsewhere in this document. It is not intermittent: it reproduces
+100% locally and has since `e5a7aa5` made `.render({ as: "inline" })` opt-in.
+`s.array(s.string())` no longer inlines implicitly, so a list of strings
+renders as rows you navigate into and there is no textbox on that screen at
+all.
+
+The lesson is about diagnosis, not about lists. **A timeout is not evidence of
+a race.** Every failure in a browser suite arrives as "waited, did not
+appear", so the shape of the symptom carries almost no information about the
+cause — and this audit twice reached for "flaky" on the strength of that shape
+alone (the other time was `gallery-backed-image`, item 1, which was also plain
+test rot). The cheap check that settles it is running the spec on its own: a
+race passes in isolation, and rot does not.
+
+That wait was also incidental — scaffolding for "the field is on screen"
+before patching through the store — so it now counts the list's rows, which is
+what the tests actually depend on and is indifferent to how a row is drawn.
+
+**Left open**: after `e5a7aa5` nothing in the example app opts into
+`.render({ as: "inline" })` on a primitive list, so the inline-editing path for
+list items has no e2e coverage. Adding it to one field of `lists.val.ts` would
+restore it.
+
+### 5b. `canvas.spec.ts:45` — the timeout was never the problem
+
+It waits for the canvas frame to render `/blogs/blog1`, and it is the only spec
+that loads a blog route, so it is always the one paying for `next dev`'s first
+compile of it — inside its own assertion. It was given 20s, then 60s, and
+failed again on a loaded runner.
+
+Raising a timeout to cover a compile is not a fix, it is a bet on the runner.
+`e2e/warmup.setup.ts` is now a Playwright project that `chromium` depends on;
+it requests the routes the suite visits so they are built before any test
+starts. A project dependency rather than a `globalSetup`, which runs _before_
+`webServer` and so would have nothing to warm. Every remaining timeout in the
+suite can now be read as a claim about the app rather than about the box.
+
+### 5c. `studio.spec.ts:219` — a silent write, not a residue problem
+
+§1c above blamed cross-test residue and item 9 fixed a missing flush. The
+failure that survived was simpler and was in this test's own body: it threw
+away `createPatch`'s return value. `createPatch` reports a refused write by
+returning, not by throwing, so a write that never happened was
+indistinguishable from one still in flight — the probe kept showing the
+previous test's value and the poll ran out its 20s with no mention of the store
+having said no. It now checks the result, and writes a value unique to the run
+so that "the old value is still here" cannot be confused with "my value
+arrived".
+
+### 5d. And the honest caveat
+
+Two consecutive CI runs of identical fs-mode code gave 0 failures and then 5.
+The three above have real, reproduced causes and real fixes, but that pair of
+runs is the reason the `e2e` job should land with `continue-on-error: true` and
+have it removed only after the suite has been green across several runs — not
+after one.
