@@ -24,8 +24,14 @@ import path from "path";
  * imports `index.css` into the DOCUMENT (`.storybook/preview.tsx`), where
  * `:root` does match and every ring renders correctly.
  *
- * So: focus styling names `--border-focus`, and this test is what keeps it
- * that way.
+ * So: focus styling names `--border-focus`.
+ *
+ * The BAN — no `ring-ring`, no `ring-offset-*` — is an ESLint rule, because a
+ * forbidden pattern in source is what `no-restricted-syntax` is for and it
+ * reports at the call site instead of as a list of paths. What is left here is
+ * what a lint cannot know, because it has to read `index.css`: that the token
+ * is declared in both themes, and that every ring colour in the Studio names a
+ * token a shadow root can actually see.
  */
 
 const SPA = __dirname;
@@ -94,33 +100,6 @@ describe("focus ring tokens", () => {
       const body = CSS.slice(open + 1, CSS.indexOf("\n  }", open));
       expect(body).toContain("--border-focus:");
     }
-  });
-
-  test("no ring names a token from the dead :root block", () => {
-    const offenders: string[] = [];
-    for (const file of files) {
-      const src = fs.readFileSync(file, "utf8");
-      for (const dead of ["ring-ring", "ring-offset-background"]) {
-        if (src.includes(dead)) {
-          offenders.push(`${path.relative(SPA, file)}: ${dead}`);
-        }
-      }
-    }
-    expect(offenders).toEqual([]);
-  });
-
-  test("no ring offset is applied without an offset colour that resolves", () => {
-    // `ring-offset-*` needs a colour matching whichever surface the control
-    // sits on, and controls sit on three. Rather than pick per call site, the
-    // offset is not used at all — `ring-2` alone reads correctly everywhere.
-    const offenders: string[] = [];
-    for (const file of files) {
-      const src = fs.readFileSync(file, "utf8");
-      if (/\bring-offset-\d/.test(src)) {
-        offenders.push(path.relative(SPA, file));
-      }
-    }
-    expect(offenders).toEqual([]);
   });
 
   test("every ring colour utility names a shadow-visible token", () => {

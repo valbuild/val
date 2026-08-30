@@ -155,6 +155,60 @@ module.exports = defineConfig([
     ],
     rules: { "no-restricted-syntax": "off" },
   },
+  {
+    /**
+     * A focus ring names `--border-focus`, and never a shadcn token.
+     *
+     * `--ring`, `--background` and `--input` are declared under `:root` and
+     * `.dark` in `index.css`, and NEITHER selector matches in the Studio: it
+     * mounts inside a shadow root, where `:root` matches nothing, and dark mode
+     * is `[data-mode="dark"]`, not a `dark` class. So `hsl(var(--ring))`
+     * resolves to `hsl()` — invalid at computed-value time, which in a
+     * `box-shadow` takes the whole declaration down. Every focus ring in the
+     * Studio painted nothing, and Storybook hid it by importing the stylesheet
+     * into the document, where `:root` does match.
+     *
+     * `ring-offset-*` goes too, and not only for the colour: measured in
+     * Chromium, a stale `ring-offset-background` invalidates the shadow even at
+     * a 0px offset width. An offset would also have to match whichever surface
+     * the control sits on, and they sit on three.
+     *
+     * A lint rather than a test, following the e2e rule above: a ban on a
+     * pattern in source is what `no-restricted-syntax` is for, and it reports
+     * at the call site instead of as a list of paths. What CANNOT be expressed
+     * here — that the token is declared per theme, and that every ring colour
+     * names a token the shadow root can see — stays in
+     * `packages/ui/spa/focusRingTokens.test.ts`, because it has to read
+     * `index.css` to know.
+     */
+    files: ["packages/ui/spa/**/*.{ts,tsx}"],
+    ignores: [
+      // Vendored shadcn calendars, kept as they came. Their `has-focus:` and
+      // `ring-ring/50` are Tailwind v4 syntax this v3 config never compiles,
+      // so they are inert rather than wrong.
+      "packages/ui/spa/components/designSystem/calendar.tsx",
+      "packages/ui/spa/components/designSystem/ui/calendar.tsx",
+      // Names the forbidden classes in order to look for them.
+      "packages/ui/spa/focusRingTokens.test.ts",
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "Literal[value=/\\b(ring-ring|ring-offset-background|ring-offset-[0-9])/]",
+          message:
+            "Focus rings name `--border-focus` (`ring-border-focus`), with no ring offset. `--ring`/`--background` are dead inside the shadow root, and an invalid colour voids the whole box-shadow. See packages/ui/spa/index.css.",
+        },
+        {
+          selector:
+            "TemplateElement[value.raw=/\\b(ring-ring|ring-offset-background|ring-offset-[0-9])/]",
+          message:
+            "Focus rings name `--border-focus` (`ring-border-focus`), with no ring offset. `--ring`/`--background` are dead inside the shadow root, and an invalid colour voids the whole box-shadow. See packages/ui/spa/index.css.",
+        },
+      ],
+    },
+  },
   globalIgnores([
     /**
      * Git worktrees checked out inside the repo.
