@@ -65,12 +65,12 @@ describe("UnionSchema", () => {
         innerObject: record(
           object({
             value: string(),
+          }).preview(({ val }) => {
+            return {
+              title: val.value,
+            };
           }),
-        ).preview(({ val }) => {
-          return {
-            title: val.value,
-          };
-        }),
+        ),
       }),
       object({ type: literal("value2"), innerString: string() }),
     );

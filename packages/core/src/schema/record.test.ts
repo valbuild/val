@@ -22,18 +22,20 @@ describe("RecordSchema", () => {
         bar: record(
           object({
             baz: string().nullable(),
+          }).preview(({ val }) => {
+            return {
+              title: val.baz || "No baz",
+            };
           }),
-        ).preview(({ val }) => {
+        ),
+      })
+        .nullable()
+        .preview(({ val }) => {
           return {
-            title: val.baz || "No baz",
+            title: val.title || "No item",
           };
         }),
-      }).nullable(),
-    ).preview(({ val }) => {
-      return {
-        title: val?.title || "No item",
-      };
-    });
+    );
     const src = {
       "upper-key": {
         title: "test",
@@ -60,14 +62,12 @@ describe("RecordSchema", () => {
         status: "success",
         data: {
           parent: "record",
+          // The null entry is skipped, not previewed: an item preview closure
+          // receives NonNullable values.
           items: [
             [
               "upper-key",
               { title: "test", subtitle: undefined, image: undefined },
-            ],
-            [
-              "nullable-key",
-              { title: "No item", subtitle: undefined, image: undefined },
             ],
           ],
         },
@@ -80,9 +80,9 @@ describe("RecordSchema", () => {
     // rather than fed to the user's closure — and the result must still cover the
     // keys that ARE loaded, which is what makes a windowed list work: the caller
     // shows a placeholder for the keys missing from `items`.
-    const schema = record(object({ title: string() }))
-      .jsonValues()
-      .preview(({ val }) => ({ title: val.title }));
+    const schema = record(
+      object({ title: string() }).preview(({ val }) => ({ title: val.title })),
+    ).jsonValues();
     const res = schema["executePreview"](
       "/test.val.ts" as SourcePath,
       {
@@ -106,12 +106,14 @@ describe("RecordSchema", () => {
   });
 
   test("preview: one key whose closure throws is one error, not a dead preview", () => {
-    const schema = record(object({ title: string() })).preview(({ val }) => {
-      if (val.title === "boom") {
-        throw new Error("user select blew up");
-      }
-      return { title: val.title };
-    });
+    const schema = record(
+      object({ title: string() }).preview(({ val }) => {
+        if (val.title === "boom") {
+          throw new Error("user select blew up");
+        }
+        return { title: val.title };
+      }),
+    );
     const res = schema["executePreview"]("/test.val.ts" as SourcePath, {
       ok: { title: "fine" },
       bad: { title: "boom" },
@@ -595,17 +597,20 @@ describe("RecordSchema", () => {
     }
   });
   test("record: preview is kept when chaining after preview", () => {
-    const base = record(object({ name: string() })).preview(({ key, val }) => ({
-      title: val.name,
-      subtitle: key,
-    }));
+    const base = record(
+      object({ name: string() }).preview(({ val }) => ({
+        title: val.name,
+      })),
+    );
     const src = { ada: { name: "Ada" } };
     const expected = {
       "/test.val.ts": {
         status: "success",
         data: {
           parent: "record",
-          items: [["ada", { title: "Ada", subtitle: "ada", image: undefined }]],
+          items: [
+            ["ada", { title: "Ada", subtitle: undefined, image: undefined }],
+          ],
         },
       },
     };
@@ -625,10 +630,10 @@ describe("RecordSchema", () => {
   });
 
   test("record: preview does not mutate the schema it was called on", () => {
-    const base = record(object({ name: string() }));
-    base.preview(({ val }) => ({ title: val.name }));
+    const item = object({ name: string() });
+    item.preview(({ val }) => ({ title: val.name }));
     expect(
-      base["executePreview"]("/test.val.ts" as SourcePath, {
+      record(item)["executePreview"]("/test.val.ts" as SourcePath, {
         ada: { name: "Ada" },
       }),
     ).toEqual({});

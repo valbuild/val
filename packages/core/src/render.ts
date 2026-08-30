@@ -1,9 +1,19 @@
 /**
- * A RENDER is how one field is laid out in the editor: `s.string().render({ as:
- * "textarea" })`, `.render({ as: "code", language })`.
+ * A RENDER is how the FIELD ITSELF is laid out in the editor, and it applies
+ * only when you are looking at the field: `s.string().render({ as: "textarea"
+ * })`, `.render({ as: "code", language })`, `.render({ as: "inline" })` on an
+ * array/record item.
  *
- * It is static configuration - plain data, with no closure behind it and no
- * dependency on source - which is why it lives in the SERIALIZED schema
+ * A PREVIEW (`preview.ts`) is the other thing: how the VALUE is shown wherever
+ * a preview of it is needed — a list row, a reference dropdown, a search hit —
+ * that is, wherever the value is navigable to rather than open. The two never
+ * intersect: a schema can carry both, a `render` is read where the field is
+ * edited and a `preview` where the value is previewed. A second `.render(...)`
+ * on the same schema REPLACES the first (last one wins), exactly like a second
+ * `.preview(...)` replaces the first — they do not merge.
+ *
+ * A render is static configuration - plain data, with no closure behind it and
+ * no dependency on source - which is why it lives in the SERIALIZED schema
  * (`SerializedStringSchema.render`) and is read straight off it where the field
  * is drawn. There is no render pipeline, no store and no host round-trip.
  *
@@ -13,9 +23,6 @@
  * the shape it needs back is `executePreview`'s, and the honest move is to give
  * `render` its own execute/store pair again. It is NOT to re-merge the two:
  * conflating them is what this file was split up to undo.
- *
- * The dynamic, source-dependent, demand-scoped thing - what a container shows
- * for its items - is a PREVIEW. See `preview.ts`.
  */
 /**
  * The list is the declaration and {@link CodeLanguage} is derived from it, so

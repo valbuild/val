@@ -35,9 +35,11 @@ const { s, c } = initVal();
 const mod = c.define(
   "/content/testimonials.val.ts",
   s.object({
-    testimonials: s
-      .array(s.object({ quote: s.string(), name: s.string() }))
-      .preview(({ val }) => ({ title: val.name, subtitle: val.quote })),
+    testimonials: s.array(
+      s
+        .object({ quote: s.string(), name: s.string() })
+        .preview(({ val }) => ({ title: val.name, subtitle: val.quote })),
+    ),
   }),
   {
     testimonials: [

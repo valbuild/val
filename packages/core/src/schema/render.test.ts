@@ -79,6 +79,23 @@ describe("Schema.render({ as: 'inline' })", () => {
     }
   });
 
+  test("a second render replaces the first (last wins)", () => {
+    expect(
+      s
+        .string()
+        .render({ as: "textarea" })
+        .render({ as: "inline" })
+        ["executeSerialize"]().render,
+    ).toEqual({ as: "inline" });
+    expect(
+      s
+        .string()
+        .render({ as: "inline" })
+        .render({ as: "textarea" })
+        ["executeSerialize"]().render,
+    ).toEqual({ as: "textarea" });
+  });
+
   test("render does not mutate the schema it was called on", () => {
     const base = s.object({ a: s.string() });
     base.render({ as: "inline" });
@@ -130,12 +147,17 @@ describe("Schema.render({ as: 'inline' })", () => {
   });
 
   test("an inline item does not change the container's preview", () => {
-    const plain = s
-      .array(s.object({ name: s.string() }))
-      .preview(({ val }) => ({ title: val.name }));
-    const inline = s
-      .array(s.object({ name: s.string() }).render({ as: "inline" }))
-      .preview(({ val }) => ({ title: val.name }));
+    const plain = s.array(
+      s.object({ name: s.string() }).preview(({ val }) => ({
+        title: val.name,
+      })),
+    );
+    const inline = s.array(
+      s
+        .object({ name: s.string() })
+        .preview(({ val }) => ({ title: val.name }))
+        .render({ as: "inline" }),
+    );
     const src = [{ name: "Ada" }];
     expect(inline["executePreview"]("/test.val.ts" as SourcePath, src)).toEqual(
       plain["executePreview"]("/test.val.ts" as SourcePath, src),

@@ -14,7 +14,7 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 import { RawString } from "./string";
-import { ReifiedPreview } from "../preview";
+import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
 import { FieldRender } from "../render";
 import { ObjectSchema } from "./object";
 import { RecordSchema } from "./record";
@@ -23,6 +23,8 @@ export type SerializedKeyOfSchema = {
   type: "keyOf";
   /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
   render?: FieldRender;
+  /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
+  preview?: true;
   path: SourcePath;
   schema?: SerializedRefSchema | undefined;
   opt: boolean;
@@ -69,6 +71,7 @@ export class KeyOfSchema<
     private readonly isHidden: boolean = false,
     private readonly description?: string,
     private readonly renderInput: FieldRender | null = null,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
   ) {
     super();
   }
@@ -83,6 +86,7 @@ export class KeyOfSchema<
       this.isHidden,
       description ?? undefined,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -98,6 +102,7 @@ export class KeyOfSchema<
       this.isHidden,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -297,7 +302,7 @@ export class KeyOfSchema<
   }
 
   nullable(): KeyOfSchema<Sel, Src | null> {
-    return new KeyOfSchema(
+    return new KeyOfSchema<Sel, Src | null>(
       this.schema,
       this.sourcePath,
       true,
@@ -306,6 +311,7 @@ export class KeyOfSchema<
       this.isHidden,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -319,6 +325,7 @@ export class KeyOfSchema<
       this.isHidden,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -332,6 +339,7 @@ export class KeyOfSchema<
       true,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -363,7 +371,40 @@ export class KeyOfSchema<
       this.isHidden,
       this.description,
       input,
+      this.previewInput,
     );
+  }
+
+  /**
+   * How this VALUE is shown where a preview of it is needed — a row in a
+   * sortable list, a reference dropdown, a search hit. Never how the field
+   * itself is edited (that is `render`). See `preview.ts`.
+   */
+  preview(select: ItemPreviewInput<Src>): KeyOfSchema<Sel, Src> {
+    return new KeyOfSchema(
+      this.schema,
+      this.sourcePath,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.renderInput,
+      select,
+    );
+  }
+
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -395,6 +436,7 @@ export class KeyOfSchema<
     return {
       type: "keyOf",
       render: this.renderInput ?? undefined,
+      preview: this.previewInput ? true : undefined,
       path: path,
       schema: serializedSchema,
       opt: this.opt,

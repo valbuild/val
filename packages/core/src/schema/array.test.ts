@@ -20,9 +20,11 @@ describe("ArraySchema", () => {
     );
   });
   test("preview: preview is kept when chaining after preview", () => {
-    const base = array(object({ name: string() })).preview(({ val }) => ({
-      title: val.name,
-    }));
+    const base = array(
+      object({ name: string() }).preview(({ val }) => ({
+        title: val.name,
+      })),
+    );
     const src = [{ name: "Ada" }];
     const expected = {
       "/test.val.ts": {
@@ -51,10 +53,12 @@ describe("ArraySchema", () => {
   });
 
   test("preview: does not mutate the schema it was called on", () => {
-    const base = array(object({ name: string() }));
-    base.preview(({ val }) => ({ title: val.name }));
+    const item = object({ name: string() });
+    item.preview(({ val }) => ({ title: val.name }));
     expect(
-      base["executePreview"]("/test.val.ts" as SourcePath, [{ name: "Ada" }]),
+      array(item)["executePreview"]("/test.val.ts" as SourcePath, [
+        { name: "Ada" },
+      ]),
     ).toEqual({});
   });
 });

@@ -4,7 +4,33 @@
 "@valbuild/ui": minor
 ---
 
-Explicit inline rendering: `.render({ as: "inline" })` on every field
+Explicit inline rendering (`.render({ as: "inline" })`) and item-level `.preview(...)` on every field
+
+**`.preview(...)` moved from containers to the value being previewed.** Every
+schema now has `.preview(({ val }) => ({ title, subtitle?, image? }))`, and an
+array/record reifies its rows by running each ITEM's closure:
+
+```ts
+const author = s
+  .object({ name: s.string() })
+  .preview(({ val }) => ({ title: val.name }));
+const authors = s.array(author);
+```
+
+A tagged union without a preview of its own dispatches to the variant the
+value takes, so blocks in a page-builder list preview per block type. `render`
+and `preview` never intersect: `render` is how the FIELD is laid out when you
+are looking at it, `preview` is how the VALUE shows wherever a preview is
+needed (list rows, keyOf dropdowns, search, references) — see
+`architecture/render-and-preview.md`. A second `.render(...)` (or
+`.preview(...)`) on the same schema replaces the first.
+
+**Breaking (preview):** a `.preview` on `s.array(...)`/`s.record(...)` now
+describes the container ITSELF as a value (for when it is someone else's
+item), not its rows — move the closure onto the item schema. The record
+closure no longer receives `key` (derive the title from `val`). A null entry
+is skipped rather than passed to the closure. `.jsonValues()` must come before
+`.preview(...)`, like `.validate(...)`.
 
 Every schema now has a `.render({ as: "inline" })` method. When the item of an
 array or record carries it, the Studio edits that item IN PLACE inside the

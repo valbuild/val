@@ -216,14 +216,14 @@ const tagsModule = c.define(
 const previewRowsModule = c.define(
   "/content/testimonials.val.ts",
   s.object({
-    testimonials: s
-      .array(
-        s.object({
+    testimonials: s.array(
+      s
+        .object({
           quote: s.string(),
           name: s.string(),
-        }),
-      )
-      .preview(({ val }) => ({ title: val.name, subtitle: val.quote })),
+        })
+        .preview(({ val }) => ({ title: val.name, subtitle: val.quote })),
+    ),
   }),
   {
     testimonials: [

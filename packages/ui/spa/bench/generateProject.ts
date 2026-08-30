@@ -13,8 +13,9 @@ import { initVal, type SelectorSource, type ValModule } from "@valbuild/core";
  *
  * - **plain modules** — objects of strings with `minLength` validators, so schema
  *   validation has real work to do rather than returning `false` immediately;
- * - **list modules** — `s.array(...).preview(select)`, where `select` is a user
- *   closure invoked per row. This is the expensive thing;
+ * - **list modules** — `s.array(item.preview(select))`, where `select` is a user
+ *   closure declared on the item schema and invoked per row. This is the
+ *   expensive thing;
  * - **one nested list** — a list whose items each contain a list, both with a
  *   `preview`. This is the `handboka` shape, the worst case named throughout
  *   `architecture.md`, and the reason path-scoped previews were built.
@@ -199,12 +200,14 @@ export function generateProject(size: ProjectSize): GeneratedProject {
     modules.push(
       c.define(
         path,
-        s
-          .array(s.object({ title: s.string().minLength(2), body: s.string() }))
-          .preview(({ val }) => {
-            selectCalls++;
-            return { title: val.title, subtitle: val.body };
-          }),
+        s.array(
+          s
+            .object({ title: s.string().minLength(2), body: s.string() })
+            .preview(({ val }) => {
+              selectCalls++;
+              return { title: val.title, subtitle: val.body };
+            }),
+        ),
         rows,
       ),
     );
@@ -219,22 +222,24 @@ export function generateProject(size: ProjectSize): GeneratedProject {
   modules.push(
     c.define(
       nestedModule,
-      s
-        .array(
-          s.object({
+      s.array(
+        s
+          .object({
             title: s.string().minLength(2),
-            sections: s
-              .array(s.object({ heading: s.string().minLength(2) }))
-              .preview(({ val }) => {
-                selectCalls++;
-                return { title: val.heading };
-              }),
+            sections: s.array(
+              s
+                .object({ heading: s.string().minLength(2) })
+                .preview(({ val }) => {
+                  selectCalls++;
+                  return { title: val.heading };
+                }),
+            ),
+          })
+          .preview(({ val }) => {
+            selectCalls++;
+            return { title: val.title };
           }),
-        )
-        .preview(({ val }) => {
-          selectCalls++;
-          return { title: val.title };
-        }),
+      ),
       Array.from({ length: size.nestedChapters }, (_unused, chapter) => ({
         title: `chapter ${chapter}`,
         sections: Array.from(

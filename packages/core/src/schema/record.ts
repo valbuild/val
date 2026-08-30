@@ -7,8 +7,8 @@ import {
 } from ".";
 import {
   RecordPreview,
+  ItemPreviewInput,
   PreviewItem,
-  PreviewSelector,
   ReifiedPreview,
   PreviewScope,
 } from "../preview";
@@ -41,7 +41,11 @@ export type SerializedRecordSchema = {
   item: SerializedSchema;
   key?: SerializedSchema;
   opt: boolean;
-  /** Set when this schema declares a `preview`. See `SerializedArraySchema`. */
+  /**
+   * Set when this schema declares a `preview` — of the RECORD ITSELF as a
+   * value. Whether its ENTRIES preview is carried by the item's serialized
+   * schema. See `SerializedArraySchema`.
+   */
   preview?: true;
   /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
   render?: FieldRender;
@@ -82,11 +86,6 @@ export type JsonValuesRecordSrc<
   JsonSource<JsonOf<SelectorOfSchema<T>>> | SelectorOfSchema<T>
 >;
 
-type RecordPreviewInput<T extends Schema<SelectorSource>> = (input: {
-  key: string;
-  val: PreviewSelector<T>;
-}) => PreviewItem;
-
 export class RecordSchema<
   T extends Schema<SelectorSource>,
   K extends Schema<string>,
@@ -107,7 +106,7 @@ export class RecordSchema<
     private readonly description?: string,
     /** When true, entry values are lazily loaded {@link JsonSource} thunks. */
     private readonly isJsonValues: boolean = false,
-    private readonly previewInput: RecordPreviewInput<T> | null = null,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
     private readonly renderInput: FieldRender | null = null,
   ) {
     super();
@@ -693,7 +692,17 @@ export class RecordSchema<
         ".jsonValues() must come BEFORE .validate(): a validator added first is typed against the un-lazy source shape and cannot be carried over. Write s.record(...).jsonValues().validate(...) instead.",
       );
     }
-    return new RecordSchema(
+    if (this.previewInput !== null) {
+      // Same reasoning as the validator guard above: the record's own preview
+      // closure is typed against the un-lazy source shape.
+      throw new Error(
+        ".jsonValues() must come BEFORE .preview(): a preview added first is typed against the un-lazy source shape and cannot be carried over. Write s.record(...).jsonValues().preview(...) instead.",
+      );
+    }
+    // Explicit type args instead of a cast on the result: `previewInput` would
+    // otherwise pin inference to `Src`, and the two record source shapes no
+    // longer overlap enough for the old assertion.
+    return new RecordSchema<T, K, JsonValuesRecordSrc<T, K>>(
       this.item,
       this.opt,
       // Empty by construction: the guard above rejects any that were registered.
@@ -705,9 +714,10 @@ export class RecordSchema<
       this.isHidden,
       this.description,
       true,
-      this.previewInput,
+      // Null by construction: the guard above rejects any that was declared.
+      null,
       this.renderInput,
-    ) as RecordSchema<T, K, JsonValuesRecordSrc<T, K>>;
+    );
   }
 
   private getRouterValidations(path: SourcePath, src: Src): ValidationErrors {
@@ -856,8 +866,10 @@ export class RecordSchema<
         res[key] = itemResult[key];
       }
     }
-    if (this.previewInput) {
-      const prepare = this.previewInput;
+    // The entries preview comes from the ITEM schema's own `preview` — the
+    // container just runs it per entry. Asked as a fact rather than by running
+    // the closure, so an empty record still previews as an empty record.
+    if (this.item["declaresItemPreview"]()) {
       // See the same block in `array`: the whole record when the record is what
       // is being shown, only the wanted entries when it is not.
       const window =
@@ -866,6 +878,9 @@ export class RecordSchema<
       for (const [key, val] of Object.entries(src)) {
         if (isJson(val)) {
           continue; // as above: nothing to select from an un-loaded entry
+        }
+        if (val === null || val === undefined) {
+          continue;
         }
         if (
           window !== null &&
@@ -877,11 +892,13 @@ export class RecordSchema<
         // data trips it up must not take out the whole list.
         try {
           // NB NB: display is actually defined by the user
-          const { title, subtitle, image } = prepare({
-            key,
-            val: val as SelectorOfSchema<T>,
-          });
-          items.push([key, { title, subtitle, image }]);
+          const item = this.item["executePreviewItem"](
+            val as NonNullable<SelectorOfSchema<T>>,
+          );
+          if (item !== null) {
+            const { title, subtitle, image } = item;
+            items.push([key, { title, subtitle, image }]);
+          }
         } catch (e) {
           res[unsafeCreateSourcePath(sourcePath, key)] = {
             status: "error",
@@ -900,15 +917,26 @@ export class RecordSchema<
     return res;
   }
 
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
+  }
+
   /**
-   * What the editor shows for each ENTRY of this record: a title, and optionally
-   * a subtitle and an image.
-   *
-   * `select` is your own code over the entry's key and source, so it is run on
-   * demand for the entries that are actually being looked at — see
-   * `PreviewScope`.
+   * How this RECORD ITSELF is shown where a preview of it is needed — when it
+   * is the item of another container, in search, in references. What its
+   * entries show is the ITEM schema's `preview`, not this. Never how the field
+   * is edited (that is `render`). See `preview.ts`.
    */
-  preview(select: RecordPreviewInput<T>): RecordSchema<T, K, Src> {
+  preview(select: ItemPreviewInput<Src>): RecordSchema<T, K, Src> {
     return new RecordSchema(
       this.item,
       this.opt,

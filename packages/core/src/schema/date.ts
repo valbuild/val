@@ -4,7 +4,7 @@ import {
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
-import { ReifiedPreview } from "../preview";
+import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
 import { FieldRender } from "../render";
 import { SourcePath } from "../val";
 import { RawString } from "./string";
@@ -34,6 +34,8 @@ export type SerializedDateSchema = {
   type: "date";
   /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
   render?: FieldRender;
+  /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
+  preview?: true;
   options?: DateOptions;
   opt: boolean;
   customValidate?: boolean;
@@ -51,6 +53,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     private readonly isHidden: boolean = false,
     private readonly description?: string,
     private readonly renderInput: FieldRender | null = null,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
   ) {
     super();
   }
@@ -64,6 +67,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       description ?? undefined,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -76,6 +80,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -181,6 +186,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -193,6 +199,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -205,6 +212,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -217,6 +225,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -229,6 +238,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       true,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -259,13 +269,46 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       this.description,
       input,
+      this.previewInput,
     );
+  }
+
+  /**
+   * How this VALUE is shown where a preview of it is needed — a row in a
+   * sortable list, a reference dropdown, a search hit. Never how the field
+   * itself is edited (that is `render`). See `preview.ts`.
+   */
+  preview(select: ItemPreviewInput<Src>): DateSchema<Src> {
+    return new DateSchema<Src>(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.renderInput,
+      select,
+    );
+  }
+
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
   }
 
   protected executeSerialize(): SerializedSchema {
     return {
       type: "date",
       render: this.renderInput ?? undefined,
+      preview: this.previewInput ? true : undefined,
       opt: this.opt,
       options: this.options,
       customValidate:

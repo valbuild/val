@@ -5,7 +5,7 @@ import {
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
-import { ReifiedPreview } from "../preview";
+import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
 import { FieldRender } from "../render";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
 import { ImageSource } from "../source/media";
@@ -31,6 +31,8 @@ export type SerializedRichTextSchema = {
   type: "richtext";
   /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
   render?: FieldRender;
+  /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
+  preview?: true;
   opt: boolean;
   options?: SerializedRichTextOptions & ValidationOptions;
   customValidate?: boolean;
@@ -51,6 +53,7 @@ export class RichTextSchema<
     private readonly isHidden: boolean = false,
     private readonly description?: string,
     private readonly renderInput: FieldRender | null = null,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
   ) {
     super();
   }
@@ -64,6 +67,7 @@ export class RichTextSchema<
       this.isHidden,
       description ?? undefined,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -79,6 +83,7 @@ export class RichTextSchema<
       this.isHidden,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -94,6 +99,7 @@ export class RichTextSchema<
       this.isHidden,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -108,6 +114,7 @@ export class RichTextSchema<
       this.isHidden,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -654,7 +661,7 @@ export class RichTextSchema<
   }
 
   nullable(): RichTextSchema<O, Src | null> {
-    return new RichTextSchema(
+    return new RichTextSchema<O, Src | null>(
       this.options,
       true,
       [],
@@ -662,6 +669,7 @@ export class RichTextSchema<
       this.isHidden,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -674,6 +682,7 @@ export class RichTextSchema<
       this.isHidden,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -686,6 +695,7 @@ export class RichTextSchema<
       true,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -716,7 +726,39 @@ export class RichTextSchema<
       this.isHidden,
       this.description,
       input,
+      this.previewInput,
     );
+  }
+
+  /**
+   * How this VALUE is shown where a preview of it is needed — a row in a
+   * sortable list, a reference dropdown, a search hit. Never how the field
+   * itself is edited (that is `render`). See `preview.ts`.
+   */
+  preview(select: ItemPreviewInput<Src>): RichTextSchema<O, Src> {
+    return new RichTextSchema(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.renderInput,
+      select,
+    );
+  }
+
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
   }
 
   protected executeSerialize(): SerializedSchema {
@@ -755,6 +797,7 @@ export class RichTextSchema<
     return {
       type: "richtext",
       render: this.renderInput ?? undefined,
+      preview: this.previewInput ? true : undefined,
       opt: this.opt,
       options: serializedOptions,
       customValidate:

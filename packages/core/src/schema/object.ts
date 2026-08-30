@@ -7,7 +7,12 @@ import {
   SelectorOfSchema,
   SerializedSchema,
 } from ".";
-import { ReifiedPreview, PreviewScope } from "../preview";
+import {
+  ItemPreviewInput,
+  PreviewItem,
+  ReifiedPreview,
+  PreviewScope,
+} from "../preview";
 import { FieldRender } from "../render";
 import { SelectorSource } from "../selector";
 import {
@@ -25,6 +30,8 @@ export type SerializedObjectSchema = {
   type: "object";
   /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
   render?: FieldRender;
+  /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
+  preview?: true;
   items: Record<string, SerializedSchema>;
   opt: boolean;
   customValidate?: boolean;
@@ -68,6 +75,7 @@ export class ObjectSchema<
     private readonly isHidden: boolean = false,
     private readonly description?: string,
     private readonly renderInput: FieldRender | null = null,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
   ) {
     super();
   }
@@ -81,6 +89,7 @@ export class ObjectSchema<
       this.isHidden,
       description ?? undefined,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -95,6 +104,7 @@ export class ObjectSchema<
       this.isHidden,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -229,7 +239,8 @@ export class ObjectSchema<
   }
 
   nullable(): ObjectSchema<Props, Src | null> {
-    return new ObjectSchema(
+    // Explicit type args: `previewInput` would otherwise pin inference to `Src`.
+    return new ObjectSchema<Props, Src | null>(
       this.items,
       true,
       [],
@@ -237,6 +248,7 @@ export class ObjectSchema<
       this.isHidden,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -249,6 +261,7 @@ export class ObjectSchema<
       this.isHidden,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -261,6 +274,7 @@ export class ObjectSchema<
       true,
       this.description,
       this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -291,13 +305,46 @@ export class ObjectSchema<
       this.isHidden,
       this.description,
       input,
+      this.previewInput,
     );
+  }
+
+  /**
+   * How this VALUE is shown where a preview of it is needed — a row in a
+   * sortable list, a reference dropdown, a search hit. Never how the field
+   * itself is edited (that is `render`). See `preview.ts`.
+   */
+  preview(select: ItemPreviewInput<Src>): ObjectSchema<Props, Src> {
+    return new ObjectSchema(
+      this.items,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.renderInput,
+      select,
+    );
+  }
+
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
   }
 
   protected executeSerialize(): SerializedSchema {
     return {
       type: "object",
       render: this.renderInput ?? undefined,
+      preview: this.previewInput ? true : undefined,
       items: Object.fromEntries(
         Object.entries(this.items).map(([key, schema]) => [
           key,

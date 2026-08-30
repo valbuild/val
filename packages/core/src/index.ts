@@ -168,6 +168,7 @@ export { type SerializedLiteralSchema, LiteralSchema } from "./schema/literal";
 export { deserializeSchema } from "./schema/deserialize";
 export {
   type PreviewItem,
+  type ItemPreviewInput,
   type RecordPreview,
   type ArrayPreview,
   type ReifiedPreview,

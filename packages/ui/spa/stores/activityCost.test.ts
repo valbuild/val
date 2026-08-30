@@ -42,9 +42,11 @@ const previewed = () => {
   const { c, s } = initVal();
   return c.define(
     "/previewed.val.ts",
-    s
-      .array(s.object({ title: s.string() }))
-      .preview(({ val }) => ({ title: val.title })),
+    s.array(
+      s
+        .object({ title: s.string() })
+        .preview(({ val }) => ({ title: val.title })),
+    ),
     [{ title: "one" }, { title: "two" }],
   );
 };
