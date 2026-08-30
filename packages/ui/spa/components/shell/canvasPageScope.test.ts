@@ -81,12 +81,54 @@ describe("whether the canvas is still showing what is being edited", () => {
     ).toBe(false);
   });
 
-  test("closes it while the page has reported nothing yet", () => {
+  /**
+   * A page that has reported nothing has not said the editor is elsewhere — but
+   * the navigation has, by resolving the route to a gallery.
+   */
+  test("closes it for another kind of row while the page has reported nothing", () => {
     expect(
       canvasShowsEditedContent({
         selectionKind: "media",
         editedPath: `${AUTHORS}?p="freekh"` as SourcePath,
         canvasModules: canvasModulesFromKey(canvasModulesKey(undefined)),
+      }),
+    ).toBe(false);
+  });
+
+  /**
+   * Nothing reported, and nothing resolved: shutting the canvas here is a guess.
+   *
+   * This is the uncommitted-route flow, and in it neither silence is temporary in
+   * the way it looks. A page created from a patch has no row in the navigation —
+   * routes are read with `apply_patches: false` — and its frame is still fetching
+   * when the navigation data settles and runs this. Answering "not on the page"
+   * closed the canvas a moment after it was opened.
+   *
+   * It read as harmless for as long as a closed canvas left its frame mounted and
+   * merely hidden: the page went on loading out of sight, and
+   * `uncommitted-routes.spec.ts` found a frame and passed. Unmounting the canvas
+   * on close is what turned a silently wrong answer into a red test.
+   */
+  test("keeps it when neither the page nor the navigation has said anything", () => {
+    expect(
+      canvasShowsEditedContent({
+        selectionKind: null,
+        // The route module of the page the canvas is showing, which no row
+        // stands for because the route exists only as a patch.
+        editedPath:
+          '/app/notes/[note]/page.val.ts?p="/notes/uncommitted"' as SourcePath,
+        canvasModules: canvasModulesFromKey(canvasModulesKey(undefined)),
+      }),
+    ).toBe(true);
+  });
+
+  /** Once the page has reported, its report is the answer. */
+  test("closes it once the page has reported and the module is not on it", () => {
+    expect(
+      canvasShowsEditedContent({
+        selectionKind: null,
+        editedPath: `${SETTINGS}?p="siteName"` as SourcePath,
+        canvasModules: onPage,
       }),
     ).toBe(false);
   });
