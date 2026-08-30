@@ -45,6 +45,7 @@ import { fromError } from "zod-validation-error";
 import { ValOpsHttp } from "./ValOpsHttp";
 import { result } from "@valbuild/core/fp";
 import { getSettings } from "./getSettings";
+import { createValOps } from "./valServerConfig";
 import {
   getPersonalAccessTokenPath,
   parsePersonalAccessTokenFile,
@@ -114,30 +115,7 @@ export const ValServer = (
       }),
     ),
   });
-  let serverOps: ValOpsHttp | ValOpsFS;
-  if (options.mode === "fs") {
-    serverOps = new ValOpsFS(options.valContentUrl, options.cwd, valModules, {
-      formatter: options.formatter,
-      config: options.config,
-    });
-  } else if (options.mode === "http") {
-    serverOps = new ValOpsHttp(
-      options.valContentUrl,
-      options.project,
-      options.commit,
-      options.branch,
-      { apiKey: options.apiKey },
-      valModules,
-      {
-        formatter: options.formatter,
-        root: options.root,
-        config: options.config,
-      },
-    );
-  } else {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    throw new Error("Invalid mode: " + (options as any)?.mode);
-  }
+  const serverOps: ValOpsHttp | ValOpsFS = createValOps(valModules, options);
   const getAuthorizeUrl = (publicValApiRe: string, token: string): string => {
     if (!options.project) {
       throw new Error("Project is not set");
