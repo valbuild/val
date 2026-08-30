@@ -90,6 +90,14 @@ export {
   getModulePathRange,
 } from "./modulePathMap";
 export { findJsonEntryFilePath } from "./jsonEntryLocation";
+// The two halves of routing a patch op into a `.jsonValues()` entry's own
+// `*.val.json`. Exported because every writer of entry content needs them and
+// there must not be a second implementation: the Studio's publish
+// (`ValOps.prepare`), `val validate --fix` (`Service.patch`) and the editor's
+// quick fixes all classify and rebase the same way, or they disagree about
+// which file an edit belongs in.
+export { classifyJsonValuesOp, rebaseContentOp } from "./patch/jsonValuesPatch";
+export type { JsonValuesOpClass } from "./patch/jsonValuesPatch";
 export { extractJsonValuesEntry } from "./extractJsonValuesEntry";
 export type { ModulePathMap } from "./modulePathMap";
 // Exposed for the CLI's `debug` command and the snapshot replay harness, which

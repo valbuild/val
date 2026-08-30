@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ModuleFilePath } from "@valbuild/core";
+import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { AIChatPanel } from "./AIChatPanel";
 import { DataPanel } from "./DataPanel";
 import { EmptyEditorState, PageEditor } from "./EditorCanvas";
@@ -14,8 +14,14 @@ import {
   CanvasView,
   PageWorkspace,
   PageWorkspaceProps,
+  WorkspacePane,
 } from "./canvas/PageWorkspace";
 import { CanvasPageData, CanvasTransform } from "./canvas/types";
+import {
+  canvasModulesFromKey,
+  canvasModulesKey,
+  canvasShowsEditedContent,
+} from "./canvasPageScope";
 import {
   GlobalSearch,
   SearchResult,
@@ -388,6 +394,23 @@ export function Shell({
   const [isSearchOpen, setIsSearchOpen] = useState(initialSearchOpen);
   const [isCanvasOpen, setIsCanvasOpen] = useState(initialCanvasOpen);
   const [canvasView, setCanvasView] = useState<CanvasView>(initialCanvasView);
+  /**
+   * Which pane a phone is looking at. Meaningless at any other breakpoint,
+   * where the editor and the canvas are both on screen at once.
+   *
+   * Here rather than inside the workspace because the Preview button is here,
+   * and on a phone that button is the main way between the two: opening the
+   * canvas takes you to the page, and pressing it again brings you back — see
+   * `togglePreview`. Owned by the workspace, the button would have had to reach
+   * into it, or the two would have kept separate ideas of where you were.
+   *
+   * Starts on the canvas when a link says the canvas is open, for the same
+   * reason a click on Preview goes there: an opened canvas you are not looking
+   * at is an odd thing to be given.
+   */
+  const [workspacePane, setWorkspacePane] = useState<WorkspacePane>(
+    initialCanvasOpen ? "canvas" : "editor",
+  );
   // The canvas's own position, kept here only so it can be reported outward
   // with the rest of the view state — the canvas owns it.
   const [canvasTransform, setCanvasTransform] =
@@ -406,6 +429,10 @@ export function Shell({
     setOpenPanel(restore.panel);
     setIsCanvasOpen(restore.canvasOpen);
     setCanvasView(restore.canvasView);
+    // The pane is not in the URL — it is which of two things a phone happens to
+    // be showing, not where you are — so it follows the canvas the same way a
+    // fresh load does.
+    setWorkspacePane(restore.canvasOpen ? "canvas" : "editor");
   }, [restoreEpoch]);
   useEffect(() => {
     onViewStateChange?.({
@@ -533,12 +560,36 @@ export function Shell({
    * those degrade on their own, to `/` and to an empty fields view.
    */
   const canCanvas = renderCanvas !== undefined || canvasPage !== undefined;
-  const toggleCanvas = useCallback(() => setIsCanvasOpen((open) => !open), []);
+  /**
+   * What the Preview button does.
+   *
+   * Beside the editor it is a toggle, because the canvas is a region that is
+   * either there or not. On a phone it is not: the canvas is the pane next to
+   * the editor, and the button is how you get between them — the first press
+   * opens the page and goes to it, and every press after that swaps, so the
+   * loop is press, look, press, edit, press, look. Leaving is a separate act,
+   * with its own X on the workspace strip, because on a phone "take me back to
+   * the fields" and "I am done with this page" are not the same intention and
+   * were the same button.
+   */
+  const togglePreview = useCallback(() => {
+    if (breakpoint !== "mobile") {
+      setIsCanvasOpen((open) => !open);
+      return;
+    }
+    if (!isCanvasOpen) {
+      setIsCanvasOpen(true);
+      setWorkspacePane("canvas");
+      return;
+    }
+    setWorkspacePane((pane) => (pane === "canvas" ? "editor" : "canvas"));
+  }, [breakpoint, isCanvasOpen]);
   // Closing puts the module editor back, so the way out lands where the way
   // in started rather than on whichever view you happened to end on.
   const closeCanvas = useCallback(() => {
     setIsCanvasOpen(false);
     setCanvasView("normal");
+    setWorkspacePane("editor");
   }, []);
   // Picking a field on the canvas mentions it in the assistant. It is the same
   // act as the mention button on a field in the editor, so it goes through the
@@ -553,14 +604,42 @@ export function Shell({
   );
 
   /**
-   * Anything that is not a page leaves the canvas.
+   * What the canvas page is made of, and what the editor is on.
+   *
+   * Refs, read by the effect below and deliberately NOT among its dependencies.
+   * Both change for reasons that are not a move: the page re-reports its
+   * elements whenever anything on it shifts, and the edited path changes when
+   * you go from one field to the next inside the same module. The effect closes
+   * the canvas, so a dependency on either would close a canvas that had been
+   * opened deliberately from a data module — which is exactly when you want to
+   * watch a page react to a setting.
+   *
+   * See {@link canvasModulesKey} for why the modules are keyed by a string.
+   */
+  const modulesKey = useMemo(
+    () => canvasModulesKey(canvasPaths),
+    [canvasPaths],
+  );
+  const canvasModules = useMemo(
+    () => canvasModulesFromKey(modulesKey),
+    [modulesKey],
+  );
+  const canvasScope = useRef<{
+    canvasModules: ReadonlySet<ModuleFilePath>;
+    editedPath: SourcePath | null;
+  }>({ canvasModules, editedPath: selectedCanvasPath ?? null });
+  canvasScope.current = {
+    canvasModules,
+    editedPath: selectedCanvasPath ?? null,
+  };
+
+  /**
+   * Moving to something that is not on the page leaves the canvas.
    *
    * The canvas is still offered everywhere — the Preview button does not come
-   * and go with the selection — but landing on something that is not on a route
-   * means the canvas is showing a page you are no longer editing. In the fields
-   * view it is worse than stale: the editor column IS the page's fields, so the
-   * module you navigated to does not appear at all and the navigation looks like
-   * it did nothing.
+   * and go with the selection. What decides is whether it is still showing the
+   * thing being edited; see {@link canvasShowsEditedContent}, which is also
+   * where the reason a pick must not close it is written down.
    *
    * Here rather than in `select` below, because a selection is not the only way
    * to move: a breadcrumb, a deep link and a validation error all change the
@@ -572,9 +651,17 @@ export function Shell({
    */
   useEffect(() => {
     if (isLoading) return;
-    if (selection?.kind === "page") return;
+    if (
+      canvasShowsEditedContent({
+        selectionKind: selection?.kind ?? null,
+        ...canvasScope.current,
+      })
+    ) {
+      return;
+    }
     setIsCanvasOpen(false);
     setCanvasView("normal");
+    setWorkspacePane("editor");
   }, [isLoading, selection?.kind]);
 
   const closePanel = useCallback(() => setOpenPanel(null), []);
@@ -642,6 +729,8 @@ export function Shell({
         onCloseCanvas={closeCanvas}
         view={canvasView}
         onViewChange={setCanvasView}
+        pane={workspacePane}
+        onPaneChange={setWorkspacePane}
         isDevMode={isDevMode}
         onAttachToChat={aiEnabled ? attachToChat : undefined}
         skipTransition={skipTransition}
@@ -713,7 +802,7 @@ export function Shell({
         aiEnabled={aiEnabled}
         onPreview={onPreview ?? (() => undefined)}
         previewHref={previewHref}
-        onToggleCanvas={canCanvas ? toggleCanvas : undefined}
+        onToggleCanvas={canCanvas ? togglePreview : undefined}
         isCanvasOpen={isCanvasOpen}
         onPublish={onPublish ?? (() => undefined)}
         publishSlot={publishSlot}
@@ -730,8 +819,23 @@ export function Shell({
           pendingChanges={pendingChanges}
           onPreview={onPreview ?? (() => undefined)}
           previewHref={previewHref}
-          onToggleCanvas={canCanvas ? toggleCanvas : undefined}
+          onToggleCanvas={canCanvas ? togglePreview : undefined}
           isCanvasOpen={isCanvasOpen}
+          /*
+           * What the button does NEXT, said plainly, because on a phone it is
+           * three different acts depending on where you are — see
+           * `togglePreview`. A control that swaps has to say which way.
+           */
+          canvasActionLabel={
+            !isCanvasOpen
+              ? "Open the canvas"
+              : workspacePane === "canvas"
+                ? "Back to the editor"
+                : "Back to the preview"
+          }
+          // The main half no longer closes the canvas on a phone, so the way
+          // out has to be somewhere the menu can offer it too.
+          onExitCanvas={isCanvasOpen ? closeCanvas : undefined}
           onPublish={onPublish ?? (() => undefined)}
           publishSlot={publishSlot}
           onOpenStatus={() => setOpenPanel("settings")}

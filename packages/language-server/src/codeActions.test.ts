@@ -101,8 +101,8 @@ describe("code actions over LSP", () => {
     session = await startLspSession();
   });
 
-  afterEach(() => {
-    session.dispose();
+  afterEach(async () => {
+    await session.dispose();
   });
 
   test("advertises the metadata and gallery fix features", () => {
@@ -211,6 +211,130 @@ describe("code actions over LSP", () => {
     );
     // Crucially, the fix must not produce a module that fails to evaluate.
     expect(after.diagnostics.filter((d) => d.code === "val/fatal")).toEqual([]);
+  });
+
+  // A `.jsonValues()` record: the entry's value — and so everything a metadata
+  // fix has to edit — is in `jsonEntryMedia/hero.val.json`, while the diagnostic
+  // is reported on the `.val.ts`, which holds only the `c.json(...)` thunk.
+  //
+  // Both files are opened as buffers and neither is written: what is on disk is
+  // correct (944x944), and the wrong dimensions exist only in the editor. That
+  // is also the point — the fix must read the entry as the editor has it, not as
+  // the disk has it, or it would compute its edit against text the user is not
+  // looking at.
+  const ENTRY_MODULE_FILE = path.join(
+    EXAMPLE_APP,
+    "content",
+    "jsonEntryMedia.val.ts",
+  );
+  const ENTRY_MODULE_URI = `file://${ENTRY_MODULE_FILE}`;
+  const ENTRY_MODULE_TEXT = fs.readFileSync(ENTRY_MODULE_FILE, "utf8");
+  const ENTRY_FILE = path.join(
+    EXAMPLE_APP,
+    "content",
+    "jsonEntryMedia",
+    "hero.val.json",
+  );
+  const ENTRY_URI = `file://${ENTRY_FILE}`;
+  const ENTRY_ON_DISK = fs.readFileSync(ENTRY_FILE, "utf8");
+  const ENTRY_TEXT = ENTRY_ON_DISK.replace(
+    '"width": 944',
+    '"width": 800',
+  ).replace('"height": 944', '"height": 600');
+
+  const openEntryFixture = async () => {
+    session.openDocument(ENTRY_MODULE_URI, ENTRY_MODULE_TEXT);
+    // Opening the entry buffer is what makes the module invalid: the server has
+    // to notice that a file it does not validate on its own changed what a
+    // module validates to.
+    session.openDocument(ENTRY_URI, ENTRY_TEXT);
+    const published = await session.nextDiagnostics(ENTRY_MODULE_URI, (d) =>
+      d.diagnostics.some((x) =>
+        x.data?.fixes?.some((f) => f.endsWith("check-metadata")),
+      ),
+    );
+    return {
+      published,
+      fixable: published.diagnostics.filter((d) =>
+        d.data?.fixes?.some((f) => f.endsWith("check-metadata")),
+      ),
+    };
+  };
+
+  test("the entry fixture really declares the wrong dimensions", () => {
+    expect(ENTRY_TEXT).not.toBe(ENTRY_ON_DISK);
+    expect(JSON.parse(ENTRY_TEXT).image.width).toBe(800);
+    expect(JSON.parse(ENTRY_ON_DISK).image.width).toBe(944);
+    expect(ENTRY_MODULE_TEXT).toContain("jsonValues()");
+  });
+
+  test("reports an entry error at the entry key, not at the top of the file", async () => {
+    // The value's own range is in the other file, so nothing in the `.val.ts`
+    // matches the full source path. That used to fall all the way through to
+    // line 1 — for a record with hundreds of entries, every entry's errors piled
+    // onto the first line, naming no entry at all.
+    const { fixable } = await openEntryFixture();
+    expect(fixable.length).toBeGreaterThan(0);
+
+    const keyLine = ENTRY_MODULE_TEXT.split("\n").findIndex((line) =>
+      line.includes("hero: c.json("),
+    );
+    expect(keyLine).toBeGreaterThan(0);
+    expect(fixable[0].range.start.line).toBe(keyLine);
+  });
+
+  test("offers a quick fix that edits the entry's *.val.json", async () => {
+    const { fixable } = await openEntryFixture();
+
+    const actions = await session.requestCodeActions(ENTRY_MODULE_URI, fixable);
+    expect(actions.length).toBeGreaterThan(0);
+    const action = actions[0];
+    expect(action.kind).toBe("quickfix");
+
+    // The edit belongs to the entry file, NOT to the document the fix was asked
+    // for. Before this, the patch was applied to the `.val.ts`, walked into the
+    // `c.json(...)` call, failed, and the action was silently dropped.
+    expect(action.edit?.changes?.[ENTRY_MODULE_URI]).toBeUndefined();
+    const edits = action.edit?.changes?.[ENTRY_URI];
+    expect(edits).toBeDefined();
+
+    const applied = applyEdits(ENTRY_TEXT, edits!);
+    expect(JSON.parse(applied)).toEqual({
+      image: {
+        path: "/public/val/images/logo.png",
+        width: 944,
+        height: 944,
+        mimeType: "image/png",
+      },
+    });
+    // A narrow edit: the fix corrects the dimensions, it does not rewrite the
+    // file around them.
+    expect(applied.split("\n")[0]).toBe(ENTRY_TEXT.split("\n")[0]);
+  });
+
+  test("stops offering the fix once the dirty entry buffer is closed", async () => {
+    // Closing an unsaved entry REMOVES an overlay. The modules that read it stay
+    // open, so without invalidating on close they keep answering from a buffer
+    // that no longer exists — here, still offering to write 944x944 over an
+    // entry that on disk already says 944x944.
+    const { fixable } = await openEntryFixture();
+    expect(
+      (await session.requestCodeActions(ENTRY_MODULE_URI, fixable)).length,
+    ).toBeGreaterThan(0);
+
+    session.closeDocument(ENTRY_URI);
+    const afterClose = await session.nextDiagnostics(ENTRY_MODULE_URI);
+    const stillFixable = afterClose.diagnostics.filter((d) =>
+      d.data?.fixes?.some((f) => f.endsWith("check-metadata")),
+    );
+    // The diagnostic itself survives — core reports check-metadata for a direct
+    // `s.image()` whether or not the metadata is right — but there is nothing
+    // left to change, so no action is offered.
+    const actions = await session.requestCodeActions(
+      ENTRY_MODULE_URI,
+      stillFixable,
+    );
+    expect(actions.filter((a) => a.edit !== undefined)).toEqual([]);
   });
 
   test("offers a quick fix that corrects gallery metadata", async () => {

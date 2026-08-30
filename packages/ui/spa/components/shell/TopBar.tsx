@@ -13,6 +13,7 @@ import {
   Sparkles,
   Upload,
   UserRound,
+  X,
 } from "lucide-react";
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
@@ -245,6 +246,8 @@ export function PreviewButton({
   previewHref,
   onToggleCanvas,
   isCanvasOpen,
+  canvasActionLabel,
+  onExitCanvas,
   className,
   menuPlacement = "below",
   alwaysShowLabel,
@@ -259,6 +262,24 @@ export function PreviewButton({
   previewHref?: string;
   onToggleCanvas?: () => void;
   isCanvasOpen?: boolean;
+  /**
+   * What the canvas half does next, for the label and for assistive tech.
+   *
+   * Absent means it opens and closes the canvas, which is what it does beside
+   * the editor. On a phone it does not: there the canvas is a pane and this
+   * button moves between it and the editor, so what it will do next depends on
+   * which one you are looking at, and only the caller knows that.
+   */
+  canvasActionLabel?: string;
+  /**
+   * Leaving the canvas, where that is not what the main half does.
+   *
+   * Given one, the menu offers it; without one the menu offers the main half's
+   * own toggle, which is the desktop control unchanged. There is always a way
+   * out in the menu either way — the phone's other one is the X on the
+   * workspace strip.
+   */
+  onExitCanvas?: () => void;
   /** For the mobile bar, where this shares a row with Publish. */
   className?: string;
   /**
@@ -324,8 +345,25 @@ export function PreviewButton({
       >
         <button
           type="button"
-          aria-label={isCanvasOpen ? "Close the canvas" : "Open the canvas"}
-          aria-pressed={isCanvasOpen}
+          aria-label={
+            canvasActionLabel ??
+            (isCanvasOpen ? "Close the canvas" : "Open the canvas")
+          }
+          /*
+           * Pressed only where this really is a toggle.
+           *
+           * Beside the editor it is one: the canvas is a region that is either
+           * there or not, and `isCanvasOpen` says which. On a phone it is not —
+           * the canvas stays open while you look at the editor pane, and the
+           * button navigates between the two — so `aria-pressed` there would
+           * announce "Preview, pressed" at someone who is looking at the
+           * editor. A caller that supplies its own action label is saying it
+           * has taken over what the button MEANS, which is exactly the case
+           * where the pressed state stops being true.
+           */
+          aria-pressed={
+            canvasActionLabel === undefined ? isCanvasOpen : undefined
+          }
           onClick={onToggleCanvas}
           className="inline-flex flex-1 items-center justify-center gap-1.5 px-2.5 text-xs font-medium hover:bg-bg-float-raised hover:text-fg-primary"
         >
@@ -352,15 +390,27 @@ export function PreviewButton({
             menuPlacement === "above" ? "bottom-full mb-1" : "top-full mt-1",
           )}
         >
-          <PreviewMenuItem
-            icon={Columns2}
-            label={isCanvasOpen ? "Close the canvas" : "Open the canvas"}
-            detail="Beside the editor, in the studio"
-            onClick={() => {
-              setIsOpen(false);
-              onToggleCanvas();
-            }}
-          />
+          {onExitCanvas ? (
+            <PreviewMenuItem
+              icon={X}
+              label="Exit Preview"
+              detail="Back to the editor, and stop the page"
+              onClick={() => {
+                setIsOpen(false);
+                onExitCanvas();
+              }}
+            />
+          ) : (
+            <PreviewMenuItem
+              icon={Columns2}
+              label={isCanvasOpen ? "Close the canvas" : "Open the canvas"}
+              detail="Beside the editor, in the studio"
+              onClick={() => {
+                setIsOpen(false);
+                onToggleCanvas();
+              }}
+            />
+          )}
           <PreviewMenuItem
             icon={Link2}
             label="Open in a new tab"

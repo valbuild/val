@@ -43,6 +43,22 @@ describe("patchLock", () => {
     return res.lock;
   };
 
+  /**
+   * A clock a test can move by hand, so an expiry test advances past a TTL
+   * instead of sleeping past it. `acquirePatchLock`'s `now` option exists for
+   * exactly this; `renew()` on a lock returned from an acquire that used it
+   * keeps using the same clock, since `createLock` closes over it.
+   */
+  const fakeClock = (startMs = 0) => {
+    let current = startMs;
+    return {
+      now: () => current,
+      advance: (ms: number) => {
+        current += ms;
+      },
+    };
+  };
+
   test("the lock file is readable text naming who holds it", async () => {
     const lock = await acquireOrThrow({ op: "PUT /patches" });
 
@@ -91,10 +107,14 @@ describe("patchLock", () => {
    * stuck with no way to know why.
    */
   test("a lock nobody renewed is taken over once it expires", async () => {
-    const abandoned = await acquireOrThrow({ ttlMs: 20 });
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    const clock = fakeClock();
+    const abandoned = await acquireOrThrow({ ttlMs: 20, now: clock.now });
+    clock.advance(40);
 
-    const takenOver = await acquireOrThrow({ timeoutMs: 1_000 });
+    const takenOver = await acquireOrThrow({
+      timeoutMs: 1_000,
+      now: clock.now,
+    });
     expect(takenOver.info.owner).not.toBe(abandoned.info.owner);
     takenOver.release();
   });
@@ -114,9 +134,13 @@ describe("patchLock", () => {
    * winner's brand-new lock on its way out.
    */
   test("releasing a lock that was taken over leaves the new holder alone", async () => {
-    const expired = await acquireOrThrow({ ttlMs: 20 });
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    const newHolder = await acquireOrThrow({ timeoutMs: 1_000 });
+    const clock = fakeClock();
+    const expired = await acquireOrThrow({ ttlMs: 20, now: clock.now });
+    clock.advance(40);
+    const newHolder = await acquireOrThrow({
+      timeoutMs: 1_000,
+      now: clock.now,
+    });
 
     expired.release();
 
@@ -128,10 +152,11 @@ describe("patchLock", () => {
   });
 
   test("renewing pushes the expiry out", async () => {
-    const lock = await acquireOrThrow({ ttlMs: 50 });
+    const clock = fakeClock();
+    const lock = await acquireOrThrow({ ttlMs: 50, now: clock.now });
     const before = lock.info.expiresAt;
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    clock.advance(10);
     expect(lock.renew(10_000)).toBe(true);
 
     expect(Date.parse(lock.info.expiresAt)).toBeGreaterThan(Date.parse(before));
@@ -142,9 +167,13 @@ describe("patchLock", () => {
   });
 
   test("renewing a lock that was taken over says so instead of stealing it back", async () => {
-    const expired = await acquireOrThrow({ ttlMs: 20 });
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    const newHolder = await acquireOrThrow({ timeoutMs: 1_000 });
+    const clock = fakeClock();
+    const expired = await acquireOrThrow({ ttlMs: 20, now: clock.now });
+    clock.advance(40);
+    const newHolder = await acquireOrThrow({
+      timeoutMs: 1_000,
+      now: clock.now,
+    });
 
     expect(expired.renew()).toBe(false);
     expect(parsePatchLockInfo(fs.readFileSync(lockFile, "utf-8"))?.owner).toBe(

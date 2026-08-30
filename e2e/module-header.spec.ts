@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { openStudio } from "./studio";
+import { expect } from "@playwright/test";
+import { openStudio, test } from "./studio";
 
 /**
  * The module header, as a way back up.

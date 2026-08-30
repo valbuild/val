@@ -33,6 +33,11 @@ const nextConfig = {
         hostname: "localhost",
       },
     ],
+    localPatterns: [
+      {
+        pathname: "/**",
+      },
+    ],
   },
 };
 

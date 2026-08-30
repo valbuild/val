@@ -6,7 +6,7 @@ import {
   ValModule,
   initVal,
 } from "@valbuild/core";
-import { getNavPathFromAll } from "./getNavPath";
+import { getNavPathFromAll, resolveNavPath } from "./getNavPath";
 
 const { c, s } = initVal();
 const module = c.define(
@@ -179,6 +179,76 @@ describe("getNavPath", () => {
     ).toStrictEqual(
       '/app/test.val.ts?p="arrayOfObjects".0."subArrayOfObjects".0',
     );
+  });
+});
+
+/**
+ * Why a path did not resolve, told apart.
+ *
+ * `getNavPathFromAll` answers `null` to all three of these, which is all most
+ * callers can use. The canvas cannot: a click on the running page that opens
+ * nothing has to say something, and "still loading", "that file is gone" and
+ * "the page is tagged with a path that no longer exists" are three different
+ * things to say and three different things to do about them.
+ */
+describe("resolveNavPath", () => {
+  const source = Internal.getSource(module);
+  const moduleFilePath = Internal.getValPath(
+    module,
+  ) as unknown as ModuleFilePath;
+  const schema = Internal.getSchema(module)!["executeSerialize"]();
+  const sources = { [moduleFilePath]: source };
+  const schemas = { [moduleFilePath]: schema };
+
+  test("resolves like getNavPathFromAll does", () => {
+    expect(
+      resolveNavPath(
+        '/app/test.val.ts?p="arrayOfObjects".0."stringInsideArray"' as SourcePath,
+        sources,
+        schemas,
+      ),
+    ).toEqual({
+      status: "resolved",
+      path: '/app/test.val.ts?p="arrayOfObjects".0',
+    });
+  });
+
+  test("says when the schemas have not arrived", () => {
+    expect(
+      resolveNavPath(
+        '/app/test.val.ts?p="arrayOfStrings".0' as SourcePath,
+        sources,
+        undefined,
+      ),
+    ).toEqual({ status: "schemas-not-loaded" });
+  });
+
+  test("says when the module behind the path is not loaded", () => {
+    expect(
+      resolveNavPath(
+        '/app/gone.val.ts?p="title"' as SourcePath,
+        sources,
+        schemas,
+      ),
+    ).toEqual({
+      status: "module-not-loaded",
+      moduleFilePath: "/app/gone.val.ts",
+    });
+  });
+
+  test("says when the path does not point at anything in the module", () => {
+    const resolution = resolveNavPath(
+      '/app/test.val.ts?p="noSuchField"."deeper"' as SourcePath,
+      sources,
+      schemas,
+    );
+    expect(resolution.status).toBe("unresolvable");
+    // The reason travels: it is the only thing that says WHERE the page and the
+    // schema disagree, and it ends up in the details line of the message.
+    if (resolution.status === "unresolvable") {
+      expect(resolution.moduleFilePath).toBe("/app/test.val.ts");
+      expect(resolution.reason.length).toBeGreaterThan(0);
+    }
   });
 });
 

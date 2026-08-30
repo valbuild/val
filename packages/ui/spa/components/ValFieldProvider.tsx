@@ -25,7 +25,11 @@ import type { UploadProgress } from "../stores/PatchStore";
 import type { SourcePeek } from "../stores/SourceStore";
 import { Patch } from "@valbuild/core/patch";
 import { isJsonArray } from "../utils/isJsonArray";
-import { getNavPathFromAll } from "./getNavPath";
+import {
+  getNavPathFromAll,
+  NavPathResolution,
+  resolveNavPath,
+} from "./getNavPath";
 import { concatModulePath } from "../utils/sourcePath";
 
 // --- Source override context ---
@@ -1135,6 +1139,35 @@ export function useGetNavPath(): (
         return null;
       }
       return getNavPathFromAll(
+        path,
+        val.system.sourceStore.allSources(),
+        val.system.schemaStore.all(),
+      );
+    },
+    [val],
+  );
+}
+
+/**
+ * The same resolution as {@link useGetNavPath}, with the reason it failed.
+ *
+ * For callers that have to SAY something when a path cannot be opened. The
+ * canvas is the one that must: the thing that was clicked is visibly there on
+ * the page, so "nothing happened" is not a plausible answer to have given.
+ *
+ * Reads on demand, exactly as `useGetNavPath` does and for the same reason —
+ * see the note there about whole-project subscriptions.
+ */
+export function useResolveNavPath(): (
+  path: SourcePath | ModuleFilePath,
+) => NavPathResolution {
+  const val = useValSystem();
+  return useCallback(
+    (path: SourcePath | ModuleFilePath): NavPathResolution => {
+      if (val === null) {
+        return { status: "schemas-not-loaded" };
+      }
+      return resolveNavPath(
         path,
         val.system.sourceStore.allSources(),
         val.system.schemaStore.all(),

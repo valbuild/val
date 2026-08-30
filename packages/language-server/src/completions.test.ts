@@ -268,8 +268,8 @@ describe("completions over LSP", () => {
     session = await startLspSession();
   });
 
-  afterEach(() => {
-    session.dispose();
+  afterEach(async () => {
+    await session.dispose();
   });
 
   test("advertises the media path completion feature", () => {

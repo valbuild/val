@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { openNavPanel, openStudio } from "./studio";
+import { expect } from "@playwright/test";
+import { openNavPanel, openStudio, test } from "./studio";
 
 /**
  * The account, and what the studio does when it cannot load one.

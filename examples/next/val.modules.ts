@@ -34,6 +34,7 @@ export default modules(config, [
   { def: () => import("./app/external.val") },
   // Fixtures for the .jsonValues() walkthrough (docs/plans/jsonValues-walkthrough.md)
   { def: () => import("./content/kb.val") },
+  { def: () => import("./content/jsonEntryMedia.val") },
   { def: () => import("./content/tags.val") },
   { def: () => import("./content/featuredContent.val") },
   // A handbook: chapters of sections, with a `select` at BOTH array levels —

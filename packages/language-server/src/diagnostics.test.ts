@@ -23,8 +23,8 @@ describe("diagnostics over LSP", () => {
     session = await startLspSession();
   });
 
-  afterEach(() => {
-    session.dispose();
+  afterEach(async () => {
+    await session.dispose();
   });
 
   test("advertises the diagnostics feature", () => {
