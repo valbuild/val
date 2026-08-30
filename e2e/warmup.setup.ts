@@ -73,12 +73,6 @@ const ROUTES = [
 ] as const;
 
 /**
- * A module and path the probe can read, chosen because the example app always
- * has it and `studio.spec.ts` already relies on it.
- */
-const PROBE_PATH = '/content/authors.val.ts?p="teddy"."name"';
-
-/**
  * Request a route until the server answers, and name the route if it never does.
  *
  * A plain `request.get` would already wait, but a route that fails to build
@@ -141,7 +135,9 @@ test("the app has compiled the routes the suite visits", async ({
   }
 });
 
-test("the Studio's bundle and both workers are built", async ({ page }) => {
+test("the Studio's bundle and the patch-sets worker are built", async ({
+  page,
+}) => {
   test.setTimeout(COMPILE_TIMEOUT * 2);
 
   /**
@@ -172,43 +168,28 @@ test("the Studio's bundle and both workers are built", async ({ page }) => {
   await waitForIntake(page, "the Studio");
 
   /**
-   * The validation worker, through the hook a real field uses.
+   * The validation worker is NOT warmed, and that is a known gap.
    *
-   * `ValStoreProbe` mounts on a path handed to it at runtime and calls
-   * `useModuleValidation`, which is what reaches `schemaValidationBridge`'s
-   * `ensureWorker()`. Driving the probe needs no patch and leaves no state
-   * behind — which matters, because a warmup that dirtied the chain would break
-   * every spec that reads the fixture's own content.
+   * Two attempts failed, both for reasons worth recording so the next person
+   * does not repeat them:
+   *
+   * 1. Driving `ValStoreProbe` reached `useModuleValidation` and reported
+   *    `"validated"` without building anything: `ValidationStore.validate`
+   *    returns a cached result unless the module is stale, and on a clean
+   *    checkout every module is already validated from intake. This looked like
+   *    it worked locally ONLY because the local `.val/patches` had leftover
+   *    patches from earlier runs marking modules stale — the clean chain a CI
+   *    runner starts with has none.
+   * 2. `validationStore.invalidate([m])` followed by `validate(m)` also built
+   *    nothing, so `run()` is not reaching `schemaValidationBridge.validate` —
+   *    which calls `ensureWorker()` on its first line, so the worker would have
+   *    been recorded if it had. Where that path actually stops is not yet known.
+   *
+   * The cost is real (`studio.spec.ts` records the validation worker's first use
+   * turning a fixed wait into a flake) but it is one first-use compile, and a
+   * warmup that gates all six shards is the wrong place to keep guessing. What
+   * IS warmed below is asserted, so this file cannot quietly stop working.
    */
-  await page.evaluate((path) => {
-    const bag = window as unknown as {
-      __VAL_STORE_PROBE__?: (next: string) => void;
-    };
-    if (bag.__VAL_STORE_PROBE__ === undefined) {
-      throw new Error("the Studio's test probe is not on window");
-    }
-    bag.__VAL_STORE_PROBE__(path);
-  }, PROBE_PATH);
-
-  await expect
-    .poll(
-      () =>
-        page.evaluate(() => {
-          const root = document.getElementById("val-shadow-root");
-          const scope = root?.shadowRoot ?? document;
-          const raw = scope
-            .querySelector("[data-val-store-probe]")
-            ?.getAttribute("data-val-store-probe");
-          return raw === null || raw === undefined
-            ? null
-            : (JSON.parse(raw) as { validation: string }).validation;
-        }),
-      {
-        timeout: COMPILE_TIMEOUT,
-        message: "validation never completed, so its worker is not warm",
-      },
-    )
-    .toBe("validated");
 
   /**
    * The patch-sets worker, by going to the compare view.
@@ -225,12 +206,9 @@ test("the Studio's bundle and both workers are built", async ({ page }) => {
   await expect
     .poll(() => workersBuilt(page), {
       timeout: COMPILE_TIMEOUT,
-      message: "the Studio's workers were never constructed",
+      message: "the patch-sets worker was never constructed",
     })
     .toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("validation.worker"),
-        expect.stringContaining("patchsets.worker"),
-      ]),
+      expect.arrayContaining([expect.stringContaining("patchsets.worker")]),
     );
 });
