@@ -6,6 +6,12 @@ import { createService } from "./Service";
 import { IValFSHost } from "./ValFSHost";
 
 const BASIC_FIXTURE = path.resolve(__dirname, "__fixtures__/basic");
+const JSON_VALUES_FIXTURE = path.resolve(
+  __dirname,
+  "..",
+  "test",
+  "jsonValues-fixture",
+);
 const PATHS_ALIAS_FIXTURE = path.resolve(__dirname, "__fixtures__/paths-alias");
 
 function createTestHost(overrides?: Partial<IValFSHost>): IValFSHost {
@@ -179,5 +185,81 @@ export default c.define("/content/basic-valid.val.ts", s.string(), "Patched by h
     await expect(createService(BASIC_FIXTURE, host)).rejects.toThrow(
       /Could not find 'val.modules.ts' nor 'val.modules.js'/,
     );
+  });
+});
+
+describe("Service.patch with .jsonValues()", () => {
+  const ENTRY_JSON = "page/blogs/test.val.json";
+  const MODULE = "/blogs.val.ts" as ModuleFilePath;
+  let tmpDir: string;
+
+  beforeEach(() => {
+    const tmpBase = path.join(__dirname, ".tmp");
+    nodeFs.mkdirSync(tmpBase, { recursive: true });
+    tmpDir = nodeFs.mkdtempSync(path.join(tmpBase, "service-jsonvalues-"));
+    nodeFs.cpSync(JSON_VALUES_FIXTURE, tmpDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    nodeFs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const readEntry = () =>
+    JSON.parse(nodeFs.readFileSync(path.join(tmpDir, ENTRY_JSON), "utf8"));
+
+  test("writes an edit inside an entry to the entry's own *.val.json", async () => {
+    const service = await createService(tmpDir, createTestHost());
+    const valTsBefore = nodeFs.readFileSync(
+      path.join(tmpDir, "blogs.val.ts"),
+      "utf8",
+    );
+
+    await service.patch(MODULE, [
+      { op: "replace", path: ["/blogs/test", "title"], value: "Edited" },
+    ]);
+
+    expect(readEntry()).toEqual({ title: "Edited" });
+    // The `.val.ts` only references the entry, so it has no business changing.
+    expect(nodeFs.readFileSync(path.join(tmpDir, "blogs.val.ts"), "utf8")).toBe(
+      valTsBefore,
+    );
+  });
+
+  test("refuses a copy into an entry from outside it", async () => {
+    // `rebaseContentOp` slices `from` by the same prefix as `path`, so an op
+    // whose ends are in different places is not unsupported but silently WRONG:
+    // the source would be re-read as a path inside the destination's file.
+    const service = await createService(tmpDir, createTestHost());
+
+    await expect(
+      service.patch(MODULE, [
+        { op: "copy", from: ["elsewhere"], path: ["/blogs/test", "title"] },
+      ]),
+    ).rejects.toThrow(/from outside it/);
+    expect(readEntry()).toEqual({ title: "Hello from JSON" });
+  });
+
+  test("allows a move WITHIN one entry", async () => {
+    // The guard above must reject only what crosses a file boundary: both ends
+    // inside the same entry rebase consistently and are a normal edit.
+    const service = await createService(tmpDir, createTestHost());
+
+    await service.patch(MODULE, [
+      {
+        op: "move",
+        from: ["/blogs/test", "title"],
+        path: ["/blogs/test", "heading"],
+      },
+    ]);
+
+    expect(readEntry()).toEqual({ heading: "Hello from JSON" });
+  });
+
+  test("refuses an op that adds or removes a whole entry", async () => {
+    const service = await createService(tmpDir, createTestHost());
+
+    await expect(
+      service.patch(MODULE, [{ op: "remove", path: ["/blogs/test"] }]),
+    ).rejects.toThrow(/only edits INSIDE an entry/);
   });
 });

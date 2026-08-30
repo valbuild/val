@@ -287,11 +287,32 @@ export class Service {
     const serializedSchema = this.serializedSchemaOf(moduleFilePath);
     const valTsOps: Patch = [];
     const entryOps = new Map<string, Patch>();
-    for (const op of patch) {
-      const cls: JsonValuesOpClass = serializedSchema
-        ? classifyJsonValuesOp(serializedSchema, op.path)
+    const classify = (opPath: string[]): JsonValuesOpClass =>
+      serializedSchema
+        ? classifyJsonValuesOp(serializedSchema, opPath)
         : { kind: "normal" };
+    for (const op of patch) {
+      const cls = classify(op.path);
+      // `move` and `copy` read a SECOND path, and `rebaseContentOp` slices
+      // `from` by the same prefix it slices `path` by. So an op whose two ends
+      // are not in the same place is not merely unsupported, it is silently
+      // wrong: a copy INTO an entry from anywhere else gets its `from`
+      // reinterpreted as a path inside the destination's `*.val.json` and reads
+      // the wrong value. `ValOps.prepare` guards this on the publish path; both
+      // ends have to be classified here for the same reason.
+      const fromCls =
+        op.op === "move" || op.op === "copy" ? classify(op.from) : undefined;
       if (cls.kind === "normal") {
+        // Unreachable while `.jsonValues()` is root-only -- every top-level path
+        // in such a module IS an entry key, so a normal destination means the
+        // module has no jsonValues record and the source cannot be in one
+        // either. Kept because it is the half of the guard that stops being
+        // theoretical the moment root-only is relaxed.
+        if (fromCls && fromCls.kind !== "normal") {
+          throw Error(
+            `Cannot ${op.op} out of the .jsonValues() entry '${fromCls.entryKey}' of ${moduleFilePath}: the entry's content is not in the .val.ts`,
+          );
+        }
         valTsOps.push(op);
         continue;
       }
@@ -312,6 +333,14 @@ export class Service {
         // pointing at a file that does not exist.
         throw Error(
           `Cannot ${op.op} the whole .jsonValues() entry '${cls.entryKey}' of ${moduleFilePath} through Service.patch: only edits INSIDE an entry are supported`,
+        );
+      }
+      if (
+        fromCls &&
+        (fromCls.kind !== "entry" || fromCls.entryKey !== cls.entryKey)
+      ) {
+        throw Error(
+          `Cannot ${op.op} into the .jsonValues() entry '${cls.entryKey}' of ${moduleFilePath} from outside it: each entry is a separate file`,
         );
       }
       const ops = entryOps.get(cls.entryKey);
