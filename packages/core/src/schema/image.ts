@@ -15,19 +15,60 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 import { Internal, ValModule } from "..";
-import { ReifiedPreview } from "../preview";
+import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
+import { FieldRender } from "../render";
 import { ImagesEntryMetadata } from "./images";
 import { getSource } from "../module";
 
+/**
+ * How an uploaded image is re-encoded in the browser, before it is uploaded.
+ *
+ * Off unless a schema asks for it. When it is on, the image is converted to
+ * `type` and scaled down to fit `maxWidth` x `maxHeight` - unless the result
+ * would be BIGGER than the original and no downscale was needed, in which case
+ * the original bytes are kept. See `architecture/media.md`.
+ *
+ * `type` is required so that adding a format later is additive: a schema
+ * written today keeps saying exactly which format it asked for.
+ */
+export type ImageEncodeOptions = {
+  type: "webp";
+  /** Passed to `canvas.toBlob`. Between 0 and 1. @default 0.8 */
+  quality?: number;
+  /** @default 2560 */
+  maxWidth?: number;
+  /** @default 2560 */
+  maxHeight?: number;
+};
+
+/** `false` (or absent) uploads the bytes exactly as the editor picked them. */
+export type ImageEncodeOption = false | ImageEncodeOptions;
+
+/**
+ * What a GALLERY-BACKED field may say for itself.
+ *
+ * Not `ImageOptions`: `directory` and `accept` belong to the gallery, and a
+ * field repeating them is how two copies of one fact get to disagree. `encode`
+ * is different — it describes what happens to the bytes on their way IN, so a
+ * field that wants the original where its gallery re-encodes has to be able to
+ * say `encode: false`, and there is nowhere else to say it.
+ */
+export type GalleryImageOptions = {
+  encode?: ImageEncodeOption;
+};
+
 export type ImageOptions = {
-  ext?: ["jpg"] | ["webp"];
   directory?: string;
-  prefix?: string;
   accept?: string;
+  encode?: ImageEncodeOption;
 };
 
 export type SerializedImageSchema = {
   type: "image";
+  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
+  render?: FieldRender;
+  /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
+  preview?: true;
   options?: ImageOptions;
   opt: boolean;
   remote?: boolean;
@@ -61,6 +102,8 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly renderInput: FieldRender | null = null,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
   ) {
     super();
   }
@@ -75,6 +118,8 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -88,6 +133,8 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -101,6 +148,8 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -406,6 +455,8 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -419,6 +470,8 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
       true,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -432,6 +485,8 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
       this.isReadonly,
       true,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -446,12 +501,69 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
     );
   }
 
+  /**
+   * How this field is laid out in the editor when it is the item of an array
+   * or record: `{ as: "inline" }` renders the field itself inside each row,
+   * instead of a preview row that navigates to it.
+   *
+   * Static configuration, not a callback — see `render.ts`.
+   */
+  render(input: FieldRender): ImageSchema<Src> {
+    return new ImageSchema(
+      this.options,
+      this.opt,
+      this.isRemote,
+      this.customValidateFunctions,
+      this.moduleMetadata,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      input,
+      this.previewInput,
+    );
+  }
+
+  /**
+   * How this VALUE is shown where a preview of it is needed — a row in a
+   * sortable list, a reference dropdown, a search hit. Never how the field
+   * itself is edited (that is `render`). See `preview.ts`.
+   */
+  preview(select: ItemPreviewInput<Src>): ImageSchema<Src> {
+    return new ImageSchema(
+      this.options,
+      this.opt,
+      this.isRemote,
+      this.customValidateFunctions,
+      this.moduleMetadata,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.renderInput,
+      select,
+    );
+  }
+
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
+  }
+
   protected executeSerialize(): SerializedSchema {
     const modulePaths = this.moduleMetadata
       ? Object.keys(this.moduleMetadata)
       : [];
     return {
       type: "image",
+      render: this.renderInput ?? undefined,
+      preview: this.previewInput ? true : undefined,
       options: this.options,
       opt: this.opt,
       remote: this.isRemote,
@@ -477,11 +589,13 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
  */
 export function image(
   galleryModule: ValModule<Record<string, ImagesEntryMetadata>>,
+  galleryOptions?: GalleryImageOptions,
 ): ImageSchema<GalleryImageSource>;
 /** An image of its own, carrying its own dimensions and mime type. */
 export function image(options?: ImageOptions): ImageSchema<ImageSource>;
 export function image(
   options?: ImageOptions | ValModule<Record<string, ImagesEntryMetadata>>,
+  galleryOptions?: GalleryImageOptions,
 ): ImageSchema<ImageSource> | ImageSchema<GalleryImageSource> {
   const isModule =
     !!options &&
@@ -505,7 +619,9 @@ export function image(
       >;
     }
     return new ImageSchema<GalleryImageSource>(
-      {},
+      galleryOptions?.encode !== undefined
+        ? { encode: galleryOptions.encode }
+        : {},
       false,
       false,
       [],

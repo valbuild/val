@@ -312,6 +312,8 @@ let state = emptyState();
 
 /** Every subscribed browser. Written to by the control plane and by commits. */
 const sockets = new Set<WebSocket>();
+/** How many sockets have ever been accepted. Only ever increases. */
+let socketsAccepted = 0;
 
 /**
  * The `Origin` of the request each response belongs to.
@@ -1309,6 +1311,7 @@ const controlPlane: Handler = async (req, res, url) => {
       remoteFiles: [...state.remoteFiles.keys()],
       headCommitSha: state.headCommitSha,
       subscribers: sockets.size,
+      socketsAccepted,
     });
     return;
   }
@@ -1595,6 +1598,16 @@ wss.on("connection", (socket) => {
       return;
     }
     sockets.add(socket);
+    /*
+     * Counted, not just held.
+     *
+     * `subscribers` is a live size, so it cannot tell "this page's socket is
+     * registered" from "a socket some earlier test left open". A broadcast only
+     * reaches sockets already in this set, so a test that fires an event before
+     * its own page is in here loses it — see `openHttpStudio`, which waits on
+     * this number going up.
+     */
+    socketsAccepted += 1;
     socket.send(JSON.stringify({ type: "subscribed" }));
   });
   socket.on("close", () => {

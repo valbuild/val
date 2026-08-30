@@ -73,9 +73,11 @@ const project = () => {
     ),
     c.define(
       "/list.val.ts",
-      s
-        .array(s.object({ name: s.string() }))
-        .preview(({ val }) => ({ title: val.name })),
+      s.array(
+        s
+          .object({ name: s.string() })
+          .preview(({ val }) => ({ title: val.name })),
+      ),
       [{ name: "one" }, { name: "two" }],
     ),
   ];

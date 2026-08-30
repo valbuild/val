@@ -27,6 +27,8 @@ import { prettyModuleName } from "../MediaPicker/GalleryUploadTarget";
 import { cn } from "../designSystem/cn";
 import type { GalleryEntry } from "../MediaPicker/MediaPicker";
 import { array } from "@valbuild/core/fp";
+import { resolveEncodeSettings } from "../../utils/encodeImage";
+import type { ReadImageEncode } from "../../utils/readImage";
 import { useImageUpload } from "./useImageUpload";
 import { MediaSummaryRow, Section, readableFilename } from "./MediaSummaryRow";
 import { HotspotMarker } from "./HotspotMarker";
@@ -175,6 +177,26 @@ export function ImageField({
       ? referencedModuleSchema.directory
       : undefined;
   }, [imageSchema, referencedModuleSchema]);
+  /**
+   * How an upload is re-encoded, resolved the same way as `accept` above.
+   *
+   * The gallery fallback is not optional: `s.image(galleryVal)` serializes with
+   * EMPTY options, so a gallery-backed field has nothing of its own to read and
+   * would never honour what the gallery asked for.
+   */
+  const encode = useMemo<ReadImageEncode>(() => {
+    const galleryEncode =
+      referencedModuleSchema?.type === "record"
+        ? referencedModuleSchema.encode
+        : undefined;
+    return {
+      settings: resolveEncodeSettings(
+        imageSchema?.options?.encode,
+        galleryEncode,
+      ),
+      accept: acceptOptions,
+    };
+  }, [imageSchema, referencedModuleSchema, acceptOptions]);
   const existingAlt =
     maybeSourceData && typeof maybeSourceData.alt === "string"
       ? maybeSourceData.alt
@@ -200,6 +222,7 @@ export function ImageField({
     directory: uploadDirectory,
     referencedModule,
     existingAlt,
+    encode,
   });
   if (schemaAtPath.status === "error") {
     return (

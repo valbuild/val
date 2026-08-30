@@ -18,16 +18,16 @@ const blogSchema = s.object({
 
 export default c.define(
   "/app/blogs/[blog]/page.val.ts",
-  s
-    .router(
-      nextAppRouter,
-      s.string().describe("The URL of the blog post"),
-      blogSchema,
-    )
-    .preview(({ val }) => ({
+  s.router(
+    nextAppRouter,
+    s.string().describe("The URL of the blog post"),
+    // The preview lives on the BLOG POST (the value being previewed): the
+    // router's rows, search and references all read it from there.
+    blogSchema.preview(({ val }) => ({
       title: val.title,
       subtitle: val.author,
     })),
+  ),
   {
     "/blogs/blog2": {
       title: "Blog 2",

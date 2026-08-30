@@ -101,8 +101,8 @@ describe("code actions over LSP", () => {
     session = await startLspSession();
   });
 
-  afterEach(() => {
-    session.dispose();
+  afterEach(async () => {
+    await session.dispose();
   });
 
   test("advertises the metadata and gallery fix features", () => {

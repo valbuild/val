@@ -16,7 +16,11 @@ export type {
 } from "./initVal";
 export { Schema, type SerializedSchema, type SelectorOfSchema } from "./schema";
 export { hasRemoteFileSchema } from "./schema/hasRemoteFileSchema";
-export type { ImageMetadata } from "./schema/image";
+export type {
+  ImageMetadata,
+  ImageEncodeOption,
+  ImageEncodeOptions,
+} from "./schema/image";
 export type { FileMetadata } from "./schema/file";
 export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
@@ -168,13 +172,20 @@ export { type SerializedLiteralSchema, LiteralSchema } from "./schema/literal";
 export { deserializeSchema } from "./schema/deserialize";
 export {
   type PreviewItem,
+  type ItemPreviewInput,
   type RecordPreview,
   type ArrayPreview,
   type ReifiedPreview,
   type PreviewScope,
   previewScope,
 } from "./preview";
-export { type CodeLanguage, type StringRender, CODE_LANGUAGES } from "./render";
+export {
+  type CodeLanguage,
+  type StringRender,
+  type InlineRender,
+  type FieldRender,
+  CODE_LANGUAGES,
+} from "./render";
 export type { ValRouter, RouteValidationError } from "./router";
 export { getSourcePathFromRoute } from "./getSourcePathFromRoute";
 import { nextAppRouter, externalPageRouter } from "./router";

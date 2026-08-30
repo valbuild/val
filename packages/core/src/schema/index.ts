@@ -23,7 +23,7 @@ import {
 } from "./validation/ValidationError";
 import { FileSource } from "../source/media";
 import { GenericRichTextSourceNode, RichTextSource } from "../source/richtext";
-import { ReifiedPreview, PreviewScope } from "../preview";
+import { ReifiedPreview, PreviewScope, PreviewItem } from "../preview";
 // import { SerializedI18nSchema } from "./future/i18n";
 // import { SerializedOneOfSchema } from "./future/oneOf";
 
@@ -184,6 +184,31 @@ export abstract class Schema<Src extends SelectorSource> {
     src: Src,
     scope?: PreviewScope,
   ): ReifiedPreview;
+  /**
+   * This value AS A PREVIEW — what a container's row, a reference dropdown or
+   * a search hit shows for it. Runs the schema's own `preview` closure;
+   * `null` when none is declared (the consumer falls back to a generic
+   * preview). A union dispatches to the matching member's closure.
+   *
+   * Containers call this on their ITEM schema per item — that is how
+   * `executePreview` reifies an {@link ArrayPreview} / {@link RecordPreview}
+   * from item-level declarations.
+   */
+  protected executePreviewItem(src: NonNullable<Src>): PreviewItem | null {
+    // Default for schemas without a closure; every class that stores a
+    // `previewInput` overrides both this and {@link declaresItemPreview}.
+    void src;
+    return null;
+  }
+  /**
+   * Could {@link executePreviewItem} ever answer? A container reifies a rows
+   * preview only when its item schema says yes — asked here rather than by
+   * running the closure, so an EMPTY list still previews as an empty list
+   * instead of not at all.
+   */
+  protected declaresItemPreview(): boolean {
+    return false;
+  }
   // remote(): Src extends RemoteCompatibleSource
   //   ? Schema<RemoteSource<Src>>
   //   : never {

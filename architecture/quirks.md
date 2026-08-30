@@ -36,6 +36,15 @@ The `/public` URL rule and the `appliedAt` gate — see [media.md](./media.md). 
 short version: an uncommitted `/public` path returns **200** in `next dev` (the
 app's HTML), so only decoding an image tells you whether it really loaded.
 
+**`canvas.toBlob` answers a type it cannot encode with a PNG, not with null.**
+Measured in Chromium: `toBlob(cb, "image/bogus")` on a 1200x800 canvas hands
+back 2,622,403 bytes typed `image/png`. So "the callback got a blob" is not the
+same question as "the blob is what I asked for", and a browser without WebP
+encoding would have `s.image({encode})` upload a PNG named `.webp` — which the
+server then rejects at publish time with "Mime type does not match image type",
+a long way from the line that caused it. `chooseEncoded` in `encodeImage.ts`
+reads `blob.type` for exactly this reason.
+
 **Media is recognised from the schema, never from the value.** It is a plain
 object with a `path`, so a value that looks like media is not media — and a plain
 `s.object({path: s.string()})` must not be treated as it. Anywhere you find
@@ -147,6 +156,23 @@ while a real e2e failure sat on it.
 wherever the update budget ran out — typically a Radix ref callback, whose JS
 stack is pure Radix. Do not start there; census the fiber tree instead
 (see [stores.md](./stores.md#debugging-in-a-browser)).
+
+**`overflow: hidden` is still a scroll port; `overflow: clip` is not.** A hidden
+box whose content overflows can be scrolled by anything that reveals an element
+inside it — `scrollIntoView`, focus, `scrollTo` — it simply has no scrollbar to
+do it with. So "I clipped it, nothing can move it" is false, and the way you
+find out is a layout that has quietly come to rest somewhere nobody chose.
+
+Which the canvas does not merely risk: it holds a **same-origin iframe**, and
+`scrollIntoView` inside one of those does not stop at the frame. It walks out
+into the embedder and scrolls the studio's own containers (measured in
+Chromium), and clicking anything inside a frame makes the browser reveal the
+frame itself. Both reveal an ELEMENT rather than a region, so both leave the
+container wherever that element needed — which on the phone's two-pane
+workspace was half the editor and half the page, and stayed there. `overflow:
+clip` creates no scroll port at all, so there is no offset to write to; that,
+and the panes being a `transform` rather than a scroll position, is what
+`PageWorkspace` relies on now.
 
 ## Remote files and proxy mode
 

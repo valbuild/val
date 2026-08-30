@@ -4,6 +4,49 @@ import type { Locator, Page } from "@playwright/test";
 
 const MODULE = "/content/lists.val.ts";
 
+/** The fixture's `keywords`, in the order `lists.val.ts` defines them. */
+const KEYWORDS = [
+  "content",
+  "editing",
+  "preview",
+  "publish",
+  "validation",
+] as const;
+
+/**
+ * Open the `keywords` list and wait until it has rendered every item.
+ *
+ * `openStudio` returns once the store system has taken the PROJECT in, which is
+ * earlier than this module's own field being on screen — so each of these tests
+ * needs a second wait before it patches, or it races the render.
+ *
+ * That wait used to be for `getByRole("textbox").first()`, on the assumption
+ * that a list of strings is a column of inputs. It was, until `.render({ as:
+ * "inline" })` became opt-in: `s.array(s.string())` now renders each item as a
+ * row you navigate into, so there is no textbox on this screen at all and all
+ * three tests failed identically, every run, waiting 30s for an element the app
+ * had stopped drawing. Not a flake — a stale assumption that only looked like
+ * one because it surfaced as a timeout.
+ *
+ * Counting the rows instead says what these tests actually need: the list is
+ * rendered, with the items the fixture defines, so a patch against it is a patch
+ * against something real. It is also indifferent to how a row is drawn, which is
+ * the part that changed — while still failing loudly, and with a count, if the
+ * fixture or the list stops rendering rather than timing out on an element that
+ * was never the point.
+ */
+async function openKeywords(page: Page): Promise<Locator> {
+  await openStudio(page, `/val/~${MODULE}?p=%22keywords%22`);
+  const studio = page.locator("#val-shadow-root");
+  await expect(
+    studio.getByRole("button", {
+      name: new RegExp(`^(${KEYWORDS.join("|")})$`),
+    }),
+    "the keywords list never rendered its items",
+  ).toHaveCount(KEYWORDS.length, { timeout: 30000 });
+  return studio;
+}
+
 /** Reach the compare view the way an editor does — see compare.spec.ts. */
 async function openCompare(page: Page, studio: Locator): Promise<void> {
   const review = studio.getByRole("button", { name: /Review \d+ change/ });
@@ -44,11 +87,7 @@ test.describe("the compare view diffs a list of primitives", () => {
   test("reports a reorder as a move, naming where it came from", async ({
     page,
   }) => {
-    await openStudio(page, `/val/~${MODULE}?p=%22keywords%22`);
-    const studio = page.locator("#val-shadow-root");
-    await expect(studio.getByRole("textbox").first()).toBeVisible({
-      timeout: 30000,
-    });
+    const studio = await openKeywords(page);
 
     // Move the last item to the front, through the store, because a drag in
     // Playwright is a different test than this one.
@@ -80,11 +119,7 @@ test.describe("the compare view diffs a list of primitives", () => {
   test("an insert plus an edit stays one insert plus one edit", async ({
     page,
   }) => {
-    await openStudio(page, `/val/~${MODULE}?p=%22keywords%22`);
-    const studio = page.locator("#val-shadow-root");
-    await expect(studio.getByRole("textbox").first()).toBeVisible({
-      timeout: 30000,
-    });
+    const studio = await openKeywords(page);
 
     await patchThroughStore(page, MODULE, [
       { op: "add", path: ["keywords", "1"], value: "inserted" },
@@ -112,11 +147,7 @@ test.describe("the compare view diffs a list of primitives", () => {
 
   /** A deletion says removed, in the place the item used to be. */
   test("reports a deletion where it was", async ({ page }) => {
-    await openStudio(page, `/val/~${MODULE}?p=%22keywords%22`);
-    const studio = page.locator("#val-shadow-root");
-    await expect(studio.getByRole("textbox").first()).toBeVisible({
-      timeout: 30000,
-    });
+    const studio = await openKeywords(page);
 
     await patchThroughStore(page, MODULE, [
       { op: "remove", path: ["keywords", "2"] },

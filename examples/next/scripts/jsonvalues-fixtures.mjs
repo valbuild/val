@@ -131,12 +131,13 @@ export type KbArticle = t.inferSchema<typeof kbArticleSchema>;
 export default c.define(
   "/content/kb.val.ts",
   s
-    .record(kbArticleSchema)
-    .jsonValues()
-    .preview(({ val }) => ({
-      title: val.title,
-      subtitle: val.body,
-    })),
+    .record(
+      kbArticleSchema.preview(({ val }) => ({
+        title: val.title,
+        subtitle: val.body,
+      })),
+    )
+    .jsonValues(),
   {
 ${entries.join("\n")}
   },

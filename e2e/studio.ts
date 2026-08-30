@@ -1,9 +1,15 @@
 import {
   expect,
+  test as base,
   type APIRequestContext,
   type Locator,
   type Page,
 } from "@playwright/test";
+// By relative path, not by package name: `e2e/` is not a workspace package, so
+// nothing links `@valbuild/*` into a `node_modules` it can resolve from — the
+// same reason `e2e/http/httpMode.ts` reaches into `packages/server/src`.
+import type { PatchId } from "../packages/core/src";
+import { chunkPatchIds } from "../packages/ui/spa/stores/react/patchIdChunks";
 
 /**
  * Shared helpers for the two Studio suites.
@@ -36,6 +42,22 @@ export async function openStudio(
   route = "/val",
 ): Promise<void> {
   await page.goto(route);
+  /**
+   * Next's dev-tools badge, out of the way.
+   *
+   * `<nextjs-portal>` floats bottom-left — exactly over the Settings cog at the
+   * foot of the rail — and intercepts pointer events even though nothing in the
+   * Studio put it there. A click that lands on it retries for the length of the
+   * test's timeout and fails reporting a missing feature, which is what made
+   * `account.spec.ts` and `screens.spec.ts` look broken. `display: none` on the
+   * HOST element hides it and everything in its shadow root together — set
+   * from the outer document, which is unaffected by the portal's own style
+   * isolation — without touching `next.config.js` and so without taking the
+   * overlay away from a developer running the app normally.
+   */
+  await page.addStyleTag({
+    content: "nextjs-portal { display: none !important; }",
+  });
   await expect
     .poll(
       () =>
@@ -60,6 +82,21 @@ export async function openStudio(
  * running the example app — which, for the length of a suite, is the suite.
  * Without this the chain grows on every run, `/stat` gets slower, and eventually
  * a test fails for a reason that has nothing to do with the code under test.
+ *
+ * ## Chunked, for the same reason the product chunks
+ *
+ * One `id=` per patch in a single URL is exactly the 431 that
+ * `large-patch-chain.spec.ts` exists to pin, and this helper is the one place
+ * that would hit it hardest: an interrupted run of that spec leaves 650
+ * fabricated patches on disk, so the very next run's cleanup would build a
+ * ~30KB query, be refused before the handler saw it, and fail in `beforeEach`
+ * — wedging the suite in a state no later cleanup could get out of, because
+ * every later cleanup is this same request.
+ *
+ * `chunkPatchIds` is the product's own splitter (`discardPatches` in
+ * `createValSystem.ts` uses it for the same endpoint), so the budget is shared
+ * rather than a second guess at the limit. Sequential for the reason that call
+ * site gives: each delete changes the chain the next is computed against.
  */
 export async function clearPatchChain(
   request: APIRequestContext,
@@ -67,14 +104,87 @@ export async function clearPatchChain(
   const listed = await request.get("/api/val/patches");
   expect(listed.ok()).toBe(true);
   const body = (await listed.json()) as { patches: { patchId: string }[] };
-  if (body.patches.length === 0) return;
-  const query = body.patches
-    .map((patch) => `id=${encodeURIComponent(patch.patchId)}`)
-    .join("&");
-  const deleted = await request.delete(`/api/val/patches?${query}`);
-  expect(deleted.ok(), "could not clear the example app's patch chain").toBe(
-    true,
-  );
+  const patchIds = body.patches.map((patch) => patch.patchId as PatchId);
+  for (const chunk of chunkPatchIds(patchIds, "id")) {
+    const query = chunk
+      .map((patchId) => `id=${encodeURIComponent(patchId)}`)
+      .join("&");
+    const deleted = await request.delete(`/api/val/patches?${query}`);
+    expect(deleted.ok(), "could not clear the example app's patch chain").toBe(
+      true,
+    );
+  }
+}
+
+/**
+ * `test`, but every test using it starts from a clean patch chain.
+ *
+ * A spec that only reads — a layout measurement, a smoke check, a nav
+ * assertion — has no reason to call `clearPatchChain` itself, and that is
+ * exactly how one gets skipped: nothing about a spec that never writes a
+ * patch suggests it needs to clear one. But every fs-mode spec shares the
+ * same `examples/next/.val` directory and runs in the same serial worker
+ * (`playwright.config.ts`), so a patch left behind by whichever spec ran
+ * before it is still there — an invalid title can make a field's own text
+ * assertion fail, a stray media upload can appear in a gallery a test
+ * screenshots, and which spec happens to run first decides whether any of
+ * that shows up. `auto: true` makes the reset unconditional, so a spec
+ * using this `test` cannot forget it either.
+ *
+ * Specs that build their own chain across several tests on purpose —
+ * `studio.spec.ts`'s "operations compose" tests, `large-patch-chain.spec.ts`'s
+ * own fabricated fixture — keep importing `test` from `@playwright/test`
+ * directly and call `clearPatchChain` on whatever schedule they need.
+ */
+export const test = base.extend<{ cleanPatches: void }>({
+  cleanPatches: [
+    async ({ request }, use) => {
+      await clearPatchChain(request);
+      await use();
+    },
+    { auto: true },
+  ],
+});
+
+/**
+ * Wait until the SERVER holds no patches.
+ *
+ * The counterpart to `discardAll`, and the one to reach for after it. `discardAll`
+ * already polls the client's chain to zero — it cannot return otherwise — so
+ * following it with `expect.poll(() => chainLength(page)).toBe(0)` asserts
+ * something that is true by construction at the moment it runs. The only way that
+ * follow-up can fail is if the chain goes back UP afterwards, and there is a
+ * designed reason it does:
+ *
+ * `/stat` in `fs` mode long polls on a watcher over `.val/patches`, so deleting
+ * the first patch of a chain can wake the poll while the rest are still being
+ * removed. The answer then names a patch the server can no longer serve, and
+ * `PatchStore` deliberately treats one empty fetch as inconclusive
+ * (`notDeliveredOnce`) — an announcement really can be older than a delete — and
+ * keeps the record until a later stat settles it. Nothing else writes to the
+ * directory by then, so that later stat is a no-change long poll returning after
+ * `statPollingInterval` (20s, `ValOpsFS.ts`), against an `expect` timeout that is
+ * also 20s. Which of the two 20s timers started first decides the test.
+ *
+ * So the client is right to hold the record, and the assertion was asking it the
+ * wrong question. "Did the discard actually remove them" is a fact about the
+ * SERVER, and asking the server is both what the next test depends on and immune
+ * to how long the client takes to agree.
+ */
+export async function expectNoPatchesOnServer(
+  request: APIRequestContext,
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get("/api/val/patches");
+        if (!res.ok()) return `the server refused the request: ${res.status()}`;
+        const body = (await res.json()) as { patches: { patchId: string }[] };
+        return body.patches.length;
+      },
+      { message: "the discard left patches on the server" },
+    )
+    .toBe(0);
 }
 
 /** How many patches the store currently holds, straight from the system. */

@@ -109,8 +109,8 @@ describe("gallery membership over LSP", () => {
   beforeEach(async () => {
     session = await startLspSession();
   });
-  afterEach(() => {
-    session.dispose();
+  afterEach(async () => {
+    await session.dispose();
   });
 
   test("does not mistake 'must not carry its own width' for a membership problem", async () => {

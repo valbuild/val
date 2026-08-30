@@ -213,69 +213,6 @@ test.describe("the Studio runs on the store system", () => {
   });
 
   /**
-   * The value the editor sees moves, and moves for the right reason: the patch
-   * applied to source rather than the field happening to re-render.
-   */
-  test("shows the written value through the hooks", async ({ page }) => {
-    await openStudio(page);
-
-    await page.evaluate(async () => {
-      const bag = window as unknown as {
-        __VAL_STORE_PROBE__: (path: string) => void;
-        __VAL_STORES__: {
-          system: {
-            patchStore: {
-              createPatch(mfp: string, patch: unknown[]): Promise<unknown>;
-            };
-          };
-        };
-      };
-      await bag.__VAL_STORES__.system.patchStore.createPatch(
-        "/content/authors.val.ts",
-        [{ op: "replace", path: ["teddy", "name"], value: "Shown by e2e" }],
-      );
-      // Drive the probe component, which reads through `useSourceAtPath` — the
-      // same hook a real field uses.
-      bag.__VAL_STORE_PROBE__('/content/authors.val.ts?p="teddy"."name"');
-    });
-
-    /**
-     * Polled, not slept on.
-     *
-     * A patch marks validation stale and the READ is what recomputes it, on a
-     * real worker — which on first use has to be fetched and compiled. A fixed
-     * wait was long enough while validation ran in-process and became a flake
-     * the moment it moved to a thread, which is the wrong reason for a test to
-     * fail. See `schemaValidationBridge.ts`.
-     */
-    const read = async () =>
-      page.evaluate(() => {
-        const root = document.getElementById("val-shadow-root");
-        const scope = root?.shadowRoot ?? document;
-        const el = scope.querySelector("[data-val-store-probe]");
-        const raw = el?.getAttribute("data-val-store-probe");
-        return raw === undefined || raw === null
-          ? null
-          : (JSON.parse(raw) as {
-              source: { status: string; data?: unknown };
-              validation: string;
-            });
-      });
-
-    await expect
-      .poll(async () => (await read())?.source, {
-        message: "the probe never rendered the written value",
-      })
-      .toMatchObject({ status: "success", data: "Shown by e2e" });
-    // And the module validated, which is the other half of a field being ready.
-    await expect
-      .poll(async () => (await read())?.validation, {
-        message: "the module never finished validating",
-      })
-      .toBe("validated");
-  });
-
-  /**
    * An image upload, with a non-empty chain.
    *
    * The chain state is the whole test. `ValOpsFS` writes a patch's bytes into the

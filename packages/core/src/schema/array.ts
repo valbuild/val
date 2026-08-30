@@ -6,11 +6,12 @@ import {
 } from ".";
 import {
   ArrayPreview,
+  ItemPreviewInput,
   PreviewItem,
-  PreviewSelector,
   ReifiedPreview,
   PreviewScope,
 } from "../preview";
+import { FieldRender } from "../render";
 import { SelectorSource } from "../selector";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
 import { ModuleFilePath, SourcePath } from "../val";
@@ -21,10 +22,15 @@ import {
 
 export type SerializedArraySchema = {
   type: "array";
+  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
+  render?: FieldRender;
   item: SerializedSchema;
   opt: boolean;
   /**
-   * Set when this schema declares a `preview`.
+   * Set when this schema declares a `preview` — of the ARRAY ITSELF as a
+   * value, for when it is the item of another container. Whether this array's
+   * ROWS preview is carried by the ITEM's serialized schema, where the closure
+   * is declared.
    *
    * The preview itself cannot be serialized — it is a user closure — but whether
    * one EXISTS can be, and that is worth carrying: it lets the non-host side
@@ -39,10 +45,6 @@ export type SerializedArraySchema = {
   description?: string;
 };
 
-type ArrayPreviewInput<T extends Schema<SelectorSource>> = (input: {
-  val: PreviewSelector<T>;
-}) => PreviewItem;
-
 export class ArraySchema<
   T extends Schema<SelectorSource>,
   Src extends SelectorOfSchema<T>[] | null,
@@ -56,7 +58,8 @@ export class ArraySchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
-    private readonly previewInput: ArrayPreviewInput<T> | null = null,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
+    private readonly renderInput: FieldRender | null = null,
   ) {
     super();
   }
@@ -70,6 +73,7 @@ export class ArraySchema<
       this.isHidden,
       description ?? undefined,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -84,6 +88,7 @@ export class ArraySchema<
       this.isHidden,
       this.description,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -154,7 +159,8 @@ export class ArraySchema<
   }
 
   nullable(): ArraySchema<T, Src | null> {
-    return new ArraySchema(
+    // Explicit type args: `previewInput` would otherwise pin inference to `Src`.
+    return new ArraySchema<T, Src | null>(
       this.item,
       true,
       [],
@@ -162,6 +168,7 @@ export class ArraySchema<
       this.isHidden,
       this.description,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -174,6 +181,7 @@ export class ArraySchema<
       this.isHidden,
       this.description,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -186,6 +194,7 @@ export class ArraySchema<
       true,
       this.description,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -203,6 +212,7 @@ export class ArraySchema<
   protected executeSerialize(): SerializedArraySchema {
     return {
       type: "array",
+      render: this.renderInput ?? undefined,
       item: this.item["executeSerialize"](),
       opt: this.opt,
       preview: this.previewInput ? true : undefined,
@@ -240,8 +250,10 @@ export class ArraySchema<
         res[key] = itemResult[key];
       }
     }
-    if (this.previewInput) {
-      const select = this.previewInput;
+    // The rows preview comes from the ITEM schema's own `preview` — the
+    // container just runs it per row. Asked as a fact rather than by running
+    // the closure, so an empty list still previews as an empty list.
+    if (this.item["declaresItemPreview"]()) {
       // The whole list when the LIST is what is being shown; only the wanted
       // rows when it is not. The user's closure is the real expense — a list
       // view asks for the container and gets every row, a single field asks for
@@ -253,20 +265,27 @@ export class ArraySchema<
         scope !== undefined && !scope.wants(sourcePath) ? scope : null;
       const items: ArrayPreview["items"] = [];
       for (let index = 0; index < src.length; index++) {
+        const itemSrc = src[index];
+        if (itemSrc === null || itemSrc === undefined) {
+          continue;
+        }
         if (
           window !== null &&
           !window.wantsUnder(unsafeCreateSourcePath(sourcePath, index))
         ) {
           continue;
         }
-        // Per ITEM, not per list, matching what `record` already does: the
-        // closure is user code, and one row whose data trips it up must not take
-        // out the whole list. Before scoping, one throwing row produced an error
-        // at the container and no items at all.
+        // Per ITEM, not per list: the closure is user code, and one row whose
+        // data trips it up must not take out the whole list. Before scoping,
+        // one throwing row produced an error at the container and no items at
+        // all.
         try {
           // NB NB: display is actually defined by the user
-          const { title, subtitle, image } = select({ val: src[index] });
-          items.push([index, { title, subtitle, image }]);
+          const item = this.item["executePreviewItem"](itemSrc);
+          if (item !== null) {
+            const { title, subtitle, image } = item;
+            items.push([index, { title, subtitle, image }]);
+          }
         } catch (e) {
           res[unsafeCreateSourcePath(sourcePath, index)] = {
             status: "error",
@@ -285,14 +304,26 @@ export class ArraySchema<
     return res;
   }
 
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
+  }
+
   /**
-   * What the editor shows for each ITEM of this array: a title, and optionally a
-   * subtitle and an image.
-   *
-   * `select` is your own code over the item's source, so it is run on demand for
-   * the rows that are actually being looked at — see `PreviewScope`.
+   * How this ARRAY ITSELF is shown where a preview of it is needed — when it
+   * is the item of another container, in search, in references. What its rows
+   * show is the ITEM schema's `preview`, not this. Never how the field is
+   * edited (that is `render`). See `preview.ts`.
    */
-  preview(select: ArrayPreviewInput<T>): ArraySchema<T, Src> {
+  preview(select: ItemPreviewInput<Src>): ArraySchema<T, Src> {
     return new ArraySchema(
       this.item,
       this.opt,
@@ -301,6 +332,27 @@ export class ArraySchema<
       this.isHidden,
       this.description,
       select,
+      this.renderInput,
+    );
+  }
+
+  /**
+   * How this field is laid out in the editor when it is the item of an array
+   * or record: `{ as: "inline" }` renders the field itself inside each row,
+   * instead of a preview row that navigates to it.
+   *
+   * Static configuration, not a callback — see `render.ts`.
+   */
+  render(input: FieldRender): ArraySchema<T, Src> {
+    return new ArraySchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.previewInput,
+      input,
     );
   }
 }

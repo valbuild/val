@@ -32,10 +32,12 @@ function listModule(itemCount: number): {
   }));
   const module = c.define(
     "/list.val.ts",
-    s.array(s.object({ title: s.string() })).preview(({ val }) => {
-      calls++;
-      return { title: val.title };
-    }),
+    s.array(
+      s.object({ title: s.string() }).preview(({ val }) => {
+        calls++;
+        return { title: val.title };
+      }),
+    ),
     items,
   );
   return { module, selectCalls: () => calls };

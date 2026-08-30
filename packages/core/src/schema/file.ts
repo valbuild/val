@@ -17,7 +17,8 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 import { Internal, ValModule } from "..";
-import { ReifiedPreview } from "../preview";
+import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
+import { FieldRender } from "../render";
 import { FilesEntryMetadata } from "./files";
 import { getSource } from "../module";
 
@@ -27,6 +28,10 @@ export type FileOptions = {
 
 export type SerializedFileSchema = {
   type: "file";
+  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
+  render?: FieldRender;
+  /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
+  preview?: true;
   options?: FileOptions;
   remote?: boolean;
   opt: boolean;
@@ -50,6 +55,8 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly renderInput: FieldRender | null = null,
+    private readonly previewInput: ItemPreviewInput<Src> | null = null,
   ) {
     super();
   }
@@ -64,6 +71,8 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -77,6 +86,8 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -90,6 +101,8 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -363,6 +376,8 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -376,6 +391,8 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       true,
       this.isHidden,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -389,6 +406,8 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       this.isReadonly,
       true,
       this.description,
+      this.renderInput,
+      this.previewInput,
     );
   }
 
@@ -403,12 +422,69 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     );
   }
 
+  /**
+   * How this field is laid out in the editor when it is the item of an array
+   * or record: `{ as: "inline" }` renders the field itself inside each row,
+   * instead of a preview row that navigates to it.
+   *
+   * Static configuration, not a callback — see `render.ts`.
+   */
+  render(input: FieldRender): FileSchema<Src> {
+    return new FileSchema(
+      this.options,
+      this.opt,
+      this.isRemote,
+      this.customValidateFunctions,
+      this.moduleMetadata,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      input,
+      this.previewInput,
+    );
+  }
+
+  /**
+   * How this VALUE is shown where a preview of it is needed — a row in a
+   * sortable list, a reference dropdown, a search hit. Never how the field
+   * itself is edited (that is `render`). See `preview.ts`.
+   */
+  preview(select: ItemPreviewInput<Src>): FileSchema<Src> {
+    return new FileSchema(
+      this.options,
+      this.opt,
+      this.isRemote,
+      this.customValidateFunctions,
+      this.moduleMetadata,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.renderInput,
+      select,
+    );
+  }
+
+  protected override executePreviewItem(
+    src: NonNullable<Src>,
+  ): PreviewItem | null {
+    if (this.previewInput === null) {
+      return null;
+    }
+    return this.previewInput({ val: src });
+  }
+
+  protected override declaresItemPreview(): boolean {
+    return this.previewInput !== null;
+  }
+
   protected executeSerialize(): SerializedSchema {
     const modulePaths = this.moduleMetadata
       ? Object.keys(this.moduleMetadata)
       : [];
     return {
       type: "file",
+      render: this.renderInput ?? undefined,
+      preview: this.previewInput ? true : undefined,
       options: this.options,
       opt: this.opt,
       remote: this.isRemote,

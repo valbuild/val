@@ -22,17 +22,26 @@ import {
 } from "@valbuild/core";
 import { SourcePath } from "./SourcePath";
 
+// A render is static config, so unlike a `preview` it travels WHOLE — this
+// is the field the editor reads the layout from. See `core/src/render.ts`.
+// Every field can carry `{ as: "inline" }`; strings have layouts of their own
+// on top. NB: these z.objects STRIP unknown keys, so a render variant that is
+// not declared here is silently dropped in transit — add it here when it is
+// added to `render.ts`.
+const InlineRender = z.object({ as: z.literal("inline") });
+const FieldRender = InlineRender.optional();
+
 export const SerializedStringSchema: z.ZodType<SerializedStringSchemaT> =
   z.object({
     type: z.literal("string"),
-    // A render is static config, so unlike a `preview` it travels WHOLE — this
-    // is the field the editor reads the layout from. See `core/src/render.ts`.
     render: z
       .union([
         z.object({ as: z.literal("textarea") }),
         z.object({ as: z.literal("code"), language: z.enum(CODE_LANGUAGES) }),
+        InlineRender,
       ])
       .optional(),
+    preview: z.literal(true).optional(),
     options: z
       .object({
         maxLength: z.number().optional(),
@@ -54,6 +63,8 @@ export const SerializedStringSchema: z.ZodType<SerializedStringSchemaT> =
 export const SerializedLiteralSchema: z.ZodType<SerializedLiteralSchemaT> =
   z.object({
     type: z.literal("literal"),
+    render: FieldRender,
+    preview: z.literal(true).optional(),
     value: z.string(),
     opt: z.boolean(),
     readonly: z.boolean().optional(),
@@ -63,6 +74,8 @@ export const SerializedLiteralSchema: z.ZodType<SerializedLiteralSchemaT> =
 export const SerializedBooleanSchema: z.ZodType<SerializedBooleanSchemaT> =
   z.object({
     type: z.literal("boolean"),
+    render: FieldRender,
+    preview: z.literal(true).optional(),
     opt: z.boolean(),
     readonly: z.boolean().optional(),
     hidden: z.boolean().optional(),
@@ -71,6 +84,8 @@ export const SerializedBooleanSchema: z.ZodType<SerializedBooleanSchemaT> =
 export const SerializedNumberSchema: z.ZodType<SerializedNumberSchemaT> =
   z.object({
     type: z.literal("number"),
+    render: FieldRender,
+    preview: z.literal(true).optional(),
     options: z
       .object({
         max: z.number().optional(),
@@ -86,6 +101,8 @@ export const SerializedObjectSchema: z.ZodType<SerializedObjectSchemaT> =
   z.lazy(() => {
     return z.object({
       type: z.literal("object"),
+      render: FieldRender,
+      preview: z.literal(true).optional(),
       items: z.record(z.string(), SerializedSchema),
       opt: z.boolean(),
       readonly: z.boolean().optional(),
@@ -97,10 +114,10 @@ export const SerializedArraySchema: z.ZodType<SerializedArraySchemaT> = z.lazy(
   () => {
     return z.object({
       type: z.literal("array"),
+      render: FieldRender,
+      preview: z.literal(true).optional(),
       item: SerializedSchema,
       opt: z.boolean(),
-      // Only whether a preview EXISTS: the closure itself cannot be serialized.
-      preview: z.literal(true).optional(),
       readonly: z.boolean().optional(),
       hidden: z.boolean().optional(),
     });
@@ -112,6 +129,8 @@ export const SerializedUnionSchema: z.ZodType<SerializedUnionSchemaT> = z.lazy(
     return z.union([
       z.object({
         type: z.literal("union"),
+        render: FieldRender,
+        preview: z.literal(true).optional(),
         key: SerializedLiteralSchema,
         items: z.array(SerializedLiteralSchema),
         opt: z.boolean(),
@@ -120,6 +139,8 @@ export const SerializedUnionSchema: z.ZodType<SerializedUnionSchemaT> = z.lazy(
       }),
       z.object({
         type: z.literal("union"),
+        render: FieldRender,
+        preview: z.literal(true).optional(),
         key: z.string(),
         items: z.array(SerializedObjectSchema),
         opt: z.boolean(),
@@ -130,17 +151,25 @@ export const SerializedUnionSchema: z.ZodType<SerializedUnionSchemaT> = z.lazy(
   },
 );
 
+export const ImageEncodeOption = z.union([
+  z.literal(false),
+  z.object({
+    type: z.literal("webp"),
+    quality: z.number().optional(),
+    maxWidth: z.number().optional(),
+    maxHeight: z.number().optional(),
+  }),
+]);
 export const ImageOptions = z.object({
-  ext: z
-    .union([z.tuple([z.literal("jpg")]), z.tuple([z.literal("webp")])])
-    .optional(),
   directory: z.string().optional(),
-  prefix: z.string().optional(),
   accept: z.string().optional(),
+  encode: ImageEncodeOption.optional(),
 });
 export const SerializedImageSchema: z.ZodType<SerializedImageSchemaT> =
   z.object({
     type: z.literal("image"),
+    render: FieldRender,
+    preview: z.literal(true).optional(),
     options: ImageOptions.optional(),
     opt: z.boolean(),
     readonly: z.boolean().optional(),
@@ -182,6 +211,8 @@ export const RichTextOptions: z.ZodType<SerializedRichTextOptionsT> = z.lazy(
 export const SerializedRichTextSchema: z.ZodType<SerializedRichTextSchemaT> =
   z.object({
     type: z.literal("richtext"),
+    render: FieldRender,
+    preview: z.literal(true).optional(),
     options: RichTextOptions.optional(),
     opt: z.boolean(),
     readonly: z.boolean().optional(),
@@ -193,10 +224,10 @@ export const SerializedRecordSchema: z.ZodType<SerializedRecordSchemaT> =
     return z
       .object({
         type: z.literal("record"),
+        render: FieldRender,
+        preview: z.literal(true).optional(),
         item: SerializedSchema,
         opt: z.boolean(),
-        // Only whether a preview EXISTS: the closure itself cannot be serialized.
-        preview: z.literal(true).optional(),
         // Optional gallery marker for files/images
         mediaType: z
           .union([z.literal("files"), z.literal("images")])
@@ -205,6 +236,7 @@ export const SerializedRecordSchema: z.ZodType<SerializedRecordSchemaT> =
         accept: z.string().optional(),
         directory: z.string().optional(),
         remote: z.boolean().optional(),
+        encode: ImageEncodeOption.optional(),
         alt: SerializedSchema.optional(),
         moduleMetadata: z
           .record(z.string(), z.record(z.string(), z.any()))
@@ -219,6 +251,8 @@ export const SerializedKeyOfSchema: z.ZodType<SerializedKeyOfSchemaT> = z.lazy(
   () => {
     return z.object({
       type: z.literal("keyOf"),
+      render: FieldRender,
+      preview: z.literal(true).optional(),
       path: SourcePath,
       schema: z
         .union([
@@ -243,6 +277,8 @@ export const FileOptions = z.object({
 });
 export const SerializedFileSchema: z.ZodType<SerializedFileSchemaT> = z.object({
   type: z.literal("file"),
+  render: FieldRender,
+  preview: z.literal(true).optional(),
   options: FileOptions.optional(),
   opt: z.boolean(),
   readonly: z.boolean().optional(),
@@ -256,6 +292,8 @@ export const DateOptions = z.object({
 
 export const SerializedDateSchema: z.ZodType<SerializedDateSchemaT> = z.object({
   type: z.literal("date"),
+  render: FieldRender,
+  preview: z.literal(true).optional(),
   options: DateOptions.optional(),
   opt: z.boolean(),
   customValidate: z.boolean().optional(),
@@ -267,6 +305,8 @@ export const SerializedDateSchema: z.ZodType<SerializedDateSchemaT> = z.object({
 export const SerializedDateTimeSchema: z.ZodType<SerializedDateTimeSchemaT> =
   z.object({
     type: z.literal("dateTime"),
+    render: FieldRender,
+    preview: z.literal(true).optional(),
     options: DateOptions.optional(),
     opt: z.boolean(),
     customValidate: z.boolean().optional(),
@@ -283,6 +323,8 @@ export const ColorOptions = z.object({
 export const SerializedColorSchema: z.ZodType<SerializedColorSchemaT> =
   z.object({
     type: z.literal("color"),
+    render: FieldRender,
+    preview: z.literal(true).optional(),
     options: ColorOptions.optional(),
     opt: z.boolean(),
     customValidate: z.boolean().optional(),
@@ -294,6 +336,8 @@ export const SerializedColorSchema: z.ZodType<SerializedColorSchemaT> =
 export const SerializedRouteSchema: z.ZodType<SerializedRouteSchemaT> =
   z.object({
     type: z.literal("route"),
+    render: FieldRender,
+    preview: z.literal(true).optional(),
     options: z
       .object({
         include: z

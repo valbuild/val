@@ -129,6 +129,23 @@ export async function openHttpStudio(
   const sockets: string[] = [];
   page.on("websocket", (socket) => sockets.push(socket.url()));
 
+  /*
+   * What the mock had accepted BEFORE this page existed.
+   *
+   * The page-side check below proves this page opened a socket, but Playwright
+   * fires `websocket` when the browser INITIATES one — the mock has not
+   * necessarily accepted and registered it yet. Broadcasts only reach sockets
+   * already in the mock's set, so a test that fires an event the instant
+   * `openHttpStudio` returns can lose it entirely and then sit on "No deploys"
+   * until the next `/stat` rescues it. That is a real flake: it took the
+   * `deployments.spec.ts` "publish the site is serving is live" test from green
+   * to red between two CI runs with no change to `http` mode at all.
+   *
+   * A count going UP is what distinguishes this page's socket from one an
+   * earlier test left open, which a plain `subscribers > 0` could not.
+   */
+  const acceptedBefore = (await mock.state()).socketsAccepted;
+
   await page.goto(route);
   await expect
     .poll(
@@ -151,6 +168,13 @@ export async function openHttpStudio(
       message: "this page never opened a socket to the content service",
     })
     .toContain(`ws://localhost:${MOCK_CONTENT_PORT}/ws`);
+  // And the mock has it, so anything broadcast from here on actually arrives.
+  await expect
+    .poll(async () => (await mock.state()).socketsAccepted, {
+      timeout: INTAKE_TIMEOUT,
+      message: "the content service never accepted this page's socket",
+    })
+    .toBeGreaterThan(acceptedBefore);
 }
 
 // #region the mock's control plane
@@ -204,6 +228,8 @@ export type MockState = {
   remoteFiles: string[];
   headCommitSha: string;
   subscribers: number;
+  /** How many sockets the mock has ever accepted. Only ever increases. */
+  socketsAccepted: number;
 };
 
 /**
