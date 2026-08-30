@@ -615,9 +615,11 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       }
       const resolution = resolveNavPath(path);
       if (resolution.status === "resolved") {
-        navigation.navigate(resolution.path as SourcePath, {
-          scrollToPath: path,
-        });
+        // No assertion: what it resolves to is a module as often as a path
+        // inside one — a field whose nearest nav stop is the module root gives
+        // the former — and `navigate` takes either. Narrowing it to a
+        // `SourcePath` here would be claiming something this does not know.
+        navigation.navigate(resolution.path, { scrollToPath: path });
         return true;
       }
       reportError(...describeUnopenablePick(resolution, path));

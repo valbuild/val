@@ -54,6 +54,8 @@ describe("the phone's pane scroller", () => {
     foreignScrollTo(left: number): void;
     /** A finger, and where it left the scroller. */
     swipeTo(left: number): void;
+    /** A finger down and up again, having moved nothing. */
+    tap(): void;
     /** Let everything that was going to settle, settle. */
     settle(): void;
   };
@@ -112,6 +114,12 @@ describe("the phone's pane scroller", () => {
         act(() => {
           element.dispatchEvent(new Event("touchstart"));
           element.scrollLeft = left;
+          element.dispatchEvent(new Event("touchend"));
+        });
+      },
+      tap: () => {
+        act(() => {
+          element.dispatchEvent(new Event("touchstart"));
           element.dispatchEvent(new Event("touchend"));
         });
       },
@@ -182,14 +190,17 @@ describe("the phone's pane scroller", () => {
     panes.goTo("editor");
     panes.settle();
 
-    // A tap on the canvas pane is a `touchstart` and a `touchend` with no
-    // scroll between them. What follows is the browser revealing the frame the
-    // tap focused — which must not be read as the tap having chosen a pane.
-    act(() => {
-      const el = document.querySelector("[data-testid=scroller]");
-      el?.dispatchEvent(new Event("touchstart"));
-      el?.dispatchEvent(new Event("touchend"));
-    });
+    /*
+     * A tap on the canvas pane is a `touchstart` and a `touchend` with no
+     * scroll between them. What follows is the browser revealing the frame the
+     * tap focused — which must not be read as the tap having chosen a pane.
+     *
+     * Through the harness rather than a fresh `document.querySelector`: the
+     * query would have to be null-checked, and a `?.` that skipped the dispatch
+     * would leave this test asserting that nothing happens when nothing is
+     * done.
+     */
+    panes.tap();
     panes.settle();
     panes.foreignScrollTo(PANE_WIDTH);
     panes.settle();
