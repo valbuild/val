@@ -381,10 +381,24 @@ test.describe("single media fields", () => {
     await expectNoPatchesOnServer(request);
   });
 
-  /** A gallery-backed field stores in the GALLERY's directory. */
+  /**
+   * A gallery-backed field stores in the GALLERY's directory.
+   *
+   * No trailing discard, for the reason the `re-encoding uploads` describe below
+   * writes out at length: a gallery-backed upload writes a SECOND patch (the
+   * gallery's metadata entry) from a `.then()` after the file op this assertion
+   * waits on. `discardAll` stops when the CLIENT's chain is empty, so if it runs
+   * before that second patch has been announced it discards one, sees zero, and
+   * leaves the other on the server — which `expectNoPatchesOnServer` then
+   * reports. It is the only gallery-BACKED field test here, hence the only one
+   * with two patches to race.
+   *
+   * Nothing is lost by dropping it: the `beforeEach` above clears the chain
+   * through the API for every test in this file, so isolation does not depend on
+   * the client having caught up.
+   */
   test("s.image(gallery) stores in the gallery's directory", async ({
     page,
-    request,
   }) => {
     await openStudio(page, `/val/~${MODULE}?p=%22fromGallery%22`);
     const studio = page.locator("#val-shadow-root");
@@ -393,8 +407,6 @@ test.describe("single media fields", () => {
     await expect
       .poll(() => uploadedRefs(page), { timeout: 30_000 })
       .toEqual(["/public/test/subdir/blue-8x8_8b441.png"]);
-    await discardAll(page);
-    await expectNoPatchesOnServer(request);
   });
 
   /**
