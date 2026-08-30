@@ -4,6 +4,7 @@ import ts from "typescript";
 import {
   Internal,
   type ModuleFilePath,
+  type ModulePath,
   type SourcePath,
   type ValidationError,
   type ValidationFix,
@@ -399,7 +400,7 @@ function rangeOf(
   if (!modulePathMap) {
     return FALLBACK_RANGE;
   }
-  let modulePath: string;
+  let modulePath: ModulePath;
   try {
     [, modulePath] = Internal.splitModuleFilePathAndModulePath(
       sourcePath as never,
@@ -422,7 +423,51 @@ function rangeOf(
     }
   }
   const range = getModulePathRange(modulePath, modulePathMap);
-  return range ? { start: range.start, end: range.end } : FALLBACK_RANGE;
+  if (range) {
+    return { start: range.start, end: range.end };
+  }
+  return (
+    longestResolvedPrefixRange(modulePath, modulePathMap) ?? FALLBACK_RANGE
+  );
+}
+
+/**
+ * The range of the longest prefix of `modulePath` this module's own text knows
+ * about.
+ *
+ * `.jsonValues()` is why this exists. An entry's value lives in a separate
+ * `*.val.json`, so the `.val.ts` contains the entry KEY and nothing below it,
+ * and every error inside an entry resolved to nothing at all -- landing on
+ * FALLBACK_RANGE, line 1. For a record with hundreds of entries that is hundreds
+ * of diagnostics stacked on the first line, none of them naming an entry.
+ *
+ * The entry key is not where the offending value is -- that is in the other file
+ * -- but it is the closest place in THIS file, and it is where the quick fix is
+ * offered from.
+ */
+function longestResolvedPrefixRange(
+  modulePath: ModulePath,
+  modulePathMap: NonNullable<ReturnType<typeof createModulePathMap>>,
+): Range | undefined {
+  let segments: string[];
+  try {
+    segments = Internal.splitModulePath(modulePath);
+  } catch {
+    return undefined;
+  }
+  for (let length = segments.length - 1; length > 0; length--) {
+    const range = getModulePathRange(
+      segments
+        .slice(0, length)
+        .map((segment) => JSON.stringify(segment))
+        .join("."),
+      modulePathMap,
+    );
+    if (range) {
+      return { start: range.start, end: range.end };
+    }
+  }
+  return undefined;
 }
 
 /**

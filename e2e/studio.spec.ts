@@ -273,6 +273,25 @@ test.describe("the Studio runs on the store system", () => {
         message: "the module never finished validating",
       })
       .toBe("validated");
+
+    /**
+     * Confirmed reaching the server before this test's page closes.
+     *
+     * The write above is debounced client-side, and Playwright tears the page
+     * down the moment this test returns — with nothing forcing the flush,
+     * whether that write lands before or after depends on how much real
+     * wall-clock time happened to pass, which is exactly the kind of race that
+     * only shows up under full-suite load. This suite composes on purpose (see
+     * the `beforeAll` above): later tests read this file's writes back out of
+     * the chain, and a write is not really "done" until the server has it.
+     */
+    await page.evaluate(async () => {
+      const bag = window as unknown as {
+        __VAL_STORES__: { system: { patchSync: { flush(): Promise<void> } } };
+      };
+      await bag.__VAL_STORES__.system.patchSync.flush();
+    });
+    await expect.poll(async () => (await probe(page)).pending.length).toBe(0);
   });
 
   /**

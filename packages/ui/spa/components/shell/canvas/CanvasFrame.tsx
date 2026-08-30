@@ -121,6 +121,26 @@ export function CanvasFrame({
    */
   const [documentEpoch, setDocumentEpoch] = useState(0);
 
+  /**
+   * The path most recently picked ON the page.
+   *
+   * A pick is followed by a highlight of the thing picked, and asking the page
+   * to scroll to it is asking it to reveal something the finger is still on.
+   * Harmless in itself, and not harmless in practice: the page's scroll walks
+   * out of the frame and moves the studio's own containers with it, which on a
+   * phone is how a pick ended up back on the canvas — or half way to it.
+   *
+   * Consumed by the highlight it suppresses, rather than held: what it excuses
+   * is the ONE highlight that follows a pick. Left standing, it would go on
+   * suppressing the scroll for that field however you arrived at it later — a
+   * row in the fields column, a search hit — where finding it on the page is the
+   * whole point.
+   *
+   * A ref because it is not rendered and must not cause one: it is read while
+   * deciding what to send, and written from a message handler.
+   */
+  const pickedHere = useRef<SourcePath | null>(null);
+
   // The URL the frame is actually given: the page, marked as a canvas load so
   // it renders itself without its own overlay.
   const frameSrc = useMemo(() => withValCanvasParam(url), [url]);
@@ -172,6 +192,7 @@ export function CanvasFrame({
       } else if (message.type === "zoom") {
         onZoom?.(message.factor, message.center);
       } else {
+        pickedHere.current = message.paths[0] ?? null;
         onPick?.(message.paths);
       }
     };
@@ -186,11 +207,17 @@ export function CanvasFrame({
   }, [send, isPicking, state.status]);
 
   useEffect(() => {
+    // Everywhere except straight after a pick on the page, where the thing
+    // being highlighted is the thing that was just clicked and is therefore
+    // already in front of the person who clicked it. See `pickedHere`.
+    const justPicked =
+      highlightedPath !== null && highlightedPath === pickedHere.current;
+    pickedHere.current = null;
     send({
       val: VAL_CANVAS_MESSAGE,
       type: "highlight",
       path: highlightedPath,
-      scrollIntoView: true,
+      scrollIntoView: !justPicked,
     });
   }, [send, highlightedPath, state.status]);
 
