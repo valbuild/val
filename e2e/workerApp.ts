@@ -130,9 +130,14 @@ export type WorkerApp = {
  */
 export const test = base.extend<object, { workerApp: WorkerApp }>({
   workerApp: [
-    // Named rather than destructured as `{}`: this fixture consumes no other
-    // fixtures, and an empty pattern is an eslint error.
-    async (_fixtures, use, workerInfo) => {
+    // The empty pattern has to stay: Playwright reads this destructuring to
+    // work out which fixtures this one depends on, and rejects a named
+    // parameter outright ("First argument must use the object destructuring
+    // pattern"). The directive is the last line of this comment on purpose —
+    // `eslint-disable-next-line` applies to the line after itself, so a
+    // comment written below it would take the exemption instead of the code.
+    // eslint-disable-next-line no-empty-pattern
+    async ({}, use, workerInfo) => {
       const port = BASE_PORT + workerInfo.workerIndex;
       const rootDir = join(
         workerInfo.project.outputDir,
