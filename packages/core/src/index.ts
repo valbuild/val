@@ -174,7 +174,13 @@ export {
   type PreviewScope,
   previewScope,
 } from "./preview";
-export { type CodeLanguage, type StringRender, CODE_LANGUAGES } from "./render";
+export {
+  type CodeLanguage,
+  type StringRender,
+  type InlineRender,
+  type FieldRender,
+  CODE_LANGUAGES,
+} from "./render";
 export type { ValRouter, RouteValidationError } from "./router";
 export { getSourcePathFromRoute } from "./getSourcePathFromRoute";
 import { nextAppRouter, externalPageRouter } from "./router";

@@ -90,7 +90,12 @@ export function RecordFields({
   const source = sourceAtPath.data;
   const schema = schemaAtPath.data;
 
-  if (inline) {
+  // Entries are rendered in place either because the caller asked for it
+  // (`inline` prop) or because the item schema opted in with
+  // `.render({ as: "inline" })` — the record counterpart of the inline rows in
+  // `SortableList`. Records are unordered, so there is nothing to sort; the key
+  // is the row's label.
+  if (inline || schema.item.render?.as === "inline") {
     const sourceEntries = source as Record<string, SourcePath> | null;
     if (sourceEntries === null) {
       return null;

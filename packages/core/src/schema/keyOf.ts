@@ -15,11 +15,14 @@ import {
 } from "./validation/ValidationError";
 import { RawString } from "./string";
 import { ReifiedPreview } from "../preview";
+import { FieldRender } from "../render";
 import { ObjectSchema } from "./object";
 import { RecordSchema } from "./record";
 
 export type SerializedKeyOfSchema = {
   type: "keyOf";
+  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
+  render?: FieldRender;
   path: SourcePath;
   schema?: SerializedRefSchema | undefined;
   opt: boolean;
@@ -65,6 +68,7 @@ export class KeyOfSchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly renderInput: FieldRender | null = null,
   ) {
     super();
   }
@@ -78,6 +82,7 @@ export class KeyOfSchema<
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.renderInput,
     );
   }
 
@@ -92,6 +97,7 @@ export class KeyOfSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -299,6 +305,7 @@ export class KeyOfSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -311,6 +318,7 @@ export class KeyOfSchema<
       true,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -323,6 +331,7 @@ export class KeyOfSchema<
       this.isReadonly,
       true,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -334,6 +343,26 @@ export class KeyOfSchema<
       src,
       this.customValidateFunctions,
       { path },
+    );
+  }
+
+  /**
+   * How this field is laid out in the editor when it is the item of an array
+   * or record: `{ as: "inline" }` renders the field itself inside each row,
+   * instead of a preview row that navigates to it.
+   *
+   * Static configuration, not a callback — see `render.ts`.
+   */
+  render(input: FieldRender): KeyOfSchema<Sel, Src> {
+    return new KeyOfSchema(
+      this.schema,
+      this.sourcePath,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      input,
     );
   }
 
@@ -365,6 +394,7 @@ export class KeyOfSchema<
     }
     return {
       type: "keyOf",
+      render: this.renderInput ?? undefined,
       path: path,
       schema: serializedSchema,
       opt: this.opt,

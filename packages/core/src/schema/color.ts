@@ -5,6 +5,7 @@ import {
   SerializedSchema,
 } from ".";
 import { ReifiedPreview } from "../preview";
+import { FieldRender } from "../render";
 import { SourcePath } from "../val";
 import {
   ColorFormat,
@@ -45,6 +46,8 @@ export type ColorOptions = {
 
 export type SerializedColorSchema = {
   type: "color";
+  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
+  render?: FieldRender;
   options?: ColorOptions;
   opt: boolean;
   customValidate?: boolean;
@@ -72,6 +75,7 @@ export class ColorSchema<Src extends string | null> extends Schema<Src> {
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly renderInput: FieldRender | null = null,
   ) {
     super();
   }
@@ -84,6 +88,7 @@ export class ColorSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.renderInput,
     );
   }
 
@@ -95,6 +100,7 @@ export class ColorSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -212,6 +218,7 @@ export class ColorSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -223,6 +230,7 @@ export class ColorSchema<Src extends string | null> extends Schema<Src> {
       true,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -234,12 +242,33 @@ export class ColorSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       true,
       this.description,
+      this.renderInput,
+    );
+  }
+
+  /**
+   * How this field is laid out in the editor when it is the item of an array
+   * or record: `{ as: "inline" }` renders the field itself inside each row,
+   * instead of a preview row that navigates to it.
+   *
+   * Static configuration, not a callback — see `render.ts`.
+   */
+  render(input: FieldRender): ColorSchema<Src> {
+    return new ColorSchema<Src>(
+      this.options,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      input,
     );
   }
 
   protected executeSerialize(): SerializedSchema {
     return {
       type: "color",
+      render: this.renderInput ?? undefined,
       opt: this.opt,
       options: this.options,
       customValidate:

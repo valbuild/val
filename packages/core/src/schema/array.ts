@@ -11,6 +11,7 @@ import {
   ReifiedPreview,
   PreviewScope,
 } from "../preview";
+import { FieldRender } from "../render";
 import { SelectorSource } from "../selector";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
 import { ModuleFilePath, SourcePath } from "../val";
@@ -21,6 +22,8 @@ import {
 
 export type SerializedArraySchema = {
   type: "array";
+  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
+  render?: FieldRender;
   item: SerializedSchema;
   opt: boolean;
   /**
@@ -57,6 +60,7 @@ export class ArraySchema<
     private readonly isHidden: boolean = false,
     private readonly description?: string,
     private readonly previewInput: ArrayPreviewInput<T> | null = null,
+    private readonly renderInput: FieldRender | null = null,
   ) {
     super();
   }
@@ -70,6 +74,7 @@ export class ArraySchema<
       this.isHidden,
       description ?? undefined,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -84,6 +89,7 @@ export class ArraySchema<
       this.isHidden,
       this.description,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -162,6 +168,7 @@ export class ArraySchema<
       this.isHidden,
       this.description,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -174,6 +181,7 @@ export class ArraySchema<
       this.isHidden,
       this.description,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -186,6 +194,7 @@ export class ArraySchema<
       true,
       this.description,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -203,6 +212,7 @@ export class ArraySchema<
   protected executeSerialize(): SerializedArraySchema {
     return {
       type: "array",
+      render: this.renderInput ?? undefined,
       item: this.item["executeSerialize"](),
       opt: this.opt,
       preview: this.previewInput ? true : undefined,
@@ -301,6 +311,27 @@ export class ArraySchema<
       this.isHidden,
       this.description,
       select,
+      this.renderInput,
+    );
+  }
+
+  /**
+   * How this field is laid out in the editor when it is the item of an array
+   * or record: `{ as: "inline" }` renders the field itself inside each row,
+   * instead of a preview row that navigates to it.
+   *
+   * Static configuration, not a callback — see `render.ts`.
+   */
+  render(input: FieldRender): ArraySchema<T, Src> {
+    return new ArraySchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.previewInput,
+      input,
     );
   }
 }

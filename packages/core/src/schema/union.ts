@@ -7,6 +7,7 @@ import {
   SerializedSchema,
 } from ".";
 import { ReifiedPreview, PreviewScope } from "../preview";
+import { FieldRender } from "../render";
 import {
   createValPathOfItem,
   unsafeCreateSourcePath,
@@ -26,6 +27,8 @@ export type SerializedUnionSchema =
   | SerializedObjectUnionSchema;
 export type SerializedStringUnionSchema = {
   type: "union";
+  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
+  render?: FieldRender;
   key: SerializedLiteralSchema;
   items: SerializedLiteralSchema[];
   opt: boolean;
@@ -36,6 +39,8 @@ export type SerializedStringUnionSchema = {
 };
 export type SerializedObjectUnionSchema = {
   type: "union";
+  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
+  render?: FieldRender;
   key: string;
   items: SerializedObjectSchema[];
   opt: boolean;
@@ -80,6 +85,7 @@ export class UnionSchema<
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.renderInput,
     );
   }
 
@@ -94,6 +100,7 @@ export class UnionSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -497,6 +504,7 @@ export class UnionSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -509,6 +517,7 @@ export class UnionSchema<
       true,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -521,6 +530,7 @@ export class UnionSchema<
       this.isReadonly,
       true,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -580,10 +590,31 @@ export class UnionSchema<
     return null;
   }
 
+  /**
+   * How this field is laid out in the editor when it is the item of an array
+   * or record: `{ as: "inline" }` renders the field itself inside each row,
+   * instead of a preview row that navigates to it.
+   *
+   * Static configuration, not a callback — see `render.ts`.
+   */
+  render(input: FieldRender): UnionSchema<Key, T, Src> {
+    return new UnionSchema<Key, T, Src>(
+      this.key,
+      this.items,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      input,
+    );
+  }
+
   protected executeSerialize(): SerializedSchema {
     if (typeof this.key === "string") {
       return {
         type: "union",
+        render: this.renderInput ?? undefined,
         key: this.key,
         items: this.items.map((o) => o["executeSerialize"]()),
         opt: this.opt,
@@ -597,6 +628,7 @@ export class UnionSchema<
     }
     return {
       type: "union",
+      render: this.renderInput ?? undefined,
       key: this.key["executeSerialize"](),
       items: this.items.map((o) => o["executeSerialize"]()),
       opt: this.opt,
@@ -617,6 +649,7 @@ export class UnionSchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly renderInput: FieldRender | null = null,
   ) {
     super();
   }

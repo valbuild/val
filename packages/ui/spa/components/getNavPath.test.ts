@@ -13,6 +13,20 @@ const module = c.define(
   "/app/test.val.ts",
   s.object({
     arrayOfStrings: s.array(s.string()),
+    arrayOfInlineStrings: s.array(s.string().render({ as: "inline" })),
+    arrayOfInlineObjects: s.array(
+      s
+        .object({
+          title: s.string(),
+          sections: s.array(
+            s.object({ heading: s.string() }).render({ as: "inline" }),
+          ),
+        })
+        .render({ as: "inline" }),
+    ),
+    recordOfInlineObjects: s.record(
+      s.object({ title: s.string() }).render({ as: "inline" }),
+    ),
     objectOfRecord: s.object({
       recordA: s.record(
         s.object({
@@ -34,6 +48,13 @@ const module = c.define(
   }),
   {
     arrayOfStrings: ["a", "b", "c"],
+    arrayOfInlineStrings: ["a", "b"],
+    arrayOfInlineObjects: [
+      { title: "a", sections: [{ heading: "h1" }, { heading: "h2" }] },
+    ],
+    recordOfInlineObjects: {
+      a: { title: "a" },
+    },
     objectOfRecord: {
       recordA: {
         a: { field201: "a" },
@@ -61,13 +82,53 @@ const module = c.define(
 
 describe("getNavPath", () => {
   test("array of string", () => {
-    // NOTE: this behavior might change: maybe array of strings should not default to be shown
+    // Strings in arrays used to be inlined implicitly; inlining is now opt-in
+    // via `.render({ as: "inline" })`, so a plain string item is a nav stop.
     expect(
       testNavPath('/app/test.val.ts?p="arrayOfStrings"', module),
     ).toStrictEqual("/app/test.val.ts");
 
     expect(
       testNavPath('/app/test.val.ts?p="arrayOfStrings".0', module),
+    ).toStrictEqual('/app/test.val.ts?p="arrayOfStrings".0');
+  });
+
+  test("array of inline strings", () => {
+    expect(
+      testNavPath('/app/test.val.ts?p="arrayOfInlineStrings".0', module),
+    ).toStrictEqual("/app/test.val.ts");
+  });
+
+  test("array of inline objects", () => {
+    // The whole subtree of an inline item is edited in the parent's list, so
+    // every path inside it resolves up to the nearest non-inline ancestor —
+    // here the module root, since the nested sections are inline too.
+    expect(
+      testNavPath('/app/test.val.ts?p="arrayOfInlineObjects".0', module),
+    ).toStrictEqual("/app/test.val.ts");
+    expect(
+      testNavPath(
+        '/app/test.val.ts?p="arrayOfInlineObjects".0."title"',
+        module,
+      ),
+    ).toStrictEqual("/app/test.val.ts");
+    expect(
+      testNavPath(
+        '/app/test.val.ts?p="arrayOfInlineObjects".0."sections".0."heading"',
+        module,
+      ),
+    ).toStrictEqual("/app/test.val.ts");
+  });
+
+  test("record of inline objects", () => {
+    expect(
+      testNavPath('/app/test.val.ts?p="recordOfInlineObjects"."a"', module),
+    ).toStrictEqual("/app/test.val.ts");
+    expect(
+      testNavPath(
+        '/app/test.val.ts?p="recordOfInlineObjects"."a"."title"',
+        module,
+      ),
     ).toStrictEqual("/app/test.val.ts");
   });
 

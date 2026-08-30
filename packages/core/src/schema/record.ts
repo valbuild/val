@@ -13,6 +13,7 @@ import {
   PreviewScope,
 } from "../preview";
 import { splitModuleFilePathAndModulePath } from "../module";
+import { FieldRender } from "../render";
 import { ValRouter } from "../router";
 import { SelectorSource } from "../selector";
 import {
@@ -42,6 +43,8 @@ export type SerializedRecordSchema = {
   opt: boolean;
   /** Set when this schema declares a `preview`. See `SerializedArraySchema`. */
   preview?: true;
+  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
+  render?: FieldRender;
   router?: string;
   customValidate?: boolean;
   // Optional media collection marker for files/images that are backed by a record
@@ -105,6 +108,7 @@ export class RecordSchema<
     /** When true, entry values are lazily loaded {@link JsonSource} thunks. */
     private readonly isJsonValues: boolean = false,
     private readonly previewInput: RecordPreviewInput<T> | null = null,
+    private readonly renderInput: FieldRender | null = null,
   ) {
     super();
   }
@@ -122,6 +126,7 @@ export class RecordSchema<
       description ?? undefined,
       this.isJsonValues,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -140,6 +145,7 @@ export class RecordSchema<
       this.description,
       this.isJsonValues,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -586,6 +592,7 @@ export class RecordSchema<
       this.description,
       this.isJsonValues,
       this.previewInput,
+      this.renderInput,
     ) as RecordSchema<T, K, Src | null>;
   }
 
@@ -602,6 +609,7 @@ export class RecordSchema<
       this.description,
       this.isJsonValues,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -618,6 +626,7 @@ export class RecordSchema<
       this.description,
       this.isJsonValues,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -634,6 +643,7 @@ export class RecordSchema<
       this.description,
       this.isJsonValues,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -650,6 +660,7 @@ export class RecordSchema<
       this.description,
       this.isJsonValues,
       this.previewInput,
+      this.renderInput,
     );
   }
 
@@ -695,6 +706,7 @@ export class RecordSchema<
       this.description,
       true,
       this.previewInput,
+      this.renderInput,
     ) as RecordSchema<T, K, JsonValuesRecordSrc<T, K>>;
   }
 
@@ -774,6 +786,7 @@ export class RecordSchema<
   protected executeSerialize(): SerializedRecordSchema {
     const result: SerializedRecordSchema = {
       type: "record",
+      render: this.renderInput ?? undefined,
       item: this.item["executeSerialize"](),
       key: this.keySchema?.["executeSerialize"](),
       opt: this.opt,
@@ -908,6 +921,31 @@ export class RecordSchema<
       this.description,
       this.isJsonValues,
       select,
+      this.renderInput,
+    );
+  }
+
+  /**
+   * How this field is laid out in the editor when it is the item of an array
+   * or record: `{ as: "inline" }` renders the field itself inside each row,
+   * instead of a preview row that navigates to it.
+   *
+   * Static configuration, not a callback — see `render.ts`.
+   */
+  render(input: FieldRender): RecordSchema<T, K, Src> {
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      this.currentRouter,
+      this.keySchema,
+      this.mediaOptions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.isJsonValues,
+      this.previewInput,
+      input,
     );
   }
 }

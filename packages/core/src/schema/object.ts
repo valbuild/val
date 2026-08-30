@@ -8,6 +8,7 @@ import {
   SerializedSchema,
 } from ".";
 import { ReifiedPreview, PreviewScope } from "../preview";
+import { FieldRender } from "../render";
 import { SelectorSource } from "../selector";
 import {
   createValPathOfItem,
@@ -22,6 +23,8 @@ import {
 
 export type SerializedObjectSchema = {
   type: "object";
+  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
+  render?: FieldRender;
   items: Record<string, SerializedSchema>;
   opt: boolean;
   customValidate?: boolean;
@@ -64,6 +67,7 @@ export class ObjectSchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    private readonly renderInput: FieldRender | null = null,
   ) {
     super();
   }
@@ -76,6 +80,7 @@ export class ObjectSchema<
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
+      this.renderInput,
     );
   }
 
@@ -89,6 +94,7 @@ export class ObjectSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -230,6 +236,7 @@ export class ObjectSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -241,6 +248,7 @@ export class ObjectSchema<
       true,
       this.isHidden,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -252,6 +260,7 @@ export class ObjectSchema<
       this.isReadonly,
       true,
       this.description,
+      this.renderInput,
     );
   }
 
@@ -266,9 +275,29 @@ export class ObjectSchema<
     );
   }
 
+  /**
+   * How this field is laid out in the editor when it is the item of an array
+   * or record: `{ as: "inline" }` renders the field itself inside each row,
+   * instead of a preview row that navigates to it.
+   *
+   * Static configuration, not a callback — see `render.ts`.
+   */
+  render(input: FieldRender): ObjectSchema<Props, Src> {
+    return new ObjectSchema(
+      this.items,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      input,
+    );
+  }
+
   protected executeSerialize(): SerializedSchema {
     return {
       type: "object",
+      render: this.renderInput ?? undefined,
       items: Object.fromEntries(
         Object.entries(this.items).map(([key, schema]) => [
           key,

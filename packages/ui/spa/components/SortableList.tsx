@@ -1,10 +1,4 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -26,9 +20,8 @@ import { DragEndEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { Copy, EllipsisVertical, GripVertical, Trash2 } from "lucide-react";
 import { SourcePath, SerializedArraySchema } from "@valbuild/core";
-import type { ArrayPreview } from "@valbuild/core";
 import { RefPreview } from "./RefPreview";
-import { StringField } from "./fields/StringField";
+import { InlineAnyField } from "./InlineAnyField";
 import { isParentError } from "../utils/isParentError";
 import { ErrorIndicator } from "./ErrorIndicator";
 import { useAllValidationErrors } from "./ValErrorProvider";
@@ -171,7 +164,6 @@ export function SortableContainer({
 
 export function SortableList({
   source,
-  preview,
   schema,
   disabled,
   onClick,
@@ -182,25 +174,15 @@ export function SortableList({
   source: SourcePath[];
   path: SourcePath;
   disabled?: boolean;
-  preview?: ArrayPreview;
   schema: SerializedArraySchema;
   onMove: (from: number, to: number) => void;
   onClick: (path: SourcePath) => void;
   onDelete: (item: number) => void;
   onDuplicate: (item: number) => void;
 }) {
-  /**
-   * The preview's items by index, built once per render of the list.
-   *
-   * `items` is `[index, value][]` — a windowed preview is a SHORTER array, so a
-   * row has to be found by its index rather than read at a position. Doing that
-   * with `find` per row is O(n) per row and therefore O(n²) for a full list,
-   * which is the case with the most rows on screen.
-   */
-  const previewByIndex = useMemo(
-    () => new Map(preview?.items ?? []),
-    [preview?.items],
-  );
+  // No per-row preview data here: whether a row is a preview card or an inline
+  // editor is decided by the ITEM schema (`.render({ as: "inline" })`), and a
+  // preview card resolves its own preview via `RefPreview`.
   return (
     <SortableContainer
       source={source}
@@ -211,13 +193,6 @@ export function SortableList({
           id={id}
           schema={schema}
           disabled={disabled}
-          preview={
-            /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
-            /* By index, not by position: a preview computed for a subset of paths
-               carries only those items, so items[n] would be a different row.
-               See ArrayPreview, and `previewByIndex` for why it is a Map. */
-            previewByIndex.get(id - 1)
-          }
           path={path}
           onClick={onClick}
           onDelete={(id) => {
@@ -245,14 +220,12 @@ export function SortableItemRow({
   path,
   schema,
   disabled,
-  preview,
   onClick,
   onDelete,
   onDuplicate,
 }: {
   id: number;
   path: SourcePath;
-  preview?: ArrayPreview["items"][number][1];
   schema: SerializedArraySchema;
   disabled?: boolean;
   onClick: (path: SourcePath) => void;
@@ -275,6 +248,7 @@ export function SortableItemRow({
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: id, disabled: disabled === true });
   const validationErrors = useAllValidationErrors() || {};
+  const isInline = schema?.item?.render?.as === "inline";
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -299,20 +273,30 @@ export function SortableItemRow({
         })}
         disabled={disabled}
         onClick={() => {
-          onClick(path);
+          // An inline row is edited in place — there is no page to go to.
+          if (!isInline) {
+            onClick(path);
+          }
         }}
       >
         <GripVertical />
       </button>
-      {/** Changing this behavior means we need to change the getNavPath behavior */}
-      {!preview && schema?.item?.type === "string" && (
+      {/** Changing this behavior means we need to change the getNavPath behavior.
+       * Inlining is opt-in per item schema (`.render({ as: "inline" })`) and wins
+       * over a `.preview(...)` on the array: the explicit item-level declaration
+       * is the more specific of the two. */}
+      {isInline && (
         <div
           className={cn("flex-grow w-full", {
             "p-2 border border-bg-warning-secondary rounded-lg":
               !!validationErrors[path],
           })}
         >
-          <StringField path={path} />
+          <InlineAnyField
+            path={path}
+            schema={schema.item}
+            readonly={disabled === true}
+          />
           {validationErrors[path] && (
             <div className="px-2">
               <FieldValidationError validationErrors={validationErrors[path]} />
@@ -320,7 +304,7 @@ export function SortableItemRow({
           )}
         </div>
       )}
-      {(preview || schema?.item?.type !== "string") && (
+      {!isInline && (
         <button
           className={cn(
             "flex-grow",

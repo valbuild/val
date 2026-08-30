@@ -47,9 +47,32 @@ export const CODE_LANGUAGES = [
 export type CodeLanguage = (typeof CODE_LANGUAGES)[number];
 
 /**
+ * `{ as: "inline" }` on a field that is the ITEM of an array or record: the
+ * container renders the field itself inside each (sortable) row, instead of a
+ * clickable preview row that navigates to it. This is what a page-builder list
+ * is made of: `s.array(s.object({...}).render({ as: "inline" }))`.
+ *
+ * On a field that is not directly under an array or record it is inert — an
+ * object's fields are already laid out in place.
+ *
+ * Like every render it is static configuration (see the top of this file): it
+ * travels whole in the serialized schema and the editor reads it straight off
+ * the item schema it already has.
+ */
+export type InlineRender = { as: "inline" };
+
+/**
+ * What `.render(...)` takes on every field except `s.string()`, and what the
+ * serialized schema carries verbatim.
+ */
+export type FieldRender = InlineRender;
+
+/**
  * What `s.string().render(...)` takes, and what the serialized schema carries
- * verbatim.
+ * verbatim. A string has editor layouts of its own (textarea, code) in
+ * addition to the container-facing `inline`.
  */
 export type StringRender =
   | { as: "textarea" }
-  | { as: "code"; language: CodeLanguage };
+  | { as: "code"; language: CodeLanguage }
+  | InlineRender;

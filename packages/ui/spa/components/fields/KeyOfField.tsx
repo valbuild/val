@@ -32,6 +32,7 @@ import { useNavigation } from "../../components/ValRouter";
 import { Link, Check, ChevronsUpDown } from "lucide-react";
 import { DropdownPreviewRow } from "../DropdownPreviewRow";
 import { ReadonlyGuard } from "./ReadonlyGuard";
+import { AnyField } from "../AnyField";
 
 export type KeyPreview = {
   title: string;
@@ -171,6 +172,13 @@ export function KeyOfField({
   const referencedPreview = usePreviewAtPath(
     (keyOf?.path ?? path) as SourcePath,
   );
+  // For `.render({ as: "inline" })` the selected entry's CONTENT is rendered
+  // below the selector, so the referenced module's schema is needed too.
+  const inlineRender =
+    "data" in schemaAtPath &&
+    schemaAtPath.data?.type === "keyOf" &&
+    schemaAtPath.data.render?.as === "inline";
+  const referencedSchemaAtPath = useSchemaAtPath(keyOf?.path ?? path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const { patchPath, addPatch } = useAddPatch(path);
   const portalContainer = useValPortal();
@@ -268,6 +276,21 @@ export function KeyOfField({
     keyOf === undefined ||
     keys === undefined;
 
+  // The schema of the entry the key points at: a record's item schema, or the
+  // selected key's field schema when the reference is to an object.
+  const referencedItemSchema =
+    inlineRender && "data" in referencedSchemaAtPath
+      ? referencedSchemaAtPath.data?.type === "record"
+        ? referencedSchemaAtPath.data.item
+        : referencedSchemaAtPath.data?.type === "object" && source
+          ? referencedSchemaAtPath.data.items[source]
+          : undefined
+      : undefined;
+  const referencedItemPath =
+    inlineRender && keyOf?.path && source
+      ? Internal.createValPathOfItem(keyOf.path, source)
+      : undefined;
+
   const content = (
     <div id={path}>
       <div className="flex justify-between items-center">
@@ -304,6 +327,24 @@ export function KeyOfField({
           </button>
         )}
       </div>
+      {inlineRender &&
+        referencedItemPath !== undefined &&
+        referencedItemSchema !== undefined && (
+          <div className="mt-2 rounded-md border border-border-primary p-3">
+            {/* Edits here go to the referenced module (this is the SHARED
+                entry, not a copy), which is what a reference means — but it is
+                worth a label so nobody mistakes it for row-local content. */}
+            <div className="pb-2 text-xs text-fg-quaternary truncate">
+              {source}
+            </div>
+            <AnyField
+              path={referencedItemPath}
+              schema={referencedItemSchema}
+              readonly={readonly === true}
+              compact
+            />
+          </div>
+        )}
     </div>
   );
   if (readonly) {
