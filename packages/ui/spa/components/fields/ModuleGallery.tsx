@@ -32,6 +32,8 @@ import { Progress } from "../designSystem/progress";
 import { FileGallery } from "../FileGallery/FileGallery";
 import type { GalleryFile } from "../FileGallery/types";
 import { readImage, readImageFromFile } from "../../utils/readImage";
+import type { ReadImageEncode } from "../../utils/readImage";
+import { resolveEncodeSettings } from "../../utils/encodeImage";
 import { readFile, readFileFromFile } from "../../utils/readFile";
 import { getFileExt } from "../../utils/getFileExt";
 import { refToUrl } from "../MediaPicker/refToUrl";
@@ -124,6 +126,18 @@ export function ModuleGallery({
   const imageMode = schema?.mediaType === "images";
   const directory = schema?.directory ?? "/public/val";
   const accept = schema?.accept;
+  /**
+   * A gallery has no field to override it, so the gallery's own option is the
+   * whole answer. Passed to both upload paths: the file input and the drop
+   * loop are separate code, and a fix to one has never reached the other.
+   */
+  const encode = React.useMemo<ReadImageEncode>(
+    () => ({
+      settings: resolveEncodeSettings(undefined, schema?.encode),
+      accept,
+    }),
+    [schema, accept],
+  );
 
   const requireRemote = schema?.remote;
   const remoteData =
@@ -364,7 +378,7 @@ export function ModuleGallery({
         return;
       }
       if (imageMode) {
-        readImage(ev)
+        readImage(ev, encode)
           .then(async (res) => {
             if (!res.width || !res.height || !res.mimeType) return;
             const metadata: ImageMetadata = {
@@ -491,6 +505,7 @@ export function ModuleGallery({
       currentRemoteFileBucket,
       schema,
       remoteFiles,
+      encode,
     ],
   );
 
@@ -522,7 +537,7 @@ export function ModuleGallery({
       (async () => {
         for (const file of droppedFiles) {
           if (imageMode) {
-            const res = await readImageFromFile(file).catch(() => null);
+            const res = await readImageFromFile(file, encode).catch(() => null);
             if (!res || !res.width || !res.height || !res.mimeType) continue;
             const metadata: ImageMetadata = {
               width: res.width,
@@ -626,6 +641,7 @@ export function ModuleGallery({
       schema,
       computeRef,
       handleProgress,
+      encode,
     ],
   );
 
