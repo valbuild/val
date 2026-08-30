@@ -300,6 +300,8 @@ export type ShellProps = {
   onDiscardAll?: () => void;
   /** What that confirm says will be lost. See `UtilityPanelProps`. */
   discardAllDescription?: string;
+  /** Where popups portal to — a node inside the shadow root. See `UtilityPanelProps`. */
+  portalContainer?: HTMLElement | null;
   /** A thumbnail URL for a media file. See `MediaPanelProps`. */
   getMediaFileUrl?: (ref: string) => string | null;
   /** Content matches for the current query. See `GlobalSearchProps`. */
@@ -377,6 +379,7 @@ export function Shell({
   onCompare,
   onDiscardAll,
   discardAllDescription,
+  portalContainer,
   getMediaFileUrl,
   searchContentResults,
   isSearchingContent,
@@ -926,6 +929,7 @@ export function Shell({
           onCompare={onCompare}
           onDiscardAll={onDiscardAll}
           discardAllDescription={discardAllDescription}
+          portalContainer={portalContainer}
           pendingChanges={pendingChanges}
           onSelectActivity={onSelectActivity ?? (() => undefined)}
           onClose={closePanel}

@@ -69,6 +69,16 @@ export type UtilityPanelProps = {
    */
   discardAllDescription?: string;
   /**
+   * Where the discard confirm portals to.
+   *
+   * It has to be a node INSIDE the shadow root. Radix's default is
+   * `document.body`, which is outside it — the popup then renders with none of
+   * Val's styles, which is a confirm dialog that is there but cannot be seen or
+   * read. `ValPortalProvider` owns that node; the shell takes it as a prop
+   * rather than reading the context, so it stays presentational.
+   */
+  portalContainer?: HTMLElement | null;
+  /**
    * Open the review view: every pending change, side by side with what it
    * replaces.
    *
@@ -101,6 +111,7 @@ export function UtilityPanel({
   onCompare,
   onDiscardAll,
   discardAllDescription,
+  portalContainer,
   pendingChanges = 0,
   onSelectActivity,
   onClose,
@@ -180,6 +191,7 @@ export function UtilityPanel({
               count={pendingChanges}
               description={discardAllDescription}
               onConfirm={onDiscardAll}
+              portalContainer={portalContainer}
             />
           )}
           {offers("pages") && (
@@ -267,10 +279,12 @@ function DiscardAllQuickAction({
   count,
   description,
   onConfirm,
+  portalContainer,
 }: {
   count: number;
   description?: string;
   onConfirm: () => void;
+  portalContainer?: HTMLElement | null;
 }) {
   const [open, setOpen] = useState(false);
   const label = `Discard ${count} ${count === 1 ? "change" : "changes"}`;
@@ -285,7 +299,14 @@ function DiscardAllQuickAction({
           {label}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-64 flex flex-col gap-3">
+      <PopoverContent
+        // Without this the confirm portals to `document.body`, outside the
+        // shadow root, and renders unstyled — which looks exactly like the
+        // button doing nothing. See `ValPortalProvider`.
+        container={portalContainer}
+        align="start"
+        className="w-64 flex flex-col gap-3"
+      >
         <div>
           <p className="text-xs font-semibold text-fg-primary">{`${label}?`}</p>
           {description !== undefined && (

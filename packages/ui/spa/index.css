@@ -525,6 +525,21 @@
   .rich-text-editor .ProseMirror li {
     @apply mb-1;
   }
+  /*
+   * No trailing gap under the last block.
+   *
+   * Every block element in here carries `mb-3` so paragraphs breathe. On the
+   * LAST one that margin is inside the editor's padding box with nothing after
+   * it, so it is 12px of dead space at the bottom of the field — which is why a
+   * single-line rich text box could not match a string field's height however
+   * the padding was set. Removing it makes an empty field exactly one line plus
+   * its padding, the same arithmetic `Input`'s `h-10` is.
+   */
+  .val-rich-text-editor > :last-child,
+  .rich-text-editor .ProseMirror > :last-child {
+    margin-bottom: 0;
+  }
+
   .val-rich-text-editor blockquote,
   .rich-text-editor .ProseMirror blockquote {
     @apply border-l-4 border-border-primary pl-4 italic text-fg-secondary mb-3;

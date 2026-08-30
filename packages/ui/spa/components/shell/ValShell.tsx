@@ -10,6 +10,7 @@ import { PublishState } from "./TopBar";
 import { ShellData, ShellMediaGallery, ShellValidationError } from "./types";
 import { useShellData } from "./useShellData";
 import { discardAllDescription } from "../discardAllDescription";
+import { useValPortal } from "../ValPortalProvider";
 import { useContentSearch } from "./useContentSearch";
 import {
   parseShellUrlState,
@@ -169,6 +170,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const committedPatchIds = useCommittedPatches();
   const patchSets = usePatchSets();
   const profilesByAuthorIds = useProfilesByAuthorId();
+  const portalContainer = useValPortal();
   /*
    * Everything discardable: the chain minus what has already shipped.
    *
@@ -881,6 +883,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         discardablePatchIds.length,
         discardAuthorNames,
       )}
+      portalContainer={portalContainer}
       isLoading={state.status === "loading"}
       loadError={state.status === "error" ? state.error : undefined}
       renderCanvas={renderCanvas}

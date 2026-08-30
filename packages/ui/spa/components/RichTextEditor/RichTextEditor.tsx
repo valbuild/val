@@ -719,10 +719,22 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
       <div
         ref={containerRef}
         className={[
-          "prose-editor relative min-h-12 border border-border-primary",
+          /*
+           * Sized as a text field, because that is what it is.
+           *
+           * `h-10` + `px-3 py-2` + `text-base` is `Input`, and a richtext field
+           * sits in the same column as one — it had `min-h-12` and `p-4`, so a
+           * one-line rich text box stood 68px tall next to a 40px string box
+           * with its text starting 4px further in. `min-h-10` rather than
+           * `h-10` because this one grows with its content.
+           *
+           * `pt-14` still wins over `py-2` when there is a toolbar: Tailwind
+           * emits `pt-*` after `py-*`, so the single-side utility overrides.
+           */
+          "prose-editor relative min-h-10 border border-border-primary",
           "bg-bg-primary text-fg-primary caret-fg-primary",
           "focus-within:outline-none focus-within:ring-2 focus-within:ring-border-focus rounded-md",
-          "p-4",
+          "px-3 py-2",
           showFixedToolbar ? "pt-14" : "",
           readOnly ? "opacity-80" : "",
         ].join(" ")}
