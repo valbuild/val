@@ -35,6 +35,24 @@ import {
 const IMAGE = "e2e/fixtures/blue-8x8.png";
 const OTHER_IMAGE = "e2e/fixtures/green-8x8.png";
 const FILE = "e2e/fixtures/note.txt";
+/**
+ * A 1200x900 PNG that is worth re-encoding: 155KB as a PNG, ~12KB as a webp at
+ * full size and ~3KB downscaled to the 400x400 cap the encoded fixtures use.
+ * The 8x8 fixtures above are the opposite case, and both are asserted below.
+ */
+const LARGE_IMAGE = "e2e/fixtures/large-1200x900.png";
+/**
+ * A JPEG stored 600x300 and tagged EXIF Orientation=6, so it DISPLAYS 300x600.
+ *
+ * Hand-built, because the EXIF byte is the entire point of the fixture and a
+ * generator would be one more thing to trust. Chromium applies the tag on every
+ * decode path — measured, an `<img>` and both `imageOrientation` values all
+ * report 300x600 — so this cannot catch a swap of one decode call for another.
+ * What it does catch is the pipeline recording the STORED size while uploading
+ * the ORIENTED pixels, which would put a 400x200 in the gallery beside a
+ * 200x400 image.
+ */
+const ROTATED_IMAGE = "e2e/fixtures/rotated-600x300.jpg";
 
 /** The gallery/field picker — never the AI chat's, which is the `multiple` one. */
 function picker(studio: Locator): Locator {
@@ -57,6 +75,15 @@ function moduleSource(page: Page, moduleFilePath: string): Promise<unknown> {
     ).__VAL_STORES__.system.sourceStore.peek(mfp);
     return peek.status === "ready" ? peek.data : peek.status;
   }, moduleFilePath);
+}
+
+/** A gallery's entries as [ref, metadata] pairs, once the store has them. */
+async function entriesOf(
+  page: Page,
+  moduleFilePath: string,
+): Promise<[string, unknown][]> {
+  const source = await moduleSource(page, moduleFilePath);
+  return source && typeof source === "object" ? Object.entries(source) : [];
 }
 
 /** Every `file` op path in the chain: where an upload decided to store itself. */
@@ -426,5 +453,139 @@ test.describe("single media fields", () => {
       .toEqual(["/public/val/note_7dae5.txt"]);
     await discardAll(page);
     await expect.poll(() => chainLength(page)).toBe(0);
+  });
+});
+
+/**
+ * Re-encoding an upload in the browser (`encode` on `s.image()` / `s.images()`).
+ *
+ * The conversion happens before the bytes are hashed, so getting it wrong is
+ * not subtle: the filename suffix, the recorded mimeType and the remote
+ * validation hash all derive from whatever `readImageFromFile` was handed. What
+ * these assert is the visible end of that — the extension the ref ended up
+ * with, and the dimensions the gallery recorded — because those are the two
+ * that a browser and a server have to agree on.
+ *
+ * `packages/ui` has no canvas under jest, so this is the only place the encoder
+ * itself runs. `encodeImage.test.ts` covers the decisions around it.
+ *
+ * None of these ends with `discardAll`. The `beforeEach` above clears the chain
+ * for every test in this file, so a trailing discard adds no isolation — it only
+ * adds a place to hang: a gallery upload writes a SECOND patch (the metadata
+ * entry) from a `.then()` after the file op the assertion waited on, so a
+ * discard placed right there is racing a write that is still in flight.
+ */
+test.describe("re-encoding uploads", () => {
+  const GALLERY = "/content/encodedImages.val.ts";
+  const FIELDS = "/content/encodedFields.val.ts";
+
+  test("an s.images({ encode }) gallery converts and downscales", async ({
+    page,
+  }) => {
+    await openStudio(page, `/val/~${GALLERY}`);
+    const studio = page.locator("#val-shadow-root");
+    await picker(studio).first().setInputFiles(LARGE_IMAGE);
+
+    // `createFilename` re-derives the extension from the data URL's mime type,
+    // so a `.webp` here is the whole pipeline agreeing about what was uploaded.
+    await expect
+      .poll(() => uploadedRefs(page), { timeout: 30_000 })
+      .toEqual([
+        expect.stringMatching(
+          /^\/public\/test\/encoded\/large-1200x900_[0-9a-f]{5}\.webp$/,
+        ),
+      ]);
+
+    /*
+     * The metadata comes from decoding the CONVERTED bytes, so it is the check
+     * that the downscale really happened rather than only being asked for.
+     *
+     * Polled as one value rather than "poll for length, then read again": the
+     * second read is a second moment, and asserting on a moment you did not
+     * poll for is how a test comes to depend on nothing having changed in
+     * between. Keyed by ref because the ref carries a content hash — and an
+     * asymmetric matcher cannot be an object key.
+     */
+    await expect
+      .poll(() => entriesOf(page, GALLERY), {
+        timeout: 30_000,
+        message: "the gallery never ended up with the converted entry",
+      })
+      .toEqual([
+        [
+          expect.stringMatching(/\.webp$/),
+          { width: 400, height: 300, mimeType: "image/webp", alt: null },
+        ],
+      ]);
+  });
+
+  test("s.image({ encode }) converts", async ({ page }) => {
+    await openStudio(page, `/val/~${FIELDS}?p=%22encoded%22`);
+    const studio = page.locator("#val-shadow-root");
+    await picker(studio).first().setInputFiles(LARGE_IMAGE);
+
+    await expect
+      .poll(() => uploadedRefs(page), { timeout: 30_000 })
+      .toEqual([
+        expect.stringMatching(
+          /^\/public\/val\/large-1200x900_[0-9a-f]{5}\.webp$/,
+        ),
+      ]);
+  });
+
+  test("records the dimensions an EXIF-rotated image is SHOWN at", async ({
+    page,
+  }) => {
+    await openStudio(page, `/val/~${GALLERY}`);
+    const studio = page.locator("#val-shadow-root");
+    await picker(studio).first().setInputFiles(ROTATED_IMAGE);
+
+    await expect
+      .poll(() => uploadedRefs(page), { timeout: 30_000 })
+      .toEqual([
+        expect.stringMatching(
+          /^\/public\/test\/encoded\/rotated-600x300_[0-9a-f]{5}\.webp$/,
+        ),
+      ]);
+
+    // Displayed 300x600, so the 400 cap binds on the height: 200x400. Stored
+    // dimensions would give 400x200 — the same numbers the other way round,
+    // which is exactly the mistake worth a test.
+    await expect
+      .poll(() => entriesOf(page, GALLERY), {
+        timeout: 30_000,
+        message: "the rotated image never reached the gallery",
+      })
+      .toEqual([
+        [
+          expect.stringMatching(/\.webp$/),
+          { width: 200, height: 400, mimeType: "image/webp", alt: null },
+        ],
+      ]);
+  });
+
+  /*
+   * The same file into the plain `image` field, which asks for nothing.
+   *
+   * Off is the default, and a default is only demonstrated by a pair: without
+   * this half, an encoder that converted unconditionally would look correct.
+   *
+   * Its own test rather than the tail of the one above. Two uploads either side
+   * of a `discardAll` puts a discard in the middle of a test, which is the one
+   * place a late-landing patch has nothing to sweep it up — `clearPatchChain`
+   * runs between tests, not within one.
+   */
+  test("a plain s.image() leaves the same file alone", async ({ page }) => {
+    await openStudio(page, `/val/~${FIELDS}?p=%22plain%22`);
+    const studio = page.locator("#val-shadow-root");
+    await picker(studio).first().setInputFiles(LARGE_IMAGE);
+
+    await expect
+      .poll(() => uploadedRefs(page), { timeout: 30_000 })
+      .toEqual([
+        expect.stringMatching(
+          /^\/public\/val\/large-1200x900_[0-9a-f]{5}\.png$/,
+        ),
+      ]);
   });
 });
