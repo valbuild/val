@@ -466,9 +466,18 @@ function BarDivider() {
 /**
  * Review, beside Publish.
  *
- * Shown only when there is unpublished work: with nothing pending there is
- * nothing to review, and an always-present button that opens an empty list is
- * one more thing in a bar that already has six.
+ * Present whenever the shell can review at all, and merely INVISIBLE until
+ * there is something to review. Not `null`, which is what it was: this group is
+ * `ml-auto`, so its right edge is pinned and its left edge grows — a button
+ * appearing in the middle of it slides Preview and everything left of it across
+ * by its own width. That happens exactly when the first change lands, which is
+ * exactly when someone is working in there, and it moved the Preview button out
+ * from under a click that had already started. `canvas.spec.ts` caught it as a
+ * click that hit nothing; a person gets the same miss and no error.
+ *
+ * `visibility: hidden` rather than opacity: it holds the space, takes no
+ * clicks, takes no tab stop, and is not announced — so nothing is offered that
+ * cannot be used.
  *
  * The badge shows `reviewCount`, which is the pending patch count zeroed when
  * all of it has been reverted. In that case the button stays — the review view
@@ -485,18 +494,25 @@ function ReviewButton({
   pendingChanges: number;
   reviewCount?: number;
 }) {
-  if (!onCompare || pendingChanges === 0) return null;
-  const showCount = reviewCount !== undefined && reviewCount > 0;
+  if (!onCompare) return null;
+  const hasWork = pendingChanges > 0;
+  const showCount = hasWork && reviewCount !== undefined && reviewCount > 0;
   return (
     <button
       type="button"
       onClick={onCompare}
+      {...(hasWork ? {} : { "aria-hidden": true, tabIndex: -1 })}
       aria-label={
         showCount
           ? `Review ${reviewCount} ${reviewCount === 1 ? "change" : "changes"}`
           : "Review changes"
       }
-      className="relative inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md shrink-0 text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+      className={cn(
+        "relative inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md shrink-0",
+        "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+        !hasWork && "invisible",
+      )}
     >
       <GitCompare size={15} />
       <span className="text-[0.8125rem]">Review</span>
