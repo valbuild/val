@@ -1,5 +1,6 @@
 import {
   expect,
+  test as base,
   type APIRequestContext,
   type Locator,
   type Page,
@@ -36,6 +37,22 @@ export async function openStudio(
   route = "/val",
 ): Promise<void> {
   await page.goto(route);
+  /**
+   * Next's dev-tools badge, out of the way.
+   *
+   * `<nextjs-portal>` floats bottom-left — exactly over the Settings cog at the
+   * foot of the rail — and intercepts pointer events even though nothing in the
+   * Studio put it there. A click that lands on it retries for the length of the
+   * test's timeout and fails reporting a missing feature, which is what made
+   * `account.spec.ts` and `screens.spec.ts` look broken. `display: none` on the
+   * HOST element hides it and everything in its shadow root together — set
+   * from the outer document, which is unaffected by the portal's own style
+   * isolation — without touching `next.config.js` and so without taking the
+   * overlay away from a developer running the app normally.
+   */
+  await page.addStyleTag({
+    content: "nextjs-portal { display: none !important; }",
+  });
   await expect
     .poll(
       () =>
@@ -76,6 +93,36 @@ export async function clearPatchChain(
     true,
   );
 }
+
+/**
+ * `test`, but every test using it starts from a clean patch chain.
+ *
+ * A spec that only reads — a layout measurement, a smoke check, a nav
+ * assertion — has no reason to call `clearPatchChain` itself, and that is
+ * exactly how one gets skipped: nothing about a spec that never writes a
+ * patch suggests it needs to clear one. But every fs-mode spec shares the
+ * same `examples/next/.val` directory and runs in the same serial worker
+ * (`playwright.config.ts`), so a patch left behind by whichever spec ran
+ * before it is still there — an invalid title can make a field's own text
+ * assertion fail, a stray media upload can appear in a gallery a test
+ * screenshots, and which spec happens to run first decides whether any of
+ * that shows up. `auto: true` makes the reset unconditional, so a spec
+ * using this `test` cannot forget it either.
+ *
+ * Specs that build their own chain across several tests on purpose —
+ * `studio.spec.ts`'s "operations compose" tests, `large-patch-chain.spec.ts`'s
+ * own fabricated fixture — keep importing `test` from `@playwright/test`
+ * directly and call `clearPatchChain` on whatever schedule they need.
+ */
+export const test = base.extend<{ cleanPatches: void }>({
+  cleanPatches: [
+    async ({ request }, use) => {
+      await clearPatchChain(request);
+      await use();
+    },
+    { auto: true },
+  ],
+});
 
 /** How many patches the store currently holds, straight from the system. */
 export async function chainLength(page: Page): Promise<number> {

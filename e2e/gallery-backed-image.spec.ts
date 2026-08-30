@@ -84,7 +84,7 @@ test.describe("an image field backed by a gallery", () => {
   }) => {
     const warnings: string[] = [];
     page.on("console", (msg) => {
-      if (/Expected metadata width and height/.test(msg.text())) {
+      if (/Expected hotspot to have x and y as numbers/.test(msg.text())) {
         warnings.push(msg.text());
       }
     });
@@ -98,18 +98,23 @@ test.describe("an image field backed by a gallery", () => {
     await expect(toggle).toHaveAttribute("aria-checked", "true");
 
     // And it is in source, not only on screen.
+    //
+    // `hotspot` lives at the TOP LEVEL of a gallery-backed field's own source
+    // value — `{path, hotspot}`, per `packages/core/src/source/media.ts` — not
+    // nested under a `metadata` key. There is no `metadata` field on this
+    // module; `metadata` is a display-only object `ModuleGallery` builds for
+    // its own row rendering, unrelated to what a field's `peek` returns.
     await expect
       .poll(async () => {
         const value = (await peekThroughStore(
           page,
           '/content/mediaFields.val.ts?p="fromGallery"',
-        )) as { metadata?: { hotspot?: unknown } } | null;
-        return JSON.stringify(value?.metadata?.hotspot ?? null);
+        )) as { hotspot?: unknown } | null;
+        return JSON.stringify(value?.hotspot ?? null);
       })
       .toBe(JSON.stringify({ x: 0.5, y: 0.5 }));
 
-    // The partial metadata the toggle just wrote is correct for this field, so
-    // nothing complained about it.
+    // And nothing complained about the hotspot's shape while writing it.
     expect(warnings).toEqual([]);
 
     await discardAll(page);

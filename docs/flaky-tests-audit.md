@@ -154,12 +154,19 @@ one concrete cause:
   updating the test, because the product changed on purpose. The underlying
   behaviour it pins (validation shows in the canvas and gates the publish) is
   still worth pinning.
-- **`gallery-backed-image.spec.ts:82` — a real product regression.** The toggle
-  flips visually but the poll for `metadata.hotspot` in source stays `null`
-  (expected `{"x":0.5,"y":0.5}`). That is precisely the "a toggle that refused
-  to toggle" bug this test was written to pin — it is back (or was never fully
-  fixed for this field shape). This one is a product bug to fix, not a test to
-  touch.
+- **`gallery-backed-image.spec.ts:82` — test rot, not a product bug (corrected;
+  see below).** Originally flagged here as a regression: the poll for
+  `metadata.hotspot` stayed `null`. Verified with an instrumented run that
+  printed the raw peeked value — the toggle writes correctly,
+  `{"path":"...","hotspot":{"x":0.5,"y":0.5}}`. `hotspot` lives at the **top
+  level** of a gallery-backed field's source (`packages/core/src/source/media.ts`),
+  not nested under `metadata`; `metadata` is an unrelated display-only object
+  `ModuleGallery.tsx:202` builds for its own row rendering. The test's assertion
+  path was simply wrong, and its watched-for console warning
+  (`/Expected metadata width and height/`) matches no string anywhere in the
+  codebase — the real warning for a malformed hotspot reads "Expected hotspot to
+  have x and y as numbers…". Fixed in this PR: `value?.hotspot`, and the regex
+  corrected to match the real warning text. Both tests in the file now pass.
 
 `account.spec.ts` should still get the `clearPatchChain` fixture once unblocked:
 it asserts on UI that leftover invalid patches can restyle.
@@ -319,8 +326,8 @@ Half-maintained is the one option that keeps costing.
 
 ## 4. Priority order
 
-1. **`gallery-backed-image` hotspot**: product regression — the toggle writes no
-   hotspot to source. (§1f)
+1. ~~`gallery-backed-image` hotspot~~ — fixed: it was the test asserting the
+   wrong path, not a product bug. (§1f)
 2. **`large-patch-chain.spec.ts`**: rewrite chain fabrication for the current
    store format; cleanup through the API. (§1a — broken, and poisons the tree)
 3. **Dev overlay under test**: hide `nextjs-portal` in e2e and fix the dev

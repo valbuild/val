@@ -1,5 +1,6 @@
 import { initVal } from "@valbuild/core";
 import { initTestSystem, mfp } from "./testSystem";
+import type { ValidationStore } from "./ValidationStore";
 
 /**
  * Modules with pending changes are validated without anyone looking at them.
@@ -21,8 +22,44 @@ const module = () => {
   });
 };
 
-/** Past the 300ms debounce, with room for the validation itself. */
-const afterDebounce = () => new Promise((resolve) => setTimeout(resolve, 500));
+/**
+ * Waits for the store's own `validation:result` event for each module in
+ * `moduleFilePaths` — not a sleep past the debounce.
+ *
+ * The debounce itself has to stay real: the "one validation per burst" test
+ * below is only meaningful if the burst genuinely finishes before it fires.
+ * But NOTHING about the "did it eventually validate" tests needs to guess how
+ * long that takes — the event that means "yes" already exists, so waiting for
+ * it directly resolves the instant the real pass completes rather than after
+ * a fixed padding chosen to outlast it. The timeout is a failure detector, not
+ * the mechanism: a run this slow means something is actually stuck.
+ */
+function afterValidated(
+  validationStore: ValidationStore,
+  moduleFilePaths: readonly string[],
+  timeoutMs = 5_000,
+): Promise<void> {
+  const remaining = new Set(moduleFilePaths);
+  if (remaining.size === 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      off();
+      reject(
+        new Error(
+          `validation never finished for: ${[...remaining].join(", ")}`,
+        ),
+      );
+    }, timeoutMs);
+    const off = validationStore.events.on("validation:result", (event) => {
+      remaining.delete(event.moduleFilePath);
+      if (remaining.size === 0) {
+        clearTimeout(timer);
+        off();
+        resolve();
+      }
+    });
+  });
+}
 
 describe("validation of pending modules", () => {
   it("validates an edited module nothing is watching", async () => {
@@ -39,7 +76,7 @@ describe("validation of pending modules", () => {
       status: "stale",
     });
 
-    await afterDebounce();
+    await afterValidated(validationStore, ["/t.val.ts"]);
 
     const seen = validationStore.peek(mfp("/t.val.ts"));
     if (seen.status !== "validated" || seen.errors === false) {
@@ -52,7 +89,8 @@ describe("validation of pending modules", () => {
   });
 
   it("costs one validation for a burst, not one per keystroke", async () => {
-    const { sourceStore, patchStore, activity, dispose } = initTestSystem();
+    const { sourceStore, patchStore, validationStore, activity, dispose } =
+      initTestSystem();
     await sourceStore.testReceive([module()]);
 
     const before = activity.position();
@@ -61,12 +99,15 @@ describe("validation of pending modules", () => {
         { op: "replace", path: ["title"], value: `Hello ${index}` },
       ]);
     }
-    // Still nothing during the burst — the debounce has not elapsed.
+    // Still nothing during the burst — the debounce has not elapsed. This is
+    // the one property in the file that needs the debounce to be REAL: the
+    // claim is that 40 awaited writes finish inside it, which a shortened or
+    // faked one would not be testing.
     expect(
       activity.count("validation:schema-validate", { since: before }),
     ).toBe(0);
 
-    await afterDebounce();
+    await afterValidated(validationStore, ["/t.val.ts"]);
 
     // One pass over the pending modules, not forty.
     expect(
@@ -76,7 +117,8 @@ describe("validation of pending modules", () => {
   });
 
   it("does not validate a module with nothing pending", async () => {
-    const { sourceStore, patchStore, activity, dispose } = initTestSystem();
+    const { sourceStore, patchStore, validationStore, activity, dispose } =
+      initTestSystem();
     const { c, s } = initVal();
     await sourceStore.testReceive([
       module(),
@@ -89,7 +131,7 @@ describe("validation of pending modules", () => {
     await patchStore.createPatch("/t.val.ts", [
       { op: "replace", path: ["title"], value: "no" },
     ]);
-    await afterDebounce();
+    await afterValidated(validationStore, ["/t.val.ts"]);
 
     // The edited module only. A project's other modules are not the publish
     // gate's business, and validating them would put whole-project cost back on
@@ -122,7 +164,8 @@ describe("validation of pending modules", () => {
     /** `[modules touched, chain length, validations]`, collected then asserted. */
     const measured: [number, number, number][] = [];
     for (const touched of [1, 3, 10]) {
-      const { sourceStore, patchStore, activity, dispose } = initTestSystem();
+      const { sourceStore, patchStore, validationStore, activity, dispose } =
+        initTestSystem();
       await sourceStore.testReceive(modules);
 
       const before = activity.position();
@@ -136,7 +179,10 @@ describe("validation of pending modules", () => {
           ]);
         }
       }
-      await afterDebounce();
+      await afterValidated(
+        validationStore,
+        Array.from({ length: touched }, (_, index) => `/m${index}.val.ts`),
+      );
 
       measured.push([
         touched,

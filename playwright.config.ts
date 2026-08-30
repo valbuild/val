@@ -66,8 +66,12 @@ export default defineConfig({
     {
       name: "chromium",
       // The `fs`-mode suites. `e2e/http/` is excluded because those tests need
-      // the other app, on the other port.
-      testIgnore: "http/**",
+      // the other app, on the other port. `screens.spec.ts` is excluded because
+      // it is not a test — it takes screenshots for a human to look at, on a
+      // fixed schedule of `waitForTimeout`s that adds up to ~40s of its own —
+      // and it should not be able to turn a run red or fail a CI gate. Run it
+      // explicitly with the `screens` project below.
+      testIgnore: ["http/**", "screens.spec.ts"],
       use: {
         launchOptions: {
           /**
@@ -91,6 +95,23 @@ export default defineConfig({
       testMatch: "http/**/*.spec.ts",
       use: {
         baseURL: `http://localhost:${HTTP_APP_PORT}`,
+        launchOptions: {
+          ...(existsSync(PREINSTALLED_CHROMIUM)
+            ? { executablePath: PREINSTALLED_CHROMIUM }
+            : {}),
+          args: ["--no-sandbox", "--disable-dev-shm-usage"],
+        },
+      },
+    },
+    {
+      // Not a test project: `npx playwright test --project=screens` (or
+      // `screens.spec.ts` by file name, which still resolves to this project)
+      // takes screenshots of the shell for a human to look at. Kept out of
+      // `chromium` so it cannot fail a run; kept as its own project rather than
+      // deleted so it stays one command to re-run after a redesign.
+      name: "screens",
+      testMatch: "screens.spec.ts",
+      use: {
         launchOptions: {
           ...(existsSync(PREINSTALLED_CHROMIUM)
             ? { executablePath: PREINSTALLED_CHROMIUM }

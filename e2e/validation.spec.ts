@@ -47,17 +47,16 @@ test.describe("validation while editing", () => {
     // Under the field, in the column being typed into.
     await expect(page.getByText(TOO_SHORT)).toBeVisible({ timeout: 15000 });
 
-    // And in the top bar, which is what stands between this and a publish.
-    await expect(
-      page.getByLabel("1 validation error", { exact: true }),
-    ).toBeVisible({ timeout: 15000 });
+    // And the publish button itself is now the "fix this" control — the
+    // separate error-triangle pill it used to sit beside was removed as a
+    // second way to do the same thing (see `describePublishButton`).
+    const fixButton = page.getByRole("button", { name: "Fix 1" });
+    await expect(fixButton).toBeVisible({ timeout: 15000 });
 
     // Fixing it clears both, so the gate is not one-way.
     await title.fill("Long enough");
     await expect(page.getByText(TOO_SHORT)).toHaveCount(0, { timeout: 15000 });
-    await expect(
-      page.getByLabel("1 validation error", { exact: true }),
-    ).toHaveCount(0);
+    await expect(fixButton).toHaveCount(0);
   });
 
   /**
@@ -93,9 +92,9 @@ test.describe("validation while editing", () => {
     await openStudio(page, "/val?panel=settings");
     await expect(page.getByText(TOO_SHORT)).toHaveCount(0);
 
-    await expect(
-      page.getByLabel("1 validation error", { exact: true }),
-    ).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("button", { name: "Fix 1" })).toBeVisible({
+      timeout: 15000,
+    });
   });
 
   /**
@@ -113,7 +112,7 @@ test.describe("validation while editing", () => {
     await title.fill("Foo");
     await expect(page.getByText(TOO_SHORT)).toBeVisible({ timeout: 15000 });
 
-    await page.getByLabel("1 validation error", { exact: true }).click();
+    await page.getByRole("button", { name: "Fix 1" }).click();
 
     // The field is here to be fixed, and the message is here once.
     await expect(page.getByText("Validation errors")).toBeVisible();
