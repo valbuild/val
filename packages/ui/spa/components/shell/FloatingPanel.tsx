@@ -42,6 +42,22 @@ export type FloatingPanelProps = {
    * from the top rather than from where you left it a page ago.
    */
   hidden?: boolean;
+  /**
+   * Give a `bottom-sheet` a definite height instead of letting content decide.
+   *
+   * A bottom sheet is sized by `maxHeight` alone, which is right for a short
+   * list — quick actions, notifications — that should be as tall as it needs
+   * and no taller. It is wrong for a panel whose child is a `h-full` column,
+   * because a percentage height resting on an `auto` height collapses: the
+   * assistant is a transcript above a pinned composer, and it rendered about
+   * one message tall and then resized on every token that streamed in.
+   *
+   * With `fill`, the sheet takes the height outright and the column inside it
+   * has something to be 100% OF. It also drops this panel's own scroller —
+   * such a child brings its own, and two nested scrollers is what let the
+   * composer scroll up out of sight.
+   */
+  fill?: boolean;
   children: ReactNode;
 };
 
@@ -65,6 +81,7 @@ export function FloatingPanel({
   sticky,
   footer,
   hidden = false,
+  fill = false,
   children,
 }: FloatingPanelProps) {
   const isMobile = breakpoint === "mobile" && !hidden;
@@ -112,7 +129,11 @@ export function FloatingPanel({
                 // never taller than what is left above it.
                 {
                   bottom: viewport.keyboardInset,
-                  maxHeight: viewport.height * 0.85,
+                  // `height` rather than `maxHeight` when the sheet has to be
+                  // a container for a full-height child. See `fill`.
+                  ...(fill
+                    ? { height: viewport.height * 0.85 }
+                    : { maxHeight: viewport.height * 0.85 }),
                 }
             : { width }
         }
@@ -166,7 +187,16 @@ export function FloatingPanel({
             {sticky}
           </div>
         )}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-slim">
+        <div
+          className={cn(
+            "flex-1 min-h-0",
+            // A filled sheet's child scrolls itself; a second scroller here
+            // would move that child's pinned footer off screen.
+            fill
+              ? "overflow-hidden"
+              : "overflow-y-auto overscroll-contain scrollbar-slim",
+          )}
+        >
           {children}
         </div>
         {footer !== undefined && (

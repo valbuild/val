@@ -118,6 +118,11 @@ export type ShellProps = {
   onAutoSaveChange?: (autoSave: boolean) => void;
   /** Number of changes Publish would ship. */
   pendingChanges?: number;
+  /**
+   * The number on Review's badge — see `TopBarProps`. Defaults to
+   * `pendingChanges`, which is the right answer whenever nothing is reverted.
+   */
+  reviewCount?: number;
   publishState?: PublishState;
   /** Show placeholder rows in the nav panels instead of content. */
   isLoading?: boolean;
@@ -289,8 +294,12 @@ export type ShellProps = {
   /** Create a page under a route. See `PagesPanelProps`. */
   onNewPage?: (moduleFilePath: ModuleFilePath, urlPath: string) => void;
   onUploadMedia?: (gallery: ShellMediaGallery) => void;
-  /** Open the review view. Offered from the quick actions. */
+  /** Open the review view. Offered from the top bar and the quick actions. */
   onCompare?: () => void;
+  /** Throw away every pending change. See `UtilityPanelProps`. */
+  onDiscardAll?: () => void;
+  /** What that confirm says will be lost. See `UtilityPanelProps`. */
+  discardAllDescription?: string;
   /** A thumbnail URL for a media file. See `MediaPanelProps`. */
   getMediaFileUrl?: (ref: string) => string | null;
   /** Content matches for the current query. See `GlobalSearchProps`. */
@@ -326,6 +335,7 @@ export function Shell({
   autoSave = false,
   onAutoSaveChange = () => undefined,
   pendingChanges = 12,
+  reviewCount,
   publishState = "idle",
   isLoading = false,
   loadError,
@@ -365,6 +375,8 @@ export function Shell({
   onNewPage,
   onUploadMedia,
   onCompare,
+  onDiscardAll,
+  discardAllDescription,
   getMediaFileUrl,
   searchContentResults,
   isSearchingContent,
@@ -758,6 +770,8 @@ export function Shell({
         onPublish={onPublish ?? (() => undefined)}
         publishSlot={publishSlot}
         pendingChanges={pendingChanges}
+        onCompare={onCompare}
+        reviewCount={reviewCount ?? pendingChanges}
         publishState={
           publishState === "idle" && validationErrorCount > 0
             ? "blocked"
@@ -910,6 +924,8 @@ export function Shell({
           destinations={destinations}
           onOpenAI={aiEnabled ? () => setOpenPanel("ai") : undefined}
           onCompare={onCompare}
+          onDiscardAll={onDiscardAll}
+          discardAllDescription={discardAllDescription}
           pendingChanges={pendingChanges}
           onSelectActivity={onSelectActivity ?? (() => undefined)}
           onClose={closePanel}

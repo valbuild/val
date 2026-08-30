@@ -487,6 +487,44 @@ export const ToolbarDisabled: Story = {
   },
 };
 
+/**
+ * `s.richtext()` with no options at all — the bare case.
+ *
+ * `fixedToolbar` is still on here, exactly as the real serialization leaves it;
+ * what suppresses the bar is that nothing would go IN it. Compare with
+ * `ToolbarEnabled`: this one should have no strip above the text, no doubled
+ * border along its top edge, and the first line sitting directly under the
+ * editor's own padding rather than 56px down.
+ */
+export const NoOptions: Story = {
+  args: {
+    defaultValue: sampleDoc,
+    features: {
+      bold: false,
+      italic: false,
+      strikethrough: false,
+      code: false,
+      link: false,
+      image: false,
+      h1: false,
+      h2: false,
+      h3: false,
+      h4: false,
+      h5: false,
+      h6: false,
+      bulletList: false,
+      orderedList: false,
+      blockquote: false,
+      codeBlock: false,
+      details: false,
+      button: false,
+      fixedToolbar: true,
+      floatingToolbar: false,
+      gutter: false,
+    },
+  },
+};
+
 // 9. Gutter + insert block types
 export const GutterEnabled: Story = {
   args: {

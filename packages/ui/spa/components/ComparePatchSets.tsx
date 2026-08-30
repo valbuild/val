@@ -15,7 +15,9 @@ import {
   Check,
   ChevronDown,
   CircleAlert,
+  ChevronRight,
   Equal,
+  History,
   Lock,
   Minus,
   Pencil,
@@ -45,6 +47,7 @@ import { getFilenameFromRef, getRefParts } from "../utils/getFilenameFromRef";
 import {
   useCommittedPatches,
   useDeletePatches,
+  useNoOpSourcePaths,
   useDeployingCommitShas,
   useDeployments,
   Profile,
@@ -165,18 +168,42 @@ export function ComparePatchSets({
 
   const flatRows = useMemo(() => trees.flatMap(flattenChanges), [trees]);
   const summary = useCompareSummary(trees);
-  /*
-   * Where the divider goes: the first tree whose work has already shipped.
-   *
-   * An index rather than two arrays, so the trees keep the single order
-   * `computeChangedSourcePaths` gave them and nothing here can reorder them by
-   * accident.
-   */
-  const firstCommittedIndex = useMemo(() => {
-    const index = trees.findIndex((tree) => tree.isCommitted);
-    return index === -1 ? trees.length : index;
-  }, [trees]);
 
+  /*
+   * Which modules are pending work that amounts to nothing.
+   *
+   * Asked once, for every pending tree at once, rather than per row: the rows
+   * inside a module already ask it for their own "Unchanged" badge, but the
+   * decision to leave a module OUT of the list has to be made where the list
+   * is, and a whole-list view must not take a subscription per row.
+   *
+   * Committed trees are never candidates. Their two sides are equal BECAUSE
+   * the change shipped, which is the opposite of nothing having happened.
+   */
+  const pendingModulePaths = useMemo(
+    () =>
+      trees
+        .filter((tree) => !tree.isCommitted)
+        .map((tree) => tree.sourcePath as SourcePath),
+    [trees],
+  );
+  const noOpModulePaths = useNoOpSourcePaths(pendingModulePaths);
+  const { changing, reverted, committedTrees } = useMemo(() => {
+    const changing: ChangeTreeNode[] = [];
+    const reverted: ChangeTreeNode[] = [];
+    const committedTrees: ChangeTreeNode[] = [];
+    for (const tree of trees) {
+      if (tree.isCommitted) committedTrees.push(tree);
+      else if (noOpModulePaths.has(tree.sourcePath as SourcePath)) {
+        reverted.push(tree);
+      } else changing.push(tree);
+    }
+    return { changing, reverted, committedTrees };
+  }, [trees, noOpModulePaths]);
+  const revertedPatchIds = useMemo(
+    () => collectPatchIds(reverted.flatMap(flattenChanges)),
+    [reverted],
+  );
   // Until the first result is in, an empty `trees` means "not computed yet",
   // not "nothing changed": showing the empty state here would flash "No
   // pending changes" at every reader before the real changes appear. Once
@@ -224,27 +251,187 @@ export function ComparePatchSets({
         canDiscard={canDiscard}
         portalContainer={portalContainer}
       />
-      {trees.map((tree, index) => (
-        <Fragment
-          key={`${tree.isCommitted ? "committed" : "pending"}-${tree.sourcePath}`}
-        >
-          {index === firstCommittedIndex &&
-            (deployment === undefined ? (
-              <DeployedDivider />
-            ) : (
-              <DeployedDividerPure deployment={deployment} />
-            ))}
-          <ModuleGroup
-            tree={tree}
-            profilesByAuthorIds={profilesByAuthorIds}
-            portalContainer={portalContainer}
-            mode={mode}
-            schemas={schemasData}
-            canDiscard={canDiscard}
-          />
-        </Fragment>
+      {/*
+       * Nothing here will ship — said plainly, where the changes would be.
+       *
+       * Publish is disabled in this state, so Discard is the only way forward
+       * and it has to be in reach rather than in a menu. Without this the view
+       * showed a list of rows with the same value on both sides and a dead
+       * Publish button, which reads as the Studio having lost the changes.
+       */}
+      {changing.length === 0 && reverted.length > 0 && (
+        <AllRevertedNotice
+          patchIds={revertedPatchIds}
+          authorIds={summary.pendingAuthorIds}
+          profilesByAuthorIds={profilesByAuthorIds}
+          canDiscard={canDiscard}
+          portalContainer={portalContainer}
+        />
+      )}
+      {changing.map((tree) => (
+        <ModuleGroup
+          key={`pending-${tree.sourcePath}`}
+          tree={tree}
+          profilesByAuthorIds={profilesByAuthorIds}
+          portalContainer={portalContainer}
+          mode={mode}
+          schemas={schemasData}
+          canDiscard={canDiscard}
+        />
+      ))}
+      {reverted.length > 0 && (
+        <RevertedHistory count={revertedPatchIds.length}>
+          {reverted.map((tree) => (
+            <ModuleGroup
+              key={`reverted-${tree.sourcePath}`}
+              tree={tree}
+              profilesByAuthorIds={profilesByAuthorIds}
+              portalContainer={portalContainer}
+              mode={mode}
+              schemas={schemasData}
+              canDiscard={canDiscard}
+            />
+          ))}
+        </RevertedHistory>
+      )}
+      {committedTrees.length > 0 &&
+        (deployment === undefined ? (
+          <DeployedDivider />
+        ) : (
+          <DeployedDividerPure deployment={deployment} />
+        ))}
+      {committedTrees.map((tree) => (
+        <ModuleGroup
+          key={`committed-${tree.sourcePath}`}
+          tree={tree}
+          profilesByAuthorIds={profilesByAuthorIds}
+          portalContainer={portalContainer}
+          mode={mode}
+          schemas={schemasData}
+          canDiscard={canDiscard}
+        />
       ))}
     </div>
+  );
+}
+
+/**
+ * The display names behind a set of author ids, for a confirm that names names.
+ *
+ * Ids with no profile are dropped rather than shown raw: a discard confirm is
+ * not the place to show someone a uuid.
+ */
+function useAuthorNames(
+  authorIds: string[],
+  profilesByAuthorIds: Record<string, Profile> | undefined,
+): string[] {
+  return useMemo(
+    () =>
+      authorIds
+        .map((id) => profilesByAuthorIds?.[id]?.fullName)
+        .filter((name): name is string => !!name),
+    [authorIds, profilesByAuthorIds],
+  );
+}
+
+/**
+ * The banner for "every pending change cancels itself out".
+ *
+ * This is a state the Studio could previously only express by contradiction: a
+ * list of rows each showing the same value twice, above a Publish button that
+ * would not press. Saying it once, and putting Discard next to the sentence, is
+ * the whole fix — the changes themselves are still reachable under History.
+ */
+function AllRevertedNotice({
+  patchIds,
+  authorIds,
+  profilesByAuthorIds,
+  canDiscard,
+  portalContainer,
+}: {
+  patchIds: PatchId[];
+  authorIds: string[];
+  profilesByAuthorIds: Record<string, Profile> | undefined;
+  canDiscard: boolean;
+  portalContainer: HTMLElement | null;
+}) {
+  const { deletePatches } = useDeletePatches();
+  const authorNames = useAuthorNames(authorIds, profilesByAuthorIds);
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-border-primary bg-bg-secondary px-4 py-3 sm:flex-row sm:items-center">
+      <Equal size={16} className="shrink-0 text-fg-secondary" aria-hidden />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm text-fg-primary">
+          {patchIds.length === 1
+            ? "The one pending change has been reverted."
+            : "Every pending change has been reverted."}
+        </p>
+        <p className="text-xs text-fg-secondary">
+          The content matches what is published, so there is nothing to publish.
+        </p>
+      </div>
+      {canDiscard && patchIds.length > 0 && (
+        <DiscardConfirmPopover
+          description={discardAllDescription(patchIds.length, authorNames)}
+          title={`Discard ${patchIds.length} ${
+            patchIds.length === 1 ? "change" : "changes"
+          }?`}
+          confirmLabel={`Discard ${patchIds.length}`}
+          onConfirm={() => deletePatches(patchIds)}
+          portalContainer={portalContainer}
+          ariaLabel={`Discard all ${patchIds.length} reverted ${
+            patchIds.length === 1 ? "change" : "changes"
+          }`}
+          label="Discard all"
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Reverted work, folded away but not thrown away.
+ *
+ * Collapsed by default: it is by definition not what the reader came to review.
+ * Kept, and kept discardable, because the patches are real — they are in the
+ * chain, they belong to someone, and until they are discarded they are the
+ * reason Publish is off.
+ */
+function RevertedHistory({
+  count,
+  children,
+}: {
+  /**
+   * Patches, not modules — the unit every other count in this view uses. The
+   * summary strip and Review's badge both count patches, and a disclosure that
+   * counted something else would look like a disagreement.
+   */
+  count: number;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="flex flex-col gap-4">
+      <button
+        type="button"
+        onClick={() => setOpen((wasOpen) => !wasOpen)}
+        aria-expanded={open}
+        className="flex items-center gap-2 self-start rounded-md px-1 py-1 text-xs text-fg-secondary hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+      >
+        <ChevronRight
+          size={14}
+          aria-hidden
+          className={classNames("transition-transform", {
+            "rotate-90": open,
+          })}
+        />
+        <History size={13} aria-hidden />
+        <span>
+          {count === 1 ? "1 reverted change" : `${count} reverted changes`}
+        </span>
+      </button>
+      {open && <div className="flex flex-col gap-6 lg:gap-8">{children}</div>}
+    </section>
   );
 }
 
@@ -409,12 +596,9 @@ function CompareSummaryStrip({
   portalContainer: HTMLElement | null;
 }) {
   const { deletePatches } = useDeletePatches();
-  const authorNames = useMemo(
-    () =>
-      (pendingAuthorIds ?? authorIds)
-        .map((id) => profilesByAuthorIds[id]?.fullName)
-        .filter((name): name is string => !!name),
-    [pendingAuthorIds, authorIds, profilesByAuthorIds],
+  const authorNames = useAuthorNames(
+    pendingAuthorIds ?? authorIds,
+    profilesByAuthorIds,
   );
 
   /*
@@ -1089,7 +1273,7 @@ function ModulePathLabel({
       <a
         {...moduleLink}
         title={moduleFilePath}
-        className="flex items-center gap-1.5 min-w-0 rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex items-center gap-1.5 min-w-0 rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
       >
         {parts.map((part, i) => (
           <Fragment key={`${part}-${i}`}>

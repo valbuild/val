@@ -157,6 +157,26 @@ function collectIds(pages: ShellPage[]): string[] {
 }
 
 /**
+ * How many PAGES are in this tree — not how many rows are at the top of it.
+ *
+ * The count beside the label used to be `filtered.length`, and `filterPages`
+ * returns a tree rather than a flat list. On any project with a home page at
+ * `/`, `toShellPages` nests the entire site under that one root row, so the
+ * panel read "Pages 1" no matter how large the site was.
+ *
+ * Folder rows are excluded. A segment that exists only to hold children has no
+ * source path of its own — `isTracked` is exactly that question — and counting
+ * them would overstate the site by every intermediate directory in it.
+ */
+export function countPages(pages: ShellPage[]): number {
+  return pages.reduce(
+    (total, page) =>
+      total + (page.isTracked ? 1 : 0) + countPages(page.children ?? []),
+    0,
+  );
+}
+
+/**
  * The rows that have to be open for `id` to be on screen.
  *
  * A selection made somewhere else — a search result, a deep link, the route
@@ -381,7 +401,7 @@ export function PagesPanel({
           <PanelSectionLabel className="pt-3">
             Pages
             <span className="ml-1.5 font-normal normal-case tracking-normal text-fg-secondary-alt">
-              {filtered.length}
+              {countPages(filtered)}
             </span>
           </PanelSectionLabel>
           {filtered.length === 0 ? (

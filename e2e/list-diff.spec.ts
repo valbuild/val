@@ -6,7 +6,6 @@ const MODULE = "/content/lists.val.ts";
 
 /** Reach the compare view the way an editor does — see compare.spec.ts. */
 async function openCompare(page: Page, studio: Locator): Promise<void> {
-  await studio.getByLabel("Quick actions").click();
   const review = studio.getByRole("button", { name: /Review \d+ change/ });
   await expect(review).toBeVisible({ timeout: 30000 });
   await review.click();

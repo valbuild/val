@@ -33,7 +33,7 @@ export function PanelFilterInput({
           "w-full h-8 pl-8 pr-2 rounded-md text-xs",
           "bg-bg-float-raised border border-transparent text-fg-primary",
           "placeholder:text-fg-secondary-alt",
-          "focus:outline-none focus:border-border-brand-primary",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
         )}
       />
     </div>

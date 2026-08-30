@@ -572,3 +572,42 @@ export function insertDetailsBlock(
   view.dispatch(tr);
   view.focus();
 }
+
+/**
+ * Does the fixed toolbar have anything to put in it?
+ *
+ * `s.richtext()` with no argument still serializes an `options` OBJECT — every
+ * key `undefined`, but not `undefined` itself — so `convertOptions` cannot tell
+ * "no options" apart from "options that enable nothing", and every control ends
+ * up gated off. The bar was mounted anyway, which cost a ~10px empty strip with
+ * a border on all four sides doubling the editor's own top border, above 56px
+ * of `pt-14` reserved for content that was never there.
+ *
+ * This asks the question using the same four functions that BUILD the toolbar,
+ * so "is the bar shown" and "does the bar have buttons" cannot drift apart —
+ * which they would if the condition were re-derived from the feature flags.
+ * The h4-h6 case is why: they are real features, but `getBlockTypeItems` only
+ * offers levels 1-3, so a document allowing only h5 has no control to show.
+ */
+export function hasFixedToolbarContent({
+  schema,
+  features,
+  styleConfig,
+  canInsertImage,
+}: {
+  schema: Schema;
+  features?: ResolvedEditorFeatures;
+  styleConfig?: EditorStyleConfig;
+  /** Whether an image could actually be inserted — see `ToolbarButtons`. */
+  canInsertImage: boolean;
+}): boolean {
+  if (getFormattingButtons(schema, features).length > 0) return true;
+  if (getCustomStyleButtons(schema, styleConfig).length > 0) return true;
+  if (getListButtons(schema, features).length > 0) return true;
+  // One item is "Normal" on its own, which is not a choice.
+  if (getBlockTypeItems(schema, features).length > 1) return true;
+  if (schema.nodes.image && (!features || features.image) && canInsertImage) {
+    return true;
+  }
+  return false;
+}

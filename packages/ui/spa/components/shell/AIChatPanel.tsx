@@ -44,6 +44,9 @@ export function AIChatPanel({
       width={420}
       title="AI assistant"
       mobileVariant="bottom-sheet"
+      // The chat is a transcript above a pinned composer, so the sheet has to
+      // have a height for that column to fill. See `FloatingPanel`'s `fill`.
+      fill
       breakpoint={breakpoint}
       hidden={hidden}
       onClose={onClose}

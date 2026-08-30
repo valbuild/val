@@ -9,6 +9,7 @@ import { SaveState } from "./StatusBar";
 import { PublishState } from "./TopBar";
 import { ShellData, ShellMediaGallery, ShellValidationError } from "./types";
 import { useShellData } from "./useShellData";
+import { discardAllDescription } from "../discardAllDescription";
 import { useContentSearch } from "./useContentSearch";
 import {
   parseShellUrlState,
@@ -44,6 +45,10 @@ import {
   useProfilesByAuthorId,
   usePublishCount,
   usePublishSummary,
+  useCommittedPatches,
+  useCurrentPatchIds,
+  useDeletePatches,
+  useHasNetChanges,
   useInitialPatchesApplied,
   usePatchFetchError,
   usePendingChangesProgress,
@@ -158,6 +163,47 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * wrong.
    */
   const pendingChangesLoaded = useInitialPatchesApplied();
+  const hasNetChanges = useHasNetChanges();
+  const { deletePatches } = useDeletePatches();
+  const currentPatchIds = useCurrentPatchIds();
+  const committedPatchIds = useCommittedPatches();
+  const patchSets = usePatchSets();
+  const profilesByAuthorIds = useProfilesByAuthorId();
+  /*
+   * Everything discardable: the chain minus what has already shipped.
+   *
+   * A committed patch cannot be taken back from here — it is in a commit —
+   * and including one would make the count promise more than it can do. Same
+   * subtraction `useShellData` does for `pendingChanges`, so the number in the
+   * confirm matches the number on the row that opened it.
+   */
+  const discardablePatchIds = useMemo(
+    () => currentPatchIds.filter((patchId) => !committedPatchIds.has(patchId)),
+    [currentPatchIds, committedPatchIds],
+  );
+  /*
+   * Whose work Discard all would take, named.
+   *
+   * The confirm in the review view names them, and this one has to name the
+   * same people: a destructive action that warns you in one place and not the
+   * other is worse than one that never warns at all. Read off the patch sets
+   * rather than the activity feed, which is capped for display.
+   */
+  const discardAuthorNames = useMemo(() => {
+    if (patchSets.status !== "success") return [];
+    const discardable = new Set<string>(discardablePatchIds);
+    const authorIds = new Set<string>();
+    for (const set of patchSets.data) {
+      for (const patch of set.patches) {
+        if (patch.author !== null && discardable.has(patch.patchId)) {
+          authorIds.add(patch.author);
+        }
+      }
+    }
+    return [...authorIds]
+      .map((id) => profilesByAuthorIds?.[id]?.fullName)
+      .filter((name): name is string => !!name);
+  }, [patchSets, discardablePatchIds, profilesByAuthorIds]);
   // Only read when the wait has already gone on too long — see
   // `PendingChangesGate`.
   const pendingChangesProgress = usePendingChangesProgress();
@@ -820,6 +866,21 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       autoSave={autoPublish}
       onAutoSaveChange={setAutoPublish}
       pendingChanges={data.pendingChanges ?? 0}
+      /*
+       * Zeroed when the pending patches cancel out, so Review does not put a
+       * number on changes that will not ship. The button itself stays: that
+       * view is where Discard is, and Publish is disabled until it is used.
+       */
+      reviewCount={hasNetChanges ? (data.pendingChanges ?? 0) : 0}
+      onDiscardAll={
+        discardablePatchIds.length > 0
+          ? () => deletePatches(discardablePatchIds)
+          : undefined
+      }
+      discardAllDescription={discardAllDescription(
+        discardablePatchIds.length,
+        discardAuthorNames,
+      )}
       isLoading={state.status === "loading"}
       loadError={state.status === "error" ? state.error : undefined}
       renderCanvas={renderCanvas}

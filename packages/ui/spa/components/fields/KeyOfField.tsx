@@ -70,7 +70,7 @@ export function KeySelector({
           role="combobox"
           aria-expanded={open}
           className={cn(
-            "w-full justify-start text-left border border-input bg-bg-primary hover:bg-bg-primary-hover h-auto py-1.5",
+            "w-full justify-start text-left border border-border-primary bg-bg-primary hover:bg-bg-primary-hover h-auto py-1.5",
             className,
           )}
         >

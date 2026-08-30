@@ -134,7 +134,7 @@ export function RouteSelector({
           role="combobox"
           aria-expanded={open}
           className={cn(
-            "w-full justify-start text-left border border-input bg-bg-primary hover:bg-bg-primary-hover h-auto py-1.5",
+            "w-full justify-start text-left border border-border-primary bg-bg-primary hover:bg-bg-primary-hover h-auto py-1.5",
             className,
           )}
         >
@@ -320,7 +320,7 @@ function NewExternalPageForm({
           autoFocus
           className={cn(
             "w-full p-1 bg-bg-secondary border border-border-primary rounded text-fg-primary",
-            "focus:outline-none focus:ring-1 focus:ring-border-focus",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
             { "border-fg-error": error !== null },
           )}
           placeholder="https://example.com"
