@@ -87,7 +87,23 @@ test.describe("the canvas", () => {
       .frames()
       .find((candidate) => candidate.url().includes("/blogs/blog1"));
     expect(frame, "the canvas frame went away").toBeTruthy();
-    await expect(frame!.locator("body")).toContainText("Blog 1");
+    /*
+     * A first-request compile, not a slow assertion.
+     *
+     * This is the first time anything in the suite asks for `/blogs/blog1`,
+     * and `next dev` compiles a route the first time it is requested — the
+     * same reason the test timeout here is 90s. The poll above waited for the
+     * frame to COMMIT its navigation, which happens long before the server has
+     * anything to send, so this is the wait for the compile and the render.
+     *
+     * `expect`'s default is 20s (see `playwright.config.ts`), which is enough
+     * on a warm developer machine and is not on a cold CI runner: this
+     * assertion was the last red test in the suite's first real CI run, while
+     * passing locally every time.
+     */
+    await expect(frame!.locator("body")).toContainText("Blog 1", {
+      timeout: 60_000,
+    });
 
     // Closing puts the editor back at full width, and leaves it on the same
     // page: the way out lands where the way in started.
