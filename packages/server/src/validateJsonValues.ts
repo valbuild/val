@@ -1,5 +1,6 @@
 import {
   Internal,
+  type Json,
   ModuleFilePath,
   RecordSchema,
   Schema,
@@ -7,6 +8,23 @@ import {
   SourcePath,
 } from "@valbuild/core";
 import { ValidationError } from "@valbuild/core";
+
+/**
+ * The outcome of {@link validateJsonValuesEntries}: the errors found inside the
+ * entries, plus the content of every entry that could be loaded, keyed by entry
+ * key.
+ *
+ * The content is part of the result because the errors are useless without it.
+ * They are reported at paths that point INSIDE an entry, and the module source
+ * on disk holds a `c.json(...)` marker there — so anything that has to resolve
+ * one of those paths (the `val validate --fix` handlers, chiefly) needs the very
+ * content this function has just loaded. Returning it costs nothing and is the
+ * only way to avoid loading every entry twice.
+ */
+export type JsonValuesEntriesValidation = {
+  errors: Record<SourcePath, ValidationError[]>;
+  loadedEntries: Record<string, Json>;
+};
 
 /**
  * Validates the content of every `.jsonValues()` entry in a module by loading
@@ -62,16 +80,18 @@ export async function validateJsonValuesEntries(
   schema: Schema<SelectorSource>,
   source: unknown,
   modulePath: ModuleFilePath,
-): Promise<Record<SourcePath, ValidationError[]>> {
+): Promise<JsonValuesEntriesValidation> {
   const out: Record<SourcePath, ValidationError[]> = {};
+  const loadedEntries: Record<string, Json> = {};
+  const res: JsonValuesEntriesValidation = { errors: out, loadedEntries };
   if (!(schema instanceof RecordSchema)) {
-    return out;
+    return res;
   }
   if (!schema["executeSerialize"]().jsonValues) {
-    return out;
+    return res;
   }
   if (source === null || typeof source !== "object" || Array.isArray(source)) {
-    return out;
+    return res;
   }
   for (const [key, marker] of Object.entries(source)) {
     const entryPath = Internal.createValPathOfItem(
@@ -103,9 +123,9 @@ export async function validateJsonValuesEntries(
     if (!thunk) {
       continue;
     }
-    let content: SelectorSource;
+    let content: Json;
     try {
-      content = (await thunk()).default as SelectorSource;
+      content = (await thunk()).default as Json;
     } catch (err) {
       out[entryPath] = [
         {
@@ -116,6 +136,10 @@ export async function validateJsonValuesEntries(
       ];
       continue;
     }
+    // Kept so a caller can substitute the content back into the module source:
+    // the entries have been paid for here, and a source that still holds
+    // markers cannot resolve a path INTO an entry (see the doc comment above).
+    loadedEntries[key] = content;
     const entryErrors = schema.validateJsonEntryContent(entryPath, content);
     if (entryErrors) {
       for (const [p, errs] of Object.entries(entryErrors)) {
@@ -123,5 +147,5 @@ export async function validateJsonValuesEntries(
       }
     }
   }
-  return out;
+  return res;
 }

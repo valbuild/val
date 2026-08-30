@@ -216,6 +216,32 @@ appends socket messages. Both feed the same fold, which keeps the last entry per
 commit sha — so anything reading that list has to sort before folding, or a
 finished build gets overwritten by the pending one it replaced.
 
+## `.jsonValues()`
+
+**A validation error can point where the module source cannot go.** A
+`.jsonValues()` record keeps each entry's value in its own `*.val.json`, so the
+source the server evaluates holds a `c.json(() => import(...))` marker in its
+place. Validation loads those files and reports errors at paths INSIDE an entry
+(`?p="/jobb/student"."pageImage"`), which means the error paths and the source
+they nominally belong to disagree: `Internal.resolvePath` refuses to walk into a
+marker and throws `Cannot resolve path into a jsonValues entry until its content
+is loaded`.
+
+So anything holding an `(errors, source)` pair for a jsonValues module has to
+substitute the loaded entry content back in first. `Service.get` does that on the
+validate path, which is what the `val validate --fix` handlers resolve against —
+before it did, one `s.image()` inside an entry aborted the entire run, because
+image metadata can only be checked by reading the bytes and therefore ALWAYS ends
+in a fix.
+
+**A patch into an entry does not touch the `.val.ts`.** The value being edited is
+not in that file, so an op whose path descends into an entry is rebased and
+replayed against the entry's `*.val.json` instead — `classifyJsonValuesOp` +
+`rebaseContentOp`, in both `ValOps.prepare` (publish) and `Service.patch`
+(`val validate --fix`). Which file an entry key maps to is read from the
+`import(...)` specifier in the `.val.ts`, not derived from the key: entries may be
+hand-placed, and deriving would write a file the module does not read.
+
 ## Patches
 
 **`GET /patches` with no `patch_id` returns every patch.** The filter is applied
