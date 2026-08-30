@@ -302,7 +302,8 @@ export function ValCanvasBridge({
       setHighlighted(message.path);
       if (message.path !== null && message.scrollIntoView) {
         const target = findByPath(message.path);
-        target?.scrollIntoView({ block: "center", behavior: "smooth" });
+        // NOT `scrollIntoView` — see `scrollWithinPage`.
+        if (target !== null) scrollWithinPage(target);
       }
     };
     window.addEventListener("message", listener);
@@ -502,6 +503,100 @@ function highlightRule(path: string): string {
     `[data-val-path*=${inner}]`,
   ].join(",\n");
   return `${selectors} { outline: 2px solid ${SELECTION}; outline-offset: 1px; }`;
+}
+
+/**
+ * Bring an element into view WITHOUT scrolling anything outside this page.
+ *
+ * `Element.scrollIntoView` would be the obvious thing, and it is the thing that
+ * broke the studio. It scrolls every scroll container between the element and
+ * the viewport, and for a same-origin frame that chain does not stop at the
+ * frame: it continues into the embedder and scrolls the studio's own containers
+ * too. Measured in Chromium — with the studio's phone panes placed on the
+ * editor, a single `scrollIntoView` in here pulls them back onto the canvas, and
+ * because it reveals the element rather than the frame it can leave them
+ * anywhere in between, showing half of each.
+ *
+ * That is not a thing the page has any business doing. It was asked to show one
+ * of its own elements; where the studio is looking is the studio's affair. So
+ * the scrolling is done by hand, one scrollport at a time, and the walk stops at
+ * this document.
+ *
+ * Only the document centres the target vertically — it is being pointed out,
+ * and something flush against the top edge of the fold does not read as pointed
+ * out. Every scrollport inside the page is moved as little as it takes to bring
+ * the target inside it: a carousel, a sticky sidebar or a sideways-scrolling
+ * table is showing what it is showing on purpose, and re-centring one that did
+ * not need moving is the page rearranging itself around a highlight.
+ */
+function scrollWithinPage(target: Element): void {
+  let node = target.parentElement;
+  while (node !== null) {
+    const isRoot = node === document.body || node === document.documentElement;
+    if (isRoot) break;
+    if (isScrollable(node)) {
+      const port = node.getBoundingClientRect();
+      const box = target.getBoundingClientRect();
+      node.scrollTop += delta(
+        box.top - port.top,
+        box.height,
+        node.clientHeight,
+        false,
+      );
+      node.scrollLeft += delta(
+        box.left - port.left,
+        box.width,
+        node.clientWidth,
+        false,
+      );
+    }
+    node = node.parentElement;
+  }
+  // And this document, which is the last scrollport there is as far as the page
+  // is concerned. `window`, not `documentElement.scrollIntoView`-by-another-name:
+  // this cannot reach past the frame.
+  const box = target.getBoundingClientRect();
+  window.scrollTo({
+    top: Math.max(
+      0,
+      window.scrollY + delta(box.top, box.height, window.innerHeight, true),
+    ),
+    left: Math.max(
+      0,
+      window.scrollX + delta(box.left, box.width, window.innerWidth, false),
+    ),
+    behavior: "smooth",
+  });
+}
+
+/**
+ * How far a scrollport has to move for `size` at `offset` to be shown.
+ *
+ * `center` asks for the middle of the port; without it the answer is zero
+ * whenever the thing is already inside, which is what keeps a scrollport that
+ * did not need moving from being disturbed.
+ */
+function delta(
+  offset: number,
+  size: number,
+  port: number,
+  center: boolean,
+): number {
+  if (center) return offset - (port - size) / 2;
+  if (offset < 0) return offset;
+  if (offset + size > port) return Math.min(offset, offset + size - port);
+  return 0;
+}
+
+/** Whether this element scrolls its own content, rather than growing with it. */
+function isScrollable(el: Element): boolean {
+  const style = getComputedStyle(el);
+  const scrolls = (value: string) =>
+    value === "auto" || value === "scroll" || value === "overlay";
+  return (
+    (scrolls(style.overflowY) && el.scrollHeight > el.clientHeight) ||
+    (scrolls(style.overflowX) && el.scrollWidth > el.clientWidth)
+  );
 }
 
 function findByPath(path: string): Element | null {

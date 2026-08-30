@@ -57,7 +57,12 @@ import {
   type PublicValFiles,
 } from "./publicValFiles";
 import { isModuleRegistered } from "./valModulesRegistry";
-import { isValModuleUri, toModuleFilePath, uriToPath } from "./uri";
+import {
+  isValJsonEntryUri,
+  isValModuleUri,
+  toModuleFilePath,
+  uriToPath,
+} from "./uri";
 
 /**
  * How long to wait after an edit before re-evaluating.
@@ -542,6 +547,10 @@ export function createValLanguageServer(connection: Connection): {
       .register(DidChangeWatchedFilesNotification.type, {
         watchers: [
           { globPattern: "**/*.val.{ts,js}" },
+          // A `.jsonValues()` entry's content is here, not in the `.val.ts`, so
+          // this is the only thing that says an entry changed -- including when
+          // the change is a quick fix the editor just applied.
+          { globPattern: "**/*.val.json" },
           { globPattern: "**/val.modules.{ts,js}" },
           { globPattern: "**/val.config.{ts,js}" },
           // Media completions and file-not-found diagnostics both read this
@@ -672,6 +681,7 @@ export function createValLanguageServer(connection: Connection): {
           content: result.content,
           valRoot: project.valRoot,
           moduleFilePath,
+          read: readOpenDocument,
         })),
       );
       return actions;
@@ -689,7 +699,12 @@ export function createValLanguageServer(connection: Connection): {
   // per keystroke, which scheduleValidation debounces.
   documents.onDidOpen(({ document }) => scheduleValidation(document.uri));
   documents.onDidChangeContent(({ document }) => {
-    if (PROJECT_WIDE_FILE_RE.test(uriToPath(document.uri))) {
+    if (
+      PROJECT_WIDE_FILE_RE.test(uriToPath(document.uri)) ||
+      // Same reason as in the watched-files handler: an open, unsaved entry file
+      // is read through the editor overlay, but only a fresh Service sees it.
+      isValJsonEntryUri(document.uri)
+    ) {
       // A project-wide fact changed, so every module's cached result is stale --
       // not just this file's. `invalidate()` with no argument clears the content
       // cache too, which the per-module fingerprint check would not.
@@ -726,6 +741,13 @@ export function createValLanguageServer(connection: Connection): {
         continue;
       }
       if (PROJECT_WIDE_FILE_RE.test(fsPath)) {
+        projectWide = true;
+        continue;
+      }
+      // An entry file has no module of its own to invalidate: which module reads
+      // it is recorded in a `.val.ts` import specifier, and the parsed JSON is
+      // cached inside the Service, which only a project-wide invalidate discards.
+      if (isValJsonEntryUri(change.uri)) {
         projectWide = true;
         continue;
       }
@@ -775,6 +797,19 @@ export function createValLanguageServer(connection: Connection): {
     }
     // Clear our diagnostics so they do not linger for a file the user closed.
     connection.sendDiagnostics({ uri: document.uri, diagnostics: [] });
+    // Closing an entry file REMOVES an overlay: whatever the buffer said stops
+    // being what the module reads, and the modules that read it are still open,
+    // still showing diagnostics computed from a buffer that no longer exists.
+    // (Opening one needs no case of its own -- `TextDocuments` fires
+    // onDidChangeContent for a didOpen too, which the handler above catches.)
+    if (isValJsonEntryUri(document.uri)) {
+      project?.invalidate();
+      for (const open of documents.all()) {
+        if (isValModuleUri(open.uri)) {
+          scheduleValidation(open.uri);
+        }
+      }
+    }
   });
 
   connection.onShutdown(() => {
