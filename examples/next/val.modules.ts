@@ -46,6 +46,11 @@ export default modules(config, [
   { def: () => import("./content/mediaFixtures.val") },
   { def: () => import("./content/fileGallery.val") },
   { def: () => import("./content/mediaFields.val") },
+  // Uploads that are re-encoded in the browser. Deliberately their OWN modules
+  // rather than fields and entries added to the fixtures above — see the note
+  // in content/encodedFields.val.ts.
+  { def: () => import("./content/encodedImages.val") },
+  { def: () => import("./content/encodedFields.val") },
   // Uploads that are re-encoded in the browser. Separate from the fixtures
   // above on purpose — see content/encodedImages.val.ts.
   { def: () => import("./content/encodedImages.val") },

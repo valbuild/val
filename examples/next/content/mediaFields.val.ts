@@ -32,17 +32,6 @@ export default c.define(
       .describe("An image field with its own directory"),
     /** Gallery-backed: the picker offers what the gallery holds. */
     fromGallery: s.image(mediaGalleryVal).nullable(),
-    /**
-     * A field that asks for its uploads to be re-encoded.
-     *
-     * The counterpart of `image` above, which does not: off is the default, so
-     * only a pair proves that the option is what decides rather than something
-     * ambient. The cap is small so a modest fixture still downscales.
-     */
-    imageEncoded: s
-      .image({ encode: { type: "webp", maxWidth: 400, maxHeight: 400 } })
-      .nullable()
-      .describe("An image field that re-encodes uploads to webp"),
     /** The file counterpart. `s.file()` has no `directory` option. */
     file: s.file().nullable(),
     /**
@@ -67,7 +56,6 @@ export default c.define(
   {
     image: null,
     imageInSubdir: null,
-    imageEncoded: null,
     fromGallery: null,
     file: null,
     sections: [],

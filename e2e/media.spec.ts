@@ -456,10 +456,16 @@ test.describe("single media fields", () => {
  *
  * `packages/ui` has no canvas under jest, so this is the only place the encoder
  * itself runs. `encodeImage.test.ts` covers the decisions around it.
+ *
+ * None of these ends with `discardAll`. The `beforeEach` above clears the chain
+ * for every test in this file, so a trailing discard adds no isolation — it only
+ * adds a place to hang: a gallery upload writes a SECOND patch (the metadata
+ * entry) from a `.then()` after the file op the assertion waited on, so a
+ * discard placed right there is racing a write that is still in flight.
  */
 test.describe("re-encoding uploads", () => {
   const GALLERY = "/content/encodedImages.val.ts";
-  const FIELDS = "/content/mediaFields.val.ts";
+  const FIELDS = "/content/encodedFields.val.ts";
 
   test("an s.images({ encode }) gallery converts and downscales", async ({
     page,
@@ -478,50 +484,57 @@ test.describe("re-encoding uploads", () => {
         ),
       ]);
 
-    // The metadata comes from decoding the CONVERTED bytes, so it is the check
-    // that the downscale really happened rather than only being asked for.
-    // Keyed by ref, and the ref carries a content hash - so read the one entry
-    // rather than naming it (an asymmetric matcher cannot be an object key).
+    /*
+     * The metadata comes from decoding the CONVERTED bytes, so it is the check
+     * that the downscale really happened rather than only being asked for.
+     *
+     * Polled as one value rather than "poll for length, then read again": the
+     * second read is a second moment, and asserting on a moment you did not
+     * poll for is how a test comes to depend on nothing having changed in
+     * between. Keyed by ref because the ref carries a content hash — and an
+     * asymmetric matcher cannot be an object key.
+     */
     await expect
       .poll(() => entriesOf(page, GALLERY), {
         timeout: 30_000,
-        message: "the gallery never ended up with exactly one entry",
+        message: "the gallery never ended up with the converted entry",
       })
-      .toHaveLength(1);
-    const [[ref, metadata]] = await entriesOf(page, GALLERY);
-    expect(ref).toMatch(/\.webp$/);
-    expect(metadata).toEqual({
-      width: 400,
-      height: 300,
-      mimeType: "image/webp",
-      alt: null,
-    });
-
-    await discardAll(page);
-    await expect.poll(() => chainLength(page)).toBe(0);
+      .toEqual([
+        [
+          expect.stringMatching(/\.webp$/),
+          { width: 400, height: 300, mimeType: "image/webp", alt: null },
+        ],
+      ]);
   });
 
-  test("s.image({ encode }) converts, and the field beside it does not", async ({
-    page,
-  }) => {
-    await openStudio(page, `/val/~${FIELDS}?p=%22imageEncoded%22`);
+  test("s.image({ encode }) converts", async ({ page }) => {
+    await openStudio(page, `/val/~${FIELDS}?p=%22encoded%22`);
     const studio = page.locator("#val-shadow-root");
     await picker(studio).first().setInputFiles(LARGE_IMAGE);
 
     await expect
       .poll(() => uploadedRefs(page), { timeout: 30_000 })
-      .toEqual([expect.stringMatching(/\.webp$/)]);
+      .toEqual([
+        expect.stringMatching(
+          /^\/public\/val\/large-1200x900_[0-9a-f]{5}\.webp$/,
+        ),
+      ]);
+  });
 
-    await discardAll(page);
-    await expect.poll(() => chainLength(page)).toBe(0);
-
-    /*
-     * The same file into the plain `image` field, which asks for nothing.
-     *
-     * Off is the default, and a default is only demonstrated by a pair: without
-     * this half, an encoder that converted unconditionally would look correct.
-     */
-    await openStudio(page, `/val/~${FIELDS}?p=%22image%22`);
+  /*
+   * The same file into the plain `image` field, which asks for nothing.
+   *
+   * Off is the default, and a default is only demonstrated by a pair: without
+   * this half, an encoder that converted unconditionally would look correct.
+   *
+   * Its own test rather than the tail of the one above. Two uploads either side
+   * of a `discardAll` puts a discard in the middle of a test, which is the one
+   * place a late-landing patch has nothing to sweep it up — `clearPatchChain`
+   * runs between tests, not within one.
+   */
+  test("a plain s.image() leaves the same file alone", async ({ page }) => {
+    await openStudio(page, `/val/~${FIELDS}?p=%22plain%22`);
+    const studio = page.locator("#val-shadow-root");
     await picker(studio).first().setInputFiles(LARGE_IMAGE);
 
     await expect
@@ -531,8 +544,5 @@ test.describe("re-encoding uploads", () => {
           /^\/public\/val\/large-1200x900_[0-9a-f]{5}\.png$/,
         ),
       ]);
-
-    await discardAll(page);
-    await expect.poll(() => chainLength(page)).toBe(0);
   });
 });
