@@ -85,10 +85,12 @@ test.describe("an array of inline items", () => {
     // navigates to them: this is the whole of what inline means. Both blocks
     // declare the render on the union's variants, and neither is a `string` —
     // the type that used to be inlined implicitly.
+    // The rich text editor is a contenteditable that exposes no role of its
+    // own; the code editor is a textbox, so it is asked for by role.
     const richText = rows(studio).first().locator("[contenteditable='true']");
     await expect(richText).toHaveCount(1);
     await expect(richText).toContainText(TEXT);
-    const code = rows(studio).last().locator(".cm-content");
+    const code = rows(studio).last().getByRole("textbox");
     await expect(code).toHaveCount(1);
     await expect(code).toContainText(CODE);
 
@@ -146,12 +148,12 @@ test.describe("an array of inline items", () => {
     const header = codeRow.getByRole("button", { name: CODE });
     await expect(header).toHaveCount(1);
     // ...and the field is still the editor, not the preview card.
-    await expect(codeRow.locator(".cm-content")).toContainText(CODE);
+    await expect(codeRow.getByRole("textbox")).toContainText(CODE);
 
     // The header collapses the editor away, which is what the title is for:
     // something to read when the fields are folded.
     await header.click();
-    await expect(codeRow.locator(".cm-content")).toHaveCount(0);
+    await expect(codeRow.getByRole("textbox")).toHaveCount(0);
     await expect(header).toBeVisible();
   });
 });
