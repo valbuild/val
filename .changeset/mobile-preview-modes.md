@@ -46,6 +46,24 @@ frame. It is now mounted exactly while it is open, and what was picked and
 attached on the page goes with it. Switching modes is not leaving, and does not
 cost a page load.
 
+That last change turned a silently wrong answer into a visible one: **the canvas
+no longer closes itself out from under a page that has not said what is on it
+yet.** Whether it stays open is decided by whether the editor is on content the
+page reported, and a page that has reported nothing has not said the editor is
+elsewhere — it has said nothing at all, which is every page for its first second
+and every page whose preview mode is off. Where the report is empty, what decides
+is now what the navigation managed to say: a route it resolved to a gallery or a
+data module is somebody going somewhere else and still closes it, but a route it
+could not resolve at all leaves nothing here knowing anything, and the canvas
+stays.
+
+That second case is the whole uncommitted-route flow rather than a window: a page
+created from a patch has no row in the navigation, because routes are read with
+`apply_patches: false`, and its frame is still fetching when the navigation data
+settles. The canvas shut a moment after being opened. It looked survivable only
+because the closed canvas left its frame mounted and merely hidden, so the page
+went on loading out of sight.
+
 Also: a pick on the page always ends on the fields, rather than only when the
 pane happened to be somewhere else; the switches have room to breathe above the
 content, instead of a two-pixel gap; and the option that used to read "Canvas"
