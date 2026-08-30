@@ -195,7 +195,12 @@ export function readTools(): ValToolImpl[] {
         const validation = await ops.validateSources(
           state.schemas,
           state.sources,
-          state.analysis.patchesByModule,
+          // Every module. The third argument filters which modules are
+          // validated at all, so passing the pending-patch analysis would make
+          // a project with no pending changes report `valid: true` without
+          // having checked anything. Scoping to one module, when asked, is done
+          // on the results below.
+          undefined,
         );
         // `validateSources` hands back the files it could not check on its own;
         // running them is what turns "this path holds a file" into "that file is

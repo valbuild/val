@@ -9,7 +9,19 @@ import {
 import type { ToolName } from "./toolNames";
 
 type OpDecision =
-  | { kind: "ok"; op: "add" | "replace" }
+  | {
+      kind: "ok";
+      op: "add" | "replace";
+      /**
+       * What the destination's parent is, so a caller can tell an overwrite from
+       * an insert.
+       *
+       * `add` into a record REPLACES an existing key, while `add` at an array
+       * index inserts before it — same op, and only one of them destroys
+       * anything.
+       */
+      parent: "record" | "array" | "object" | "module";
+    }
   | { kind: "wrong-tool"; suggestedTool: ToolName; reason: string }
   | { kind: "error"; message: string };
 
@@ -73,7 +85,7 @@ function decideOp(
   }
 
   if (destinationPath.length === 0) {
-    return { kind: "ok", op: "replace" };
+    return { kind: "ok", op: "replace", parent: "module" };
   }
   const parent = resolveSerializedSchemaAtPath(
     moduleSchema,
@@ -103,10 +115,10 @@ function decideOp(
   }
   const schema = parent.schema;
   if (schema.type === "array" || schema.type === "record") {
-    return { kind: "ok", op: "add" };
+    return { kind: "ok", op: "add", parent: schema.type };
   }
   if (schema.type === "object") {
-    return { kind: "ok", op: "replace" };
+    return { kind: "ok", op: "replace", parent: "object" };
   }
   return {
     kind: "error",
@@ -139,6 +151,14 @@ export function buildDuplicatePatch(
   if (decision.kind === "error") {
     return { kind: "error", message: decision.message };
   }
+  const occupied = refuseOccupiedRecordKey(
+    decision.parent,
+    moduleSource,
+    args.destinationPath,
+  );
+  if (occupied) {
+    return occupied;
+  }
   return safeParsePatch([
     {
       op: decision.op,
@@ -148,9 +168,46 @@ export function buildDuplicatePatch(
   ]);
 }
 
+/**
+ * Refuse to write over an existing record entry.
+ *
+ * `add` into a record replaces whatever is at that key, so duplicating or
+ * scaffolding onto an occupied key silently destroys the entry that was there.
+ * A caller guessing at keys — an agent especially — hits this by accident, and
+ * nothing downstream reports it: the patch is valid, the content stays valid,
+ * and an entry is simply gone.
+ *
+ * Only records. An array `add` inserts before the index rather than replacing
+ * it, and an object's fields exist by definition, so `replace` on one is the
+ * whole point rather than a mistake.
+ */
+function refuseOccupiedRecordKey(
+  parent: "record" | "array" | "object" | "module",
+  moduleSource: Source | undefined,
+  destinationPath: string[],
+): { kind: "error"; message: string } | null {
+  if (parent !== "record") {
+    return null;
+  }
+  if (getSourceAt(moduleSource, destinationPath) === undefined) {
+    return null;
+  }
+  const key = destinationPath[destinationPath.length - 1];
+  return {
+    kind: "error",
+    message: `Destination key ${JSON.stringify(
+      key,
+    )} already exists, and writing to it would replace the entry that is there. Pick a key that is free -- get_record_keys lists the ones in use -- or use create_patch if you meant to change the existing entry.`,
+  };
+}
+
 export function buildEmptyAtPathPatch(
   args: { destinationPath: string[] },
   moduleSchema: SerializedSchema,
+  // Required, not optional: the occupied-key check below is the only thing
+  // standing between "scaffold an entry" and "delete the entry that was there",
+  // and an optional argument is one a caller forgets.
+  moduleSource: Source | undefined,
 ): BuildResult {
   let destinationSchema: SerializedSchema;
   if (args.destinationPath.length === 0) {
@@ -196,6 +253,14 @@ export function buildEmptyAtPathPatch(
   }
   if (decision.kind === "error") {
     return { kind: "error", message: decision.message };
+  }
+  const occupied = refuseOccupiedRecordKey(
+    decision.parent,
+    moduleSource,
+    args.destinationPath,
+  );
+  if (occupied) {
+    return occupied;
   }
   const value = emptyOf(destinationSchema);
   return safeParsePatch([

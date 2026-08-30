@@ -17,7 +17,7 @@ import {
 } from "@valbuild/core/patch";
 import { result } from "@valbuild/core/fp";
 import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
-import type { ValOps } from "../ValOps";
+import type { Sources, ValOps } from "../ValOps";
 import type { ValToolDeps, ValToolState } from "./defineTool";
 import type { ValToolResult } from "./types";
 
@@ -87,7 +87,9 @@ export async function validateSpeculatively(
   patch: Patch,
 ): Promise<
   | { status: "valid" }
-  | { status: "invalid"; result: ValToolResult }
+  /** Applicable, but the result would not be publishable. */
+  | { status: "invalid"; errors: string }
+  /** The patch does not fit the content at all, so there is nothing to judge. */
   | { status: "unapplicable"; result: ValToolResult }
 > {
   const current = state.sources[moduleFilePath];
@@ -122,18 +124,79 @@ export async function validateSpeculatively(
     ...state.sources,
     [moduleFilePath]: applied.value,
   };
+  const after = await blockingErrorsIn(
+    ops,
+    state,
+    speculativeSources,
+    moduleFilePath,
+  );
+  if (after.length === 0) {
+    return { status: "valid" };
+  }
+
+  // Only the errors this patch *introduces*. A module can already be broken for
+  // reasons this change has nothing to do with -- the example app ships with a
+  // missing image file -- and refusing on the total would make every such module
+  // permanently read-only: an agent could not fix a typo in a file that also
+  // holds a broken image reference. Paid for only when there is something to
+  // refuse, so an ordinary clean edit still validates once.
+  const before = await blockingErrorsIn(
+    ops,
+    state,
+    state.sources,
+    moduleFilePath,
+  );
+  const existing = new Set(before.map(identify));
+  const introduced = after.filter((error) => !existing.has(identify(error)));
+  if (introduced.length === 0) {
+    return { status: "valid" };
+  }
+  return { status: "invalid", errors: describeErrors(introduced) };
+}
+
+type LocatedError = { path: SourcePath; message: string };
+
+/** Path and message together: the same message at another path is another problem. */
+function identify(error: LocatedError): string {
+  return `${error.path}\u0000${error.message}`;
+}
+
+/**
+ * The publishing-blocking errors in one module, for a given set of sources.
+ *
+ * Scoped to one module by source path, which starts with the module file path.
+ * Errors elsewhere in the project are somebody else's: refusing on them would
+ * let the first broken module in a repo make every other module read-only.
+ */
+async function blockingErrorsIn(
+  ops: ValOps,
+  state: ValToolState,
+  sources: Sources,
+  moduleFilePath: ModuleFilePath,
+): Promise<LocatedError[]> {
   const validation = await ops.validateSources(
     state.schemas,
-    speculativeSources,
-    state.analysis.patchesByModule,
+    sources,
+    // Every module, deliberately -- `patchesByModule` is a FILTER on which
+    // modules get validated, not context for validating them. Passing the
+    // analysis from before this write skips the very module being written
+    // whenever it had no pending patch, so the first change to a module went
+    // unchecked; and a change that breaks a `keyOf` or a router in a *different*
+    // module reports its error there, which a filtered run never visits.
+    undefined,
   );
+  // `validateSources` hands back the files it could not check on its own;
+  // running them is what turns "this path holds a file" into "that file is
+  // actually there and matches its recorded metadata".
   const fileErrors = await ops.validateFiles(
     state.schemas,
-    speculativeSources,
+    sources,
     validation.files,
     state.analysis.fileLastUpdatedByPatchId,
   );
 
+  // Merged rather than overwritten: a path can pick up an error from validation
+  // and another from its file.
   const bySourcePath: Record<SourcePath, ValidationError[]> = {};
   const add = (path: SourcePath, errors: ValidationError[]) => {
     bySourcePath[path] = (bySourcePath[path] ?? []).concat(errors);
@@ -152,31 +215,39 @@ export async function validateSpeculatively(
   const blocking = filterBlockingValidationErrors(
     bySourcePath,
     state.serializedSchemas,
-    speculativeSources,
+    sources,
   );
-  // Only errors this patch's own module is responsible for. A pre-existing
-  // error elsewhere in the project must not block an unrelated edit, or the
-  // first broken module in a repo would make the whole project read-only.
-  const mine = Object.entries(blocking).filter(([path]) =>
-    path.startsWith(moduleFilePath),
-  );
-  if (mine.length > 0) {
-    return {
-      status: "invalid",
-      result: {
-        status: "error",
-        code: "validation-failed",
-        message: `The change was rejected and nothing was saved, because it would leave the content invalid: ${mine
-          .map(
-            ([path, errors]) =>
-              `${path}: ${errors.map((e) => e.message).join(", ")}`,
-          )
-          .join("; ")}`,
-      },
-    };
+  const located: LocatedError[] = [];
+  for (const [path, errors] of Object.entries(blocking)) {
+    if (!path.startsWith(moduleFilePath)) {
+      continue;
+    }
+    for (const error of errors) {
+      located.push({ path: path as SourcePath, message: error.message });
+    }
   }
-  return { status: "valid" };
+  return located;
 }
+
+function describeErrors(errors: LocatedError[]): string {
+  return errors.map((e) => `${e.path}: ${e.message}`).join("; ");
+}
+
+/**
+ * What to do when the change would leave the content invalid.
+ *
+ * `"reject"` for a tool that is editing existing content: an agent should not be
+ * able to break a site, and a rejected patch stores nothing.
+ *
+ * `"report"` for a tool whose whole purpose is to create something incomplete.
+ * `empty_at_path` scaffolds an entry the caller is then expected to fill in, so
+ * on most real schemas — anything with a non-empty string — the value it creates
+ * is invalid by construction. Rejecting that would make the tool useless on
+ * exactly the schemas it exists for, so instead the patch is saved and the
+ * remaining errors come back as a to-do list. This mirrors the Studio, where
+ * creating an empty entry is normal and the errors show until it is filled in.
+ */
+export type OnInvalid = "reject" | "report";
 
 /**
  * Validate, then save — and retry once if someone else got there first.
@@ -191,6 +262,7 @@ export async function savePatch(
   deps: ValToolDeps,
   moduleFilePath: ModuleFilePath,
   patch: Patch,
+  onInvalid: OnInvalid = "reject",
 ): Promise<ValToolResult> {
   const { ops, ctx, state } = deps;
 
@@ -200,8 +272,21 @@ export async function savePatch(
     moduleFilePath,
     patch,
   );
-  if (speculative.status !== "valid") {
+  if (speculative.status === "unapplicable") {
+    // Never negotiable: the patch does not fit the content, so there is nothing
+    // to save whatever the caller's tolerance for invalid results.
     return speculative.result;
+  }
+  let unresolved: string | null = null;
+  if (speculative.status === "invalid") {
+    if (onInvalid === "reject") {
+      return {
+        status: "error",
+        code: "validation-failed",
+        message: `The change was rejected and nothing was saved, because it would leave the content invalid: ${speculative.errors}`,
+      };
+    }
+    unresolved = speculative.errors;
   }
 
   // Always null, and deliberately so. The app cannot resolve a PAT to a
@@ -236,6 +321,9 @@ export async function savePatch(
           patchId: saved.value.patchId,
           moduleFilePath,
           createdAt: saved.value.createdAt,
+          // Always present, so a caller does not have to tell "absent" from
+          // "nothing left to do" to know whether the content is publishable.
+          unresolvedValidationErrors: unresolved,
         },
       };
     }

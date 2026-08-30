@@ -1,5 +1,4 @@
 import type { ModuleFilePath } from "@valbuild/core";
-import type { Patch } from "@valbuild/core/patch";
 import {
   buildDuplicatePatch,
   buildEmptyAtPathPatch,
@@ -49,13 +48,16 @@ export function writeTools(): ValToolImpl[] {
         annotations: { idempotentHint: false },
       },
       async ({ moduleFilePath, patch }, deps) => {
+        // Before parsing, not after: a file op that is also malformed should be
+        // told that files are not supported, rather than handed a schema error
+        // about the shape of a thing it was never going to be allowed to do.
+        const rejected = rejectFileOps(patch);
+        if (rejected) {
+          return rejected;
+        }
         const parsed = safeParsePatch(patch);
         if (parsed.kind !== "ok") {
           return fromBuildResult(parsed);
-        }
-        const rejected = rejectFileOps(parsed.patch);
-        if (rejected) {
-          return rejected;
         }
         return savePatch(deps, moduleFilePath as ModuleFilePath, parsed.patch);
       },
@@ -104,7 +106,7 @@ export function writeTools(): ValToolImpl[] {
         name: "empty_at_path",
         title: "Create an empty value at a path",
         description:
-          "Create a new, schema-correct empty value at a path — an empty entry in a record or array, for instance. Prefer this over composing one by hand: it derives the shape from the schema, including required fields.",
+          "Create a new, schema-correct empty value at a path — an empty entry in a record or array, for instance. Prefer this over composing one by hand: it derives the shape from the schema, including required fields. The value it creates is usually not yet publishable; the result lists what still needs filling in, which you can then do with create_patch.",
         inputSchema: z.object({
           moduleFilePath: ModuleFilePathSchema,
           destinationPath: z
@@ -122,11 +124,18 @@ export function writeTools(): ValToolImpl[] {
             `No Val module at ${JSON.stringify(modulePath)}.`,
           );
         }
-        const built = buildEmptyAtPathPatch({ destinationPath }, schema);
+        const built = buildEmptyAtPathPatch(
+          { destinationPath },
+          schema,
+          deps.state.sources[modulePath],
+        );
         if (built.kind !== "ok") {
           return fromBuildResult(built);
         }
-        return savePatch(deps, modulePath, built.patch);
+        // "report", not "reject": an empty entry is invalid by construction on
+        // any schema with a required non-empty field, which is most of them.
+        // See OnInvalid in writePath.ts.
+        return savePatch(deps, modulePath, built.patch, "report");
       },
     ),
 
@@ -201,9 +210,16 @@ function fromBuildResult(
  * is synced — a two-phase flow this pass does not implement. Letting one through
  * would store a patch referring to bytes that were never uploaded, which fails
  * later and a long way from the cause.
+ *
+ * Takes the unparsed patch, so this answer does not depend on the op being
+ * otherwise well formed. All it needs is the caller's own claim about what the
+ * op is.
  */
-function rejectFileOps(patch: Patch): ValToolResult | null {
-  const hasFileOp = patch.some((op) => op.op === "file");
+function rejectFileOps(patch: readonly unknown[]): ValToolResult | null {
+  const hasFileOp = patch.some(
+    (op) =>
+      typeof op === "object" && op !== null && "op" in op && op.op === "file",
+  );
   if (!hasFileOp) {
     return null;
   }

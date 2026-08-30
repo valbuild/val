@@ -1,5 +1,24 @@
 export { createService, Service } from "./Service";
 export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
+// Val's tools, over ValOps rather than the Studio's browser stores — so an MCP
+// server, a stdio transport or anything else can drive Val content without a
+// browser. Nothing under `tools/` imports an MCP SDK, and the host that does
+// adapts `ValToolResult` at its own edge.
+export { createValTools } from "./tools";
+export type {
+  ValToolContext,
+  ValToolDefinition,
+  ValToolDefinitionJson,
+  ValToolErrorCode,
+  ValToolResult,
+  ValTools,
+  ValToolsOptions,
+} from "./tools";
+// Exported for a host that has to build the same config the API router builds:
+// two copies of this decision drift, and a registry that thinks it is in fs mode
+// while the Studio thinks it is in proxy mode reads different content from the
+// same project.
+export { initHandlerOptions, createValOps } from "./valServerConfig";
 export { ValModuleLoader } from "./ValModuleLoader";
 export { getCompilerOptions } from "./getCompilerOptions";
 export { ValSourceFileHandler } from "./ValSourceFileHandler";
