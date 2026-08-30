@@ -2,8 +2,9 @@
 // FIRST, and it must stay first: `StringField` pulls in the shared bundle, which
 // builds a `TextEncoder` at module scope.
 import "../../stores/react/testPolyfills";
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { SourcePath } from "@valbuild/core";
+import { FIELD_WRITE_DEBOUNCE_MS } from "./useDebouncedFieldWrite";
 
 /**
  * A string field's LAYOUT comes off the serialized schema, synchronously.
@@ -23,13 +24,22 @@ import { SourcePath } from "@valbuild/core";
  */
 const mockSchema = jest.fn();
 const mockSource = jest.fn();
+/**
+ * ONE spy, shared by both seams, so writes are observable.
+ *
+ * A fresh `jest.fn()` per `useValField()` call — which is what this was — is
+ * unobservable by construction: every render hands the field a different
+ * function and the test holds none of them. Nothing here asserted on writes, so
+ * it did not matter until the debounce test below.
+ */
+const mockAddPatch = jest.fn();
 
 jest.mock("../ValFieldProvider", () => ({
   __esModule: true,
   useFieldCreatorId: () => "test",
   useSchemaAtPath: () => mockSchema(),
   useShallowSourceAtPath: () => mockSource(),
-  useAddPatch: () => ({ patchPath: [], addPatch: jest.fn() }),
+  useAddPatch: () => ({ patchPath: [], addPatch: mockAddPatch }),
   // The seam the field actually reads through. Composed from the two mocks
   // above rather than stubbed separately, so what this file controls — the
   // schema and the source — is unchanged by where the field gets them from.
@@ -38,7 +48,7 @@ jest.mock("../ValFieldProvider", () => ({
     source: mockSource(),
     hasUnsavedOwnEdit: false,
     patchPath: [],
-    addPatch: jest.fn(),
+    addPatch: mockAddPatch,
     addAndUploadPatchWithFileOps: jest.fn(),
     addModuleFilePatch: jest.fn(),
   }),
@@ -109,5 +119,53 @@ describe("StringField", () => {
     const editor = screen.getByTestId("code-editor");
     expect(editor.getAttribute("data-language")).toBe("typescript");
     expect(editor.textContent).toBe("const a = 1;");
+  });
+
+  /**
+   * A burst of typing is ONE write, and this field is what collapses it.
+   *
+   * `useDebouncedFieldWrite.test.tsx` already pins the hook. What it cannot pin
+   * is that `StringField` USES it: a field that called `addPatch` straight from
+   * `onChange` would pass every test in that file and put one patch per keystroke
+   * on the chain. Only the seam shows it, which is why this lives here.
+   *
+   * It used to live in `studio-ui.spec.ts`, where it typed five keys 60ms apart
+   * against a 250ms debounce and asserted the chain grew by exactly one. That is
+   * 190ms of slack per keystroke, and every keystroke is a CDP round trip on a
+   * box also running `next dev`, Vite and Chromium — so one stall over 190ms
+   * split the burst and failed the run. The property was never about wall-clock
+   * time; it is about which timer the field arms. On a fake clock the margin is
+   * exact and the flake cannot exist.
+   */
+  test("a burst of keystrokes is one write, carrying the last value", () => {
+    jest.useFakeTimers();
+    try {
+      mount(undefined, "");
+      const { container } = render(<StringField path={PATH} />);
+      const input = container.querySelector("input")!;
+
+      // Spaced the way the e2e test spaced them, so this is the same claim:
+      // gaps well inside the window, and the window never elapses mid-burst.
+      for (const value of ["T", "Ty", "Typ", "Type", "Typed"]) {
+        fireEvent.change(input, { target: { value } });
+        act(() => {
+          jest.advanceTimersByTime(60);
+        });
+      }
+      expect(
+        mockAddPatch,
+        // The half that a per-keystroke write would fail.
+      ).not.toHaveBeenCalled();
+
+      act(() => {
+        jest.advanceTimersByTime(FIELD_WRITE_DEBOUNCE_MS);
+      });
+      expect(mockAddPatch).toHaveBeenCalledTimes(1);
+      expect(mockAddPatch.mock.calls[0][0]).toEqual([
+        { op: "replace", path: [], value: "Typed" },
+      ]);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
