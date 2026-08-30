@@ -14,6 +14,11 @@ It is enforced: `eslint.config.js` bans `chainLength`, `peekThroughStore`,
 for `e2e/**`. Six specs are grandfathered in a list that only shrinks, and the
 two helper modules are permanently exempt — they _are_ the arrange and teardown.
 
+The rule is syntactic, so it only catches a store call nested directly inside an
+assertion. `const seen = await probe(page)` followed by `expect(seen.parentRef)`
+reads a variable and slips past it. A clean lint is not proof a spec is
+converted; it is proof nothing obvious was added.
+
 ## Why, with the receipts
 
 Two flakes survived into CI after a week of fixing this suite. Both were the same

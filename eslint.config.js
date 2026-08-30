@@ -132,10 +132,18 @@ module.exports = defineConfig([
      * switched on. So it is on for every other spec from today — new violations
      * are blocked outright — and these are the backlog, counted when it landed.
      *
-     * `studio.spec.ts` is the interesting one and should be taken last: 21 of
-     * its 24 assertions read the store, which is a fair description of a store
-     * integration test that happens to run in a browser. Deciding what it is
-     * for is a separate conversation from mechanically converting assertions.
+     * `studio.spec.ts` is nearly out. Retiring the probe test took it from 21
+     * store assertions to two: `pending.length` after a flush (a "the client
+     * finished syncing" wait written as an assertion), and `parentRef` in the
+     * StrictMode-remount test. The latter is the one worth keeping in a browser
+     * until it is expressed as a jsdom test with `wrapper: StrictMode` — see
+     * `usePickingDefault.test.tsx` for the pattern.
+     *
+     * Note the rule only sees the FIRST of those: it matches a store call nested
+     * inside `expect(...)`/`.poll(...)`, and `const seen = await probe(page)`
+     * followed by `expect(seen.parentRef)` reads a variable. A syntactic rule
+     * cannot chase that, which is worth knowing before trusting a clean lint as
+     * proof a spec is converted.
      */
     files: [
       "e2e/media.spec.ts",
