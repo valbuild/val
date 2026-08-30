@@ -96,6 +96,11 @@ jobs:
     name: E2E (${{ matrix.project }})
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    # Reports, does not block. Two consecutive runs of identical fs-mode code
+    # gave 0 failures and then 5, and a gate that goes red for reasons unrelated
+    # to the change under review teaches people to ignore it. Take this off once
+    # chromium has been green across several runs -- not after one.
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
