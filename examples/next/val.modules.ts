@@ -51,16 +51,12 @@ export default modules(config, [
   // in content/encodedFields.val.ts.
   { def: () => import("./content/encodedImages.val") },
   { def: () => import("./content/encodedFields.val") },
-  // Uploads that are re-encoded in the browser. Separate from the fixtures
-  // above on purpose — see content/encodedImages.val.ts.
-  { def: () => import("./content/encodedImages.val") },
   // `hidden()` and `readonly()`, which the Studio is the only thing enforcing.
   { def: () => import("./content/access.val") },
   // Lists of primitives, the one shape the compare view diffs by content.
   { def: () => import("./content/lists.val") },
   // A plain router read from a SERVER component — see app/notes/[note]/page.val.ts.
   { def: () => import("./app/notes/[note]/page.val") },
-  { def: () => import("./content/encodedImages.val") },
   // A gallery backed by Val's remote file host, when it is switched on. See
   // `remoteMedia` above, and content/remoteImages.val.ts for why this is a
   // gallery rather than a single remote image field.
