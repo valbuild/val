@@ -49,6 +49,12 @@ import {
  */
 
 /**
+ * A module to validate, chosen because the example app always has it and it is
+ * small enough that validating it costs nothing beyond building the worker.
+ */
+const VALIDATED_MODULE = "/content/authors.val.ts";
+
+/**
  * Generous, and deliberately so. This is the wait for a cold compile on a loaded
  * CI runner — the thing every other timeout in the suite is trying not to be.
  */
@@ -135,9 +141,7 @@ test("the app has compiled the routes the suite visits", async ({
   }
 });
 
-test("the Studio's bundle and the patch-sets worker are built", async ({
-  page,
-}) => {
+test("the Studio's bundle and both workers are built", async ({ page }) => {
   test.setTimeout(COMPILE_TIMEOUT * 2);
 
   /**
@@ -168,28 +172,52 @@ test("the Studio's bundle and the patch-sets worker are built", async ({
   await waitForIntake(page, "the Studio");
 
   /**
-   * The validation worker is NOT warmed, and that is a known gap.
+   * The validation worker, forced by invalidating first.
    *
-   * Two attempts failed, both for reasons worth recording so the next person
-   * does not repeat them:
-   *
-   * 1. Driving `ValStoreProbe` reached `useModuleValidation` and reported
-   *    `"validated"` without building anything: `ValidationStore.validate`
-   *    returns a cached result unless the module is stale, and on a clean
-   *    checkout every module is already validated from intake. This looked like
-   *    it worked locally ONLY because the local `.val/patches` had leftover
-   *    patches from earlier runs marking modules stale — the clean chain a CI
-   *    runner starts with has none.
-   * 2. `validationStore.invalidate([m])` followed by `validate(m)` also built
-   *    nothing, so `run()` is not reaching `schemaValidationBridge.validate` —
-   *    which calls `ensureWorker()` on its first line, so the worker would have
-   *    been recorded if it had. Where that path actually stops is not yet known.
-   *
-   * The cost is real (`studio.spec.ts` records the validation worker's first use
-   * turning a fixed wait into a flake) but it is one first-use compile, and a
-   * warmup that gates all six shards is the wrong place to keep guessing. What
-   * IS warmed below is asserted, so this file cannot quietly stop working.
+   * `ValidationStore.validate` returns a cached result unless the module is
+   * stale, and on a clean checkout intake has already validated everything — so
+   * asking it to validate does nothing. `invalidate` drops the cached result and
+   * marks the module stale, which makes the `validate` below do real work and
+   * reach `schemaValidationBridge`'s `ensureWorker()`. It writes no patch and
+   * touches no content, which is what a warmup must not do.
    */
+  await page.evaluate(async (moduleFilePath) => {
+    const bag = window as unknown as {
+      __VAL_STORES__?: {
+        system: {
+          validationStore: {
+            invalidate(modules: string[]): void;
+            validate(moduleFilePath: string): Promise<unknown>;
+          };
+        };
+      };
+    };
+    const store = bag.__VAL_STORES__?.system.validationStore;
+    if (store === undefined) {
+      throw new Error("the Studio's store system is not on window");
+    }
+    store.invalidate([moduleFilePath]);
+    await store.validate(moduleFilePath);
+  }, VALIDATED_MODULE);
+
+  /**
+   * Asserted HERE, before navigating — the log does not survive a navigation.
+   *
+   * `addInitScript` runs on every document, so the `goto` below re-runs it and
+   * resets `__WARMUP_WORKERS__` to a fresh array. An assertion made after it can
+   * only see what the compare document built, which is why the first version of
+   * this file reported "no validation worker" and sent me chasing two wrong
+   * explanations in `ValidationStore` and the bridge. The worker was almost
+   * certainly being built; the evidence was being thrown away one line later.
+   */
+  await expect
+    .poll(() => workersBuilt(page), {
+      timeout: COMPILE_TIMEOUT,
+      message: "the validation worker was never constructed",
+    })
+    .toEqual(
+      expect.arrayContaining([expect.stringContaining("validation.worker")]),
+    );
 
   /**
    * The patch-sets worker, by going to the compare view.
