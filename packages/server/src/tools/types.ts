@@ -68,9 +68,15 @@ export type ValToolDefinition = {
   };
 };
 
-/** The same definition with `inputSchema` as JSON Schema, for hosts that want the wire shape. */
+/**
+ * The same definition with `inputSchema` as JSON Schema, for hosts that want the
+ * wire shape rather than a Standard Schema.
+ *
+ * Typed as whatever zod's own converter produces, so deriving it needs no cast
+ * and no second hand-written description of the same input.
+ */
 export type ValToolDefinitionJson = Omit<ValToolDefinition, "inputSchema"> & {
-  inputSchema: Json;
+  inputSchema: ReturnType<typeof z.toJSONSchema<z.ZodType>>;
 };
 
 /**
