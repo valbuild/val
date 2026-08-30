@@ -303,11 +303,52 @@ test.describe("the Studio runs on the store system", () => {
             });
       });
 
+    /**
+     * The chain, alongside the value, so a failure carries its own diagnosis.
+     *
+     * This assertion has failed twice in CI and has never once reproduced
+     * locally — not across two full suites, not with all four cores saturated,
+     * not against a cold `next dev` and a cold Vite with both workers built from
+     * scratch. So the next occurrence has to explain itself, because the
+     * environment that produces it is not one that can be sat in front of.
+     *
+     * What it showed both times was the PREVIOUS test's value with
+     * `status: "success"`, while `createPatch` had returned `"created"` — so the
+     * write was accepted and the read still resolved to the older one. The
+     * question that distinguishes the remaining explanations is what the chain
+     * held at that moment: this patch missing from `chain` means it never
+     * reached the store; present in `chain` but not in `pending` means it synced
+     * and the read still preferred the base; present in both means the optimistic
+     * apply is what did not land. `toMatchObject` ignores the extra keys, so they
+     * cost nothing on a pass and are printed in the diff on a failure.
+     */
+    const withChain = async () => ({
+      source: (await read())?.source,
+      ...(await page.evaluate(() => {
+        const bag = window as unknown as {
+          __VAL_STORES__?: {
+            system: {
+              patchStore: {
+                allRecords(): { patchId: string }[];
+                pendingPatchIds(): string[];
+              };
+            };
+          };
+        };
+        const store = bag.__VAL_STORES__?.system.patchStore;
+        if (store === undefined) return { chain: null, pending: null };
+        return {
+          chain: store.allRecords().map((record) => record.patchId),
+          pending: store.pendingPatchIds(),
+        };
+      })),
+    });
+
     await expect
-      .poll(async () => (await read())?.source, {
+      .poll(withChain, {
         message: "the probe never rendered the written value",
       })
-      .toMatchObject({ status: "success", data: written });
+      .toMatchObject({ source: { status: "success", data: written } });
     // And the module validated, which is the other half of a field being ready.
     await expect
       .poll(async () => (await read())?.validation, {
