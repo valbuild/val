@@ -105,6 +105,14 @@ test.describe("the Studio, through its own UI", () => {
    * Navigating to a module and seeing its values is the whole read path end to
    * end: route -> `useSchemaAtPath` resolves the schema at the path ->
    * `useShallowSourceAtPath` reads the value -> the field renders it.
+   *
+   * One value carries that property. There used to be a second assertion here,
+   * on the generic page's `content` textarea, and it went stale when that page
+   * was reshaped into a `sections` array of inline union members. What is left
+   * at module level is the title: `url` is a route selector and `sections` is a
+   * list, so neither is a text input. The inline rows the new fixture exists to
+   * show are NOT covered by anything yet — worth a spec of their own rather than
+   * a guess bolted onto this one.
    */
   test("opens a module and shows its values", async ({ page }) => {
     await studioRoot(page);
@@ -117,7 +125,6 @@ test.describe("the Studio, through its own UI", () => {
         message: "the module's fields never showed their values",
       })
       .toContain("Generic");
-    expect(await fieldValues(page)).toContain("Generic content in a textarea");
   });
 
   /**
