@@ -34,10 +34,10 @@ const nextConfig = {
       },
     ],
     localPatterns: [
-      { 
+      {
         pathname: "/**",
-      }
-    ]
+      },
+    ],
   },
 };
 
