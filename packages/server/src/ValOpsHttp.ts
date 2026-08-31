@@ -1445,6 +1445,12 @@ export class ValOpsHttp extends ValOps {
           patchedSourceFiles: prepared.patchedSourceFiles,
           patchedBinaryFilesDescriptors: prepared.patchedBinaryFilesDescriptors,
           appliedPatches: prepared.appliedPatches,
+          // How each module looked BEFORE this commit. `prepare` already works
+          // it out - it has been sent to /commit-summary for a while and then
+          // thrown away - and it is the one thing history cannot reconstruct
+          // later, since reading it from git would make every look at the past
+          // depend on the repository still existing and still being reachable.
+          previousSourceFiles: prepared.previousSourceFiles,
           commit: this.commitSha,
           root: this.root,
           filesDirectory,

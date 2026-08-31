@@ -7,6 +7,7 @@ export * from "./zod/Patch";
 export * from "./sessionStorage";
 export * from "./SharedValConfig";
 export * from "./zod/ValCommit";
+export * from "./zod/History";
 export * from "./zod/ValDeployment";
 export * from "./getSitemapTree";
 export * from "./parseRoutePattern";

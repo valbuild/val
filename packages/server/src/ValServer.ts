@@ -44,6 +44,10 @@ import {
 import { fromError } from "zod-validation-error";
 import { ValOpsHttp } from "./ValOpsHttp";
 import { result } from "@valbuild/core/fp";
+import type { HistoryError } from "./history/HistoryError";
+import { historyErrorMessage } from "./history/HistoryError";
+import { getHistoricalPatchSet } from "./history/getHistoricalPatchSet";
+import { getHistoricalComparison } from "./history/getHistoricalComparison";
 import { getSettings } from "./getSettings";
 import {
   getPersonalAccessTokenPath,
@@ -2781,6 +2785,106 @@ export const ValServer = (
     },
 
     //#region files
+    // #region history
+    "/history/commits": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const res = await serverOps.listCommits(req.query.branch, {
+          limit: req.query.limit,
+          cursor: req.query.cursor,
+        });
+        if (result.isErr(res)) {
+          return historyErrorResponse(res.error);
+        }
+        return {
+          status: 200,
+          json: res.value,
+          // The head moves, so a listing is never reusable.
+          headers: { "Cache-Control": "no-store" },
+        };
+      },
+    },
+    "/history/commit": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const res = await getHistoricalPatchSet(
+          serverOps,
+          req.query.commit_sha,
+        );
+        if (result.isErr(res)) {
+          return historyErrorResponse(res.error);
+        }
+        return {
+          status: 200,
+          json: res.value,
+          // A reconstructed commit says nothing about the current source or
+          // schema, so it cannot change for this sha. Immutable is what makes
+          // comparing many commits cheap.
+          headers: { "Cache-Control": "public, max-age=31536000, immutable" },
+        };
+      },
+    },
+    "/history/compare": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const res = await getHistoricalComparison(
+          serverOps,
+          req.query.commit_sha,
+        );
+        if (result.isErr(res)) {
+          return historyErrorResponse(res.error);
+        }
+        return {
+          status: 200,
+          json: res.value,
+          // Depends on the current source, which moves with every edit.
+          headers: { "Cache-Control": "no-store" },
+        };
+      },
+    },
+    "/history/files": {
+      GET: async (req) => {
+        // No auth, for the same reason /files has none: this is served to an
+        // <img> that the app's own backend may fetch during image
+        // optimisation, with no cookies. What it exposes is a file at a commit
+        // that is already in the repository.
+        const res = await serverOps.getFileAtCommit(
+          req.query.commit_sha,
+          req.query.path,
+          req.query.remote === "true",
+        );
+        if (result.isErr(res)) {
+          const response = historyErrorResponse(res.error);
+          // The stream branch of this route's response union has no json, so
+          // narrow to the shapes it does allow.
+          if (response.status === 401 || response.status === 404) {
+            return response;
+          }
+          return { status: 400, json: response.json };
+        }
+        return {
+          status: 200,
+          headers: {
+            "Content-Type":
+              guessMimeTypeFromPath(req.query.path) ??
+              "application/octet-stream",
+            // A file at a fixed commit cannot change.
+            "Cache-Control": "public, max-age=31536000, immutable",
+          },
+          body: bufferToReadableStream(res.value),
+        };
+      },
+    },
+    // #endregion history
     "/files": {
       GET: async (req) => {
         const query = req.query;
@@ -3116,6 +3220,34 @@ export const ENABLE_COOKIE_VALUE = {
   },
 } as const;
 const chunkSize = 1024 * 1024;
+
+/**
+ * Turn a HistoryError into the HTTP answer it deserves.
+ *
+ * The `kind` travels in the body alongside the message, because the Studio
+ * decides what to OFFER from it - "cannot restore this field" and "cannot
+ * restore this module at all" are different affordances, and a rendered string
+ * cannot be told apart.
+ */
+function historyErrorResponse(
+  error: HistoryError,
+):
+  | { status: 401; json: { message: string } }
+  | { status: 404; json: { message: string } }
+  | { status: 400; json: { message: string; kind?: string } }
+  | { status: 500; json: { message: string; kind?: string } } {
+  const message = historyErrorMessage(error);
+  switch (error.kind) {
+    case "commit-not-found":
+      return { status: 404, json: { message } };
+    case "not-supported-in-fs-mode":
+      // Not an error in the request - this deployment simply has no history
+      // service. 400 rather than 500 so it does not read as a bug.
+      return { status: 400, json: { message, kind: error.kind } };
+    default:
+      return { status: 500, json: { message, kind: error.kind } };
+  }
+}
 
 export function bufferToReadableStream(buffer: Buffer) {
   const stream = new ReadableStream({
