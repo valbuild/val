@@ -177,14 +177,28 @@ export async function expectNoPatchesOnServer(
   await expect
     .poll(
       async () => {
-        const res = await request.get("/api/val/patches");
-        if (!res.ok()) return `the server refused the request: ${res.status()}`;
-        const body = (await res.json()) as { patches: { patchId: string }[] };
-        return body.patches.length;
+        // `exclude_patch_ops=false` so a leftover can NAME itself. A bare count
+        // says "one patch survived the discard" and leaves you guessing which;
+        // the module and the ops say whether it is the write the test made or a
+        // second one the test never waited for.
+        const res = await request.get(
+          "/api/val/patches?exclude_patch_ops=false",
+        );
+        if (!res.ok())
+          return [`the server refused the request: ${res.status()}`];
+        const body = (await res.json()) as {
+          patches: { path?: string; patch?: { op?: string }[] }[];
+        };
+        return body.patches.map(
+          (entry) =>
+            `${entry.path ?? "?"} [${(entry.patch ?? [])
+              .map((op) => op.op ?? "?")
+              .join(",")}]`,
+        );
       },
       { message: "the discard left patches on the server" },
     )
-    .toBe(0);
+    .toEqual([]);
 }
 
 /** How many patches the store currently holds, straight from the system. */
