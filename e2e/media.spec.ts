@@ -329,6 +329,8 @@ test.describe("an s.files() gallery", () => {
 
 test.describe("single media fields", () => {
   const MODULE = "/content/mediaFields.val.ts";
+  /** The gallery `fromGallery` references — where its metadata entry lands. */
+  const GALLERY = "/content/mediaFixtures.val.ts";
 
   /**
    * Both field components crashed the Studio for a field with no value: a
@@ -393,6 +395,40 @@ test.describe("single media fields", () => {
     await expect
       .poll(() => uploadedRefs(page), { timeout: 30_000 })
       .toEqual(["/public/test/subdir/blue-8x8_8b441.png"]);
+
+    /**
+     * Wait for BOTH patches, because a gallery-backed upload writes two.
+     *
+     * `useImageUpload` uploads the field's patch — the one carrying the `file`
+     * op — and only in its `.then` adds the metadata entry to the GALLERY
+     * module (`addModuleFilePatch(referencedModule, [{ op: "add", … }])`). The
+     * poll above reads `uploadedRefs`, which filters `op === "file"`, so the
+     * second patch is invisible to it: the test could reach `discardAll` before
+     * that patch existed, discard the one that did, and leave the other on the
+     * server. It failed in CI and reproduces here about once in three runs, and
+     * the leftover always named itself the same way:
+     *
+     *     ["/content/mediaFixtures.val.ts [add]"]
+     *
+     * A discard cannot remove what has not been created yet, so the wait is what
+     * has to change — not the discard. Asked of the server, because that is
+     * where the next assertion looks and because the client can hold a record
+     * the server has already dropped (see `expectNoPatchesOnServer`).
+     */
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get("/api/val/patches");
+          if (!res.ok()) return `the server refused it: ${res.status()}`;
+          const body = (await res.json()) as { patches: { path?: string }[] };
+          return [...new Set(body.patches.map((entry) => entry.path ?? "?"))]
+            .sort()
+            .join(", ");
+        },
+        { message: "the gallery never got the metadata half of the upload" },
+      )
+      .toBe([MODULE, GALLERY].sort().join(", "));
+
     await discardAll(page);
     await expectNoPatchesOnServer(request);
   });
