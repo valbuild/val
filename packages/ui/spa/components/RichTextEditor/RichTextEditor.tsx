@@ -37,7 +37,10 @@ import {
   createSchemaValidationPlugin,
   applySchemaViolationFix,
 } from "./plugins";
-import { createLinkHelper } from "./plugins/formattingToolbarShared";
+import {
+  createLinkHelper,
+  hasFixedToolbarContent,
+} from "./plugins/formattingToolbarShared";
 import type {
   EditorDocument,
   EditorFeatures,
@@ -340,6 +343,31 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
 
   markTypeRef.current = schema.marks.link ?? null;
 
+  /**
+   * Mounted only when it has something in it.
+   *
+   * `features.fixedToolbar` says the editor is ALLOWED a fixed toolbar; it does
+   * not say the toolbar has any buttons. With `s.richtext()` and no options it
+   * had none, and the empty bar still drew a border over the editor's own top
+   * border and still reserved `pt-14` of space below itself.
+   *
+   * Asked through the same functions that BUILD the bar, so "is it shown" and
+   * "does it have buttons" cannot drift apart. And answered from things that
+   * are settled at mount — `imageModulePath`, not the gallery's loaded entries,
+   * which arrive a tick later: the view is rebuilt on this value, so a late
+   * flip would mount a bar that nothing ever renders into.
+   */
+  const showFixedToolbar =
+    features.fixedToolbar &&
+    hasFixedToolbarContent({
+      schema,
+      features,
+      styleConfig,
+      canInsertImage: !!onImageUpload || !!images?.length || !!imageModulePath,
+      buttonVariants,
+      detailsVariants,
+    });
+
   useLayoutEffect(() => {
     if (!containerRef.current) return;
 
@@ -528,9 +556,35 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
   }, [
     schema,
     readOnly,
-    features.fixedToolbar,
+    showFixedToolbar,
     features.floatingToolbar,
     features.gutter,
+  ]);
+
+  /**
+   * Repaint the toolbar when the gallery finally answers.
+   *
+   * The image control is gated on entries that arrive a round trip after
+   * mount, and the toolbar is an imperative plugin: it re-renders on a
+   * ProseMirror `update` and on nothing else. So an image-only field mounted
+   * its bar, found no entries, and left it empty until the user happened to
+   * click into the text.
+   *
+   * An EMPTY transaction is the fix rather than a view rebuild. `docChanged`
+   * is false for one, so it does not mark the field dirty, does not re-parse
+   * `defaultValue`, and cannot drop a keystroke still inside the debounce —
+   * which is exactly what rebuilding the view on this would risk.
+   */
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch(view.state.tr);
+  }, [
+    imageModuleEntries,
+    images,
+    onImageUpload,
+    buttonVariants,
+    detailsVariants,
   ]);
 
   useEffect(() => {
@@ -622,8 +676,6 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     reset,
   ]);
 
-  const showFixedToolbar = features.fixedToolbar;
-
   const applyLink = useCallback((href: string | null) => {
     const view = viewRef.current;
     const mt = markTypeRef.current;
@@ -685,7 +737,7 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
         <div
           ref={fixedToolbarMountRef}
           className={[
-            "rounded-t-md border border-input",
+            "rounded-t-md border border-border-primary",
             // `z-hover`: a bar pinned over the top of the editor's own content,
             // and nothing more. `z-5` put it over the shell's chrome as well.
             "bg-bg-secondary absolute left-0 top-0 z-hover w-full",
@@ -695,10 +747,22 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
       <div
         ref={containerRef}
         className={[
-          "prose-editor relative min-h-12 border border-input",
-          "bg-bg-primary p-2 text-fg-primary caret-fg-primary",
-          "ring-offset-background focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 rounded-md",
-          "p-4",
+          /*
+           * Sized as a text field, because that is what it is.
+           *
+           * `h-10` + `px-3 py-2` + `text-base` is `Input`, and a richtext field
+           * sits in the same column as one — it had `min-h-12` and `p-4`, so a
+           * one-line rich text box stood 68px tall next to a 40px string box
+           * with its text starting 4px further in. `min-h-10` rather than
+           * `h-10` because this one grows with its content.
+           *
+           * `pt-14` still wins over `py-2` when there is a toolbar: Tailwind
+           * emits `pt-*` after `py-*`, so the single-side utility overrides.
+           */
+          "prose-editor relative min-h-10 border border-border-primary",
+          "bg-bg-primary text-fg-primary caret-fg-primary",
+          "focus-within:outline-none focus-within:ring-2 focus-within:ring-border-focus rounded-md",
+          "px-3 py-2",
           showFixedToolbar ? "pt-14" : "",
           readOnly ? "opacity-80" : "",
         ].join(" ")}

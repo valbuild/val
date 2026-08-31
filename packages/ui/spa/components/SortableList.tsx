@@ -264,10 +264,17 @@ export function SortableItemRow({
       <button
         {...attributes}
         {...listeners}
-        className={cn("pb-1 pr-2", {
-          "opacity-30": disabled,
-          "mt-2.5": !centerGripAndDeleteIcons,
-        })}
+        className={cn(
+          "pb-1 pr-2 rounded-sm text-fg-secondary hover:text-fg-primary",
+          // Keyboard reordering STARTS here — dnd-kit gives the handle
+          // `tabIndex=0` — so it needs the same focus ring as every other
+          // control, not the browser default.
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+          {
+            "opacity-30": disabled,
+            "mt-2.5": !centerGripAndDeleteIcons,
+          },
+        )}
         disabled={disabled}
         onClick={() => {
           onClick(path);

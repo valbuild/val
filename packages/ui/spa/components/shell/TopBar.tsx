@@ -4,6 +4,7 @@ import {
   ChevronDown,
   Columns2,
   Eye,
+  GitCompare,
   Link2,
   Loader2,
   LucideIcon,
@@ -59,6 +60,25 @@ export type TopBarProps = {
   publishSlot?: ReactNode;
   /** Number of changes Publish would ship. 0 disables the button. */
   pendingChanges: number;
+  /**
+   * Opens the review view. Absent in layouts that have none.
+   *
+   * Review sits beside Publish because it is the step before it: a reader who
+   * is about to ship wants to see what they are shipping, and the action lived
+   * only in the Quick actions panel — two clicks away, behind an icon that does
+   * not say "review".
+   */
+  onCompare?: () => void;
+  /**
+   * The number on Review's badge. 0 shows the button with no badge.
+   *
+   * The same count the Quick actions panel puts on "Review N changes" — one
+   * number, so the two cannot disagree — but zeroed when every pending patch
+   * has been reverted. There is still something to review THERE (Discard lives
+   * in that view, and Publish is off until it is used), so the button stays;
+   * what it must not do is advertise changes that will not ship.
+   */
+  reviewCount?: number;
   publishState?: PublishState;
   /**
    * Set when the account could not be loaded, and the studio has stopped trying.
@@ -108,6 +128,8 @@ export function TopBar({
   onPublish,
   publishSlot,
   pendingChanges,
+  onCompare,
+  reviewCount,
   publishState = "idle",
   accountError,
   isLoading,
@@ -150,6 +172,11 @@ export function TopBar({
               previewHref={previewHref}
               onToggleCanvas={onToggleCanvas}
               isCanvasOpen={isCanvasOpen}
+            />
+            <ReviewButton
+              onCompare={onCompare}
+              pendingChanges={pendingChanges}
+              reviewCount={reviewCount}
             />
             {publishSlot ?? (
               <PublishButton
@@ -484,6 +511,70 @@ function PreviewMenuItem({
 /** Groups the bar's controls: actions, then surfaces, then the account. */
 function BarDivider() {
   return <span aria-hidden className="w-px h-5 mx-0.5 bg-border-float" />;
+}
+
+/**
+ * Review, beside Publish.
+ *
+ * Present whenever the shell can review at all, and merely INVISIBLE until
+ * there is something to review. Not `null`, which is what it was: this group is
+ * `ml-auto`, so its right edge is pinned and its left edge grows — a button
+ * appearing in the middle of it slides Preview and everything left of it across
+ * by its own width. That happens exactly when the first change lands, which is
+ * exactly when someone is working in there, and it moved the Preview button out
+ * from under a click that had already started. `canvas.spec.ts` caught it as a
+ * click that hit nothing; a person gets the same miss and no error.
+ *
+ * `visibility: hidden` rather than opacity: it holds the space, takes no
+ * clicks, takes no tab stop, and is not announced — so nothing is offered that
+ * cannot be used.
+ *
+ * The badge shows `reviewCount`, which is the pending patch count zeroed when
+ * all of it has been reverted. In that case the button stays — the review view
+ * is where Discard lives, and Publish is disabled until it is used, so removing
+ * the only route to it would strand the editor — but it carries no number,
+ * because the honest number is zero and a "0" badge reads as a bug.
+ */
+function ReviewButton({
+  onCompare,
+  pendingChanges,
+  reviewCount,
+}: {
+  onCompare?: () => void;
+  pendingChanges: number;
+  reviewCount?: number;
+}) {
+  if (!onCompare) return null;
+  const hasWork = pendingChanges > 0;
+  const showCount = hasWork && reviewCount !== undefined && reviewCount > 0;
+  return (
+    <button
+      type="button"
+      onClick={onCompare}
+      {...(hasWork ? {} : { "aria-hidden": true, tabIndex: -1 })}
+      aria-label={
+        showCount
+          ? `Review ${reviewCount} ${reviewCount === 1 ? "change" : "changes"}`
+          : "Review changes"
+      }
+      className={cn(
+        "relative inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md shrink-0",
+        "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+        !hasWork && "invisible",
+      )}
+    >
+      <GitCompare size={15} />
+      <span className="text-[0.8125rem]">Review</span>
+      {showCount && (
+        // The notification bell's badge, to the pixel: two counters in one bar
+        // that are shaped differently read as two different kinds of thing.
+        <span className="absolute -top-0.5 -right-0.5 min-w-[1rem] h-4 px-1 grid place-items-center rounded-full bg-fg-primary text-bg-float text-[0.625rem] font-semibold tabular-nums">
+          {reviewCount > 9 ? "9+" : reviewCount}
+        </span>
+      )}
+    </button>
+  );
 }
 
 function IconButton({

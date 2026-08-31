@@ -1,0 +1,124 @@
+import fs from "fs";
+import path from "path";
+
+/**
+ * Every focus ring must name a token a SHADOW ROOT can see.
+ *
+ * The Studio mounts inside a shadow root with `index.css` linked into it
+ * (`App.tsx`, `Overlay.tsx`). A shadow tree's root is a DocumentFragment, so a
+ * `:root` rule in that stylesheet matches nothing — and `.dark` never matches
+ * either, because `darkMode` is `[data-mode="dark"]`. The shadcn compatibility
+ * block is declared under exactly those two selectors, so `--ring`,
+ * `--background` and `--input` are all undefined at render time.
+ *
+ * For most properties that degrades quietly. In a `box-shadow` it does not:
+ * `hsl()` is invalid at computed-value time and takes the WHOLE declaration
+ * with it, so `ring-ring` painted nothing and every focus ring in the Studio
+ * was invisible. Measured in Chromium: an element carrying the old
+ * `ring-2 ring-ring ring-offset-2 ring-offset-background` computes to
+ * `box-shadow: none`. A stale `ring-offset-background` alone is enough to do
+ * it, even at a 0px offset width — which is why the offset utilities were
+ * removed rather than repointed.
+ *
+ * None of this was visible where the components were designed: Storybook
+ * imports `index.css` into the DOCUMENT (`.storybook/preview.tsx`), where
+ * `:root` does match and every ring renders correctly.
+ *
+ * So: focus styling names `--border-focus`.
+ *
+ * The BAN — no `ring-ring`, no `ring-offset-*` — is an ESLint rule, because a
+ * forbidden pattern in source is what `no-restricted-syntax` is for and it
+ * reports at the call site instead of as a list of paths. What is left here is
+ * what a lint cannot know, because it has to read `index.css`: that the token
+ * is declared in both themes, and that every ring colour in the Studio names a
+ * token a shadow root can actually see.
+ */
+
+const SPA = __dirname;
+const CSS = fs.readFileSync(path.join(SPA, "index.css"), "utf8");
+
+/**
+ * An unimported duplicate of the calendar beside it, kept as it came from
+ * shadcn. Nothing renders it, so nothing it names can be wrong on screen.
+ *
+ * Its live twin — imported by `DateField` and `DateTimeField` — is not exempt.
+ * It was, on the reasoning that shadcn's calendars are all v4 syntax this v3
+ * config never compiles. Only half of that holds: `has-focus:` does compile to
+ * nothing, but `group-data-[focused=true]/day:ring-ring/50` is an ordinary
+ * named-group data variant that v3 supports, and it emitted
+ * `--tw-ring-color: hsl(var(--ring) / 0.5)` against a token no shadow root can
+ * see — voiding the box-shadow and leaving the keyboard-focused day with no
+ * ring at all. Exactly the bug the rest of this file exists to catch, hidden by
+ * the exemption meant to describe it.
+ */
+const VENDORED = new Set(["components/designSystem/ui/calendar.tsx"]);
+
+function sourceFiles(): string[] {
+  const found: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === "node_modules") continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(entry.name)) found.push(full);
+    }
+  };
+  walk(SPA);
+  return found.filter(
+    (f) =>
+      !VENDORED.has(path.relative(SPA, f)) &&
+      // This file names the forbidden classes in order to look for them.
+      path.resolve(f) !== path.resolve(__filename),
+  );
+}
+
+/** The custom properties declared in a block whose selector a shadow root matches. */
+function shadowVisibleTokens(): Set<string> {
+  const tokens = new Set<string>();
+  for (const selector of ['*[data-mode="light"]', '*[data-mode="dark"]']) {
+    const start = CSS.indexOf(selector);
+    if (start === -1) throw new Error(`No block for selector ${selector}`);
+    const open = CSS.indexOf("{", start);
+    const body = CSS.slice(open + 1, CSS.indexOf("\n  }", open));
+    for (const line of body.split("\n")) {
+      const match = line.match(/^\s*(--[\w-]+)\s*:/);
+      if (match) tokens.add(match[1]);
+    }
+  }
+  return tokens;
+}
+
+describe("focus ring tokens", () => {
+  const files = sourceFiles();
+
+  test("the suite is actually looking at the source", () => {
+    expect(files.length).toBeGreaterThan(100);
+  });
+
+  test("--border-focus is declared in both themes", () => {
+    const declared = shadowVisibleTokens();
+    expect(declared.has("--border-focus")).toBe(true);
+    // Declared per theme, not once: a ring that does not flip is invisible in
+    // one of the two modes.
+    for (const selector of ['*[data-mode="light"]', '*[data-mode="dark"]']) {
+      const start = CSS.indexOf(selector);
+      const open = CSS.indexOf("{", start);
+      const body = CSS.slice(open + 1, CSS.indexOf("\n  }", open));
+      expect(body).toContain("--border-focus:");
+    }
+  });
+
+  test("every ring colour utility names a shadow-visible token", () => {
+    const declared = shadowVisibleTokens();
+    const offenders: string[] = [];
+    for (const file of files) {
+      const src = fs.readFileSync(file, "utf8");
+      for (const match of src.matchAll(/\bring-((?:border|bg|fg)-[\w-]+)/g)) {
+        if (!declared.has(`--${match[1]}`)) {
+          offenders.push(`${path.relative(SPA, file)}: ring-${match[1]}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});

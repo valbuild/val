@@ -142,6 +142,13 @@ const PAIRS: Pair[] = [
   // Disabled text is exempt from AA too, but a disabled Publish button whose
   // label cannot be read is still a broken button.
   ["--fg-disabled", "--bg-disabled", AA_LARGE, "disabled button label"],
+  // The focus ring is a UI component indicator, so AA_LARGE (3:1) is the bar.
+  // It is drawn on all three surfaces a control can sit on, and it is the one
+  // thing in the chrome that MUST be noticeable — a ring that blends in is the
+  // same as no ring, which is what this whole token exists to fix.
+  ["--border-focus", "--bg-primary", AA_LARGE, "focus ring on a field"],
+  ["--border-focus", "--bg-float", AA_LARGE, "focus ring on a panel"],
+  ["--border-focus", "--bg-surface", AA_LARGE, "focus ring on the canvas"],
 ];
 
 describe.each<Mode>(["light", "dark"])("%s mode contrast", (mode) => {

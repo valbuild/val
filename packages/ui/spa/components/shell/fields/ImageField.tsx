@@ -171,7 +171,7 @@ export function ImageField({
           onChange={(event) => onChange({ ...value, alt: event.target.value })}
           className={cn(
             "w-full resize-none rounded-md border border-border-float bg-bg-surface px-3 py-2 text-xs text-fg-primary outline-none",
-            "placeholder:text-fg-secondary-alt focus:border-border-primary",
+            "placeholder:text-fg-secondary-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
             fromCollection && !overridesAlt && "text-fg-secondary",
           )}
         />

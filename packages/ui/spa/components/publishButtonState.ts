@@ -53,6 +53,15 @@ export type PublishButtonInput = {
   pendingServerSidePatchCount: number;
   /** Writes that have not reached the server yet. */
   pendingClientSidePatchCount: number;
+  /**
+   * There are patches, but applying them changes nothing.
+   *
+   * Distinct from `pendingServerSidePatchCount === 0`: there IS work queued, it
+   * simply cancels itself out — a field edited and then edited back. Publishing
+   * would make a commit with no diff in it, so the button is off; the way out
+   * is Discard, which is why the compare view puts it where the changes were.
+   */
+  netChangesEmpty: boolean;
 };
 
 function plural(count: number, one: string, many: string): string {
@@ -71,6 +80,7 @@ export function describePublishButton(
     autoPublish,
     pendingServerSidePatchCount,
     pendingClientSidePatchCount,
+    netChangesEmpty,
   } = input;
   const saving = mode === "fs";
 
@@ -124,8 +134,19 @@ export function describePublishButton(
 
   const nothingToSend = pendingServerSidePatchCount === 0;
   const stillWriting = pendingClientSidePatchCount > 0;
+  /*
+   * Only once the writing has settled. Mid-keystroke the chain is a prefix of
+   * what the editor has typed, so "the net effect is nothing" is a statement
+   * about an unfinished edit — and it flickers the button off and on again
+   * while someone retypes a value back to what it was.
+   */
+  const revertedToNothing = !nothingToSend && !stillWriting && netChangesEmpty;
   const disabled =
-    publishDisabled || nothingToSend || stillWriting || (saving && autoPublish);
+    publishDisabled ||
+    nothingToSend ||
+    stillWriting ||
+    revertedToNothing ||
+    (saving && autoPublish);
 
   if (disabled) {
     return {
@@ -138,7 +159,9 @@ export function describePublishButton(
           ? "Auto save is on: changes are saved for you."
           : nothingToSend
             ? "Nothing to send."
-            : null,
+            : revertedToNothing
+              ? "Every change has been reverted, so there is nothing to publish. Discard them to clear."
+              : null,
       action: "none",
     };
   }

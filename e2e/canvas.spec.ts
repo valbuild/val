@@ -492,7 +492,8 @@ test.describe("the canvas", () => {
       { timeout: 30000 },
     );
 
-    await studio.getByRole("button", { name: "Quick actions" }).click();
+    // Review is in the top bar at this viewport, beside Publish; the Quick
+    // actions panel carries it on mobile only, where the top bar does not.
     await studio.getByRole("button", { name: /Review \d+ change/ }).click();
 
     await expect(

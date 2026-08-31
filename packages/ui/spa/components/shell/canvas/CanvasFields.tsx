@@ -144,7 +144,7 @@ export function CanvasFields({
         </p>
       </div>
       <div className="shrink-0 border-b border-border-float px-2 py-2">
-        <div className="flex h-7 items-center gap-1.5 rounded-md bg-bg-float-raised px-2">
+        <div className="flex h-7 items-center gap-1.5 rounded-md bg-bg-float-raised px-2 focus-within:ring-2 focus-within:ring-border-focus">
           <Search size={12} className="shrink-0 text-fg-secondary-alt" />
           <input
             value={query}

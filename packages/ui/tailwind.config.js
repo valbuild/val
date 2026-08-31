@@ -43,6 +43,22 @@ module.exports = {
         // (permanent left rail) at 1200px, which sits between Tailwind's
         // `lg` (1024px) and `xl` (1280px).
         desktop: "1200px",
+        /**
+         * A touch screen, not a narrow one.
+         *
+         * iOS Safari zooms the page in whenever a focused field computes under
+         * 16px, and it does that on an iPad at 1024px just as readily as on a
+         * phone — so the question is the INPUT DEVICE, not the width, and a
+         * `md:` breakpoint would answer the wrong one. `raw` emits the media
+         * query verbatim rather than as a min-width.
+         *
+         * `any-pointer`, not `pointer`: `pointer` describes only the PRIMARY
+         * device, so an iPad with a keyboard case — or any touch laptop —
+         * reports `fine` and stops matching, while its touchscreen goes on
+         * zooming. `any-pointer` asks whether the device has a coarse input at
+         * all, which is the question.
+         */
+        touch: { raw: "(any-pointer: coarse)" },
       },
       colors: {
         "bg-selection": "var(--bg-selection)",
@@ -64,6 +80,7 @@ module.exports = {
         "fg-brand-primary": "var(--fg-brand-primary)",
         "fg-brand-primary-alt": "var(--fg-brand-primary-alt)",
         "border-brand-primary": "var(--border-brand-primary)",
+        "border-focus": "var(--border-focus)",
         "bg-brand-secondary": "var(--bg-brand-secondary)",
         "bg-brand-secondary-hover": "var(--bg-brand-secondary-hover)",
         "fg-brand-secondary": "var(--fg-brand-secondary)",

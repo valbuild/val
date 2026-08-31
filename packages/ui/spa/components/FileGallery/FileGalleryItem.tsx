@@ -36,10 +36,10 @@ export function FileGalleryItem({
       className={cn(
         "group flex w-full flex-col overflow-hidden rounded border bg-bg-primary transition-all",
         "hover:shadow-md",
-        "focus:outline-none focus:ring-2 focus:ring-offset-2",
+        "focus:outline-none focus:ring-2",
         hasErrors
           ? "border-bg-error-primary ring-bg-error-primary/50 hover:border-bg-error-primary-hover focus:ring-bg-error-primary"
-          : "border-border-secondary hover:border-border-primary focus:ring-ring",
+          : "border-border-secondary hover:border-border-primary focus:ring-border-focus",
       )}
       title={hasErrors ? file.validationErrors?.join(", ") : undefined}
     >

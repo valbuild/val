@@ -22,6 +22,7 @@ function input(over: Partial<PublishButtonInput> = {}): PublishButtonInput {
     autoPublish: false,
     pendingServerSidePatchCount: 1,
     pendingClientSidePatchCount: 0,
+    netChangesEmpty: false,
     ...over,
   };
 }
@@ -145,5 +146,51 @@ describe("describePublishButton", () => {
     expect(
       describePublishButton(input({ autoPublish: true, mode: "http" })),
     ).toMatchObject({ kind: "ready" });
+  });
+
+  describe("when every change has been reverted", () => {
+    test("there is nothing to publish, and the reason says how to clear it", () => {
+      const state = describePublishButton(
+        input({ mode: "http", netChangesEmpty: true }),
+      );
+      expect(state).toMatchObject({
+        kind: "idle",
+        label: "Publish",
+        action: "none",
+      });
+      // Not "Nothing to send": there IS something queued. It just cancels out,
+      // and Discard is the only way past it now that Publish is off.
+      expect(state.reason).toContain("reverted");
+      expect(state.reason).toContain("Discard");
+    });
+
+    test("but not while an edit is still on its way to the server", () => {
+      // Mid-keystroke the chain is a prefix of what has been typed, so "the net
+      // effect is nothing" is a claim about an unfinished edit. Acting on it
+      // flickers the button off and on again while someone retypes a value.
+      const state = describePublishButton(
+        input({ netChangesEmpty: true, pendingClientSidePatchCount: 1 }),
+      );
+      expect(state.reason).toBe(
+        "Waiting for the last edit to reach the server.",
+      );
+    });
+
+    test("validation errors still come first", () => {
+      // Both hold at once when a reverted module leaves an unrelated error
+      // standing: the error is actionable and the revert is not, so the button
+      // stays a pressable "Fix".
+      const state = describePublishButton(
+        input({ netChangesEmpty: true, validationErrorCount: 2 }),
+      );
+      expect(state).toMatchObject({ kind: "blocked", label: "Fix 2" });
+    });
+
+    test("an empty chain still reads as nothing to send", () => {
+      const state = describePublishButton(
+        input({ netChangesEmpty: true, pendingServerSidePatchCount: 0 }),
+      );
+      expect(state.reason).toBe("Nothing to send.");
+    });
   });
 });
