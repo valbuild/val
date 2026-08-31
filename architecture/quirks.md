@@ -90,8 +90,9 @@ what is already there. If you nest one, make it idempotent.
 stay masked.** `StringField`'s textarea worked for years while being
 uncontrolled, because the thing that decided it should BE a textarea arrived from
 the host a tick after the effect that fills `currentValue` — so by the time it
-mounted, the value was there. Making the layout synchronous (it is static schema
-config now, not something the host computes) removed that ordering, and the
+mounted, the value was there. Making the layout synchronous (it is `.multiline()`
+on the serialized schema now, not something the host computes) removed that
+ordering, and the
 textarea started mounting at `null`. `.value` still looked right, because a
 textarea's value follows `defaultValue` while it is untouched — but
 `AutoGrowingTextarea` seeds its invisible sizing ghost from props exactly once,

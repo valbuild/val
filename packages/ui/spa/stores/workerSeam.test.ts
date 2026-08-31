@@ -41,10 +41,12 @@ const project = () => {
         // non-cloneable, in one module: a regexp (serialized as {source, flags}
         // rather than a RegExp), a keyOf (carries a path), an image (carries a
         // referencedModule), a route, a richtext (carries an options object), a
-        // union (carries an items array), and a `render` (which is the LAYOUT
-        // itself now, not a boolean marker, so it is new data on this seam).
+        // union (carries an items array), a `render` (which is the LAYOUT
+        // itself now, not a boolean marker, so it is new data on this seam) and
+        // a code schema (carries a language in its options).
         slug: s.string().regexp(/^[a-z-]+$/),
-        notes: s.string().render({ as: "code", language: "json" }),
+        notes: s.code({ language: "json" }),
+        summary: s.string().multiline().render({ as: "inline" }),
         owner: s.keyOf(authors),
         hero: s.image(),
         link: s.route(),
@@ -59,6 +61,7 @@ const project = () => {
         title: "Hello",
         slug: "hello",
         notes: "{}",
+        summary: "line one\nline two",
         owner: "ada",
         hero: {
           path: "/public/val/x.png",

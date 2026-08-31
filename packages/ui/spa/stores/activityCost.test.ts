@@ -62,7 +62,7 @@ const stringRendered = () => {
   const { c, s } = initVal();
   return c.define(
     "/stringRendered.val.ts",
-    s.object({ body: s.string().render({ as: "textarea" }) }),
+    s.object({ body: s.string().multiline() }),
     { body: "hello" },
   );
 };

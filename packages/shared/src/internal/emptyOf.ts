@@ -97,6 +97,8 @@ export function emptyOf(schema: SerializedSchema): Json {
       { r: 128, g: 128, b: 128, a: 1 },
       schema.options?.format ?? DEFAULT_COLOR_FORMAT,
     );
+  } else if (schema.type === "code") {
+    return ""; // An empty editor: no language has a sensible starting snippet
   }
   const _exhaustiveCheck: never = schema;
   throw Error("Unexpected schema type: " + JSON.stringify(_exhaustiveCheck));
