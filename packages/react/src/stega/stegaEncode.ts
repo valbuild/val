@@ -16,6 +16,7 @@ import {
   SerializedDateSchema,
   SerializedDateTimeSchema,
   SerializedColorSchema,
+  SerializedCodeSchema,
 } from "@valbuild/core";
 import { vercelStegaCombine, vercelStegaSplit } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
@@ -420,6 +421,12 @@ export function stegaEncode(
     if (recOpts?.schema && isColorSchema(recOpts?.schema)) {
       return sourceOrSelector;
     }
+    // Stega weaves invisible characters into the string. In source code they
+    // are not invisible: they are syntax errors, or silent corruption in a
+    // string literal. So a code value is handed back verbatim.
+    if (recOpts?.schema && isCodeSchema(recOpts?.schema)) {
+      return sourceOrSelector;
+    }
     if (recOpts?.schema && isUnionSchema(recOpts?.schema)) {
       // Handle tagged union
       const taggedSchema = resolveTaggedUnionSchema(
@@ -591,6 +598,12 @@ function isColorSchema(
   schema: SerializedSchema | undefined,
 ): schema is SerializedColorSchema {
   return schema?.type === "color";
+}
+
+function isCodeSchema(
+  schema: SerializedSchema | undefined,
+): schema is SerializedCodeSchema {
+  return schema?.type === "code";
 }
 
 function unknownSchema(schema: unknown) {

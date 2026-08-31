@@ -57,6 +57,7 @@
   - [keyOf](#keyof)
   - [Route](#route)
   - [Color](#color)
+  - [Code](#code)
   - [Date](#date)
   - [DateTime](#datetime)
 
@@ -353,6 +354,8 @@ To configure your project for monorepos, you can use the `root` parameter descri
 import { s } from "./val.config";
 
 s.string(); // <- Schema<string>
+
+s.string().multiline(); // edited in a growing text box, not a single-line input
 ```
 
 ## Number
@@ -562,6 +565,45 @@ for it to read into the value's content.
 > closure no longer receives `key` — derive the title from `val`. And
 > `.jsonValues()` must come before `.preview(...)`, like `.validate(...)`.
 
+### Multi-line strings and code
+
+A string that holds more than one line says so with `.multiline()`: the editor
+gives it a growing text box instead of a single-line input. Nothing else changes —
+the value is a plain string.
+
+```ts
+const articleSchema = s.object({
+  title: s.string(),
+  // A multi-line box instead of a single-line input
+  summary: s.string().multiline(),
+  // A syntax-highlighted code editor
+  snippet: s.code({ language: "typescript" }),
+});
+```
+
+`s.code()` is its own schema type, edited in a code editor. Its `language`
+option — `typescript`, `javascript`, `json`, `html`, `css`, `markdown`,
+`python`, `sql` and others; see `CodeLanguage` in `@valbuild/core` for the full
+list — decides the syntax highlighting. Leave it out for a plain monospaced
+editor with no highlighting.
+
+The value is a string like any other, with one difference: a code value is
+never stega encoded, so what reaches your app is exactly
+what was written. Invisible characters are an edit tag in prose and corruption
+in source code.
+
+> **Breaking.** `s.string().render({ as: "textarea" })` and
+> `s.string().render({ as: "code", language })` have been removed. Neither was
+> about layout: whether a string may hold line breaks is a fact about the
+> content, and a language is part of what the value is.
+>
+> ```ts
+> s.string().multiline(); // was .render({ as: "textarea" })
+> s.code({ language: "typescript" }); // was .render({ as: "code", language })
+> ```
+>
+> `.render(...)` now takes only `{ as: "inline" }`, on every field alike.
+
 ### Field rendering
 
 A **render** is how ONE field is laid out in the editor when you are LOOKING at
@@ -569,20 +611,6 @@ that field. It is static configuration rather than a function, and it is a
 different thing from a preview: a render is the field's own layout, a preview is
 how the value shows where it is navigable to. A schema can carry both, and a
 second `.render(...)` replaces the first rather than merging with it.
-
-```ts
-const articleSchema = s.object({
-  title: s.string(),
-  // A multi-line box instead of a single-line input
-  summary: s.string().render({ as: "textarea" }),
-  // A syntax-highlighted code editor
-  snippet: s.string().render({ as: "code", language: "typescript" }),
-});
-```
-
-`as: "code"` takes a `language` — `typescript`, `javascript`, `json`, `html`,
-`css`, `markdown`, `python`, `sql` and others; see `CodeLanguage` in
-`@valbuild/core` for the full list.
 
 #### Editing list items in place
 
@@ -1098,6 +1126,49 @@ To hand a color to a stylesheet instead, set it as a CSS custom property:
 ```
 
 **NOTE**: colors are not steganographically tagged, since the value ends up in CSS where the invisible characters would break the declaration. Colors therefore do not participate in click-then-edit visual editing (the same is true of dates) - edit them from the studio instead.
+
+## Code
+
+The `code` schema is a string edited in a code editor. It is a schema type of
+its own rather than a layout on `s.string()`, because the language is part of
+what the value is — and because a code value is never stega encoded, so what
+reaches your app is exactly what was written.
+
+### Code Schema
+
+```ts
+s.code(); // <- Schema<string>, a monospaced editor with no highlighting
+s.code({ language: "typescript" }); // syntax highlighted
+```
+
+### Languages
+
+`language` is one of `typescript`, `javascript`, `typescriptreact`,
+`javascriptreact`, `json`, `java`, `html`, `css`, `xml`, `markdown`, `sql`,
+`python`, `rust`, `php`, `go`, `cpp`, `sass`, `vue` or `angular` — the
+`CodeLanguage` type exported from `@valbuild/core`. Leave it out for a plain
+monospaced editor.
+
+The language decides the highlighting only: the content is never checked against
+it, since a half-written snippet is a normal thing to save an editor in. Use
+`.validate()` if you need more than that.
+
+### Initializing code content
+
+```ts
+import { s, c, type t } from "../val.config";
+
+export const schema = s.object({
+  snippet: s.code({ language: "typescript" }).describe("Example usage"),
+  styles: s.code({ language: "css" }).nullable(),
+});
+
+export type Example = t.inferSchema<typeof schema>;
+export default c.define("/content/example.val.ts", schema, {
+  snippet: "const val = initVal();",
+  styles: null,
+});
+```
 
 ## Date
 

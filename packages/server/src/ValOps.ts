@@ -803,8 +803,8 @@ export abstract class ValOps {
    * instances in the browser and would otherwise get no previews at all. See
    * #470.
    *
-   * A string's `render` needs none of this — it is static config that travels
-   * with the serialized schema.
+   * A `render`, and a string's `multiline`, need none of this — they are static
+   * config that travels with the serialized schema.
    */
   async getPreviews(
     schemas: Schemas,
