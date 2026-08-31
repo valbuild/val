@@ -4,8 +4,9 @@
 
 Fix session token verification in `@valbuild/server`
 
-`decodeJwt` had three problems, each of which let a session cookie be accepted
-that should not have been:
+`decodeJwt` had three problems. Two of them let a session cookie be accepted
+that should not have been; the third leaked information about the signature it
+was checking:
 
 - **`exp` was never checked.** The payload was parsed and returned as-is, and
   the callers' zod schemas only asserted that `exp` was a number. A session
@@ -13,9 +14,9 @@ that should not have been:
   `expires` attribute on the cookie, which the browser holding it controls. The
   Studio's "session invalid or, most likely, expired" message was never once
   produced by an expiry check.
-- **The signature was compared with `!==`.** String comparison short-circuits on
-  the first differing byte, which leaks how much of a guessed signature was
-  correct.
+- **The signature was compared with `!==`.** This one did reject every invalid
+  signature - but string comparison short-circuits on the first differing byte,
+  so how long it took leaked how much of a guessed signature was correct.
 - **Verification was skipped entirely when `secretKey` was falsy.** One
   forgotten argument — or a `VAL_SECRET` that read as `""` — turned the session
   cookie into an unauthenticated, attacker-writable claim of identity, with no

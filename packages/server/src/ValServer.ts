@@ -201,10 +201,15 @@ export const ValServer = (
       .then(async (res) => {
         if (res.status === 200) {
           const token = await res.text();
-          // NOTE: this token is signed by val.build with a key we do not hold,
-          // so we cannot verify it. What makes it trustworthy is where it came
-          // from: an api-key authenticated HTTPS POST to val.build, above. It
-          // is not user input.
+          // NOTE: this token is signed by val.build with a key we do not
+          // hold, so we cannot verify it. What stands in for a signature check
+          // is where it came from: the POST above, authenticated with the
+          // project's api key, to the configured `valBuildUrl`. It is not user
+          // input - but it is only as trustworthy as that host and that
+          // channel, and `valBuildUrl` is overridable (`opts.valBuildUrl`,
+          // `VAL_BUILD_URL`) and not required to be https. Point it at a plain
+          // http host and this payload - which is re-signed into the session
+          // cookie below - is whatever the network says it is.
           const decoded = decodeJwtWithoutVerifying(token);
           if (!decoded.success) {
             return null;

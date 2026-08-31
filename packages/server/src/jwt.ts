@@ -33,8 +33,9 @@ export type JwtFailure = {
 export type JwtResult = { success: true; data: JwtPayload } | JwtFailure;
 
 /**
- * Tokens are rejected `exp` seconds after they were issued, with this much
- * slack to absorb clock drift between whoever signed the token and us.
+ * `exp` is an absolute Unix timestamp: a token is rejected once that moment has
+ * passed, with this much slack to absorb clock drift between whoever signed the
+ * token and us.
  */
 const CLOCK_SKEW_LEEWAY_SECONDS = 60;
 
