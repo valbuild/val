@@ -7,7 +7,7 @@ import {
 } from "@valbuild/core";
 import { HotspotMarker } from "./fields/HotspotMarker";
 import { deepEqual, ReadonlyJSONValue } from "@valbuild/core/patch";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { usePatchSetsWorker } from "../patchsets/usePatchSetsWorker";
 import classNames from "classnames";
 import {
@@ -70,6 +70,7 @@ import { FieldPathLink } from "./FieldPathLink";
 import { useNavLink } from "./navLink";
 import { refToUrl } from "./MediaPicker/refToUrl";
 import { HeldSummary, StagingToggle } from "./StagingToggle";
+import { splitTreesByStaging } from "../utils/splitTreesByStaging";
 import { usePatchStaging } from "./PatchStagingProvider";
 
 /**
@@ -226,28 +227,144 @@ export function ComparePatchSets({
         canDiscard={canDiscard}
         portalContainer={portalContainer}
       />
-      {trees.map((tree, index) => (
-        <Fragment
-          key={`${tree.isCommitted ? "committed" : "pending"}-${tree.sourcePath}`}
-        >
-          {index === firstCommittedIndex &&
-            (deployment === undefined ? (
-              <DeployedDivider />
-            ) : (
-              <DeployedDividerPure deployment={deployment} />
-            ))}
-          <ModuleGroup
-            tree={tree}
-            profilesByAuthorIds={profilesByAuthorIds}
-            portalContainer={portalContainer}
-            mode={mode}
-            schemas={schemasData}
-            canDiscard={canDiscard}
-          />
-        </Fragment>
-      ))}
+      <StagedSections
+        trees={trees}
+        firstCommittedIndex={firstCommittedIndex}
+        deployment={deployment}
+        profilesByAuthorIds={profilesByAuthorIds}
+        portalContainer={portalContainer}
+        mode={mode}
+        schemas={schemasData}
+        canDiscard={canDiscard}
+      />
     </div>
   );
+}
+
+type SectionProps = {
+  trees: ChangeTreeNode[];
+  firstCommittedIndex: number;
+  deployment: ValEnrichedDeployment | null | undefined;
+  profilesByAuthorIds: Record<string, Profile>;
+  portalContainer: HTMLElement | null;
+  mode: "fs" | "http" | "unknown";
+  schemas: Record<ModuleFilePath, SerializedSchema> | undefined;
+  canDiscard: boolean;
+};
+
+/**
+ * The module list, split into what will publish and what is held back.
+ *
+ * Two sections only when staging is on. With it off — FS mode, or a content API
+ * without patch groups — this renders exactly the flat list it always did, which
+ * is the point: the section headers describe a choice that cannot be made there,
+ * and chrome for an absent feature is worse than no chrome.
+ *
+ * Staged first. It is what Publish will ship, so it is what a person opening this
+ * screen is deciding about; the held section is the exception below it.
+ *
+ * The deploy divider lives in the staged section. A committed patch has shipped,
+ * so it is not held by anyone and could not be — there is nothing to unstage.
+ */
+function StagedSections({
+  trees,
+  firstCommittedIndex,
+  deployment,
+  profilesByAuthorIds,
+  portalContainer,
+  mode,
+  schemas,
+  canDiscard,
+}: SectionProps) {
+  const staging = usePatchStaging();
+  const { staged, held } = useMemo(
+    () =>
+      staging.enabled
+        ? splitTreesByStaging(trees, staging.stateOf)
+        : { staged: trees, held: [] },
+    [trees, staging.enabled, staging.stateOf],
+  );
+
+  const renderTrees = (list: ChangeTreeNode[], withDivider: boolean) =>
+    list.map((tree, index) => (
+      <Fragment
+        key={`${tree.isCommitted ? "committed" : "pending"}-${tree.sourcePath}`}
+      >
+        {withDivider &&
+          index === firstCommittedIndex &&
+          (deployment === undefined ? (
+            <DeployedDivider />
+          ) : (
+            <DeployedDividerPure deployment={deployment} />
+          ))}
+        <ModuleGroup
+          tree={tree}
+          profilesByAuthorIds={profilesByAuthorIds}
+          portalContainer={portalContainer}
+          mode={mode}
+          schemas={schemas}
+          canDiscard={canDiscard}
+        />
+      </Fragment>
+    ));
+
+  if (!staging.enabled) {
+    return <>{renderTrees(staged, true)}</>;
+  }
+
+  return (
+    <>
+      <SectionHeading
+        title="Staged"
+        detail="Publish ships these."
+        count={countRows(staged)}
+      />
+      {staged.length === 0 ? (
+        <EmptySection>
+          Nothing is staged, so Publish has nothing to ship. Stage a change
+          below to publish it.
+        </EmptySection>
+      ) : (
+        renderTrees(staged, true)
+      )}
+      <SectionHeading
+        title="Unstaged"
+        detail="Held back. These stay pending and can be staged again."
+        count={countRows(held)}
+      />
+      {held.length === 0 ? (
+        <EmptySection>Nothing is held back.</EmptySection>
+      ) : (
+        renderTrees(held, false)
+      )}
+    </>
+  );
+}
+
+function countRows(trees: ChangeTreeNode[]): number {
+  return trees.flatMap(flattenChanges).length;
+}
+
+function SectionHeading({
+  title,
+  detail,
+  count,
+}: {
+  title: string;
+  detail: string;
+  count: number;
+}) {
+  return (
+    <div className="flex items-baseline gap-2 border-b border-border-primary pb-2">
+      <span className="text-sm font-medium text-fg-primary">{title}</span>
+      <span className="text-sm text-fg-tertiary tabular-nums">{count}</span>
+      <span className="text-xs text-fg-tertiary truncate">{detail}</span>
+    </div>
+  );
+}
+
+function EmptySection({ children }: { children: ReactNode }) {
+  return <div className="text-xs text-fg-tertiary px-1">{children}</div>;
 }
 
 /**
