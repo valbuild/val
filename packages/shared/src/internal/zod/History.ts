@@ -131,6 +131,11 @@ export type HistoricalPatchSet = z.infer<typeof HistoricalPatchSet>;
 /**
  * Whether the historical value can be written back as the project stands.
  *
+ * Computed in the Studio, not on the server: the verdict depends on the current
+ * source and the current schema, both of which the client already holds, and it
+ * runs against the same worker-thread validator that validates ordinary edits.
+ * The types stay here because they are what a restore preview hands to the UI.
+ *
  * `blocked` carries its reasons so a refusal can name the field and say why,
  * rather than being an unexplained disabled button.
  */

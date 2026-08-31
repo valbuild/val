@@ -12,11 +12,7 @@ import {
 import { Patch, PatchId } from "./zod/Patch";
 import { SerializedSchema } from "./zod/SerializedSchema";
 import { ValCommit } from "./zod/ValCommit";
-import {
-  HistoricalCommit,
-  HistoricalPatchSet,
-  ModuleComparison,
-} from "./zod/History";
+import { HistoricalCommit, HistoricalPatchSet } from "./zod/History";
 
 const ModuleFilePath = z.string().refine(
   (_path): _path is ModuleFilePath => true, // TODO: validation
@@ -1127,35 +1123,6 @@ export const Api = {
           json: GenericError.and(z.object({ kind: z.string().optional() })),
         }),
         z.object({ status: z.literal(200), json: HistoricalPatchSet }),
-      ]),
-    },
-  },
-  /**
-   * The same commit measured against the source as it is NOW, with a verdict on
-   * whether each module could be restored into today's schema. Never cached:
-   * the current source moves with every edit.
-   */
-  "/history/compare": {
-    GET: {
-      req: {
-        query: { commit_sha: onlyOneStringQueryParam },
-        cookies: { val_session: z.string().optional() },
-      },
-      res: z.union([
-        unauthorizedResponse,
-        notFoundResponse,
-        z.object({ status: z.literal(400), json: GenericError }),
-        z.object({
-          status: z.literal(500),
-          json: GenericError.and(z.object({ kind: z.string().optional() })),
-        }),
-        z.object({
-          status: z.literal(200),
-          json: z.object({
-            patchSet: HistoricalPatchSet,
-            modules: z.record(ModuleFilePath, ModuleComparison),
-          }),
-        }),
       ]),
     },
   },

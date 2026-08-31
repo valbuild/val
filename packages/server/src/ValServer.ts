@@ -47,7 +47,6 @@ import { result } from "@valbuild/core/fp";
 import type { HistoryError } from "./history/HistoryError";
 import { historyErrorMessage } from "./history/HistoryError";
 import { getHistoricalPatchSet } from "./history/getHistoricalPatchSet";
-import { getHistoricalComparison } from "./history/getHistoricalComparison";
 import { getSettings } from "./getSettings";
 import {
   getPersonalAccessTokenPath,
@@ -2829,27 +2828,6 @@ export const ValServer = (
           // schema, so it cannot change for this sha. Immutable is what makes
           // comparing many commits cheap.
           headers: { "Cache-Control": "public, max-age=31536000, immutable" },
-        };
-      },
-    },
-    "/history/compare": {
-      GET: async (req) => {
-        const auth = getAuth(req.cookies);
-        if (auth.error) {
-          return { status: 401, json: { message: auth.error } };
-        }
-        const res = await getHistoricalComparison(
-          serverOps,
-          req.query.commit_sha,
-        );
-        if (result.isErr(res)) {
-          return historyErrorResponse(res.error);
-        }
-        return {
-          status: 200,
-          json: res.value,
-          // Depends on the current source, which moves with every edit.
-          headers: { "Cache-Control": "no-store" },
         };
       },
     },

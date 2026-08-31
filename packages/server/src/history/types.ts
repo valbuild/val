@@ -92,29 +92,3 @@ export type HistoricalPatchSet = {
   /** Problems that are about the commit but did not stop it being read. */
   warnings: HistoryError[];
 };
-
-/**
- * Whether the historical value can be written back into the project as it is
- * today.
- *
- * Per patch set rather than per module: a patch set is the smallest thing a UI
- * offers to restore, so it is the smallest thing worth blocking. The reasons
- * are kept so a refusal can say which field and why, rather than just "no".
- */
-export type RestoreVerdict =
-  | { status: "restorable" }
-  | { status: "blocked"; reasons: HistoryError[] };
-
-export type ModuleComparison = {
-  /** The module's source right now. `null` if it no longer exists. */
-  current: JSONValue | null;
-  /** Paths where `after` and `current` differ: what a restore would undo. */
-  changedVsCurrent: SourcePath[];
-  verdict: RestoreVerdict;
-};
-
-/** A reconstructed commit, measured against the project as it is now. */
-export type HistoricalComparison = {
-  patchSet: HistoricalPatchSet;
-  modules: Record<ModuleFilePath, ModuleComparison>;
-};

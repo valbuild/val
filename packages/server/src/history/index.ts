@@ -7,16 +7,18 @@ export type {
   CommitPatch,
   FileChange,
   HistoricalCommit,
-  HistoricalComparison,
   HistoricalModule,
   HistoricalPatchSet,
-  ModuleComparison,
-  RestoreVerdict,
 } from "./types";
 
-// The entry point. Everything below it is exported for callers that want one
-// step on its own - warming a cache, or checking a narrower selection.
-export { getHistoricalComparison } from "./getHistoricalComparison";
+/**
+ * Reading the past. The COMPARISON against the current source is deliberately
+ * not here: it depends on source that moves with every keystroke, and both the
+ * source and a schema validator already live in the Studio - so doing it here
+ * would mean a network round trip per recompute to answer a question the client
+ * can answer locally. See packages/ui/spa/history.
+ */
+export { getHistoricalPatchSet } from "./getHistoricalPatchSet";
 
 export { listCommits } from "./listCommits";
 export { fetchCommitRecord } from "./fetchCommitRecord";
@@ -27,8 +29,4 @@ export {
   describeBinaryFilesAtCommit,
   historyFileUrl,
 } from "./describeBinaryFiles";
-export { validateAgainstCurrentSchema } from "./validateAgainstCurrentSchema";
 export { diffSources } from "./diffSources";
-export { buildRestoreVerdict } from "./restorability";
-export { getHistoricalPatchSet } from "./getHistoricalPatchSet";
-export { compareWithCurrent } from "./compareWithCurrent";

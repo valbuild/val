@@ -919,9 +919,6 @@ importers:
       react-resizable:
         specifier: ^4.0.2
         version: 4.0.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      rfc6902:
-        specifier: ^5.3.0
-        version: 5.3.0
       rollup:
         specifier: ^4.59.0
         version: 4.63.1
@@ -8284,9 +8281,6 @@ packages:
   reusify@1.1.0:
     resolution: {integrity: sha512-g6QUff04oZpHs0eG5p83rFLhHeV00ug/Yf9nZM6fLeUrPguBTkTQOdpAWWspMh55TZfVQDPaN3NQJfbVRAxdIw==}
     engines: {iojs: '>=1.0.0', node: '>=0.10.0'}
-
-  rfc6902@5.3.0:
-    resolution: {integrity: sha512-8x9uqKB5FeC3jhdtmBtI2Z2GR0+VE1VLbQ7Luy5RcnCxUa4+Z1n8w2G1D+GevkRUT33nbbfpAK5O4LhRbnaIPQ==}
 
   rolldown@1.2.6:
     resolution: {integrity: sha512-vMM4q3aixf46GiF1Kok8jDPFsEpXgFWGjUHXNkNHNm+Y2adXAG2dbX91jkti3i0ZRsOlcmbuzAz1poObSHCmUA==}
@@ -17429,8 +17423,6 @@ snapshots:
       supports-preserve-symlinks-flag: 1.0.0
 
   reusify@1.1.0: {}
-
-  rfc6902@5.3.0: {}
 
   rolldown@1.2.6:
     dependencies:
