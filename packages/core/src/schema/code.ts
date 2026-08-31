@@ -145,7 +145,7 @@ export class CodeSchema<Src extends string | null> extends Schema<Src> {
       });
     }
     if (errors.length > 0) {
-      return { [path]: errors } as ValidationErrors;
+      return { [path]: errors };
     }
     return false;
   }

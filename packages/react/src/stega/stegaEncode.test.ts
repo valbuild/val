@@ -291,6 +291,98 @@ describe("stega transform", () => {
     expect(transformed.fill).toStrictEqual("hsl(0 100% 50%)");
   });
 
+  // Code has the same problem as a color, and worse: the invisible characters
+  // stega appends are a syntax error in most languages, and silent corruption
+  // inside a string literal. Byte-for-byte unchanged is the whole reason
+  // `s.code()` is a schema type rather than a layout on `s.string()`.
+  test("skip stegaEncode on code", () => {
+    for (const [schema, code] of [
+      [s.code(), "no language, still untouched"],
+      [s.code({ language: "typescript" }), "const a = 1;"],
+      [s.code({ language: "json" }), '{ "a": 1 }'],
+      [s.code({ language: "python" }), "def f():\n    return 1\n"],
+    ] as const) {
+      const transformed = stegaEncode(
+        c.define("/test1.val.ts", schema, code),
+        {},
+      );
+      expect(transformed).toStrictEqual(code);
+      expect(vercelStegaSplit(transformed).encoded).toStrictEqual("");
+    }
+  });
+
+  test("skip stegaEncode on code, but not on the strings next to it", () => {
+    const schema = s.object({
+      snippet: s.code({ language: "typescript" }),
+      styles: s.code({ language: "css" }).nullable(),
+      caption: s.string(),
+    });
+    const transformed = stegaEncode(
+      c.define("/test1.val.ts", schema, {
+        snippet: "const a = 1;",
+        styles: ".a { color: red }",
+        caption: "An example",
+      }),
+      {},
+    );
+    expect(transformed.snippet).toStrictEqual("const a = 1;");
+    expect(transformed.styles).toStrictEqual(".a { color: red }");
+    // the sibling string is still encoded: the code is skipped because of its
+    // schema, not because encoding is off for the whole module
+    expect(vercelStegaSplit(transformed.caption).cleaned).toStrictEqual(
+      "An example",
+    );
+    expect(vercelStegaDecode(transformed.caption)).toStrictEqual({
+      data: {
+        valPath: '/test1.val.ts?p="caption"',
+      },
+      origin: "val.build",
+    });
+  });
+
+  test("skip stegaEncode on code nested in records and arrays", () => {
+    const schema = s.record(s.array(s.object({ body: s.code() })));
+    const transformed = stegaEncode(
+      c.define("/test1.val.ts", schema, {
+        examples: [{ body: "const a = 1;" }, { body: "const b = 2;" }],
+      }),
+      {},
+    );
+    expect(transformed.examples[0].body).toStrictEqual("const a = 1;");
+    expect(transformed.examples[1].body).toStrictEqual("const b = 2;");
+  });
+
+  // The page-builder shape the example app uses: a code block as one variant of
+  // an inline union. Recursion into a union member is a separate path from the
+  // record/array one above, and the skip has to survive it too.
+  test("skip stegaEncode on code inside a tagged union", () => {
+    const schema = s.union(
+      "type",
+      s.object({
+        type: s.literal("code"),
+        code: s.code({ language: "typescript" }),
+      }),
+      s.object({ type: s.literal("text"), body: s.string() }),
+    );
+    const transformed = stegaEncode(
+      c.define("/test1.val.ts", schema, {
+        type: "code",
+        code: 'console.log("hi");',
+      }),
+      {},
+    );
+    expect(transformed.code).toStrictEqual('console.log("hi");');
+  });
+
+  test("stega type of code is a plain string, not a ValEncodedString", () => {
+    // An arbitrary string is assignable to the stega type of code. It would not
+    // be if the type claimed the value was encoded, since ValEncodedString is
+    // branded - so this line pins the type to match the runtime skip above.
+    const code: StegaOfSource<SchemaOf<ReturnType<typeof s.code>>> =
+      "const a = 1;" as string;
+    expect(code).toStrictEqual("const a = 1;");
+  });
+
   test("stega type of a color is a plain string, not a ValEncodedString", () => {
     // An arbitrary string is assignable to the stega type of a color. It would
     // not be if the type claimed the value was encoded, since ValEncodedString
