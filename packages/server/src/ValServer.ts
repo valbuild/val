@@ -28,7 +28,13 @@ import {
   ValServerError,
   ValServerErrorStatus,
 } from "@valbuild/shared/internal";
-import { decodeJwt, encodeJwt, getExpire } from "./jwt";
+import {
+  decodeJwtWithoutVerifying,
+  encodeJwt,
+  getExpire,
+  verifyJwt,
+  type JwtFailureReason,
+} from "./jwt";
 import { z } from "zod";
 import { ValOpsFS } from "./ValOpsFS";
 import { computePatchesToDrop, DroppedPatch } from "./computePatchesToDrop";
@@ -195,7 +201,20 @@ export const ValServer = (
       .then(async (res) => {
         if (res.status === 200) {
           const token = await res.text();
-          const verification = ValAppJwtPayload.safeParse(decodeJwt(token));
+          // NOTE: this token is signed by val.build with a key we do not
+          // hold, so we cannot verify it. What stands in for a signature check
+          // is where it came from: the POST above, authenticated with the
+          // project's api key, to the configured `valBuildUrl`. It is not user
+          // input - but it is only as trustworthy as that host and that
+          // channel, and `valBuildUrl` is overridable (`opts.valBuildUrl`,
+          // `VAL_BUILD_URL`) and not required to be https. Point it at a plain
+          // http host and this payload - which is re-signed into the session
+          // cookie below - is whatever the network says it is.
+          const decoded = decodeJwtWithoutVerifying(token);
+          if (!decoded.success) {
+            return null;
+          }
+          const verification = ValAppJwtPayload.safeParse(decoded.data);
           if (!verification.success) {
             return null;
           }
@@ -234,8 +253,8 @@ export const ValServer = (
       }
     }
     if (typeof cookie === "string") {
-      const decodedToken = decodeJwt(cookie, options.valSecret);
-      if (!decodedToken) {
+      const verifiedToken = verifyJwt(cookie, options.valSecret);
+      if (!verifiedToken.success) {
         if (serverOps instanceof ValOpsFS) {
           return {
             error: null,
@@ -243,11 +262,12 @@ export const ValServer = (
           };
         }
         return {
-          error:
-            "Could not verify session (invalid token). You will need to login again.",
+          error: sessionErrorMessage(verifiedToken.reason),
         };
       }
-      const verification = IntegratedServerJwtPayload.safeParse(decodedToken);
+      const verification = IntegratedServerJwtPayload.safeParse(
+        verifiedToken.data,
+      );
       if (!verification.success) {
         if (serverOps instanceof ValOpsFS) {
           return {
@@ -256,8 +276,7 @@ export const ValServer = (
           };
         }
         return {
-          error:
-            "Session invalid or, most likely, expired. You will need to login again.",
+          error: "Session invalid. You will need to login again.",
         };
       }
       return {
@@ -3007,6 +3026,23 @@ export type IntegratedServerJwtPayload = z.infer<
   typeof IntegratedServerJwtPayload
 >;
 
+/**
+ * The message we show the user when their session cookie does not verify. The
+ * distinction matters: an expired session is normal and self-explanatory, while
+ * a bad signature means the cookie was tampered with or `VAL_SECRET` changed.
+ */
+function sessionErrorMessage(reason: JwtFailureReason): string {
+  switch (reason) {
+    case "expired":
+      return "Session expired. You will need to login again.";
+    case "malformed":
+    case "invalid-signature":
+      return "Could not verify session (invalid token). You will need to login again.";
+    case "missing-secret":
+      return "Setup is not correct: secret is missing";
+  }
+}
+
 async function withAuth<T>(
   secret: string,
   cookies: ValCookies<VAL_SESSION_COOKIE>,
@@ -3030,23 +3066,24 @@ async function withAuth<T>(
 > {
   const cookie = cookies[VAL_SESSION_COOKIE];
   if (typeof cookie === "string") {
-    const decodedToken = decodeJwt(cookie, secret);
-    if (!decodedToken) {
+    const verifiedToken = verifyJwt(cookie, secret);
+    if (!verifiedToken.success) {
       return {
         status: 401 as const,
         json: {
-          message: "Could not verify session. You will need to login again.",
-          details: "Invalid token",
+          message: sessionErrorMessage(verifiedToken.reason),
+          details: verifiedToken.reason,
         },
       };
     }
-    const verification = IntegratedServerJwtPayload.safeParse(decodedToken);
+    const verification = IntegratedServerJwtPayload.safeParse(
+      verifiedToken.data,
+    );
     if (!verification.success) {
       return {
         status: 401 as const,
         json: {
-          message:
-            "Session invalid or, most likely, expired. You will need to login again.",
+          message: "Session invalid. You will need to login again.",
           details: fromError(verification.error).toString(),
         },
       };
