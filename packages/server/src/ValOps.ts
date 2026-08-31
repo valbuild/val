@@ -2154,6 +2154,17 @@ export abstract class ValOps {
   protected abstract getSourceFile(
     path: string,
   ): Promise<WithGenericError<{ data: string }>>;
+  /**
+   * Save a patch's binary file from a `data:...;base64,...` URL.
+   *
+   * The wire form: `FileReader.readAsDataURL` is what the browser produces, and
+   * published `@valbuild/server` versions send it. Code that already HAS bytes
+   * should call {@link saveBinaryFileFromPatch} instead of wrapping them in a
+   * data URL just to have this unwrap them again.
+   *
+   * A `null` `data` records a DELETION, which is why this cannot simply be
+   * replaced by the byte-taking sibling: there is nothing to hand it.
+   */
   abstract saveBase64EncodedBinaryFileFromPatch(
     filePath: string,
     parentRef: ParentRef,
@@ -2162,6 +2173,32 @@ export abstract class ValOps {
     type: "file" | "image",
     metadata: MetadataOfType<"file" | "image"> | undefined,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>>;
+
+  /**
+   * The same, for a caller that already has the bytes.
+   *
+   * Default implementation wraps them back into a data URL so every backend
+   * gets this for free; a backend that can take bytes straight through should
+   * override it.
+   */
+  async saveBinaryFileFromPatch(
+    filePath: string,
+    parentRef: ParentRef,
+    patchId: PatchId,
+    bytes: Buffer,
+    mimeType: string,
+    type: "file" | "image",
+    metadata: MetadataOfType<"file" | "image"> | undefined,
+  ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
+    return this.saveBase64EncodedBinaryFileFromPatch(
+      filePath,
+      parentRef,
+      patchId,
+      `data:${mimeType};base64,${bytes.toString("base64")}`,
+      type,
+      metadata,
+    );
+  }
   abstract getBase64EncodedBinaryFileFromPatch(
     filePath: string,
     patchId: PatchId,
@@ -2507,22 +2544,6 @@ export function createMetadataFromBuffer<T extends BinaryFileType>(
     return { errors };
   }
   return { metadata } as OpsMetadata<T>;
-}
-
-const base64DataAttr = "data:";
-export function getMimeTypeFromBase64(content: string): string | null {
-  const dataIndex = content.indexOf(base64DataAttr);
-  const base64Index = content.indexOf(";base64,");
-  if (dataIndex > -1 || base64Index > -1) {
-    const mimeType = content.slice(
-      dataIndex + base64DataAttr.length,
-      base64Index,
-    );
-    const normalizedMimeType =
-      mimeType === "image/jpg" ? "image/jpeg" : mimeType;
-    return normalizedMimeType;
-  }
-  return null;
 }
 
 // https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types

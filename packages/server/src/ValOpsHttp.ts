@@ -22,7 +22,6 @@ import {
   WithGenericError,
   SaveSourceFilePatchResult,
   SchemaSha,
-  bufferFromDataUrl,
   OrderedPatchesMetadata,
   OrderedPatches,
   SourcesSha,
@@ -1206,7 +1205,12 @@ export class ValOpsHttp extends ValOps {
     if (!file) {
       return null;
     }
-    return bufferFromDataUrl(file.value) ?? null;
+    // Plain base64, the same as the `repo` branch of getBinaryFile above.
+    //
+    // `value` used to be a data: URL here and plain base64 there - two
+    // encodings in one field, told apart only by which branch produced them.
+    // The content service answers base64 for both now.
+    return Buffer.from(file.value, "base64");
   }
 
   protected override async getBase64EncodedBinaryFileMetadataFromPatch<

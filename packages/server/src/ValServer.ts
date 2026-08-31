@@ -2642,22 +2642,24 @@ export const ValServer = (
                     },
                   };
                 }
-                const arrayBuffer = await binaryRes.arrayBuffer();
-                const base64 = Buffer.from(arrayBuffer).toString("base64");
-                const dataUrl = `data:${file.metadata.mimeType};base64,${base64}`;
+                // Bytes straight through. This used to base64 the buffer,
+                // wrap it in a data: URL, and hand that to a method whose first
+                // act was to unwrap it again - ceremony to satisfy a convention
+                // that no longer exists.
+                const bytes = Buffer.from(await binaryRes.arrayBuffer());
                 const type: "image" | "file" =
                   file.metadata.mimeType.startsWith("image/")
                     ? "image"
                     : "file";
-                const saveRes =
-                  await serverOps.saveBase64EncodedBinaryFileFromPatch(
-                    file.filePath,
-                    req.body.parentRef,
-                    req.body.patchId,
-                    dataUrl,
-                    type,
-                    file.metadata,
-                  );
+                const saveRes = await serverOps.saveBinaryFileFromPatch(
+                  file.filePath,
+                  req.body.parentRef,
+                  req.body.patchId,
+                  bytes,
+                  file.metadata.mimeType,
+                  type,
+                  file.metadata,
+                );
                 if (saveRes.error) {
                   return {
                     status: 500 as const,

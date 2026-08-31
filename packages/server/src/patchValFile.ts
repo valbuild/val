@@ -73,19 +73,17 @@ export const patchValFile = async (
     // );
     // sourceFileHandler.moveFile(tempFilePath, "." + filePath);
     // TODO: ensure that directory exists
-    if (content.startsWith("data:/image/svg+xml")) {
-      sourceFileHandler.writeFile(
-        "." + filePath,
-        convertDataUrlToBase64(content).toString("utf8"),
-        "utf8",
-      );
-    } else {
-      sourceFileHandler.writeFile(
-        "." + filePath,
-        convertDataUrlToBase64(content).toString("binary"),
-        "binary",
-      );
-    }
+    // NOTE: there used to be a branch here testing
+    // `content.startsWith("data:/image/svg+xml")` - with a stray slash after
+    // `data:`, so it could never match a real data URL and SVGs took the
+    // "binary" path anyway. Removed rather than fixed: the branch existed to
+    // write SVG as utf8, and writing the decoded bytes is correct for every
+    // type including SVG.
+    sourceFileHandler.writeFile(
+      "." + filePath,
+      convertDataUrlToBase64(content).toString("binary"),
+      "binary",
+    );
   }
 
   sourceFileHandler.writeSourceFile(newSourceFile.value);
