@@ -96,8 +96,8 @@ _what gets published_, so they are in this feature's scope.
 
 2. **`insertedPatches` bookkeeping is wrong for multi-op patches.** Worse than it
    first looked, because `insert` is called **once per op**, not once per patch —
-   see `ValSyncEngine.patchSetInsert` and the re-insert loop around
-   `ValServer`-driven sync. Given that:
+   see `PatchSetStore.insertRecords` (`packages/ui/spa/stores/PatchSetStore.ts`),
+   which is now the only production caller. Given that:
    - `this.insertedPatches.add(patchId)` sits _before_ the
      `if (op.op === "file" || op.op === "test") return;` line, so a patch whose
      **first** op is a `file` op marks the whole patch inserted and then hits the
@@ -134,7 +134,7 @@ Everything below follows from this, so the consequences are worth spelling out.
 
 The preview needs no separate plumbing. `ValNextProvider` renders draft content
 **browser-side** from the same store the studio reads ("draft data is browser-only"),
-so once `ValSyncEngine` applies only the group's patches to its optimistic source,
+so once `SourceStore` applies only the group's patches to the source it serves,
 studio and preview are staged-correct together. The server-side path needs exactly one
 change: a `patch_group_id` on `PUT /sources/~?apply_patches=true` (§6.2), so the
 server-applied source agrees with the client's.
@@ -432,12 +432,13 @@ with the source op in the same patch, and group membership is per patch.
 **`applicable/patches` must keep returning the full patch chain.** This is not a
 style preference, it is a correctness constraint:
 
-`ValSyncEngine.getParentRef()` computes the parent of a new patch as the **last**
-patch id it knows about (`packages/ui/spa/ValSyncEngine.ts`). If the server filtered
-the response down to one group, every client would compute a parent that is not the
-real chain head, and `PUT /patches` would answer 409 `patch-head-conflict` forever.
-Any filtering variant would have to add an explicit chain-head field and rework
-`getParentRef` — real work, for no benefit.
+`PatchSync.currentParentRef()` computes the parent of a new write from what the
+server has said exists (`packages/ui/spa/stores/PatchSync.ts`); the server keeps ONE
+linear chain and checks the `parentRef` of every write. If the server filtered the
+response down to one group, every client would compute a parent that is not the real
+chain head, and `PUT /patches` would answer 409 `patch-head-conflict` forever. Any
+filtering variant would have to add an explicit chain-head field and rework
+`currentParentRef` — real work, for no benefit.
 
 So the endpoint stays a full listing and gains annotations. This is safe for old
 clients because `GetApplicablePatches` in `ValOpsHttp.ts` is a plain (non-strict)
@@ -653,16 +654,45 @@ Built on this branch, each as its own commit:
 - [x] **UI** — `PatchStagingProvider`, `StagingToggle`, `HeldSummary`, wired into
       `ComparePatchSets`, with four Storybook stories.
 
-Left, and **blocked on content.val.build** (see `HOME_REPO_PROMPT.md`):
+- [x] **Server side (content.val.build)** — `valbuild/home`, branch
+      `feat/independent-publish`: `val_patch_groups` / `val_patch_group_patches`,
+      the group fields on `POST /patches` (with the fan-out to every other open
+      group), additive `patchGroupIds` / `patchGroups` on `applicable/patches`,
+      `GET /patch-groups` and `POST`/`DELETE /patch-groups/:id/patches`, commit
+      bookkeeping, and `alsoUnstagePatchIds` on `DELETE /patches`. Behaviour-neutral:
+      nothing reads it yet.
 
-- [ ] `ValSyncEngine`: hold the group, send `patchGroupId` + `alsoAddPatchIds` on
-      `PUT /patches`, apply only the group's patches to the optimistic source, compute
-      and react to `patchGroupsSha`, and refuse edits into a held region via
-      `editWouldRestage`.
-- [ ] Feed the real group into `PatchStagingProvider` where the compare view is
+Left. Nothing is blocked any more — the server side exists; this is the client
+wiring that turns it on.
+
+**The wiring target moved.** `ValSyncEngine` was deleted in `22047f2c9` ("the store
+system is the Studio"), so each item below names the store that now owns the job.
+See `packages/ui/spa/stores/architecture.md`.
+
+- [ ] **Hold the group** — group state in the store system, read from the
+      `patchGroups` annotation on `applicable/patches`, and `patchGroupsSha` through
+      `StatStore` so a stage/unstage in one tab reaches another. Patch ids alone
+      cannot detect it: the pending set is unchanged, only who holds them.
+- [ ] **Send the closure on write** — `PatchSync` adds `patchGroupId`,
+      `alsoAddPatchIds` and `holdBackForGroupIds` to `PUT /patches`. `stageClosure`
+      already computes them; nothing calls it on the write path yet.
+- [ ] **Group-scoped source** — `SourceStore` folds in only the group's patches, so
+      studio and preview show `base + your group` rather than everything pending.
+      This is the item that makes "staged is the truth" (§2) true rather than aspirational.
+- [ ] **Enforce the guard at the point of editing** — `editWouldRestage` on the write
+      path (`useAddPatch` / `writePath`), so a held region is genuinely read-only
+      instead of a rule the tests know and the app does not.
+- [ ] **Publish the group, not everything** — `PublishSeam` already takes
+      `patchIds: PatchId[]`, so this is choosing the group's ids; also pass
+      `patchGroupId` to `POST /commit` for the bookkeeping.
+- [ ] **Feed the real group into `PatchStagingProvider`** where the compare view is
       mounted, replacing the local state the Storybook stories use.
-- [ ] `patch_group_id` on `PUT /sources/~?apply_patches=true`.
-- [ ] `markApplied` in `ValServer.ts`.
+- [ ] `patch_group_id` on `PUT /sources/~?apply_patches=true`, so server-rendered
+      applied source matches the caller's staged view.
+- [ ] **Auto-save** — fs-only today (`ValProvider.tsx` guards on `mode !== "fs"`),
+      and fs has no groups, so it is correct as it stands. If groups ever reach fs
+      mode, auto-save must send the group's ids: what it saves has to be exactly what
+      a manual save would apply for that user.
 - [ ] More scenarios: a `file` op patch whose source op is staged, a patch with no
       schema (whole-module fallback), nested arrays, unions, two modules in one group,
       a patch set that _un_-merges when the broad patch is the one committed.
