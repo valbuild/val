@@ -1393,13 +1393,19 @@ function ChangeRowHeader({
       />
       <ChangeTypeLabel changeType={changeType} isEqual={isEqual} />
       <div className="ml-auto flex items-center gap-2 shrink-0">
-        {canDiscard && (
-          <StagingToggle
-            patchIds={patchIds}
-            profilesByAuthorIds={profilesByAuthorIds}
-            label={segmentLabel}
-          />
-        )}
+        {/*
+         * NOT gated on `canDiscard`. That flag is about the DISCARD controls
+         * only (see this file's header) and it defaults to false, so gating
+         * staging on it hid the toggle everywhere it was not explicitly passed.
+         * `StagingToggle` already returns null unless the provider says staging
+         * is enabled, which is the condition that actually applies: choosing
+         * what YOU publish is a different capability from throwing work away.
+         */}
+        <StagingToggle
+          patchIds={patchIds}
+          profilesByAuthorIds={profilesByAuthorIds}
+          label={segmentLabel}
+        />
         {canDiscard && (
           <DiscardControl
             isEqual={isEqual}
