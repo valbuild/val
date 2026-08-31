@@ -114,7 +114,25 @@ async function clearPatches(): Promise<void> {
   }
 }
 
-test.describe("a long patch chain", () => {
+/**
+ * QUARANTINED - see https://github.com/valbuild/val/issues/567.
+ *
+ * Not a product bug: nothing about chain loading is known to be broken. This
+ * asserts that 650 patches are fetched and applied inside `openStudio`'s 60s
+ * `INTAKE_TIMEOUT`, and on a loaded 2-core runner - `next dev` compiling on
+ * demand, Vite serving SPA modules, Chromium alongside - that intake does not
+ * reliably finish in time. It went red on a commit that had passed the same
+ * suite 15/15 minutes earlier, with "the store system never took the project
+ * in". The claim being tested is about the runner, not the code.
+ *
+ * The DESCRIBE is skipped, not the test, so the 650-patch `beforeAll` does not
+ * run either. The sibling describe below writes one patch and is unaffected.
+ *
+ * Restoring it by raising `INTAKE_TIMEOUT` would make the wall-clock claim
+ * bigger rather than absent. The property belongs in the store rig, where 650
+ * patch records need no browser and no clock - see the issue.
+ */
+test.describe.skip("a long patch chain", () => {
   test.beforeAll(async ({ request }) => {
     /**
      * An EMPTY chain first, and this is not tidiness.
