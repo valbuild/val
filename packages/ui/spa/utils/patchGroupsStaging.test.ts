@@ -291,8 +291,10 @@ describe("editWouldRestage", () => {
 
   test("everything is unsafe when nothing at all is staged", () => {
     // Not a special case — with an empty group every patch set is held, so there is
-    // nowhere safe to edit. Worth pinning: it is what makes "a group holds
-    // everything by default" load-bearing rather than a convenience.
+    // nowhere safe to edit. Worth pinning because it is what the caller has to act
+    // on: `editWouldRestage` reports what an edit here would drag in, and the
+    // caller either refuses (the author unstaged it) or stages it first and
+    // re-resolves the op (the author never had it).
     const i = arrayChain();
     expect(
       editWouldRestage(i, ids(), MODULE, { op: "replace", path: ["title"] }),

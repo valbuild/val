@@ -26,14 +26,19 @@ const { s } = initVal();
  *
  * ## The model
  *
- * 1. **A group holds every pending patch by default**, not just its owner's. This
- *    is not an arbitrary choice — see "why the default is everything" below for the
- *    executable counterexample that forces it. It also means the default behaviour
- *    is identical to today's all-or-nothing publish.
- * 2. **Independence comes from unstaging.** Carve a patch set out of your group and
- *    it leaves your view and your publish.
- * 3. **A region you have carved out is read-only for you** until you re-stage,
- *    because inside it your view and the published result disagree.
+ * 1. **A group holds its owner's patches, closed over their patch sets** — not
+ *    every pending patch. This is not an arbitrary choice in either direction: the
+ *    first describe below has the executable counterexample that rules out an empty
+ *    group, and the reason the closure over patch sets is exactly what that
+ *    counterexample demands, no more.
+ * 2. **Patches in other patch sets stay out.** They cannot shift your paths, so
+ *    they cannot corrupt your op — and keeping them out is what lets you publish
+ *    alone without unstaging anything.
+ * 3. **Unstaging carves out what the closure did pull in.** Drop a patch set from
+ *    your group and it leaves your view and your publish.
+ * 4. **A region you deliberately carved out is read-only for you** until you
+ *    re-stage, because inside it your view and the published result disagree. A
+ *    region you simply never had is staged for you before your op is resolved.
  *
  * Ops are resolved against the author's own view at pick time. Where a path
  * depends on position, the scenario computes it with a function — hand-writing an
@@ -66,19 +71,22 @@ const renameItem = (from: string, to: string) => (view: JSONValue) => {
 
 describe("patch groups", () => {
   // #region why the default is everything
-  describe("why a group holds everything by default", () => {
-    test("a path is picked before the closure runs, so the view must be complete", () => {
-      // The counterexample that decides the model.
+  describe("why a group is its author's closure over their patch sets", () => {
+    test("a path is picked before the closure runs, so the closure must cover the patch set", () => {
+      // The counterexample that decides the model, and the reason the closure has
+      // to run BEFORE the op path is resolved rather than after.
       //
-      // Bob picks the index of "B" in his own view. If his group did NOT already
-      // contain Alice's insert he would see [A, B, C], pick index 1, and then
-      // creating his patch would close his group over her insert — index 1 becomes
+      // Bob picks the index of "B" in his own view. Alice's insert is not his, so
+      // his group does not hold it — but it is in the same patch set (?items), and
+      // that is precisely the set of patches that can shift his paths. If he picked
+      // against a view without it he would see [A, B, C], pick index 1, and then
+      // creating his patch would close his group over her insert: index 1 becomes
       // "A" and he has silently renamed the wrong element. Staging later cannot fix
       // a path chosen earlier.
       //
-      // Because his group holds her insert from the moment it arrives, he sees
-      // [New, A, B, C] and picks index 2. Read `picked in` in the trace: that line
-      // is the guarantee.
+      // So the edit stages her patch set first ("bob edits into a section held by
+      // p1"), and only then resolves his op — against [New, A, B, C], where he picks
+      // index 2. Read `picked in` in the trace: that line is the guarantee.
       const { report, problems, blocked } = runScenario({
         name: "Alice inserts at the top, then Bob renames the item he can see",
         moduleFilePath: "/content/page.val.ts",
@@ -108,10 +116,12 @@ describe("patch groups", () => {
       expect(report).toMatchSnapshot();
     });
 
-    test("default publish is all-or-nothing, exactly as today", () => {
-      // Nobody unstages anything, so both groups are the whole pending set and
-      // either author publishing produces the same commit. This is the baseline the
-      // feature must not regress: staging is opt-in.
+    test("unrelated patch sets publish independently with nobody unstaging", () => {
+      // The counterpart, and the payoff. Bob's ?title and Alice's ?items/2/title
+      // are different patch sets, so neither can shift the other's paths and
+      // neither group pulls the other in. Both publish alone without anybody
+      // touching a staging control — independence is the default here, not
+      // something you have to opt into by unstaging.
       const { report, problems, blocked } = runScenario({
         name: "Two authors edit unrelated things and neither unstages",
         moduleFilePath: "/content/page.val.ts",

@@ -466,7 +466,7 @@ repair:   extend
       bob    {p2}             "Page*" [Draft, A, B, C]   holds ?items [p3]"
 `;
 
-exports[`patch groups why a group holds everything by default a path is picked before the closure runs, so the view must be complete 1`] = `
+exports[`patch groups why a group is its author's closure over their patch sets a path is picked before the closure runs, so the closure must cover the patch set 1`] = `
 "scenario: Alice inserts at the top, then Bob renames the item he can see
 module:   /content/page.val.ts
 shape:    { title, items: [{ title }] }
@@ -495,7 +495,7 @@ if each author published now, from this same state:
          "Page" [New, A, B*, C]"
 `;
 
-exports[`patch groups why a group holds everything by default default publish is all-or-nothing, exactly as today 1`] = `
+exports[`patch groups why a group is its author's closure over their patch sets unrelated patch sets publish independently with nobody unstaging 1`] = `
 "scenario: Two authors edit unrelated things and neither unstages
 module:   /content/page.val.ts
 shape:    { title, items: [{ title }] }

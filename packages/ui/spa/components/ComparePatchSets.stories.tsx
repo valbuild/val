@@ -277,7 +277,9 @@ function StorySetup({
     committedCount,
   ]);
 
-  // A group holds everything pending by default; `initiallyHeld` carves some out.
+  // The stories start from a fully staged group so the staging controls have
+  // something to act on; `initiallyHeld` carves some out. In production a group is
+  // its owner's patches closed over their patch sets, which is generally less.
   const [group, setGroup] = useState<Set<PatchId>>(
     () =>
       new Set(
@@ -1415,9 +1417,9 @@ export const ImageMixedChanges: Story = {
 /**
  * Stage / unstage, with nothing held back.
  *
- * This is the default state and it is deliberately indistinguishable in effect
- * from the old all-or-nothing review screen: every row reads "Staged", so Publish
- * publishes everything. Staging is opt-in.
+ * Every row reads "Staged", so Publish publishes all of them and the screen looks
+ * like the old review screen. This is the shape you get when everything pending is
+ * yours, or entangled with what is.
  */
 export const StagingNothingHeld: Story = {
   render: () => (
