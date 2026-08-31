@@ -37,6 +37,13 @@ import {
 } from "@valbuild/core/patch";
 import { TSOps, insertValJsonEntry, removeValJsonEntry } from "./patch/ts/ops";
 import { analyzeValModule } from "./patch/ts/valModule";
+import type { HistoryError } from "./history/HistoryError";
+import type {
+  AffectedFile,
+  CommitPage,
+  CommitPatch,
+  HistoricalCommit,
+} from "./history/types";
 import { analyzeJsonValuesEntries } from "./patch/ts/jsonValuesModule";
 import {
   applyJsonValuesEntryPatches,
@@ -2181,6 +2188,57 @@ export abstract class ValOps {
       }
     | { error: GenericErrorMessage; errors?: undefined; deleted?: undefined }
   >;
+
+  // #region history
+  //
+  // Reading the past, as opposed to reading the present with pending patches
+  // applied. Every one of these is Result-typed against `HistoryError`, because
+  // the ways this can fail - an unreadable record, a source that no longer
+  // parses, an op that will not replay, a schema that has moved on - are the
+  // interesting part rather than an edge case, and a caller deciding whether to
+  // offer a RESTORE has to know which one it hit.
+  //
+  // Only implemented where there is a service holding the history:
+  // `ValOpsHttp`. `ValOpsFS` answers `not-supported-in-fs-mode`, because local
+  // dev has git for this and no commit records of its own.
+
+  /** One page of a branch's commits, newest first. See history/listCommits. */
+  abstract listCommits(
+    branch: string,
+    options?: { limit?: number; cursor?: string },
+  ): Promise<result.Result<CommitPage, HistoryError>>;
+
+  /** The patches that produced one commit, with their ops. */
+  abstract getCommitPatches(
+    commitSha: string,
+  ): Promise<
+    result.Result<
+      { commit: HistoricalCommit; patches: CommitPatch[] },
+      HistoryError
+    >
+  >;
+
+  /**
+   * How each `.val.ts` the commit changed looked BEFORE it, keyed by module
+   * file path. Empty for a commit made before this was recorded - which the
+   * caller reports as `source-unavailable` rather than as an empty module.
+   */
+  abstract getCommitPreviousSources(
+    commitSha: string,
+  ): Promise<result.Result<Record<string, string>, HistoryError>>;
+
+  /** Which files the commit touched, and how. Names them; does not fetch them. */
+  abstract getCommitAffectedFiles(
+    commitSha: string,
+  ): Promise<result.Result<AffectedFile[], HistoryError>>;
+
+  /** One file's bytes as they were at one commit. */
+  abstract getFileAtCommit(
+    commitSha: string,
+    filePath: string,
+    remote: boolean,
+  ): Promise<result.Result<Buffer, HistoryError>>;
+  // #endregion history
 }
 
 function isOnlyFileCheckValidationError(validationError: ValidationError) {

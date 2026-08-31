@@ -36,6 +36,13 @@ import nodePath from "path";
 import { fromError } from "zod-validation-error";
 import { Patch, ParentRef, ValCommit } from "@valbuild/shared/internal";
 import { JsonEntryFilesFingerprint } from "./jsonEntryFiles";
+import type { HistoryError } from "./history/HistoryError";
+import type {
+  AffectedFile,
+  CommitPage,
+  CommitPatch,
+  HistoricalCommit,
+} from "./history/types";
 import { guessMimeTypeFromPath } from "./ValServer";
 import { result } from "@valbuild/core/fp";
 import {
@@ -1353,6 +1360,53 @@ export class ValOpsFS extends ValOps {
   private getPatchLockFile() {
     return fsPath.join(this.rootDir, ValOpsFS.VAL_DIR, PATCH_LOCK_FILE_NAME);
   }
+
+  // #region history
+  //
+  // Not available locally, and deliberately not faked from git.
+  //
+  // History is a record of what VAL did: which patches produced a commit, who
+  // wrote them, and what each module looked like immediately before. Git has
+  // the files but not that - it cannot say which of a commit's changes were one
+  // editor's patch set, so a "restore this change" built on it would be
+  // guesswork wearing the same UI.
+  //
+  // A single, honest error rather than five different ones: the caller's
+  // question is "is history available here", and the answer is no.
+
+  override async listCommits(): Promise<
+    result.Result<CommitPage, HistoryError>
+  > {
+    return result.err({ kind: "not-supported-in-fs-mode" });
+  }
+
+  override async getCommitPatches(): Promise<
+    result.Result<
+      { commit: HistoricalCommit; patches: CommitPatch[] },
+      HistoryError
+    >
+  > {
+    return result.err({ kind: "not-supported-in-fs-mode" });
+  }
+
+  override async getCommitPreviousSources(): Promise<
+    result.Result<Record<string, string>, HistoryError>
+  > {
+    return result.err({ kind: "not-supported-in-fs-mode" });
+  }
+
+  override async getCommitAffectedFiles(): Promise<
+    result.Result<AffectedFile[], HistoryError>
+  > {
+    return result.err({ kind: "not-supported-in-fs-mode" });
+  }
+
+  override async getFileAtCommit(): Promise<
+    result.Result<Buffer, HistoryError>
+  > {
+    return result.err({ kind: "not-supported-in-fs-mode" });
+  }
+  // #endregion history
 }
 
 class FSOpsHost {
