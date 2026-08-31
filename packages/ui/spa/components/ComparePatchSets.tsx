@@ -73,7 +73,11 @@ import { prettifyModulePath } from "../utils/prettifyText";
 import { FieldPathLink } from "./FieldPathLink";
 import { useNavLink } from "./navLink";
 import { refToUrl } from "./MediaPicker/refToUrl";
-import { HeldSummary, StagingToggle } from "./StagingToggle";
+import {
+  HeldSummary,
+  StagingBulkActions,
+  StagingToggle,
+} from "./StagingToggle";
 import { splitTreesByStaging } from "../utils/splitTreesByStaging";
 import { usePatchStaging } from "./PatchStagingProvider";
 
@@ -428,6 +432,13 @@ function StagedSections({
         title="Staged"
         detail="Publish ships these."
         count={countRows(staged)}
+        actions={
+          <StagingBulkActions
+            patchIds={collectPatchIds(staged.flatMap(flattenChanges))}
+            profilesByAuthorIds={profilesByAuthorIds}
+            side="staged"
+          />
+        }
       />
       {staged.length === 0 ? (
         <EmptySection>
@@ -441,6 +452,13 @@ function StagedSections({
         title="Unstaged"
         detail="Held back. These stay pending and can be staged again."
         count={countRows(held)}
+        actions={
+          <StagingBulkActions
+            patchIds={collectPatchIds(held.flatMap(flattenChanges))}
+            profilesByAuthorIds={profilesByAuthorIds}
+            side="held"
+          />
+        }
       />
       {held.length === 0 ? (
         <EmptySection>Nothing is held back.</EmptySection>
@@ -459,16 +477,26 @@ function SectionHeading({
   title,
   detail,
   count,
+  actions,
 }: {
   title: string;
   detail: string;
   count: number;
+  /** Bulk stage/unstage for this section. Renders nothing when it is empty. */
+  actions?: ReactNode;
 }) {
   return (
-    <div className="flex items-baseline gap-2 border-b border-border-primary pb-2">
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 border-b border-border-primary pb-2">
       <span className="text-sm font-medium text-fg-primary">{title}</span>
       <span className="text-sm text-fg-tertiary tabular-nums">{count}</span>
       <span className="text-xs text-fg-tertiary truncate">{detail}</span>
+      {/*
+       * `ml-auto` on the actions rather than a spacer, and `flex-wrap` above, so a
+       * narrow screen drops the buttons to their own line instead of squeezing the
+       * heading — the buttons are the widest thing here once there are per-author
+       * ones.
+       */}
+      <span className="ml-auto">{actions}</span>
     </div>
   );
 }
