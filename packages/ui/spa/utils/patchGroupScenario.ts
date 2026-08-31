@@ -16,7 +16,6 @@ import { PatchSets } from "./PatchSets";
 import {
   editWouldRestage,
   heldPatchSets,
-  holdsRegionOf,
   inChainOrder,
   indexPatchSets,
   PatchGroup,
@@ -156,6 +155,18 @@ class Run {
   private readonly allEdits: EditStep[] = [];
   private readonly authors: Author[] = [];
   private readonly groups = new Map<Author, Set<PatchId>>();
+  /**
+   * What each author has DELIBERATELY unstaged, as opposed to simply never
+   * having staged.
+   *
+   * The group cannot tell those apart — a patch is in it or it is not — and the
+   * difference decides what happens when you edit there. Somebody else's work in
+   * a set you are now editing was never your decision, so it is staged for you.
+   * A region you held back WAS your decision, and quietly re-staging it on your
+   * next keystroke would be exactly the "silently enlarging somebody's publish"
+   * that this feature exists to prevent. So that one still refuses.
+   */
+  private readonly heldBack = new Map<Author, Set<PatchId>>();
   private readonly committed = new Set<PatchId>();
   /** Edits the guard refused. Scenarios assert on this. */
   private readonly blocked: string[] = [];
@@ -222,9 +233,80 @@ class Run {
   // #region steps
 
   private runEdit(step: EditStep) {
-    // Resolved against what this author can see *now*, before any closure runs.
-    // That is when a real author picks their path, so it is when the harness has
-    // to pick it too.
+    /*
+     * Resolve, then STAGE WHAT THE EDIT LANDS IN, then resolve again.
+     *
+     * The first resolution is only used to learn which patch sets this edit
+     * touches — the author's view at that moment may be missing another author's
+     * pending work in those sets, so a path picked in it can mean the wrong
+     * element. The second resolution is the one that counts: by then the blocking
+     * patch sets are staged, the view contains everything the closure will pull
+     * in, and the path means what its author thinks it means.
+     *
+     * "look at patches in the patch set already... and add them first then the
+     * new patch". An earlier revision REFUSED the edit instead. That was safe and
+     * unusable: with a group defaulting to its owner's closure rather than to
+     * everything, every region another author had touched became a locked door.
+     * Staging first closes the same window without the door — at the price of
+     * enlarging the group, which is the entanglement the compare view shows.
+     */
+    const first = this.applyGroup(this.base, this.group(step.by));
+    if (!first.ok) {
+      this.problems.push(
+        `step ${this.step}: cannot resolve ${step.edit}, ${step.by}'s view does not apply: ${first.error}`,
+      );
+      return;
+    }
+    const probe =
+      typeof step.ops === "function" ? step.ops(first.doc) : step.ops;
+    const blockers = new Set<PatchId>();
+    for (const op of probe) {
+      if (op.op === "file") {
+        continue;
+      }
+      // `editWouldRestage` handles `move`/`copy`'s second path itself.
+      for (const id of editWouldRestage(
+        this.index,
+        this.group(step.by),
+        this.scenario.moduleFilePath,
+        op,
+      )) {
+        blockers.add(id);
+      }
+    }
+    // Split the blockers: what this author deliberately held back, and what was
+    // simply never theirs. Only the second is staged for them.
+    const deliberate = this.heldBackOf(step.by);
+    const refusing = inChainOrder(this.index, blockers).filter((id) =>
+      deliberate.has(id),
+    );
+    if (refusing.length > 0) {
+      this.out.line(
+        `      REFUSED     you are holding ${refusing
+          .map((id) => `${id} (${this.authorOfPatch(id)})`)
+          .join(", ")} here — re-stage before editing`,
+      );
+      this.blocked.push(step.edit);
+      this.showGroups();
+      return;
+    }
+    if (blockers.size > 0) {
+      this.out.line(
+        `${this.label()} ${step.by} edits into a section held by ${inChainOrder(
+          this.index,
+          blockers,
+        )
+          .map((id) => `${id} (${this.authorOfPatch(id)})`)
+          .join(", ")}`,
+      );
+      this.applyStage(
+        step.by,
+        inChainOrder(this.index, blockers),
+        `staged before editing ${step.edit}`,
+      );
+    }
+
+    // The view the path is actually picked in.
     const view = this.applyGroup(this.base, this.group(step.by));
     if (!view.ok) {
       this.problems.push(
@@ -240,39 +322,6 @@ class Run {
     this.out.line(`      intent      ${step.intent}`);
     this.out.line(`      picked in   ${this.render(view.doc)}`);
 
-    // The guard. An edit into a patch set where this author has left something
-    // unstaged is refused, because their view of that region is not the region
-    // that will be published: re-staging would shift the content under the path
-    // they just picked. See `editWouldRestage`.
-    const blockers = new Set<PatchId>();
-    for (const op of ops) {
-      if (op.op === "file") {
-        continue;
-      }
-      // `editWouldRestage` handles `move`/`copy`'s second path itself.
-      for (const id of editWouldRestage(
-        this.index,
-        this.group(step.by),
-        this.scenario.moduleFilePath,
-        op,
-      )) {
-        blockers.add(id);
-      }
-    }
-    if (blockers.size > 0) {
-      this.out.line(
-        `      REFUSED     this section holds unstaged ${inChainOrder(
-          this.index,
-          blockers,
-        )
-          .map((id) => `${id} (${this.authorOfPatch(id)})`)
-          .join(", ")} — re-stage before editing here`,
-      );
-      this.blocked.push(step.edit);
-      this.showGroups();
-      return;
-    }
-
     this.pending.push(step);
     this.allEdits.push(step);
     this.reindex();
@@ -285,26 +334,20 @@ class Run {
       [step.edit as PatchId],
       `required by ${step.edit}`,
     );
-    // The new patch also joins every *other* author's group, unless they have
-    // deliberately held that region back. See `DEFAULT_GROUP_IS_EVERYTHING`: a
-    // path only means what its author thought it meant if their view already
-    // contains everything the closure would pull in, and the only way to
-    // guarantee that is for every view to contain everything pending.
-    for (const author of this.authors) {
-      if (author === step.by) {
-        continue;
-      }
-      if (holdsRegionOf(this.index, this.group(author), step.edit as PatchId)) {
-        this.out.line(
-          `      not staged for ${author} — they hold this region back`,
-        );
-        continue;
-      }
-      this.groups.set(
-        author,
-        stageClosure(this.index, this.group(author), [step.edit as PatchId]),
-      );
-    }
+    /*
+     * And that is ALL. The patch does not join anybody else's group.
+     *
+     * An earlier revision fanned every new patch out to every open group, on the
+     * reasoning that a path only means what its author thought it meant if their
+     * view already held everything the closure could pull in. The conclusion was
+     * too broad: what the author's view has to hold is everything that could SHIFT
+     * THEIR PATHS, and that set is exactly their patch sets — which `applyStage`
+     * above has already pulled in. Another author's patch in a DIFFERENT patch set
+     * cannot move anything here, so it has no business in this group, and keeping
+     * it out is what makes the publish independent.
+     *
+     * See `DEFAULT_GROUP_IS_EVERYTHING`.
+     */
     this.repairOthers(step.by, `${step.edit} changed the patch sets`);
     this.showGroups();
   }
@@ -340,6 +383,25 @@ class Run {
       );
     }
     this.groups.set(step.by, after);
+    /*
+     * Record the REQUEST, not just what left the group.
+     *
+     * Now that a group defaults to its owner's closure, unstaging somebody else's
+     * patch is usually a no-op on the set — it was never in there. It is still a
+     * declaration: "I do not want this in my publish." If only the ids that
+     * actually left were recorded, that declaration would evaporate, and the next
+     * edit in that region would helpfully stage the very thing the author had just
+     * pushed away.
+     */
+    const held = this.heldBackOf(step.by);
+    for (const id of step.unstage) {
+      held.add(id as PatchId);
+    }
+    for (const id of before) {
+      if (!after.has(id)) {
+        held.add(id);
+      }
+    }
     this.showGroups();
   }
 
@@ -400,9 +462,24 @@ class Run {
   // #endregion
   // #region mechanics
 
+  private heldBackOf(author: Author): Set<PatchId> {
+    const existing = this.heldBack.get(author);
+    if (existing) {
+      return existing;
+    }
+    const created = new Set<PatchId>();
+    this.heldBack.set(author, created);
+    return created;
+  }
+
   private applyStage(author: Author, ids: PatchId[], why: string) {
     const before = this.group(author);
     const after = stageClosure(this.index, before, ids);
+    // Staging is a decision too: it retracts any hold it covers.
+    const held = this.heldBackOf(author);
+    for (const id of after) {
+      held.delete(id);
+    }
     const pulled = Array.from(after).filter(
       (id) => !before.has(id) && !ids.includes(id),
     );

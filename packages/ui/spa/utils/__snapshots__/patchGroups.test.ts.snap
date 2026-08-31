@@ -12,35 +12,35 @@ repair:   extend
       picked in   "Page" [A, B, C]
       patch sets  ?items/0/title [p1]
       bob    {p1}             "Page" [A*, B, C]
-      alice  {p1}             "Page" [A*, B, C]
-      carol  {p1}             "Page" [A*, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items/0/title [p1]
+      carol  {}               "Page" [A, B, C]   holds ?items/0/title [p1]
 
 2.  alice unstages p1
       bob    {p1}             "Page" [A*, B, C]
       alice  {}               "Page" [A, B, C]   holds ?items/0/title [p1]
-      carol  {p1}             "Page" [A*, B, C]
+      carol  {}               "Page" [A, B, C]   holds ?items/0/title [p1]
 
 3.  alice edits p2: replace items/1/title = "B*"
       intent      rename "B" to "B*"
       picked in   "Page" [A, B, C]
       patch sets  ?items/1/title [p2]   ?items/0/title [p1]
-      bob    {p1, p2}         "Page" [A*, B*, C]
+      bob    {p1}             "Page" [A*, B, C]   holds ?items/1/title [p2]
       alice  {p2}             "Page" [A, B*, C]   holds ?items/0/title [p1]
-      carol  {p1, p2}         "Page" [A*, B*, C]
+      carol  {}               "Page" [A, B, C]   holds ?items/1/title [p2] ?items/0/title [p1]
 
+4.  carol edits into a section held by p1 (bob), p2 (alice)
 4.  carol edits p3: add items/3 = {"title":"D"}
       intent      append "D"
       picked in   "Page" [A*, B*, C]
       patch sets  ?items [p1, p2, p3]
-      not staged for alice — they hold this region back
       repaired alice's group +p1 — p3 changed the patch sets (policy: extend)
-      bob    {p1, p2, p3}     "Page" [A*, B*, C, D]
+      bob    {p1}             "Page" [A*, B, C]   holds ?items [p2,p3]
       alice  {p1, p2}         "Page" [A*, B*, C]   holds ?items [p3]
       carol  {p1, p2, p3}     "Page" [A*, B*, C, D]
 
 if each author published now, from this same state:
-  bob    commits [p1, p2, p3] — carries p2 (alice), p3 (carol)
-         "Page" [A*, B*, C, D]
+  bob    commits [p1] — only their own work
+         "Page" [A*, B, C]
   alice  commits [p1, p2] — carries p1 (bob)
          "Page" [A*, B*, C]
   carol  commits [p1, p2, p3] — carries p1 (bob), p2 (alice)
@@ -59,35 +59,35 @@ repair:   truncate
       picked in   "Page" [A, B, C]
       patch sets  ?items/0/title [p1]
       bob    {p1}             "Page" [A*, B, C]
-      alice  {p1}             "Page" [A*, B, C]
-      carol  {p1}             "Page" [A*, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items/0/title [p1]
+      carol  {}               "Page" [A, B, C]   holds ?items/0/title [p1]
 
 2.  alice unstages p1
       bob    {p1}             "Page" [A*, B, C]
       alice  {}               "Page" [A, B, C]   holds ?items/0/title [p1]
-      carol  {p1}             "Page" [A*, B, C]
+      carol  {}               "Page" [A, B, C]   holds ?items/0/title [p1]
 
 3.  alice edits p2: replace items/1/title = "B*"
       intent      rename "B" to "B*"
       picked in   "Page" [A, B, C]
       patch sets  ?items/1/title [p2]   ?items/0/title [p1]
-      bob    {p1, p2}         "Page" [A*, B*, C]
+      bob    {p1}             "Page" [A*, B, C]   holds ?items/1/title [p2]
       alice  {p2}             "Page" [A, B*, C]   holds ?items/0/title [p1]
-      carol  {p1, p2}         "Page" [A*, B*, C]
+      carol  {}               "Page" [A, B, C]   holds ?items/1/title [p2] ?items/0/title [p1]
 
+4.  carol edits into a section held by p1 (bob), p2 (alice)
 4.  carol edits p3: add items/3 = {"title":"D"}
       intent      append "D"
       picked in   "Page" [A*, B*, C]
       patch sets  ?items [p1, p2, p3]
-      not staged for alice — they hold this region back
       repaired alice's group -p2 — p3 changed the patch sets (policy: truncate)
-      bob    {p1, p2, p3}     "Page" [A*, B*, C, D]
+      bob    {p1}             "Page" [A*, B, C]   holds ?items [p2,p3]
       alice  {}               "Page" [A, B, C]   holds ?items [p1,p2,p3]
       carol  {p1, p2, p3}     "Page" [A*, B*, C, D]
 
 if each author published now, from this same state:
-  bob    commits [p1, p2, p3] — carries p2 (alice), p3 (carol)
-         "Page" [A*, B*, C, D]
+  bob    commits [p1] — only their own work
+         "Page" [A*, B, C]
   alice  nothing staged
   carol  commits [p1, p2, p3] — carries p1 (bob), p2 (alice)
          "Page" [A*, B*, C, D]"
@@ -105,7 +105,7 @@ repair:   extend
       picked in   "Page" [A, B, C]
       patch sets  ?items [p1]
       bob    {p1}             "Page" [Draft, A, B, C]
-      alice  {p1}             "Page" [Draft, A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items [p1]
 
 2.  alice unstages p1
       bob    {p1}             "Page" [Draft, A, B, C]
@@ -115,7 +115,6 @@ repair:   extend
       intent      append "Extra"
       picked in   "Page" [Draft, A, B, C]
       patch sets  ?items [p1, p2]
-      not staged for alice — they hold this region back
       bob    {p1, p2}         "Page" [Draft, A, B, C, Extra]
       alice  {}               "Page" [A, B, C]   holds ?items [p1,p2]
 
@@ -137,16 +136,13 @@ repair:   extend
       picked in   "Page" [A, B, C]
       patch sets  ?items [p1]
       bob    {p1}             "Page" [Draft, A, B, C]
-      alice  {p1}             "Page" [Draft, A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items [p1]
 
 2.  alice unstages p1
       bob    {p1}             "Page" [Draft, A, B, C]
       alice  {}               "Page" [A, B, C]   holds ?items [p1]
 
-3.  alice edits p2: replace items/1/title = "B*"
-      intent      rename "B" to "B*"
-      picked in   "Page" [A, B, C]
-      REFUSED     this section holds unstaged p1 (bob) — re-stage before editing here
+      REFUSED     you are holding p1 (bob) here — re-stage before editing
       bob    {p1}             "Page" [Draft, A, B, C]
       alice  {}               "Page" [A, B, C]   holds ?items [p1]
 
@@ -168,7 +164,7 @@ repair:   extend
       picked in   "Page" [A, B, C]
       patch sets  ?items [p1]
       bob    {p1}             "Page" [Draft, A, B, C]
-      alice  {p1}             "Page" [Draft, A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items [p1]
 
 2.  alice unstages p1
       bob    {p1}             "Page" [Draft, A, B, C]
@@ -178,11 +174,10 @@ repair:   extend
       intent      retitle the page
       picked in   "Page" [A, B, C]
       patch sets  ?title [p2]   ?items [p1]
-      bob    {p1, p2}         "Page*" [Draft, A, B, C]
+      bob    {p1}             "Page" [Draft, A, B, C]   holds ?title [p2]
       alice  {p2}             "Page*" [A, B, C]   holds ?items [p1]
 
 4.  alice publishes [p2]
-      bob's group loses the patches that were just committed
       new base    "Page*" [A, B, C]
       patch sets  ?items [p1]
       bob    {p1}             "Page*" [Draft, A, B, C]
@@ -201,30 +196,31 @@ repair:   extend
       picked in   todo[T1, T2] done[D1]
       patch sets  ?todo/0/title [p1]
       bob    {p1}             todo[T1*, T2] done[D1]
-      carol  {p1}             todo[T1*, T2] done[D1]
-      alice  {p1}             todo[T1*, T2] done[D1]
+      carol  {}               todo[T1, T2] done[D1]   holds ?todo/0/title [p1]
+      alice  {}               todo[T1, T2] done[D1]   holds ?todo/0/title [p1]
 
 2.  carol edits p2: replace done/0/title = "D1*"
       intent      rename "D1" to "D1*"
-      picked in   todo[T1*, T2] done[D1]
+      picked in   todo[T1, T2] done[D1]
       patch sets  ?done/0/title [p2]   ?todo/0/title [p1]
-      bob    {p1, p2}         todo[T1*, T2] done[D1*]
-      carol  {p1, p2}         todo[T1*, T2] done[D1*]
-      alice  {p1, p2}         todo[T1*, T2] done[D1*]
+      bob    {p1}             todo[T1*, T2] done[D1]   holds ?done/0/title [p2]
+      carol  {p2}             todo[T1, T2] done[D1*]   holds ?todo/0/title [p1]
+      alice  {}               todo[T1, T2] done[D1]   holds ?done/0/title [p2] ?todo/0/title [p1]
 
+3.  alice edits into a section held by p1 (bob), p2 (carol)
 3.  alice edits p3: move done/1 from todo/1
       intent      move "T2" from todo to done
       picked in   todo[T1*, T2] done[D1*]
       patch sets  ?todo [p1, p3]   ?done [p2, p3]
-      bob    {p1, p2, p3}     todo[T1*] done[D1*, T2]
-      carol  {p1, p2, p3}     todo[T1*] done[D1*, T2]
+      bob    {p1}             todo[T1*, T2] done[D1]   holds ?todo [p3] ?done [p2,p3]
+      carol  {p2}             todo[T1, T2] done[D1*]   holds ?todo [p1,p3] ?done [p3]
       alice  {p1, p2, p3}     todo[T1*] done[D1*, T2]
 
 if each author published now, from this same state:
-  bob    commits [p1, p2, p3] — carries p2 (carol), p3 (alice)
-         todo[T1*] done[D1*, T2]
-  carol  commits [p1, p2, p3] — carries p1 (bob), p3 (alice)
-         todo[T1*] done[D1*, T2]
+  bob    commits [p1] — only their own work
+         todo[T1*, T2] done[D1]
+  carol  commits [p2] — only their own work
+         todo[T1, T2] done[D1*]
   alice  commits [p1, p2, p3] — carries p1 (bob), p2 (carol)
          todo[T1*] done[D1*, T2]"
 `;
@@ -241,20 +237,20 @@ repair:   extend
       picked in   {foo: Foo, bar: Bar}
       patch sets  ?foo/title [p1]
       bob    {p1}             {foo: Foo*, bar: Bar}
-      alice  {p1}             {foo: Foo*, bar: Bar}
+      alice  {}               {foo: Foo, bar: Bar}   holds ?foo/title [p1]
 
 2.  alice edits p2: replace bar/title = "Bar*"
       intent      retitle "bar"
-      picked in   {foo: Foo*, bar: Bar}
+      picked in   {foo: Foo, bar: Bar}
       patch sets  ?bar/title [p2]   ?foo/title [p1]
-      bob    {p1, p2}         {foo: Foo*, bar: Bar*}
-      alice  {p1, p2}         {foo: Foo*, bar: Bar*}
+      bob    {p1}             {foo: Foo*, bar: Bar}   holds ?bar/title [p2]
+      alice  {p2}             {foo: Foo, bar: Bar*}   holds ?foo/title [p1]
 
 if each author published now, from this same state:
-  bob    commits [p1, p2] — carries p2 (alice)
-         {foo: Foo*, bar: Bar*}
-  alice  commits [p1, p2] — carries p1 (bob)
-         {foo: Foo*, bar: Bar*}"
+  bob    commits [p1] — only their own work
+         {foo: Foo*, bar: Bar}
+  alice  commits [p2] — only their own work
+         {foo: Foo, bar: Bar*}"
 `;
 
 exports[`patch groups patch sets stay sensible last write wins on a shared scalar field 1`] = `
@@ -269,18 +265,19 @@ repair:   extend
       picked in   "Page" [A, B, C]
       patch sets  ?title [p1]
       bob    {p1}             "Bob was here" [A, B, C]
-      alice  {p1}             "Bob was here" [A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?title [p1]
 
+2.  alice edits into a section held by p1 (bob)
 2.  alice edits p2: replace title = "Alice was here"
       intent      set the page title to "Alice was here"
       picked in   "Bob was here" [A, B, C]
       patch sets  ?title [p1, p2]
-      bob    {p1, p2}         "Alice was here" [A, B, C]
+      bob    {p1}             "Bob was here" [A, B, C]   holds ?title [p2]
       alice  {p1, p2}         "Alice was here" [A, B, C]
 
 if each author published now, from this same state:
-  bob    commits [p1, p2] — carries p2 (alice)
-         "Alice was here" [A, B, C]
+  bob    commits [p1] — only their own work
+         "Bob was here" [A, B, C]
   alice  commits [p1, p2] — carries p1 (bob)
          "Alice was here" [A, B, C]"
 `;
@@ -297,20 +294,20 @@ repair:   extend
       picked in   {foo: Foo, foobar: Foobar}
       patch sets  ?foo [p1]
       bob    {p1}             {foobar: Foobar}
-      alice  {p1}             {foobar: Foobar}
+      alice  {}               {foo: Foo, foobar: Foobar}   holds ?foo [p1]
 
 2.  alice edits p2: replace foobar/title = "Foobar*"
       intent      retitle "foobar"
-      picked in   {foobar: Foobar}
+      picked in   {foo: Foo, foobar: Foobar}
       patch sets  ?foobar/title [p2]   ?foo [p1]
-      bob    {p1, p2}         {foobar: Foobar*}
-      alice  {p1, p2}         {foobar: Foobar*}
+      bob    {p1}             {foobar: Foobar}   holds ?foobar/title [p2]
+      alice  {p2}             {foo: Foo, foobar: Foobar*}   holds ?foo [p1]
 
 if each author published now, from this same state:
-  bob    commits [p1, p2] — carries p2 (alice)
-         {foobar: Foobar*}
-  alice  commits [p1, p2] — carries p1 (bob)
-         {foobar: Foobar*}"
+  bob    commits [p1] — only their own work
+         {foobar: Foobar}
+  alice  commits [p2] — only their own work
+         {foo: Foo, foobar: Foobar*}"
 `;
 
 exports[`patch groups unstaging is what buys independence Bob can carry on and publish after Alice's commit 1`] = `
@@ -325,21 +322,20 @@ repair:   extend
       picked in   "Page" [A, B, C]
       patch sets  ?items [p1]
       bob    {p1}             "Page" [Draft, A, B, C]
-      alice  {p1}             "Page" [Draft, A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items [p1]
 
 2.  alice edits p2: replace title = "Page*"
       intent      retitle the page
-      picked in   "Page" [Draft, A, B, C]
+      picked in   "Page" [A, B, C]
       patch sets  ?title [p2]   ?items [p1]
-      bob    {p1, p2}         "Page*" [Draft, A, B, C]
-      alice  {p1, p2}         "Page*" [Draft, A, B, C]
+      bob    {p1}             "Page" [Draft, A, B, C]   holds ?title [p2]
+      alice  {p2}             "Page*" [A, B, C]   holds ?items [p1]
 
 3.  alice unstages p1
-      bob    {p1, p2}         "Page*" [Draft, A, B, C]
+      bob    {p1}             "Page" [Draft, A, B, C]   holds ?title [p2]
       alice  {p2}             "Page*" [A, B, C]   holds ?items [p1]
 
 4.  alice publishes [p2]
-      bob's group loses the patches that were just committed
       new base    "Page*" [A, B, C]
       patch sets  ?items [p1]
       bob    {p1}             "Page*" [Draft, A, B, C]
@@ -349,7 +345,6 @@ repair:   extend
       intent      rename "C" to "C*"
       picked in   "Page*" [Draft, A, B, C]
       patch sets  ?items [p1, p3]
-      not staged for alice — they hold this region back
       bob    {p1, p3}         "Page*" [Draft, A, B, C*]
       alice  {}               "Page*" [A, B, C]   holds ?items [p1,p3]
 
@@ -372,21 +367,20 @@ repair:   extend
       picked in   "Page" [A, B, C]
       patch sets  ?items [p1]
       bob    {p1}             "Page" [Draft, A, B, C]
-      alice  {p1}             "Page" [Draft, A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items [p1]
 
 2.  alice edits p2: replace title = "Page*"
       intent      retitle the page
-      picked in   "Page" [Draft, A, B, C]
+      picked in   "Page" [A, B, C]
       patch sets  ?title [p2]   ?items [p1]
-      bob    {p1, p2}         "Page*" [Draft, A, B, C]
-      alice  {p1, p2}         "Page*" [Draft, A, B, C]
+      bob    {p1}             "Page" [Draft, A, B, C]   holds ?title [p2]
+      alice  {p2}             "Page*" [A, B, C]   holds ?items [p1]
 
 3.  alice unstages p1
-      bob    {p1, p2}         "Page*" [Draft, A, B, C]
+      bob    {p1}             "Page" [Draft, A, B, C]   holds ?title [p2]
       alice  {p2}             "Page*" [A, B, C]   holds ?items [p1]
 
 4.  alice publishes [p2]
-      bob's group loses the patches that were just committed
       new base    "Page*" [A, B, C]
       patch sets  ?items [p1]
       bob    {p1}             "Page*" [Draft, A, B, C]
@@ -405,7 +399,7 @@ repair:   extend
       picked in   "Page" [A, B, C]
       patch sets  ?items [p1]
       bob    {p1}             "Page" [Draft, A, B, C]
-      alice  {p1}             "Page" [Draft, A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items [p1]
 
 2.  alice unstages p1
       bob    {p1}             "Page" [Draft, A, B, C]
@@ -419,7 +413,7 @@ repair:   extend
       intent      rename "B" to "B*"
       picked in   "Page" [Draft, A, B, C]
       patch sets  ?items [p1, p2]
-      bob    {p1, p2}         "Page" [Draft, A, B*, C]
+      bob    {p1}             "Page" [Draft, A, B, C]   holds ?items [p2]
       alice  {p1, p2}         "Page" [Draft, A, B*, C]
 
 5.  alice publishes [p1, p2]
@@ -443,33 +437,33 @@ repair:   extend
       picked in   "Page" [A, B, C]
       patch sets  ?title [p1]
       alice  {p1}             "Page*" [A, B, C]
-      bob    {p1}             "Page*" [A, B, C]
+      bob    {}               "Page" [A, B, C]   holds ?title [p1]
 
 2.  bob edits p2: add items/0 = {"title":"Draft"}
       intent      insert "Draft" at the top
-      picked in   "Page*" [A, B, C]
+      picked in   "Page" [A, B, C]
       patch sets  ?items [p2]   ?title [p1]
-      alice  {p1, p2}         "Page*" [Draft, A, B, C]
-      bob    {p1, p2}         "Page*" [Draft, A, B, C]
+      alice  {p1}             "Page*" [A, B, C]   holds ?items [p2]
+      bob    {p2}             "Page" [Draft, A, B, C]   holds ?title [p1]
 
+3.  alice edits into a section held by p2 (bob)
 3.  alice edits p3: replace items/3/title = "C*"
       intent      rename "C" to "C*"
       picked in   "Page*" [Draft, A, B, C]
       patch sets  ?items [p2, p3]   ?title [p1]
       alice  {p1, p2, p3}     "Page*" [Draft, A, B, C*]
-      bob    {p1, p2, p3}     "Page*" [Draft, A, B, C*]
+      bob    {p2}             "Page" [Draft, A, B, C]   holds ?items [p3] ?title [p1]
 
 4.  alice unstages p2
       also dropped p3 (alice) — they were built on top of it
       alice  {p1}             "Page*" [A, B, C]   holds ?items [p2,p3]
-      bob    {p1, p2, p3}     "Page*" [Draft, A, B, C*]
+      bob    {p2}             "Page" [Draft, A, B, C]   holds ?items [p3] ?title [p1]
 
 5.  alice publishes [p1]
-      bob's group loses the patches that were just committed
       new base    "Page*" [A, B, C]
       patch sets  ?items [p2, p3]
       alice  {}               "Page*" [A, B, C]   holds ?items [p2,p3]
-      bob    {p2, p3}         "Page*" [Draft, A, B, C*]"
+      bob    {p2}             "Page*" [Draft, A, B, C]   holds ?items [p3]"
 `;
 
 exports[`patch groups why a group holds everything by default a path is picked before the closure runs, so the view must be complete 1`] = `
@@ -484,18 +478,19 @@ repair:   extend
       picked in   "Page" [A, B, C]
       patch sets  ?items [p1]
       alice  {p1}             "Page" [New, A, B, C]
-      bob    {p1}             "Page" [New, A, B, C]
+      bob    {}               "Page" [A, B, C]   holds ?items [p1]
 
+2.  bob edits into a section held by p1 (alice)
 2.  bob edits p2: replace items/2/title = "B*"
       intent      rename "B" to "B*"
       picked in   "Page" [New, A, B, C]
       patch sets  ?items [p1, p2]
-      alice  {p1, p2}         "Page" [New, A, B*, C]
+      alice  {p1}             "Page" [New, A, B, C]   holds ?items [p2]
       bob    {p1, p2}         "Page" [New, A, B*, C]
 
 if each author published now, from this same state:
-  alice  commits [p1, p2] — carries p2 (bob)
-         "Page" [New, A, B*, C]
+  alice  commits [p1] — only their own work
+         "Page" [New, A, B, C]
   bob    commits [p1, p2] — carries p1 (alice)
          "Page" [New, A, B*, C]"
 `;
@@ -512,18 +507,18 @@ repair:   extend
       picked in   "Page" [A, B, C]
       patch sets  ?title [p1]
       bob    {p1}             "Page*" [A, B, C]
-      alice  {p1}             "Page*" [A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?title [p1]
 
 2.  alice edits p2: replace items/2/title = "C*"
       intent      rename "C" to "C*"
-      picked in   "Page*" [A, B, C]
+      picked in   "Page" [A, B, C]
       patch sets  ?items/2/title [p2]   ?title [p1]
-      bob    {p1, p2}         "Page*" [A, B, C*]
-      alice  {p1, p2}         "Page*" [A, B, C*]
+      bob    {p1}             "Page*" [A, B, C]   holds ?items/2/title [p2]
+      alice  {p2}             "Page" [A, B, C*]   holds ?title [p1]
 
 if each author published now, from this same state:
-  bob    commits [p1, p2] — carries p2 (alice)
-         "Page*" [A, B, C*]
-  alice  commits [p1, p2] — carries p1 (bob)
-         "Page*" [A, B, C*]"
+  bob    commits [p1] — only their own work
+         "Page*" [A, B, C]
+  alice  commits [p2] — only their own work
+         "Page" [A, B, C*]"
 `;

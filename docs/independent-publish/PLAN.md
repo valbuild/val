@@ -139,39 +139,59 @@ studio and preview are staged-correct together. The server-side path needs exact
 change: a `patch_group_id` on `PUT /sources/~?apply_patches=true` (§6.2), so the
 server-applied source agrees with the client's.
 
-### 2.2 A group holds everything by default, and why it has to
+### 2.2 A group holds its owner's patches, closed over their patch sets
 
-The tempting model is "your group starts empty and your own edits land in it". It does
-not work. The scenario suite has the counterexample as an executable test
-(`patchGroups.test.ts`, "a path is picked before the closure runs").
+The danger this rule has to answer is real, and it is worth stating before the rule.
+The scenario suite has it as an executable test (`patchGroups.test.ts`, "a path is
+picked before the closure runs").
 
 The closure runs when a patch is **created** — which is after its author has already
 picked a path. Suppose Alice has inserted at `items/0` and that insert is not in Bob's
-group. Bob sees `[A, B, C]`, picks index 1 meaning "B", and creating his patch closes
-his group over her insert: index 1 is now "A" and he has silently renamed the wrong
-element. It applies cleanly, the prefix invariant holds, nothing is detectably wrong
-except the content. **Staging later cannot fix a path chosen earlier.**
+group. Bob sees `[A, B, C]`, picks index 1 meaning "B", and if his patch then applies
+without her insert, index 1 is "A" and he has silently renamed the wrong element. It
+applies cleanly, the prefix invariant holds, nothing is detectably wrong except the
+content. **Staging later cannot fix a path chosen earlier.**
 
-So for a path to mean what its author thought it meant, their view at pick time must
-already contain everything the closure would pull in. Without predicting the future,
-the only way to guarantee that is for the view to contain everything pending — which
-is also exactly today's behaviour, so this is a strict extension of it rather than a
-new risk. It has the pleasant consequence that Publish with staging untouched is
-byte-identical to Publish today.
+An earlier revision of this document concluded from that counterexample that every
+group must hold every pending patch. That was over-broad. What the danger actually
+requires is that a group hold every pending patch that could **shift its own paths** —
+and "the patches that can shift each other's paths" is the definition of a patch set
+(§1). Alice's insert and Bob's rename both touch `?items`, so they are one patch set
+and `stageClosure` pulls her insert in when his patch is created. Bob is protected by
+the closure, not by a blanket.
 
-This corrects an earlier version of this document, which argued the closure made
-patch-set membership self-consistent. That argument assumed the closure ran before the
-author picked, and it does not. The suite only agreed with it because the scenarios
-hand-wrote the array indices; once op paths are resolved against the author's actual
-view, the hole appears immediately.
+So the rule is: **a new patch joins its own author's group, together with whatever the
+prefix invariant drags along inside its patch sets. It joins nobody else's group, and
+it does not pull in patches from other patch sets.** `DEFAULT_GROUP_IS_EVERYTHING` in
+`packages/ui/spa/utils/patchGroups.ts` is the flag that records this, and its doc block
+is the canonical statement of the argument.
+
+Where a blanket and the closure differ is patches in **different** patch sets: Alice
+edits `?title` while Bob edits `?items`. Bob's group excludes her title change, and
+that cannot corrupt his op, because a different patch set means nothing that shifts his
+paths. What it does mean is that Bob's view is `base + his own + whatever the closure
+pulled in` — he does not see her title change until it is published. Divergent views
+are accepted (§2.4); this is where they come from.
+
+Two consequences, both deliberate:
+
+- **Publish is not what it was before patch groups.** It ships your own work and what
+  is entangled with it, not everything pending. That is the feature, but it does mean
+  the first Publish after this ships can be a smaller set than the same click would
+  have published yesterday.
+- **Patch sets coalesce retroactively.** `PatchSets.insertPath` merges an existing set
+  into a broader one, so a group that was prefix-closed can stop being so through
+  nobody's action. `repairGroup` with the `extend` policy is what keeps it applicable;
+  `PatchStagingProvider` runs it on every recomputation of the index rather than only
+  on stage/unstage.
 
 ### 2.3 Independence comes from unstaging, and a held region is read-only
 
-Since every group holds everything by default, publishing a subset requires an explicit
-act: **unstage**. Carve a patch set out of your group and it leaves your view and your
-publish, while still existing for everybody else. That is the whole feature — the
-headline scenario is Alice shipping a one-line title fix while Bob's half-finished list
-stays behind, then Bob finishing and shipping the list against the new base.
+Excluding other patch sets is half of the independence; the other half is an explicit
+act: **unstage**. Carve a patch set out of your own group and it leaves your view and
+your publish, while still existing for everybody else. The headline scenario is Alice
+shipping a one-line title fix while Bob's half-finished list stays behind, then Bob
+finishing and shipping the list against the new base.
 
 But the §2.2 hole is still reachable deliberately: unstage a patch, then edit the
 region you just carved out. Your view no longer has that patch, so you pick a path
@@ -179,10 +199,20 @@ against it, and the closure re-stages it and shifts everything under you. Base
 `[A, B, C]`, Bob inserts `Draft` at the top, Alice unstages it, Alice renames index 1
 meaning "B" — and gets `[Draft, B*, B, C]`. She renamed "A".
 
-The guard is `editWouldRestage`, and the semantics are: **a region you are holding is
-read-only until you stage it again.** The edit is refused and the author is asked to
-re-stage, which updates their view; only then can they pick a path that means what they
-think it means. Refusing an edit is annoying. Corrupting one silently is worse.
+The guard is `editWouldRestage`, and it distinguishes two cases that look alike:
+
+- **A region you deliberately held back** — you unstaged it — is **read-only until you
+  stage it again.** The edit is refused and you are asked to re-stage, which updates
+  your view; only then can you pick a path that means what you think it means.
+- **A region you simply never had** — another author's patch set that has always been
+  outside your group — is **auto-staged first**, and your op is then resolved against
+  the updated view before it is taken. You are not refused for a decision you never
+  made; you just end up holding their patch set, because holding it is what makes your
+  path mean what you saw.
+
+Refusing an edit is annoying. Corrupting one silently is worse. Auto-staging where
+there was no declaration to respect keeps the annoyance to the cases where you asked
+for it.
 
 Being precise about "region" matters in both directions. The guard mirrors
 `PatchSets.insert`: it keys a `replace` on the op path alone, and only adds the parent
@@ -458,12 +488,19 @@ Filtering then happens in exactly two places, both already patch-id-driven:
 Rollout order, each step shippable on its own:
 
 1. Home repo: tables + `patchGroupIds`/`patchGroups` annotations + write endpoints.
-   No client reads them yet. Every patch auto-joins its author's current group, so
-   groups are fully populated before any client depends on them.
+   No client reads them yet. Every patch auto-joins **its own author's** current
+   group (§2.2), and the migration backfills each open group with that author's own
+   pending patches, so groups are populated before any client depends on them.
 2. This repo, behind a flag: parse the annotations, keep applying _all_ patches, and
-   send the group's ids to `/save`. Behaviour identical to today as long as every
-   patch is in the group — which step 1 guarantees. This is the risky step and it is
-   observable without changing behaviour.
+   send the group's ids to `/save`. This is the step where Publish stops being
+   "everything pending" — a publisher ships their own work plus whatever the closure
+   pulled in — so it is the risky step, and it is the one to watch after deploy.
+
+   The backfill cannot compute the closure: patch sets come from the content schema,
+   which lives in the app, not in the database. It writes each author's own patches
+   as `explicit` members and leaves prefix holes to `repairGroup` under the `extend`
+   policy, which the client runs on every recomputation of the index.
+
 3. This repo: unstage becomes possible. Only now can a group be a strict subset, and
    only now does `apply_patches` need the group id.
 4. UI in the compare view.
@@ -595,11 +632,15 @@ set is exactly one stage/unstage unit.
 
 - **Staged is the truth** — the studio, the preview and Publish all show
   `base + your group`; only the compare view shows more. §2.
-- **A group holds everything pending by default.** Not a preference: §2.2 has the
-  executable counterexample that rules out the alternative. Publish with staging
-  untouched is identical to Publish today.
-- **Independence comes from unstaging**, and a region you are holding is read-only until
-  you stage it again. §2.3, guarded by `editWouldRestage` and covered by the suite.
+- **A group holds its owner's patches, closed over their patch sets.** Not a
+  preference: §2.2 has the executable counterexample that rules out an empty group, and
+  the argument for why the closure — rather than a blanket over everything pending — is
+  what that counterexample actually demands. Publish therefore ships your own work plus
+  what is entangled with it, which is a real change from Publish today.
+- **Independence comes from the closure and from unstaging**, and a region you
+  _deliberately_ held back is read-only until you stage it again; a region you simply
+  never had is auto-staged before your op is resolved. §2.3, guarded by
+  `editWouldRestage` and covered by the suite.
 - **Patches outlive commits.** Alice publishes, Bob keeps working, and Bob's pending
   patches still apply on the new base. No `base_commit`, no rebase step. The
   "publish then continue" scenarios cover it.
@@ -619,10 +660,10 @@ set is exactly one stage/unstage unit.
    independent publishing. Either accept that, or make patch sets finer than "the whole
    array" — which `PatchSets` explicitly declined to do ("would need a lot of logic").
    Nothing is broken either way; it is a question of how much independence arrays get.
-2. **Publishing someone else's patch.** A group holds everything by default, so any
-   publish carries other people's work unless the publisher unstages it. Should they be
-   warned, or the other authors told? At minimum a published patch must leave every
-   group rather than silently vanishing.
+2. **Publishing someone else's patch.** The closure still pulls other authors' patches
+   in whenever they share a patch set, so a publish can carry work that is not yours.
+   Should they be warned, or the other authors told? At minimum a published patch must
+   leave every group rather than silently vanishing.
 3. **Empty publish.** A group can be emptied by unstaging. Publish should refuse with a
    clear message rather than committing nothing.
 4. **`PatchSets.insert` takes one op at a time.** It is called per op, and
@@ -673,9 +714,11 @@ See `packages/ui/spa/stores/architecture.md`.
       `patchGroups` annotation on `applicable/patches`, and `patchGroupsSha` through
       `StatStore` so a stage/unstage in one tab reaches another. Patch ids alone
       cannot detect it: the pending set is unchanged, only who holds them.
-- [ ] **Send the closure on write** — `PatchSync` adds `patchGroupId`,
-      `alsoAddPatchIds` and `holdBackForGroupIds` to `PUT /patches`. `stageClosure`
-      already computes them; nothing calls it on the write path yet.
+- [ ] **Send the closure on write** — `PatchSync` adds `patchGroupId` and
+      `alsoAddPatchIds` to `PUT /patches`. `stageClosure` already computes them;
+      nothing calls it on the write path yet. (`holdBackForGroupIds` is still accepted
+      by the endpoint but is inert now that a patch only ever joins its own author's
+      group — there is no fan-out for it to suppress.)
 - [ ] **Group-scoped source** — `SourceStore` folds in only the group's patches, so
       studio and preview show `base + your group` rather than everything pending.
       This is the item that makes "staged is the truth" (§2) true rather than aspirational.

@@ -135,7 +135,7 @@ export function indexPatchSets(
  * Does this group hold back anything in any patch set that `patchId` belongs to?
  *
  * Used to decide whether a newly arrived patch should join this group. It joins by
- * default — see `DEFAULT_GROUP_IS_EVERYTHING` — *unless* the author has
+ * closure — see `DEFAULT_GROUP_IS_EVERYTHING` — *unless* the author has
  * deliberately held that region back, in which case it stays out and the region
  * stays held.
  */
@@ -153,34 +153,48 @@ export function holdsRegionOf(
 }
 
 /**
- * Why a group contains *everybody's* pending patches by default, not just its
- * owner's.
+ * Why a group contains its owner's patches CLOSED OVER THEIR PATCH SETS, and
+ * nothing else.
  *
- * The tempting model is "your group starts empty and your own edits land in it".
- * It does not work, and the scenario suite has the counterexample as an executable
- * test.
- *
+ * The danger this has to answer is real, and it is worth stating before the rule.
  * The closure runs when a patch is *created* — which is after its author has
  * already picked a path. If Alice has inserted at `items/0` and that insert is not
- * in Bob's group, Bob sees `[A, B, C]` and picks index 1 for "B". Creating his
- * patch then closes his group over Alice's insert, index 1 becomes "A", and he has
- * silently renamed the wrong element. Staging later cannot fix a path chosen
- * earlier.
+ * in Bob's group, Bob sees `[A, B, C]` and picks index 1 for "B"; if his patch
+ * then applies without her insert, index 1 is "A" and he has silently renamed the
+ * wrong element. Staging later cannot fix a path chosen earlier.
  *
- * So for a path to mean what its author thought it meant, their view at pick time
- * must already contain everything the closure would pull in. The only way to
- * guarantee that without predicting the future is for the view to contain
- * everything pending. Which is also exactly today's behaviour — every pending
- * patch is applied for everyone — so this model is a strict extension of it rather
- * than a new risk.
+ * An earlier revision concluded from this that every group must hold every pending
+ * patch. That was over-broad. What the danger actually requires is that a group
+ * hold every pending patch that could SHIFT ITS OWN PATHS — and "the patches that
+ * can shift each other's paths" is the definition of a patch set. Alice's insert
+ * and Bob's rename both touch `?items`, so they are in one patch set and
+ * {@link stageClosure} pulls her insert in. Bob is protected by the closure, not
+ * by a blanket.
  *
- * Independence then comes from **unstaging**: carve a patch set out of your group
- * and it leaves your view and your publish. The cost is that the carved-out region
- * becomes read-only for you until you re-stage (`editWouldRestage`), because
- * inside it your view and the published result disagree — which is the same hole
- * again, just entered deliberately.
+ * Where a blanket and the closure differ is patches in DIFFERENT patch sets: Alice
+ * edits `?title` while Bob edits `?items`. Bob's group excludes her title change,
+ * and that cannot corrupt his op, because a different patch set means nothing that
+ * shifts his paths. What it does mean is that Bob's view is `base + his own +
+ * whatever the closure pulled in` — he does not see her title change until it is
+ * published. Divergent views are accepted (§2.4); this is where they come from.
+ *
+ * Two consequences, both deliberate:
+ *
+ * - Publish is NOT what it was before patch groups. It ships your own work and
+ *   what is entangled with it, not everything pending. That is the feature.
+ * - Patch sets coalesce retroactively — `PatchSets.insertPath` merges an existing
+ *   set into a broader one — so a group that was prefix-closed can stop being so
+ *   through nobody's action. `repairGroup` with the `extend` policy is what keeps
+ *   it applicable; see `PatchStagingProvider`, which runs it on every
+ *   recomputation of the index rather than only on stage/unstage.
+ *
+ * Independence then comes from **unstaging** as well: carve a patch set out of
+ * your group and it leaves your view and your publish. The cost is that the
+ * carved-out region becomes read-only for you until you re-stage
+ * (`editWouldRestage`), because inside it your view and the published result
+ * disagree — the same hole as above, entered deliberately.
  */
-export const DEFAULT_GROUP_IS_EVERYTHING = true;
+export const DEFAULT_GROUP_IS_EVERYTHING = false;
 
 /**
  * Stage `requested` into `group`, pulling in whatever the prefix invariant
