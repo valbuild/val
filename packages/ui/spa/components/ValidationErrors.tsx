@@ -145,7 +145,7 @@ function ModuleGroup({
         <a
           {...moduleLink}
           title={moduleFilePath}
-          className="min-w-0 flex flex-wrap items-center gap-1 rounded-sm text-sm text-fg-secondary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="min-w-0 flex flex-wrap items-center gap-1 rounded-sm text-sm text-fg-secondary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
         >
           {moduleParts.map((part, i) => (
             <Fragment key={`m-${i}`}>

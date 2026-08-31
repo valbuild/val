@@ -4,7 +4,9 @@ import { Button } from "./designSystem/button";
 import {
   useAllPatchErrors,
   useAutoPublish,
+  useCommittedPatches,
   usePendingClientSidePatchIds,
+  useHasNetChanges,
   usePendingServerSidePatchIds,
   usePublishSummary,
   useValMode,
@@ -23,7 +25,7 @@ import {
 } from "./designSystem/popover";
 import { PopoverClose } from "@radix-ui/react-popover";
 import { PublishSummary } from "./PublishSummary";
-import { type ReactElement, useState } from "react";
+import { type ReactElement, useMemo, useState } from "react";
 import {
   Tooltip,
   TooltipContent,
@@ -93,8 +95,25 @@ export function PublishButton({
     (count, errors) => count + Object.keys(errors || {}).length,
     0,
   );
-  const pendingServerSidePatchIds = usePendingServerSidePatchIds();
+  const savedPatchIds = usePendingServerSidePatchIds();
+  const committedPatchIds = useCommittedPatches();
+  /*
+   * On the server and not yet shipped.
+   *
+   * `usePendingServerSidePatchIds` is "everything the server has heard about",
+   * which keeps counting a patch after it has been committed. `useHasNetChanges`
+   * does not — it looks only at uncommitted work — so straight after an HTTP
+   * publish the two disagreed: a nonzero count with no net changes, which reads
+   * as `revertedToNothing` and told people to Discard changes that are in a
+   * commit and cannot be discarded. Same subtraction `ValShell` does for the
+   * discard count, so the button and the confirm are counting the same patches.
+   */
+  const pendingServerSidePatchIds = useMemo(
+    () => savedPatchIds.filter((patchId) => !committedPatchIds.has(patchId)),
+    [savedPatchIds, committedPatchIds],
+  );
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
+  const hasNetChanges = useHasNetChanges();
   const mode = useValMode();
   const portalContainer = useValPortal();
   const { autoPublish } = useAutoPublish();
@@ -109,6 +128,7 @@ export function PublishButton({
     autoPublish,
     pendingServerSidePatchCount: pendingServerSidePatchIds.length,
     pendingClientSidePatchCount: pendingClientSidePatchIds.length,
+    netChangesEmpty: !hasNetChanges,
   });
   const saving = mode === "fs";
   /*

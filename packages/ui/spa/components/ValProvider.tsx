@@ -14,6 +14,7 @@ import React, {
 import {
   hasRemoteFileSchema,
   ImageMetadata,
+  Internal,
   Json,
   ModuleFilePath,
   ModulePath,
@@ -23,7 +24,7 @@ import {
   ValConfig,
   ValModules,
 } from "@valbuild/core";
-import { Patch } from "@valbuild/core/patch";
+import { deepEqual, Patch, ReadonlyJSONValue } from "@valbuild/core/patch";
 import {
   ParentRef,
   SharedValConfig,
@@ -1269,6 +1270,141 @@ export function useDeployingCommitShas(): string[] {
 }
 
 /**
+ * Of these paths, the ones whose value is the same as the server's.
+ *
+ * A change that has been undone by a later change is still a change: the
+ * patches are real, they are in the chain, and they will be committed. But
+ * there is nothing to SHOW for them, and a compare view listing "hero.title"
+ * with the same text on both sides is describing work that will not happen.
+ *
+ * Answered by walking `sources` and `baseSources` to the same path, which is
+ * what makes the two sides comparable at all — see `useServerSourceAtPath`.
+ *
+ * Read out of the store rather than subscribed to per path: the caller is a
+ * whole-list view that already re-renders when source moves, and one
+ * subscription per row would be one wake per row for a single keystroke. This
+ * is the same rule `useShallowModulesAtPaths` follows, and the reason neither
+ * may be called from a field.
+ */
+export function useNoOpSourcePaths(
+  paths: SourcePath[],
+): ReadonlySet<SourcePath> {
+  const val = useValSystem();
+  const sourcesVersion = useSourcesVersion();
+  /*
+   * `sourcesVersion` alone is not enough. A publish moves `baseSources` through
+   * `promoteToBase` / `promotePublished`, and neither bumps a revision — on
+   * purpose, since the DISPLAYED value does not move. So the chain is watched
+   * too: it is what actually changes when a publish or a discard lands.
+   */
+  const chainVersion = useChainVersion();
+  return useMemo(() => {
+    const equal = new Set<SourcePath>();
+    if (val === null) return equal;
+    void sourcesVersion;
+    void chainVersion;
+    const store = val.system.sourceStore;
+    for (const path of paths) {
+      const after = store.peek(path);
+      const before = store.peekBase(path);
+      // Only a settled pair can be compared. Anything still loading is not
+      // "unchanged", it is unknown, and calling it unchanged would hide a real
+      // change behind a slow read.
+      if (after.status !== "ready" || before.status !== "ready") continue;
+      if (
+        deepEqual(
+          after.data as ReadonlyJSONValue,
+          before.data as ReadonlyJSONValue,
+        )
+      ) {
+        equal.add(path);
+      }
+    }
+    return equal;
+  }, [val, sourcesVersion, chainVersion, paths]);
+}
+
+/**
+ * Whether publishing would change anything at all.
+ *
+ * False when every module carrying an unpublished patch already matches the
+ * server — the "edit it, then edit it back" case. The patches exist and can be
+ * discarded, but committing them would produce a commit with no diff in it, so
+ * Publish is disabled and the compare view says so rather than listing rows
+ * that claim a change and then show the same value twice.
+ *
+ * Deliberately module-level, not row-level: a module whose net effect is
+ * nothing has nothing to ship regardless of how the rows inside it group.
+ */
+export function useHasNetChanges(): boolean {
+  const val = useValSystem();
+  const sourcesVersion = useSourcesVersion();
+  const chainVersion = useChainVersion();
+  const committed = useCommittedPatches();
+
+  /*
+   * Read off the CHAIN, not off the patch sets.
+   *
+   * `usePatchSets` is grouped asynchronously in a worker and reports
+   * `not-asked` until the first result. Mapping that to "no modules" made this
+   * hook answer "nothing changes" during the window — which disables Publish
+   * and zeroes Review as though everything had been reverted, on a project
+   * where nothing has. `patchStore.allRecords()` already names each record's
+   * module and is synchronous, so there is no window.
+   */
+  const modules = useMemo((): ModuleFilePath[] => {
+    if (val === null) return [];
+    void chainVersion;
+    const seen = new Set<ModuleFilePath>();
+    for (const record of val.system.patchStore.allRecords()) {
+      // A patch that has shipped is history, not pending work: its two sides
+      // are equal BECAUSE it shipped, which is the opposite of a no-op.
+      if (committed.has(record.patchId)) continue;
+      seen.add(record.moduleFilePath);
+    }
+    return [...seen];
+  }, [val, chainVersion, committed]);
+
+  return useMemo(() => {
+    // As in the loop below: what is not known yet counts as a change. `false`
+    // would mean "nothing to publish", and it is not this hook's place to
+    // disable Publish because the system has not finished arriving.
+    if (val === null) return true;
+    /*
+     * Nothing uncommitted means nothing has been REVERTED — there is no
+     * pending work to cancel out. Answering `false` here labelled a chain of
+     * already-published records, which is what an `http` publish leaves
+     * behind, as "every change has been reverted, discard them" — about
+     * records that cannot be discarded.
+     */
+    if (modules.length === 0) return true;
+    void sourcesVersion;
+    void chainVersion;
+    const store = val.system.sourceStore;
+    for (const moduleFilePath of modules) {
+      const after = store.moduleSource(moduleFilePath);
+      // The module root as a source path — core's own conversion, rather than
+      // an assertion between two brands that do not overlap.
+      const before = store.peekBase(
+        Internal.joinModuleFilePathAndModulePath(
+          moduleFilePath,
+          "" as ModulePath,
+        ),
+      );
+      // Unknown counts AS a change: a module still loading must not be able to
+      // disable Publish, which would silently drop real work.
+      if (after === undefined || before.status !== "ready") return true;
+      if (
+        !deepEqual(after as ReadonlyJSONValue, before.data as ReadonlyJSONValue)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }, [val, sourcesVersion, chainVersion, modules]);
+}
+
+/**
  * Patches the server has that this session did not create.
  *
  * Another editor's work, or this editor's from a previous session. Named
@@ -1899,6 +2035,30 @@ export function useCurrentProfile() {
   if (mode === "fs") {
     const [firstProfile] = Object.values(profiles);
     return firstProfile ?? null;
+  }
+  return null;
+}
+
+/**
+ * Who the person at the keyboard is, as an author id.
+ *
+ * `profileId` and the `authorId` on a patch are the same keyspace — `/profiles`
+ * is keyed by `profile.profileId` — so this is what tells "your own change"
+ * apart from someone else's.
+ *
+ * Resolved exactly the way `useCurrentProfile` resolves the profile, including
+ * the `fs` fallback: there `profileId` is null (there is no session to have
+ * one) and the studio treats the single local profile as you. Kept beside it
+ * so the two cannot drift into disagreeing about who you are.
+ */
+export function useCurrentAuthorId(): string | null {
+  const { profileId, profiles, mode } = useContext(ValContext);
+  if (profileId) {
+    return profileId;
+  }
+  if (mode === "fs") {
+    const [firstAuthorId] = Object.keys(profiles);
+    return firstAuthorId ?? null;
   }
   return null;
 }

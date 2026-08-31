@@ -147,7 +147,7 @@ function LoadingNote({ onDismiss }: { onDismiss: () => void }) {
           type="button"
           onClick={onDismiss}
           aria-label="Stop waiting for unpublished changes"
-          className="pointer-events-auto -mr-1 ml-0.5 grid size-4 place-items-center rounded text-fg-tertiary hover:bg-bg-float-raised hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="pointer-events-auto -mr-1 ml-0.5 grid size-4 place-items-center rounded text-fg-tertiary hover:bg-bg-float-raised hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
         >
           <X size={11} aria-hidden />
         </button>
@@ -193,7 +193,7 @@ function StallReport({
             type="button"
             onClick={onDismiss}
             aria-label="Dismiss"
-            className="-mr-1 -mt-1 grid size-5 shrink-0 place-items-center rounded text-fg-tertiary hover:bg-bg-float-raised hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="-mr-1 -mt-1 grid size-5 shrink-0 place-items-center rounded text-fg-tertiary hover:bg-bg-float-raised hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
           >
             <X size={12} aria-hidden />
           </button>

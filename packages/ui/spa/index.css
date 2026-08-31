@@ -129,6 +129,20 @@
     --fg-brand-primary: var(--colors-brand-green-1000);
     --fg-brand-primary-alt: var(--colors-brand-green-900);
     --border-brand-primary: var(--colors-brand-green-300);
+
+    /*
+     * The focus ring, and the only token any focus style should name.
+     *
+     * A step darker than `--border-brand-primary`, which is a resting border
+     * on a filled surface and is too pale to READ as focus on white:
+     * green-600 is the step that clears 3:1 against both white and black,
+     * which `contrast.test.ts` holds this to.
+     *
+     * Declared here — in the block that a shadow root can actually see — for
+     * the reason the whole ring was invisible before it existed. See the note
+     * on the shadcn compatibility block below.
+     */
+    --border-focus: var(--colors-brand-green-600);
     /* Brand secondary */
     --bg-brand-secondary: var(--colors-brand-green-800);
     --bg-brand-secondary-hover: var(--colors-brand-green-700);
@@ -215,6 +229,10 @@
     --fg-brand-primary: var(--colors-brand-green-100);
     --fg-brand-primary-alt: var(--colors-brand-green-200);
     --border-brand-primary: var(--colors-brand-green-500);
+
+    /* See the light value. Lighter rather than mirrored, as the error colour
+       is: green-600 is nearly invisible against the dark canvas. */
+    --border-focus: var(--colors-brand-green-400);
     /* Brand secondary */
     --bg-brand-secondary: var(--colors-brand-green-200);
     --bg-brand-secondary-hover: var(--colors-brand-green-300);
@@ -268,6 +286,29 @@
     --bg-disabled: var(--colors-gray-dark-mode-gray-800);
     --fg-disabled: var(--colors-gray-dark-mode-gray-500);
   }
+  /*
+   * The shadcn compatibility block, and a trap.
+   *
+   * NEITHER of these selectors matches in the Studio. `:root` matches a
+   * DOCUMENT's root element, and the Studio always mounts inside a shadow root
+   * with this stylesheet linked into it (`App.tsx`, `Overlay.tsx`) — a shadow
+   * tree's root is a DocumentFragment, so `:root` matches nothing there. And
+   * `.dark` is never applied: `darkMode` is `[data-mode="dark"]`.
+   *
+   * So every token below is undefined at render time, and `hsl(var(--x))`
+   * resolves to `hsl()`, which is invalid at computed-value time. For a colour
+   * that degrades quietly (a background goes transparent, a foreground
+   * inherits) — but in a `box-shadow` it takes the WHOLE declaration down, so
+   * `ring-ring` painted nothing at all and every focus ring in the Studio was
+   * invisible. Storybook imports this file into the document, where `:root`
+   * DOES match, which is why it looked right everywhere it was designed.
+   *
+   * Focus styling therefore names `--border-focus` (declared above, in a block
+   * that a shadow root can see) and never `ring-ring` / `ring-offset-*`.
+   * `focusRingTokens.test.ts` holds that line. The rest of this block is left
+   * as it is: it is dead, but reviving 300+ call sites at once is a visual
+   * change of its own rather than a fix.
+   */
   :root {
     --background: 0 0% 100%;
     --foreground: 240 10% 3.9%;
@@ -484,6 +525,21 @@
   .rich-text-editor .ProseMirror li {
     @apply mb-1;
   }
+  /*
+   * No trailing gap under the last block.
+   *
+   * Every block element in here carries `mb-3` so paragraphs breathe. On the
+   * LAST one that margin is inside the editor's padding box with nothing after
+   * it, so it is 12px of dead space at the bottom of the field — which is why a
+   * single-line rich text box could not match a string field's height however
+   * the padding was set. Removing it makes an empty field exactly one line plus
+   * its padding, the same arithmetic `Input`'s `h-10` is.
+   */
+  .val-rich-text-editor > :last-child,
+  .rich-text-editor .ProseMirror > :last-child {
+    margin-bottom: 0;
+  }
+
   .val-rich-text-editor blockquote,
   .rich-text-editor .ProseMirror blockquote {
     @apply border-l-4 border-border-primary pl-4 italic text-fg-secondary mb-3;
@@ -580,4 +636,58 @@
 
 #val-app-container {
   visibility: visible !important;
+}
+
+/*
+ * Nothing typeable may compute under 16px on a touch device.
+ *
+ * iOS Safari zooms the whole page in when it focuses a field smaller than
+ * that, and it does not zoom back out — so one tap on a filter box leaves the
+ * editor scaled up and half off screen for the rest of the session. It is the
+ * one layout bug a user cannot undo from inside the app.
+ *
+ * The viewport meta is not an option, for two independent reasons: a `<meta>`
+ * inside a shadow root is inert, so it would have to be written into the HOST
+ * page's head and would change the customer's own layout; and iOS ignores
+ * `user-scalable=no` regardless. Font size is the only lever that works.
+ *
+ * OUTSIDE `@layer`, AND ABOVE `.text-xs` ON SPECIFICITY. Both are needed, and
+ * for different reasons. Tailwind v3 resolves `@layer` at build time and emits
+ * PLAIN CSS — there are no native cascade layers in the output — so ordering
+ * here is source order and specificity, nothing else. Being last in the file
+ * settles ties; it does not settle `input` (0,0,1) against `.text-xs` (0,1,0),
+ * which the class still wins. Hence `input[class]` (0,1,1), which clears every
+ * size utility, with the bare selectors kept for controls carrying no class at
+ * all. Measured both ways: with only the bare selectors a `text-xs` filter box
+ * still computed 12px on a phone.
+ *
+ * Nothing in the Studio sets a typeable control above 16px, so there is nothing
+ * here for this to shrink.
+ *
+ * `select` covers a native one; the Radix trigger is a `<button>` and carries
+ * `touch:` at its own call site, as does anything that is not a form control.
+ *
+ * `any-pointer`, not `pointer`: `pointer` reports only the PRIMARY device, so
+ * an iPad with a keyboard case or a touch laptop answers `fine` and this stops
+ * matching — while the touchscreen still zooms. `any-pointer` asks whether any
+ * input on the device is coarse.
+ */
+@media (any-pointer: coarse) {
+  input,
+  textarea,
+  select,
+  input[class],
+  textarea[class],
+  select[class],
+  [contenteditable="true"] {
+    font-size: 16px;
+  }
+
+  /* Edited in place, so they are typeable even though they are not inputs. */
+  .val-rich-text-editor h5,
+  .rich-text-editor .ProseMirror h5,
+  .val-rich-text-editor h6,
+  .rich-text-editor .ProseMirror h6 {
+    font-size: 16px;
+  }
 }
