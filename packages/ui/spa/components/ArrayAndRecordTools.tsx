@@ -3,6 +3,7 @@ import {
   Internal,
   ModulePath,
   ModuleFilePath,
+  isInlineRender,
 } from "@valbuild/core";
 import * as React from "react";
 import { JSONValue } from "@valbuild/core/patch";
@@ -327,7 +328,7 @@ function AddArrayButton({
         );
         // An inline item is edited in place in the list, so adding one should
         // not navigate away from it. Everything else opens as its own page.
-        if (schema.item.render?.as !== "inline") {
+        if (!isInlineRender(schema.item)) {
           navigate(
             Internal.joinModuleFilePathAndModulePath(
               moduleFilePath,

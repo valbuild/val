@@ -1,4 +1,8 @@
-import { SourcePath, SerializedArraySchema } from "@valbuild/core";
+import {
+  SourcePath,
+  SerializedArraySchema,
+  isInlineRender,
+} from "@valbuild/core";
 import {
   usePreviewAtPath,
   useShallowSourceAtPath,
@@ -12,13 +16,14 @@ import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchEr
 import { FieldSourceError } from "../../components/FieldSourceError";
 import { useNavigation } from "../../components/ValRouter";
 import { SortableList, SortableContainer } from "../../components/SortableList";
+import { BlockList } from "../../components/BlockList";
 import { array } from "@valbuild/core/fp";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { PreviewError } from "../PreviewError";
 import { Loader2 } from "lucide-react";
 import { Field } from "../../components/Field";
 import { AnyField } from "../../components/AnyField";
-import { InlineSortableItem } from "../../components/InlineAnyField";
+import { InlineSortableItem } from "../../components/InlineSortableItem";
 
 export function ArrayFields({
   path,
@@ -112,6 +117,28 @@ export function ArrayFields({
   const savingOwnEdit =
     previewAtPathData !== undefined &&
     (hasUnsavedOwnEdit || shallowSourceAtPath.status === "loading");
+  /**
+   * An inline item schema picks the list, and it does so BEFORE the `inline`
+   * prop below and before anything to do with `preview`.
+   *
+   * `render` and `preview` answer different questions (see
+   * `architecture/render-and-preview.md`), and where they both have something
+   * to say about a list row, the render wins: `.render({ as: "inline" })` is
+   * the author saying "this is edited here", and a `.preview(...)` on the same
+   * schema then describes the value for the places it is only referred to — a
+   * search hit, a reference, the collapsed header of its own row — not for the
+   * field itself.
+   */
+  if (isInlineRender(schema.item)) {
+    return (
+      <div className="relative w-full">
+        {previewAtPath?.status === "error" && (
+          <PreviewError error={previewAtPath.message} path={path} />
+        )}
+        <BlockList path={path} readonly={readonly} />
+      </div>
+    );
+  }
   if (inline) {
     const sourcePaths = shallowSourceAtPath.data as SourcePath[] | null;
     if (sourcePaths === null) {
@@ -229,7 +256,6 @@ export function ArrayFields({
             schema.type,
           );
         }}
-        schema={schema}
         source={shallowSourceAtPath.data || []}
       />
     </div>

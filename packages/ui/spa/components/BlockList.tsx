@@ -30,14 +30,23 @@ import {
   Json,
   SerializedSchema,
   SerializedArraySchema,
+  SerializedObjectUnionSchema,
+  SerializedUnionSchema,
   SourcePath,
+  isInlineRender,
 } from "@valbuild/core";
 import { array } from "@valbuild/core/fp";
 import { JSONValue } from "@valbuild/core/patch";
 import { useSourceAtPath, useValField } from "./ValFieldProvider";
 import { useValidationErrors } from "./ValErrorProvider";
 import { AnyField } from "./AnyField";
+import {
+  isObjectUnion,
+  ObjectUnionTagSelect,
+  useObjectUnion,
+} from "./fields/UnionField";
 import { RefPreview } from "./RefPreview";
+import { useRefPreview } from "./useRefPreview";
 import { useNavigation } from "./ValRouter";
 import { useValPortal } from "./ValPortalProvider";
 import {
@@ -54,8 +63,9 @@ import { FieldValidationError } from "./FieldValidationError";
  * A rebuilt sortable list for arrays, dense enough that a page-builder tree —
  * lists of inline objects nested three levels deep — fits on a laptop screen.
  *
- * WORKING NAME. This is a Storybook-only prototype: `ArrayFields` still
- * renders `SortableList` until the design (and the name) is decided.
+ * `ArrayFields` renders this whenever the list's ITEM schema is inline (see
+ * `isInlineRender`) and `SortableList` otherwise, so a list of preview rows is
+ * untouched by any of this.
  *
  * What it does differently from `SortableList`:
  * - An item whose schema declares `.render({ as: "inline" })` is EDITED IN
@@ -72,11 +82,13 @@ import { FieldValidationError } from "./FieldValidationError";
  * moment the move patch applies, or the move is applied twice and cancels out.
  */
 /**
- * Prototype-only density pass over the stock field controls, scoped to the
- * list so nothing outside it changes: the design-system `Input` is `h-10 m-1`
- * and the rich text editor `p-4`, which alone put a three-level tree far past
- * one laptop screen. If the design lands, these become proper `compact`
- * variants on the controls instead of descendant overrides.
+ * A density pass over the stock field controls, scoped to the list so nothing
+ * outside it changes: the design-system `Input` is `h-10 m-1` and the rich text
+ * editor `p-4`, which alone put a three-level tree far past one laptop screen.
+ *
+ * Descendant overrides, which is the part that should not last: these want to
+ * be proper `compact` variants on the controls themselves. Until they are, a
+ * control that changes its metrics changes them here too, silently.
  */
 const DENSE_FIELDS = cn(
   "[&_input]:h-7 [&_input]:m-0 [&_input]:w-full [&_input]:px-2 [&_input]:py-1 [&_input]:text-[13px]",
@@ -308,10 +320,18 @@ function BlockRow({
   const [collapsed, setCollapsed] = useState(false);
   const validationErrors = useValidationErrors(path);
   const style = { transform: CSS.Transform.toString(transform), transition };
-  const isInline = itemSchema.render?.as === "inline";
+  const isInline = isInlineRender(itemSchema);
   // An inline object gets a header row (index, summary, collapse) above its
   // fields; an inline leaf is a single line with the editor in it.
-  const headered = isInline && itemSchema.type === "object";
+  //
+  // A union is headered too: it is an object once the tag is chosen, and a
+  // page-builder list is a union of blocks, so these are the rows that most
+  // need a title to collapse to.
+  const headered =
+    isInline &&
+    (itemSchema.type === "object" ||
+      // A union of string literals is one select — a leaf, not a block.
+      (itemSchema.type === "union" && isObjectUnion(itemSchema)));
 
   const grip = (
     <button
@@ -335,6 +355,10 @@ function BlockRow({
   return (
     <div
       touch-action="manipulation"
+      /* The row is the anchor for its own path: nothing inside an inline row
+         goes through `Field`, so without this a navigation to a path in this
+         list has nothing to scroll to (see `scrollToStudioPath`). */
+      data-val-studio-path={path}
       ref={setNodeRef}
       style={style}
       className={cn(
@@ -376,12 +400,21 @@ function BlockRow({
         // Right padding only: nested lists reach the left border (see the row
         // class above); leaf fields add their own small left inset.
         <div className="pr-1.5 pb-1.5 pt-0.5">
-          <InlineObjectBody
-            path={path}
-            itemSchema={itemSchema}
-            depth={depth}
-            readonly={readonly}
-          />
+          {itemSchema.type === "union" ? (
+            <InlineUnionBody
+              path={path}
+              itemSchema={itemSchema}
+              depth={depth}
+              readonly={readonly}
+            />
+          ) : (
+            <InlineObjectBody
+              path={path}
+              itemSchema={itemSchema}
+              depth={depth}
+              readonly={readonly}
+            />
+          )}
         </div>
       )}
       {isInline && !headered && (
@@ -422,6 +455,78 @@ function BlockRow({
 }
 
 /**
+ * One inline union item: the tag selector, then the variant's own fields laid
+ * out by {@link InlineObjectBody} — so a block in a page-builder list reads
+ * like every other row instead of like a stack of folding cards.
+ *
+ * The selection itself comes from `useObjectUnion`, which the union FIELD uses
+ * too. Switching a tag is not a `replace` of the discriminator: it remembers
+ * the source of each tag you leave, so switching away and back gives you what
+ * you typed. Two implementations of that would be two answers.
+ */
+function InlineUnionBody({
+  path,
+  itemSchema,
+  depth,
+  readonly,
+}: {
+  path: SourcePath;
+  itemSchema: SerializedUnionSchema;
+  depth: number;
+  readonly?: boolean;
+}) {
+  // A union of string literals has no variant to lay out — it is one select,
+  // drawn by the leaf branch above. Narrowed HERE rather than inside the body
+  // below, so that `useObjectUnion` is never called behind a condition.
+  if (!isObjectUnion(itemSchema)) {
+    return null;
+  }
+  return (
+    <InlineObjectUnionBody
+      path={path}
+      itemSchema={itemSchema}
+      depth={depth}
+      readonly={readonly}
+    />
+  );
+}
+
+function InlineObjectUnionBody({
+  path,
+  itemSchema,
+  depth,
+  readonly,
+}: {
+  path: SourcePath;
+  itemSchema: SerializedObjectUnionSchema;
+  depth: number;
+  readonly?: boolean;
+}) {
+  const state = useObjectUnion(path, itemSchema);
+  if (state.status === "loading") {
+    return null;
+  }
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="pl-2">
+        <ObjectUnionTagSelect
+          state={state}
+          readonly={readonly}
+          className="h-7 w-auto min-w-24 px-2 py-1 text-[13px]"
+        />
+      </div>
+      <InlineObjectBody
+        path={path}
+        itemSchema={state.selectedSchema}
+        depth={depth}
+        readonly={readonly}
+        omitKeys={[itemSchema.key]}
+      />
+    </div>
+  );
+}
+
+/**
  * The fields of one inline object item, laid out tightly. A field that is
  * itself an array of inline items recurses into a nested `BlockList` behind a
  * thin rail, instead of another card-in-card — that rail is most of what buys
@@ -432,11 +537,15 @@ function InlineObjectBody({
   itemSchema,
   depth,
   readonly,
+  omitKeys,
 }: {
   path: SourcePath;
   itemSchema: SerializedSchema;
   depth: number;
   readonly?: boolean;
+  /** Fields the row draws elsewhere — a union's discriminator, which is the
+   * tag selector above rather than a field of its own. */
+  omitKeys?: string[];
 }) {
   // Which nested lists are folded away. Hiding fields is what buys clearance
   // on the left once the rows themselves stopped indenting.
@@ -447,16 +556,13 @@ function InlineObjectBody({
   return (
     <div className="flex flex-col gap-1.5">
       {Object.entries(itemSchema.items).map(([key, fieldSchema]) => {
-        if (fieldSchema.hidden) {
+        if (fieldSchema.hidden || omitKeys?.includes(key)) {
           return null;
         }
         const fieldPath = sourcePathOfItem(path, key);
         const fieldReadonly =
           readonly === true || fieldSchema.readonly === true;
-        if (
-          fieldSchema.type === "array" &&
-          fieldSchema.item.render?.as === "inline"
-        ) {
+        if (fieldSchema.type === "array" && isInlineRender(fieldSchema.item)) {
           const hidden = hiddenLists[key] === true;
           return (
             <div key={key} className="flex flex-col gap-1">
@@ -508,15 +614,27 @@ function FieldLabel({ label }: { label: string }) {
   );
 }
 
-/** One line of the row's own content, for the collapsed (and header) state. */
+/**
+ * One line of the row's own content, for the collapsed (and header) state.
+ *
+ * This is the one place a `preview` still has a say in an inline row, and it
+ * is not a contradiction: the preview says what the value IS, which is exactly
+ * what a header that can collapse the editor away needs. It never decides how
+ * the row is EDITED — that is the render, and inline wins it outright. Without
+ * a declared preview, the first string in the value stands in.
+ */
 function RowSummary({ path }: { path: SourcePath }) {
+  const preview = useRefPreview(path);
   const sourceAtPath = useSourceAtPath(path);
   const summary = useMemo(() => {
+    if (preview?.title) {
+      return preview.title;
+    }
     if ("data" in sourceAtPath && sourceAtPath.data !== undefined) {
       return firstStringOf(sourceAtPath.data);
     }
     return null;
-  }, [sourceAtPath]);
+  }, [preview, sourceAtPath]);
   return (
     <span className="flex-1 min-w-0 truncate text-xs text-fg-tertiary">
       {summary ?? ""}
@@ -526,8 +644,9 @@ function RowSummary({ path }: { path: SourcePath }) {
 
 /**
  * Depth-first first string in a source — a cheap stand-in for a title when the
- * schema has no `preview`. Skips `_type`-ish discriminators, which are the
- * first field of every union item but never the row's title.
+ * schema has no `preview`. Skips the keys that are structure rather than
+ * content: a union's discriminator, and a rich text node's `tag`, which would
+ * otherwise title a whole text block "p".
  */
 function firstStringOf(source: Json): string | null {
   if (typeof source === "string") {
@@ -544,7 +663,7 @@ function firstStringOf(source: Json): string | null {
   }
   if (source !== null && typeof source === "object") {
     for (const [key, value] of Object.entries(source)) {
-      if (key === "type" || key === "_type") {
+      if (key === "type" || key === "_type" || key === "tag") {
         continue;
       }
       if (value === undefined) {

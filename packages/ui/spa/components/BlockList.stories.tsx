@@ -277,7 +277,47 @@ const articlesModule = c.define(
   },
 );
 
+/**
+ * A tagged union of blocks, with the render on the VARIANTS — how a page
+ * builder is actually written, and the shape that used to draw preview rows
+ * because the union itself carries no render. One variant declares a preview
+ * as well: it titles the row's header, and does not take the editor away.
+ */
+const sectionsModule = c.define(
+  "/content/sections.val.ts",
+  s.object({
+    sections: s.array(
+      s.union(
+        "type",
+        s
+          .object({
+            type: s.literal("text"),
+            text: s.richtext(),
+          })
+          .render({ as: "inline" }),
+        s
+          .object({
+            type: s.literal("code"),
+            code: s.string().render({ as: "code", language: "typescript" }),
+          })
+          .render({ as: "inline" })
+          .preview(({ val }) => ({ title: val.code })),
+      ),
+    ),
+  }),
+  {
+    sections: [
+      {
+        type: "text",
+        text: [{ tag: "p", children: ["A paragraph of body copy."] }],
+      },
+      { type: "code", code: 'console.log("and a code block");' },
+    ],
+  },
+);
+
 const pagesData = createMockData([pagesModule]);
+const sectionsData = createMockData([sectionsModule]);
 const tagsData = createMockData([tagsModule]);
 const previewRowsData = createMockData([previewRowsModule]);
 const articlesData = createMockData([articlesModule, authorsModule]);
@@ -309,6 +349,15 @@ export const ThreeLevels: Story = {
   render: () => (
     <StoryProviders mockData={pagesData}>
       <BlockList path={sourcePathOf("/content/pages.val.ts", "blocks")} />
+    </StoryProviders>
+  ),
+};
+
+export const UnionBlocks: Story = {
+  name: "Union blocks (render on the variants)",
+  render: () => (
+    <StoryProviders mockData={sectionsData}>
+      <BlockList path={sourcePathOf("/content/sections.val.ts", "sections")} />
     </StoryProviders>
   ),
 };

@@ -112,8 +112,8 @@ test.describe("the Studio, through its own UI", () => {
    * was reshaped into a `sections` array of inline union members. What is left
    * at module level is the title: `url` is a route selector and `sections` is a
    * list, so neither is a text input. The inline rows the new fixture exists to
-   * show are NOT covered by anything yet — worth a spec of their own rather than
-   * a guess bolted onto this one.
+   * show have a spec of their own — `inline-render.spec.ts` — rather than a
+   * guess bolted onto this one.
    */
   test("opens a module and shows its values", async ({ page }) => {
     await studioRoot(page);
