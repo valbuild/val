@@ -66,6 +66,23 @@ import type {
 const PENDING_VALIDATION_DEBOUNCE_MS = 300;
 
 /**
+ * How the pending-validation pass is deferred. Returns a cancel.
+ *
+ * A seam rather than a bare `setTimeout` because the property worth testing —
+ * a burst of keystrokes arms ONE pass — is about arming, not about elapsed
+ * time. Reaching for the global clock left the tests only one lever: race 40
+ * awaited writes against the 300ms window and assert nothing fired yet. That
+ * passes with roughly a 3x margin on an idle box, which is not a margin anyone
+ * chose and not a property of this system; it went red on a CI runner.
+ *
+ * Injecting only THIS timer, rather than reaching for `jest.useFakeTimers()`:
+ * a global fake clock also freezes `setTimeout(..., 0)`, which `testSystem`'s
+ * `settle()` and every async seam in the rig are built on. The one timer under
+ * test is controllable; the rest of the event loop stays real.
+ */
+export type DeferPendingValidation = (run: () => void) => () => void;
+
+/**
  * How much of the chain a caller that named a set may publish.
  *
  * The longest prefix of `chain` that is both named and already on the server.
@@ -247,6 +264,12 @@ export type SystemOptions = {
    * system may react to a work record, and nothing does.
    */
   activity?: ActivitySink;
+  /**
+   * How the pending-validation pass is deferred. Defaults to a
+   * `PENDING_VALIDATION_DEBOUNCE_MS` debounce — see `DeferPendingValidation`
+   * for why this is an argument at all.
+   */
+  deferPendingValidation?: DeferPendingValidation;
   /**
    * Where a patch's file bytes are POSTed, and where a removed file is deleted.
    *
@@ -597,11 +620,21 @@ export function createSystem(options: SystemOptions): System {
    * deferred and collapsed, and the timer is cleared on dispose so a torn-down
    * system cannot wake up and validate.
    */
-  let validatePendingTimer: ReturnType<typeof setTimeout> | null = null;
+  const deferPendingValidation: DeferPendingValidation =
+    options.deferPendingValidation ??
+    ((run) => {
+      const timer = setTimeout(run, PENDING_VALIDATION_DEBOUNCE_MS);
+      return () => clearTimeout(timer);
+    });
+  /**
+   * Non-null exactly while a pass is armed, which is what makes the arming
+   * idempotent: the second patch of a burst finds it set and adds nothing.
+   */
+  let cancelPendingValidation: (() => void) | null = null;
   function scheduleValidationOfPendingModules(): void {
-    if (validatePendingTimer !== null) return;
-    validatePendingTimer = setTimeout(() => {
-      validatePendingTimer = null;
+    if (cancelPendingValidation !== null) return;
+    cancelPendingValidation = deferPendingValidation(() => {
+      cancelPendingValidation = null;
       const modules = new Set<ModuleFilePath>();
       for (const record of patchStore.allRecords()) {
         modules.add(record.moduleFilePath);
@@ -611,7 +644,7 @@ export function createSystem(options: SystemOptions): System {
         // and a failure to validate is the validation store's to report.
         void validationStore.validate(moduleFilePath);
       }
-    }, PENDING_VALIDATION_DEBOUNCE_MS);
+    });
   }
 
   const unsubscribe = [
@@ -1382,9 +1415,9 @@ export function createSystem(options: SystemOptions): System {
     },
     dispose() {
       for (const off of unsubscribe) off();
-      if (validatePendingTimer !== null) {
-        clearTimeout(validatePendingTimer);
-        validatePendingTimer = null;
+      if (cancelPendingValidation !== null) {
+        cancelPendingValidation();
+        cancelPendingValidation = null;
       }
       // Before the unsubscribes would be wrong-ish and after is right: a retry
       // mid-backoff has to be told to stop, or it wakes up and writes to a
