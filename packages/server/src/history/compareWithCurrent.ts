@@ -31,9 +31,31 @@ export async function compareWithCurrent(
   ops: ValOps,
   patchSet: HistoricalPatchSet,
 ): Promise<result.Result<HistoricalComparison, HistoryError>> {
+  // "Current" means what the editor is LOOKING AT, which includes their
+  // unpublished patches - not the committed source.
+  //
+  // `getSources()` with no analysis returns the committed source, and comparing
+  // against that would describe a restore as undoing changes the editor has
+  // already made themselves, or as leaving alone ones it would actually
+  // overwrite. So the pending patches are fetched and applied first, the same
+  // way `/sources/~` does it.
   let currentSources: Sources;
   try {
-    const sourcesResult = await ops.getSources();
+    const patchOps = await ops.fetchPatches({
+      patchIds: undefined,
+      excludePatchOps: false,
+    });
+    if (patchOps.error) {
+      return result.err({
+        kind: "transport",
+        message: `Could not read the project's pending patches: ${patchOps.error.message}`,
+      });
+    }
+    const analysis = ops.analyzePatches(patchOps.patches);
+    const sourcesResult = await ops.getSourcesWithPatchesApplied({
+      ...analysis,
+      patches: patchOps.patches,
+    });
     currentSources = sourcesResult.sources;
   } catch (err) {
     return result.err({

@@ -1,6 +1,13 @@
-import { initVal, type ModuleFilePath } from "@valbuild/core";
+import { initVal, type ModuleFilePath, type Source } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
-import type { Patch } from "@valbuild/core/patch";
+import {
+  applyPatch,
+  deepClone,
+  JSONOps,
+  type JSONValue,
+  type Patch,
+  type ReadonlyJSONValue,
+} from "@valbuild/core/patch";
 import { getHistoricalComparison } from "./getHistoricalComparison";
 import { getHistoricalPatchSet } from "./getHistoricalPatchSet";
 import type { ValOps, Schemas, Sources } from "../ValOps";
@@ -43,6 +50,9 @@ function fakeOps(args: {
   affectedFiles?: AffectedFile[];
   schemas?: Schemas;
   currentSources?: Sources;
+  /** Pending, unpublished patches - what the editor is looking at on top of the
+   * committed source. */
+  pendingPatches?: { path: ModuleFilePath; patch: Patch; patchId: string }[];
   fileAtCommit?: (filePath: string) => Buffer | null;
 }): ValOps {
   const { ValOps: ValOpsClass } =
@@ -71,7 +81,44 @@ function fakeOps(args: {
         });
   });
   define("getSchemas", async () => args.schemas ?? {});
-  define("getSources", async () => ({ sources: args.currentSources ?? {} }));
+  // Mirrors the real contract: no analysis returns the COMMITTED source, an
+  // analysis returns it with the pending patches applied. The distinction is
+  // the whole point of the "compares against pending patches" test - a fake
+  // that ignored the argument would pass either way.
+  define(
+    "getSources",
+    async (analysis?: unknown): Promise<{ sources: Sources }> => {
+      const committed = args.currentSources ?? {};
+      if (analysis === undefined) {
+        return { sources: committed };
+      }
+      const patched: Sources = {};
+      for (const pending of args.pendingPatches ?? []) {
+        const base = patched[pending.path] ?? committed[pending.path];
+        if (base === undefined) continue;
+        const applied = applyPatch(
+          deepClone(base as ReadonlyJSONValue) as JSONValue,
+          new JSONOps(),
+          pending.patch.filter((op) => op.op !== "file"),
+        );
+        if (result.isOk(applied)) {
+          patched[pending.path] = applied.value as Source;
+        }
+      }
+      return { sources: patched };
+    },
+  );
+  define("fetchPatches", async () => ({
+    patches: (args.pendingPatches ?? []).map((pending) => ({
+      path: pending.path,
+      patchId: pending.patchId as never,
+      patch: pending.patch,
+      createdAt: "2026-01-02T00:00:00.000Z",
+      authorId: null,
+      appliedAt: null,
+    })),
+    commits: [],
+  }));
   return ops;
 }
 
@@ -174,6 +221,39 @@ describe("getHistoricalComparison", () => {
       '/content/page.val.ts?p="title"',
     ]);
     expect(res.modules[path].verdict).toEqual({ status: "restorable" });
+  });
+
+  // "Current" is what the editor is LOOKING AT, which includes their
+  // unpublished patches. Comparing against the committed source instead would
+  // describe a restore as undoing a change they have already made themselves.
+  test("compares against the current source WITH pending patches applied", async () => {
+    const ops = fakeOps({
+      previousSourceFiles: { [path]: moduleText("old", 1) },
+      patches: [
+        patch("p1", [{ op: "replace", path: ["title"], value: "new" }]),
+      ],
+      schemas: { [path]: s.object({ title: s.string(), count: s.number() }) },
+      // Committed source still says "new" - the commit's own result.
+      currentSources: { [path]: { title: "new", count: 1 } },
+      // But there is an unpublished edit on top of it.
+      pendingPatches: [
+        {
+          path,
+          patchId: "pending1",
+          patch: [{ op: "replace", path: ["title"], value: "unpublished" }],
+        },
+      ],
+    });
+    const res = unwrap(await getHistoricalComparison(ops, commitSha));
+    expect(res.modules[path].current).toEqual({
+      title: "unpublished",
+      count: 1,
+    });
+    // Restoring would overwrite the unpublished edit, so the title differs.
+    // Against the committed source it would have looked like no change at all.
+    expect(res.modules[path].changedVsCurrent).toEqual([
+      '/content/page.val.ts?p="title"',
+    ]);
   });
 
   // The case the user asked for: the schema moved on, so the old value cannot
