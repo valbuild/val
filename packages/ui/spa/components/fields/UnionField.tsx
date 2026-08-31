@@ -1,5 +1,6 @@
 import {
   Json,
+  SerializedObjectSchema,
   SerializedObjectUnionSchema,
   SerializedStringUnionSchema,
   SerializedUnionSchema,
@@ -18,6 +19,7 @@ import {
   useShallowSourceAtPath,
   useSourceAtPath,
 } from "../ValFieldProvider";
+import { JSONValue } from "@valbuild/core/patch";
 import { useValPortal } from "../ValPortalProvider";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
@@ -27,7 +29,7 @@ import { FieldSourceError } from "../../components/FieldSourceError";
 import { emptyOf } from "../../components/fields/emptyOf";
 import { AnyField } from "../../components/AnyField";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Field } from "../../components/Field";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ObjectLikePreview } from "./ObjectFields";
@@ -41,6 +43,17 @@ function isStringUnion(
     return false;
   }
   return true;
+}
+
+/**
+ * A tagged union of objects, as opposed to a union of string literals. The
+ * discriminator being a plain string IS the difference — a string union's key
+ * is a literal schema.
+ */
+export function isObjectUnion(
+  schema: SerializedUnionSchema,
+): schema is SerializedObjectUnionSchema {
+  return typeof schema.key === "string";
 }
 
 export function UnionField({
@@ -162,6 +175,175 @@ export function UnionField({
   }
 }
 
+/** What {@link useObjectUnion} answers. */
+export type ObjectUnionState =
+  | { status: "loading" }
+  | {
+      status: "ready";
+      /** The variant the value currently takes. */
+      selectedSchema: SerializedObjectSchema;
+      /** Every tag this union offers, in declaration order. */
+      options: string[];
+      current: string;
+      select: (value: string) => void;
+    };
+
+/**
+ * The state of an object union at a path: which variant the value takes, what
+ * else it could take, and how to switch it.
+ *
+ * A hook rather than something `ObjectUnionField` keeps to itself because the
+ * union is drawn in two places now — as a field, and as the body of an inline
+ * row in `BlockList`, which lays the variant's fields out its own (much
+ * denser) way. Switching a tag is the part neither may re-implement: it
+ * remembers the source of every tag you leave, so switching away and back
+ * gives you what you typed instead of an empty block.
+ *
+ * It also puts every hook above the loading check. They used to sit on either
+ * side of it, which is a rules-of-hooks violation waiting for the first render
+ * where the tag has not loaded yet.
+ */
+export function useObjectUnion(
+  path: SourcePath,
+  schema: SerializedObjectUnionSchema,
+): ObjectUnionState {
+  const fullSourceAtPath = useSourceAtPath(path);
+  const { addPatch, patchPath } = useAddPatch(path);
+  const keyPath = sourcePathOfItem(path, schema.key);
+  const currentSourceKeyRes = useShallowSourceAtPath(keyPath, "literal");
+  const currentKey =
+    "data" in currentSourceKeyRes ? currentSourceKeyRes.data : undefined;
+  const previouslySelectedSources = useRef<
+    Record<SourcePath, Record<string, Json>>
+  >({});
+
+  useEffect(() => {
+    if (
+      fullSourceAtPath !== undefined &&
+      typeof currentKey === "string" &&
+      fullSourceAtPath.status === "success"
+    ) {
+      if (!previouslySelectedSources.current[path]) {
+        previouslySelectedSources.current[path] = {};
+      }
+      previouslySelectedSources.current[path][currentKey] =
+        fullSourceAtPath.data;
+    }
+  }, [fullSourceAtPath, currentKey, path]);
+
+  const select = useCallback(
+    (value: string) => {
+      const selectedSchema = schema.items.find((item) => {
+        const subSchema = item.items?.[schema.key];
+        if (subSchema.type === "literal") {
+          return subSchema.value === value;
+        }
+        console.error("Expected literal schema in object union", subSchema);
+        return false;
+      });
+      if (selectedSchema?.items === undefined) {
+        console.error(
+          `Selected schema with ${schema.key} = ${value} not found`,
+        );
+        return;
+      }
+      /**
+       * `Json` is the same shape as `JSONValue` with `readonly` arrays, and a
+       * patch op takes the mutable one — the same crossing every `emptyOf(...)
+       * as JSONValue` in the Studio makes. This used to be an `any` on the
+       * whole value, which took the check off `[schema.key]` too.
+       */
+      const remembered = previouslySelectedSources.current[path]?.[value] as
+        | Record<string, JSONValue>
+        | undefined;
+      const newValue: JSONValue = {
+        ...(remembered ??
+          (emptyOf(selectedSchema) as Record<string, JSONValue>)),
+        [schema.key]: value,
+      };
+      addPatch(
+        [
+          {
+            op: "replace",
+            path: patchPath,
+            value: newValue,
+          },
+        ],
+        schema.type,
+      );
+    },
+    [addPatch, patchPath, path, schema],
+  );
+
+  const options = schema.items.flatMap((item) => {
+    const subSchema = item.items?.[schema.key];
+    if (subSchema.type === "literal") {
+      return [subSchema.value];
+    }
+    console.error("Expected literal schema in object union", subSchema);
+    return [];
+  });
+  const selectedSchema = schema.items.find((item) => {
+    const subSchema = item.items?.[schema.key];
+    if (subSchema.type === "literal") {
+      return subSchema.value === currentKey;
+    }
+    console.error("Expected literal schema in object union", subSchema);
+    return false;
+  });
+  if (
+    typeof currentKey !== "string" ||
+    selectedSchema === undefined ||
+    selectedSchema.items === undefined
+  ) {
+    return { status: "loading" };
+  }
+  return {
+    status: "ready",
+    selectedSchema,
+    options,
+    current: currentKey,
+    select,
+  };
+}
+
+/**
+ * The tag selector of an object union — the one control that decides which
+ * variant is being edited. Shared by the field and by the inline row.
+ */
+export function ObjectUnionTagSelect({
+  state,
+  readonly,
+  className,
+}: {
+  state: Extract<ObjectUnionState, { status: "ready" }>;
+  readonly?: boolean;
+  className?: string;
+}) {
+  const portalContainer = useValPortal();
+  return (
+    <Select
+      disabled={readonly}
+      value={state.current}
+      onValueChange={(value) => {
+        if (readonly) return;
+        state.select(value);
+      }}
+    >
+      <SelectTrigger className={className}>
+        <SelectValue>{state.current}</SelectValue>
+      </SelectTrigger>
+      <SelectContent container={portalContainer} className="w-32">
+        {state.options.map((option) => (
+          <SelectItem key={option} value={option}>
+            {option}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 function ObjectUnionField({
   path,
   schema,
@@ -177,109 +359,15 @@ function ObjectUnionField({
   inline?: boolean;
   errorDisplay?: "default" | "compact" | "none";
 }) {
-  const fullSourceAtPath = useSourceAtPath(path);
-  const { addPatch, patchPath } = useAddPatch(path);
-  const portalContainer = useValPortal();
-  const keyPath = sourcePathOfItem(path, schema.key);
-  const currentSourceKeyRes = useShallowSourceAtPath(keyPath, "literal");
-  if (
-    !("data" in currentSourceKeyRes) ||
-    currentSourceKeyRes.data === undefined
-  ) {
+  const state = useObjectUnion(path, schema);
+  if (state.status === "loading") {
     return <FieldLoading path={path} type="union" />;
   }
-  const selectedSchema = schema.items.find((item) => {
-    const subSchema = item.items?.[schema.key];
-    if (subSchema.type === "literal") {
-      return subSchema.value === currentSourceKeyRes.data;
-    }
-    console.error("Expected literal schema in object union", subSchema);
-    return false;
-  });
-  if (selectedSchema?.items === undefined) {
-    return <FieldLoading path={path} type="union" />;
-  }
-
-  const options = schema.items.flatMap((item) => {
-    const subSchema = item.items?.[schema.key];
-    if (subSchema.type === "literal") {
-      return [subSchema.value];
-    }
-    console.error("Expected literal schema in object union", subSchema);
-    return [];
-  });
-  const previouslySelectedSources = useRef<
-    Record<SourcePath, Record<string, Json>>
-  >({});
-
-  useEffect(() => {
-    if (
-      fullSourceAtPath !== undefined &&
-      currentSourceKeyRes.data !== undefined &&
-      typeof currentSourceKeyRes.data === "string" &&
-      fullSourceAtPath.status === "success"
-    ) {
-      if (!previouslySelectedSources.current[path]) {
-        previouslySelectedSources.current[path] = {};
-      }
-      previouslySelectedSources.current[path][currentSourceKeyRes.data] =
-        fullSourceAtPath.data;
-    }
-  }, [fullSourceAtPath, currentSourceKeyRes, path]);
+  const { selectedSchema } = state;
   return (
     <div className={`grid ${compact ? "gap-3" : "gap-4"}`}>
-      <Select
-        disabled={readonly}
-        value={currentSourceKeyRes.data ?? undefined}
-        onValueChange={(value) => {
-          if (readonly) return;
-          const selectedSchema = schema.items.find((item) => {
-            const subSchema = item.items?.[schema.key];
-            if (subSchema.type === "literal") {
-              return subSchema.value === value;
-            }
-            console.error("Expected literal schema in object union", subSchema);
-            return false;
-          });
-          if (selectedSchema?.items === undefined) {
-            console.error(
-              `Selected schema with ${schema.key} = ${value} not found`,
-            );
-            return;
-          }
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const newValue: any =
-            previouslySelectedSources.current[path][value] ||
-            emptyOf(selectedSchema);
-          newValue[schema.key] = value;
-          addPatch(
-            [
-              {
-                op: "replace",
-                path: patchPath,
-                value: newValue,
-              },
-            ],
-            schema.type,
-          );
-        }}
-      >
-        <SelectTrigger>
-          <SelectValue>{currentSourceKeyRes.data}</SelectValue>
-        </SelectTrigger>
-        <SelectContent container={portalContainer} className="w-32">
-          {options == undefined ? (
-            <LoadingSelectContent />
-          ) : (
-            options.map((index) => (
-              <SelectItem key={index} value={index}>
-                {index}
-              </SelectItem>
-            ))
-          )}
-        </SelectContent>
-      </Select>
-      {Object.keys(selectedSchema?.items)
+      <ObjectUnionTagSelect state={state} readonly={readonly} />
+      {Object.keys(selectedSchema.items)
         .filter((key) => key !== schema?.key)
         .map((key) => {
           const itemPath = sourcePathOfItem(path, key);

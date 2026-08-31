@@ -3,6 +3,7 @@ import { initVal } from "../initVal";
 import { SelectorSource } from "../selector";
 import { SourcePath } from "../val";
 import { deserializeSchema } from "./deserialize";
+import { isInlineRender } from "../render";
 
 const { s, c } = initVal();
 
@@ -176,5 +177,115 @@ describe("Schema.render({ as: 'inline' })", () => {
     expect(inline["executeValidate"](path, { a: "abc" })).toEqual(
       plain["executeValidate"](path, { a: "abc" }),
     );
+  });
+});
+
+describe("isInlineRender", () => {
+  test("reads the render off the schema it was declared on", () => {
+    expect(
+      isInlineRender(s.string().render({ as: "inline" })["executeSerialize"]()),
+    ).toBe(true);
+    expect(isInlineRender(s.string()["executeSerialize"]())).toBe(false);
+    expect(
+      isInlineRender(
+        s
+          .string()
+          .render({ as: "code", language: "typescript" })
+          ["executeSerialize"](),
+      ),
+    ).toBe(false);
+  });
+
+  test("a tagged union is inline when its VARIANTS declare it", () => {
+    // How a page-builder list is written: the render goes on the blocks, one
+    // per block type, and the union is the dispatch between them. The union
+    // schema itself carries no render at all, so reading `render` off the
+    // array's item schema alone answers `false` for the very shape the render
+    // exists for.
+    const blocks = s.union(
+      "type",
+      s
+        .object({ type: s.literal("text"), text: s.string() })
+        .render({ as: "inline" }),
+      s
+        .object({ type: s.literal("code"), code: s.string() })
+        .render({ as: "inline" }),
+    );
+    const serialized = blocks["executeSerialize"]();
+    expect(serialized.render).toBe(undefined);
+    expect(isInlineRender(serialized)).toBe(true);
+  });
+
+  test("one inline variant is enough", () => {
+    // `some`, not `every`: the row draws the union's own editor either way, so
+    // a variant added later without a render must not silently turn the whole
+    // list back into preview rows.
+    const serialized = s
+      .union(
+        "type",
+        s
+          .object({ type: s.literal("text"), text: s.string() })
+          .render({ as: "inline" }),
+        s.object({ type: s.literal("code"), code: s.string() }),
+      )
+      ["executeSerialize"]();
+    expect(isInlineRender(serialized)).toBe(true);
+  });
+
+  test("a union with no inline variant is not inline", () => {
+    const serialized = s
+      .union(
+        "type",
+        s.object({ type: s.literal("text"), text: s.string() }),
+        s.object({ type: s.literal("code"), code: s.string() }),
+      )
+      ["executeSerialize"]();
+    expect(isInlineRender(serialized)).toBe(false);
+  });
+
+  test("the union's own render still counts", () => {
+    const serialized = s
+      .union(
+        "type",
+        s.object({ type: s.literal("text"), text: s.string() }),
+        s.object({ type: s.literal("code"), code: s.string() }),
+      )
+      .render({ as: "inline" })
+      ["executeSerialize"]();
+    expect(isInlineRender(serialized)).toBe(true);
+  });
+
+  test("a string union is inline only when it says so itself", () => {
+    expect(
+      isInlineRender(
+        s.union(s.literal("a"), s.literal("b"))["executeSerialize"](),
+      ),
+    ).toBe(false);
+    expect(
+      isInlineRender(
+        s
+          .union(s.literal("a"), s.literal("b"))
+          .render({ as: "inline" })
+          ["executeSerialize"](),
+      ),
+    ).toBe(true);
+  });
+
+  test("survives serialize -> deserialize", () => {
+    const blocks = s.array(
+      s.union(
+        "type",
+        s
+          .object({ type: s.literal("text"), text: s.string() })
+          .render({ as: "inline" }),
+      ),
+    );
+    const roundTripped = deserializeSchema(blocks["executeSerialize"]())[
+      "executeSerialize"
+    ]();
+    if (roundTripped.type !== "array") {
+      throw new Error("expected array schema");
+    }
+    expect(isInlineRender(roundTripped.item)).toBe(true);
   });
 });

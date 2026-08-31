@@ -48,7 +48,7 @@ const EXTRA_FILES = [
   "InlineField.tsx",
   "useFieldState.ts",
   "AnyField.tsx",
-  "InlineAnyField.tsx",
+  "BlockList.tsx",
   "FieldValidationError.tsx",
   "FieldPatchAuthorsSection.tsx",
 ];

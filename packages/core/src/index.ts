@@ -185,6 +185,7 @@ export {
   type InlineRender,
   type FieldRender,
   CODE_LANGUAGES,
+  isInlineRender,
 } from "./render";
 export type { ValRouter, RouteValidationError } from "./router";
 export { getSourcePathFromRoute } from "./getSourcePathFromRoute";
