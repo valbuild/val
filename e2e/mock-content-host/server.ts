@@ -121,8 +121,22 @@ const PROFILES = [
 // #region state
 
 type MockPatchFile = {
-  /** A base64 data URL, the shape `bufferFromDataUrl` expects. */
-  data: string;
+  /**
+   * The file's BYTES.
+   *
+   * Not a data URL, which is what this held until the content service stopped
+   * storing one. That mattered here for a reason worth keeping in view: the
+   * service answers `PUT /files` with plain base64 for BOTH locations now,
+   * where it used to answer a data URL for `patch` files and plain base64 for
+   * `repo` ones - two encodings in one field, told apart only by which branch
+   * produced them. Storing bytes is what makes the two branches agree.
+   *
+   * The upload endpoint still ACCEPTS a data URL, because that is what the
+   * browser produces and what published clients send; it is decoded on arrival,
+   * exactly as the real service does.
+   */
+  bytes: Buffer;
+  mimeType: string;
   type: "file" | "image";
   metadata: unknown;
   remote: boolean;
@@ -674,14 +688,46 @@ const savePatchFile: Handler = async (req, res, url) => {
     json(res, 200, { patchId, filePath: body.filePath, deleted: true });
     return;
   }
+  const decoded = decodeDataUrl(body.data);
+  if (!decoded) {
+    json(res, 400, {
+      message: `'data' is not a base64 data URL: ${body.data.slice(0, 24)}…`,
+    });
+    return;
+  }
   files.set(body.filePath, {
-    data: body.data,
+    bytes: decoded.bytes,
+    mimeType: decoded.mimeType ?? "application/octet-stream",
     type: body.type,
     metadata: body.metadata,
     remote: body.remote === true,
   });
   json(res, 200, { patchId, filePath: body.filePath });
 };
+
+/**
+ * `data:<mime>;base64,<payload>` to the bytes it carries.
+ *
+ * The upload endpoint takes a data URL because that is what `FileReader` gives
+ * the browser; everything past this point works in bytes, which is what the
+ * real service does too.
+ */
+function decodeDataUrl(
+  dataUrl: string,
+): { bytes: Buffer; mimeType: string | null } | null {
+  if (!dataUrl.startsWith("data:")) {
+    return null;
+  }
+  const marker = ";base64,";
+  const at = dataUrl.indexOf(marker);
+  if (at === -1) {
+    return null;
+  }
+  return {
+    bytes: Buffer.from(dataUrl.slice(at + marker.length), "base64"),
+    mimeType: dataUrl.slice("data:".length, at) || null,
+  };
+}
 
 /** `GET /v1/{project}/patches/{patchId}/files?file_path=&remote=` — metadata only. */
 const getPatchFileMetadata: Handler = (req, res, url) => {
@@ -746,7 +792,8 @@ const getFiles: Handler = async (req, res) => {
         location: "patch" as const,
         patchId: requested.patchId,
         remote: requested.remote,
-        value: file.data,
+        // Plain base64, the same as the `repo` branch below.
+        value: file.bytes.toString("base64"),
       });
       continue;
     }
@@ -830,7 +877,7 @@ const commit: Handler = async (req, res) => {
       json(res, 400, { message });
       return;
     }
-    const base64 = file.data.slice(file.data.indexOf(",") + 1);
+    const base64 = file.bytes.toString("base64");
     if (descriptor.remote) {
       state.remoteFiles.set(filePath, base64);
     } else {
@@ -1075,7 +1122,11 @@ const aiSessionFileToPatchFile: Handler = async (req, res, url) => {
       state.patchFiles.set(patchId, files);
     }
     files.set(requested.filePath, {
-      data: `data:${image.mimeType};base64,${image.data.toString("base64")}`,
+      // The SAME bytes the session file holds. In production this is now a
+      // pointer at the object the session file already has rather than a copy
+      // of it, which it could not be while the two were stored differently.
+      bytes: image.data,
+      mimeType: image.mimeType,
       type: image.mimeType.startsWith("image/") ? "image" : "file",
       metadata: {
         width: image.width,
@@ -1299,10 +1350,7 @@ const controlPlane: Handler = async (req, res, url) => {
           filePath,
           type: file.type,
           remote: file.remote,
-          bytes: Buffer.from(
-            file.data.slice(file.data.indexOf(",") + 1),
-            "base64",
-          ).byteLength,
+          bytes: file.bytes.byteLength,
         })),
       ),
       commits: state.commits,
