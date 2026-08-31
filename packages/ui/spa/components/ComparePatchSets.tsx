@@ -46,6 +46,7 @@ import {
 import { getFilenameFromRef, getRefParts } from "../utils/getFilenameFromRef";
 import {
   useCommittedPatches,
+  useCurrentAuthorId,
   useDeletePatches,
   useNoOpSourcePaths,
   useDeployingCommitShas,
@@ -360,6 +361,10 @@ export function ComparePatchSets({
 /**
  * The display names behind a set of author ids, for a confirm that names names.
  *
+ * Everyone but you: the sentence these feed is about work that is not yours, so
+ * your own name in it is noise at best, and at worst it makes a project where
+ * you are the only editor read as if someone else had a stake in the changes.
+ *
  * Ids with no profile are dropped rather than shown raw: a discard confirm is
  * not the place to show someone a uuid.
  */
@@ -367,12 +372,14 @@ function useAuthorNames(
   authorIds: string[],
   profilesByAuthorIds: Record<string, Profile> | undefined,
 ): string[] {
+  const currentAuthorId = useCurrentAuthorId();
   return useMemo(
     () =>
       authorIds
+        .filter((id) => id !== currentAuthorId)
         .map((id) => profilesByAuthorIds?.[id]?.fullName)
         .filter((name): name is string => !!name),
-    [authorIds, profilesByAuthorIds],
+    [authorIds, profilesByAuthorIds, currentAuthorId],
   );
 }
 

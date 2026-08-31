@@ -2040,6 +2040,30 @@ export function useCurrentProfile() {
 }
 
 /**
+ * Who the person at the keyboard is, as an author id.
+ *
+ * `profileId` and the `authorId` on a patch are the same keyspace — `/profiles`
+ * is keyed by `profile.profileId` — so this is what tells "your own change"
+ * apart from someone else's.
+ *
+ * Resolved exactly the way `useCurrentProfile` resolves the profile, including
+ * the `fs` fallback: there `profileId` is null (there is no session to have
+ * one) and the studio treats the single local profile as you. Kept beside it
+ * so the two cannot drift into disagreeing about who you are.
+ */
+export function useCurrentAuthorId(): string | null {
+  const { profileId, profiles, mode } = useContext(ValContext);
+  if (profileId) {
+    return profileId;
+  }
+  if (mode === "fs") {
+    const [firstAuthorId] = Object.keys(profiles);
+    return firstAuthorId ?? null;
+  }
+  return null;
+}
+
+/**
  * How long the chain must sit still before auto-save writes it.
  *
  * A trailing edge, not a rate limit: the timer restarts on every chain

@@ -47,6 +47,7 @@ import {
   usePublishCount,
   usePublishSummary,
   useCommittedPatches,
+  useCurrentAuthorId,
   useCurrentPatchIds,
   useDeletePatches,
   useHasNetChanges,
@@ -170,6 +171,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const committedPatchIds = useCommittedPatches();
   const patchSets = usePatchSets();
   const profilesByAuthorIds = useProfilesByAuthorId();
+  const currentAuthorId = useCurrentAuthorId();
   const portalContainer = useValPortal();
   /*
    * Everything discardable: the chain minus what has already shipped.
@@ -184,12 +186,17 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     [currentPatchIds, committedPatchIds],
   );
   /*
-   * Whose work Discard all would take, named.
+   * Whose work Discard all would take, named — yours excluded.
    *
    * The confirm in the review view names them, and this one has to name the
    * same people: a destructive action that warns you in one place and not the
    * other is worse than one that never warns at all. Read off the patch sets
    * rather than the activity feed, which is capped for display.
+   *
+   * `currentAuthorId` comes out because the sentence is about work that is not
+   * yours. Your own name in it is noise at best, and at worst it is what makes
+   * a project where you are the only editor read as if someone else had a stake
+   * in the changes.
    */
   const discardAuthorNames = useMemo(() => {
     if (patchSets.status !== "success") return [];
@@ -197,7 +204,11 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     const authorIds = new Set<string>();
     for (const set of patchSets.data) {
       for (const patch of set.patches) {
-        if (patch.author !== null && discardable.has(patch.patchId)) {
+        if (
+          patch.author !== null &&
+          patch.author !== currentAuthorId &&
+          discardable.has(patch.patchId)
+        ) {
           authorIds.add(patch.author);
         }
       }
@@ -205,7 +216,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     return [...authorIds]
       .map((id) => profilesByAuthorIds?.[id]?.fullName)
       .filter((name): name is string => !!name);
-  }, [patchSets, discardablePatchIds, profilesByAuthorIds]);
+  }, [patchSets, discardablePatchIds, profilesByAuthorIds, currentAuthorId]);
   // Only read when the wait has already gone on too long — see
   // `PendingChangesGate`.
   const pendingChangesProgress = usePendingChangesProgress();
