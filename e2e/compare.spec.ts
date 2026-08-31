@@ -7,12 +7,16 @@ import type { Locator, Page } from "@playwright/test";
  *
  * A `page.goto("/val/compare")` looks equivalent and is not: it reloads the SPA,
  * throwing away the intake `openStudio` waited for AND the pending edit the view
- * is supposed to be showing. The Quick actions panel is the route in, and its
- * item only appears once there is something to review — so clicking it is also
- * the wait for the edit having landed.
+ * is supposed to be showing. Review is the route in, and it only appears once
+ * there is something to review — so clicking it is also the wait for the edit
+ * having landed.
+ *
+ * At this viewport that control is in the top bar, next to Publish. It used to
+ * be inside the Quick actions panel; the panel now carries it on mobile only,
+ * because two controls with the same accessible name on one screen is
+ * ambiguous to a screen reader and a second place to look for everyone else.
  */
 async function openCompare(page: Page, studio: Locator): Promise<void> {
-  await studio.getByLabel("Quick actions").click();
   const review = studio.getByRole("button", { name: /Review \d+ change/ });
   await expect(review).toBeVisible({ timeout: 30000 });
   await review.click();

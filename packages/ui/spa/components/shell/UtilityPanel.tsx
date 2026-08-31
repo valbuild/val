@@ -5,7 +5,15 @@ import {
   GitCompare,
   ImagePlus,
   Sparkles,
+  Undo2,
 } from "lucide-react";
+import { useState } from "react";
+import { Button } from "../designSystem/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../designSystem/popover";
 import {
   FloatingPanel,
   PanelEmptyState,
@@ -41,6 +49,36 @@ export type UtilityPanelProps = {
    */
   destinations?: readonly ShellDestination[];
   /**
+   * Throw away every pending change.
+   *
+   * A prop rather than something this panel does, because the shell is
+   * presentational and this is the most destructive action in the Studio: the
+   * confirm lives here, next to the button, and the deletion lives with the
+   * store. Absent means the current mode cannot discard, and the row is not
+   * offered — a disabled one would raise a question it cannot answer.
+   */
+  onDiscardAll?: () => void;
+  /**
+   * What the confirm says will be lost, phrased by `discardAllDescription`.
+   *
+   * Passed in rather than composed here: it names the other people whose work
+   * is about to go, and this panel has no profiles to name them from. Sharing
+   * the sentence with the review view's Discard all is the point — two
+   * confirms for the same act that describe it differently are two chances to
+   * mean something slightly untrue.
+   */
+  discardAllDescription?: string;
+  /**
+   * Where the discard confirm portals to.
+   *
+   * It has to be a node INSIDE the shadow root. Radix's default is
+   * `document.body`, which is outside it — the popup then renders with none of
+   * Val's styles, which is a confirm dialog that is there but cannot be seen or
+   * read. `ValPortalProvider` owns that node; the shell takes it as a prop
+   * rather than reading the context, so it stays presentational.
+   */
+  portalContainer?: HTMLElement | null;
+  /**
    * Open the review view: every pending change, side by side with what it
    * replaces.
    *
@@ -50,6 +88,15 @@ export type UtilityPanelProps = {
    * nothing to review.
    */
   onCompare?: () => void;
+  /**
+   * The number Review announces — see `TopBarProps.reviewCount`.
+   *
+   * Separate from `pendingChanges`, which decides VISIBILITY: work that has all
+   * been reverted is still worth reviewing (Discard lives there), it just is
+   * not N changes. Without this the phone said "Review 3 changes" while the
+   * desktop badge said none, about the same chain.
+   */
+  reviewCount?: number;
   /** How many changes `onCompare` would show. */
   pendingChanges?: number;
   onSelectActivity: (entry: ShellActivityEntry) => void;
@@ -71,6 +118,10 @@ export function UtilityPanel({
   onOpenAI,
   destinations,
   onCompare,
+  reviewCount,
+  onDiscardAll,
+  discardAllDescription,
+  portalContainer,
   pendingChanges = 0,
   onSelectActivity,
   onClose,
@@ -128,13 +179,35 @@ export function UtilityPanel({
           </>
         )}
         <div className="px-3 pt-3 space-y-0.5">
-          {onCompare && pendingChanges > 0 && (
+          {/*
+           * Mobile only: above that the top bar carries Review, beside Publish.
+           *
+           * Two controls with the same name on one screen is one too many —
+           * for a screen reader it is genuinely ambiguous, and for everyone
+           * else it is a second place to look for something already in view.
+           * The top bar hides Review on mobile, which is what this is for.
+           */}
+          {onCompare && pendingChanges > 0 && breakpoint === "mobile" && (
             <QuickAction
               icon={GitCompare}
-              label={`Review ${pendingChanges} ${
-                pendingChanges === 1 ? "change" : "changes"
-              }`}
+              label={
+                reviewCount === undefined || reviewCount > 0
+                  ? `Review ${reviewCount ?? pendingChanges} ${
+                      (reviewCount ?? pendingChanges) === 1
+                        ? "change"
+                        : "changes"
+                    }`
+                  : "Review changes"
+              }
               onClick={onCompare}
+            />
+          )}
+          {onDiscardAll && pendingChanges > 0 && (
+            <DiscardAllQuickAction
+              count={pendingChanges}
+              description={discardAllDescription}
+              onConfirm={onDiscardAll}
+              portalContainer={portalContainer}
             />
           )}
           {offers("pages") && (
@@ -208,6 +281,71 @@ export function UtilityPanel({
         )}
       </div>
     </FloatingPanel>
+  );
+}
+
+/**
+ * Discard all, with the confirm it has to have.
+ *
+ * Shaped like the other quick actions until it is pressed, then it asks —
+ * unpublished work is not recoverable once this runs, and a one-click row
+ * between "New page" and "Upload media" would be a trap.
+ */
+function DiscardAllQuickAction({
+  count,
+  description,
+  onConfirm,
+  portalContainer,
+}: {
+  count: number;
+  description?: string;
+  onConfirm: () => void;
+  portalContainer?: HTMLElement | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const label = `Discard ${count} ${count === 1 ? "change" : "changes"}`;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="flex items-center gap-2 w-full h-8 px-2 rounded-md text-xs text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+        >
+          <Undo2 size={14} className="text-fg-secondary-alt" />
+          {label}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        // Without this the confirm portals to `document.body`, outside the
+        // shadow root, and renders unstyled — which looks exactly like the
+        // button doing nothing. See `ValPortalProvider`.
+        container={portalContainer}
+        align="start"
+        className="w-64 flex flex-col gap-3"
+      >
+        <div>
+          <p className="text-xs font-semibold text-fg-primary">{`${label}?`}</p>
+          {description !== undefined && (
+            <p className="mt-1 text-xs text-fg-secondary">{description}</p>
+          )}
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => {
+              setOpen(false);
+              onConfirm();
+            }}
+          >
+            {`Discard ${count}`}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

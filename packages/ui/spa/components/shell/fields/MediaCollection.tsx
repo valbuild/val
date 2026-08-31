@@ -113,7 +113,7 @@ export function MediaCollection({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Filter by name or alt text…"
-            className="h-8 w-full rounded-md border border-border-float bg-bg-surface pl-8 pr-2 text-xs text-fg-primary outline-none placeholder:text-fg-secondary-alt focus:border-border-primary"
+            className="h-8 w-full rounded-md border border-border-float bg-bg-surface pl-8 pr-2 text-xs text-fg-primary placeholder:text-fg-secondary-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
           />
         </span>
         {/*
@@ -339,7 +339,7 @@ function EntryInspector({
               onChange={(event) =>
                 onChange?.({ ...entry, alt: event.target.value })
               }
-              className="w-full resize-none rounded-md border border-border-float bg-bg-surface px-2.5 py-1.5 text-xs text-fg-primary outline-none placeholder:text-fg-secondary-alt focus:border-border-primary"
+              className="w-full resize-none rounded-md border border-border-float bg-bg-surface px-2.5 py-1.5 text-xs text-fg-primary placeholder:text-fg-secondary-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
             />
           </Section>
           {editable && (

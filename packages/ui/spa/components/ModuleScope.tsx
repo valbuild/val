@@ -95,7 +95,7 @@ function ScopeLink({
       aria-label={isParent ? `Up one level, to ${label}` : undefined}
       className={cn(
         "inline-flex min-w-0 items-center gap-0.5 rounded-sm text-fg-tertiary hover:text-fg-brand-primary hover:underline",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
         className,
       )}
     >
@@ -218,7 +218,7 @@ export function ScopeTrail({
           <DropdownMenu>
             <DropdownMenuTrigger
               aria-label={`${collapsed.length} more levels`}
-              className="rounded-sm px-0.5 text-fg-tertiary hover:text-fg-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded-sm px-0.5 text-fg-tertiary hover:text-fg-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
             >
               …
             </DropdownMenuTrigger>

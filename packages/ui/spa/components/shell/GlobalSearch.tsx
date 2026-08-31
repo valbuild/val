@@ -250,7 +250,7 @@ export function GlobalSearch({
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search pages, media and data…"
             aria-label="Search the project"
-            className="flex-1 min-w-0 bg-transparent text-sm focus:outline-none placeholder:text-fg-secondary-alt"
+            className="flex-1 min-w-0 rounded-sm bg-transparent text-sm placeholder:text-fg-secondary-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
           />
           <kbd className="shrink-0 px-1.5 py-0.5 rounded border border-border-float text-[0.625rem] text-fg-secondary-alt font-sans">
             esc

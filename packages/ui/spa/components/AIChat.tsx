@@ -1034,7 +1034,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                   onFetchSessions();
                   setShowSessions(true);
                 }}
-                className="text-xs gap-1"
+                className="text-xs touch:text-sm gap-1"
               >
                 <History className="h-3 w-3" />
                 History
@@ -1048,7 +1048,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                 size="sm"
                 onClick={onNewSession}
                 disabled={isStreaming}
-                className="text-xs gap-1"
+                className="text-xs touch:text-sm gap-1"
               >
                 <Plus className="h-3 w-3" />
                 New chat
@@ -1082,7 +1082,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                   onNewSession();
                   setShowSessions(false);
                 }}
-                className="text-xs gap-1"
+                className="text-xs touch:text-sm gap-1"
               >
                 <Plus className="h-3 w-3" />
                 New chat
@@ -1113,7 +1113,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                       {isRenaming ? (
                         <input
                           autoFocus
-                          className="flex-1 text-sm bg-bg-primary border border-border-primary rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
+                          className="flex-1 text-sm bg-bg-primary border border-border-primary rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-border-focus"
                           value={renameValue}
                           onChange={(e) => setRenameValue(e.target.value)}
                           onKeyDown={(e) => {
@@ -1216,7 +1216,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         ) : (
           <>
             {!isConnected && !authError && (
-              <div className="mb-2 flex items-center justify-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1.5 text-xs text-fg-secondary">
+              <div className="mb-2 flex items-center justify-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1.5 text-xs touch:text-sm text-fg-secondary">
                 <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse" />
                 Connecting…
               </div>
@@ -1227,7 +1227,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                 {attachedFiles.map((f) => (
                   <div
                     key={f.id}
-                    className="relative flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1 text-xs text-fg-primary"
+                    className="relative flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1 text-xs touch:text-sm text-fg-primary"
                   >
                     {f.previewUrl ? (
                       <img
@@ -1272,7 +1272,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             <div
               className={cn(
                 "flex flex-col rounded-md border border-border-primary bg-bg-primary",
-                "focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
+                "focus-within:outline-none focus-within:ring-2 focus-within:ring-border-focus",
               )}
             >
               <AIChatEditor
@@ -1493,7 +1493,7 @@ function MessageBubble({
     >
       <div
         className={cn(
-          "min-w-0 overflow-hidden rounded-lg px-4 py-2.5 text-sm leading-relaxed",
+          "min-w-0 overflow-hidden rounded-lg px-4 py-2.5 text-sm touch:text-base leading-relaxed",
           "[overflow-wrap:anywhere]",
           isUser
             ? "bg-bg-secondary text-fg-primary max-w-[80%]"

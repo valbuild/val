@@ -105,7 +105,7 @@ export function CodeEditor({
       className={cn(
         "m-1 p-2 bg-bg-primary rounded-md border border-border-primary",
         {
-          "ring-2 ring-offset-2": focused,
+          "ring-2 ring-border-focus": focused,
         },
       )}
     >

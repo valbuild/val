@@ -1115,6 +1115,54 @@ export const UnchangedValue: Story = {
   ),
 };
 
+/**
+ * Edited, then edited back — the whole chain amounts to nothing.
+ *
+ * `/home`'s title is changed and changed again to what it already was, so the
+ * module's patched source is deep-equal to the server's. The list itself should
+ * be empty: what shows is the notice saying so, with Discard beside it (the
+ * only way forward, since Publish is disabled in this state), and the module
+ * folded away under History.
+ *
+ * Contrast `UnchangedValue`, where one field returns to its original but a
+ * second field really changes — that module still ships, so it stays in the
+ * list with the unchanged row marked inside it.
+ */
+export const EverythingReverted: Story = {
+  render: () => (
+    <StorySetup
+      mockData={mockData}
+      moduleFilePath={MODULE_FILE_PATH}
+      serializedSchema={serializedSchema}
+      canDiscard
+      patches={[
+        {
+          patch: [
+            {
+              op: "replace",
+              path: ["/home", "title"],
+              value: "Welcome Home — Updated",
+            },
+          ],
+          createdAt: "2025-04-03T08:00:00Z",
+          author: "alice",
+        },
+        {
+          patch: [
+            {
+              op: "replace",
+              path: ["/home", "title"],
+              value: "Welcome Home",
+            },
+          ],
+          createdAt: "2025-04-03T08:05:00Z",
+          author: "alice",
+        },
+      ]}
+    />
+  ),
+};
+
 export const NoChanges: Story = {
   render: () => (
     <StorySetup

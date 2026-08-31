@@ -20,7 +20,7 @@ import { useAllSources, useSchemas } from "./ValFieldProvider";
  * {@link useNavLink}.
  */
 const PATH_LINK_CLASS =
-  "font-mono text-sm px-2 py-0.5 rounded bg-bg-secondary text-fg-primary truncate transition-colors min-w-0 block hover:bg-bg-tertiary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "font-mono text-sm px-2 py-0.5 rounded bg-bg-secondary text-fg-primary truncate transition-colors min-w-0 block hover:bg-bg-tertiary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus";
 
 export function FieldPathLink({
   sourcePath,
