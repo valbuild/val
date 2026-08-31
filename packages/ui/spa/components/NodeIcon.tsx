@@ -6,6 +6,7 @@ import {
   Clock,
   Palette,
   Code,
+  FileCode,
   FileIcon,
   FileText,
   Hash,
@@ -61,6 +62,8 @@ export function NodeIcon({
       return <Clock size={size} className={className} />;
     case "color":
       return <Palette size={size} className={className} />;
+    case "code":
+      return <FileCode size={size} className={className} />;
     case "image":
       return <ImageIcon size={size} className={className} />;
     default:

@@ -2011,6 +2011,7 @@ export type ShallowSource = EnsureAllTypes<{
   date: string;
   dateTime: string;
   color: string;
+  code: string;
   file: {
     path: string;
     mimeType?: string;
@@ -2733,6 +2734,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     type === "date" ||
     type === "dateTime" ||
     type === "color" ||
+    type === "code" ||
     type === "string" ||
     type === "literal"
   ) {

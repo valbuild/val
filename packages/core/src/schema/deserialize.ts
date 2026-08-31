@@ -4,6 +4,7 @@ import { ImageSource } from "../source/media";
 import { SourcePath } from "../val";
 import { ArraySchema } from "./array";
 import { BooleanSchema } from "./boolean";
+import { CodeSchema } from "./code";
 import { ColorSchema } from "./color";
 import { DateSchema } from "./date";
 import { DateTimeSchema } from "./datetime";
@@ -58,6 +59,8 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        null,
+        serialized.multiline ?? false,
       );
     case "literal":
       return new LiteralSchema(
@@ -278,6 +281,16 @@ function deserializeSchemaImpl(
       );
     case "color":
       return new ColorSchema(
+        serialized.options,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+        serialized.render ?? null,
+      );
+    case "code":
+      return new CodeSchema(
         serialized.options,
         serialized.opt,
         [],

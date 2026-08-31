@@ -14,6 +14,7 @@ import { file } from "./schema/file";
 import { files } from "./schema/files";
 import { date } from "./schema/date";
 import { datetime } from "./schema/datetime";
+import { code } from "./schema/code";
 import { color } from "./schema/color";
 import { route } from "./schema/route";
 import { router } from "./schema/router";
@@ -211,6 +212,23 @@ export type InitSchema = {
    */
   readonly color: typeof color;
   /**
+   * Define a string edited in a code editor.
+   *
+   * Pass a `language` to syntax highlight it; leave it out for a plain
+   * monospaced editor. The value is a plain string, and — unlike `s.string()` —
+   * it is never stega encoded, so the code reaches your app as it was written.
+   *
+   * @example
+   * const schema = s.code({ language: "typescript" });
+   * export default c.define("/example.val.ts", schema, "const a = 1;");
+   *
+   * @example
+   * const schema = s.code();
+   * export default c.define("/example.val.ts", schema, "no highlighting here");
+   *
+   */
+  readonly code: typeof code;
+  /**
    * Define a string that references a route path in your application.
    *
    * To create router pages you can use the s.router() function.
@@ -309,6 +327,7 @@ export function initSchema() {
     date,
     datetime,
     color,
+    code,
     route,
     router,
     images,

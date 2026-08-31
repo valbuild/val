@@ -10,7 +10,6 @@ import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchEr
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useEffect, useState } from "react";
 import { AutoGrowingTextarea } from "../AutoGrowingTextarea";
-import { CodeEditor } from "../CodeEditor";
 import { ReadonlyGuard } from "./ReadonlyGuard";
 import { useDebouncedFieldWrite } from "./useDebouncedFieldWrite";
 
@@ -105,18 +104,18 @@ export function StringField({
   /**
    * The layout comes off the SCHEMA, synchronously.
    *
-   * A render is static config — no closure, no dependency on source — so it
+   * `multiline` is static config — no closure, no dependency on source — so it
    * travels in the serialized schema and there is nothing to wait for. That is
    * what removes the old effect-driven dance here, which existed only because
    * the layout used to arrive asynchronously from the host and the field would
    * otherwise flip from input to textarea a tick later. (It also, silently, was
    * the only reason the uncontrolled textarea below ever had a value — see
-   * `architecture/quirks.md`.) If a render ever stops being static, this read is
-   * the thing that has to change. See `core/src/render.ts`.
+   * `architecture/quirks.md`.) If it ever stops being static, this read is the
+   * thing that has to change. See `core/src/render.ts`.
    */
-  const render = schemaAtPath.data.render;
+  const multiline = schemaAtPath.data.multiline;
   let content: React.ReactNode;
-  if (render?.as === "textarea") {
+  if (multiline) {
     content = (
       <div id={path}>
         <AutoGrowingTextarea
@@ -131,21 +130,6 @@ export function StringField({
           onChange={(ev) => {
             setCurrentValue(ev.target.value);
             write.push(ev.target.value);
-          }}
-          onBlur={write.flush}
-        />
-      </div>
-    );
-  } else if (render?.as === "code") {
-    content = (
-      <div id={path}>
-        <CodeEditor
-          language={render.language}
-          value={currentValue || ""}
-          autoFocus={autoFocus}
-          onChange={(value) => {
-            setCurrentValue(value);
-            write.push(value);
           }}
           onBlur={write.flush}
         />
