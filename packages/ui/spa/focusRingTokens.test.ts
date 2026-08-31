@@ -38,14 +38,20 @@ const SPA = __dirname;
 const CSS = fs.readFileSync(path.join(SPA, "index.css"), "utf8");
 
 /**
- * Vendored shadcn calendars, kept as they came. Their `has-focus:` and
- * `ring-ring/50` are Tailwind v4 syntax that this v3 config does not compile
- * at all, so they are inert rather than wrong.
+ * An unimported duplicate of the calendar beside it, kept as it came from
+ * shadcn. Nothing renders it, so nothing it names can be wrong on screen.
+ *
+ * Its live twin — imported by `DateField` and `DateTimeField` — is not exempt.
+ * It was, on the reasoning that shadcn's calendars are all v4 syntax this v3
+ * config never compiles. Only half of that holds: `has-focus:` does compile to
+ * nothing, but `group-data-[focused=true]/day:ring-ring/50` is an ordinary
+ * named-group data variant that v3 supports, and it emitted
+ * `--tw-ring-color: hsl(var(--ring) / 0.5)` against a token no shadow root can
+ * see — voiding the box-shadow and leaving the keyboard-focused day with no
+ * ring at all. Exactly the bug the rest of this file exists to catch, hidden by
+ * the exemption meant to describe it.
  */
-const VENDORED = new Set([
-  "components/designSystem/calendar.tsx",
-  "components/designSystem/ui/calendar.tsx",
-]);
+const VENDORED = new Set(["components/designSystem/ui/calendar.tsx"]);
 
 function sourceFiles(): string[] {
   const found: string[] = [];

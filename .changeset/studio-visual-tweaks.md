@@ -69,9 +69,12 @@ it focuses a control under 16px and does not scale back out, so one tap on a
 filter box left the editor magnified for the rest of the session. The viewport
 meta cannot fix this — a `<meta>` inside a shadow root is inert, so it would
 have to be written into the host page's head, and iOS ignores `user-scalable=no`
-regardless — so every typeable control is held at 16px under `(pointer: coarse)`,
-with a `touch:` variant for the controls that are not form elements. Desktop
-density is unchanged.
+regardless — so every typeable control is held at 16px under
+`(any-pointer: coarse)`, with a `touch:` variant for the controls that are not
+form elements. `any-pointer` rather than `pointer`: a tablet with a keyboard
+case, or a touchscreen laptop, reports a fine primary pointer and would have
+been missed, while still being able to raise the on-screen keyboard that
+triggers the zoom. Desktop density is unchanged.
 
 **And the assistant is usable on a phone.** Its sheet was sized by `maxHeight`
 alone, so its height came from its content — and the chat inside it is a

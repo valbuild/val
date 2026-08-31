@@ -183,10 +183,11 @@ module.exports = defineConfig([
      */
     files: ["packages/ui/spa/**/*.{ts,tsx}"],
     ignores: [
-      // Vendored shadcn calendars, kept as they came. Their `has-focus:` and
-      // `ring-ring/50` are Tailwind v4 syntax this v3 config never compiles,
-      // so they are inert rather than wrong.
-      "packages/ui/spa/components/designSystem/calendar.tsx",
+      // An unimported duplicate of the calendar beside it, kept as it came from
+      // shadcn. Nothing renders it, so nothing it names can be wrong on screen.
+      // Its live twin is NOT exempt: `group-data-[focused=true]/day:ring-ring/50`
+      // is a v3-supported named-group variant and does compile, so exempting the
+      // file hid a real dead ring on the focused day.
       "packages/ui/spa/components/designSystem/ui/calendar.tsx",
       // Names the forbidden classes in order to look for them.
       "packages/ui/spa/focusRingTokens.test.ts",
