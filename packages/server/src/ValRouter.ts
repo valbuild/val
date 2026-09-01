@@ -228,17 +228,44 @@ async function initHandlerOptions(
 }
 
 /**
- * Hosts we send credentials to. `valBuildUrl` carries the project's api key and
- * receives the app token that becomes the session cookie; `valContentUrl`
- * carries the api key or the caller's personal access token.
+ * Hosts we send credentials to, and what each one puts at risk. They differ:
+ * only `valBuildUrl` hands back the app token that becomes the session cookie,
+ * so a single shared sentence would overstate one and understate the other.
  */
 type CredentialBearingUrl = "valBuildUrl" | "valContentUrl";
 const CREDENTIAL_BEARING_URLS: CredentialBearingUrl[] = [
   "valBuildUrl",
   "valContentUrl",
 ];
+const WHAT_IS_AT_RISK: Record<CredentialBearingUrl, string> = {
+  valBuildUrl:
+    "Val's api key is sent to this host, and the token it returns is what this server signs into the session cookie, " +
+    "so both can be read - and the token replaced - by anyone on the network path.",
+  valContentUrl:
+    "Val's api key, or the caller's personal access token, is sent to this host, " +
+    "so it can be read by anyone on the network path.",
+};
 
-const LOOPBACK_HOSTNAMES = ["localhost", "127.0.0.1", "::1", "[::1]"];
+// NOTE: `URL.hostname` keeps the brackets on an IPv6 literal, so this is
+// "[::1]" and not "::1" - and `http://[0:0:0:0:0:0:0:1]` normalises to the
+// same short form before it gets here. Dropping the brackets looks like a
+// tidy-up and silently stops matching IPv6 loopback.
+const LOOPBACK_HOSTNAMES = ["localhost", "127.0.0.1", "[::1]"];
+
+/**
+ * The URL as it is safe to print. `http://user:pass@host` is a legal override,
+ * and a warning about credential exposure that puts the password in the log
+ * would be the very thing it is warning about.
+ */
+function forLog(parsed: URL): string {
+  if (!parsed.username && !parsed.password) {
+    return parsed.href;
+  }
+  const redacted = new URL(parsed.href);
+  redacted.username = "";
+  redacted.password = "";
+  return `${redacted.href} (credentials redacted)`;
+}
 
 /**
  * Returns a warning if `url` would send credentials somewhere they can be read
@@ -267,7 +294,9 @@ export function insecureUrlWarning(
   try {
     parsed = new URL(url);
   } catch {
-    return `Val: ${name} is not a valid URL: ${url}`;
+    // NOTE: the URL is not echoed here. It did not parse, so there is nothing
+    // to redact with, and an unparseable string can still hold a password.
+    return `Val: ${name} is not a valid URL.`;
   }
   if (parsed.protocol === "https:") {
     return null;
@@ -280,9 +309,9 @@ export function insecureUrlWarning(
     return null;
   }
   return (
-    `Val: ${name} is set to ${url}, which is not https. ` +
-    `Val's api key is sent to this host, so it - and the session token it returns - can be read ` +
-    `and altered by anyone on the network path. Use https, or a loopback address for local development.`
+    `Val: ${name} is set to ${forLog(parsed)}, which is not https. ` +
+    `${WHAT_IS_AT_RISK[name]} ` +
+    `Use https, or a loopback address for local development.`
   );
 }
 
