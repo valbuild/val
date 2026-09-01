@@ -11,6 +11,7 @@ import { ValUIRequestHandler } from "@valbuild/shared/internal";
 import { getServerMimeType } from "../spa/serverMimeType";
 import { VAL_APP_PATH, VAL_CSS_PATH } from "./constants";
 import { VERSION } from ".";
+import { devServerFetch } from "./devServerFetch";
 
 export function createUIRequestHandler(): ValUIRequestHandler {
   return async (path) => {
@@ -22,18 +23,13 @@ export function createUIRequestHandler(): ValUIRequestHandler {
       devPath = "/spa/index.css";
     }
     // TODO: believe we can clean up and remove: api/val/static
-    const res = await fetch(`http://localhost:5173/api/val/static${devPath}`, {
-      headers: acceptType
-        ? {
-            Accept: acceptType,
-          }
-        : {},
-    }).catch((err) => {
-      console.error(
-        "Could not fetch from dev server. Make sure you are running npm run dev in the package/ui directory.",
-      );
-      throw err;
-    });
+    // Retried rather than fetched once: a dropped connection here serves the
+    // Studio without its JavaScript, and the failure then surfaces wherever the
+    // page is being waited on instead of here. See `devServerFetch`.
+    const res = await devServerFetch(
+      `http://localhost:5173/api/val/static${devPath}`,
+      acceptType ? { Accept: acceptType } : {},
+    );
     const headersObj: Record<string, string> = {};
     res.headers.forEach((value, key) => {
       headersObj[key] = value;
