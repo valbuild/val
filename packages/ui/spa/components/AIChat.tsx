@@ -48,7 +48,6 @@ import type { AIContentBlock, AIMessageContent } from "./ValProvider";
 import { ToolName } from "../utils/toolNames";
 import { useValConfig } from "./ValFieldProvider";
 import { useValPortal } from "./ValPortalProvider";
-import { DEFAULT_APP_HOST } from "@valbuild/core";
 import { urlOf } from "@valbuild/shared/internal";
 import { CopyableCodeBlock } from "./designSystem/CopyableCodeBlock";
 import { AIChatEditor } from "./AIChatEditor";
@@ -121,6 +120,15 @@ export type ChatMessage = {
   status: ChatMessageStatus;
   error?: string;
   errorCode?: string;
+  /**
+   * Something to offer the user about this error, decided by the server.
+   *
+   * Here rather than derived from `errorCode` because only the server knows
+   * where to send them: the admin URL depends on the org and project, which the
+   * Studio does not assemble. It replaced a hardcoded "add a data pack" link
+   * keyed off a code the server no longer sends.
+   */
+  errorAction?: { label: string; url: string };
   toolActivities?: ToolActivity[];
   attachments?: ChatMessageAttachment[];
   /**
@@ -152,7 +160,12 @@ export type AIChatHandle = {
   /** Mark the assistant message as complete */
   completeAssistantMessage: (id: string) => void;
   /** Mark the assistant message as errored */
-  errorAssistantMessage: (id: string, error: string, code?: string) => void;
+  errorAssistantMessage: (
+    id: string,
+    error: string,
+    code?: string,
+    action?: { label: string; url: string },
+  ) => void;
   /** Add a tool call indicator to the current assistant message */
   addToolCall: (
     messageId: string,
@@ -743,11 +756,17 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         status: "complete",
       }));
     },
-    errorAssistantMessage(id: string, error: string, code?: string) {
+    errorAssistantMessage(
+      id: string,
+      error: string,
+      code?: string,
+      action?: { label: string; url: string },
+    ) {
       retireCurrentMessage(id, (message) => ({
         ...message,
         status: "error",
         error,
+        errorAction: action,
         errorCode: code,
       }));
     },
@@ -1494,11 +1513,6 @@ function MessageBubble({
   ) => void;
   onCancelToolQuestion: (toolCallId: string) => void;
 }) {
-  const config = useValConfig();
-  const appHostUrl = config?.appHost || DEFAULT_APP_HOST;
-  const project = config?.project;
-  const org = project?.split("/")[0];
-
   const isUser = message.role === "user";
   const isError = message.status === "error";
   const isStreamingMsg = message.status === "streaming";
@@ -1611,18 +1625,14 @@ function MessageBubble({
               <p className="text-xs text-fg-error-primary">
                 {message.error ?? "Something went wrong"}
               </p>
-              {message.errorCode === "token_limit_reached" && (
+              {message.errorAction && (
                 <a
-                  href={
-                    org
-                      ? `${appHostUrl}/manage-subscription/${org}`
-                      : appHostUrl
-                  }
+                  href={message.errorAction.url}
                   target="_blank"
                   rel="noreferrer"
                   className="text-xs text-fg-brand-primary underline"
                 >
-                  Add a data pack to continue using AI
+                  {message.errorAction.label}
                 </a>
               )}
             </div>

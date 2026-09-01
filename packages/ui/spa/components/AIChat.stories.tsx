@@ -235,6 +235,40 @@ function CancellableStreamingDemo() {
   );
 }
 
+/**
+ * An error the user can act on. The link comes from the server, which is the
+ * only side that knows the admin URL for this org and project — so a new reason
+ * to send someone to admin needs no Studio release.
+ */
+export const ErrorWithAction: Story = {
+  args: {
+    isConnected: true,
+    authError: false,
+    mode: "http",
+    initialMessages: [
+      {
+        id: "action-user-1",
+        role: "user",
+        content: "Rewrite the hero heading",
+        status: "complete",
+      },
+      {
+        id: "action-assistant-1",
+        role: "assistant",
+        content: "",
+        status: "error",
+        error:
+          "Claude Opus 5 is not available: no Anthropic key is set up. Add one in admin to use it — AI runs on your own key.",
+        errorCode: "provider_not_configured",
+        errorAction: {
+          label: "Set up your own API key",
+          url: "https://admin.val.build/~/acme/marketing-site?tab=settings#ai-keys",
+        },
+      },
+    ],
+  },
+};
+
 // ---------------------------------------------------------------------------
 // 4. Error — assistant message failed, with retry button
 // ---------------------------------------------------------------------------
