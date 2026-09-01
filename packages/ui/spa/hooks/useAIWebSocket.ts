@@ -49,9 +49,7 @@ export const AIErrorCode = z.enum([
   "authentication_required",
   "session_not_found",
   "internal_error",
-  // The content server grew these with BYOK. The enum is strict, so a code
-  // missing here fails the whole discriminated union and the error is dropped
-  // rather than shown — keep it in step with AIErrorCode on the server.
+  // The content server grew these with BYOK.
   "byok_invalid_key",
   "provider_not_configured",
   "model_refusal",
@@ -69,7 +67,16 @@ export type AIErrorAction = z.infer<typeof AIErrorAction>;
 export const AIErrorMessage = z.object({
   type: z.literal("ai_error"),
   id: z.string(),
-  code: AIErrorCode,
+  /**
+   * Unknown codes fall back rather than failing the parse.
+   *
+   * This enum is strict and sits inside a discriminated union, so a code the
+   * server has but this client does not used to drop the entire message: the
+   * user saw the turn hang instead of the reason it stopped, and the only
+   * trace was a console log. The server is free to add codes without waiting
+   * for a Studio release; the message still arrives, with its text intact.
+   */
+  code: AIErrorCode.catch("internal_error"),
   message: z.string(),
   resetDate: z.string().optional(),
   action: AIErrorAction.optional(),

@@ -31,7 +31,6 @@ const meta: Meta<typeof PublishSummaryView> = {
     publishDisabled: false,
     isPublishing: false,
     waitingForAiSeconds: null,
-    isEdited: false,
   },
   decorators: [
     (Story) => (
@@ -75,7 +74,6 @@ export const AiWriting: Story = {
 export const AiWritingWhileUserTypes: Story = {
   args: {
     value: "Fix typo in hero",
-    isEdited: true,
     ai: { status: "loading" },
   },
 };
@@ -99,7 +97,6 @@ export const AiSummaryApplied: Story = {
 export const AiSummaryOffered: Story = {
   args: {
     value: "Fix typo in hero",
-    isEdited: true,
     ai: { status: "ready", text: AI_SUMMARY, sessionId: "session-1" },
     onOpenAiSession: fn(),
   },
@@ -150,8 +147,8 @@ export const Publishing: Story = {
 export const InteractiveFlow: Story = {
   render: function InteractiveFlowStory() {
     const [value, setValue] = useState(DEFAULT_SUMMARY);
-    const [isEdited, setIsEdited] = useState(false);
-    // Read inside the timeout, which closes over the state at scheduling time.
+    // A ref, not state: the timeout below closes over its scheduling-time
+    // value, and nothing renders off it.
     const hasEditedRef = useRef(false);
     const [ai, setAi] = useState<AiSummaryState>({ status: "idle" });
 
@@ -187,17 +184,12 @@ export const InteractiveFlow: Story = {
           value={value}
           onChange={(next) => {
             setValue(next);
-            setIsEdited(true);
             hasEditedRef.current = true;
           }}
           ai={ai}
-          isEdited={isEdited}
           onUseAiSummary={() => {
             if (ai.status === "ready") {
               setValue(ai.text);
-              // Taking the suggestion is not "unedited": a later arrival must
-              // still not overwrite it.
-              setIsEdited(false);
             }
           }}
           onOpenAiSession={ai.status === "ready" ? fn() : undefined}

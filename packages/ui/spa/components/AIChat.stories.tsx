@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import {
   AIChat,
   AIChatHandle,
@@ -187,7 +187,10 @@ export const StreamingCancellable: Story = {
 
 function CancellableStreamingDemo() {
   const chatRef = useRef<AIChatHandle>(null);
-  const [stopped, setStopped] = useState(false);
+  // A ref, not state: making this a dependency re-ran the effect on stop, which
+  // started a second assistant message and left an empty bubble streaming
+  // forever — the opposite of what the story is meant to show.
+  const stoppedRef = useRef(false);
 
   useEffect(() => {
     if (!chatRef.current) return;
@@ -195,7 +198,7 @@ function CancellableStreamingDemo() {
     chatRef.current.startAssistantMessage(assistantId);
     let idx = 0;
     const interval = setInterval(() => {
-      if (!chatRef.current || stopped) return;
+      if (!chatRef.current || stoppedRef.current) return;
       const chunk = STREAMING_TEXT.slice(idx, idx + 3);
       if (chunk) {
         chatRef.current.appendAssistantChunk(assistantId, chunk);
@@ -206,7 +209,7 @@ function CancellableStreamingDemo() {
       }
     }, 60);
     return () => clearInterval(interval);
-  }, [stopped]);
+  }, []);
 
   return (
     <AIChat
@@ -215,8 +218,9 @@ function CancellableStreamingDemo() {
       authError={false}
       mode="http"
       onCancel={() => {
-        setStopped(true);
-        // What arriving `ai_cancelled` does: settle, keeping the partial text.
+        stoppedRef.current = true;
+        // What arriving `ai_cancelled` does: settle as complete, keeping the
+        // partial text — a stop is not a failure.
         chatRef.current?.completeAssistantMessage("cancellable-1");
       }}
       initialMessages={[

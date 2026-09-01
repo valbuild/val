@@ -17,6 +17,13 @@ describe("moduleDisplayName", () => {
     );
   });
 
+  test("strips .val.json too, so JSON entry modules do not leak an extension", () => {
+    expect(moduleDisplayName("/content/students.val.json")).toBe("Students");
+    expect(moduleDisplayName("/content/students/page.val.json")).toBe(
+      "Students",
+    );
+  });
+
   test("falls back to the path when there is no name to show", () => {
     expect(moduleDisplayName("/")).toBe("/");
   });

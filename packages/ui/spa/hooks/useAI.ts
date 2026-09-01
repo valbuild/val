@@ -871,7 +871,9 @@ export function useAI(
         }
         chatRef.current.completeAssistantMessage(message.id);
         activeIdRef.current = null;
-        inFlightPromptIdRef.current = null;
+        if (inFlightPromptIdRef.current === message.id) {
+          inFlightPromptIdRef.current = null;
+        }
         setIsStreaming(false);
       } else if (message.type === "ai_tool_call") {
         // ask_user_question renders a question card instead of the plain tool
@@ -2105,14 +2107,20 @@ export function useAI(
           message.code,
         );
         activeIdRef.current = null;
-        inFlightPromptIdRef.current = null;
+        if (inFlightPromptIdRef.current === message.id) {
+          inFlightPromptIdRef.current = null;
+        }
         setIsStreaming(false);
       } else if (message.type === "ai_cancelled") {
         // The user asked for this, so it settles rather than fails: whatever
         // arrived before the stop stays in the transcript, and a stop before
         // any text says so instead of leaving an empty bubble behind.
         if (!chatRef.current) return;
-        if (activeIdRef.current !== message.id) {
+        // Text already on screen counts, even if the server sent no partial:
+        // keying only off `partialResponse` turned a streamed answer into a red
+        // error, which is the opposite of settling it.
+        const wasStreaming = activeIdRef.current === message.id;
+        if (!wasStreaming) {
           chatRef.current.startAssistantMessage(message.id);
           if (message.partialResponse) {
             chatRef.current.appendAssistantChunk(
@@ -2121,18 +2129,34 @@ export function useAI(
             );
           }
         }
-        if (message.partialResponse) {
-          chatRef.current.completeAssistantMessage(message.id);
-        } else {
-          chatRef.current.errorAssistantMessage(
-            message.id,
-            "Stopped.",
-            "cancelled",
-          );
+        // Settled as complete, never as an error: the user asked for this, and
+        // an error status paints the turn red and offers a Retry for something
+        // that did not fail. With nothing to keep, "Stopped." is the body.
+        if (!wasStreaming && !message.partialResponse) {
+          chatRef.current.appendAssistantChunk(message.id, "Stopped.");
         }
-        activeIdRef.current = null;
-        inFlightPromptIdRef.current = null;
-        setIsStreaming(false);
+        chatRef.current.completeAssistantMessage(message.id);
+        // A question card left pending keeps the turn open: it stays
+        // clickable, and it disables the chat's own turn timeout, so a stop
+        // would wedge the composer with no way out but a reload. The server has
+        // already abandoned these waits, so there is nothing to answer — just
+        // stop tracking them.
+        for (const [toolCallId, questionMessageId] of Array.from(
+          pendingQuestionsRef.current.entries(),
+        )) {
+          if (questionMessageId === message.id) {
+            pendingQuestionsRef.current.delete(toolCallId);
+          }
+        }
+        if (activeIdRef.current === message.id) {
+          activeIdRef.current = null;
+        }
+        // A late settle for an abandoned turn must not clear the tracking of a
+        // newer one, or its streamed text is orphaned and Stop goes inert.
+        if (inFlightPromptIdRef.current === message.id) {
+          inFlightPromptIdRef.current = null;
+          setIsStreaming(false);
+        }
       } else if (message.type === "ai_agent_handoff") {
         // TODO: show this in the UI in some way to indicate that the AI has handed off to a human agent:
         console.log(
@@ -2417,12 +2441,26 @@ Do not describe what you will do unless you do it for clarification — just do 
    */
   const cancel = useCallback((): boolean => {
     const id = inFlightPromptIdRef.current;
+    // Nothing is running as far as we know, but the composer is showing a stop
+    // button, so something is out of step. Settle locally rather than leaving
+    // the user pressing a button that does nothing.
     if (id === null) {
+      const streamingId = activeIdRef.current;
+      if (streamingId !== null) {
+        chatRef.current?.completeAssistantMessage(streamingId);
+        activeIdRef.current = null;
+      }
+      setIsStreaming(false);
       return false;
     }
     const sent = sendWsMessage({ type: "ai_cancel", id });
     if (!sent) {
-      chatRef.current?.errorAssistantMessage(id, "Stopped.", "cancelled");
+      // Same reasoning as the `ai_cancelled` branch: settle it, do not fail it.
+      if (activeIdRef.current !== id) {
+        chatRef.current?.startAssistantMessage(id);
+        chatRef.current?.appendAssistantChunk(id, "Stopped.");
+      }
+      chatRef.current?.completeAssistantMessage(id);
       inFlightPromptIdRef.current = null;
       activeIdRef.current = null;
       setIsStreaming(false);

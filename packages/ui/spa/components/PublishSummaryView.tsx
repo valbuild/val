@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   Loader2,
@@ -33,8 +33,6 @@ export type PublishSummaryViewProps = {
   value: string;
   onChange: (value: string) => void;
   ai: AiSummaryState;
-  /** True once the user has typed: their words are never overwritten. */
-  isEdited: boolean;
   /** Replace the box with the AI's suggestion. */
   onUseAiSummary: () => void;
   /**
@@ -70,7 +68,6 @@ export function PublishSummaryView({
   value,
   onChange,
   ai,
-  isEdited,
   onUseAiSummary,
   onOpenAiSession,
   onSetUpAi,
@@ -89,7 +86,11 @@ export function PublishSummaryView({
         <span className="font-semibold">Summary</span>
         <AiSummaryButton
           ai={ai}
-          isEdited={isEdited}
+          // Offered whenever it is not already what is in the box. Gating this
+          // on "has the user typed" left a gap: a box restored from a previous
+          // session is not the default either, and the suggestion was then
+          // neither applied nor offered.
+          canApply={ai.status === "ready" && ai.text.trim() !== value.trim()}
           onUseAiSummary={onUseAiSummary}
           onOpenAiSession={onOpenAiSession}
           onSetUpAi={onSetUpAi}
@@ -152,13 +153,13 @@ export function PublishSummaryView({
  */
 function AiSummaryButton({
   ai,
-  isEdited,
+  canApply,
   onUseAiSummary,
   onOpenAiSession,
   onSetUpAi,
 }: {
   ai: AiSummaryState;
-  isEdited: boolean;
+  canApply: boolean;
   onUseAiSummary: () => void;
   onOpenAiSession?: () => void;
   onSetUpAi?: () => void;
@@ -232,7 +233,7 @@ function AiSummaryButton({
   // ready
   return (
     <span className="flex items-center gap-2">
-      {isEdited && (
+      {canApply && (
         <AiTooltip
           container={portalContainer}
           text="Replace what you have written with the AI's summary."
@@ -286,36 +287,62 @@ function AiTooltip({
 }
 
 /**
- * Counts a publish grace period down to zero and then lets publishing proceed.
+ * Counts a publish grace period down and then lets publishing proceed.
  *
  * Exported for the container to drive the `waitingForAiSeconds` prop; the view
  * itself stays a pure function of its props so stories can pin any frame of it.
+ *
+ * Pressing Publish committed to publishing, so the pending publish outlives
+ * this component: closing the popover mid-countdown fires it rather than
+ * dropping it on the floor.
  */
 export function usePublishGrace(totalSeconds: number) {
   const [remaining, setRemaining] = useState<number | null>(null);
   const onElapsed = useRef<(() => void) | null>(null);
+
+  const fire = useCallback(() => {
+    const pending = onElapsed.current;
+    onElapsed.current = null;
+    setRemaining(null);
+    pending?.();
+  }, []);
 
   useEffect(() => {
     if (remaining === null) {
       return;
     }
     if (remaining <= 0) {
-      const fire = onElapsed.current;
-      onElapsed.current = null;
-      setRemaining(null);
-      fire?.();
+      fire();
       return;
     }
     const timer = setTimeout(() => setRemaining((r) => (r ?? 1) - 1), 1000);
     return () => clearTimeout(timer);
-  }, [remaining]);
+  }, [remaining, fire]);
+
+  // Escape, or a click outside, unmounts the popover mid-countdown. The user
+  // already asked to publish, so honour it instead of silently losing it.
+  useEffect(
+    () => () => {
+      const pending = onElapsed.current;
+      onElapsed.current = null;
+      pending?.();
+    },
+    [],
+  );
 
   return {
     remaining,
+    isWaiting: remaining !== null,
+    /** Ignored while a countdown is already running: a second press skips it. */
     start: (whenElapsed: () => void) => {
+      if (onElapsed.current !== null) {
+        return;
+      }
       onElapsed.current = whenElapsed;
       setRemaining(totalSeconds);
     },
+    /** Publish now, without waiting for the rest of the countdown. */
+    skip: fire,
     cancel: () => {
       onElapsed.current = null;
       setRemaining(null);

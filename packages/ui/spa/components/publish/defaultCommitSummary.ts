@@ -24,7 +24,9 @@ const MAX_LISTED = 6;
 export function moduleDisplayName(moduleFilePath: string): string {
   const segments = moduleFilePath.split("/").filter(Boolean);
   const fileName = segments[segments.length - 1] ?? moduleFilePath;
-  const base = fileName.replace(/\.val\.(ts|js|tsx|jsx)$/, "");
+  // `.val.json` too: JSON entry modules are real module paths, and leaving the
+  // extension on leaked "Student.val.json" into publish summaries.
+  const base = fileName.replace(/\.val\.(ts|tsx|js|jsx|json)$/, "");
   // A router file is named for its route, which is the folder above it.
   const name =
     base === "page" || base === "index"
