@@ -2115,6 +2115,7 @@ export const ValServer = (
             const json = (await upstreamRes.json()) as {
               nonce: string;
               providers?: unknown;
+              models?: unknown;
             };
             const wsUrl =
               options.valContentUrl
@@ -2129,12 +2130,43 @@ export const ValServer = (
                     typeof provider === "string",
                 )
               : undefined;
+            // Same posture as `providers`: forwarded, shape-checked, not
+            // interpreted. Which models a key can reach is the content
+            // server's answer to give, and a malformed entry is dropped rather
+            // than allowed to sink the whole response.
+            const models = Array.isArray(json.models)
+              ? json.models.flatMap((entry) => {
+                  if (typeof entry !== "object" || entry === null) {
+                    return [];
+                  }
+                  const model = entry as Record<string, unknown>;
+                  if (
+                    typeof model.provider !== "string" ||
+                    typeof model.model !== "string" ||
+                    typeof model.label !== "string"
+                  ) {
+                    return [];
+                  }
+                  return [
+                    {
+                      provider: model.provider,
+                      model: model.model,
+                      label: model.label,
+                      contextWindow:
+                        typeof model.contextWindow === "number"
+                          ? model.contextWindow
+                          : null,
+                    },
+                  ];
+                })
+              : undefined;
             return {
               status: 200 as const,
               json: {
                 nonce: json.nonce,
                 wsUrl,
                 ...(providers ? { providers } : {}),
+                ...(models ? { models } : {}),
               },
             };
           } catch (err) {

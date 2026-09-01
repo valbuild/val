@@ -65,6 +65,7 @@ import {
   type AIMessageHandler,
   type AIClientMessage,
   type AIModel,
+  type AIModelInfo,
   type AISession,
   AITool,
 } from "../hooks/useAIWebSocket";
@@ -194,6 +195,9 @@ type ValContextValue = {
   aiSetSessionName: (sessionId: string, name: string) => Promise<void>;
   /** The model to use, or null when no key makes any model reachable. */
   availableAiModel: AIModel | null;
+  availableAiModels: AIModelInfo[];
+  selectedAiModel: AIModel | null;
+  selectAiModel: (model: AIModel) => void;
   aiSessionImagesToPatchFile: (args: {
     patchId: PatchId;
     parentRef: ParentRef;
@@ -271,6 +275,9 @@ export function ValProvider({
     connectionError: aiConnectionError,
     retryConnection: retryAiConnection,
     availableModel: availableAiModel,
+    availableModels: availableAiModels,
+    selectedModel: selectedAiModel,
+    selectModel: selectAiModel,
   } = useAIWebSocket(wsEnabled, client);
 
   const aiGetSessions = useCallback(
@@ -735,6 +742,9 @@ export function ValProvider({
         aiGetSessionMessages,
         aiSetSessionName,
         availableAiModel,
+        availableAiModels,
+        selectedAiModel,
+        selectAiModel,
         aiSessionImagesToPatchFile,
       }}
     >
@@ -1104,6 +1114,27 @@ export function useAIContext() {
 export function useAvailableAIModel(): AIModel | null {
   const { availableAiModel } = useContext(ValContext);
   return availableAiModel;
+}
+
+/**
+ * The models on offer, the one selected, and how to change it.
+ *
+ * The list is what the project's keys can actually reach — reported by the
+ * providers, not guessed here — so a picker built from it can only offer
+ * models that will work.
+ */
+export function useAIModelSelection(): {
+  models: AIModelInfo[];
+  selected: AIModel | null;
+  select: (model: AIModel) => void;
+} {
+  const { availableAiModels, selectedAiModel, selectAiModel } =
+    useContext(ValContext);
+  return {
+    models: availableAiModels,
+    selected: selectedAiModel,
+    select: selectAiModel,
+  };
 }
 
 export function useDeployments() {

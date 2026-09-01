@@ -31,6 +31,7 @@ import {
 import {
   type AITool,
   SessionImageToPatchError,
+  useAIModelSelection,
   useAvailableAIModel,
   useCurrentProfile,
   useProfilesByAuthorId,
@@ -830,7 +831,13 @@ export function useAI(
   const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
   const config = useValConfig();
   const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
-  const chatModel = useAvailableAIModel();
+  // The editor's pick where they have made one, and the best available model
+  // until they do. `useAvailableAIModel` is the floor: it still answers when
+  // the content server reports providers but no models, which is what an older
+  // server does.
+  const { selected: selectedModel } = useAIModelSelection();
+  const defaultModel = useAvailableAIModel();
+  const chatModel = selectedModel ?? defaultModel;
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [sessions, setSessions] = useState<AISession[]>([]);
