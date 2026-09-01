@@ -1795,54 +1795,6 @@ export const ValServer = (
         });
       },
     },
-    "/commit-summary": {
-      GET: async (req) => {
-        const cookies = req.cookies;
-        const auth = getAuth(cookies);
-        if (auth.error) {
-          return {
-            status: 401,
-            json: {
-              message: auth.error,
-            },
-          };
-        }
-
-        const query = req.query;
-        const patchIds = query.patch_id as PatchId[];
-        const patches = await serverOps.fetchPatches({
-          patchIds,
-          excludePatchOps: false,
-        });
-        const analysis = serverOps.analyzePatches(
-          patches.patches,
-          patches.commits,
-          commit,
-        );
-        const preparedCommit = await serverOps.prepare({
-          ...analysis,
-          ...patches,
-        });
-        const res = await serverOps.getCommitSummary(preparedCommit);
-        if (res.error) {
-          console.error("Failed to summarize", res.error);
-          return {
-            status: 400,
-            json: {
-              message: res.error.message,
-            },
-          };
-        }
-        return {
-          status: 200,
-          json: {
-            baseSha: await serverOps.getBaseSha(),
-            patchIds,
-            commitSummary: res.commitSummary,
-          },
-        };
-      },
-    },
     "/save": {
       POST: async (req) => {
         const cookies = req.cookies;
@@ -2162,14 +2114,23 @@ export const ValServer = (
             }
             const json = (await upstreamRes.json()) as {
               nonce: string;
+              models?: unknown;
             };
             const wsUrl =
               options.valContentUrl
                 .replace(/^https:/, "wss:")
                 .replace(/^http:/, "ws:") + `/v1/${options.project}/ai/connect`;
+            // Forwarded as-is, minus anything that is not a string: which
+            // models exist is the content server's to decide, and this only
+            // has to carry the answer without editorialising.
+            const models = Array.isArray(json.models)
+              ? json.models.filter(
+                  (model): model is string => typeof model === "string",
+                )
+              : undefined;
             return {
               status: 200 as const,
-              json: { nonce: json.nonce, wsUrl },
+              json: { nonce: json.nonce, wsUrl, ...(models ? { models } : {}) },
             };
           } catch (err) {
             return {

@@ -64,6 +64,7 @@ import {
   useAIWebSocket,
   type AIMessageHandler,
   type AIClientMessage,
+  type AIModel,
   type AISession,
   AITool,
 } from "../hooks/useAIWebSocket";
@@ -191,6 +192,8 @@ type ValContextValue = {
     },
   ) => Promise<AIMessagesResponse>;
   aiSetSessionName: (sessionId: string, name: string) => Promise<void>;
+  /** The model to use, or null when no key makes any model reachable. */
+  availableAiModel: AIModel | null;
   aiSessionImagesToPatchFile: (args: {
     patchId: PatchId;
     parentRef: ParentRef;
@@ -258,6 +261,7 @@ export function ValProvider({
     authError: aiAuthError,
     connectionError: aiConnectionError,
     retryConnection: retryAiConnection,
+    availableModel: availableAiModel,
   } = useAIWebSocket(wsEnabled, client);
 
   const aiGetSessions = useCallback(
@@ -721,6 +725,7 @@ export function ValProvider({
         aiGetSessions,
         aiGetSessionMessages,
         aiSetSessionName,
+        availableAiModel,
         aiSessionImagesToPatchFile,
       }}
     >
@@ -1078,6 +1083,18 @@ export function useAIContext() {
     aiSetSessionName,
     aiSessionImagesToPatchFile,
   };
+}
+
+/**
+ * The model AI calls should ask for, or null when there is none.
+ *
+ * Null is the ordinary state for a project with no AI key configured: with
+ * bring-your-own-key there is no fallback, so the callers treat it as "AI is
+ * off" rather than as an error.
+ */
+export function useAvailableAIModel(): AIModel | null {
+  const { availableAiModel } = useContext(ValContext);
+  return availableAiModel;
 }
 
 export function useDeployments() {
@@ -1722,7 +1739,6 @@ type PublishSummaryState = z.infer<typeof PublishSummaryState>;
  */
 export function usePublishSummary() {
   const {
-    client,
     publishSummaryState,
     setPublishSummaryState,
     config: runtimeConfig,
@@ -1738,17 +1754,6 @@ export function usePublishSummary() {
     }
     return false;
   }, [patchErrors]);
-  const [canGenerate, setCanGenerate] = useState(false);
-  useEffect(() => {
-    if (
-      runtimeConfig?.ai?.commitMessages?.disabled === undefined ||
-      runtimeConfig.ai.commitMessages.disabled === false
-    ) {
-      setCanGenerate(true);
-    } else {
-      setCanGenerate(false);
-    }
-  }, [runtimeConfig]);
   useEffect(() => {
     if (publishSummaryState.type === "not-asked") {
       const storedSummaryState = getSummaryStateFromLocalStorage(
@@ -1764,57 +1769,6 @@ export function usePublishSummary() {
       }
     }
   }, [publishSummaryState, runtimeConfig, setPublishSummaryState]);
-  const generateSummary = useCallback(async (): Promise<
-    { type: "ai"; text: string } | { type: "error"; message: string }
-  > => {
-    if (globalServerSidePatchIds === null) {
-      return {
-        type: "error",
-        message: "Empty patch set",
-      };
-    }
-    if (
-      "isGenerating" in publishSummaryState &&
-      publishSummaryState.isGenerating
-    ) {
-      return {
-        type: "error",
-        message: "Already generating summary",
-      };
-    }
-    setPublishSummaryState((prev) => {
-      return {
-        ...prev,
-        isGenerating: true,
-      };
-    });
-    try {
-      const res = await client("/commit-summary", "GET", {
-        query: {
-          patch_id: globalServerSidePatchIds,
-        },
-      });
-      if (res.status === 200) {
-        if (res.json.commitSummary) {
-          return { type: "ai", text: res.json.commitSummary };
-        } else {
-          return {
-            type: "error",
-            message: "Commit summary could not be generated",
-          };
-        }
-      } else {
-        return { type: "error", message: res.json.message };
-      }
-    } finally {
-      setPublishSummaryState((prev) => {
-        return {
-          ...prev,
-          isGenerating: false,
-        };
-      });
-    }
-  }, [client, globalServerSidePatchIds, publishSummaryState]);
   const [isPublishing, setIsPublishing] = useState(false);
   const publish = useCallback(
     async (summary: string) => {
@@ -1931,8 +1885,6 @@ export function usePublishSummary() {
      */
     publishDisabled: isPublishing || hasPatchErrors === true,
     isPublishing,
-    generateSummary,
-    canGenerate,
     summary: publishSummaryState,
     setSummary,
   };

@@ -4,8 +4,42 @@ import { ValClient } from "@valbuild/shared/internal";
 
 // --- Shared types (must match server-side definitions) ---
 
-export const AIModel = z.enum(["openai-gpt-5.1"]);
+/**
+ * The models a client may ask for. Must stay in step with the content server's
+ * catalog; a name it does not know is rejected there rather than here.
+ */
+export const AIModel = z.enum([
+  "openai-gpt-5.1",
+  "anthropic-claude-opus-5",
+  "anthropic-claude-sonnet-5",
+  "anthropic-claude-haiku-4.5",
+]);
 export type AIModel = z.infer<typeof AIModel>;
+
+/**
+ * Preference order when the server offers a choice. Not a quality ranking: it
+ * is the order to fall back through when an org has brought keys for some
+ * providers and not others.
+ */
+export const AI_MODEL_PREFERENCE: AIModel[] = [
+  "openai-gpt-5.1",
+  "anthropic-claude-sonnet-5",
+  "anthropic-claude-opus-5",
+  "anthropic-claude-haiku-4.5",
+];
+
+/** The first model this client knows about that the server says is available. */
+export function pickAvailableModel(
+  serverModels: string[] | undefined,
+): AIModel | null {
+  if (serverModels === undefined) {
+    // An older server does not report them. It also has a shared key and one
+    // model, so the original default is the right guess.
+    return "openai-gpt-5.1";
+  }
+  const available = new Set(serverModels);
+  return AI_MODEL_PREFERENCE.find((model) => available.has(model)) ?? null;
+}
 
 export const AITool = z.object({
   name: z.string(),
@@ -116,6 +150,13 @@ export const AICancelledMessage = z.object({
 });
 export type AICancelledMessage = z.infer<typeof AICancelledMessage>;
 
+export const AISessionUnhiddenMessage = z.object({
+  type: z.literal("ai_session_unhidden"),
+  id: z.string(),
+  sessionId: z.string(),
+});
+export type AISessionUnhiddenMessage = z.infer<typeof AISessionUnhiddenMessage>;
+
 export const AIAgentHandoffMessage = z.object({
   type: z.literal("ai_agent_handoff"),
   id: z.string(),
@@ -132,6 +173,7 @@ export const AIServerMessage = z.discriminatedUnion("type", [
   AIToolCallMessage,
   AIErrorMessage,
   AICancelledMessage,
+  AISessionUnhiddenMessage,
   AIAgentHandoffMessage,
 ]);
 
@@ -152,6 +194,13 @@ export const AIPromptMessage = z.object({
   message: z.union([z.string(), z.array(AIMessageContentBlock)]),
   context: z.string().optional(),
   maxIterations: z.number().int().min(1).max(200).optional(),
+  /**
+   * Create the session outside the chat list. For work the user did not start a
+   * conversation for — the publish flow's commit summary — so it does not put a
+   * session in the sidebar per publish. Honoured only when the session is
+   * created; `ai_unhide_session` reveals it later.
+   */
+  hidden: z.boolean().optional(),
   agents: z.array(AIAgentDefinition).min(1),
 });
 export type AIPromptMessage = z.infer<typeof AIPromptMessage>;
@@ -207,10 +256,19 @@ export const AICancelMessage = z.object({
 });
 export type AICancelMessage = z.infer<typeof AICancelMessage>;
 
+/** Bring a hidden session into the chat list, so the user can open it. */
+export const AIUnhideSessionMessage = z.object({
+  type: z.literal("ai_unhide_session"),
+  id: z.string(),
+  sessionId: z.string(),
+});
+export type AIUnhideSessionMessage = z.infer<typeof AIUnhideSessionMessage>;
+
 export type AIClientMessage =
   | AIPromptMessage
   | AIToolResultMessage
-  | AICancelMessage;
+  | AICancelMessage
+  | AIUnhideSessionMessage;
 
 export type AIMessageHandler = (message: AIServerMessage) => void;
 
@@ -270,10 +328,19 @@ export function useAIWebSocket(
   connectionError: string | null;
   /** Try to connect again, from the first attempt. */
   retryConnection: () => void;
+  /**
+   * The model to use, picked from what the server said is available.
+   *
+   * Null once the server has answered and nothing it offers is a model this
+   * client knows — which with bring-your-own-key means no key is configured
+   * for any provider the Studio can drive.
+   */
+  availableModel: AIModel | null;
 } {
   const wsRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [authError, setAuthError] = useState(false);
+  const [availableModel, setAvailableModel] = useState<AIModel | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const handlersRef = useRef<Set<AIMessageHandler>>(new Set());
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -324,6 +391,7 @@ export function useAIWebSocket(
         return;
       }
       setAuthError(false);
+      setAvailableModel(pickAvailableModel(res.json.models));
 
       const ws = new WebSocket(
         res.json.wsUrl + "?nonce=" + encodeURIComponent(res.json.nonce),
@@ -445,5 +513,6 @@ export function useAIWebSocket(
     authError,
     connectionError,
     retryConnection,
+    availableModel,
   };
 }

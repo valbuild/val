@@ -2157,6 +2157,10 @@ export function useAI(
           inFlightPromptIdRef.current = null;
           setIsStreaming(false);
         }
+      } else if (message.type === "ai_session_unhidden") {
+        // Answered by whoever asked — the publish flow — and nothing for the
+        // chat to do. Named rather than left to the exhaustive check so adding
+        // a message type still fails the build here.
       } else if (message.type === "ai_agent_handoff") {
         // TODO: show this in the UI in some way to indicate that the AI has handed off to a human agent:
         console.log(

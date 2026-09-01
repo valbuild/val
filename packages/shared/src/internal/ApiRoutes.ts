@@ -942,35 +942,6 @@ export const Api = {
       ]),
     },
   },
-  "/commit-summary": {
-    GET: {
-      req: {
-        query: {
-          patch_id: z.array(PatchId),
-        },
-        cookies: {
-          val_session: z.string().optional(),
-        },
-      },
-      res: z.union([
-        unauthorizedResponse,
-        z.object({
-          status: z.literal(400),
-          json: z.object({
-            message: z.string(),
-          }),
-        }),
-        z.object({
-          status: z.literal(200),
-          json: z.object({
-            patchIds: z.array(PatchId),
-            baseSha: z.string(),
-            commitSummary: z.string().nullable(),
-          }),
-        }),
-      ]),
-    },
-  },
   "/save": {
     POST: {
       req: {
@@ -1186,6 +1157,21 @@ export const Api = {
           json: z.object({
             nonce: z.string(),
             wsUrl: z.string(),
+            /**
+             * The models this project can actually reach, in preference order.
+             *
+             * AI runs on a key the org or the user brought, so which models are
+             * available depends on which keys exist — an org with only an
+             * Anthropic key cannot use a GPT model, and asking for one gets a
+             * refusal. The client picks from this rather than assuming.
+             *
+             * Deliberately `string[]` and not an enum: the content server is
+             * free to add a model without waiting for a Studio release, and a
+             * strict enum here would reject the whole response over a name this
+             * version has not heard of. The client matches these against the
+             * models it knows and ignores the rest.
+             */
+            models: z.array(z.string()).optional(),
           }),
         }),
         z.object({
