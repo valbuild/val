@@ -59,7 +59,7 @@ import { getSourcePathFromRoute } from "@valbuild/core";
 import { Patch } from "@valbuild/shared/internal";
 import { useNavigation } from "../components/ValRouter";
 import { getNavPathFromAll } from "../components/getNavPath";
-import { filterBlockingValidationErrors } from "../validation/blockingValidationErrors";
+import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
 import { readImageFromFile } from "../utils/readImage";
 import { z } from "zod";
 import {
@@ -67,12 +67,12 @@ import {
   buildRemoveImageGalleryEntryPatch,
   isRemoteSchema,
   type BuildResult,
-} from "./aiImageToolPatches";
+} from "@valbuild/shared/internal";
 import {
   buildDuplicatePatch,
   buildEmptyAtPathPatch,
   describeContainerAtPath,
-} from "./aiSourceToolPatches";
+} from "@valbuild/shared/internal";
 import {
   expandSessionKeysInPatch,
   type ExpandResult,
@@ -1812,13 +1812,16 @@ export function useAI(
               chatRef.current?.errorToolCall(messageId, toolCallId);
               return;
             }
+            // Both builders need the source: it is what tells them the
+            // destination key is already taken, and writing over an existing
+            // record entry destroys it.
+            const sourceSnap = valReads.getSourceSnapshot(moduleFilePath);
+            const sourceData =
+              sourceSnap.status === "success"
+                ? (sourceSnap.data as Source | undefined)
+                : undefined;
             let buildResult: BuildResult;
             if (toolName === "duplicate_source") {
-              const sourceSnap = valReads.getSourceSnapshot(moduleFilePath);
-              const sourceData =
-                sourceSnap.status === "success"
-                  ? (sourceSnap.data as Source | undefined)
-                  : undefined;
               buildResult = buildDuplicatePatch(
                 {
                   sourcePath: args.source_path as string[],
@@ -1831,6 +1834,7 @@ export function useAI(
               buildResult = buildEmptyAtPathPatch(
                 { destinationPath: args.destination_path },
                 moduleSchema,
+                sourceData,
               );
             }
             if (buildResult.kind === "wrong-tool") {

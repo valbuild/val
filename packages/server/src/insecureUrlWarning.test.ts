@@ -1,4 +1,4 @@
-import { insecureUrlWarning } from "./ValRouter";
+import { insecureUrlWarning } from "./valServerConfig";
 
 describe("insecureUrlWarning", () => {
   test.each([

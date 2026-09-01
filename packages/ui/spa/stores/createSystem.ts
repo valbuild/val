@@ -9,7 +9,7 @@ import type {
   ValidationErrors,
 } from "@valbuild/core";
 import { SchemaValidator } from "../validation/validateModule";
-import { filterBlockingValidationErrors } from "../validation/blockingValidationErrors";
+import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
 import { describeStuckSave } from "../utils/describeStuckSave";
 import { SchemaStore } from "./SchemaStore";
 import { SourceStore, type FetchJsonEntry } from "./SourceStore";

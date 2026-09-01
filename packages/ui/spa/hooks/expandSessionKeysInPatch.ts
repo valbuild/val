@@ -6,13 +6,13 @@ import {
   type Source,
 } from "@valbuild/core";
 import { ParentRef, Patch } from "@valbuild/shared/internal";
-import type { ToolName } from "../utils/toolNames";
+import type { ToolName } from "@valbuild/shared/internal";
 import {
   buildFileRefValue,
   getInlineImgInfo,
   isRemoteSchema,
   resolveSerializedSchemaAtPath,
-} from "./aiImageToolPatches";
+} from "@valbuild/shared/internal";
 
 /**
  * Sentinel value an LLM can place in a `create_patch` payload anywhere it

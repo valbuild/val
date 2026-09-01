@@ -1,13 +1,14 @@
 import { promises as fs } from "fs";
 import * as path from "path";
-import { DEFAULT_CONTENT_HOST, ValConfig, ValModules } from "@valbuild/core";
+import { ValConfig, ValModules } from "@valbuild/core";
 import {
   Api,
   ApiEndpoint,
   ValServerGenericResult,
 } from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
-import { ValServer, ValServerCallbacks, ValServerConfig } from "./ValServer";
+import { ValServer, ValServerCallbacks } from "./ValServer";
+import { initHandlerOptions } from "./valServerConfig";
 import { fromError } from "zod-validation-error";
 import { z, ZodError } from "zod";
 
@@ -143,185 +144,6 @@ export async function createValServer(
     },
     callbacks,
   );
-}
-
-async function initHandlerOptions(
-  route: string,
-  opts: ValApiOptions,
-  config: ValConfig,
-): Promise<ValServerConfig> {
-  const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
-  const maybeValSecret = opts.valSecret || process.env.VAL_SECRET;
-  const isProxyMode =
-    opts.mode === "proxy" ||
-    (opts.mode === undefined && (maybeApiKey || maybeValSecret));
-  const valEnableRedirectUrl =
-    opts.valEnableRedirectUrl || process.env.VAL_ENABLE_REDIRECT_URL;
-  const valDisableRedirectUrl =
-    opts.valDisableRedirectUrl || process.env.VAL_DISABLE_REDIRECT_URL;
-
-  const maybeValProject = opts.project || process.env.VAL_PROJECT;
-  const valBuildUrl =
-    opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://admin.val.build";
-  const valContentUrl =
-    opts.valContentUrl || process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
-  warnIfInsecureUrls({ valBuildUrl, valContentUrl });
-  if (isProxyMode) {
-    if (!maybeApiKey || !maybeValSecret) {
-      throw new Error(
-        "VAL_API_KEY and VAL_SECRET env vars must both be set in proxy mode",
-      );
-    }
-    const maybeGitCommit = opts.gitCommit || process.env.VAL_GIT_COMMIT;
-    if (!maybeGitCommit) {
-      throw new Error("VAL_GIT_COMMIT env var must be set in proxy mode");
-    }
-    const maybeGitBranch = opts.gitBranch || process.env.VAL_GIT_BRANCH;
-    if (!maybeGitBranch) {
-      throw new Error("VAL_GIT_BRANCH env var must be set in proxy mode");
-    }
-    if (!maybeValProject) {
-      throw new Error(
-        "Proxy mode does not work unless the 'project' option in val.config is defined or the VAL_PROJECT env var is set.",
-      );
-    }
-    const coreVersion = opts.versions?.core;
-    if (!coreVersion) {
-      throw new Error("Could not determine version of @valbuild/core");
-    }
-    const nextVersion = opts.versions?.next;
-    if (!nextVersion) {
-      throw new Error("Could not determine version of @valbuild/next");
-    }
-
-    return {
-      mode: "http",
-      route,
-      apiKey: maybeApiKey,
-      valSecret: maybeValSecret,
-      commit: maybeGitCommit,
-      branch: maybeGitBranch,
-      root: opts.root,
-      project: maybeValProject,
-      valEnableRedirectUrl,
-      valDisableRedirectUrl,
-      valContentUrl,
-      valBuildUrl,
-      config,
-    };
-  } else {
-    const cwd = process.cwd();
-    return {
-      mode: "fs",
-      cwd,
-      route,
-      valDisableRedirectUrl,
-      valEnableRedirectUrl,
-      valBuildUrl,
-      valContentUrl,
-      apiKey: maybeApiKey,
-      valSecret: maybeValSecret,
-      project: maybeValProject,
-      config,
-    };
-  }
-}
-
-/**
- * Hosts we send credentials to, and what each one puts at risk. They differ:
- * only `valBuildUrl` hands back the app token that becomes the session cookie,
- * so a single shared sentence would overstate one and understate the other.
- */
-type CredentialBearingUrl = "valBuildUrl" | "valContentUrl";
-const CREDENTIAL_BEARING_URLS: CredentialBearingUrl[] = [
-  "valBuildUrl",
-  "valContentUrl",
-];
-const WHAT_IS_AT_RISK: Record<CredentialBearingUrl, string> = {
-  valBuildUrl:
-    "Val's api key is sent to this host, and the token it returns is what this server signs into the session cookie, " +
-    "so both can be read - and the token replaced - by anyone on the network path.",
-  valContentUrl:
-    "Val's api key, or the caller's personal access token, is sent to this host, " +
-    "so it can be read by anyone on the network path.",
-};
-
-// NOTE: `URL.hostname` keeps the brackets on an IPv6 literal, so this is
-// "[::1]" and not "::1" - and `http://[0:0:0:0:0:0:0:1]` normalises to the
-// same short form before it gets here. Dropping the brackets looks like a
-// tidy-up and silently stops matching IPv6 loopback.
-const LOOPBACK_HOSTNAMES = ["localhost", "127.0.0.1", "[::1]"];
-
-/**
- * The URL as it is safe to print. `http://user:pass@host` is a legal override,
- * and a warning about credential exposure that puts the password in the log
- * would be the very thing it is warning about.
- */
-function forLog(parsed: URL): string {
-  if (!parsed.username && !parsed.password) {
-    return parsed.href;
-  }
-  const redacted = new URL(parsed.href);
-  redacted.username = "";
-  redacted.password = "";
-  return `${redacted.href} (credentials redacted)`;
-}
-
-/**
- * Returns a warning if `url` would send credentials somewhere they can be read
- * off the wire, or null if it is fine.
- *
- * Both URLs default to https, but each is overridable - `opts.valBuildUrl` /
- * `VAL_BUILD_URL`, `opts.valContentUrl` / `VAL_CONTENT_URL` - and neither
- * override has ever been scheme-checked. Point one at a plain http host and the
- * api key goes out in clear text, and whatever comes back is whatever the
- * network says: for `valBuildUrl` that includes the app token this server
- * re-signs into the session cookie.
- *
- * Loopback over http is exempt: that is a val.build running on the developer's
- * own machine, and there is no network to be on the wrong side of.
- *
- * This warns rather than throws. Both overrides are set by the operator, not by
- * an attacker, so this is a misconfiguration to surface - not untrusted input to
- * reject - and refusing to boot would break anyone deliberately pointing at an
- * internal http host today.
- */
-export function insecureUrlWarning(
-  name: CredentialBearingUrl,
-  url: string,
-): string | null {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    // NOTE: the URL is not echoed here. It did not parse, so there is nothing
-    // to redact with, and an unparseable string can still hold a password.
-    return `Val: ${name} is not a valid URL.`;
-  }
-  if (parsed.protocol === "https:") {
-    return null;
-  }
-  if (
-    parsed.protocol === "http:" &&
-    (LOOPBACK_HOSTNAMES.includes(parsed.hostname) ||
-      parsed.hostname.endsWith(".localhost"))
-  ) {
-    return null;
-  }
-  return (
-    `Val: ${name} is set to ${forLog(parsed)}, which is not https. ` +
-    `${WHAT_IS_AT_RISK[name]} ` +
-    `Use https, or a loopback address for local development.`
-  );
-}
-
-function warnIfInsecureUrls(urls: Record<CredentialBearingUrl, string>): void {
-  for (const name of CREDENTIAL_BEARING_URLS) {
-    const warning = insecureUrlWarning(name, urls[name]);
-    if (warning) {
-      console.warn(warning);
-    }
-  }
 }
 
 // TODO: remove

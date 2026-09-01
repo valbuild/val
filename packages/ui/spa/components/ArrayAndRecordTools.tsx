@@ -8,7 +8,7 @@ import {
 import * as React from "react";
 import { JSONValue } from "@valbuild/core/patch";
 import { Plus, Trash, Edit, Link } from "lucide-react";
-import { emptyOf } from "./fields/emptyOf";
+import { emptyOf } from "@valbuild/shared/internal";
 import { Button } from "./designSystem/button";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import {
