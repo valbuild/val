@@ -704,3 +704,251 @@ export const AskQuestionCancelled: Story = {
     ],
   },
 };
+
+// ---------------------------------------------------------------------------
+// 8. Tool calls — a row of their own, above the answer
+// ---------------------------------------------------------------------------
+
+const TOOL_RUN: ChatMessage["toolActivities"] = [
+  {
+    toolCallId: "tools-tc-1",
+    name: "get_current_context",
+    status: "complete",
+  },
+  { toolCallId: "tools-tc-2", name: "get_all_schema", status: "complete" },
+  { toolCallId: "tools-tc-3", name: "search_content", status: "complete" },
+  { toolCallId: "tools-tc-4", name: "get_source", status: "complete" },
+  { toolCallId: "tools-tc-5", name: "create_patch", status: "complete" },
+];
+
+/** The turn is over: the row collapses to a count, openable if you care. */
+export const ToolsCollapsed: Story = {
+  args: {
+    initialMessages: [
+      {
+        id: "tools-user-1",
+        role: "user",
+        content: "Change the hero title on the front page to something shorter",
+        status: "complete",
+      },
+      {
+        id: "tools-assistant-1",
+        role: "assistant",
+        content:
+          "Done — the hero title on `/content/frontpage.val.ts` is now " +
+          "**Build faster**, down from *Build your content faster than ever " +
+          "before*.\n\nThe change is a draft; publish it when you are happy " +
+          "with it.",
+        status: "complete",
+        toolActivities: TOOL_RUN,
+      },
+    ],
+  },
+};
+
+/** Mid-turn: the row names the tool in flight and shimmers while it runs. */
+export const ToolsRunning: Story = {
+  args: {
+    initialMessages: [
+      {
+        id: "running-user-1",
+        role: "user",
+        content: "Change the hero title on the front page to something shorter",
+        status: "complete",
+      },
+      {
+        id: "running-assistant-1",
+        role: "assistant",
+        content: "",
+        status: "streaming",
+        toolActivities: [
+          ...(TOOL_RUN ?? []).slice(0, 3),
+          {
+            toolCallId: "running-tc-4",
+            name: "get_source",
+            status: "pending",
+          },
+        ],
+      },
+    ],
+  },
+};
+
+/** Text has started arriving while a later tool call is still running. */
+export const ToolsRunningWithText: Story = {
+  args: {
+    initialMessages: [
+      {
+        id: "running-text-user-1",
+        role: "user",
+        content: "Fix the validation errors on the blog posts",
+        status: "complete",
+      },
+      {
+        id: "running-text-assistant-1",
+        role: "assistant",
+        content:
+          "I found three posts missing an `author`. Filling them in from the " +
+          "editor list now",
+        status: "streaming",
+        toolActivities: [
+          { toolCallId: "rt-tc-1", name: "search_content", status: "complete" },
+          { toolCallId: "rt-tc-2", name: "get_source", status: "complete" },
+          { toolCallId: "rt-tc-3", name: "create_patch", status: "pending" },
+        ],
+      },
+    ],
+  },
+};
+
+/** One call failed: the row says so without being opened. */
+export const ToolsWithError: Story = {
+  args: {
+    initialMessages: [
+      {
+        id: "tool-error-user-1",
+        role: "user",
+        content: "Add an author to every blog post",
+        status: "complete",
+      },
+      {
+        id: "tool-error-assistant-1",
+        role: "assistant",
+        content:
+          "I could not write the change: `/content/posts.val.ts` has no " +
+          "`author` field in its schema yet. Add one and I will fill it in.",
+        status: "complete",
+        toolActivities: [
+          { toolCallId: "te-tc-1", name: "get_all_schema", status: "complete" },
+          { toolCallId: "te-tc-2", name: "get_source", status: "complete" },
+          { toolCallId: "te-tc-3", name: "create_patch", status: "error" },
+        ],
+      },
+    ],
+  },
+};
+
+/** Several turns, each with its own tool row, as a session looks scrolled back. */
+export const ToolsAcrossTurns: Story = {
+  args: {
+    initialMessages: [
+      {
+        id: "across-1",
+        role: "user",
+        content: "What is on the front page right now?",
+        status: "complete",
+      },
+      {
+        id: "across-2",
+        role: "assistant",
+        content:
+          "The front page has a hero, a three-column feature grid and a " +
+          "newsletter sign-up.",
+        status: "complete",
+        toolActivities: [
+          { toolCallId: "a-tc-1", name: "get_all_schema", status: "complete" },
+          { toolCallId: "a-tc-2", name: "get_source", status: "complete" },
+        ],
+      },
+      {
+        id: "across-3",
+        role: "user",
+        content: "Shorten the hero title",
+        status: "complete",
+      },
+      {
+        id: "across-4",
+        role: "assistant",
+        content: "Done — it now reads **Build faster**.",
+        status: "complete",
+        toolActivities: TOOL_RUN,
+      },
+    ],
+  },
+};
+
+/**
+ * A turn driven the way the real session drives it: tool calls arrive one at a
+ * time, then the answer streams in under them.
+ */
+function ToolStreamDemo() {
+  const chatRef = useRef<AIChatHandle>(null);
+
+  useEffect(() => {
+    const chat = chatRef.current;
+    if (!chat) return;
+    const messageId = "tool-stream-msg";
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const calls = [
+      "get_current_context",
+      "get_all_schema",
+      "search_content",
+      "get_source",
+      "create_patch",
+    ];
+    chat.startAssistantMessage(messageId);
+    calls.forEach((name, i) => {
+      const toolCallId = `stream-tc-${i}`;
+      timers.push(
+        setTimeout(() => {
+          chat.addToolCall(messageId, toolCallId, name);
+        }, i * 1200),
+      );
+      timers.push(
+        setTimeout(
+          () => {
+            chat.completeToolCall(messageId, toolCallId);
+          },
+          i * 1200 + 1100,
+        ),
+      );
+    });
+    const answer = [
+      "Done — the hero title is now ",
+      "**Build faster**",
+      ", down from the previous six-word version.",
+    ];
+    const afterTools = calls.length * 1200;
+    answer.forEach((chunk, i) => {
+      timers.push(
+        setTimeout(
+          () => {
+            chat.appendAssistantChunk(messageId, chunk);
+          },
+          afterTools + i * 500,
+        ),
+      );
+    });
+    timers.push(
+      setTimeout(
+        () => {
+          chat.completeAssistantMessage(messageId);
+        },
+        afterTools + answer.length * 500,
+      ),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  return (
+    <AIChat
+      ref={chatRef}
+      isConnected={true}
+      authError={false}
+      mode="http"
+      initialMessages={[
+        {
+          id: "tool-stream-user",
+          role: "user",
+          content:
+            "Change the hero title on the front page to something shorter",
+          status: "complete",
+        },
+      ]}
+    />
+  );
+}
+
+export const ToolsStreaming: Story = {
+  render: () => <ToolStreamDemo />,
+};
