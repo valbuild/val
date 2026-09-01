@@ -36,6 +36,15 @@ The `/public` URL rule and the `appliedAt` gate — see [media.md](./media.md). 
 short version: an uncommitted `/public` path returns **200** in `next dev` (the
 app's HTML), so only decoding an image tells you whether it really loaded.
 
+**`canvas.toBlob` answers a type it cannot encode with a PNG, not with null.**
+Measured in Chromium: `toBlob(cb, "image/bogus")` on a 1200x800 canvas hands
+back 2,622,403 bytes typed `image/png`. So "the callback got a blob" is not the
+same question as "the blob is what I asked for", and a browser without WebP
+encoding would have `s.image({encode})` upload a PNG named `.webp` — which the
+server then rejects at publish time with "Mime type does not match image type",
+a long way from the line that caused it. `chooseEncoded` in `encodeImage.ts`
+reads `blob.type` for exactly this reason.
+
 **Media is recognised from the schema, never from the value.** It is a plain
 object with a `path`, so a value that looks like media is not media — and a plain
 `s.object({path: s.string()})` must not be treated as it. Anywhere you find
@@ -81,8 +90,9 @@ what is already there. If you nest one, make it idempotent.
 stay masked.** `StringField`'s textarea worked for years while being
 uncontrolled, because the thing that decided it should BE a textarea arrived from
 the host a tick after the effect that fills `currentValue` — so by the time it
-mounted, the value was there. Making the layout synchronous (it is static schema
-config now, not something the host computes) removed that ordering, and the
+mounted, the value was there. Making the layout synchronous (it is `.multiline()`
+on the serialized schema now, not something the host computes) removed that
+ordering, and the
 textarea started mounting at `null`. `.value` still looked right, because a
 textarea's value follows `defaultValue` while it is untouched — but
 `AutoGrowingTextarea` seeds its invisible sizing ghost from props exactly once,

@@ -211,7 +211,7 @@ export function MediaPanel({
                       className={cn(
                         "ml-1 shrink-0 rounded px-1.5 h-6 text-[0.6875rem] text-fg-secondary",
                         "hover:bg-bg-float-raised hover:text-fg-primary",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
                         // Revealed on hover, because a row of always-on buttons
                         // reads as a wall of controls — but shown outright where
                         // there is no hover to reveal it with, and whenever it

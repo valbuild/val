@@ -14,6 +14,7 @@ import { Button } from "./designSystem/button";
 import { cn } from "./designSystem/cn";
 import {
   Send,
+  Square,
   RotateCcw,
   Sparkles,
   Loader2,
@@ -45,9 +46,9 @@ import {
 import type { AISession } from "../hooks/useAIWebSocket";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
 import { ToolName } from "../utils/toolNames";
+import { safeHref } from "../utils/safeHref";
 import { useValConfig } from "./ValFieldProvider";
 import { useValPortal } from "./ValPortalProvider";
-import { DEFAULT_APP_HOST } from "@valbuild/core";
 import { urlOf } from "@valbuild/shared/internal";
 import { CopyableCodeBlock } from "./designSystem/CopyableCodeBlock";
 import { AIChatEditor } from "./AIChatEditor";
@@ -120,6 +121,15 @@ export type ChatMessage = {
   status: ChatMessageStatus;
   error?: string;
   errorCode?: string;
+  /**
+   * Something to offer the user about this error, decided by the server.
+   *
+   * Here rather than derived from `errorCode` because only the server knows
+   * where to send them: the admin URL depends on the org and project, which the
+   * Studio does not assemble. It replaced a hardcoded "add a data pack" link
+   * keyed off a code the server no longer sends.
+   */
+  errorAction?: { label: string; url: string };
   toolActivities?: ToolActivity[];
   attachments?: ChatMessageAttachment[];
   /**
@@ -151,7 +161,12 @@ export type AIChatHandle = {
   /** Mark the assistant message as complete */
   completeAssistantMessage: (id: string) => void;
   /** Mark the assistant message as errored */
-  errorAssistantMessage: (id: string, error: string, code?: string) => void;
+  errorAssistantMessage: (
+    id: string,
+    error: string,
+    code?: string,
+    action?: { label: string; url: string },
+  ) => void;
   /** Add a tool call indicator to the current assistant message */
   addToolCall: (
     messageId: string,
@@ -170,6 +185,12 @@ export type AIChatHandle = {
 };
 
 export type AIChatProps = {
+  /**
+   * Stop the running turn. When given, the send button becomes a stop button
+   * while the assistant is streaming — the same control, because the two are
+   * never both available and one of them is always the thing you want.
+   */
+  onCancel?: () => void;
   /** Called when the user submits a message (via input or suggestion chip). Returns true if sent successfully. */
   onSendMessage?: (
     content: string | ChatDocument,
@@ -523,6 +544,7 @@ function getImageUrls(content: AIMessageContent): string[] {
 
 export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   {
+    onCancel,
     onSendMessage,
     onUploadFile,
     onNewSession,
@@ -735,11 +757,17 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         status: "complete",
       }));
     },
-    errorAssistantMessage(id: string, error: string, code?: string) {
+    errorAssistantMessage(
+      id: string,
+      error: string,
+      code?: string,
+      action?: { label: string; url: string },
+    ) {
       retireCurrentMessage(id, (message) => ({
         ...message,
         status: "error",
         error,
+        errorAction: action,
         errorCode: code,
       }));
     },
@@ -1034,7 +1062,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                   onFetchSessions();
                   setShowSessions(true);
                 }}
-                className="text-xs gap-1"
+                className="text-xs touch:text-sm gap-1"
               >
                 <History className="h-3 w-3" />
                 History
@@ -1048,7 +1076,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                 size="sm"
                 onClick={onNewSession}
                 disabled={isStreaming}
-                className="text-xs gap-1"
+                className="text-xs touch:text-sm gap-1"
               >
                 <Plus className="h-3 w-3" />
                 New chat
@@ -1082,7 +1110,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                   onNewSession();
                   setShowSessions(false);
                 }}
-                className="text-xs gap-1"
+                className="text-xs touch:text-sm gap-1"
               >
                 <Plus className="h-3 w-3" />
                 New chat
@@ -1113,7 +1141,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                       {isRenaming ? (
                         <input
                           autoFocus
-                          className="flex-1 text-sm bg-bg-primary border border-border-primary rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
+                          className="flex-1 text-sm bg-bg-primary border border-border-primary rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-border-focus"
                           value={renameValue}
                           onChange={(e) => setRenameValue(e.target.value)}
                           onKeyDown={(e) => {
@@ -1216,7 +1244,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         ) : (
           <>
             {!isConnected && !authError && (
-              <div className="mb-2 flex items-center justify-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1.5 text-xs text-fg-secondary">
+              <div className="mb-2 flex items-center justify-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1.5 text-xs touch:text-sm text-fg-secondary">
                 <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse" />
                 Connecting…
               </div>
@@ -1227,7 +1255,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                 {attachedFiles.map((f) => (
                   <div
                     key={f.id}
-                    className="relative flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1 text-xs text-fg-primary"
+                    className="relative flex items-center gap-1.5 rounded-md border border-border-primary bg-bg-secondary px-2 py-1 text-xs touch:text-sm text-fg-primary"
                   >
                     {f.previewUrl ? (
                       <img
@@ -1272,7 +1300,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             <div
               className={cn(
                 "flex flex-col rounded-md border border-border-primary bg-bg-primary",
-                "focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
+                "focus-within:outline-none focus-within:ring-2 focus-within:ring-border-focus",
               )}
             >
               <AIChatEditor
@@ -1311,23 +1339,36 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                     <Paperclip className="h-4 w-4" />
                   </Button>
                 )}
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={
-                    !isConnected ||
-                    isStreaming ||
-                    isUploading ||
-                    hasPendingInlineImage ||
-                    authError ||
-                    isEditorEmpty
-                  }
-                  onClick={() => handleSend()}
-                  aria-label="Send message"
-                  className="ml-auto"
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
+                {isStreaming && onCancel ? (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={onCancel}
+                    aria-label="Stop generating"
+                    title="Stop generating"
+                    className="ml-auto"
+                  >
+                    <Square className="h-3.5 w-3.5 fill-current" />
+                  </Button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    disabled={
+                      !isConnected ||
+                      isStreaming ||
+                      isUploading ||
+                      hasPendingInlineImage ||
+                      authError ||
+                      isEditorEmpty
+                    }
+                    onClick={() => handleSend()}
+                    aria-label="Send message"
+                    className="ml-auto"
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                )}
               </div>
             </div>
           </>
@@ -1473,11 +1514,6 @@ function MessageBubble({
   ) => void;
   onCancelToolQuestion: (toolCallId: string) => void;
 }) {
-  const config = useValConfig();
-  const appHostUrl = config?.appHost || DEFAULT_APP_HOST;
-  const project = config?.project;
-  const org = project?.split("/")[0];
-
   const isUser = message.role === "user";
   const isError = message.status === "error";
   const isStreamingMsg = message.status === "streaming";
@@ -1493,7 +1529,7 @@ function MessageBubble({
     >
       <div
         className={cn(
-          "min-w-0 overflow-hidden rounded-lg px-4 py-2.5 text-sm leading-relaxed",
+          "min-w-0 overflow-hidden rounded-lg px-4 py-2.5 text-sm touch:text-base leading-relaxed",
           "[overflow-wrap:anywhere]",
           isUser
             ? "bg-bg-secondary text-fg-primary max-w-[80%]"
@@ -1590,18 +1626,14 @@ function MessageBubble({
               <p className="text-xs text-fg-error-primary">
                 {message.error ?? "Something went wrong"}
               </p>
-              {message.errorCode === "token_limit_reached" && (
+              {message.errorAction && safeHref(message.errorAction.url) && (
                 <a
-                  href={
-                    org
-                      ? `${appHostUrl}/manage-subscription/${org}`
-                      : appHostUrl
-                  }
+                  href={safeHref(message.errorAction.url)}
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noreferrer noopener"
                   className="text-xs text-fg-brand-primary underline"
                 >
-                  Add a data pack to continue using AI
+                  {message.errorAction.label}
                 </a>
               )}
             </div>

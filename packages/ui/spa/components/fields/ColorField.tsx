@@ -118,7 +118,7 @@ export function ColorFieldPure({
         <div
           className={cn(
             "relative shrink-0 w-10 h-10 rounded-md overflow-hidden border border-border-primary",
-            "focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background",
+            "focus-within:ring-2 focus-within:ring-border-focus",
             readonly && "opacity-50",
           )}
           style={CHECKERBOARD}
@@ -191,7 +191,7 @@ export function ColorFieldPure({
           <span className="w-10 shrink-0">Alpha</span>
           <input
             type="range"
-            className="flex-1 accent-fg-brand-primary"
+            className="flex-1 accent-fg-brand-primary rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
             min={0}
             max={100}
             step={1}

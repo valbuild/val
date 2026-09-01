@@ -201,7 +201,7 @@ function FieldRow({
           onChange={(event) => onChange(event.target.value)}
           rows={3}
           aria-label={field.label}
-          className="w-full resize-none rounded-md border border-border-float bg-bg-surface px-2 py-1.5 text-xs leading-relaxed focus:border-border-brand-primary focus:outline-none"
+          className="w-full resize-none rounded-md border border-border-float bg-bg-surface px-2 py-1.5 text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
         />
       ) : (
         <input
@@ -209,7 +209,7 @@ function FieldRow({
           onChange={(event) => onChange(event.target.value)}
           aria-label={field.label}
           className={cn(
-            "h-8 w-full rounded-md border border-border-float bg-bg-surface px-2 text-xs focus:border-border-brand-primary focus:outline-none",
+            "h-8 w-full rounded-md border border-border-float bg-bg-surface px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
             field.type === "link" && "font-mono",
           )}
         />

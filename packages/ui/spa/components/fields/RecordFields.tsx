@@ -1,4 +1,9 @@
-import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
+import {
+  Internal,
+  ModuleFilePath,
+  SourcePath,
+  isInlineRender,
+} from "@valbuild/core";
 import { useMemo } from "react";
 import {
   usePreviewAtPath,
@@ -95,7 +100,7 @@ export function RecordFields({
   // `.render({ as: "inline" })` — the record counterpart of the inline rows in
   // `SortableList`. Records are unordered, so there is nothing to sort; the key
   // is the row's label.
-  if (inline || schema.item.render?.as === "inline") {
+  if (inline || isInlineRender(schema.item)) {
     const sourceEntries = source as Record<string, SourcePath> | null;
     if (sourceEntries === null) {
       return null;

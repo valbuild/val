@@ -4,6 +4,7 @@ import {
   SerializedSchema,
   Internal,
   Source,
+  isInlineRender,
 } from "@valbuild/core";
 import { resolvePatchPath } from "../resolvePatchPath";
 
@@ -15,13 +16,18 @@ import { resolvePatchPath } from "../resolvePatchPath";
  * parent's list, so it is not a place navigation can stop — we keep walking up
  * to the nearest ancestor that is shown as its own page. (Strings in arrays
  * used to be inlined implicitly; inlining is now opt-in via `render`.)
+ *
+ * `isInlineRender` rather than a read of `schema.render`, so that this agrees
+ * with what the list actually drew — a tagged union is inline when its
+ * VARIANTS declare it, and a nav stop the list has no row to navigate from is
+ * a click that lands nowhere.
  */
 function isSchemaNavStop(
   schema: SerializedSchema,
   parentSchema: SerializedSchema | null,
 ): boolean {
   if (parentSchema?.type === "array" || parentSchema?.type === "record") {
-    return schema.render?.as !== "inline";
+    return !isInlineRender(schema);
   }
   return false;
 }

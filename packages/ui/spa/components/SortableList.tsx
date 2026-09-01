@@ -19,9 +19,8 @@ import { useSortable } from "@dnd-kit/sortable";
 import { DragEndEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { Copy, EllipsisVertical, GripVertical, Trash2 } from "lucide-react";
-import { SourcePath, SerializedArraySchema } from "@valbuild/core";
+import { SourcePath } from "@valbuild/core";
 import { RefPreview } from "./RefPreview";
-import { InlineAnyField } from "./InlineAnyField";
 import { isParentError } from "../utils/isParentError";
 import { ErrorIndicator } from "./ErrorIndicator";
 import { useAllValidationErrors } from "./ValErrorProvider";
@@ -32,7 +31,6 @@ import {
   PopoverTrigger,
 } from "./designSystem/popover";
 import { cn } from "./designSystem/cn";
-import { FieldValidationError } from "./FieldValidationError";
 
 export function SortableContainer({
   source,
@@ -162,9 +160,16 @@ export function SortableContainer({
   );
 }
 
+/**
+ * A list of rows you click through to, each showing its item's preview.
+ *
+ * The other kind of list is `BlockList`, which edits its items in place;
+ * `ArrayFields` picks between the two on the item schema (`isInlineRender`).
+ * This one is now only ever the preview-row half of that choice, so it takes no
+ * schema: a row resolves its own preview through `RefPreview`.
+ */
 export function SortableList({
   source,
-  schema,
   disabled,
   onClick,
   onMove,
@@ -174,15 +179,11 @@ export function SortableList({
   source: SourcePath[];
   path: SourcePath;
   disabled?: boolean;
-  schema: SerializedArraySchema;
   onMove: (from: number, to: number) => void;
   onClick: (path: SourcePath) => void;
   onDelete: (item: number) => void;
   onDuplicate: (item: number) => void;
 }) {
-  // No per-row preview data here: whether a row is a preview card or an inline
-  // editor is decided by the ITEM schema (`.render({ as: "inline" })`), and a
-  // preview card resolves its own preview via `RefPreview`.
   return (
     <SortableContainer
       source={source}
@@ -191,7 +192,6 @@ export function SortableList({
       renderItem={({ path, id }) => (
         <SortableItemRow
           id={id}
-          schema={schema}
           disabled={disabled}
           path={path}
           onClick={onClick}
@@ -218,7 +218,6 @@ export const LIST_ITEM_MAX_HEIGHT = 170;
 export function SortableItemRow({
   id,
   path,
-  schema,
   disabled,
   onClick,
   onDelete,
@@ -226,7 +225,6 @@ export function SortableItemRow({
 }: {
   id: number;
   path: SourcePath;
-  schema: SerializedArraySchema;
   disabled?: boolean;
   onClick: (path: SourcePath) => void;
   onDelete: (item: number) => void;
@@ -248,7 +246,6 @@ export function SortableItemRow({
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: id, disabled: disabled === true });
   const validationErrors = useAllValidationErrors() || {};
-  const isInline = schema?.item?.render?.as === "inline";
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -267,74 +264,48 @@ export function SortableItemRow({
       <button
         {...attributes}
         {...listeners}
-        className={cn("pb-1 pr-2", {
-          "opacity-30": disabled,
-          "mt-2.5": !centerGripAndDeleteIcons,
-        })}
+        className={cn(
+          "pb-1 pr-2 rounded-sm text-fg-secondary hover:text-fg-primary",
+          // Keyboard reordering STARTS here — dnd-kit gives the handle
+          // `tabIndex=0` — so it needs the same focus ring as every other
+          // control, not the browser default.
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+          {
+            "opacity-30": disabled,
+            "mt-2.5": !centerGripAndDeleteIcons,
+          },
+        )}
         disabled={disabled}
         onClick={() => {
-          // An inline row is edited in place — there is no page to go to.
-          if (!isInline) {
-            onClick(path);
-          }
+          onClick(path);
         }}
       >
         <GripVertical />
       </button>
-      {/** Changing this behavior means we need to change the getNavPath behavior.
-       * Inlining is opt-in per item schema (`.render({ as: "inline" })`) and wins
-       * over a `.preview(...)` on the array: the explicit item-level declaration
-       * is the more specific of the two. */}
-      {isInline && (
-        <div
-          className={cn("flex-grow w-full", {
-            "p-2 border border-bg-warning-secondary rounded-lg":
-              !!validationErrors[path],
-          })}
-        >
-          <InlineAnyField
-            path={path}
-            schema={schema.item}
-            readonly={disabled === true}
-            /* This row shows the item's errors itself, just below. Without
-               this the field shows them too whenever no `Field` wrapper above
-               has claimed them — which is every list at a module root — and
-               the same message appears twice. */
-            errorDisplay="none"
-          />
-          {validationErrors[path] && (
-            <div className="px-2">
-              <FieldValidationError validationErrors={validationErrors[path]} />
-            </div>
-          )}
-        </div>
-      )}
-      {!isInline && (
-        <button
-          className={cn(
-            "flex-grow",
-            "relative flex text-left border rounded-lg border-border bg-card gap-y-2 bg-bg-primary",
-            "hover:bg-bg-secondary-hover",
-            "overflow-y-clip",
-          )}
-          style={{
-            maxHeight: LIST_ITEM_MAX_HEIGHT,
-          }}
-          ref={ref}
-          disabled={disabled}
-          onClick={() => {
-            onClick(path);
-          }}
-        >
-          <RefPreview path={path} className="flex-grow w-full" />
-          {isTruncated && (
-            <div
-              className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-card/90 to-card"
-              style={{ height: 40 }}
-            ></div>
-          )}
-        </button>
-      )}
+      <button
+        className={cn(
+          "flex-grow",
+          "relative flex text-left border rounded-lg border-border bg-card gap-y-2 bg-bg-primary",
+          "hover:bg-bg-secondary-hover",
+          "overflow-y-clip",
+        )}
+        style={{
+          maxHeight: LIST_ITEM_MAX_HEIGHT,
+        }}
+        ref={ref}
+        disabled={disabled}
+        onClick={() => {
+          onClick(path);
+        }}
+      >
+        <RefPreview path={path} className="flex-grow w-full" />
+        {isTruncated && (
+          <div
+            className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-card/90 to-card"
+            style={{ height: 40 }}
+          ></div>
+        )}
+      </button>
       {isParentError(path, validationErrors) && (
         <div
           className={cn("absolute right-3", {

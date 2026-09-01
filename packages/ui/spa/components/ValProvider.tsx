@@ -14,6 +14,7 @@ import React, {
 import {
   hasRemoteFileSchema,
   ImageMetadata,
+  Internal,
   Json,
   ModuleFilePath,
   ModulePath,
@@ -23,7 +24,7 @@ import {
   ValConfig,
   ValModules,
 } from "@valbuild/core";
-import { Patch } from "@valbuild/core/patch";
+import { deepEqual, Patch, ReadonlyJSONValue } from "@valbuild/core/patch";
 import {
   ParentRef,
   SharedValConfig,
@@ -63,6 +64,7 @@ import {
   useAIWebSocket,
   type AIMessageHandler,
   type AIClientMessage,
+  type AIModel,
   type AISession,
   AITool,
 } from "../hooks/useAIWebSocket";
@@ -190,6 +192,8 @@ type ValContextValue = {
     },
   ) => Promise<AIMessagesResponse>;
   aiSetSessionName: (sessionId: string, name: string) => Promise<void>;
+  /** The model to use, or null when no key makes any model reachable. */
+  availableAiModel: AIModel | null;
   aiSessionImagesToPatchFile: (args: {
     patchId: PatchId;
     parentRef: ParentRef;
@@ -245,10 +249,19 @@ export function ValProvider({
   ] = useStatus(client);
 
   const isStatConnected = "data" in stat && !!stat.data;
+  /**
+   * Whether to open the AI socket.
+   *
+   * Two things need it now, not one. Commit summaries moved onto this socket, so
+   * gating it on experimental chat alone would have silently taken AI summaries
+   * away from every project that had them without opting into the chat — the
+   * chat flag is about the panel, not about whether AI exists.
+   */
   const wsEnabled =
     isStatConnected &&
     ("data" in stat && stat.data
-      ? stat.data.config?.ai?.chat?.experimental?.enable === true
+      ? stat.data.config?.ai?.chat?.experimental?.enable === true ||
+        stat.data.config?.ai?.commitMessages?.disabled !== true
       : false);
   const {
     subscribeToMessages: subscribeToWsMessages,
@@ -257,6 +270,7 @@ export function ValProvider({
     authError: aiAuthError,
     connectionError: aiConnectionError,
     retryConnection: retryAiConnection,
+    availableModel: availableAiModel,
   } = useAIWebSocket(wsEnabled, client);
 
   const aiGetSessions = useCallback(
@@ -720,6 +734,7 @@ export function ValProvider({
         aiGetSessions,
         aiGetSessionMessages,
         aiSetSessionName,
+        availableAiModel,
         aiSessionImagesToPatchFile,
       }}
     >
@@ -1079,6 +1094,18 @@ export function useAIContext() {
   };
 }
 
+/**
+ * The model AI calls should ask for, or null when there is none.
+ *
+ * Null is the ordinary state for a project with no AI key configured: with
+ * bring-your-own-key there is no fallback, so the callers treat it as "AI is
+ * off" rather than as an error.
+ */
+export function useAvailableAIModel(): AIModel | null {
+  const { availableAiModel } = useContext(ValContext);
+  return availableAiModel;
+}
+
 export function useDeployments() {
   const { deployments, dismissDeployment, observedCommitShas } =
     useContext(ValContext);
@@ -1266,6 +1293,141 @@ export function useDeployingCommitShas(): string[] {
     }
     return shas;
   }, [val, chainVersion]);
+}
+
+/**
+ * Of these paths, the ones whose value is the same as the server's.
+ *
+ * A change that has been undone by a later change is still a change: the
+ * patches are real, they are in the chain, and they will be committed. But
+ * there is nothing to SHOW for them, and a compare view listing "hero.title"
+ * with the same text on both sides is describing work that will not happen.
+ *
+ * Answered by walking `sources` and `baseSources` to the same path, which is
+ * what makes the two sides comparable at all — see `useServerSourceAtPath`.
+ *
+ * Read out of the store rather than subscribed to per path: the caller is a
+ * whole-list view that already re-renders when source moves, and one
+ * subscription per row would be one wake per row for a single keystroke. This
+ * is the same rule `useShallowModulesAtPaths` follows, and the reason neither
+ * may be called from a field.
+ */
+export function useNoOpSourcePaths(
+  paths: SourcePath[],
+): ReadonlySet<SourcePath> {
+  const val = useValSystem();
+  const sourcesVersion = useSourcesVersion();
+  /*
+   * `sourcesVersion` alone is not enough. A publish moves `baseSources` through
+   * `promoteToBase` / `promotePublished`, and neither bumps a revision — on
+   * purpose, since the DISPLAYED value does not move. So the chain is watched
+   * too: it is what actually changes when a publish or a discard lands.
+   */
+  const chainVersion = useChainVersion();
+  return useMemo(() => {
+    const equal = new Set<SourcePath>();
+    if (val === null) return equal;
+    void sourcesVersion;
+    void chainVersion;
+    const store = val.system.sourceStore;
+    for (const path of paths) {
+      const after = store.peek(path);
+      const before = store.peekBase(path);
+      // Only a settled pair can be compared. Anything still loading is not
+      // "unchanged", it is unknown, and calling it unchanged would hide a real
+      // change behind a slow read.
+      if (after.status !== "ready" || before.status !== "ready") continue;
+      if (
+        deepEqual(
+          after.data as ReadonlyJSONValue,
+          before.data as ReadonlyJSONValue,
+        )
+      ) {
+        equal.add(path);
+      }
+    }
+    return equal;
+  }, [val, sourcesVersion, chainVersion, paths]);
+}
+
+/**
+ * Whether publishing would change anything at all.
+ *
+ * False when every module carrying an unpublished patch already matches the
+ * server — the "edit it, then edit it back" case. The patches exist and can be
+ * discarded, but committing them would produce a commit with no diff in it, so
+ * Publish is disabled and the compare view says so rather than listing rows
+ * that claim a change and then show the same value twice.
+ *
+ * Deliberately module-level, not row-level: a module whose net effect is
+ * nothing has nothing to ship regardless of how the rows inside it group.
+ */
+export function useHasNetChanges(): boolean {
+  const val = useValSystem();
+  const sourcesVersion = useSourcesVersion();
+  const chainVersion = useChainVersion();
+  const committed = useCommittedPatches();
+
+  /*
+   * Read off the CHAIN, not off the patch sets.
+   *
+   * `usePatchSets` is grouped asynchronously in a worker and reports
+   * `not-asked` until the first result. Mapping that to "no modules" made this
+   * hook answer "nothing changes" during the window — which disables Publish
+   * and zeroes Review as though everything had been reverted, on a project
+   * where nothing has. `patchStore.allRecords()` already names each record's
+   * module and is synchronous, so there is no window.
+   */
+  const modules = useMemo((): ModuleFilePath[] => {
+    if (val === null) return [];
+    void chainVersion;
+    const seen = new Set<ModuleFilePath>();
+    for (const record of val.system.patchStore.allRecords()) {
+      // A patch that has shipped is history, not pending work: its two sides
+      // are equal BECAUSE it shipped, which is the opposite of a no-op.
+      if (committed.has(record.patchId)) continue;
+      seen.add(record.moduleFilePath);
+    }
+    return [...seen];
+  }, [val, chainVersion, committed]);
+
+  return useMemo(() => {
+    // As in the loop below: what is not known yet counts as a change. `false`
+    // would mean "nothing to publish", and it is not this hook's place to
+    // disable Publish because the system has not finished arriving.
+    if (val === null) return true;
+    /*
+     * Nothing uncommitted means nothing has been REVERTED — there is no
+     * pending work to cancel out. Answering `false` here labelled a chain of
+     * already-published records, which is what an `http` publish leaves
+     * behind, as "every change has been reverted, discard them" — about
+     * records that cannot be discarded.
+     */
+    if (modules.length === 0) return true;
+    void sourcesVersion;
+    void chainVersion;
+    const store = val.system.sourceStore;
+    for (const moduleFilePath of modules) {
+      const after = store.moduleSource(moduleFilePath);
+      // The module root as a source path — core's own conversion, rather than
+      // an assertion between two brands that do not overlap.
+      const before = store.peekBase(
+        Internal.joinModuleFilePathAndModulePath(
+          moduleFilePath,
+          "" as ModulePath,
+        ),
+      );
+      // Unknown counts AS a change: a module still loading must not be able to
+      // disable Publish, which would silently drop real work.
+      if (after === undefined || before.status !== "ready") return true;
+      if (
+        !deepEqual(after as ReadonlyJSONValue, before.data as ReadonlyJSONValue)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }, [val, sourcesVersion, chainVersion, modules]);
 }
 
 /**
@@ -1586,7 +1748,6 @@ type PublishSummaryState = z.infer<typeof PublishSummaryState>;
  */
 export function usePublishSummary() {
   const {
-    client,
     publishSummaryState,
     setPublishSummaryState,
     config: runtimeConfig,
@@ -1602,17 +1763,6 @@ export function usePublishSummary() {
     }
     return false;
   }, [patchErrors]);
-  const [canGenerate, setCanGenerate] = useState(false);
-  useEffect(() => {
-    if (
-      runtimeConfig?.ai?.commitMessages?.disabled === undefined ||
-      runtimeConfig.ai.commitMessages.disabled === false
-    ) {
-      setCanGenerate(true);
-    } else {
-      setCanGenerate(false);
-    }
-  }, [runtimeConfig]);
   useEffect(() => {
     if (publishSummaryState.type === "not-asked") {
       const storedSummaryState = getSummaryStateFromLocalStorage(
@@ -1628,57 +1778,6 @@ export function usePublishSummary() {
       }
     }
   }, [publishSummaryState, runtimeConfig, setPublishSummaryState]);
-  const generateSummary = useCallback(async (): Promise<
-    { type: "ai"; text: string } | { type: "error"; message: string }
-  > => {
-    if (globalServerSidePatchIds === null) {
-      return {
-        type: "error",
-        message: "Empty patch set",
-      };
-    }
-    if (
-      "isGenerating" in publishSummaryState &&
-      publishSummaryState.isGenerating
-    ) {
-      return {
-        type: "error",
-        message: "Already generating summary",
-      };
-    }
-    setPublishSummaryState((prev) => {
-      return {
-        ...prev,
-        isGenerating: true,
-      };
-    });
-    try {
-      const res = await client("/commit-summary", "GET", {
-        query: {
-          patch_id: globalServerSidePatchIds,
-        },
-      });
-      if (res.status === 200) {
-        if (res.json.commitSummary) {
-          return { type: "ai", text: res.json.commitSummary };
-        } else {
-          return {
-            type: "error",
-            message: "Commit summary could not be generated",
-          };
-        }
-      } else {
-        return { type: "error", message: res.json.message };
-      }
-    } finally {
-      setPublishSummaryState((prev) => {
-        return {
-          ...prev,
-          isGenerating: false,
-        };
-      });
-    }
-  }, [client, globalServerSidePatchIds, publishSummaryState]);
   const [isPublishing, setIsPublishing] = useState(false);
   const publish = useCallback(
     async (summary: string) => {
@@ -1795,8 +1894,13 @@ export function usePublishSummary() {
      */
     publishDisabled: isPublishing || hasPatchErrors === true,
     isPublishing,
-    generateSummary,
-    canGenerate,
+    /**
+     * Whether the project wants AI to write its commit messages.
+     *
+     * `ai.commitMessages.disabled` is an explicit opt-out, so absent config
+     * means enabled — same reading the removed REST path had.
+     */
+    aiEnabled: runtimeConfig?.ai?.commitMessages?.disabled !== true,
     summary: publishSummaryState,
     setSummary,
   };
@@ -1875,6 +1979,7 @@ export type ShallowSource = EnsureAllTypes<{
   date: string;
   dateTime: string;
   color: string;
+  code: string;
   file: {
     path: string;
     mimeType?: string;
@@ -1899,6 +2004,30 @@ export function useCurrentProfile() {
   if (mode === "fs") {
     const [firstProfile] = Object.values(profiles);
     return firstProfile ?? null;
+  }
+  return null;
+}
+
+/**
+ * Who the person at the keyboard is, as an author id.
+ *
+ * `profileId` and the `authorId` on a patch are the same keyspace — `/profiles`
+ * is keyed by `profile.profileId` — so this is what tells "your own change"
+ * apart from someone else's.
+ *
+ * Resolved exactly the way `useCurrentProfile` resolves the profile, including
+ * the `fs` fallback: there `profileId` is null (there is no session to have
+ * one) and the studio treats the single local profile as you. Kept beside it
+ * so the two cannot drift into disagreeing about who you are.
+ */
+export function useCurrentAuthorId(): string | null {
+  const { profileId, profiles, mode } = useContext(ValContext);
+  if (profileId) {
+    return profileId;
+  }
+  if (mode === "fs") {
+    const [firstAuthorId] = Object.keys(profiles);
+    return firstAuthorId ?? null;
   }
   return null;
 }
@@ -2573,6 +2702,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     type === "date" ||
     type === "dateTime" ||
     type === "color" ||
+    type === "code" ||
     type === "string" ||
     type === "literal"
   ) {

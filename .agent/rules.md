@@ -323,6 +323,27 @@ Defined in `packages/core/src/source/media.ts`, along with `mediaUrl`,
 `resolveMedia` and `fillFromGallery` — the one implementation each of "where are
 these bytes served from" and "what does the gallery know about this path".
 
+### Re-encoding uploads (`encode`)
+
+`s.image({ encode: { type: "webp" } })` and `s.images({ encode })` convert an
+upload to WebP in the browser before it is uploaded. **Off by default.**
+`quality` defaults to 0.8, `maxWidth`/`maxHeight` to 2560, and `encode: false`
+turns it off where a gallery turned it on.
+
+The implementation is `packages/ui/spa/utils/encodeImage.ts`, called from
+`readImageFromFile`. That is the only correct place for it: `createFilename`
+derives the extension from the data URL's mime type, so swapping the bytes
+before the hash makes the filename, `mimeType`, dimensions and remote validation
+hash all follow — and swapping them after makes every one of those describe a
+file that was never uploaded.
+
+Things that will bite: `accept` beats `encode` (validation checks the stored
+mimeType against `accept`); a bigger WebP loses to the original unless the image
+was downscaled; SVG/GIF/AVIF are never converted; and `blob.type` must be
+checked because `canvas.toBlob` silently falls back to PNG. `encode` is stripped
+in `getValidationBasis` so it cannot re-validate published remote refs. See
+[architecture/media.md](../architecture/media.md).
+
 ### Creating an Image Patch
 
 There are two distinct patch shapes depending on context:

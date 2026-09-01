@@ -120,10 +120,10 @@ export class SchemaStore {
  * Any node can carry the marker now that `preview` is declared on the ITEM
  * schema (a container reifies its rows from its item's closure), so the walk
  * checks every node and descends where there is somewhere to descend to. A
- * `render` is deliberately NOT a hit: `s.string().render({as:"textarea"})` is
- * static config that travels WITH the serialized schema and is read where the
- * field is drawn, so a module whose only such declaration is a layout must
- * never be sent to the host. See `core/src/render.ts`.
+ * `render` is deliberately NOT a hit, and neither is `s.string().multiline()`:
+ * both are static config that travels WITH the serialized schema and is read
+ * where the field is drawn, so a module whose only such declaration is a layout
+ * must never be sent to the host. See `core/src/render.ts`.
  *
  * `seen` guards a schema that refers to itself structurally, so this cannot
  * recurse forever — the same guard `collectReferences` and

@@ -1,8 +1,14 @@
+import type { SerializedSchema } from "./schema";
+
 /**
  * A RENDER is how the FIELD ITSELF is laid out in the editor, and it applies
- * only when you are looking at the field: `s.string().render({ as: "textarea"
- * })`, `.render({ as: "code", language })`, `.render({ as: "inline" })` on an
+ * only when you are looking at the field: `.render({ as: "inline" })` on an
  * array/record item.
+ *
+ * It is deliberately the ONE thing a render can say. What a string looks like
+ * when it holds more than a line is the schema's own business — `.multiline()`
+ * for a text box, `s.code({ language })` for a code editor — not a layout
+ * bolted onto `s.string()` from outside.
  *
  * A PREVIEW (`preview.ts`) is the other thing: how the VALUE is shown wherever
  * a preview of it is needed — a list row, a reference dropdown, a search hit —
@@ -25,35 +31,6 @@
  * conflating them is what this file was split up to undo.
  */
 /**
- * The list is the declaration and {@link CodeLanguage} is derived from it, so
- * that a validator elsewhere (`shared`'s zod schema) can enumerate the same
- * languages without a second copy that drifts. Same shape as `COLOR_FORMATS`.
- */
-export const CODE_LANGUAGES = [
-  "typescript",
-  "javascript",
-  "javascriptreact",
-  "typescriptreact",
-  "json",
-  "java",
-  "html",
-  "css",
-  "xml",
-  "markdown",
-  "sql",
-  "python",
-  "rust",
-  "php",
-  "go",
-  "cpp",
-  "sass",
-  "vue",
-  "angular",
-] as const;
-
-export type CodeLanguage = (typeof CODE_LANGUAGES)[number];
-
-/**
  * `{ as: "inline" }` on a field that is the ITEM of an array or record: the
  * container renders the field itself inside each (sortable) row, instead of a
  * clickable preview row that navigates to it. This is what a page-builder list
@@ -69,17 +46,41 @@ export type CodeLanguage = (typeof CODE_LANGUAGES)[number];
 export type InlineRender = { as: "inline" };
 
 /**
- * What `.render(...)` takes on every field except `s.string()`, and what the
- * serialized schema carries verbatim.
+ * What `.render(...)` takes on every field, and what the serialized schema
+ * carries verbatim.
  */
 export type FieldRender = InlineRender;
 
 /**
- * What `s.string().render(...)` takes, and what the serialized schema carries
- * verbatim. A string has editor layouts of its own (textarea, code) in
- * addition to the container-facing `inline`.
+ * Is this item schema edited INSIDE its list row, rather than behind a
+ * clickable preview row that navigates to it?
+ *
+ * The one answer, so that the list rows, the nav-stop rule (`getNavPath`) and
+ * the add buttons cannot drift apart — they are three readings of the same
+ * question, and a disagreement between them is a row you can edit in place but
+ * that "add" navigates away from.
+ *
+ * A tagged union counts as inline when the union itself declares it OR when
+ * ANY of its variants does. A page-builder list is `s.array(s.union("type",
+ * block, block, ...))` and the natural place to write the render is on the
+ * blocks, one per block type — the union is a dispatch, not something the
+ * author thinks of as the field. `some` rather than `every` because the row
+ * draws the union's own editor (the tag selector plus the matched variant's
+ * fields), which handles every variant either way: with `every`, adding one
+ * variant and forgetting its `.render` would silently turn the whole list back
+ * into preview rows.
+ *
+ * This is the ONLY place a render is allowed to be read from anywhere but the
+ * schema it was declared on. It stays static (see the top of this file): the
+ * answer is a function of the serialized schema alone, never of the value the
+ * row happens to hold.
  */
-export type StringRender =
-  | { as: "textarea" }
-  | { as: "code"; language: CodeLanguage }
-  | InlineRender;
+export function isInlineRender(schema: SerializedSchema): boolean {
+  if (schema.render?.as === "inline") {
+    return true;
+  }
+  if (schema.type === "union") {
+    return schema.items.some((item) => item.render?.as === "inline");
+  }
+  return false;
+}

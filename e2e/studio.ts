@@ -146,6 +146,61 @@ export const test = base.extend<{ cleanPatches: void }>({
   ],
 });
 
+/**
+ * Wait until the SERVER holds no patches.
+ *
+ * The counterpart to `discardAll`, and the one to reach for after it. `discardAll`
+ * already polls the client's chain to zero — it cannot return otherwise — so
+ * following it with `expect.poll(() => chainLength(page)).toBe(0)` asserts
+ * something that is true by construction at the moment it runs. The only way that
+ * follow-up can fail is if the chain goes back UP afterwards, and there is a
+ * designed reason it does:
+ *
+ * `/stat` in `fs` mode long polls on a watcher over `.val/patches`, so deleting
+ * the first patch of a chain can wake the poll while the rest are still being
+ * removed. The answer then names a patch the server can no longer serve, and
+ * `PatchStore` deliberately treats one empty fetch as inconclusive
+ * (`notDeliveredOnce`) — an announcement really can be older than a delete — and
+ * keeps the record until a later stat settles it. Nothing else writes to the
+ * directory by then, so that later stat is a no-change long poll returning after
+ * `statPollingInterval` (20s, `ValOpsFS.ts`), against an `expect` timeout that is
+ * also 20s. Which of the two 20s timers started first decides the test.
+ *
+ * So the client is right to hold the record, and the assertion was asking it the
+ * wrong question. "Did the discard actually remove them" is a fact about the
+ * SERVER, and asking the server is both what the next test depends on and immune
+ * to how long the client takes to agree.
+ */
+export async function expectNoPatchesOnServer(
+  request: APIRequestContext,
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        // `exclude_patch_ops=false` so a leftover can NAME itself. A bare count
+        // says "one patch survived the discard" and leaves you guessing which;
+        // the module and the ops say whether it is the write the test made or a
+        // second one the test never waited for.
+        const res = await request.get(
+          "/api/val/patches?exclude_patch_ops=false",
+        );
+        if (!res.ok())
+          return [`the server refused the request: ${res.status()}`];
+        const body = (await res.json()) as {
+          patches: { path?: string; patch?: { op?: string }[] }[];
+        };
+        return body.patches.map(
+          (entry) =>
+            `${entry.path ?? "?"} [${(entry.patch ?? [])
+              .map((op) => op.op ?? "?")
+              .join(",")}]`,
+        );
+      },
+      { message: "the discard left patches on the server" },
+    )
+    .toEqual([]);
+}
+
 /** How many patches the store currently holds, straight from the system. */
 export async function chainLength(page: Page): Promise<number> {
   return page.evaluate(() => {

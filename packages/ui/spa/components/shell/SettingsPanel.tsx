@@ -21,8 +21,6 @@ export type SettingsPanelProps = {
   accountError?: ShellAccountError;
   theme: "dark" | "light";
   onThemeChange: (theme: "dark" | "light") => void;
-  isDevMode: boolean;
-  onDevModeChange: (devMode: boolean) => void;
   /** How Val is running. Auto save is a dev-server setting; see `StatusBar`. */
   mode?: "fs" | "http" | "unknown";
   autoSave: boolean;
@@ -56,8 +54,6 @@ export function SettingsPanel({
   accountError,
   theme,
   onThemeChange,
-  isDevMode,
-  onDevModeChange,
   mode,
   autoSave,
   onAutoSaveChange,
@@ -133,12 +129,6 @@ export function SettingsPanel({
               onChange={onAutoSaveChange}
             />
           )}
-          <SettingsToggle
-            label="Dev mode"
-            description="Show source paths and schema details in the editor."
-            checked={isDevMode}
-            onChange={onDevModeChange}
-          />
           {branch && (
             <div className="flex items-baseline justify-between text-xs">
               <span className="text-fg-secondary">Branch</span>

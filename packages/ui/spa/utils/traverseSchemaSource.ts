@@ -111,6 +111,14 @@ export function traverseSchemaSource(
     return;
   }
 
+  // Handle code
+  if (schema.type === "code") {
+    if (typeof source === "string") {
+      callback({ source, schema, path });
+    }
+    return;
+  }
+
   // Handle keyOf
   if (schema.type === "keyOf") {
     if (typeof source === "string" || typeof source === "number") {

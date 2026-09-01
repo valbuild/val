@@ -4,7 +4,9 @@ import { Button } from "./designSystem/button";
 import {
   useAllPatchErrors,
   useAutoPublish,
+  useCommittedPatches,
   usePendingClientSidePatchIds,
+  useHasNetChanges,
   usePendingServerSidePatchIds,
   usePublishSummary,
   useValMode,
@@ -23,7 +25,7 @@ import {
 } from "./designSystem/popover";
 import { PopoverClose } from "@radix-ui/react-popover";
 import { PublishSummary } from "./PublishSummary";
-import { type ReactElement, useState } from "react";
+import { type ReactElement, useMemo, useState } from "react";
 import {
   Tooltip,
   TooltipContent,
@@ -77,15 +79,8 @@ export function PublishButton({
   compact?: boolean;
 }) {
   const [summaryOpen, setSummaryOpen] = useState(false);
-  const {
-    publish,
-    publishDisabled,
-    isPublishing,
-    summary,
-    generateSummary,
-    setSummary,
-    canGenerate,
-  } = usePublishSummary();
+  const { publish, publishDisabled, isPublishing, summary } =
+    usePublishSummary();
   const allValidationErrors = useAllValidationErrors();
   const validationErrorPaths = Object.keys(allValidationErrors ?? {});
   const { patchErrors } = useAllPatchErrors();
@@ -93,8 +88,25 @@ export function PublishButton({
     (count, errors) => count + Object.keys(errors || {}).length,
     0,
   );
-  const pendingServerSidePatchIds = usePendingServerSidePatchIds();
+  const savedPatchIds = usePendingServerSidePatchIds();
+  const committedPatchIds = useCommittedPatches();
+  /*
+   * On the server and not yet shipped.
+   *
+   * `usePendingServerSidePatchIds` is "everything the server has heard about",
+   * which keeps counting a patch after it has been committed. `useHasNetChanges`
+   * does not — it looks only at uncommitted work — so straight after an HTTP
+   * publish the two disagreed: a nonzero count with no net changes, which reads
+   * as `revertedToNothing` and told people to Discard changes that are in a
+   * commit and cannot be discarded. Same subtraction `ValShell` does for the
+   * discard count, so the button and the confirm are counting the same patches.
+   */
+  const pendingServerSidePatchIds = useMemo(
+    () => savedPatchIds.filter((patchId) => !committedPatchIds.has(patchId)),
+    [savedPatchIds, committedPatchIds],
+  );
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
+  const hasNetChanges = useHasNetChanges();
   const mode = useValMode();
   const portalContainer = useValPortal();
   const { autoPublish } = useAutoPublish();
@@ -109,6 +121,7 @@ export function PublishButton({
     autoPublish,
     pendingServerSidePatchCount: pendingServerSidePatchIds.length,
     pendingClientSidePatchCount: pendingClientSidePatchIds.length,
+    netChangesEmpty: !hasNetChanges,
   });
   const saving = mode === "fs";
   /*
@@ -209,23 +222,9 @@ export function PublishButton({
       className={buttonClassName}
       aria-label={compact ? state.description : undefined}
       onClick={() => {
+        // Generation starts when the popover mounts, which is this same press —
+        // it lives with the summary it fills in, not with the button.
         setSummaryOpen(true);
-        // Always generate a new summary when opening
-        if (canGenerate) {
-          const timeoutPromise = new Promise<{ type: "timeout" }>((resolve) =>
-            setTimeout(() => resolve({ type: "timeout" }), 20000),
-          );
-
-          Promise.race([generateSummary(), timeoutPromise]).then((result) => {
-            if (result.type === "timeout") {
-              console.warn("Val: Summary generation timed out after 20s");
-            } else if (result.type === "ai") {
-              setSummary({ type: "ai", text: result.text.trim() });
-            } else if (result.type === "error") {
-              console.warn("Val: Summary generation failed:", result.message);
-            }
-          });
-        }
       }}
     >
       {face}

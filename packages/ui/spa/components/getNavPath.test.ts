@@ -27,6 +27,19 @@ const module = c.define(
     recordOfInlineObjects: s.record(
       s.object({ title: s.string() }).render({ as: "inline" }),
     ),
+    // A page builder: the render is on the BLOCKS, and the union between them
+    // carries none of its own. See `isInlineRender`.
+    blocks: s.array(
+      s.union(
+        "type",
+        s
+          .object({ type: s.literal("text"), text: s.string() })
+          .render({ as: "inline" }),
+        s
+          .object({ type: s.literal("code"), code: s.string() })
+          .render({ as: "inline" }),
+      ),
+    ),
     objectOfRecord: s.object({
       recordA: s.record(
         s.object({
@@ -49,6 +62,10 @@ const module = c.define(
   {
     arrayOfStrings: ["a", "b", "c"],
     arrayOfInlineStrings: ["a", "b"],
+    blocks: [
+      { type: "text", text: "a paragraph" },
+      { type: "code", code: "1 + 1" },
+    ],
     arrayOfInlineObjects: [
       { title: "a", sections: [{ heading: "h1" }, { heading: "h2" }] },
     ],
@@ -117,6 +134,19 @@ describe("getNavPath", () => {
         '/app/test.val.ts?p="arrayOfInlineObjects".0."sections".0."heading"',
         module,
       ),
+    ).toStrictEqual("/app/test.val.ts");
+  });
+
+  test("array of inline union variants", () => {
+    // The union itself declares no render — its variants do, which is how a
+    // page-builder list is written. Read off the item schema alone the answer
+    // was "not inline", so every block was a nav stop and the list drew rows
+    // you clicked through to.
+    expect(testNavPath('/app/test.val.ts?p="blocks".0', module)).toStrictEqual(
+      "/app/test.val.ts",
+    );
+    expect(
+      testNavPath('/app/test.val.ts?p="blocks".1."code"', module),
     ).toStrictEqual("/app/test.val.ts");
   });
 

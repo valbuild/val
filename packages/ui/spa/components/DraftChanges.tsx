@@ -445,7 +445,7 @@ export function TransientErrorsList({
         <button
           type="button"
           aria-label={`${count} transient error${count > 1 ? "s" : ""}`}
-          className="relative mr-auto inline-flex items-center justify-center rounded-md p-2 text-fg-secondary transition-colors hover:bg-bg-secondary hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="relative mr-auto inline-flex items-center justify-center rounded-md p-2 text-fg-secondary transition-colors hover:bg-bg-secondary hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
         >
           <Bell size={16} aria-hidden />
           {hasUnseen && (
