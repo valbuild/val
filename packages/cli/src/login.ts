@@ -10,18 +10,33 @@ import {
  * Terminal wrapper around the login device flow in `@valbuild/server`.
  * The flow itself (polling, token persistence) is shared with
  * `@valbuild/language-server`.
+ *
+ * The user code is printed and the device code is not: the code on screen is
+ * the one to compare against the browser, and it cannot be used to collect a
+ * token on its own.
  */
 export async function login(options: { root?: string }) {
   try {
     console.log(pc.cyan("\nStarting login process...\n"));
 
-    const { nonce, url } = await startValLogin();
+    const authorization = await startValLogin();
 
-    console.log(pc.green("Open the following URL in your browser to log in:"));
-    console.log(pc.underline(pc.blue(url)));
-    console.log(pc.dim("\nWaiting for login confirmation...\n"));
+    console.log(
+      pc.green("Open this URL in your browser to approve the login:"),
+    );
+    console.log(pc.underline(pc.blue(authorization.verificationUriComplete)));
+    console.log(
+      `\nThen check that it shows this code: ${pc.bold(
+        pc.cyan(authorization.userCode),
+      )}`,
+    );
+    console.log(
+      pc.dim(
+        "\nApprove the login in the browser. Waiting for confirmation...\n",
+      ),
+    );
 
-    const result = await awaitValLoginConfirmation(nonce);
+    const result = await awaitValLoginConfirmation(authorization);
 
     const filePath = persistPersonalAccessToken(
       options.root || process.cwd(),

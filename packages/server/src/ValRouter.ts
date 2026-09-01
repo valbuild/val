@@ -165,6 +165,7 @@ async function initHandlerOptions(
     opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://admin.val.build";
   const valContentUrl =
     opts.valContentUrl || process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
+  warnIfInsecureUrls({ valBuildUrl, valContentUrl });
   if (isProxyMode) {
     if (!maybeApiKey || !maybeValSecret) {
       throw new Error(
@@ -210,10 +211,6 @@ async function initHandlerOptions(
     };
   } else {
     const cwd = process.cwd();
-    const valBuildUrl =
-      opts.valBuildUrl ||
-      process.env.VAL_BUILD_URL ||
-      "https://admin.val.build";
     return {
       mode: "fs",
       cwd,
@@ -227,6 +224,103 @@ async function initHandlerOptions(
       project: maybeValProject,
       config,
     };
+  }
+}
+
+/**
+ * Hosts we send credentials to, and what each one puts at risk. They differ:
+ * only `valBuildUrl` hands back the app token that becomes the session cookie,
+ * so a single shared sentence would overstate one and understate the other.
+ */
+type CredentialBearingUrl = "valBuildUrl" | "valContentUrl";
+const CREDENTIAL_BEARING_URLS: CredentialBearingUrl[] = [
+  "valBuildUrl",
+  "valContentUrl",
+];
+const WHAT_IS_AT_RISK: Record<CredentialBearingUrl, string> = {
+  valBuildUrl:
+    "Val's api key is sent to this host, and the token it returns is what this server signs into the session cookie, " +
+    "so both can be read - and the token replaced - by anyone on the network path.",
+  valContentUrl:
+    "Val's api key, or the caller's personal access token, is sent to this host, " +
+    "so it can be read by anyone on the network path.",
+};
+
+// NOTE: `URL.hostname` keeps the brackets on an IPv6 literal, so this is
+// "[::1]" and not "::1" - and `http://[0:0:0:0:0:0:0:1]` normalises to the
+// same short form before it gets here. Dropping the brackets looks like a
+// tidy-up and silently stops matching IPv6 loopback.
+const LOOPBACK_HOSTNAMES = ["localhost", "127.0.0.1", "[::1]"];
+
+/**
+ * The URL as it is safe to print. `http://user:pass@host` is a legal override,
+ * and a warning about credential exposure that puts the password in the log
+ * would be the very thing it is warning about.
+ */
+function forLog(parsed: URL): string {
+  if (!parsed.username && !parsed.password) {
+    return parsed.href;
+  }
+  const redacted = new URL(parsed.href);
+  redacted.username = "";
+  redacted.password = "";
+  return `${redacted.href} (credentials redacted)`;
+}
+
+/**
+ * Returns a warning if `url` would send credentials somewhere they can be read
+ * off the wire, or null if it is fine.
+ *
+ * Both URLs default to https, but each is overridable - `opts.valBuildUrl` /
+ * `VAL_BUILD_URL`, `opts.valContentUrl` / `VAL_CONTENT_URL` - and neither
+ * override has ever been scheme-checked. Point one at a plain http host and the
+ * api key goes out in clear text, and whatever comes back is whatever the
+ * network says: for `valBuildUrl` that includes the app token this server
+ * re-signs into the session cookie.
+ *
+ * Loopback over http is exempt: that is a val.build running on the developer's
+ * own machine, and there is no network to be on the wrong side of.
+ *
+ * This warns rather than throws. Both overrides are set by the operator, not by
+ * an attacker, so this is a misconfiguration to surface - not untrusted input to
+ * reject - and refusing to boot would break anyone deliberately pointing at an
+ * internal http host today.
+ */
+export function insecureUrlWarning(
+  name: CredentialBearingUrl,
+  url: string,
+): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    // NOTE: the URL is not echoed here. It did not parse, so there is nothing
+    // to redact with, and an unparseable string can still hold a password.
+    return `Val: ${name} is not a valid URL.`;
+  }
+  if (parsed.protocol === "https:") {
+    return null;
+  }
+  if (
+    parsed.protocol === "http:" &&
+    (LOOPBACK_HOSTNAMES.includes(parsed.hostname) ||
+      parsed.hostname.endsWith(".localhost"))
+  ) {
+    return null;
+  }
+  return (
+    `Val: ${name} is set to ${forLog(parsed)}, which is not https. ` +
+    `${WHAT_IS_AT_RISK[name]} ` +
+    `Use https, or a loopback address for local development.`
+  );
+}
+
+function warnIfInsecureUrls(urls: Record<CredentialBearingUrl, string>): void {
+  for (const name of CREDENTIAL_BEARING_URLS) {
+    const warning = insecureUrlWarning(name, urls[name]);
+    if (warning) {
+      console.warn(warning);
+    }
   }
 }
 
