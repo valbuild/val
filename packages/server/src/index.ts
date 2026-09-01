@@ -76,13 +76,13 @@ export {
   persistPersonalAccessToken,
   ValLoginError,
   DEFAULT_LOGIN_HOST,
-  DEFAULT_LOGIN_MAX_DURATION,
-  DEFAULT_LOGIN_POLL_INTERVAL,
+  DEFAULT_LOGIN_EXPIRES_IN_SECONDS,
+  DEFAULT_LOGIN_POLL_INTERVAL_SECONDS,
 } from "./login";
 export type {
   ValLoginErrorCode,
   ValLoginResult,
-  ValLoginSession,
+  ValDeviceAuthorization,
 } from "./login";
 export {
   createModulePathMap,
