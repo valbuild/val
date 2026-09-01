@@ -165,6 +165,7 @@ async function initHandlerOptions(
     opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://admin.val.build";
   const valContentUrl =
     opts.valContentUrl || process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
+  warnIfInsecureUrls({ valBuildUrl, valContentUrl });
   if (isProxyMode) {
     if (!maybeApiKey || !maybeValSecret) {
       throw new Error(
@@ -210,10 +211,6 @@ async function initHandlerOptions(
     };
   } else {
     const cwd = process.cwd();
-    const valBuildUrl =
-      opts.valBuildUrl ||
-      process.env.VAL_BUILD_URL ||
-      "https://admin.val.build";
     return {
       mode: "fs",
       cwd,
@@ -227,6 +224,74 @@ async function initHandlerOptions(
       project: maybeValProject,
       config,
     };
+  }
+}
+
+/**
+ * Hosts we send credentials to. `valBuildUrl` carries the project's api key and
+ * receives the app token that becomes the session cookie; `valContentUrl`
+ * carries the api key or the caller's personal access token.
+ */
+type CredentialBearingUrl = "valBuildUrl" | "valContentUrl";
+const CREDENTIAL_BEARING_URLS: CredentialBearingUrl[] = [
+  "valBuildUrl",
+  "valContentUrl",
+];
+
+const LOOPBACK_HOSTNAMES = ["localhost", "127.0.0.1", "::1", "[::1]"];
+
+/**
+ * Returns a warning if `url` would send credentials somewhere they can be read
+ * off the wire, or null if it is fine.
+ *
+ * Both URLs default to https, but each is overridable - `opts.valBuildUrl` /
+ * `VAL_BUILD_URL`, `opts.valContentUrl` / `VAL_CONTENT_URL` - and neither
+ * override has ever been scheme-checked. Point one at a plain http host and the
+ * api key goes out in clear text, and whatever comes back is whatever the
+ * network says: for `valBuildUrl` that includes the app token this server
+ * re-signs into the session cookie.
+ *
+ * Loopback over http is exempt: that is a val.build running on the developer's
+ * own machine, and there is no network to be on the wrong side of.
+ *
+ * This warns rather than throws. Both overrides are set by the operator, not by
+ * an attacker, so this is a misconfiguration to surface - not untrusted input to
+ * reject - and refusing to boot would break anyone deliberately pointing at an
+ * internal http host today.
+ */
+export function insecureUrlWarning(
+  name: CredentialBearingUrl,
+  url: string,
+): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return `Val: ${name} is not a valid URL: ${url}`;
+  }
+  if (parsed.protocol === "https:") {
+    return null;
+  }
+  if (
+    parsed.protocol === "http:" &&
+    (LOOPBACK_HOSTNAMES.includes(parsed.hostname) ||
+      parsed.hostname.endsWith(".localhost"))
+  ) {
+    return null;
+  }
+  return (
+    `Val: ${name} is set to ${url}, which is not https. ` +
+    `Val's api key is sent to this host, so it - and the session token it returns - can be read ` +
+    `and altered by anyone on the network path. Use https, or a loopback address for local development.`
+  );
+}
+
+function warnIfInsecureUrls(urls: Record<CredentialBearingUrl, string>): void {
+  for (const name of CREDENTIAL_BEARING_URLS) {
+    const warning = insecureUrlWarning(name, urls[name]);
+    if (warning) {
+      console.warn(warning);
+    }
   }
 }
 
