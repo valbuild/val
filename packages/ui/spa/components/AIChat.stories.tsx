@@ -176,6 +176,65 @@ function AutoStartStreamingDemo() {
   );
 }
 
+/**
+ * Streaming with a stop control. The send button becomes a stop button for as
+ * long as the assistant is talking — the two are never both available, and one
+ * of them is always the thing you want.
+ */
+export const StreamingCancellable: Story = {
+  render: () => <CancellableStreamingDemo />,
+};
+
+function CancellableStreamingDemo() {
+  const chatRef = useRef<AIChatHandle>(null);
+  // A ref, not state: making this a dependency re-ran the effect on stop, which
+  // started a second assistant message and left an empty bubble streaming
+  // forever — the opposite of what the story is meant to show.
+  const stoppedRef = useRef(false);
+
+  useEffect(() => {
+    if (!chatRef.current) return;
+    const assistantId = "cancellable-1";
+    chatRef.current.startAssistantMessage(assistantId);
+    let idx = 0;
+    const interval = setInterval(() => {
+      if (!chatRef.current || stoppedRef.current) return;
+      const chunk = STREAMING_TEXT.slice(idx, idx + 3);
+      if (chunk) {
+        chatRef.current.appendAssistantChunk(assistantId, chunk);
+        idx += 3;
+      } else {
+        chatRef.current.completeAssistantMessage(assistantId);
+        clearInterval(interval);
+      }
+    }, 60);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <AIChat
+      ref={chatRef}
+      isConnected={true}
+      authError={false}
+      mode="http"
+      onCancel={() => {
+        stoppedRef.current = true;
+        // What arriving `ai_cancelled` does: settle as complete, keeping the
+        // partial text — a stop is not a failure.
+        chatRef.current?.completeAssistantMessage("cancellable-1");
+      }}
+      initialMessages={[
+        {
+          id: "cancellable-user-1",
+          role: "user",
+          content: "Rewrite every page in a friendlier tone",
+          status: "complete",
+        },
+      ]}
+    />
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 4. Error — assistant message failed, with retry button
 // ---------------------------------------------------------------------------

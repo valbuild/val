@@ -49,14 +49,37 @@ export const AIErrorCode = z.enum([
   "authentication_required",
   "session_not_found",
   "internal_error",
+  // The content server grew these with BYOK.
+  "byok_invalid_key",
+  "provider_not_configured",
+  "model_refusal",
 ]);
 export type AIErrorCode = z.infer<typeof AIErrorCode>;
+
+/** Something the client can offer after an error, e.g. a link to set up a key. */
+export const AIErrorAction = z.object({
+  type: z.literal("setup_byok"),
+  label: z.string(),
+  url: z.string(),
+});
+export type AIErrorAction = z.infer<typeof AIErrorAction>;
 
 export const AIErrorMessage = z.object({
   type: z.literal("ai_error"),
   id: z.string(),
-  code: AIErrorCode,
+  /**
+   * Unknown codes fall back rather than failing the parse.
+   *
+   * This enum is strict and sits inside a discriminated union, so a code the
+   * server has but this client does not used to drop the entire message: the
+   * user saw the turn hang instead of the reason it stopped, and the only
+   * trace was a console log. The server is free to add codes without waiting
+   * for a Studio release; the message still arrives, with its text intact.
+   */
+  code: AIErrorCode.catch("internal_error"),
   message: z.string(),
+  resetDate: z.string().optional(),
+  action: AIErrorAction.optional(),
 });
 export type AIErrorMessage = z.infer<typeof AIErrorMessage>;
 
@@ -81,6 +104,18 @@ export const AIStreamingMessage = z.object({
 });
 export type AIStreamingMessage = z.infer<typeof AIStreamingMessage>;
 
+/**
+ * A prompt the user stopped. Not an error: the client should settle rather than
+ * report a failure, keeping whatever text arrived first.
+ */
+export const AICancelledMessage = z.object({
+  type: z.literal("ai_cancelled"),
+  id: z.string(),
+  sessionId: z.string().optional(),
+  partialResponse: z.string().optional(),
+});
+export type AICancelledMessage = z.infer<typeof AICancelledMessage>;
+
 export const AIAgentHandoffMessage = z.object({
   type: z.literal("ai_agent_handoff"),
   id: z.string(),
@@ -96,6 +131,7 @@ export const AIServerMessage = z.discriminatedUnion("type", [
   AIStreamingMessage,
   AIToolCallMessage,
   AIErrorMessage,
+  AICancelledMessage,
   AIAgentHandoffMessage,
 ]);
 
@@ -164,7 +200,17 @@ export type AIGetSessionsWithMessagesMessage = z.infer<
   typeof AIGetSessionsWithMessagesMessage
 >;
 
-export type AIClientMessage = AIPromptMessage | AIToolResultMessage;
+/** Stop an in-flight prompt. `id` is the id of the `ai_prompt` to stop. */
+export const AICancelMessage = z.object({
+  type: z.literal("ai_cancel"),
+  id: z.string(),
+});
+export type AICancelMessage = z.infer<typeof AICancelMessage>;
+
+export type AIClientMessage =
+  | AIPromptMessage
+  | AIToolResultMessage
+  | AICancelMessage;
 
 export type AIMessageHandler = (message: AIServerMessage) => void;
 

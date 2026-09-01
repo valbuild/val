@@ -844,6 +844,10 @@ export function useAI(
   // Track active streaming ID — startAssistantMessage always appends a new
   // message (NOT idempotent), so we must only call it once per message ID.
   const activeIdRef = useRef<string | null>(null);
+  // The prompt currently running on the server, so it can be cancelled. Set on
+  // a successful send and cleared by whichever of response/error/cancelled
+  // settles it.
+  const inFlightPromptIdRef = useRef<string | null>(null);
   // Pending ask_user_question tool calls, as toolCallId -> the id of the
   // assistant message that opened the card. Needed to reject them on session
   // change, and to fail that specific turn if the result cannot be delivered.
@@ -867,6 +871,9 @@ export function useAI(
         }
         chatRef.current.completeAssistantMessage(message.id);
         activeIdRef.current = null;
+        if (inFlightPromptIdRef.current === message.id) {
+          inFlightPromptIdRef.current = null;
+        }
         setIsStreaming(false);
       } else if (message.type === "ai_tool_call") {
         // ask_user_question renders a question card instead of the plain tool
@@ -2100,7 +2107,56 @@ export function useAI(
           message.code,
         );
         activeIdRef.current = null;
+        if (inFlightPromptIdRef.current === message.id) {
+          inFlightPromptIdRef.current = null;
+        }
         setIsStreaming(false);
+      } else if (message.type === "ai_cancelled") {
+        // The user asked for this, so it settles rather than fails: whatever
+        // arrived before the stop stays in the transcript, and a stop before
+        // any text says so instead of leaving an empty bubble behind.
+        if (!chatRef.current) return;
+        // Text already on screen counts, even if the server sent no partial:
+        // keying only off `partialResponse` turned a streamed answer into a red
+        // error, which is the opposite of settling it.
+        const wasStreaming = activeIdRef.current === message.id;
+        if (!wasStreaming) {
+          chatRef.current.startAssistantMessage(message.id);
+          if (message.partialResponse) {
+            chatRef.current.appendAssistantChunk(
+              message.id,
+              message.partialResponse,
+            );
+          }
+        }
+        // Settled as complete, never as an error: the user asked for this, and
+        // an error status paints the turn red and offers a Retry for something
+        // that did not fail. With nothing to keep, "Stopped." is the body.
+        if (!wasStreaming && !message.partialResponse) {
+          chatRef.current.appendAssistantChunk(message.id, "Stopped.");
+        }
+        chatRef.current.completeAssistantMessage(message.id);
+        // A question card left pending keeps the turn open: it stays
+        // clickable, and it disables the chat's own turn timeout, so a stop
+        // would wedge the composer with no way out but a reload. The server has
+        // already abandoned these waits, so there is nothing to answer — just
+        // stop tracking them.
+        for (const [toolCallId, questionMessageId] of Array.from(
+          pendingQuestionsRef.current.entries(),
+        )) {
+          if (questionMessageId === message.id) {
+            pendingQuestionsRef.current.delete(toolCallId);
+          }
+        }
+        if (activeIdRef.current === message.id) {
+          activeIdRef.current = null;
+        }
+        // A late settle for an abandoned turn must not clear the tracking of a
+        // newer one, or its streamed text is orphaned and Stop goes inert.
+        if (inFlightPromptIdRef.current === message.id) {
+          inFlightPromptIdRef.current = null;
+          setIsStreaming(false);
+        }
       } else if (message.type === "ai_agent_handoff") {
         // TODO: show this in the UI in some way to indicate that the AI has handed off to a human agent:
         console.log(
@@ -2343,6 +2399,9 @@ Do not describe what you will do unless you do it for clarification — just do 
         ],
       };
       const sent = sendWsMessage(message);
+      if (sent) {
+        inFlightPromptIdRef.current = message.id;
+      }
       // Notify the session was "born" only after a successful send so a failed
       // first send doesn't leak an empty session id into the URL.
       if (sent && wasUnborn) {
@@ -2371,6 +2430,43 @@ Do not describe what you will do unless you do it for clarification — just do 
     },
     [chatRef],
   );
+
+  /**
+   * Stop the prompt that is running.
+   *
+   * The server settles this with `ai_cancelled`, which is what clears the UI —
+   * doing it optimistically here would race a response already on its way.
+   * Only when there is no socket to ask do we stop locally, so a dropped
+   * connection cannot leave the chat wedged mid-turn with no way out.
+   */
+  const cancel = useCallback((): boolean => {
+    const id = inFlightPromptIdRef.current;
+    // Nothing is running as far as we know, but the composer is showing a stop
+    // button, so something is out of step. Settle locally rather than leaving
+    // the user pressing a button that does nothing.
+    if (id === null) {
+      const streamingId = activeIdRef.current;
+      if (streamingId !== null) {
+        chatRef.current?.completeAssistantMessage(streamingId);
+        activeIdRef.current = null;
+      }
+      setIsStreaming(false);
+      return false;
+    }
+    const sent = sendWsMessage({ type: "ai_cancel", id });
+    if (!sent) {
+      // Same reasoning as the `ai_cancelled` branch: settle it, do not fail it.
+      if (activeIdRef.current !== id) {
+        chatRef.current?.startAssistantMessage(id);
+        chatRef.current?.appendAssistantChunk(id, "Stopped.");
+      }
+      chatRef.current?.completeAssistantMessage(id);
+      inFlightPromptIdRef.current = null;
+      activeIdRef.current = null;
+      setIsStreaming(false);
+    }
+    return true;
+  }, [sendWsMessage, chatRef]);
 
   const answerToolQuestions = useCallback(
     (toolCallId: string, answers: AskUserQuestionAnswer[]) => {
@@ -2504,6 +2600,8 @@ Do not describe what you will do unless you do it for clarification — just do 
     sendMessage,
     uploadAiImage,
     isStreaming,
+    /** Stop the running prompt. False when there is nothing running. */
+    cancel,
     isLoadingSession,
     isConnected: isWsConnected,
     authError: aiAuthError,

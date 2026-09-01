@@ -14,6 +14,7 @@ import { Button } from "./designSystem/button";
 import { cn } from "./designSystem/cn";
 import {
   Send,
+  Square,
   RotateCcw,
   Sparkles,
   Loader2,
@@ -170,6 +171,12 @@ export type AIChatHandle = {
 };
 
 export type AIChatProps = {
+  /**
+   * Stop the running turn. When given, the send button becomes a stop button
+   * while the assistant is streaming — the same control, because the two are
+   * never both available and one of them is always the thing you want.
+   */
+  onCancel?: () => void;
   /** Called when the user submits a message (via input or suggestion chip). Returns true if sent successfully. */
   onSendMessage?: (
     content: string | ChatDocument,
@@ -523,6 +530,7 @@ function getImageUrls(content: AIMessageContent): string[] {
 
 export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   {
+    onCancel,
     onSendMessage,
     onUploadFile,
     onNewSession,
@@ -1311,23 +1319,36 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                     <Paperclip className="h-4 w-4" />
                   </Button>
                 )}
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  disabled={
-                    !isConnected ||
-                    isStreaming ||
-                    isUploading ||
-                    hasPendingInlineImage ||
-                    authError ||
-                    isEditorEmpty
-                  }
-                  onClick={() => handleSend()}
-                  aria-label="Send message"
-                  className="ml-auto"
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
+                {isStreaming && onCancel ? (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={onCancel}
+                    aria-label="Stop generating"
+                    title="Stop generating"
+                    className="ml-auto"
+                  >
+                    <Square className="h-3.5 w-3.5 fill-current" />
+                  </Button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    disabled={
+                      !isConnected ||
+                      isStreaming ||
+                      isUploading ||
+                      hasPendingInlineImage ||
+                      authError ||
+                      isEditorEmpty
+                    }
+                    onClick={() => handleSend()}
+                    aria-label="Send message"
+                    className="ml-auto"
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                )}
               </div>
             </div>
           </>
