@@ -5,40 +5,80 @@ import { ValClient } from "@valbuild/shared/internal";
 // --- Shared types (must match server-side definitions) ---
 
 /**
- * The models a client may ask for. Must stay in step with the content server's
- * catalog; a name it does not know is rejected there rather than here.
+ * The AI providers the content server has an implementation for.
+ *
+ * The one thing the server is authoritative about. Which models exist is this
+ * client's business — see `VAL_AI_MODELS`.
  */
-export const AIModel = z.enum([
-  "openai-gpt-5.1",
-  "anthropic-claude-opus-5",
-  "anthropic-claude-sonnet-5",
-  "anthropic-claude-haiku-4.5",
-]);
-export type AIModel = z.infer<typeof AIModel>;
+export const AIProviderId = z.enum(["openai", "anthropic"]);
+export type AIProviderId = z.infer<typeof AIProviderId>;
 
 /**
- * Preference order when the server offers a choice. Not a quality ranking: it
- * is the order to fall back through when an org has brought keys for some
- * providers and not others.
+ * A model, as this client names it: a provider plus that provider's own model
+ * id, which the server passes through to the SDK untouched.
  */
-export const AI_MODEL_PREFERENCE: AIModel[] = [
-  "openai-gpt-5.1",
-  "anthropic-claude-sonnet-5",
-  "anthropic-claude-opus-5",
-  "anthropic-claude-haiku-4.5",
+export const AIModel = z.object({
+  provider: AIProviderId,
+  model: z.string().min(1),
+});
+export type AIModel = z.infer<typeof AIModel>;
+
+export type AIModelInfo = {
+  ref: AIModel;
+  /** What to call it in the UI. */
+  label: string;
+};
+
+/**
+ * The models the Studio offers, best first within each provider.
+ *
+ * This is the catalog, and it lives here rather than on the content server so
+ * that offering a newly released model is a change to the editor and nothing
+ * else. The server only checks that it implements the provider and that the
+ * caller has a key for it.
+ *
+ * Order is the fallback order: with bring-your-own-key an org may have a key
+ * for one provider and not another, so the first entry whose provider is
+ * reachable is the one used.
+ */
+export const VAL_AI_MODELS: AIModelInfo[] = [
+  {
+    ref: { provider: "openai", model: "gpt-5.1" },
+    label: "GPT-5.1",
+  },
+  {
+    ref: { provider: "anthropic", model: "claude-sonnet-5" },
+    label: "Claude Sonnet 5",
+  },
+  {
+    ref: { provider: "anthropic", model: "claude-opus-5" },
+    label: "Claude Opus 5",
+  },
+  {
+    ref: { provider: "anthropic", model: "claude-haiku-4-5" },
+    label: "Claude Haiku 4.5",
+  },
 ];
 
-/** The first model this client knows about that the server says is available. */
+/**
+ * The first model in the catalog whose provider the server says is reachable.
+ *
+ * Null once the server has answered and none of them are — which with
+ * bring-your-own-key means no key is configured for any provider we can drive,
+ * and callers treat that as "AI is off" rather than as an error.
+ */
 export function pickAvailableModel(
-  serverModels: string[] | undefined,
+  serverProviders: string[] | undefined,
 ): AIModel | null {
-  if (serverModels === undefined) {
-    // An older server does not report them. It also has a shared key and one
-    // model, so the original default is the right guess.
-    return "openai-gpt-5.1";
+  if (serverProviders === undefined) {
+    // An older content server does not report them, and had a shared OpenAI
+    // key with one model — so the original default is the right guess.
+    return VAL_AI_MODELS[0].ref;
   }
-  const available = new Set(serverModels);
-  return AI_MODEL_PREFERENCE.find((model) => available.has(model)) ?? null;
+  const reachable = new Set(serverProviders);
+  return (
+    VAL_AI_MODELS.find((info) => reachable.has(info.ref.provider))?.ref ?? null
+  );
 }
 
 export const AITool = z.object({
@@ -391,7 +431,7 @@ export function useAIWebSocket(
         return;
       }
       setAuthError(false);
-      setAvailableModel(pickAvailableModel(res.json.models));
+      setAvailableModel(pickAvailableModel(res.json.providers));
 
       const ws = new WebSocket(
         res.json.wsUrl + "?nonce=" + encodeURIComponent(res.json.nonce),

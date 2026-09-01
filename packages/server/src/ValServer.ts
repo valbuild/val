@@ -2114,23 +2114,28 @@ export const ValServer = (
             }
             const json = (await upstreamRes.json()) as {
               nonce: string;
-              models?: unknown;
+              providers?: unknown;
             };
             const wsUrl =
               options.valContentUrl
                 .replace(/^https:/, "wss:")
                 .replace(/^http:/, "ws:") + `/v1/${options.project}/ai/connect`;
             // Forwarded as-is, minus anything that is not a string: which
-            // models exist is the content server's to decide, and this only
-            // has to carry the answer without editorialising.
-            const models = Array.isArray(json.models)
-              ? json.models.filter(
-                  (model): model is string => typeof model === "string",
+            // providers are reachable is the content server's to decide, and
+            // this only has to carry the answer without editorialising.
+            const providers = Array.isArray(json.providers)
+              ? json.providers.filter(
+                  (provider): provider is string =>
+                    typeof provider === "string",
                 )
               : undefined;
             return {
               status: 200 as const,
-              json: { nonce: json.nonce, wsUrl, ...(models ? { models } : {}) },
+              json: {
+                nonce: json.nonce,
+                wsUrl,
+                ...(providers ? { providers } : {}),
+              },
             };
           } catch (err) {
             return {

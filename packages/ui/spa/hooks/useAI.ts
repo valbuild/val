@@ -31,6 +31,7 @@ import {
 import {
   type AITool,
   SessionImageToPatchError,
+  useAvailableAIModel,
   useCurrentProfile,
   useProfilesByAuthorId,
   useAIContext,
@@ -829,6 +830,7 @@ export function useAI(
   const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
   const config = useValConfig();
   const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
+  const chatModel = useAvailableAIModel();
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [sessions, setSessions] = useState<AISession[]>([]);
@@ -2254,6 +2256,17 @@ export function useAI(
       content: string | ChatDocument,
       attachments?: ChatMessageAttachment[],
     ): boolean => {
+      // No reachable provider means no key is configured for any of them. Refuse
+      // here rather than send a prompt the server will refuse: this way the chat
+      // says why, instead of the turn appearing to start and then failing.
+      if (chatModel === null) {
+        chatRef.current?.errorAssistantMessage(
+          crypto.randomUUID(),
+          "No AI key is set up for this project. Add one in admin to use the assistant.",
+          "provider_not_configured",
+        );
+        return false;
+      }
       // Lazily mint the session id on the first send so unborn sessions don't
       // appear in the URL or on the server until the user actually says something.
       let sid = sessionIdRef.current;
@@ -2314,7 +2327,12 @@ export function useAI(
         agents: [
           {
             id: "default",
-            model: "openai-gpt-5.1",
+            // Picked from what the server says is reachable rather than
+            // hardcoded: with bring-your-own-key an org may have a key for one
+            // provider and not another, and asking for the wrong one is
+            // refused. Null means AI is off, which is checked before we get
+            // here.
+            model: chatModel,
             systemPrompt: `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
 
 ## Who you are talking to
@@ -2413,7 +2431,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       }
       return sent;
     },
-    [sendWsMessage],
+    [chatModel, chatRef, sendWsMessage],
   );
 
   // A question card keeps the turn open (and the composer disabled) until a

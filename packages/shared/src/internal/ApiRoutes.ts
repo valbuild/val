@@ -1158,20 +1158,19 @@ export const Api = {
             nonce: z.string(),
             wsUrl: z.string(),
             /**
-             * The models this project can actually reach, in preference order.
+             * The AI providers this project can actually reach.
              *
-             * AI runs on a key the org or the user brought, so which models are
-             * available depends on which keys exist — an org with only an
-             * Anthropic key cannot use a GPT model, and asking for one gets a
-             * refusal. The client picks from this rather than assuming.
+             * AI runs on a key the org or the user brought, so an org with only
+             * an Anthropic key cannot use a GPT model — asking for one gets a
+             * refusal. The client owns the model catalog and picks a model whose
+             * provider is in here.
              *
-             * Deliberately `string[]` and not an enum: the content server is
-             * free to add a model without waiting for a Studio release, and a
-             * strict enum here would reject the whole response over a name this
-             * version has not heard of. The client matches these against the
-             * models it knows and ignores the rest.
+             * `string[]` and not an enum on purpose: the content server may add
+             * a provider before the Studio knows of it, and a strict enum would
+             * reject the whole response over a name this version has not heard
+             * of. Unknown entries are simply ignored.
              */
-            models: z.array(z.string()).optional(),
+            providers: z.array(z.string()).optional(),
           }),
         }),
         z.object({
