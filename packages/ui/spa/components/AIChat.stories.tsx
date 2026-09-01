@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AIChat,
   AIChatHandle,
@@ -169,6 +169,61 @@ function AutoStartStreamingDemo() {
           id: "auto-stream-user-1",
           role: "user",
           content: "Explain the authors schema",
+          status: "complete",
+        },
+      ]}
+    />
+  );
+}
+
+/**
+ * Streaming with a stop control. The send button becomes a stop button for as
+ * long as the assistant is talking — the two are never both available, and one
+ * of them is always the thing you want.
+ */
+export const StreamingCancellable: Story = {
+  render: () => <CancellableStreamingDemo />,
+};
+
+function CancellableStreamingDemo() {
+  const chatRef = useRef<AIChatHandle>(null);
+  const [stopped, setStopped] = useState(false);
+
+  useEffect(() => {
+    if (!chatRef.current) return;
+    const assistantId = "cancellable-1";
+    chatRef.current.startAssistantMessage(assistantId);
+    let idx = 0;
+    const interval = setInterval(() => {
+      if (!chatRef.current || stopped) return;
+      const chunk = STREAMING_TEXT.slice(idx, idx + 3);
+      if (chunk) {
+        chatRef.current.appendAssistantChunk(assistantId, chunk);
+        idx += 3;
+      } else {
+        chatRef.current.completeAssistantMessage(assistantId);
+        clearInterval(interval);
+      }
+    }, 60);
+    return () => clearInterval(interval);
+  }, [stopped]);
+
+  return (
+    <AIChat
+      ref={chatRef}
+      isConnected={true}
+      authError={false}
+      mode="http"
+      onCancel={() => {
+        setStopped(true);
+        // What arriving `ai_cancelled` does: settle, keeping the partial text.
+        chatRef.current?.completeAssistantMessage("cancellable-1");
+      }}
+      initialMessages={[
+        {
+          id: "cancellable-user-1",
+          role: "user",
+          content: "Rewrite every page in a friendlier tone",
           status: "complete",
         },
       ]}

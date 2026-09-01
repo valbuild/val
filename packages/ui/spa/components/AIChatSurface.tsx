@@ -62,6 +62,7 @@ export function AIChatSurface({ className }: { className?: string }) {
     isLoadingSession,
     answerToolQuestions,
     cancelToolQuestion,
+    cancel,
   } = useAI(chatRef, {
     initialSessionId: initialSessionIdRef.current,
     onSessionBorn: (id) => {
@@ -110,6 +111,7 @@ export function AIChatSurface({ className }: { className?: string }) {
       className={className}
       chatEditorRef={chatEditorRef}
       onSendMessage={sendMessage}
+      onCancel={cancel}
       onUploadFile={uploadAiImage}
       onNewSession={newSession}
       isConnected={isConnected}
