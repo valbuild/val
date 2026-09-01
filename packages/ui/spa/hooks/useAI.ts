@@ -2132,6 +2132,7 @@ export function useAI(
           message.message,
           message.code,
           message.action,
+          message.details,
         );
         activeIdRef.current = null;
         if (inFlightPromptIdRef.current === message.id) {

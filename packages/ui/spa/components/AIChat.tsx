@@ -138,6 +138,12 @@ export type ChatMessage = {
    * keyed off a code the server no longer sends.
    */
   errorAction?: { label: string; url: string };
+  /**
+   * What the provider said, verbatim. Behind a disclosure because it is for
+   * whoever is going to do something about it, and reads as noise to everyone
+   * else — but findable without a server log, which is the whole point.
+   */
+  errorDetails?: string;
   toolActivities?: ToolActivity[];
   attachments?: ChatMessageAttachment[];
   /**
@@ -174,6 +180,7 @@ export type AIChatHandle = {
     error: string,
     code?: string,
     action?: { label: string; url: string },
+    details?: string,
   ) => void;
   /** Add a tool call indicator to the current assistant message */
   addToolCall: (
@@ -781,6 +788,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       error: string,
       code?: string,
       action?: { label: string; url: string },
+      details?: string,
     ) {
       retireCurrentMessage(id, (message) => ({
         ...message,
@@ -788,6 +796,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         error,
         errorAction: action,
         errorCode: code,
+        errorDetails: details,
       }));
     },
     addToolCall(
@@ -1702,6 +1711,21 @@ function MessageBubble({
                 >
                   {message.errorAction.label}
                 </a>
+              )}
+              {/*
+                A plain `<details>`: closed by default, so it costs nothing to
+                everyone who cannot act on it, and one click for whoever can.
+                No component needed, and it works with find-in-page once open.
+              */}
+              {message.errorDetails && (
+                <details className="text-xs text-fg-secondary">
+                  <summary className="cursor-pointer select-none">
+                    Details
+                  </summary>
+                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-bg-secondary p-2 font-mono text-[11px] text-fg-secondary">
+                    {message.errorDetails}
+                  </pre>
+                </details>
               )}
             </div>
             <Button

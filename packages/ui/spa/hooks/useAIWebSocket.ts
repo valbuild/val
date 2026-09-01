@@ -185,6 +185,12 @@ export const AIErrorMessage = z.object({
   message: z.string(),
   resetDate: z.string().optional(),
   action: AIErrorAction.optional(),
+  /**
+   * The provider's own account of the failure — status, error type, request id,
+   * verbatim message — for a developer who wants to work around the problem
+   * rather than guess at it. Shown behind a disclosure, never in the message.
+   */
+  details: z.string().optional(),
 });
 export type AIErrorMessage = z.infer<typeof AIErrorMessage>;
 
