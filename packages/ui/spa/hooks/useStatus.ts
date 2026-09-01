@@ -71,6 +71,13 @@ export const StatData = z.object({
     project: z.string().optional(),
     ai: z
       .object({
+        // Read to decide whether to open the AI socket: commit summaries run
+        // over it now, so the chat flag alone is not the whole answer.
+        commitMessages: z
+          .object({
+            disabled: z.boolean().optional(),
+          })
+          .optional(),
         chat: z
           .object({
             experimental: z

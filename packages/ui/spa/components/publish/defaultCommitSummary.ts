@@ -1,0 +1,94 @@
+import type { ModuleFilePath } from "@valbuild/core";
+
+/**
+ * The commit summary you get without asking anyone.
+ *
+ * Publishing must never wait on a model. The box is filled with this the
+ * moment the publish popover opens, it is editable straight away, and it is
+ * what gets committed unless the user edits it or takes an AI suggestion. It
+ * is also the whole story when no AI is configured.
+ */
+
+/** How many names fit in a title before a count reads better. */
+const MAX_NAMED = 3;
+
+/** How many names to list before falling back to "and N more". */
+const MAX_LISTED = 6;
+
+/**
+ * A name a non-technical reader recognises, from a module file path.
+ *
+ * `/content/blogs/page.val.ts` is the router for the `blogs` route, so it is
+ * "blogs", not "page" - the same rule the AI prompt has always been given.
+ */
+export function moduleDisplayName(moduleFilePath: string): string {
+  const segments = moduleFilePath.split("/").filter(Boolean);
+  const fileName = segments[segments.length - 1] ?? moduleFilePath;
+  // `.val.json` too: JSON entry modules are real module paths, and leaving the
+  // extension on leaked "Student.val.json" into publish summaries.
+  const base = fileName.replace(/\.val\.(ts|tsx|js|jsx|json)$/, "");
+  // A router file is named for its route, which is the folder above it.
+  const name =
+    base === "page" || base === "index"
+      ? (segments[segments.length - 2] ?? base)
+      : base;
+  const spaced = name.replace(/[-_]+/g, " ").trim();
+  if (!spaced) {
+    return moduleFilePath;
+  }
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+export function buildDefaultCommitSummary(
+  moduleFilePaths: readonly ModuleFilePath[] | readonly string[],
+): string {
+  const names = Array.from(
+    new Set(moduleFilePaths.map((path) => moduleDisplayName(path))),
+  ).sort((a, b) => a.localeCompare(b));
+
+  if (names.length === 0) {
+    return "Update content";
+  }
+  // A few names read better than a count — "Update Home and Blogs" says more
+  // than "Update content in 2 places" in fewer words, and is what someone
+  // scanning a commit list actually wants.
+  if (names.length <= MAX_NAMED) {
+    return `Update ${joinNames(names)}`;
+  }
+  const listed = names.slice(0, MAX_LISTED).join(", ");
+  const remaining = names.length - MAX_LISTED;
+  const changed = remaining > 0 ? `${listed} and ${remaining} more` : listed;
+  return `Update content in ${names.length} places\n\nChanged: ${changed}`;
+}
+
+/** "A", "A and B", "A, B and C" — no Oxford comma, matching the UI's copy. */
+function joinNames(names: string[]): string {
+  if (names.length === 1) {
+    return names[0];
+  }
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/**
+ * Whether an AI summary that just arrived may take over the box.
+ *
+ * Once the user has started writing, it may not — not on this arrival and not
+ * on any later one, because `hasEdited` latches. The AI's version is then
+ * offered as a suggestion instead of applied, so nobody watches their own
+ * sentence get replaced mid-word.
+ *
+ * The value check is a second lock on the same door: even with the flag
+ * somehow clear, a box that no longer holds the untouched default is treated
+ * as the user's and left alone.
+ */
+export function shouldAutoApplyAiSummary(args: {
+  /** Latches true on the first keystroke and never clears. */
+  hasEdited: boolean;
+  currentValue: string;
+  defaultSummary: string;
+}): boolean {
+  if (args.hasEdited) {
+    return false;
+  }
+  return args.currentValue.trim() === args.defaultSummary.trim();
+}

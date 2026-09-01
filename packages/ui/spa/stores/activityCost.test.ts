@@ -196,9 +196,24 @@ describe("cost of one keystroke", () => {
     dispose();
   });
 
+  /**
+   * The pending-validation pass is driven by hand here, and that is the point.
+   *
+   * On the real 300ms debounce this test asserted "no validation yet" after 40
+   * awaited writes — true only while the burst won a race with the clock. It
+   * measured ~100ms against the 300ms window on an idle box and went red on a
+   * CI runner, which is a margin nobody chose.
+   *
+   * What is still asserted is what this file is for: no validation happens on
+   * the KEYSTROKE path. A regression that validated inside `createPatch` shows
+   * up here exactly as it did before, because a synchronous validation does not
+   * go through the deferred pass at all. What moved out is the claim about the
+   * debounce's length, which `pendingValidation.test.ts` now pins directly by
+   * counting how many passes a burst arms.
+   */
   it("costs the same per keystroke over a burst of 40", async () => {
     const { sourceStore, patchStore, activity, listeners, dispose } =
-      initTestSystem();
+      initTestSystem({ manualPendingValidation: true });
 
     await sourceStore.testReceive([blogs(), authors()]);
     listeners.set('/blogs.val.ts?p="title"');

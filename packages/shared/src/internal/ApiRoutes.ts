@@ -942,35 +942,6 @@ export const Api = {
       ]),
     },
   },
-  "/commit-summary": {
-    GET: {
-      req: {
-        query: {
-          patch_id: z.array(PatchId),
-        },
-        cookies: {
-          val_session: z.string().optional(),
-        },
-      },
-      res: z.union([
-        unauthorizedResponse,
-        z.object({
-          status: z.literal(400),
-          json: z.object({
-            message: z.string(),
-          }),
-        }),
-        z.object({
-          status: z.literal(200),
-          json: z.object({
-            patchIds: z.array(PatchId),
-            baseSha: z.string(),
-            commitSummary: z.string().nullable(),
-          }),
-        }),
-      ]),
-    },
-  },
   "/save": {
     POST: {
       req: {
@@ -1186,6 +1157,20 @@ export const Api = {
           json: z.object({
             nonce: z.string(),
             wsUrl: z.string(),
+            /**
+             * The AI providers this project can actually reach.
+             *
+             * AI runs on a key the org or the user brought, so an org with only
+             * an Anthropic key cannot use a GPT model — asking for one gets a
+             * refusal. The client owns the model catalog and picks a model whose
+             * provider is in here.
+             *
+             * `string[]` and not an enum on purpose: the content server may add
+             * a provider before the Studio knows of it, and a strict enum would
+             * reject the whole response over a name this version has not heard
+             * of. Unknown entries are simply ignored.
+             */
+            providers: z.array(z.string()).optional(),
           }),
         }),
         z.object({

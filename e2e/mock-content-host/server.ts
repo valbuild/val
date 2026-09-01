@@ -1166,7 +1166,17 @@ async function playAiTurn(
   socket: WebSocket,
   prompt: { id?: string; sessionId?: string; message?: unknown },
 ): Promise<void> {
-  const messageId = randomUUID();
+  /**
+   * Every server -> client message echoes the id the client put on its prompt.
+   *
+   * That is what the real service does (`aiHandler.ts` passes `message.id`
+   * straight through to `ai_streaming`, `ai_tool_call`, `ai_response`,
+   * `ai_cancelled` and `ai_error`), and the Studio relies on it: one socket
+   * carries every session, so the id is how a listener tells its own turn from
+   * somebody else's. Minting a fresh one here made the mock the only "server"
+   * that answered a prompt under an id nobody asked about.
+   */
+  const messageId = prompt.id ?? randomUUID();
   const sessionId = prompt.sessionId ?? randomUUID();
   const imageKeys = imageKeysOf(prompt.message);
   state.aiPrompts.push({
