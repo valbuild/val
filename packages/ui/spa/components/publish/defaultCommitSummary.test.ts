@@ -1,6 +1,7 @@
 import {
   buildDefaultCommitSummary,
   moduleDisplayName,
+  shouldAutoApplyAiSummary,
 } from "./defaultCommitSummary";
 
 describe("moduleDisplayName", () => {
@@ -58,5 +59,70 @@ describe("buildDefaultCommitSummary", () => {
     const summary = buildDefaultCommitSummary(paths);
     expect(summary).toContain("Update content in 9 places");
     expect(summary).toContain("and 3 more");
+  });
+});
+
+describe("shouldAutoApplyAiSummary", () => {
+  const defaultSummary = "Update Home";
+
+  test("takes over a box the user has not touched", () => {
+    expect(
+      shouldAutoApplyAiSummary({
+        hasEdited: false,
+        currentValue: defaultSummary,
+        defaultSummary,
+      }),
+    ).toBe(true);
+  });
+
+  test("leaves the box alone once the user has started writing", () => {
+    expect(
+      shouldAutoApplyAiSummary({
+        hasEdited: true,
+        currentValue: "Fix typo in hero",
+        defaultSummary,
+      }),
+    ).toBe(false);
+  });
+
+  test("stays cancelled after the user deletes back to the default", () => {
+    // hasEdited latches, so retyping the default does not re-arm the takeover
+    expect(
+      shouldAutoApplyAiSummary({
+        hasEdited: true,
+        currentValue: defaultSummary,
+        defaultSummary,
+      }),
+    ).toBe(false);
+  });
+
+  test("stays cancelled when the box is empty because they cleared it", () => {
+    expect(
+      shouldAutoApplyAiSummary({
+        hasEdited: true,
+        currentValue: "",
+        defaultSummary,
+      }),
+    ).toBe(false);
+  });
+
+  test("does not take over a box that differs from the default anyway", () => {
+    expect(
+      shouldAutoApplyAiSummary({
+        hasEdited: false,
+        currentValue: "Something a previous session left here",
+        defaultSummary,
+      }),
+    ).toBe(false);
+  });
+
+  test("ignores whitespace the textarea may have left behind", () => {
+    expect(
+      shouldAutoApplyAiSummary({
+        hasEdited: false,
+        currentValue: `  ${defaultSummary}\n`,
+        defaultSummary,
+      }),
+    ).toBe(true);
   });
 });

@@ -1,9 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { fn } from "storybook/test";
 import { PublishSummaryView } from "./PublishSummaryView";
 import type { AiSummaryState } from "./PublishSummaryView";
-import { buildDefaultCommitSummary } from "./publish/defaultCommitSummary";
+import {
+  buildDefaultCommitSummary,
+  shouldAutoApplyAiSummary,
+} from "./publish/defaultCommitSummary";
 
 const DEFAULT_SUMMARY = buildDefaultCommitSummary([
   "/content/home.val.ts",
@@ -25,7 +28,6 @@ const meta: Meta<typeof PublishSummaryView> = {
     onUseAiSummary: fn(),
     onPublish: fn(),
     onClose: fn(),
-    onPublishNow: fn(),
     publishDisabled: false,
     isPublishing: false,
     waitingForAiSeconds: null,
@@ -118,7 +120,8 @@ export const AiFailed: Story = {
 
 /**
  * Publish was pressed while the AI was still writing. Publishing is already
- * happening — this is the 10 second grace period, with a way to skip it.
+ * happening — this is the 10 second grace period. Pressing Publish again
+ * skips the rest of it, so there is no separate escape control.
  */
 export const WaitingForAiOnPublish: Story = {
   args: {
@@ -141,12 +144,15 @@ export const Publishing: Story = {
 
 /**
  * The whole flow, driven for real: the summary is there immediately, the AI
- * lands after three seconds, and typing at any point keeps your text.
+ * lands after three seconds, and typing at any point cancels the takeover so
+ * your text survives — the same `shouldAutoApplyAiSummary` rule the app uses.
  */
 export const InteractiveFlow: Story = {
   render: function InteractiveFlowStory() {
     const [value, setValue] = useState(DEFAULT_SUMMARY);
     const [isEdited, setIsEdited] = useState(false);
+    // Read inside the timeout, which closes over the state at scheduling time.
+    const hasEditedRef = useRef(false);
     const [ai, setAi] = useState<AiSummaryState>({ status: "idle" });
 
     return (
@@ -162,9 +168,15 @@ export const InteractiveFlow: Story = {
                 text: AI_SUMMARY,
                 sessionId: "session-1",
               });
-              // Only take over the box when the user has not written anything
+              // Typing cancels the takeover: same rule the app runs on.
               setValue((current) =>
-                current === DEFAULT_SUMMARY ? AI_SUMMARY : current,
+                shouldAutoApplyAiSummary({
+                  hasEdited: hasEditedRef.current,
+                  currentValue: current,
+                  defaultSummary: DEFAULT_SUMMARY,
+                })
+                  ? AI_SUMMARY
+                  : current,
               );
             }, 3000);
           }}
@@ -176,12 +188,15 @@ export const InteractiveFlow: Story = {
           onChange={(next) => {
             setValue(next);
             setIsEdited(true);
+            hasEditedRef.current = true;
           }}
           ai={ai}
           isEdited={isEdited}
           onUseAiSummary={() => {
             if (ai.status === "ready") {
               setValue(ai.text);
+              // Taking the suggestion is not "unedited": a later arrival must
+              // still not overwrite it.
               setIsEdited(false);
             }
           }}
@@ -192,7 +207,6 @@ export const InteractiveFlow: Story = {
           publishDisabled={false}
           isPublishing={false}
           waitingForAiSeconds={null}
-          onPublishNow={fn()}
         />
       </div>
     );

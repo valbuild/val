@@ -51,10 +51,10 @@ export type PublishSummaryViewProps = {
   /**
    * Publish was pressed while the AI was still writing. Publishing is already
    * committed to happening — this is the short grace period before it goes
-   * ahead with whatever is in the box.
+   * ahead with whatever is in the box. Pressing Publish again during it skips
+   * the wait, so there is no separate escape control.
    */
   waitingForAiSeconds: number | null;
-  onPublishNow: () => void;
 };
 
 /**
@@ -79,7 +79,6 @@ export function PublishSummaryView({
   publishDisabled,
   isPublishing,
   waitingForAiSeconds,
-  onPublishNow,
 }: PublishSummaryViewProps) {
   const className = "w-full p-2 border rounded bg-bg-secondary";
   const isWaiting = waitingForAiSeconds !== null;
@@ -118,21 +117,12 @@ export function PublishSummaryView({
         />
       </div>
       {isWaiting && (
-        <div className="flex items-center justify-between gap-2 text-xs text-fg-secondary">
-          <span className="flex items-center gap-2">
-            <Loader2 size={12} className="animate-spin" />
-            <span>
-              Waiting for the AI summary — publishing in {waitingForAiSeconds}s
-              either way
-            </span>
+        <div className="flex items-start gap-2 text-xs text-fg-secondary">
+          <Loader2 size={12} className="animate-spin mt-0.5 shrink-0" />
+          <span>
+            Waiting for the AI summary — publishing in {waitingForAiSeconds}s
+            either way. Press Publish again to go now.
           </span>
-          <button
-            type="button"
-            className="underline cursor-pointer"
-            onClick={onPublishNow}
-          >
-            Publish now
-          </button>
         </div>
       )}
       <div className="flex items-center justify-end gap-2">

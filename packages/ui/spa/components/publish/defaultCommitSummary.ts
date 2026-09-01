@@ -52,3 +52,27 @@ export function buildDefaultCommitSummary(
   const changed = remaining > 0 ? `${listed} and ${remaining} more` : listed;
   return `Update content in ${names.length} places\n\nChanged: ${changed}`;
 }
+
+/**
+ * Whether an AI summary that just arrived may take over the box.
+ *
+ * Once the user has started writing, it may not — not on this arrival and not
+ * on any later one, because `hasEdited` latches. The AI's version is then
+ * offered as a suggestion instead of applied, so nobody watches their own
+ * sentence get replaced mid-word.
+ *
+ * The value check is a second lock on the same door: even with the flag
+ * somehow clear, a box that no longer holds the untouched default is treated
+ * as the user's and left alone.
+ */
+export function shouldAutoApplyAiSummary(args: {
+  /** Latches true on the first keystroke and never clears. */
+  hasEdited: boolean;
+  currentValue: string;
+  defaultSummary: string;
+}): boolean {
+  if (args.hasEdited) {
+    return false;
+  }
+  return args.currentValue.trim() === args.defaultSummary.trim();
+}
