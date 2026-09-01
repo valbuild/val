@@ -46,6 +46,7 @@ import {
 import type { AISession } from "../hooks/useAIWebSocket";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
 import { ToolName } from "../utils/toolNames";
+import { safeHref } from "../utils/safeHref";
 import { useValConfig } from "./ValFieldProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { urlOf } from "@valbuild/shared/internal";
@@ -1625,11 +1626,11 @@ function MessageBubble({
               <p className="text-xs text-fg-error-primary">
                 {message.error ?? "Something went wrong"}
               </p>
-              {message.errorAction && (
+              {message.errorAction && safeHref(message.errorAction.url) && (
                 <a
-                  href={message.errorAction.url}
+                  href={safeHref(message.errorAction.url)}
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noreferrer noopener"
                   className="text-xs text-fg-brand-primary underline"
                 >
                   {message.errorAction.label}

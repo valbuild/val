@@ -62,10 +62,19 @@ export function useCommitSummary(
   const startedRef = useRef(false);
   const streamedRef = useRef("");
 
+  // "off" has to be reachable in both directions. `/ai/initialize` resolves
+  // after this mounts, so a popover opened straight away sees `model === null`
+  // first; leaving it at "off" from then on would tell the user AI is disabled
+  // for the rest of the publish, when it had simply not answered yet. Only the
+  // "off" state is swapped back, so a summary already loading or ready is never
+  // clobbered by a model reference changing identity.
   useEffect(() => {
-    if (model === null) {
-      setState({ status: "off" });
-    }
+    setState((prev) => {
+      if (model === null) {
+        return prev.status === "off" ? prev : { status: "off" };
+      }
+      return prev.status === "off" ? { status: "idle" } : prev;
+    });
   }, [model]);
 
   useEffect(() => {
@@ -121,23 +130,35 @@ export function useCommitSummary(
     }
   }, [sendWsMessage]);
 
-  // Abort on unmount: the popover closing must not leave a request running on
-  // the user's own key with nobody left to read the answer.
-  useEffect(() => cancel, [cancel]);
+  /**
+   * Abort on unmount: the popover closing must not leave a request running on
+   * the user's own key with nobody left to read the answer.
+   *
+   * The cleanup also clears `startedRef`, which matters in development:
+   * StrictMode mounts, cleans up, and mounts again, so without it the first
+   * mount's prompt was cancelled and the second was refused as already started
+   * — a permanent spinner and the full publish grace period, in dev only. The
+   * cost is one cancelled prompt per StrictMode mount; in production the
+   * popover mounts once and this runs only on a real close.
+   */
+  useEffect(
+    () => () => {
+      cancel();
+      startedRef.current = false;
+    },
+    [cancel],
+  );
 
   const start = useCallback(
     (changeDescription: string) => {
-      if (startedRef.current || model === null) {
+      // Nothing to latch until it can actually be sent. Latching first meant a
+      // call made before `/ai/initialize` resolved, or during a reconnect, was
+      // the only attempt there would ever be — the summary then sat at "off" or
+      // "not connected" with nothing to retry it.
+      if (startedRef.current || model === null || !isWsConnected) {
         return;
       }
       startedRef.current = true;
-      if (!isWsConnected) {
-        setState({
-          status: "failed",
-          message: "Not connected to the AI service.",
-        });
-        return;
-      }
       const promptId = crypto.randomUUID();
       const sessionId = crypto.randomUUID();
       promptIdRef.current = promptId;

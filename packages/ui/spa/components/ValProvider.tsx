@@ -249,10 +249,19 @@ export function ValProvider({
   ] = useStatus(client);
 
   const isStatConnected = "data" in stat && !!stat.data;
+  /**
+   * Whether to open the AI socket.
+   *
+   * Two things need it now, not one. Commit summaries moved onto this socket, so
+   * gating it on experimental chat alone would have silently taken AI summaries
+   * away from every project that had them without opting into the chat — the
+   * chat flag is about the panel, not about whether AI exists.
+   */
   const wsEnabled =
     isStatConnected &&
     ("data" in stat && stat.data
-      ? stat.data.config?.ai?.chat?.experimental?.enable === true
+      ? stat.data.config?.ai?.chat?.experimental?.enable === true ||
+        stat.data.config?.ai?.commitMessages?.disabled !== true
       : false);
   const {
     subscribeToMessages: subscribeToWsMessages,
@@ -1885,6 +1894,13 @@ export function usePublishSummary() {
      */
     publishDisabled: isPublishing || hasPatchErrors === true,
     isPublishing,
+    /**
+     * Whether the project wants AI to write its commit messages.
+     *
+     * `ai.commitMessages.disabled` is an explicit opt-out, so absent config
+     * means enabled — same reading the removed REST path had.
+     */
+    aiEnabled: runtimeConfig?.ai?.commitMessages?.disabled !== true,
     summary: publishSummaryState,
     setSummary,
   };

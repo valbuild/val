@@ -17,6 +17,31 @@ import { useAvailableAIModel } from "./ValProvider";
 import { useSessionParam } from "./ValRouter";
 import { useAIChatActions } from "./AIChatActionsContext";
 
+/** A peek answer we cannot describe: still loading, or failed. */
+const UNKNOWN = Symbol("unknown");
+
+/**
+ * A peek answer as a value the prompt can carry.
+ *
+ * `ready` is its data and `absent` is `undefined` — which is what
+ * `describeValue` renders as "(not set)", and the before-value of a field this
+ * publish adds. Everything else is genuinely unknown.
+ */
+function readPeek(
+  peek:
+    | { status: string; data?: unknown }
+    | { status: "absent" }
+    | { status: string },
+): unknown {
+  if (peek.status === "ready") {
+    return (peek as { data: unknown }).data;
+  }
+  if (peek.status === "absent") {
+    return undefined;
+  }
+  return UNKNOWN;
+}
+
 /**
  * How long publishing waits for an AI summary that is still being written.
  *
@@ -39,11 +64,16 @@ export function PublishSummary({
   onPublish?: () => void;
   onClose: () => void;
 }) {
-  const { summary, setSummary, publishDisabled, isPublishing } =
+  const { summary, setSummary, publishDisabled, isPublishing, aiEnabled } =
     usePublishSummary();
   const patchSets = usePatchSets();
   const val = useValSystem();
-  const model = useAvailableAIModel();
+  const availableModel = useAvailableAIModel();
+  // `ai.commitMessages.disabled` in the project's config. It lost its only
+  // reader when the REST path went, so the opt-out silently stopped working.
+  // Gated after the hook, not around it: a conditional hook call would break
+  // the render on the first publish where the config changed.
+  const model = aiEnabled ? availableModel : null;
   const grace = usePublishGrace(PUBLISH_GRACE_SECONDS);
   const { setSessionParam } = useSessionParam();
   const { openAIChat } = useAIChatActions();
@@ -83,12 +113,10 @@ export function PublishSummary({
   // Start the AI when the popover opens, and never block on it. The changes go
   // in the prompt as field paths with before/after values — cheaper than a
   // source diff, and the material a summary actually needs.
-  const startedRef = useRef(false);
   useEffect(() => {
-    if (startedRef.current || val === null || patchSets.status !== "success") {
+    if (val === null || patchSets.status !== "success") {
       return;
     }
-    startedRef.current = true;
     const store = val.system.sourceStore;
     const changes: FieldChange[] = [];
     for (const patchSet of patchSets.data) {
@@ -96,11 +124,12 @@ export function PublishSummary({
         patchSet.moduleFilePath,
         Internal.patchPathToModulePath(patchSet.patchPath),
       );
-      const after = store.peek(sourcePath);
-      const before = store.peekBase(sourcePath);
-      // A value still loading is unknown, not unchanged. Skipping it is better
-      // than telling the model something that is not so.
-      if (after.status !== "ready" || before.status !== "ready") {
+      const after = readPeek(store.peek(sourcePath));
+      const before = readPeek(store.peekBase(sourcePath));
+      // A value still loading is unknown, not unchanged, and saying "unchanged"
+      // would hide a real change. `absent` is not that: it is a definite answer,
+      // and the answer an added or deleted field has on one side.
+      if (after === UNKNOWN || before === UNKNOWN) {
         continue;
       }
       changes.push({
@@ -108,12 +137,22 @@ export function PublishSummary({
         moduleFilePath: patchSet.moduleFilePath,
         fieldPath: patchSet.patchPath.join("."),
         schemaType: patchSet.schemaTypes[0],
-        before: before.data,
-        after: after.data,
+        before,
+        after,
       });
     }
+    // Nothing readable to describe. Sending "No changes." would spend the
+    // user's own key to be told what we already know, and then apply the reply.
+    if (changes.length === 0) {
+      return;
+    }
     ai.start(renderChangeDescription(changes));
-  }, [ai, patchSets, val]);
+    // `ai.start`, not `ai`: the hook returns a fresh object every render, so
+    // depending on it would re-peek every changed path on each keystroke in the
+    // box. `start` changes identity exactly when a retry is worth making — a
+    // model arriving, or the socket connecting — and `start` itself latches
+    // once it has sent.
+  }, [ai.start, patchSets, val]);
 
   // Applying the AI summary is a separate effect from receiving it so the
   // decision reads off the box as it is now, not as it was when the request was
