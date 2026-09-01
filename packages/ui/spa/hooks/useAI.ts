@@ -31,6 +31,7 @@ import {
 import {
   type AITool,
   SessionImageToPatchError,
+  useAvailableAIModel,
   useCurrentProfile,
   useProfilesByAuthorId,
   useAIContext,
@@ -829,6 +830,7 @@ export function useAI(
   const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
   const config = useValConfig();
   const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
+  const chatModel = useAvailableAIModel();
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [sessions, setSessions] = useState<AISession[]>([]);
@@ -848,6 +850,16 @@ export function useAI(
   // a successful send and cleared by whichever of response/error/cancelled
   // settles it.
   const inFlightPromptIdRef = useRef<string | null>(null);
+  /**
+   * The prompts this chat started.
+   *
+   * Every session shares one socket, and the publish flow now runs its own
+   * hidden prompt over it. Without this the chat treated that prompt's stream
+   * as a turn of its own: the commit message appeared as an assistant bubble in
+   * whatever conversation was open, and cancelling it appended a "Stopped."
+   * bubble to a chat that had asked for nothing.
+   */
+  const ownedPromptIdsRef = useRef<Set<string>>(new Set());
   // Pending ask_user_question tool calls, as toolCallId -> the id of the
   // assistant message that opened the card. Needed to reject them on session
   // change, and to fail that specific turn if the result cannot be delivered.
@@ -855,6 +867,12 @@ export function useAI(
 
   useEffect(() => {
     const handler = (message: AIServerMessage) => {
+      // Not ours: another part of the Studio is driving its own prompt on this
+      // socket. `ai_session_unhidden` carries a request id rather than a prompt
+      // id and is nobody's turn, so it is filtered the same way.
+      if ("id" in message && !ownedPromptIdsRef.current.has(message.id)) {
+        return;
+      }
       if (message.type === "ai_streaming") {
         if (!chatRef.current) return;
         if (activeIdRef.current !== message.id) {
@@ -874,6 +892,7 @@ export function useAI(
         if (inFlightPromptIdRef.current === message.id) {
           inFlightPromptIdRef.current = null;
         }
+        ownedPromptIdsRef.current.delete(message.id);
         setIsStreaming(false);
       } else if (message.type === "ai_tool_call") {
         // ask_user_question renders a question card instead of the plain tool
@@ -2105,11 +2124,13 @@ export function useAI(
           message.id,
           message.message,
           message.code,
+          message.action,
         );
         activeIdRef.current = null;
         if (inFlightPromptIdRef.current === message.id) {
           inFlightPromptIdRef.current = null;
         }
+        ownedPromptIdsRef.current.delete(message.id);
         setIsStreaming(false);
       } else if (message.type === "ai_cancelled") {
         // The user asked for this, so it settles rather than fails: whatever
@@ -2157,6 +2178,11 @@ export function useAI(
           inFlightPromptIdRef.current = null;
           setIsStreaming(false);
         }
+        ownedPromptIdsRef.current.delete(message.id);
+      } else if (message.type === "ai_session_unhidden") {
+        // Answered by whoever asked — the publish flow — and nothing for the
+        // chat to do. Named rather than left to the exhaustive check so adding
+        // a message type still fails the build here.
       } else if (message.type === "ai_agent_handoff") {
         // TODO: show this in the UI in some way to indicate that the AI has handed off to a human agent:
         console.log(
@@ -2250,6 +2276,22 @@ export function useAI(
       content: string | ChatDocument,
       attachments?: ChatMessageAttachment[],
     ): boolean => {
+      // No reachable provider means no key is configured for any of them. Refuse
+      // here rather than send a prompt the server will refuse: this way the chat
+      // says why, instead of the turn appearing to start and then failing.
+      if (chatModel === null) {
+        // Started before it is errored: `errorAssistantMessage` retires a
+        // message that already exists, so erroring an id nothing has created is
+        // silently a no-op — which left only the composer's generic failure.
+        const noticeId = crypto.randomUUID();
+        chatRef.current?.startAssistantMessage(noticeId);
+        chatRef.current?.errorAssistantMessage(
+          noticeId,
+          "No AI key is set up for this project. Add one in admin to use the assistant.",
+          "provider_not_configured",
+        );
+        return false;
+      }
       // Lazily mint the session id on the first send so unborn sessions don't
       // appear in the URL or on the server until the user actually says something.
       let sid = sessionIdRef.current;
@@ -2310,7 +2352,12 @@ export function useAI(
         agents: [
           {
             id: "default",
-            model: "openai-gpt-5.1",
+            // Picked from what the server says is reachable rather than
+            // hardcoded: with bring-your-own-key an org may have a key for one
+            // provider and not another, and asking for the wrong one is
+            // refused. Null means AI is off, which is checked before we get
+            // here.
+            model: chatModel,
             systemPrompt: `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
 
 ## Who you are talking to
@@ -2401,6 +2448,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       const sent = sendWsMessage(message);
       if (sent) {
         inFlightPromptIdRef.current = message.id;
+        ownedPromptIdsRef.current.add(message.id);
       }
       // Notify the session was "born" only after a successful send so a failed
       // first send doesn't leak an empty session id into the URL.
@@ -2409,7 +2457,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       }
       return sent;
     },
-    [sendWsMessage],
+    [chatModel, chatRef, sendWsMessage],
   );
 
   // A question card keeps the turn open (and the composer disabled) until a

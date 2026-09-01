@@ -2119,16 +2119,6 @@ export abstract class ValOps {
   }
 
   // #region abstract ops
-  abstract getCommitSummary(preparedCommit: PreparedCommit): Promise<
-    | {
-        commitSummary: string | null;
-        error?: undefined;
-      }
-    | {
-        commitSummary?: undefined;
-        error: GenericErrorMessage;
-      }
-  >;
   abstract onInit(baseSha: BaseSha, schemaSha: SchemaSha): Promise<void>;
   abstract fetchPatches<ExcludePatchOps extends boolean>(filters: {
     patchIds?: PatchId[];

@@ -4,8 +4,82 @@ import { ValClient } from "@valbuild/shared/internal";
 
 // --- Shared types (must match server-side definitions) ---
 
-export const AIModel = z.enum(["openai-gpt-5.1"]);
+/**
+ * The AI providers the content server has an implementation for.
+ *
+ * The one thing the server is authoritative about. Which models exist is this
+ * client's business — see `VAL_AI_MODELS`.
+ */
+export const AIProviderId = z.enum(["openai", "anthropic"]);
+export type AIProviderId = z.infer<typeof AIProviderId>;
+
+/**
+ * A model, as this client names it: a provider plus that provider's own model
+ * id, which the server passes through to the SDK untouched.
+ */
+export const AIModel = z.object({
+  provider: AIProviderId,
+  model: z.string().min(1),
+});
 export type AIModel = z.infer<typeof AIModel>;
+
+export type AIModelInfo = {
+  ref: AIModel;
+  /** What to call it in the UI. */
+  label: string;
+};
+
+/**
+ * The models the Studio offers, best first within each provider.
+ *
+ * This is the catalog, and it lives here rather than on the content server so
+ * that offering a newly released model is a change to the editor and nothing
+ * else. The server only checks that it implements the provider and that the
+ * caller has a key for it.
+ *
+ * Order is the fallback order: with bring-your-own-key an org may have a key
+ * for one provider and not another, so the first entry whose provider is
+ * reachable is the one used.
+ */
+export const VAL_AI_MODELS: AIModelInfo[] = [
+  {
+    ref: { provider: "openai", model: "gpt-5.1" },
+    label: "GPT-5.1",
+  },
+  {
+    ref: { provider: "anthropic", model: "claude-sonnet-5" },
+    label: "Claude Sonnet 5",
+  },
+  {
+    ref: { provider: "anthropic", model: "claude-opus-5" },
+    label: "Claude Opus 5",
+  },
+  {
+    ref: { provider: "anthropic", model: "claude-haiku-4-5" },
+    label: "Claude Haiku 4.5",
+  },
+];
+
+/**
+ * The first model in the catalog whose provider the server says is reachable.
+ *
+ * Null once the server has answered and none of them are — which with
+ * bring-your-own-key means no key is configured for any provider we can drive,
+ * and callers treat that as "AI is off" rather than as an error.
+ */
+export function pickAvailableModel(
+  serverProviders: string[] | undefined,
+): AIModel | null {
+  if (serverProviders === undefined) {
+    // An older content server does not report them, and had a shared OpenAI
+    // key with one model — so the original default is the right guess.
+    return VAL_AI_MODELS[0].ref;
+  }
+  const reachable = new Set(serverProviders);
+  return (
+    VAL_AI_MODELS.find((info) => reachable.has(info.ref.provider))?.ref ?? null
+  );
+}
 
 export const AITool = z.object({
   name: z.string(),
@@ -116,6 +190,13 @@ export const AICancelledMessage = z.object({
 });
 export type AICancelledMessage = z.infer<typeof AICancelledMessage>;
 
+export const AISessionUnhiddenMessage = z.object({
+  type: z.literal("ai_session_unhidden"),
+  id: z.string(),
+  sessionId: z.string(),
+});
+export type AISessionUnhiddenMessage = z.infer<typeof AISessionUnhiddenMessage>;
+
 export const AIAgentHandoffMessage = z.object({
   type: z.literal("ai_agent_handoff"),
   id: z.string(),
@@ -132,6 +213,7 @@ export const AIServerMessage = z.discriminatedUnion("type", [
   AIToolCallMessage,
   AIErrorMessage,
   AICancelledMessage,
+  AISessionUnhiddenMessage,
   AIAgentHandoffMessage,
 ]);
 
@@ -152,6 +234,13 @@ export const AIPromptMessage = z.object({
   message: z.union([z.string(), z.array(AIMessageContentBlock)]),
   context: z.string().optional(),
   maxIterations: z.number().int().min(1).max(200).optional(),
+  /**
+   * Create the session outside the chat list. For work the user did not start a
+   * conversation for — the publish flow's commit summary — so it does not put a
+   * session in the sidebar per publish. Honoured only when the session is
+   * created; `ai_unhide_session` reveals it later.
+   */
+  hidden: z.boolean().optional(),
   agents: z.array(AIAgentDefinition).min(1),
 });
 export type AIPromptMessage = z.infer<typeof AIPromptMessage>;
@@ -207,10 +296,19 @@ export const AICancelMessage = z.object({
 });
 export type AICancelMessage = z.infer<typeof AICancelMessage>;
 
+/** Bring a hidden session into the chat list, so the user can open it. */
+export const AIUnhideSessionMessage = z.object({
+  type: z.literal("ai_unhide_session"),
+  id: z.string(),
+  sessionId: z.string(),
+});
+export type AIUnhideSessionMessage = z.infer<typeof AIUnhideSessionMessage>;
+
 export type AIClientMessage =
   | AIPromptMessage
   | AIToolResultMessage
-  | AICancelMessage;
+  | AICancelMessage
+  | AIUnhideSessionMessage;
 
 export type AIMessageHandler = (message: AIServerMessage) => void;
 
@@ -270,10 +368,19 @@ export function useAIWebSocket(
   connectionError: string | null;
   /** Try to connect again, from the first attempt. */
   retryConnection: () => void;
+  /**
+   * The model to use, picked from what the server said is available.
+   *
+   * Null once the server has answered and nothing it offers is a model this
+   * client knows — which with bring-your-own-key means no key is configured
+   * for any provider the Studio can drive.
+   */
+  availableModel: AIModel | null;
 } {
   const wsRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [authError, setAuthError] = useState(false);
+  const [availableModel, setAvailableModel] = useState<AIModel | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const handlersRef = useRef<Set<AIMessageHandler>>(new Set());
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -324,6 +431,7 @@ export function useAIWebSocket(
         return;
       }
       setAuthError(false);
+      setAvailableModel(pickAvailableModel(res.json.providers));
 
       const ws = new WebSocket(
         res.json.wsUrl + "?nonce=" + encodeURIComponent(res.json.nonce),
@@ -445,5 +553,6 @@ export function useAIWebSocket(
     authError,
     connectionError,
     retryConnection,
+    availableModel,
   };
 }
