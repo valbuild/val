@@ -1,0 +1,62 @@
+import {
+  buildDefaultCommitSummary,
+  moduleDisplayName,
+} from "./defaultCommitSummary";
+
+describe("moduleDisplayName", () => {
+  test("names a router file for its route, not for the file", () => {
+    expect(moduleDisplayName("/content/blogs/page.val.ts")).toBe("Blogs");
+    expect(moduleDisplayName("/content/index.val.ts")).toBe("Content");
+  });
+
+  test("uses the file name when it is not a router", () => {
+    expect(moduleDisplayName("/content/home.val.ts")).toBe("Home");
+    expect(moduleDisplayName("/content/site-settings.val.ts")).toBe(
+      "Site settings",
+    );
+  });
+
+  test("falls back to the path when there is no name to show", () => {
+    expect(moduleDisplayName("/")).toBe("/");
+  });
+});
+
+describe("buildDefaultCommitSummary", () => {
+  test("is never empty, so publishing always has something to commit", () => {
+    expect(buildDefaultCommitSummary([])).toBe("Update content");
+  });
+
+  test("names the one thing that changed", () => {
+    expect(buildDefaultCommitSummary(["/content/home.val.ts"])).toBe(
+      "Update Home",
+    );
+  });
+
+  test("counts and lists when several changed", () => {
+    expect(
+      buildDefaultCommitSummary([
+        "/content/home.val.ts",
+        "/content/about.val.ts",
+      ]),
+    ).toBe("Update content in 2 places\n\nChanged: About, Home");
+  });
+
+  test("collapses duplicates from several patches to one module", () => {
+    expect(
+      buildDefaultCommitSummary([
+        "/content/home.val.ts",
+        "/content/home.val.ts",
+      ]),
+    ).toBe("Update Home");
+  });
+
+  test("truncates a long list rather than listing everything", () => {
+    const paths = Array.from(
+      { length: 9 },
+      (_, i) => `/content/page-${i}.val.ts`,
+    );
+    const summary = buildDefaultCommitSummary(paths);
+    expect(summary).toContain("Update content in 9 places");
+    expect(summary).toContain("and 3 more");
+  });
+});
