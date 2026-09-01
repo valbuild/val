@@ -33,13 +33,36 @@ describe("buildDefaultCommitSummary", () => {
     );
   });
 
-  test("counts and lists when several changed", () => {
+  test("names a couple of things rather than counting them", () => {
     expect(
       buildDefaultCommitSummary([
         "/content/home.val.ts",
         "/content/about.val.ts",
       ]),
-    ).toBe("Update content in 2 places\n\nChanged: About, Home");
+    ).toBe("Update About and Home");
+  });
+
+  test("names up to three, with no Oxford comma", () => {
+    expect(
+      buildDefaultCommitSummary([
+        "/content/home.val.ts",
+        "/content/about.val.ts",
+        "/content/blogs/page.val.ts",
+      ]),
+    ).toBe("Update About, Blogs and Home");
+  });
+
+  test("switches to a count once naming them stops reading as a title", () => {
+    expect(
+      buildDefaultCommitSummary([
+        "/content/home.val.ts",
+        "/content/about.val.ts",
+        "/content/blogs/page.val.ts",
+        "/content/contact.val.ts",
+      ]),
+    ).toBe(
+      "Update content in 4 places\n\nChanged: About, Blogs, Contact, Home",
+    );
   });
 
   test("collapses duplicates from several patches to one module", () => {

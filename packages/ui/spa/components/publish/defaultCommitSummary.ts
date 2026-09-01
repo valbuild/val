@@ -9,6 +9,9 @@ import type { ModuleFilePath } from "@valbuild/core";
  * is also the whole story when no AI is configured.
  */
 
+/** How many names fit in a title before a count reads better. */
+const MAX_NAMED = 3;
+
 /** How many names to list before falling back to "and N more". */
 const MAX_LISTED = 6;
 
@@ -44,13 +47,24 @@ export function buildDefaultCommitSummary(
   if (names.length === 0) {
     return "Update content";
   }
-  if (names.length === 1) {
-    return `Update ${names[0]}`;
+  // A few names read better than a count — "Update Home and Blogs" says more
+  // than "Update content in 2 places" in fewer words, and is what someone
+  // scanning a commit list actually wants.
+  if (names.length <= MAX_NAMED) {
+    return `Update ${joinNames(names)}`;
   }
   const listed = names.slice(0, MAX_LISTED).join(", ");
   const remaining = names.length - MAX_LISTED;
   const changed = remaining > 0 ? `${listed} and ${remaining} more` : listed;
   return `Update content in ${names.length} places\n\nChanged: ${changed}`;
+}
+
+/** "A", "A and B", "A, B and C" — no Oxford comma, matching the UI's copy. */
+function joinNames(names: string[]): string {
+  if (names.length === 1) {
+    return names[0];
+  }
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
 /**

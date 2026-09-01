@@ -120,8 +120,8 @@ export function PublishSummaryView({
         <div className="flex items-start gap-2 text-xs text-fg-secondary">
           <Loader2 size={12} className="animate-spin mt-0.5 shrink-0" />
           <span>
-            Waiting for the AI summary — publishing in {waitingForAiSeconds}s
-            either way. Press Publish again to go now.
+            Waiting for the AI summary. Publishing in {waitingForAiSeconds}s
+            either way — press Publish again to skip the wait.
           </span>
         </div>
       )}
@@ -172,7 +172,7 @@ function AiSummaryButton({
     return (
       <AiTooltip
         container={portalContainer}
-        text="Val can write these for you once an AI key is set up. Publishing works the same either way."
+        text="Val can write your summary for you once an AI key is set up. Publishing works the same either way."
       >
         <button
           type="button"
@@ -250,7 +250,7 @@ function AiSummaryButton({
       {onOpenAiSession && (
         <AiTooltip
           container={portalContainer}
-          text="Open the chat where this summary was written, to ask what changed."
+          text="Open the chat that wrote this summary to ask what changed."
         >
           <button
             type="button"
