@@ -13,12 +13,33 @@ import prettier from "prettier";
  * written to disk in local dev should come out formatted the way the repo
  * formats everything else, whichever path wrote it.
  */
-const { valMcpAuthorize, valMcpTools } = initValMcp(valModules, config, {
-  formatter: (code, filePath) => {
-    return prettier.format(code, {
-      filepath: filePath,
-    });
+const { valMcpAuthorize, valMcpTools, valMcpMetadata } = initValMcp(
+  valModules,
+  config,
+  {
+    formatter: (code, filePath) => {
+      return prettier.format(code, {
+        filepath: filePath,
+      });
+    },
+    /**
+     * Where to authorize, when this app is configured for it.
+     *
+     * Read from the environment rather than hardcoded, and absent by default,
+     * because the two are genuinely different deployments: local development
+     * has no authorization server to talk to and wants the endpoint to work
+     * without one, while a deployed app must not serve MCP to whoever asks.
+     * Set both and every call needs a verified access token.
+     */
+    ...(process.env.VAL_OAUTH_ISSUER && process.env.VAL_MCP_RESOURCE
+      ? {
+          oauth: {
+            issuer: process.env.VAL_OAUTH_ISSUER,
+            resource: process.env.VAL_MCP_RESOURCE,
+          },
+        }
+      : {}),
   },
-});
+);
 
-export { valMcpAuthorize, valMcpTools };
+export { valMcpAuthorize, valMcpTools, valMcpMetadata };

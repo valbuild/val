@@ -1,8 +1,10 @@
 /**
  * @jest-environment node
  */
+import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import { initVal } from "@valbuild/core";
 import { initValMcp } from "./initValMcp";
+import { clearValAccessTokenCache } from "./valAccessToken";
 
 /**
  * What the MCP endpoint refuses, and why each refusal is not optional.
@@ -266,6 +268,7 @@ describe("credentials", () => {
     // Verbatim: this app is not the authority on what the token may do, so it
     // must not normalise, truncate or interpret it on the way to the backend.
     expect(res.status === "ok" && res.ctx.auth).toEqual({
+      type: "pat",
       pat: "pat-from-the-caller",
     });
   });
@@ -294,7 +297,10 @@ describe("credentials", () => {
       ),
     );
 
-    expect(res.status === "ok" && res.ctx.auth).toEqual({ pat: "pat" });
+    expect(res.status === "ok" && res.ctx.auth).toEqual({
+      type: "pat",
+      pat: "pat",
+    });
   });
 
   test("a non-bearer Authorization header is not treated as a credential", async () => {
@@ -327,5 +333,191 @@ describe("a call with no HTTP request", () => {
       return;
     }
     expect(res.response.status).toBe(401);
+  });
+});
+
+/** An oauth-configured registry, plus what it takes to satisfy it. */
+function oauthHarness(): {
+  issuer: string;
+  resource: string;
+  fetchImpl: typeof fetch;
+  signToken: (claims?: Record<string, unknown>) => string;
+} {
+  const issuer = "https://admin.val.build";
+  const resource = "http://localhost:3000/api/mcp";
+  const { privateKey, publicKey } = generateKeyPairSync("ec", {
+    namedCurve: "P-256",
+  });
+  const jwk = publicKey.export({ format: "jwk" });
+  const fetchImpl: typeof fetch = async () =>
+    new Response(
+      JSON.stringify({
+        keys: [{ ...jwk, kid: "k1", alg: "ES256", use: "sig" }],
+      }),
+      { status: 200 },
+    );
+  const b64 = (value: string): string =>
+    Buffer.from(value).toString("base64url");
+  return {
+    issuer,
+    resource,
+    fetchImpl,
+    signToken(claims = {}) {
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const input = `${b64(
+        JSON.stringify({ alg: "ES256", typ: "JWT", kid: "k1" }),
+      )}.${b64(
+        JSON.stringify({
+          iss: issuer,
+          aud: resource,
+          sub: "profile-123",
+          exp: nowSeconds + 600,
+          scope: "val:read val:write",
+          ...claims,
+        }),
+      )}`;
+      const signature = cryptoSign("sha256", Buffer.from(input, "ascii"), {
+        key: privateKey,
+        dsaEncoding: "ieee-p1363",
+      });
+      return `${input}.${signature.toString("base64url")}`;
+    },
+  };
+}
+
+describe("oauth mode", () => {
+  beforeEach(() => {
+    // The key-set cache is keyed by the issuer's JWKS URL and outlives a
+    // request by design — one issuer really does have one key set. These cases
+    // all use the same issuer with different keys, so without this a later
+    // token is checked against an earlier test's keys.
+    clearValAccessTokenCache();
+  });
+
+  test("no config means nothing changes, and no metadata is published", async () => {
+    // A project that has not been told where to authorize must not publish a
+    // document claiming it knows — and must keep working, because local
+    // development has no authorization server to point at.
+    expect(mcp().valMcpMetadata).toBeNull();
+  });
+
+  test("a request with no token is refused with a challenge that says where to authorize", async () => {
+    const harness = oauthHarness();
+    const res = await withEnv(httpModeEnv(), () =>
+      initValMcp({ config, modules: [] }, config, {
+        oauth: harness,
+      }).valMcpAuthorize(request({})),
+    );
+
+    expect(res.status).toBe("refused");
+    if (res.status !== "refused") {
+      return;
+    }
+    expect(res.response.status).toBe(401);
+    const challenge = res.response.headers.get("www-authenticate");
+    // Without `resource_metadata` the client knows it needs a token and has no
+    // way to find out from where: a dead end rather than a login.
+    expect(challenge).toContain("resource_metadata=");
+    expect(challenge).toContain("oauth-protected-resource");
+    expect(challenge).toContain('error="invalid_request"');
+  });
+
+  test("a verified token becomes a verified profile, not a relayed credential", async () => {
+    const harness = oauthHarness();
+    const res = await withEnv(httpModeEnv(), () =>
+      initValMcp({ config, modules: [] }, config, {
+        oauth: harness,
+      }).valMcpAuthorize(
+        request({ authorization: `Bearer ${harness.signToken()}` }),
+      ),
+    );
+
+    expect(res.status).toBe("ok");
+    // The token itself is deliberately absent from the context: it was checked
+    // here, so what travels onward is the identity it proved rather than the
+    // credential.
+    expect(res.status === "ok" && res.ctx.auth).toEqual({
+      type: "verified-profile",
+      profileId: "profile-123",
+      scopes: ["val:read", "val:write"],
+    });
+  });
+
+  test("a forged token is refused with invalid_token", async () => {
+    const harness = oauthHarness();
+    const other = oauthHarness();
+    const res = await withEnv(httpModeEnv(), () =>
+      initValMcp({ config, modules: [] }, config, {
+        oauth: harness,
+      }).valMcpAuthorize(
+        request({ authorization: `Bearer ${other.signToken()}` }),
+      ),
+    );
+
+    expect(res.status).toBe("refused");
+    if (res.status !== "refused") {
+      return;
+    }
+    expect(res.response.status).toBe(401);
+    expect(res.response.headers.get("www-authenticate")).toContain(
+      'error="invalid_token"',
+    );
+  });
+
+  test("a token with no read scope is 403, not 401", async () => {
+    const harness = oauthHarness();
+    const res = await withEnv(httpModeEnv(), () =>
+      initValMcp({ config, modules: [] }, config, {
+        oauth: harness,
+      }).valMcpAuthorize(
+        request({
+          authorization: `Bearer ${harness.signToken({ scope: "" })}`,
+        }),
+      ),
+    );
+
+    expect(res.status).toBe("refused");
+    if (res.status !== "refused") {
+      return;
+    }
+    // 401 invites the client to authorize again; 403 tells it the grant is the
+    // problem. Sending the wrong one puts a client in a loop.
+    expect(res.response.status).toBe(403);
+    expect(res.response.headers.get("www-authenticate")).toContain(
+      'error="insufficient_scope"',
+    );
+  });
+
+  test("configuring oauth publishes the metadata document", async () => {
+    const harness = oauthHarness();
+    const metadata = initValMcp({ config, modules: [] }, config, {
+      oauth: harness,
+    }).valMcpMetadata;
+
+    expect(metadata).not.toBeNull();
+    const body: unknown = await metadata?.GET(request({})).json();
+    expect(body).toMatchObject({
+      resource: harness.resource,
+      authorization_servers: [harness.issuer],
+    });
+  });
+
+  test("a cross-origin request is still refused before the token is looked at", async () => {
+    const harness = oauthHarness();
+    const res = await withEnv(httpModeEnv(), () =>
+      initValMcp({ config, modules: [] }, config, {
+        oauth: harness,
+      }).valMcpAuthorize(
+        request({
+          origin: "https://evil.example.com",
+          authorization: `Bearer ${harness.signToken()}`,
+        }),
+      ),
+    );
+
+    // Order matters: a valid token does not buy a browser page the right to
+    // drive this endpoint, so the origin check stays in front of verification.
+    expect(res.status).toBe("refused");
+    expect(res.status === "refused" && res.response.status).toBe(403);
   });
 });
