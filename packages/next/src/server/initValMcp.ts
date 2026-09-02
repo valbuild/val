@@ -1,11 +1,23 @@
 import { Internal, ValConfig, ValModules } from "@valbuild/core";
 import {
+  VAL_SCOPE_READ,
+  VAL_SCOPE_WRITE,
   createValTools,
   initHandlerOptions,
   type ValToolContext,
   type ValTools,
 } from "@valbuild/server";
 import { VERSION } from "../version";
+import {
+  readBearerToken,
+  verifyValAccessToken,
+  type ValOAuthConfig,
+} from "./valAccessToken";
+import {
+  createValMcpMetadata,
+  wwwAuthenticate,
+  type ValMcpMetadataHandlers,
+} from "./valMcpMetadata";
 
 /**
  * Val's tools over MCP, and the two checks that have to happen before a request
@@ -42,6 +54,14 @@ export type ValMcp = {
    * with an MCP server can happen once rather than per request.
    */
   valMcpTools: () => Promise<ValTools>;
+  /**
+   * The RFC 9728 protected-resource document, for mounting at
+   * `/.well-known/oauth-protected-resource`.
+   *
+   * `null` when no `oauth` config was given: a project that has not been told
+   * where to authorize must not publish a document claiming it knows.
+   */
+  valMcpMetadata: ValMcpMetadataHandlers | null;
 };
 
 export function initValMcp(
@@ -49,6 +69,17 @@ export function initValMcp(
   config: ValConfig,
   opts?: {
     formatter?: (code: string, filePath: string) => string | Promise<string>;
+    /**
+     * Where to authorize, and what audience to expect.
+     *
+     * Omit it and nothing changes: the endpoint behaves exactly as it did
+     * before OAuth existed, which keeps local development a one-liner and keeps
+     * an app that has not been reconfigured working. Provide it and every call
+     * needs a verified access token — including in fs mode, where a token is
+     * refused rather than ignored, because a host that thinks it is
+     * authenticating should never silently get unauthenticated local access.
+     */
+    oauth?: ValOAuthConfig;
   },
 ): ValMcp {
   const route = "/api/val"; // TODO: get from config, as initValServer does
@@ -84,7 +115,12 @@ export function initValMcp(
     // handled per request
   });
 
+  const oauth = opts?.oauth;
+  const scopesSupported = [VAL_SCOPE_READ, VAL_SCOPE_WRITE];
+
   return {
+    valMcpMetadata: oauth ? createValMcpMetadata(oauth, scopesSupported) : null,
+
     async valMcpTools() {
       return (await setupPromise).tools;
     },
@@ -122,19 +158,56 @@ export function initValMcp(
         return { status: "refused", response: refusal };
       }
 
+      // Not the MCP session id, in either branch below. Val's patch `sessionId`
+      // names a Val AI session, and putting an unrelated id in it would claim a
+      // relationship that does not exist.
+      const sessionId = null;
+
+      if (oauth) {
+        const verified = await verifyValAccessToken(request, oauth);
+        if (verified.status === "refused") {
+          // 401 for a missing or bad token, 403 once the token is good but does
+          // not carry the scope: RFC 6750 section 3.1, and the distinction is
+          // what tells a client whether to authorize again or to give up.
+          const status = verified.error === "insufficient_scope" ? 403 : 401;
+          return {
+            status: "refused",
+            response: new Response(
+              JSON.stringify({
+                error: verified.error,
+                error_description: verified.description,
+              }),
+              {
+                status,
+                headers: {
+                  "Content-Type": "application/json",
+                  "WWW-Authenticate": wwwAuthenticate(oauth, scopesSupported, {
+                    error: verified.error,
+                    description: verified.description,
+                  }),
+                },
+              },
+            ),
+          };
+        }
+        return {
+          status: "ok",
+          tools: setup.tools,
+          ctx: { auth: verified.auth, sessionId },
+        };
+      }
+
       const pat = readBearerToken(request);
       return {
         status: "ok",
         tools: setup.tools,
         ctx: {
-          // Passed through unverified, deliberately: this app is not the
-          // authority on what a token may do, and the registry sends it to the
+          // Passed through unverified, deliberately: without an `oauth` config
+          // this app has no key to check anything against, so it is not the
+          // authority on what the token may do and the registry sends it to the
           // backend that is. See `docs/plans/mcp.md` D.2.
-          auth: pat === null ? null : { pat },
-          // Not the MCP session id. Val's patch `sessionId` names a Val AI
-          // session, and putting an unrelated id in it would claim a
-          // relationship that does not exist.
-          sessionId: null,
+          auth: pat === null ? null : { type: "pat", pat },
+          sessionId,
         },
       };
     },
@@ -254,16 +327,6 @@ function hostnameOf(host: string): string {
   }
   const colon = host.indexOf(":");
   return colon === -1 ? host : host.slice(0, colon);
-}
-
-function readBearerToken(request: Request): string | null {
-  const header = request.headers.get("authorization");
-  if (!header) {
-    return null;
-  }
-  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-  const token = match?.[1]?.trim();
-  return token ? token : null;
 }
 
 function jsonResponse(status: number, body: unknown): Response {

@@ -308,13 +308,25 @@ export async function savePatch(
     unresolved = speculative.errors;
   }
 
-  // Always null, and deliberately so. The app cannot resolve a PAT to a
-  // profile, so any id it put here would be an unverified claim dressed up as a
-  // checked one — and the request already carries the caller's own token, which
-  // is a better answer to "who did this" than anything the app could assert.
-  // Attributing the patch from that token is a backend concern; see
-  // `docs/plans/mcp.md` D.3.
-  const authorId = null;
+  /**
+   * Null on the PAT path, and the verified profile on the token path.
+   *
+   * The PAT case is unchanged and still deliberate: the app cannot resolve a
+   * PAT, so any id it wrote here would be an unverified claim dressed up as a
+   * checked one — and the request already carries the caller's own token, which
+   * is a better answer to "who did this" than anything the app could assert.
+   * Attributing that patch is the backend's job.
+   *
+   * The token case is the opposite situation, which is why it gets the opposite
+   * answer. The host verified a signature over a key it does not hold, so the
+   * profile is checked rather than claimed, and the backend has no token of its
+   * own to attribute from — the call reaches it under the app's API key. If this
+   * stayed null, every edit made through a signed-in editor's own session would
+   * land with no author at all, which is worse than useless on a CMS whose
+   * review screen is organised by who changed what.
+   */
+  const authorId =
+    ctx.auth?.type === "verified-profile" ? ctx.auth.profileId : null;
   for (let attempt = 0; attempt < 2; attempt++) {
     const patchId = mintPatchId();
     // Re-derived on the retry rather than reused: reusing the ref that just

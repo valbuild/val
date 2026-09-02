@@ -7,12 +7,14 @@ import type { ValOps } from "../ValOps";
 import type { ValToolDeps, ValToolImpl, ValToolState } from "./defineTool";
 import { readTools } from "./readTools";
 import { writeTools } from "./writeTools";
-import type {
-  ValToolContext,
-  ValToolDefinition,
-  ValToolDefinitionJson,
-  ValToolResult,
-  ValTools,
+import {
+  VAL_SCOPE_READ,
+  VAL_SCOPE_WRITE,
+  type ValToolContext,
+  type ValToolDefinition,
+  type ValToolDefinitionJson,
+  type ValToolResult,
+  type ValTools,
 } from "./types";
 
 export type ValToolsOptions = ValServerConfig;
@@ -88,6 +90,11 @@ export function createValTools(
           code: "invalid-args",
           message: describeZodError(parsed.error),
         };
+      }
+
+      const insufficient = refuseInsufficientScope(tool, ctx);
+      if (insufficient) {
+        return insufficient;
       }
 
       const resolved = resolveOps(ctx);
@@ -173,6 +180,13 @@ function createOpsResolver(
   // instance holds the token regardless — but it keeps credentials out of the
   // key set, which is the thing that ends up in a heap dump or an error dump.
   const byPatHash = new Map<string, ValOps>();
+  /**
+   * One instance for every verified caller, and unlike the PAT map that is
+   * correct rather than a shortcut: this instance authenticates with the app's
+   * own API key, so there is nothing per-caller in it to keep apart. Who did
+   * what travels as the patch's `authorId` instead — see `writePath`.
+   */
+  let sharedOps: ValOps | null = null;
 
   return (ctx) => {
     if (!ctx.auth) {
@@ -182,9 +196,29 @@ function createOpsResolver(
           status: "error",
           code: "forbidden",
           message:
-            "This Val project talks to the Val content backend, so every call needs the caller's own personal access token. Run `val login` to get one.",
+            "This Val project talks to the Val content backend, so every call needs a credential: an access token from the Val authorization server, or the caller's own personal access token from `val login`.",
         },
       };
+    }
+    if (ctx.auth.type === "verified-profile") {
+      if (!options.apiKey) {
+        // Proxy mode is inferred from the api key being present, so this is
+        // unreachable through `initHandlerOptions`. It stays because the
+        // alternative to refusing is building ops with no credential at all.
+        return {
+          status: "error",
+          result: {
+            status: "error",
+            code: "forbidden",
+            message:
+              "This Val project has no API key configured, so a verified access token cannot be exchanged for backend access.",
+          },
+        };
+      }
+      if (!sharedOps) {
+        sharedOps = createValOps(valModules, options);
+      }
+      return { status: "ok", ops: sharedOps };
     }
     const key = createHash("sha256").update(ctx.auth.pat).digest("hex");
     const cached = byPatHash.get(key);
@@ -305,4 +339,39 @@ function describeZodError(error: z.ZodError): string {
       return path ? `${path}: ${issue.message}` : issue.message;
     })
     .join("; ");
+}
+
+/**
+ * Refuse a call the token was not granted, before anything is attempted.
+ *
+ * Derived from `readOnlyHint` rather than from a second list of tool names,
+ * because a second list is a thing that drifts. The derivation also fails in
+ * the safe direction: a tool that forgets the hint is treated as a write and
+ * demands the wider scope, rather than a write slipping through as a read.
+ *
+ * Only the verified-token path is checked. A PAT carries no scopes here by
+ * design — the backend resolves it and decides — so there is nothing to
+ * enforce, and inventing a default would be this app claiming an authority it
+ * does not have.
+ */
+function refuseInsufficientScope(
+  tool: ValToolDefinition,
+  ctx: ValToolContext,
+): ValToolResult | null {
+  if (ctx.auth?.type !== "verified-profile") {
+    return null;
+  }
+  const needed = tool.annotations?.readOnlyHint
+    ? VAL_SCOPE_READ
+    : VAL_SCOPE_WRITE;
+  if (ctx.auth.scopes.includes(needed)) {
+    return null;
+  }
+  return {
+    status: "error",
+    code: "forbidden",
+    message: `This access token does not have the ${needed} scope, which ${tool.name} requires. Granted: ${
+      ctx.auth.scopes.length > 0 ? ctx.auth.scopes.join(" ") : "(none)"
+    }.`,
+  };
 }

@@ -5,7 +5,16 @@ export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
 // browser. Nothing under `tools/` imports an MCP SDK, and the host that does
 // adapts `ValToolResult` at its own edge.
 export { createValTools } from "./tools";
+// The scope names and the one legitimate way to brand a verified subject: a
+// host that verifies an access token itself needs both, and neither should be
+// re-spelled at the edge where getting it wrong is a silent authorization bug.
+export {
+  VAL_SCOPE_READ,
+  VAL_SCOPE_WRITE,
+  authorIdFromVerifiedSubject,
+} from "./tools";
 export type {
+  ValToolAuth,
   ValToolContext,
   ValToolDefinition,
   ValToolDefinitionJson,
