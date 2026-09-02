@@ -19,6 +19,11 @@ import {
   type Range,
 } from "vscode-languageserver";
 import { createModulePathMap, getModulePathRange } from "./modulePathMap";
+import {
+  isDeferredMediaMetadataCheckAt,
+  mediaMetadataCheckKey,
+  type MediaMetadataVerdict,
+} from "./mediaMetadataChecks";
 import type { ValModuleContent } from "./ValProject";
 
 /** Marks diagnostics as ours, so a client can filter on it. */
@@ -164,6 +169,7 @@ export function createValDiagnostics({
   valRoot,
   snapshot,
   galleryChecks,
+  mediaMetadataChecks,
 }: {
   moduleFilePath: ModuleFilePath;
   content: ValModuleContent;
@@ -192,6 +198,15 @@ export function createValDiagnostics({
    * the caller that can adjudicate them is the one that has a `Service`.
    */
   galleryChecks?: ReadonlyMap<string, GalleryCheckVerdict>;
+  /**
+   * Verdicts for the media metadata placeholders core emits unconditionally,
+   * from {@link resolveMediaMetadataChecks}. Without it the placeholders are
+   * dropped, for the same reason the gallery ones are: core reports
+   * `image:check-metadata` on every `s.image()` that carries metadata whether
+   * or not anything is wrong, so publishing them raw puts a permanent warning
+   * on every image in the project.
+   */
+  mediaMetadataChecks?: ReadonlyMap<string, MediaMetadataVerdict>;
 }): Diagnostic[] {
   if (content.errors === false) {
     return [];
@@ -268,6 +283,29 @@ export function createValDiagnostics({
             { code: "val/file-not-found", sourcePath, filePath: missing },
           ),
         );
+        continue;
+      }
+
+      // An unconditional media metadata placeholder: core reports
+      // `image:check-metadata` on every `s.image()` carrying metadata, whether
+      // or not it disagrees with the file. Show only what the adjudication
+      // actually found, and nothing when it found nothing. Deliberately after
+      // the missing-file branch above, so a deleted file is still reported as
+      // `val/file-not-found` rather than as a metadata mismatch.
+      if (isDeferredMediaMetadataCheckAt({ sourcePath, error, content })) {
+        const verdict = mediaMetadataChecks?.get(
+          mediaMetadataCheckKey(sourcePath, error),
+        );
+        for (const finding of verdict ?? []) {
+          diagnostics.push(
+            build(rangeOf(sourcePath, modulePathMap), finding.message, {
+              code: "val/validation",
+              sourcePath,
+              ...(finding.fixes ? { fixes: finding.fixes } : {}),
+              ...(finding.value !== undefined ? { value: finding.value } : {}),
+            }),
+          );
+        }
         continue;
       }
 

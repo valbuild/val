@@ -21,6 +21,7 @@ import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
 import { FieldRender } from "../render";
 import { FilesEntryMetadata } from "./files";
 import { getSource } from "../module";
+import { mimeTypeMatchesAccept } from "../mimeType";
 
 export type FileOptions = {
   accept?: string;
@@ -223,20 +224,7 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     }
 
     if (accept && mimeType && mimeType.includes("/")) {
-      const acceptedTypes = accept.split(",").map((type) => type.trim());
-
-      const isValidMimeType = acceptedTypes.some((acceptedType) => {
-        if (acceptedType === "*/*") {
-          return true;
-        }
-        if (acceptedType.endsWith("/*")) {
-          const baseType = acceptedType.slice(0, -2);
-          return mimeType.startsWith(baseType);
-        }
-        return acceptedType === mimeType;
-      });
-
-      if (!isValidMimeType) {
+      if (!mimeTypeMatchesAccept(mimeType, accept)) {
         return {
           [path]: [
             ...customValidationErrors,
@@ -262,7 +250,13 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       } as ValidationErrors;
     }
 
-    if (fileMimeType !== mimeType) {
+    // Guarded on `mimeType` being set, as `ImageSchema` guards the same check.
+    // Without it, an absent mimeType reported "Mime type and file extension not
+    // matching. Mime type is 'undefined'" -- with no fix attached, so no quick
+    // fix was offered -- and the `file:add-metadata` branch below could never be
+    // reached for any file whose extension is recognized, which is all of them
+    // that get this far.
+    if (mimeType && fileMimeType !== mimeType) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -282,7 +276,7 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
         [path]: [
           ...customValidationErrors,
           {
-            message: `Found mimeType, but it could not be validated.`,
+            message: `File mimeType has not been checked against the file.`,
             value: src,
             fixes: ["file:check-metadata"],
           },
@@ -294,7 +288,7 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       [path]: [
         ...customValidationErrors,
         {
-          message: `Missing File mimeType.`,
+          message: `File metadata is missing: mimeType.`,
           value: src,
           fixes: ["file:add-metadata"],
         },
