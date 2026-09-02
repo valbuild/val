@@ -38,6 +38,7 @@
     "zod-validation-error": "^5.0.0"
   },
   "files": [
+    "CHANGELOG.md",
     "dist",
     "internal/dist",
     "internal/package.json"

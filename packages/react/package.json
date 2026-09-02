@@ -104,6 +104,7 @@
   },
   "types": "dist/valbuild-react.cjs.d.ts",
   "files": [
+    "CHANGELOG.md",
     "dist",
     "jsx-runtime",
     "jsx-dev-runtime",
