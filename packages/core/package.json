@@ -45,6 +45,7 @@
     "ts-toolbelt": "^9.6.0"
   },
   "files": [
+    "CHANGELOG.md",
     "dist",
     "fp/dist",
     "fp/package.json",
