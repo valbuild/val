@@ -182,7 +182,9 @@ function readKeys(body: unknown): Jwk[] | null {
   if (typeof body !== "object" || body === null || !("keys" in body)) {
     return null;
   }
-  const keys = (body as { keys: unknown }).keys;
+  // `in` narrows the property into the type, so no assertion is needed to read
+  // it — and the `Array.isArray` below is what actually establishes the shape.
+  const keys: unknown = body.keys;
   if (!Array.isArray(keys)) {
     return null;
   }
