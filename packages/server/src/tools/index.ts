@@ -5,6 +5,7 @@ export {
   authorIdFromVerifiedSubject,
 } from "./types";
 export type {
+  ValScope,
   ValToolAuth,
   ValToolContext,
   ValToolDefinition,

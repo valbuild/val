@@ -89,6 +89,23 @@ describe("wwwAuthenticate", () => {
     );
   });
 
+  test("cannot be broken out of by a newline in the description", () => {
+    const header = wwwAuthenticate(OAUTH, SCOPES, {
+      error: "invalid_token",
+      description: "line one\r\nX-Injected: yes",
+    });
+
+    // Response splitting: a CR or LF ends the header line, so an
+    // attacker-influenced description could add a header of its own or a whole
+    // second response. Nothing interpolates request data into these strings
+    // today — this is what keeps that from becoming a vulnerability when
+    // something does.
+    expect(header).not.toContain("\r");
+    expect(header).not.toContain("\n");
+    expect(header).toContain("X-Injected: yes");
+    expect(header.split("\n")).toHaveLength(1);
+  });
+
   test("cannot be broken out of by a quote in the description", () => {
     const header = wwwAuthenticate(OAUTH, SCOPES, {
       error: "invalid_token",

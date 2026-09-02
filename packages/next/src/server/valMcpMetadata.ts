@@ -106,13 +106,29 @@ export function wwwAuthenticate(
   ];
   if (refusal) {
     params.push(`error="${refusal.error}"`);
-    // Quoted-string, so a quote or a backslash in the description would end the
-    // parameter early and produce a header a client may reject outright. The
-    // descriptions here are ours and contain neither, but that is a property of
-    // today's strings rather than of the type.
-    params.push(
-      `error_description="${refusal.description.replace(/["\\]/g, "")}"`,
-    );
+    params.push(`error_description="${headerSafe(refusal.description)}"`);
   }
   return `Bearer ${params.join(", ")}`;
+}
+
+/**
+ * Make a string safe to put inside a quoted header parameter.
+ *
+ * Three classes go, and the third is the one that matters most:
+ *
+ * - a **quote** would close the parameter early;
+ * - a **backslash** would start an escape the rest of the value does not
+ *   finish;
+ * - a **CR or LF** would end the header line, which is response splitting — an
+ *   attacker-influenced description could inject a header of their own, or a
+ *   whole second response.
+ *
+ * The descriptions passed here today are all literals from this package and
+ * contain none of it. That is a property of today's callers rather than of the
+ * type, and this function exists so it stays true when a future one interpolates
+ * something from a request.
+ */
+function headerSafe(value: string): string {
+  // eslint-disable-next-line no-control-regex -- the point is to remove them
+  return value.replace(/["\\]/g, "").replace(/[\u0000-\u001f\u007f]/g, " ");
 }

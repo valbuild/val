@@ -10,6 +10,7 @@ import { writeTools } from "./writeTools";
 import {
   VAL_SCOPE_READ,
   VAL_SCOPE_WRITE,
+  type ValScope,
   type ValToolContext,
   type ValToolDefinition,
   type ValToolDefinitionJson,
@@ -361,17 +362,26 @@ function refuseInsufficientScope(
   if (ctx.auth?.type !== "verified-profile") {
     return null;
   }
-  const needed = tool.annotations?.readOnlyHint
-    ? VAL_SCOPE_READ
-    : VAL_SCOPE_WRITE;
-  if (ctx.auth.scopes.includes(needed)) {
+  // Read is needed by every call, including the writes: a tool that changes
+  // content reads it first, and `ValToolAuth` says as much. Checking only the
+  // wider scope would let a write-but-not-read token through here — today's
+  // verifier refuses such a token before this point, but `createValTools` is
+  // exported and another host may not.
+  const needed: ValScope[] = tool.annotations?.readOnlyHint
+    ? [VAL_SCOPE_READ]
+    : [VAL_SCOPE_READ, VAL_SCOPE_WRITE];
+  const granted = ctx.auth.scopes;
+  const missing = needed.filter((scope) => !granted.includes(scope));
+  if (missing.length === 0) {
     return null;
   }
   return {
     status: "error",
     code: "forbidden",
-    message: `This access token does not have the ${needed} scope, which ${tool.name} requires. Granted: ${
-      ctx.auth.scopes.length > 0 ? ctx.auth.scopes.join(" ") : "(none)"
+    message: `This access token does not have the ${missing.join(
+      " and ",
+    )} scope, which ${tool.name} requires. Granted: ${
+      granted.length > 0 ? granted.join(" ") : "(none)"
     }.`,
   };
 }

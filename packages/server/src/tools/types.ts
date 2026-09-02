@@ -163,10 +163,12 @@ export function authorIdFromVerifiedSubject(subject: string): AuthorId {
   return subject as AuthorId;
 }
 
-/** Read access. Every call needs it, including the read-only ones. */
+/** Read access. Every call needs it, the writes included. */
 export const VAL_SCOPE_READ = "val:read";
-/** Write access. Needed by any tool not marked `readOnlyHint`. */
+/** Write access. Needed *in addition* by any tool not marked `readOnlyHint`. */
 export const VAL_SCOPE_WRITE = "val:write";
+
+export type ValScope = typeof VAL_SCOPE_READ | typeof VAL_SCOPE_WRITE;
 
 export type ValToolResult =
   | { status: "ok"; data: Json }

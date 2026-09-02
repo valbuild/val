@@ -14,6 +14,7 @@ export {
   authorIdFromVerifiedSubject,
 } from "./tools";
 export type {
+  ValScope,
   ValToolAuth,
   ValToolContext,
   ValToolDefinition,

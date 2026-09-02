@@ -173,6 +173,35 @@ describe("scopes", () => {
     expect(res.status === "error" && res.message).toContain("val:read");
   });
 
+  test("a read is refused when the token has write but not read", async () => {
+    const res = await httpTools().call(
+      "get_all_schema",
+      {},
+      verified("val:write"),
+    );
+
+    // Every call needs read, the writes included. The verifier refuses such a
+    // token before it reaches here, but `createValTools` is exported and
+    // another host may not — so the gate does not rely on that.
+    expect(res).toEqual({
+      status: "error",
+      code: "forbidden",
+      message: expect.stringContaining("val:read"),
+    });
+  });
+
+  test("a write needs both scopes, not just the wider one", async () => {
+    const res = await httpTools().call(
+      "create_patch",
+      { moduleFilePath: "/test/pages.val.ts", patch: [] },
+      verified("val:write"),
+    );
+
+    expect(res.status === "error" && res.code).toBe("forbidden");
+    // Names both, so the fix is not a guessing game.
+    expect(res.status === "error" && res.message).toContain("val:read");
+  });
+
   test("fs mode refuses a verified profile too", async () => {
     const res = await fsTools().call(
       "get_all_schema",
