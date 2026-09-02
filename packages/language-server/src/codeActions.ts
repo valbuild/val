@@ -130,6 +130,17 @@ export async function createValCodeActions({
   remoteHost?: string;
 }): Promise<CodeAction[]> {
   const actions: CodeAction[] = [];
+  /**
+   * Fixes already offered, as `<fix target>|<fix>`.
+   *
+   * One problem can be reported as several diagnostics that share a fix: a
+   * stale image reports its width and its height separately, and a gallery
+   * check reports one finding per entry. The fix is the same patch each time --
+   * `createFixPatch` corrects every field, and the gallery branch walks every
+   * entry -- so without this the editor offers the identical "Val: update image
+   * metadata" twice, and recomputes it (re-reading the image) to do so.
+   */
+  const offered = new Set<string>();
 
   for (const diagnostic of diagnostics) {
     const data = diagnostic.data as ValDiagnosticData | undefined;
@@ -167,6 +178,10 @@ export async function createValCodeActions({
       if (!isLocalFix(fix)) {
         continue;
       }
+      const fixTarget = data.fixSourcePath ?? data.sourcePath;
+      if (offered.has(`${fixTarget}|${fix}`)) {
+        continue;
+      }
       const fixEdit = await computeFixEdit({
         document,
         // A gallery check is reported on the entry but fixed against the record
@@ -188,6 +203,7 @@ export async function createValCodeActions({
       if (!fixEdit) {
         continue;
       }
+      offered.add(`${fixTarget}|${fix}`);
       actions.push(
         CodeAction.create(
           FIX_TITLES[fix] ?? `Val: ${fix}`,

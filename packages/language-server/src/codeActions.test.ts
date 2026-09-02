@@ -154,7 +154,11 @@ describe("code actions over LSP", () => {
     expect(fixable.length).toBeGreaterThan(0);
 
     const actions = await session.requestCodeActions(FIXTURE_URI, fixable);
-    expect(actions.length).toBeGreaterThan(0);
+    // Exactly one. Both the width and the height are wrong, so this is reported
+    // as two diagnostics -- but one patch corrects both, so offering the same
+    // "Val: update image metadata" twice would be noise.
+    expect(fixable.length).toBe(2);
+    expect(actions).toHaveLength(1);
 
     const action = actions[0];
     expect(action.kind).toBe("quickfix");

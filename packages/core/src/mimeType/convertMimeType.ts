@@ -51,7 +51,11 @@ export function mimeTypeMatchesAccept(
         return true;
       }
       if (acceptedType.endsWith("/*")) {
-        return mimeType.startsWith(acceptedType.slice(0, -2));
+        // Keep the slash: dropping it too (`slice(0, -2)`, which is what the
+        // image and file copies did) makes "image/*" match "imagex/png". The
+        // record copy special-cased "image/*" to avoid exactly that, so this is
+        // the strict behaviour of the three, not a fourth.
+        return mimeType.startsWith(acceptedType.slice(0, -1));
       }
       return acceptedType === mimeType;
     });

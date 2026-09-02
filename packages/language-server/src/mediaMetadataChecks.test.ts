@@ -14,7 +14,6 @@ import type {
 } from "@valbuild/core";
 import { createValDiagnostics } from "./diagnostics";
 import {
-  clearImageDimensionsCache,
   isDeferredMediaMetadataCheck,
   mediaMetadataCheckKey,
   resolveMediaMetadataChecks,
@@ -346,7 +345,6 @@ describe("resolveMediaMetadataChecks", () => {
   };
 
   beforeEach(() => {
-    clearImageDimensionsCache();
     valRoot = fs.mkdtempSync(path.join(os.tmpdir(), "val-media-checks-"));
     fs.mkdirSync(path.join(valRoot, "public", "val"), { recursive: true });
     fs.writeFileSync(path.join(valRoot, IMAGE_REF), PNG_1X1);
@@ -400,11 +398,10 @@ describe("resolveMediaMetadataChecks", () => {
     );
   });
 
-  test("bytes that cannot be measured are reported as unreadable", async () => {
-    // `extractImageMetadata` answers 0x0 for anything `image-size` cannot
-    // parse, and `createFixPatch` only guards against `undefined` -- so without
-    // this guard a truncated file reports "Expected: 0", and applying the fix
-    // would write those zeroes into the module.
+  test("bytes that cannot be measured keep the placeholder", async () => {
+    // `image-size` throws on bytes it cannot parse, so `createFixPatch` throws
+    // too. There is nothing to say about the metadata, and inventing a second
+    // opinion here would only disagree with what `val validate` reports.
     fs.writeFileSync(path.join(valRoot, IMAGE_REF), Buffer.from("not a png"));
     const verdict = await resolve({
       path: IMAGE_REF,
@@ -412,21 +409,32 @@ describe("resolveMediaMetadataChecks", () => {
       height: 944,
       mimeType: "image/png",
     });
-    expect(verdict).toEqual([
-      {
-        message:
-          "Could not read the image dimensions of '/public/val/logo.png'. " +
-          "The file may be corrupt or truncated.",
-        value: {
-          path: IMAGE_REF,
-          width: 944,
-          height: 944,
-          mimeType: "image/png",
-        },
-      },
-    ]);
-    // No fix: the only one available would write the 0x0 it just failed to read.
-    expect(verdict?.[0].fixes).toBeUndefined();
+    expect(verdict).toHaveLength(1);
+    expect(verdict?.[0].message).toBe(
+      "Image metadata has not been checked against the file.",
+    );
+  });
+
+  test("an SVG with no intrinsic size keeps the placeholder", async () => {
+    // `image-size` throws "Invalid SVG" for an SVG with no width, height or
+    // viewBox -- which is a legitimate SVG, not a broken file. It must not be
+    // reported as corrupt, and it must keep its fix.
+    const svgRef = "/public/val/icon.svg";
+    fs.writeFileSync(
+      path.join(valRoot, svgRef),
+      '<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>',
+    );
+    const verdict = await resolve({
+      path: svgRef,
+      width: 10,
+      height: 10,
+      mimeType: "image/svg+xml",
+    });
+    expect(verdict).toHaveLength(1);
+    expect(verdict?.[0].message).toBe(
+      "Image metadata has not been checked against the file.",
+    );
+    expect(verdict?.[0].fixes).toEqual(["image:check-metadata"]);
   });
 
   test("a file that is not on disk keeps the placeholder", async () => {
@@ -470,13 +478,9 @@ describe("resolveMediaMetadataChecks", () => {
     expect(verdicts.size).toBe(0);
   });
 
-  test("a second look at an unchanged file reuses the measured dimensions", async () => {
-    // The cache is keyed on mtime+size, so a debounced re-validation of a module
-    // full of images does not re-read every one of them.
+  test("a file deleted between passes stops being accepted", async () => {
     expect(await resolve(CORRECT)).toEqual([]);
     fs.rmSync(path.join(valRoot, IMAGE_REF));
-    // Still measurable from the cache -- but the on-disk check ahead of it now
-    // fails, which is what keeps a deleted file from being silently accepted.
     expect(await resolve(CORRECT)).toHaveLength(1);
   });
 });

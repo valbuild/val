@@ -28,7 +28,7 @@ import {
   type ValidationFix,
   DEFAULT_VAL_REMOTE_HOST,
 } from "@valbuild/core";
-import { createFixPatch, extractImageMetadata } from "@valbuild/server";
+import { createFixPatch } from "@valbuild/server";
 import type { ValModuleContent } from "./ValProject";
 
 /**
@@ -246,7 +246,11 @@ function keep(error: ValidationError): MediaMetadataVerdict {
  *
  * The comparison itself is still `createFixPatch`, unchanged, which is the
  * parity that matters: the editor's wording is the CLI's wording because it is
- * the CLI's code.
+ * the CLI's code -- including for bytes it cannot measure, where it reports
+ * what `val validate` reports rather than a second opinion of our own.
+ *
+ * `createFixPatch` reads and decodes the image itself, so this is one file read
+ * per media field per validation pass, and nothing here should add another.
  */
 async function adjudicate({
   sourcePath,
@@ -275,18 +279,6 @@ async function adjudicate({
     // means this verdict never has the last word on a file that is not there.
     return keep(error);
   }
-  if (!(await imageBytesAreReadable({ error, valRoot }))) {
-    // No fix offered: the only fix available writes what was read from the
-    // bytes, and what was read is 0x0. The file is the problem.
-    return [
-      {
-        message:
-          `Could not read the image dimensions of '${ref}'. ` +
-          `The file may be corrupt or truncated.`,
-        ...(error.value !== undefined ? { value: error.value } : {}),
-      },
-    ];
-  }
   let fixed;
   try {
     fixed = await createFixPatch(
@@ -313,96 +305,6 @@ async function adjudicate({
     ...(error.fixes ? { fixes: error.fixes } : {}),
     ...(error.value !== undefined ? { value: error.value } : {}),
   }));
-}
-
-/**
- * Whether an image's dimensions can actually be read from its bytes.
- *
- * `extractImageMetadata` reports `width: 0, height: 0` for bytes `image-size`
- * cannot parse, and `createFixPatch` only guards against `undefined` -- so a
- * corrupt or truncated file would otherwise be reported as "Expected: 0", and
- * "fixing" it would write those zeroes into the module. Keep the placeholder
- * instead: something is wrong, and it is not the stored metadata.
- *
- * Only images have dimensions; a file's metadata is its mime type, which is
- * derived from the name and always readable.
- */
-async function imageBytesAreReadable({
-  error,
-  valRoot,
-}: {
-  error: ValidationError;
-  valRoot: string;
-}): Promise<boolean> {
-  if (!(error.fixes ?? []).includes("image:check-metadata")) {
-    return true;
-  }
-  const value = mediaValueOf(error.value);
-  if (typeof value?.path !== "string") {
-    return true;
-  }
-  const dimensions = await readImageDimensions(path.join(valRoot, value.path));
-  return (
-    dimensions !== undefined && dimensions.width > 0 && dimensions.height > 0
-  );
-}
-
-/**
- * Image dimensions, cached on the file's identity.
- *
- * Validation is debounced per keystroke and a module can hold many images, so
- * without this every edit re-reads every one of them. `mtimeMs` and `size`
- * together change whenever the bytes do, which is all this has to notice.
- *
- * Read with `@valbuild/server`'s extractor -- the same one `createFixPatch`
- * and the gallery fixes use -- so this cannot disagree with the comparison it
- * is guarding.
- */
-const dimensionsCache = new Map<
-  string,
-  { mtimeMs: number; size: number; width: number; height: number }
->();
-
-async function readImageDimensions(
-  filePath: string,
-): Promise<{ width: number; height: number } | undefined> {
-  let stats;
-  try {
-    stats = fs.statSync(filePath);
-  } catch {
-    return undefined;
-  }
-  const cached = dimensionsCache.get(filePath);
-  if (
-    cached &&
-    cached.mtimeMs === stats.mtimeMs &&
-    cached.size === stats.size
-  ) {
-    return { width: cached.width, height: cached.height };
-  }
-  let metadata;
-  try {
-    metadata = await extractImageMetadata(filePath, fs.readFileSync(filePath));
-  } catch {
-    return undefined;
-  }
-  // `ImageMetadata` types both as optional, and `extractImageMetadata` already
-  // substitutes 0 for bytes it could not parse. Treat absent the same way: the
-  // caller reads 0 as "not readable".
-  const width = metadata.width ?? 0;
-  const height = metadata.height ?? 0;
-  dimensionsCache.set(filePath, {
-    mtimeMs: stats.mtimeMs,
-    size: stats.size,
-    width,
-    height,
-  });
-  return { width, height };
-}
-
-/** Drop cached dimensions. For tests. */
-export function clearImageDimensionsCache(): void {
-  dimensionsCache.clear();
 }
 
 /**
