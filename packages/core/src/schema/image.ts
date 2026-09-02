@@ -19,6 +19,7 @@ import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
 import { FieldRender } from "../render";
 import { ImagesEntryMetadata } from "./images";
 import { getSource } from "../module";
+import { mimeTypeMatchesAccept } from "../mimeType";
 
 /**
  * How an uploaded image is re-encoded in the browser, before it is uploaded.
@@ -295,20 +296,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
     }
 
     if (accept && mimeType && mimeType.includes("/")) {
-      const acceptedTypes = accept.split(",").map((type) => type.trim());
-
-      const isValidMimeType = acceptedTypes.some((acceptedType) => {
-        if (acceptedType === "*/*") {
-          return true;
-        }
-        if (acceptedType.endsWith("/*")) {
-          const baseType = acceptedType.slice(0, -2);
-          return mimeType.startsWith(baseType);
-        }
-        return acceptedType === mimeType;
-      });
-
-      if (!isValidMimeType) {
+      if (!mimeTypeMatchesAccept(mimeType, accept)) {
         return {
           [path]: [
             ...customValidationErrors,
@@ -361,7 +349,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
         [path]: [
           ...customValidationErrors,
           {
-            message: `Found image metadata, but it could not be validated. An image must have a width (positive number), a height (positive number) and a mime type.`,
+            message: `Image metadata has not been checked against the file.`,
             value: src,
             fixes: ["image:check-metadata"],
           },
@@ -373,7 +361,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
       [path]: [
         ...customValidationErrors,
         {
-          message: `Could not validate Image metadata.`,
+          message: `Image metadata is missing: width, height and mimeType.`,
           value: src,
           fixes: ["image:add-metadata"],
         },
