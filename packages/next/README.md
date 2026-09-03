@@ -731,7 +731,7 @@ To add classes to `ValRichText` you can use the theme property:
 />
 ```
 
-**NOTE**: if a theme is defined, you must define a mapping for every tag that the you get. What tags you have is decided based on the `options` defined on the `s.richtext()` schema. For example: `s.richtext({ bold: true, })` requires that you add a `bold` theme.
+**NOTE**: if a theme is defined, you must define a mapping for every tag you can get. What tags you have is decided based on the `options` defined on the `s.richtext()` schema. For example: `s.richtext({ bold: true })` requires that you add a `bold` theme.
 
 ```tsx
 <ValRichText

@@ -261,7 +261,7 @@ export class RichTextSchema<
           );
         }
         if (node.tag === "h1" && !this.options.h1) {
-          addError(path, `'h' block is not valid`, false);
+          addError(path, `'h1' block is not valid`, false);
         }
         if (node.tag === "h2" && !this.options.h2) {
           addError(path, `'h2' block is not valid`, false);
@@ -287,7 +287,7 @@ export class RichTextSchema<
         if (node.tag === "li" && !this.options.ul && !this.options.ol) {
           addError(
             path,
-            `'li' tag is invalid since neither 'ul' nor 'ol' block is not valid`,
+            `'li' tag is invalid since neither 'ul' nor 'ol' block is valid`,
             false,
           );
         }
