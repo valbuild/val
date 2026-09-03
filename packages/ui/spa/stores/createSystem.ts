@@ -21,7 +21,12 @@ import {
 } from "./PatchStore";
 import { StatStore } from "./StatStore";
 import { StatusStore } from "./StatusStore";
-import { PatchSync, type ResyncChain, type SavePatches } from "./PatchSync";
+import {
+  PatchSync,
+  type ResyncChain,
+  type SavePatches,
+  type PatchGroupResolver,
+} from "./PatchSync";
 import { HostStore } from "./HostStore";
 import { PreviewStore } from "./PreviewStore";
 import { PatchSetStore, type PatchSetRequest } from "./PatchSetStore";
@@ -214,6 +219,17 @@ export type System = HostRealm &
      * prefix invariant will publish a set that breaks it.
      */
     setPatchGroup(patchIds: readonly PatchId[] | null): void;
+    /**
+     * Register who can answer "which group does this write join".
+     *
+     * The closure needs patch sets, which need the schema, and the write path
+     * can see neither — so whatever holds that knowledge registers itself here.
+     * See {@link PatchGroupResolver}.
+     *
+     * `undefined` clears it, and writing without a group is exactly what this
+     * client did before groups existed.
+     */
+    setPatchGroupResolver(resolver: PatchGroupResolver | undefined): void;
     /** The current group, or `null` when unscoped. See {@link System.setPatchGroup}. */
     patchGroup(): readonly PatchId[] | null;
     /**
@@ -1150,6 +1166,9 @@ export function createSystem(options: SystemOptions): System {
           running: false,
         });
       }
+    },
+    setPatchGroupResolver(resolver) {
+      patchSync.setPatchGroupResolver(resolver);
     },
     setPatchGroup(ids) {
       patchGroupIds = ids === null ? null : [...ids];

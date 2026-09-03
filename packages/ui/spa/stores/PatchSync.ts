@@ -31,7 +31,39 @@ export type SavePatches = (request: {
   patches: { path: ModuleFilePath; patchId: PatchId; patch: Patch }[];
   parentRef: ParentRef;
   sessionId?: string | null;
+  patchGroup?: PatchGroupMembership;
 }) => Promise<SaveResult>;
+
+/**
+ * Which patch group a write joins, and what it drags in with it.
+ *
+ * `alsoAddPatchIds` is the CLOSURE: the patches that share a patch set with the
+ * ones being written and must therefore move with them. Sending the group's
+ * current membership instead would be a no-op — the server set-unions it — and
+ * would miss the case the feature exists for: another author's array insert
+ * has to join your group when you edit that array, or your op lands on the
+ * wrong element.
+ */
+export type PatchGroupMembership = {
+  patchGroupId: string;
+  alsoAddPatchIds: PatchId[];
+  closureVersion: number;
+};
+
+/**
+ * Who can answer "which group does this write join, and what comes with it".
+ *
+ * A seam, like `savePatches` and `resyncChain`, and for the same reason: the
+ * closure needs patch sets, which need the schema, and neither is visible from
+ * here. Whatever holds that knowledge registers itself.
+ *
+ * `undefined` — the resolver is absent, or answers `undefined` — means write
+ * without a group, which is exactly what this client did before groups existed
+ * and what `fs` mode and any content API without them keep doing.
+ */
+export type PatchGroupResolver = (
+  patchIds: PatchId[],
+) => PatchGroupMembership | undefined;
 
 export type SaveResult =
   | { status: "saved"; newPatchIds: PatchId[]; parentRef: ParentRef }
@@ -341,6 +373,19 @@ export class PatchSync {
    * LOCAL head: that includes patches the server has never seen, and naming one
    * of those as a parent is a guaranteed 409.
    */
+  /**
+   * Set by whatever can compute the closure — see {@link PatchGroupResolver}.
+   *
+   * Registered after construction, like `PatchStore.setParentRefSource`, for the
+   * same reason: the thing that knows the answer is built later than the sync
+   * that needs it.
+   */
+  private patchGroupResolver: PatchGroupResolver | undefined;
+
+  setPatchGroupResolver(resolver: PatchGroupResolver | undefined): void {
+    this.patchGroupResolver = resolver;
+  }
+
   currentParentRef(): ParentRef | null {
     if (this.baseSha === null) {
       return null;
@@ -441,6 +486,16 @@ export class PatchSync {
       this.setState({ status: "saving", patches: patchIds });
       this.activity.work("patch:save", undefined, batch.length);
       this.events.emit({ type: "patch:save", patches: patchIds, parentRef });
+      /*
+       * Resolved per BATCH, against the chain as it stands now.
+       *
+       * Not at create time: a patch is written some time after it is made, and
+       * a patch set can coalesce in between — another author's insert can make
+       * two previously separate sets into one. The closure that matters is the
+       * one true when the write goes out, since that is what the server unions
+       * into the group.
+       */
+      const patchGroup = this.patchGroupResolver?.(patchIds);
       const result = await save({
         patches: batch.map((record) => ({
           path: record.moduleFilePath,
@@ -451,6 +506,7 @@ export class PatchSync {
         // The batch's session, not the system's: a session belongs to the patches
         // that were made in it.
         sessionId: session ?? this.sessionId,
+        ...(patchGroup ? { patchGroup } : {}),
       });
       if (this.stopped) {
         return;

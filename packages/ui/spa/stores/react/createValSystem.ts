@@ -426,9 +426,34 @@ export function createValSystem(
 
     ...(options?.writes === true
       ? {
-          savePatches: async ({ patches, parentRef, sessionId }) => {
+          savePatches: async ({
+            patches,
+            parentRef,
+            sessionId,
+            patchGroup,
+          }) => {
             const res = await client("/patches", "PUT", {
-              body: { patches, parentRef, sessionId },
+              body: {
+                patches,
+                parentRef,
+                sessionId,
+                /*
+                 * Membership travels with the patch, in this same request. The
+                 * server records it before it inserts, so an invalid closure is
+                 * a 400 with nothing written — rather than a patch that exists
+                 * outside its author's group and cannot be published.
+                 *
+                 * Spread, so a client with no group omits the fields entirely
+                 * rather than sending nulls.
+                 */
+                ...(patchGroup
+                  ? {
+                      patchGroupId: patchGroup.patchGroupId,
+                      alsoAddPatchIds: patchGroup.alsoAddPatchIds,
+                      closureVersion: patchGroup.closureVersion,
+                    }
+                  : {}),
+              },
             });
             if (res.status === null) {
               /*

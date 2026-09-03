@@ -257,3 +257,87 @@ test("later patches in a module survive an earlier one being held", async () => 
   // The held one is untouched in the chain.
   expect(system.patchStore.allRecords().map((r) => r.patchId)).toContain(first);
 });
+
+/**
+ * The group travels with the write, and the closure comes from the resolver.
+ *
+ * `PatchSync` cannot compute the closure: it needs patch sets, which need the
+ * schema, and neither is visible from the write path. So whatever holds that
+ * knowledge registers a resolver, and this pins that its answer actually
+ * reaches the request rather than being computed and dropped.
+ *
+ * The closure is the part that matters. Sending the group's CURRENT membership
+ * would be a no-op — the server set-unions it — and would miss the case the
+ * whole feature exists for: another author's array insert has to join your
+ * group when you edit that array, or your op lands on the wrong element.
+ */
+test("sends the resolver's group and closure with the write", async () => {
+  const saves: { patchGroup?: unknown }[] = [];
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: () => "p-mine" as PatchId,
+    savePatches: async ({ patches, parentRef, patchGroup }) => {
+      saves.push({ patchGroup });
+      return {
+        status: "saved",
+        newPatchIds: patches.map((patch) => patch.patchId),
+        parentRef,
+      };
+    },
+    publishPatches: async () => ({ status: "published" }),
+  });
+  system.host.receive(project());
+  system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+  const asked: PatchId[][] = [];
+  system.setPatchGroupResolver((patchIds) => {
+    asked.push([...patchIds]);
+    return {
+      patchGroupId: "group-alice",
+      // Somebody else's patch, entangled with this one.
+      alsoAddPatchIds: ["p-theirs" as PatchId],
+      closureVersion: 2,
+    };
+  });
+
+  await edit(system, MODULE, "mine");
+  await system.patchSync.flush();
+
+  // Asked about the batch it was about to write.
+  expect(asked).toEqual([["p-mine"]]);
+  expect(saves).toEqual([
+    {
+      patchGroup: {
+        patchGroupId: "group-alice",
+        alsoAddPatchIds: ["p-theirs"],
+        closureVersion: 2,
+      },
+    },
+  ]);
+});
+
+test("writes with no group when no resolver is registered", async () => {
+  const saves: { patchGroup?: unknown }[] = [];
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: () => "p-mine" as PatchId,
+    savePatches: async ({ patches, parentRef, patchGroup }) => {
+      saves.push({ patchGroup });
+      return {
+        status: "saved",
+        newPatchIds: patches.map((patch) => patch.patchId),
+        parentRef,
+      };
+    },
+    publishPatches: async () => ({ status: "published" }),
+  });
+  system.host.receive(project());
+  system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+  await edit(system, MODULE, "mine");
+  await system.patchSync.flush();
+
+  // Absent, not null: this is what every client did before groups existed, and
+  // what fs mode and a content API without them keep doing.
+  expect(saves).toEqual([{ patchGroup: undefined }]);
+});
