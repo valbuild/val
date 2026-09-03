@@ -1,5 +1,37 @@
 # @valbuild/ui
 
+## 0.118.0
+
+### Minor Changes
+
+- [#574](https://github.com/valbuild/val/pull/574) [`198ba8b`](https://github.com/valbuild/val/commit/198ba8bd8e6c921660e97f5cd26fb17f2d5f3f95) Thanks [@freekh](https://github.com/freekh)! - The assistant lets you pick which model answers, from the models your key can
+  actually reach.
+
+  The content server now asks each provider what a key may use and reports the
+  answer; the Studio offers exactly that, beside the composer. Which model to use
+  is a per-message decision — something cheap for a typo, something strong for a
+  hard question — so the control sits where the message is written rather than in
+  a settings panel.
+
+  The choice is remembered per browser and re-checked against what is on offer
+  each time the assistant starts, so a model an account has lost access to is
+  quietly replaced instead of being sent and refused.
+
+  A content server that does not report models, or could not reach a provider,
+  leaves the built-in catalog as the fallback, filtered to reachable providers.
+
+### Patch Changes
+
+- [#574](https://github.com/valbuild/val/pull/574) [`198ba8b`](https://github.com/valbuild/val/commit/198ba8bd8e6c921660e97f5cd26fb17f2d5f3f95) Thanks [@freekh](https://github.com/freekh)! - AI errors can now show what the provider actually said.
+
+  The content server sends an optional `details` with a failed turn — provider,
+  status, error type, request id and the provider's verbatim message — and the
+  assistant puts it behind a "Details" disclosure. Closed by default, because it
+  is for whoever is going to act on it; findable without a server log, which is
+  the point.
+
+- [#584](https://github.com/valbuild/val/pull/584) [`fe6a398`](https://github.com/valbuild/val/commit/fe6a3981691394e6f34d4d80ec17febd356a98cc) Thanks [@freekh](https://github.com/freekh)! - Fix `useCurrentAuthorId` throwing outside a `ValProvider`, which broke every render of the review screen in isolation.
+
 ## 0.117.1
 
 ### Patch Changes
