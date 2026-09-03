@@ -39,3 +39,18 @@ test("answers null outside a ValProvider instead of throwing", () => {
   render(<ShowsAuthor />);
   expect(screen.getByTestId("author").textContent).toBe("nobody");
 });
+
+/*
+ * There is deliberately no test for "a real error from a mounted provider is
+ * not swallowed".
+ *
+ * The first version of this fix wrapped the destructure in `try`/`catch`, which
+ * answered "nobody" for ANY error raised while reading the context — so a
+ * genuinely broken provider would have rendered as a logged-out user with the
+ * stack trace gone. Copilot flagged it on #584 and it was right.
+ *
+ * Recognising the no-provider context by identity removed the catch rather than
+ * narrowing it, so there is no longer a code path that could swallow anything.
+ * A test for it would have to build its own throwing Proxy and assert that
+ * Proxies throw, which is a test of JavaScript rather than of this hook.
+ */
