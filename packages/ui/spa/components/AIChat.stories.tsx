@@ -262,8 +262,50 @@ export const ErrorWithAction: Story = {
         errorCode: "provider_not_configured",
         errorAction: {
           label: "Set up your own API key",
-          url: "https://admin.val.build/~/acme/marketing-site?tab=settings#ai-keys",
+          url: "https://admin.val.build/~/acme/marketing-site?tab=ai#ai-keys",
         },
+      },
+    ],
+  },
+};
+
+/**
+ * The condition people hit most, with the details a developer needs to act on
+ * it. Out of credit arrives as a 400 from Anthropic, so the message has to say
+ * what it is — "waiting will not clear it" is the part that saves someone
+ * refreshing for ten minutes.
+ */
+export const ErrorWithDetails: Story = {
+  args: {
+    isConnected: true,
+    authError: false,
+    mode: "http",
+    initialMessages: [
+      {
+        id: "details-user-1",
+        role: "user",
+        content: "Summarise the changes",
+        status: "complete",
+      },
+      {
+        id: "details-assistant-1",
+        role: "assistant",
+        content: "",
+        status: "error",
+        error:
+          'Your key for this project "Created by Fredrik Ekholdt at 1 Sep 2026": The Anthropic account behind this key is out of credit or over its quota. Top it up or raise the limit at Anthropic — waiting will not clear it.',
+        errorCode: "byok_no_credit",
+        errorAction: {
+          label: "Set up your own API key",
+          url: "https://admin.val.build/~/acme/marketing-site?tab=ai#ai-keys",
+        },
+        errorDetails: [
+          "provider: anthropic",
+          "status: 400",
+          "type: invalid_request_error",
+          "request id: req_011CecwMR1kih9QyaJ7ip8ji",
+          "message: Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.",
+        ].join("\n"),
       },
     ],
   },
