@@ -68,21 +68,36 @@ function signToken(
   return `${signingInput}.${signature.toString("base64url")}`;
 }
 
-/** A `fetch` that serves one JWKS and counts how often it was asked. */
+/**
+ * A `fetch` that serves one JWKS, counts how often it was asked, and can have
+ * the document swapped underneath it.
+ *
+ * The swap is what makes the rotation cases testable at all: publishing a new
+ * key is something the issuer does between two calls to this server, and the
+ * question is whether the second call notices.
+ */
 function serveJwks(keys: Record<string, unknown>[]): {
   fetchImpl: typeof fetch;
   calls: () => number;
+  publish: (keys: Record<string, unknown>[]) => void;
 } {
   let calls = 0;
+  let published = keys;
   const fetchImpl: typeof fetch = async (input) => {
     calls++;
     const url = typeof input === "string" ? input : String(input);
     if (!url.endsWith("/.well-known/jwks.json")) {
       return new Response("not found", { status: 404 });
     }
-    return new Response(JSON.stringify({ keys }), { status: 200 });
+    return new Response(JSON.stringify({ keys: published }), { status: 200 });
   };
-  return { fetchImpl, calls: () => calls };
+  return {
+    fetchImpl,
+    calls: () => calls,
+    publish: (next) => {
+      published = next;
+    },
+  };
 }
 
 function oauth(fetchImpl: typeof fetch): ValOAuthConfig {
@@ -461,5 +476,89 @@ describe("verifyValAccessToken", () => {
     // A cold start serving a burst should not fetch the key set once per
     // request in flight.
     expect(jwks.calls()).toBe(1);
+  });
+
+  test("refetches once for a kid the cached key set does not hold, then verifies", async () => {
+    const oldKeys = makeKeys("old-key");
+    const newKeys = makeKeys("new-key");
+    const jwks = serveJwks([oldKeys.publicJwk]);
+    const config = oauth(jwks.fetchImpl);
+
+    // Warm the cache on the pre-rotation key set.
+    await verifyValAccessToken(
+      request(signToken(oldKeys, { scope: "val:read" }, { kid: "old-key" })),
+      config,
+    );
+    expect(jwks.calls()).toBe(1);
+
+    // The issuer rotates. Without a refetch this token is refused for the rest
+    // of the five-minute TTL, on every warm instance at once, which is a
+    // rotation turning into an outage.
+    jwks.publish([oldKeys.publicJwk, newKeys.publicJwk]);
+    const res = await verifyValAccessToken(
+      request(signToken(newKeys, { scope: "val:read" }, { kid: "new-key" })),
+      config,
+    );
+
+    expect(res.status).toBe("ok");
+    expect(jwks.calls()).toBe(2);
+
+    // And the refetch replaced the cache rather than being a one-off: the next
+    // token with the same `kid` costs nothing.
+    const again = await verifyValAccessToken(
+      request(signToken(newKeys, { scope: "val:read" }, { kid: "new-key" })),
+      config,
+    );
+    expect(again.status).toBe("ok");
+    expect(jwks.calls()).toBe(2);
+  });
+
+  test("does not refetch again for further unknown kids inside the window", async () => {
+    const keys = makeKeys("published-key");
+    const jwks = serveJwks([keys.publicJwk]);
+    const config = oauth(jwks.fetchImpl);
+
+    await verifyValAccessToken(
+      request(signToken(keys, { scope: "val:read" }, { kid: "published-key" })),
+      config,
+    );
+    expect(jwks.calls()).toBe(1);
+
+    // The `kid` is attacker-controlled, so an unknown one must not be a lever
+    // for making this server call its own issuer once per request. The first
+    // spends the window; the rest are refused out of the cache.
+    const attempts = ["ghost-1", "ghost-2", "ghost-3", "ghost-4"];
+    for (const kid of attempts) {
+      const res = await verifyValAccessToken(
+        request(signToken(keys, { scope: "val:read" }, { kid })),
+        config,
+      );
+      expect(res).toMatchObject({ status: "refused", error: "invalid_token" });
+    }
+
+    expect(jwks.calls()).toBe(2);
+  });
+
+  test("does not refetch on an unknown kid when the cached key set is an error", async () => {
+    const keys = makeKeys();
+    let calls = 0;
+    const failing: typeof fetch = async () => {
+      calls++;
+      return new Response("boom", { status: 500 });
+    };
+    const config = oauth(failing);
+    const token = signToken(keys, { scope: "val:read" });
+
+    const first = await verifyValAccessToken(request(token), config);
+    expect(first).toMatchObject({ status: "refused", error: "invalid_token" });
+    expect(calls).toBe(1);
+
+    // An unreachable issuer already has its own, shorter recovery TTL. Letting
+    // an unknown `kid` shortcut it would hand a struggling issuer a retry storm
+    // from every resource server at once — the failure mode the error cache
+    // exists to prevent.
+    const second = await verifyValAccessToken(request(token), config);
+    expect(second).toMatchObject({ status: "refused", error: "invalid_token" });
+    expect(calls).toBe(1);
   });
 });

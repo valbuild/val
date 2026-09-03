@@ -110,6 +110,12 @@ describe("authorization", () => {
       code: "unsupported",
       message: expect.stringContaining("local filesystem mode"),
     });
+    // A PAT is something the caller chose to send, so the fix is on their side
+    // and the message says so without dragging in config they never touched.
+    expect(res.status === "error" && res.message).toContain(
+      "Do not send a credential",
+    );
+    expect(res.status === "error" && res.message).not.toContain("oauth");
   });
 
   test("fs mode serves a call with no credential", async () => {
@@ -217,6 +223,13 @@ describe("scopes", () => {
       code: "unsupported",
       message: expect.stringContaining("local filesystem mode"),
     });
+    // But the cause does. A verified token only exists because this app
+    // advertised an authorization server, so the developer meeting this did
+    // nothing wrong and cannot fix it from the client — the message has to name
+    // the config that produced it, or every call is refused with advice that
+    // does not apply.
+    expect(res.status === "error" && res.message).toContain("oauth");
+    expect(res.status === "error" && res.message).toContain("VAL_OAUTH_ISSUER");
   });
 
   test("a PAT is not scope-checked here", async () => {
