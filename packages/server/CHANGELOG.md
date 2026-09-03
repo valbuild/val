@@ -1,5 +1,38 @@
 # @valbuild/server
 
+## 0.119.0
+
+### Patch Changes
+
+- Updated dependencies [[`84165f7`](https://github.com/valbuild/val/commit/84165f743eb5802da1e8079bbe98eafcb2cdcec8)]:
+  - @valbuild/ui@0.119.0
+
+## 0.118.0
+
+### Minor Changes
+
+- [#574](https://github.com/valbuild/val/pull/574) [`198ba8b`](https://github.com/valbuild/val/commit/198ba8bd8e6c921660e97f5cd26fb17f2d5f3f95) Thanks [@freekh](https://github.com/freekh)! - The assistant lets you pick which model answers, from the models your key can
+  actually reach.
+
+  The content server now asks each provider what a key may use and reports the
+  answer; the Studio offers exactly that, beside the composer. Which model to use
+  is a per-message decision — something cheap for a typo, something strong for a
+  hard question — so the control sits where the message is written rather than in
+  a settings panel.
+
+  The choice is remembered per browser and re-checked against what is on offer
+  each time the assistant starts, so a model an account has lost access to is
+  quietly replaced instead of being sent and refused.
+
+  A content server that does not report models, or could not reach a provider,
+  leaves the built-in catalog as the fallback, filtered to reachable providers.
+
+### Patch Changes
+
+- Updated dependencies [[`198ba8b`](https://github.com/valbuild/val/commit/198ba8bd8e6c921660e97f5cd26fb17f2d5f3f95), [`198ba8b`](https://github.com/valbuild/val/commit/198ba8bd8e6c921660e97f5cd26fb17f2d5f3f95), [`fe6a398`](https://github.com/valbuild/val/commit/fe6a3981691394e6f34d4d80ec17febd356a98cc)]:
+  - @valbuild/ui@0.118.0
+  - @valbuild/shared@0.118.0
+
 ## 0.117.1
 
 ### Patch Changes

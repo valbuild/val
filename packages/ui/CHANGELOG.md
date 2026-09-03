@@ -1,5 +1,60 @@
 # @valbuild/ui
 
+## 0.119.0
+
+### Minor Changes
+
+- [#587](https://github.com/valbuild/val/pull/587) [`84165f7`](https://github.com/valbuild/val/commit/84165f743eb5802da1e8079bbe98eafcb2cdcec8) Thanks [@freekh](https://github.com/freekh)! - The AI assistant's tool calls are now a row of their own above the answer,
+  collapsed to a summary you can expand.
+
+  They used to be listed inside the assistant's own bubble, one line per call, so
+  a turn that read a schema, searched, read a source and wrote a patch pushed its
+  answer off the bottom of the panel — the part you were waiting for was the part
+  you had to scroll for. The row now says what is happening ("Reading content…"
+  while it runs, "Used 5 tools" when it is done) and the list is behind a
+  disclosure.
+
+  While a call is in flight its label shimmers, so the row shows the turn is
+  still working without a spinner to stare at. It marks a call as pending, not as
+  healthy: a stalled call stays pending, and goes on shimmering until the turn
+  times out.
+
+  `ask_user_question` cards stay outside the collapsible and always visible: the
+  turn is blocked until one is answered, and hiding it leaves a session that has
+  visibly stopped with nothing on screen saying why.
+
+## 0.118.0
+
+### Minor Changes
+
+- [#574](https://github.com/valbuild/val/pull/574) [`198ba8b`](https://github.com/valbuild/val/commit/198ba8bd8e6c921660e97f5cd26fb17f2d5f3f95) Thanks [@freekh](https://github.com/freekh)! - The assistant lets you pick which model answers, from the models your key can
+  actually reach.
+
+  The content server now asks each provider what a key may use and reports the
+  answer; the Studio offers exactly that, beside the composer. Which model to use
+  is a per-message decision — something cheap for a typo, something strong for a
+  hard question — so the control sits where the message is written rather than in
+  a settings panel.
+
+  The choice is remembered per browser and re-checked against what is on offer
+  each time the assistant starts, so a model an account has lost access to is
+  quietly replaced instead of being sent and refused.
+
+  A content server that does not report models, or could not reach a provider,
+  leaves the built-in catalog as the fallback, filtered to reachable providers.
+
+### Patch Changes
+
+- [#574](https://github.com/valbuild/val/pull/574) [`198ba8b`](https://github.com/valbuild/val/commit/198ba8bd8e6c921660e97f5cd26fb17f2d5f3f95) Thanks [@freekh](https://github.com/freekh)! - AI errors can now show what the provider actually said.
+
+  The content server sends an optional `details` with a failed turn — provider,
+  status, error type, request id and the provider's verbatim message — and the
+  assistant puts it behind a "Details" disclosure. Closed by default, because it
+  is for whoever is going to act on it; findable without a server log, which is
+  the point.
+
+- [#584](https://github.com/valbuild/val/pull/584) [`fe6a398`](https://github.com/valbuild/val/commit/fe6a3981691394e6f34d4d80ec17febd356a98cc) Thanks [@freekh](https://github.com/freekh)! - Fix `useCurrentAuthorId` throwing outside a `ValProvider`, which broke every render of the review screen in isolation.
+
 ## 0.117.1
 
 ### Patch Changes
