@@ -426,6 +426,36 @@ export function createValSystem(
 
     ...(options?.writes === true
       ? {
+          stagePatches: async (request) => {
+            const res = await client("/patch-groups/~/patches", "PUT", {
+              body: request,
+            });
+            if (res.status !== 200) {
+              return {
+                status: "error",
+                message:
+                  res.status !== null && "message" in res.json
+                    ? res.json.message
+                    : `Could not stage: ${res.status ?? "network error"}`,
+              };
+            }
+            return { status: "ok" };
+          },
+          unstagePatches: async (request) => {
+            const res = await client("/patch-groups/~/patches", "DELETE", {
+              body: request,
+            });
+            if (res.status !== 200) {
+              return {
+                status: "error",
+                message:
+                  res.status !== null && "message" in res.json
+                    ? res.json.message
+                    : `Could not unstage: ${res.status ?? "network error"}`,
+              };
+            }
+            return { status: "ok" };
+          },
           savePatches: async ({
             patches,
             parentRef,

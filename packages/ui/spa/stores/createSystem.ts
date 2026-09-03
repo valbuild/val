@@ -230,6 +230,20 @@ export type System = HostRealm &
      * client did before groups existed.
      */
     setPatchGroupResolver(resolver: PatchGroupResolver | undefined): void;
+    /**
+     * Persist a change to what this user's group holds.
+     *
+     * Separate from {@link System.setPatchGroup}, which only scopes THIS client.
+     * A stage that is not persisted is lost on reload — and for an unstage that
+     * is the dangerous direction, because the change silently comes back staged
+     * and the next publish ships what the user meant to hold.
+     */
+    stagePatches(
+      request: Parameters<StagePatches>[0],
+    ): ReturnType<StagePatches>;
+    unstagePatches(
+      request: Parameters<StagePatches>[0],
+    ): ReturnType<StagePatches>;
     /** The current group, or `null` when unscoped. See {@link System.setPatchGroup}. */
     patchGroup(): readonly PatchId[] | null;
     /**
@@ -281,6 +295,20 @@ export type System = HostRealm &
     setMode(mode: "fs" | "http"): void;
     dispose(): void;
   };
+
+/**
+ * Change what a patch group holds — stage, or unstage.
+ *
+ * The ids are already CLOSED by the caller: staging carries the prefix closure
+ * over each patch set, unstaging the forward closure. Neither is derived here,
+ * for the reason the closure is never derived server-side — it needs the
+ * schema, and one implementation of that rule is the point.
+ */
+export type StagePatches = (request: {
+  patchGroupId: string;
+  patchIds: PatchId[];
+  closureVersion: number;
+}) => Promise<{ status: "ok" } | { status: "error"; message: string }>;
 
 export type SystemOptions = {
   fetchPatches: FetchPatches;
@@ -347,6 +375,16 @@ export type SystemOptions = {
   saveFlushTimeoutMs?: number;
   /** `POST /save`. Omitting it means this system cannot publish. */
   publishPatches?: PublishPatches;
+  /**
+   * `PUT` / `DELETE /patch-groups/~/patches` — stage and unstage.
+   *
+   * Omitting them means this system cannot change group membership, which is
+   * every system without patch groups: `fs`, and any content API that predates
+   * them. The staging UI stays off there rather than offering controls that
+   * cannot do anything.
+   */
+  stagePatches?: StagePatches;
+  unstagePatches?: StagePatches;
   /** `DELETE /patches`. Omitting it means this system cannot discard. */
   discardPatches?: DiscardPatches;
   /**
@@ -1169,6 +1207,24 @@ export function createSystem(options: SystemOptions): System {
     },
     setPatchGroupResolver(resolver) {
       patchSync.setPatchGroupResolver(resolver);
+    },
+    async stagePatches(request) {
+      if (options.stagePatches === undefined) {
+        return {
+          status: "error",
+          message: "This system cannot change patch group membership.",
+        };
+      }
+      return options.stagePatches(request);
+    },
+    async unstagePatches(request) {
+      if (options.unstagePatches === undefined) {
+        return {
+          status: "error",
+          message: "This system cannot change patch group membership.",
+        };
+      }
+      return options.unstagePatches(request);
     },
     setPatchGroup(ids) {
       patchGroupIds = ids === null ? null : [...ids];

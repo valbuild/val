@@ -738,8 +738,11 @@ See `packages/ui/spa/stores/architecture.md`.
       same call, so "what I can see" and "what I will publish" cannot come apart.
       Publishing something the editor was never shown is the failure this feature exists
       to prevent, and two setters is how it would happen.
-- [ ] **Feed the real group into `PatchStagingProvider`** where the compare view is
-      mounted, replacing the local state the Storybook stories use.
+- [x] **Feed the real group into `PatchStagingProvider`** — mounted in `ValShell`'s
+      compare view, with the group read from the `patchGroups` annotation and stage /
+      unstage persisted through `/patch-groups/~/patches`. The write-path resolver is
+      registered from the SHELL rather than the compare view: writes happen while
+      editing, which is exactly when the review screen is closed.
 - [x] **`patch_id` on `PUT /sources/~`** — the server applies exactly the patches it is
       told to, and everything only when told nothing. Covered by
       `packages/server/src/sourcesPatchGroup.test.ts`.

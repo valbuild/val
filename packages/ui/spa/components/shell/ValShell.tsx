@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ModuleFilePath, SourcePath } from "@valbuild/core";
+import { ModuleFilePath, SourcePath, type PatchId } from "@valbuild/core";
 import { ValCanvasElement } from "@valbuild/shared/internal";
 import { findShellSelection, Shell, ShellSelection } from "./Shell";
 import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
@@ -24,6 +24,18 @@ import { useAddPage } from "../useAddPage";
 import { PublishButton } from "../PublishButton";
 import { ValidationErrorsView } from "../ValidationErrors";
 import { ComparePatchSets, CompareLoading } from "../ComparePatchSets";
+import {
+  PatchStagingProvider,
+  type PatchGroupChange,
+} from "../PatchStagingProvider";
+import { useCurrentPatchGroup } from "../useCurrentPatchGroup";
+import {
+  CLOSURE_VERSION,
+  indexPatchSets,
+  stageClosure,
+} from "../../utils/patchGroups";
+import type { SerializedPatchSet } from "../../utils/PatchSets";
+import type { Profile } from "../ValProvider";
 import { LoginDialog } from "../LoginDialog";
 import { PatchErrorsDialog } from "../PatchErrorsDialog";
 import { GlobalErrors } from "../GlobalErrors";
@@ -41,6 +53,7 @@ import {
   useAuthenticationState,
   useConnectionStatus,
   useProfilesError,
+  useChainOrder,
   usePatchSets,
   usePendingClientSidePatchIds,
   useProfilesByAuthorId,
@@ -170,6 +183,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const currentPatchIds = useCurrentPatchIds();
   const committedPatchIds = useCommittedPatches();
   const patchSets = usePatchSets();
+  usePatchGroupWrites();
   const profilesByAuthorIds = useProfilesByAuthorId();
   const currentAuthorId = useCurrentAuthorId();
   const portalContainer = useValPortal();
@@ -998,13 +1012,162 @@ function CompareView() {
     );
   }
   return (
-    <ComparePatchSets
+    <StagedCompare
       patchSets={patchSetsResult.data}
       profilesByAuthorIds={profilesByAuthorIds}
       mode={mode}
-      canDiscard
-      reloadKey={publishCount}
+      publishCount={publishCount}
     />
+  );
+}
+
+/**
+ * Make every write carry this user's patch group.
+ *
+ * Registered from the SHELL, not from the compare view, and that is the point:
+ * writes happen while somebody is editing, which is exactly when the review
+ * screen is closed. Registering it there would mean a patch joins a group only
+ * if you happened to have Compare open when you typed.
+ *
+ * The closure is computed here because here is where both halves are visible —
+ * the patch sets (which need the schema) and the group. `PatchSync` can see
+ * neither, which is why it takes a resolver rather than working it out.
+ */
+function usePatchGroupWrites(): void {
+  const val = useValSystem();
+  const group = useCurrentPatchGroup();
+  const patchSets = usePatchSets();
+  const chainOrder = useChainOrder();
+  const patchSetsData =
+    patchSets.status === "success" ? patchSets.data : undefined;
+
+  useEffect(() => {
+    if (val === null) return;
+    if (!group.enabled || group.patchGroupId === undefined) {
+      // No groups on this deployment, or none for this user yet. Writing with
+      // no group is what every client did before groups existed.
+      val.system.setPatchGroupResolver(undefined);
+      return;
+    }
+    const patchGroupId = group.patchGroupId;
+    val.system.setPatchGroupResolver((patchIds) => {
+      if (patchSetsData === undefined) {
+        // The grouping has not been computed yet. The patch still joins the
+        // group; it simply drags nothing along, and a later stage repairs the
+        // prefix if one was owed.
+        return {
+          patchGroupId,
+          alsoAddPatchIds: [],
+          closureVersion: CLOSURE_VERSION,
+        };
+      }
+      let index;
+      try {
+        index = indexPatchSets(patchSetsData, chainOrder);
+      } catch {
+        // A skew between the grouping and the chain, which is a real
+        // possibility mid-sync. Join without a closure rather than refusing the
+        // write: losing the edit is worse than an under-closed group, which
+        // `repairGroup` fixes.
+        return {
+          patchGroupId,
+          alsoAddPatchIds: [],
+          closureVersion: CLOSURE_VERSION,
+        };
+      }
+      const next = stageClosure(index, group.members, patchIds);
+      /*
+       * Only what is NEW. The server unions, so re-sending what the group
+       * already holds is a no-op — but it is also a much larger request on a
+       * long chain, once per keystroke batch.
+       */
+      const alsoAddPatchIds = [...next].filter(
+        (patchId) => !group.members.has(patchId) && !patchIds.includes(patchId),
+      );
+      return { patchGroupId, alsoAddPatchIds, closureVersion: CLOSURE_VERSION };
+    });
+  }, [val, group, patchSetsData, chainOrder]);
+}
+
+/**
+ * The compare view, scoped to this user's patch group.
+ *
+ * Staging is only offered where it can do something: the provider is handed
+ * `enabled: false` unless this deployment actually has groups, and there the
+ * review screen renders exactly the flat list it always did.
+ */
+function StagedCompare({
+  patchSets,
+  profilesByAuthorIds,
+  mode,
+  publishCount,
+}: {
+  patchSets: SerializedPatchSet;
+  profilesByAuthorIds: Record<string, Profile>;
+  mode: "fs" | "http" | "unknown";
+  publishCount: number;
+}) {
+  const val = useValSystem();
+  const group = useCurrentPatchGroup();
+  const chainOrder = useChainOrder();
+
+  const onChange = useCallback(
+    (next: Set<PatchId>, change: PatchGroupChange) => {
+      if (val === null) return;
+      /*
+       * Scoped locally FIRST, so the screen answers immediately, and persisted
+       * after. The request can fail; the next `GET /patches` re-reads the
+       * annotation and puts the view back to what the server holds, so a failed
+       * persist is corrected rather than silently kept.
+       */
+      val.system.setPatchGroup([...next]);
+      const patchGroupId = group.patchGroupId;
+      if (patchGroupId === undefined) {
+        // No group yet — nothing has been written on this branch by this user,
+        // so there is nothing to stage into. The first write creates it.
+        return;
+      }
+      /*
+       * What the user asked for AND what the closure dragged along. The server
+       * unions on stage and removes on unstage, so sending only `requested`
+       * would leave the group holding a suffix of a patch set — the shape the
+       * prefix invariant exists to prevent.
+       */
+      const patchIds = [...change.requested, ...change.alsoMoved];
+      if (patchIds.length === 0) return;
+      const call =
+        change.type === "stage"
+          ? val.system.stagePatches
+          : val.system.unstagePatches;
+      void call({
+        patchGroupId,
+        patchIds,
+        closureVersion: change.closureVersion,
+      }).then((res) => {
+        if (res.status === "error") {
+          console.error("Val: could not update patch group", res.message);
+        }
+      });
+    },
+    [val, group.patchGroupId],
+  );
+
+  return (
+    <PatchStagingProvider
+      enabled={group.enabled}
+      patchSets={patchSets}
+      chainOrder={chainOrder}
+      group={group.members}
+      onChange={onChange}
+    >
+      <ComparePatchSets
+        patchSets={patchSets}
+        profilesByAuthorIds={profilesByAuthorIds}
+        mode={mode}
+        canDiscard
+        reloadKey={publishCount}
+      />
+    </PatchStagingProvider>
   );
 }
 

@@ -38,6 +38,7 @@ import type { ChainProgress } from "../utils/describePendingChangesStall";
 import type { PublishResult } from "../stores/PublishSeam";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { SerializedPatchSet } from "../utils/PatchSets";
+import type { PatchGroupT } from "@valbuild/shared/internal";
 import { z } from "zod";
 import {
   ValEnrichedDeployment,
@@ -1125,6 +1126,84 @@ export function useDeployments() {
  * Asynchronous for the same reason: the grouping is in the worker realm, so
  * there is no synchronous answer to give.
  */
+/**
+ * The patch groups on this branch, or `undefined` where there are none.
+ *
+ * Re-read whenever the chain moves, because that is when the annotation
+ * arrives: `GET /patches` carries the groups alongside the patches, so a save
+ * landing or a stat arriving is also when membership can have changed.
+ *
+ * `undefined` and `[]` are different answers and both reach callers unchanged.
+ * `undefined` means this deployment has no groups and staging must stay off;
+ * `[]` means groups exist and this branch's hold nothing.
+ */
+/**
+ * Every pending patch id, oldest first — the order they are applied in.
+ *
+ * The prefix invariant is only meaningful in chain order, so the staging
+ * provider takes this rather than deriving it from the patch sets, whose own
+ * ordering is newest-first for display.
+ */
+export function useChainOrder(): PatchId[] {
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  /*
+   * Read during render, not from an effect.
+   *
+   * An effect fills this AFTER the first paint, so the first render answers
+   * `[]` — and an empty chain order makes `indexPatchSets` throw for every
+   * patch set it is handed, which the staging provider catches by turning
+   * staging off "for this render". The result was an error logged on every
+   * mount and the feature quietly disabled, with nothing failing.
+   *
+   * `chainVersion` is what makes this correct rather than merely early: it
+   * bumps on every movement of the chain, so the memo is recomputed exactly
+   * when `allRecords()` would answer differently.
+   */
+  const previous = useRef<PatchId[]>([]);
+  return useMemo(() => {
+    if (val === null) return previous.current;
+    const next = val.system.patchStore.allRecords().map((r) => r.patchId);
+    const current = previous.current;
+    // Identity kept when the chain has not actually reordered: this feeds the
+    // patch-set index, and a fresh array on every chain movement would reindex
+    // on every keystroke.
+    if (
+      current.length === next.length &&
+      current.every((id, i) => id === next[i])
+    ) {
+      return current;
+    }
+    previous.current = next;
+    return next;
+  }, [val, chainVersion]);
+}
+
+export function usePatchGroups(): PatchGroupT[] | undefined {
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  const [groups, setGroups] = useState<PatchGroupT[] | undefined>(undefined);
+  useEffect(() => {
+    if (val === null) return;
+    const next = val.system.patchStore.groups();
+    setGroups((current) => {
+      // Identity kept when nothing changed: this feeds a `useMemo` that decides
+      // whether the staging controls re-render, and a fresh array every time the
+      // chain moves would repaint the whole review screen on every keystroke.
+      if (current === next) return current;
+      if (
+        current !== undefined &&
+        next !== undefined &&
+        JSON.stringify(current) === JSON.stringify(next)
+      ) {
+        return current;
+      }
+      return next;
+    });
+  }, [val, chainVersion]);
+  return groups;
+}
+
 export function usePatchSets():
   | {
       status: "success";
