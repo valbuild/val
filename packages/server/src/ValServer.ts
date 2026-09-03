@@ -1152,22 +1152,46 @@ export const ValServer = (
       PUT: async (req): Promise<z.infer<Api["/patches"]["PUT"]["res"]>> => {
         const cookies = req.cookies;
 
-        // The patch group fields on this route are declared but not yet honoured:
-        // recording membership needs the corresponding endpoints on
-        // content.val.build. Accepting them and returning 200 would tell a client
-        // its group was updated when it was dropped, so a client that sends them is
-        // told plainly instead.
-        if (
-          req.body.patchGroupId !== undefined ||
-          req.body.alsoAddPatchIds !== undefined ||
-          req.body.holdBackForGroupIds !== undefined
-        ) {
+        /**
+         * Group membership travels WITH the patch, in one request.
+         *
+         * Atomic on purpose: the content API runs every refusal before its
+         * insert, so an invalid closure is a 400 with nothing written. Recording
+         * membership in a second call would let a patch exist outside its
+         * author's group whenever that call failed — and a patch outside your
+         * own group is one you cannot publish until a repair puts it back.
+         *
+         * `holdBackForGroupIds` is accepted and ignored. It existed for the
+         * fan-out into every other open group, which is gone: a patch now joins
+         * only its own author's group, so there is nothing left to hold back
+         * from. Kept in the schema so a client that still sends it is not
+         * refused.
+         */
+        const requestedPatchGroupId = req.body.patchGroupId;
+        // Null as well as undefined: the field is nullable, so a client that
+        // sends an explicit `null` means "no group" exactly as one that omits
+        // it. Checking only `undefined` would build a membership keyed by null.
+        const patchGroup =
+          requestedPatchGroupId !== undefined && requestedPatchGroupId !== null
+            ? {
+                patchGroupId: requestedPatchGroupId,
+                alsoAddPatchIds: req.body.alsoAddPatchIds ?? [],
+                closureVersion: req.body.closureVersion ?? 0,
+              }
+            : undefined;
+        if (patchGroup !== undefined && serverOps instanceof ValOpsFS) {
+          /*
+           * `fs` has no shared store and one author, so there is no group to
+           * join. Refused rather than acknowledged: answering 200 would tell the
+           * client its membership was recorded when it was dropped, and the
+           * client would then believe a publish is scoped when it is not.
+           */
           return {
             status: 400,
             json: {
               type: "patch-error" as const,
               message:
-                "This version of Val cannot record patch group membership. Update the Val packages, or omit the patch group fields.",
+                "Patch groups are not available in fs mode. Omit the patch group fields.",
               errors: {},
             },
           };
@@ -1203,6 +1227,7 @@ export const ValServer = (
             parentRef,
             sessionId,
             authorId,
+            patchGroup,
           );
           if (result.isErr(createPatchRes)) {
             if (createPatchRes.error.errorType === "patch-head-conflict") {

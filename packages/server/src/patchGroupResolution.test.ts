@@ -1,5 +1,6 @@
 import { PatchId } from "@valbuild/core";
 import { ValOpsHttp } from "./ValOpsHttp";
+import type { ModuleFilePath } from "@valbuild/core";
 
 /**
  * Resolving "which pending patches is this person allowed to see".
@@ -137,4 +138,89 @@ test("a malformed body is an error rather than a partly-parsed group", async () 
   );
 
   expect(res.status).toBe("error");
+});
+
+/**
+ * Group membership travels WITH the patch, in one request.
+ *
+ * Atomic on purpose: the content API runs every refusal before its insert, so
+ * an invalid closure is a 400 with nothing written. Recording membership in a
+ * second call would let a patch exist outside its author's group whenever that
+ * call failed — and a patch outside your own group is one you cannot publish
+ * until a repair puts it back.
+ *
+ * `saveSourceFilePatch` is `protected`, so this reaches it through a subclass
+ * rather than a cast: the signature is a real seam of this class and a cast
+ * would stop it being checked, which is the part worth keeping.
+ */
+class ExposedValOpsHttp extends ValOpsHttp {
+  saveForTest(
+    patchGroup?: Parameters<ValOpsHttp["createPatch"]>[6],
+  ): Promise<unknown> {
+    return this.createPatch(
+      "/a.val.ts" as ModuleFilePath,
+      [{ op: "replace", path: ["title"], value: "x" }],
+      "p1" as PatchId,
+      { type: "head", headBaseSha: "sha" as never },
+      null,
+      "alice" as never,
+      patchGroup,
+    );
+  }
+}
+
+function exposedOps(): ExposedValOpsHttp {
+  return new ExposedValOpsHttp(
+    "https://content.val.build",
+    PROJECT,
+    "commit-sha",
+    "main",
+    { apiKey: "key" },
+    { modules: [] } as never,
+  );
+}
+
+/** The body of the one POST the save made. */
+async function bodyOfSave(
+  patchGroup?: Parameters<ValOpsHttp["createPatch"]>[6],
+): Promise<Record<string, unknown>> {
+  const bodies: string[] = [];
+  await withFetch(
+    (async (url: string, init?: { body?: string }) => {
+      if (String(url).endsWith("/patches") && init?.body) {
+        bodies.push(init.body);
+        return { ok: true, status: 200, json: async () => ({ patchId: "p1" }) };
+      }
+      // Everything else this path touches (base sha, and so on).
+      return { ok: true, status: 200, json: async () => ({}) };
+    }) as unknown as typeof fetch,
+    () => exposedOps().saveForTest(patchGroup),
+  );
+  const body = bodies[bodies.length - 1];
+  if (!body) throw new Error("no POST /patches was made");
+  return JSON.parse(body) as Record<string, unknown>;
+}
+
+test("sends the group id and the client's closure with the patch", async () => {
+  const body = await bodyOfSave({
+    patchGroupId: "group-alice",
+    alsoAddPatchIds: ["p0" as PatchId],
+    closureVersion: 3,
+  });
+
+  expect(body.patchGroupId).toBe("group-alice");
+  expect(body.alsoAddPatchIds).toEqual(["p0"]);
+  expect(body.closureVersion).toBe(3);
+  // Same request as the patch, not a follow-up.
+  expect(body.patchId).toBe("p1");
+});
+
+test("omits the group fields entirely when there is no group", async () => {
+  const body = await bodyOfSave(undefined);
+
+  // Absent, not null. An older content API validates the shape it knows, and
+  // explicit nulls are a different thing to it than missing keys.
+  expect("patchGroupId" in body).toBe(false);
+  expect("alsoAddPatchIds" in body).toBe(false);
+  expect("closureVersion" in body).toBe(false);
 });

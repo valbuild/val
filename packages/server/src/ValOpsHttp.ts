@@ -21,6 +21,7 @@ import {
   ValOpsOptions,
   WithGenericError,
   SaveSourceFilePatchResult,
+  type PatchGroupMembership,
   SchemaSha,
   bufferFromDataUrl,
   OrderedPatchesMetadata,
@@ -920,6 +921,7 @@ export class ValOpsHttp extends ValOps {
     parentRef: ParentRefT,
     authorId: AuthorId | null,
     sessionId: string | null,
+    patchGroup?: PatchGroupMembership,
   ): Promise<SaveSourceFilePatchResult> {
     const baseSha = await this.getBaseSha();
     return fetch(`${this.contentUrl}/v1/${this.project}/patches`, {
@@ -939,6 +941,21 @@ export class ValOpsHttp extends ValOps {
         commit: this.commitSha,
         branch: this.branch,
         coreVersion: Internal.VERSION.core,
+        /*
+         * Group membership in the SAME request as the patch.
+         *
+         * The content API runs every refusal before its insert, so an invalid
+         * closure is a 400 with nothing written. Spread rather than sent as
+         * nulls: a client with no group omits the fields entirely, which is
+         * what an older content API expects to see.
+         */
+        ...(patchGroup
+          ? {
+              patchGroupId: patchGroup.patchGroupId,
+              alsoAddPatchIds: patchGroup.alsoAddPatchIds,
+              closureVersion: patchGroup.closureVersion,
+            }
+          : {}),
       }),
     })
       .then(async (res): Promise<SaveSourceFilePatchResult> => {

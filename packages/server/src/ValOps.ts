@@ -2084,6 +2084,19 @@ export abstract class ValOps {
     parentRef: ParentRef,
     sessionId: string | null,
     authorId: AuthorId | null,
+    /**
+     * Which patch group this patch joins, recorded in the SAME request.
+     *
+     * Atomic on purpose. The content API runs every refusal before its insert,
+     * so an invalid closure is a 400 with nothing written. Recording membership
+     * in a second call would let a patch exist outside its author's group if
+     * that call failed — and a patch outside your own group is one you cannot
+     * publish until a repair puts it back.
+     *
+     * Optional: `fs` mode has no groups, and a client that predates them sends
+     * nothing.
+     */
+    patchGroup?: PatchGroupMembership,
   ): Promise<
     result.Result<
       {
@@ -2102,6 +2115,7 @@ export abstract class ValOps {
       parentRef,
       authorId,
       sessionId,
+      patchGroup,
     );
     if (result.isErr(saveRes)) {
       console.error(
@@ -2133,6 +2147,7 @@ export abstract class ValOps {
     parentRef: ParentRef | null,
     authorId: AuthorId | null,
     sessionId: string | null,
+    patchGroup?: PatchGroupMembership,
   ): Promise<SaveSourceFilePatchResult>;
   protected abstract getSourceFile(
     path: string,
@@ -2210,6 +2225,24 @@ export type GenericError = {
 export type GenericErrorMessage = {
   message: string;
   details?: unknown;
+};
+
+/**
+ * The patch group a newly created patch joins.
+ *
+ * `alsoAddPatchIds` is the CLOSURE the client computed — the patches that share
+ * a patch set with this one and must move with it. It is not derived here and
+ * must not be: the closure needs the content schema, and the service that
+ * stores groups does not have it. One implementation of that rule, on the side
+ * that can actually compute it.
+ *
+ * `closureVersion` is stored per membership row, so a bad client rollout stays
+ * identifiable and recomputable after the fact.
+ */
+export type PatchGroupMembership = {
+  patchGroupId: string;
+  alsoAddPatchIds: PatchId[];
+  closureVersion: number;
 };
 
 export type SaveSourceFilePatchResult = result.Result<
