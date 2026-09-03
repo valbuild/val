@@ -18,6 +18,9 @@ import { GetSource } from "./selector";
 import { newSelectorProxy } from "./selector/SelectorProxy";
 import { ModulePath, SourcePath } from "./val";
 import { literal } from "./schema/literal";
+import { richtext } from "./schema/richtext";
+import { route, RouteSchema } from "./schema/route";
+import { image, ImageSchema } from "./schema/image";
 
 // import { i18n as initI18nSchema } from "./schema/i18n";
 // import { i18n as initI18nSource } from "./source/i18n";
@@ -191,6 +194,52 @@ describe("module", () => {
         parentOfSourcePath(parentOfSourcePath(parentOfSourcePath(base))),
       ),
     ).toStrictEqual("/content/test");
+  });
+
+  /**
+   * Richtext content has no schema of its own per node, so resolving a path
+   * INTO it walks out to the richtext field and reads the option that governs
+   * that node: `a` for an anchor's href, `img` for an image's src. Both are
+   * reached through `instanceof RichTextSchema`, which narrows the options to
+   * `any` - so nothing here is checked by tsc, and a rename that misses one of
+   * these branches silently hands back the richtext schema instead.
+   */
+  test("resolvePath: an anchor href resolves to the schema its `a` option carries", () => {
+    const schema = object({
+      body: richtext({ a: route() }),
+    });
+    const { schema: resolved } = resolveAtPath(
+      '"body".0."children".0."href"' as ModulePath,
+      {
+        body: [
+          {
+            tag: "p",
+            children: [{ tag: "a", href: "/blogs/one", children: ["One"] }],
+          },
+        ],
+      } as SelectorOfSchema<typeof schema>,
+      schema,
+    );
+    expect(resolved).toBeInstanceOf(RouteSchema);
+  });
+
+  test("resolvePath: an image src resolves to the schema its `img` option carries", () => {
+    const schema = object({
+      body: richtext({ img: image() }),
+    });
+    const { schema: resolved } = resolveAtPath(
+      '"body".0."children".0."src"' as ModulePath,
+      {
+        body: [
+          {
+            tag: "p",
+            children: [{ tag: "img", src: { path: "/public/val/one.png" } }],
+          },
+        ],
+      } as SelectorOfSchema<typeof schema>,
+      schema,
+    );
+    expect(resolved).toBeInstanceOf(ImageSchema);
   });
 
   test("isValModule tells a module apart from what else a .val.ts might export", () => {

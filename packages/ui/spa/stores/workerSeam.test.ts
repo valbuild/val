@@ -50,7 +50,7 @@ const project = () => {
         owner: s.keyOf(authors),
         hero: s.image(),
         link: s.route(),
-        body: s.richtext({ style: { bold: true }, block: { ul: true } }),
+        body: s.richtext({ bold: true, ul: true }),
         block: s.union(
           "type",
           s.object({ type: s.literal("a"), a: s.string() }),

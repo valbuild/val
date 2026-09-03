@@ -164,7 +164,7 @@ const CREATE_PATCH_TOOL: AITool = {
     File field example:
     {"patch":[{"op":"replace","path":["brochure"],"value":{"key":"abc","filePath":"/public/val/files/brochure.pdf","_type":"ai_session_file","_tag":"file"}}]}
 
-    Richtext inline image example (richtext schema must have options.inline.img enabled):
+    Richtext inline image example (richtext schema must have options.img enabled):
     {"patch":[{"op":"add","path":["body","0","children","2"],"value":{"tag":"img","src":{"key":"abc","filePath":"/public/val/images/inline.png","_type":"ai_session_file","_tag":"image"}}}]}
 
     Multiple session keys can appear in a single patch.
@@ -2431,7 +2431,7 @@ Never tell the user to navigate manually — offer to navigate for them instead.
     - img: {tag:"img", src:{...}} — cannot be added via assistant (no file system access)
     - br: {tag:"br"}
   - example: [{tag:"p",children:["Hello ",{tag:"span",styles:["bold"],children:["World"]}]}]
-  - richtext schema has options, which tells you which type of tags you can use. Example: if options do not have block.ul: true, then ul is not allowed. The schema.options type is like this: style: Partial<{bold: boolean;italic: boolean;lineThrough: boolean;}>;block: Partial<{h1: boolean;h2: boolean;h3: boolean;h4: boolean;h5: boolean;h6: boolean;ul: boolean;ol: boolean;}>;inline: Partial<{a: boolean | SerializedRouteSchema | SerializedStringSchema;img: boolean | SerializedImageSchema;}>;
+  - richtext schema has options, which tells you which type of tags you can use. Example: if options do not have ul: true, then ul is not allowed. The schema.options type is like this: Partial<{bold: boolean;italic: boolean;lineThrough: boolean;h1: boolean;h2: boolean;h3: boolean;h4: boolean;h5: boolean;h6: boolean;ul: boolean;ol: boolean;a: boolean | SerializedRouteSchema | SerializedStringSchema;img: boolean | SerializedImageSchema;}>;
 - image / file: cannot be changed through this assistant (no file system access). If the user needs to add one, navigate to the matching media gallery.
 - union: a value that must match exactly one of several allowed shapes. Two kinds:
   - string union: key is a literal schema, all items are literals. The value is one fixed string chosen from a set (e.g. "draft", "published", "archived"). Patch by replacing the string with one of the allowed values.

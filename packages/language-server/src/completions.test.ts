@@ -555,7 +555,7 @@ export default c.define(
   test("offers routes for a richtext inline link href", async () => {
     // A richtext link is a plain `{ tag: "a", href }` node, which Val does not
     // describe with a schema, so the candidates come from the enclosing
-    // richtext's `inline.a` instead.
+    // richtext's `a` option instead.
     const file = path.join(
       EXAMPLE_APP,
       "app",
