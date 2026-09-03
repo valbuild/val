@@ -144,6 +144,13 @@ const FilesResponse = z.object({
 });
 const SavePatchResponse = z.object({
   patchId: PatchId,
+  /**
+   * Which group the content API put this patch in.
+   *
+   * Optional: a content API that predates patch groups does not send one, and
+   * absence has to keep meaning "no groups here" rather than failing the save.
+   */
+  patchGroupId: z.string().optional(),
 });
 const DeletePatchesResponse = z.object({
   deleted: z.array(PatchId),
@@ -967,7 +974,23 @@ export class ValOpsHttp extends ValOps {
         if (res.ok) {
           const parsed = SavePatchResponse.safeParse(await res.json());
           if (parsed.success) {
-            return result.ok({ patchId: parsed.data.patchId });
+            return result.ok({
+              patchId: parsed.data.patchId,
+              /*
+               * Passed back to the client, which cannot learn it any other way.
+               *
+               * A write names no group — the content API resolves this author's
+               * open group and CREATES it if absent — so on a fresh branch the
+               * group comes into existence here and nowhere else. The chain
+               * annotation is only re-read when a fetch has missing ids to ask
+               * for, and a patch this client made is never missing, so without
+               * this the tab that bootstrapped the group would never learn its
+               * id and every stage would be a no-op.
+               */
+              ...(parsed.data.patchGroupId !== undefined
+                ? { patchGroupId: parsed.data.patchGroupId }
+                : {}),
+            });
           }
           return result.err({
             errorType: "other",

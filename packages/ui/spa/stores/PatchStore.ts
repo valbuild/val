@@ -183,6 +183,24 @@ export type CreatePatchResult =
  * patch exists, the source store knows whether it landed, and the head is where
  * those two facts meet.
  */
+/**
+ * Whether two group annotations say the same thing.
+ *
+ * Serialised rather than walked, the same way `usePatchSets` compares its
+ * grouping: both sides come from a zod parse of a JSON body, so key order
+ * follows the schema and is stable. The point is to keep the identity of an
+ * unchanged annotation — most fetches carry one — because a fresh array is what
+ * makes everything downstream treat it as news and repaint the review screen.
+ */
+function sameGroups(
+  a: PatchGroupT[] | undefined,
+  b: PatchGroupT[] | undefined,
+): boolean {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return false;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export class PatchStore {
   readonly events = new StoreBus<SystemEvent>();
 
@@ -199,6 +217,27 @@ export class PatchStore {
    * this is deliberately not initialised to an empty array.
    */
   private patchGroups: PatchGroupT[] | undefined;
+  /**
+   * Moved by every change to {@link patchGroups} or {@link ownPatchGroupId},
+   * and by nothing else. See the `patch:groups` event in `types.ts`.
+   */
+  private groupsVersionCounter = 0;
+  /**
+   * The group this client's own writes are landing in, as the server named it.
+   *
+   * Learned from the SAVE response, because there is nowhere else to learn it.
+   * A write names no group — the content API resolves this author's open one
+   * and creates it if absent — so on a fresh branch the group comes into
+   * existence during a save. The chain annotation only refreshes when a fetch
+   * has missing ids to ask for, and a patch this client made is never missing,
+   * so the tab that bootstrapped the group would otherwise never see its id and
+   * every stage would silently do nothing.
+   *
+   * Not merged into {@link patchGroups}: that is the SERVER's answer, membership
+   * included, and this is one id with no membership attached. Kept apart so a
+   * reader can tell a real group from a bare id.
+   */
+  private ownPatchGroupId: string | undefined;
   private appliedIds = new Set<PatchId>();
   /**
    * Patches the source store reported as HELD — outside the reader's patch
@@ -573,8 +612,21 @@ export class PatchStore {
         message: res.error,
       });
     }
-    if (res.patchGroups !== undefined) {
+    if (
+      res.patchGroups !== undefined &&
+      !sameGroups(this.patchGroups, res.patchGroups)
+    ) {
+      /*
+       * Bumped here, not left to the record loop below.
+       *
+       * The loop bumps once per DELIVERED record, so a response that carries
+       * groups and no usable records — every id errored, or answered with
+       * silence — moved the groups and told nobody. Compared before storing so
+       * an unchanged annotation, which is what most fetches carry, does not
+       * repaint the review screen.
+       */
       this.patchGroups = res.patchGroups;
+      this.bumpGroups();
     }
     const received: PatchId[] = [];
     for (const record of res.patches) {
@@ -1058,6 +1110,20 @@ export class PatchStore {
       changed = true;
     }
     if (changed) this.bump();
+    if (this.ownPatchGroupId !== undefined) {
+      /*
+       * A publish CLOSES the group, and the content API refuses a write or a
+       * stage into a closed one. So the remembered id is not merely stale after
+       * this, it is actively wrong: keeping it would answer every stage with a
+       * 409 until something re-fetched the annotation.
+       *
+       * Forgotten rather than replaced, because there is nothing to replace it
+       * with yet — the next write creates the next group and the save response
+       * names it, exactly as the first one did.
+       */
+      this.ownPatchGroupId = undefined;
+      this.bumpGroups();
+    }
   }
 
   /**
@@ -1236,6 +1302,36 @@ export class PatchStore {
     return this.patchGroups;
   }
 
+  /**
+   * The id of the group this client's own writes join, where one is known.
+   *
+   * See {@link ownPatchGroupId}. Reported separately from {@link groups} because
+   * it carries no membership — it says which group to stage INTO, not what is
+   * in it.
+   */
+  ownGroupId(): string | undefined {
+    return this.ownPatchGroupId;
+  }
+
+  /**
+   * The server put our writes in this group. Called from the save path.
+   *
+   * Idempotent: the same id arrives with every save, and re-announcing it must
+   * not repaint anything.
+   */
+  recordOwnPatchGroup(patchGroupId: string): void {
+    if (this.ownPatchGroupId === patchGroupId) {
+      return;
+    }
+    this.ownPatchGroupId = patchGroupId;
+    this.bumpGroups();
+  }
+
+  /** Changes whenever the groups do. See the `patch:groups` event. */
+  groupsVersion(): number {
+    return this.groupsVersionCounter;
+  }
+
   allRecords(): PatchRecord[] {
     return this.recordsFor(this.ordered);
   }
@@ -1331,6 +1427,18 @@ export class PatchStore {
   private bump(): void {
     this.version++;
     this.events.emit({ type: "patch:chain", version: this.version });
+  }
+
+  /**
+   * The groups changed. The single place `groupsVersionCounter` moves, and the
+   * only place `patch:groups` is emitted.
+   */
+  private bumpGroups(): void {
+    this.groupsVersionCounter++;
+    this.events.emit({
+      type: "patch:groups",
+      version: this.groupsVersionCounter,
+    });
   }
 
   originOf(patchId: PatchId): PatchOrigin {

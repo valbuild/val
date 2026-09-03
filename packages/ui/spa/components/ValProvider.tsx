@@ -1179,29 +1179,64 @@ export function useChainOrder(): PatchId[] {
   }, [val, chainVersion]);
 }
 
+/**
+ * Moved by every change to the patch GROUPS. See `PatchStore`'s `bumpGroups`.
+ *
+ * Not `chainVersion`, in both directions. The groups move without the chain
+ * moving — a stage or unstage touches no patch, and a save can learn the id of
+ * the group it just created while the chain is exactly as it was — so keying on
+ * the chain left those changes unobserved. And the chain moves once per
+ * keystroke batch without the groups moving at all, so keying on it also meant
+ * re-reading them constantly for nothing.
+ */
+function useGroupsVersion(): number {
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.patchStore.events.on("patch:groups", onChange);
+    },
+    [val],
+  );
+  const getSnapshot = useCallback(
+    () => (val === null ? 0 : val.system.patchStore.groupsVersion()),
+    [val],
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
 export function usePatchGroups(): PatchGroupT[] | undefined {
   const val = useValSystem();
-  const chainVersion = useChainVersion();
-  const [groups, setGroups] = useState<PatchGroupT[] | undefined>(undefined);
-  useEffect(() => {
-    if (val === null) return;
-    const next = val.system.patchStore.groups();
-    setGroups((current) => {
-      // Identity kept when nothing changed: this feeds a `useMemo` that decides
-      // whether the staging controls re-render, and a fresh array every time the
-      // chain moves would repaint the whole review screen on every keystroke.
-      if (current === next) return current;
-      if (
-        current !== undefined &&
-        next !== undefined &&
-        JSON.stringify(current) === JSON.stringify(next)
-      ) {
-        return current;
-      }
-      return next;
-    });
-  }, [val, chainVersion]);
-  return groups;
+  const groupsVersion = useGroupsVersion();
+  /*
+   * Read during render rather than from an effect, and identity is the store's
+   * job now: `PatchStore` only moves `groupsVersion` when the annotation
+   * actually says something different, so an unchanged annotation is the same
+   * array and this memo does not even re-run. That matters because it feeds the
+   * `useMemo` deciding whether the staging controls repaint.
+   */
+  return useMemo(() => {
+    void groupsVersion;
+    if (val === null) return undefined;
+    return val.system.patchStore.groups();
+  }, [val, groupsVersion]);
+}
+
+/**
+ * The id of the group this client's own writes are joining, where one is known.
+ *
+ * Learned from the save response — see `PatchStore.ownPatchGroupId`. Separate
+ * from {@link usePatchGroups} because it carries no membership: it says which
+ * group to stage INTO, not what is in it.
+ */
+export function useOwnPatchGroupId(): string | undefined {
+  const val = useValSystem();
+  const groupsVersion = useGroupsVersion();
+  return useMemo(() => {
+    void groupsVersion;
+    if (val === null) return undefined;
+    return val.system.patchStore.ownGroupId();
+  }, [val, groupsVersion]);
 }
 
 export function usePatchSets():

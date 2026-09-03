@@ -1231,6 +1231,17 @@ export const ValServer = (
         const sessionId = req.body.sessionId ?? null;
         const authorId = "id" in auth ? (auth.id as AuthorId) : null;
         const newPatchIds: PatchId[] = [];
+        /*
+         * The group the content API put these patches in.
+         *
+         * Every patch in one request has the same author and the same
+         * membership, so the last answer is the answer — they all land in the
+         * same group. Reported back because the client cannot learn it any
+         * other way: it names no group (the content API resolves the author's
+         * open one, creating it if absent), and the chain annotation is only
+         * re-read when a fetch has missing ids to ask for.
+         */
+        let patchGroupIdFromStore: string | undefined;
         for (const patch of patches) {
           const createPatchRes = await serverOps.createPatch(
             patch.path,
@@ -1275,6 +1286,9 @@ export const ValServer = (
               patchId: createPatchRes.value.patchId,
             };
             newPatchIds.push(createPatchRes.value.patchId);
+            if (createPatchRes.value.patchGroupId !== undefined) {
+              patchGroupIdFromStore = createPatchRes.value.patchGroupId;
+            }
           }
         }
         return {
@@ -1282,6 +1296,12 @@ export const ValServer = (
           json: {
             newPatchIds,
             parentRef,
+            // Absent rather than null where there are no groups: `fs` mode and
+            // a content API that predates them both answer without one, and the
+            // client reads absence as "staging is not available here".
+            ...(patchGroupIdFromStore !== undefined
+              ? { patchGroupId: patchGroupIdFromStore }
+              : {}),
           },
         };
       },

@@ -2,7 +2,11 @@ import { useMemo } from "react";
 import type { PatchId } from "@valbuild/core";
 import type { PatchGroupT } from "@valbuild/shared/internal";
 import { useValSystem } from "../stores/react/SystemContext";
-import { useCurrentAuthorId, usePatchGroups } from "./ValProvider";
+import {
+  useCurrentAuthorId,
+  useOwnPatchGroupId,
+  usePatchGroups,
+} from "./ValProvider";
 
 /**
  * This user's open patch group, and whether staging is available at all.
@@ -28,20 +32,35 @@ export type CurrentPatchGroup = {
 export function useCurrentPatchGroup(): CurrentPatchGroup {
   const groups = usePatchGroups();
   const authorId = useCurrentAuthorId();
+  /*
+   * What our own save was told, which the annotation may not know yet.
+   *
+   * A write names no group, so on a fresh branch the group is CREATED by the
+   * save — and the chain annotation is only re-read when a fetch has missing
+   * ids to ask for, which a patch this client made never is. Without this, the
+   * tab that bootstrapped the group would never see its id and every stage
+   * would silently do nothing.
+   */
+  const ownGroupId = useOwnPatchGroupId();
   return useMemo<CurrentPatchGroup>(() => {
-    if (groups === undefined) {
+    if (groups === undefined && ownGroupId === undefined) {
       return { enabled: false, patchGroupId: undefined, members: new Set() };
     }
     if (authorId === null) {
       /*
        * We do not know who this is yet — the profile has not loaded, or there
-       * is no session. Matching anyway would compare `null === null` and adopt
-       * a group whose author is null (an api-key or PAT write), so this client
-       * would stage into, and publish, a stranger's work.
+       * is no session. Matching the ANNOTATION anyway would compare
+       * `null === null` and adopt a group whose author is null (an api-key or
+       * PAT write), so this client would stage into, and publish, a stranger's
+       * work.
+       *
+       * `ownGroupId` is not a match and is safe here: the server named it in
+       * the answer to this client's own write, so it is ours by construction
+       * rather than by comparing an author id we do not have.
        */
-      return { enabled: true, patchGroupId: undefined, members: new Set() };
+      return { enabled: true, patchGroupId: ownGroupId, members: new Set() };
     }
-    const mine = groups.find(
+    const mine = groups?.find(
       (group: PatchGroupT) =>
         group.publishedAt === null &&
         group.authorId !== null &&
@@ -49,10 +68,17 @@ export function useCurrentPatchGroup(): CurrentPatchGroup {
     );
     return {
       enabled: true,
-      patchGroupId: mine?.patchGroupId,
+      /*
+       * The annotation wins where it has one. Both name the same group in the
+       * steady state, but the annotation is the server's current answer while
+       * `ownGroupId` is what a save said at some point — and a publish CLOSES a
+       * group, so after one the annotation is right and the remembered id is
+       * stale.
+       */
+      patchGroupId: mine?.patchGroupId ?? ownGroupId,
       members: new Set(mine?.patchIds ?? []),
     };
-  }, [groups, authorId]);
+  }, [groups, authorId, ownGroupId]);
 }
 
 /**

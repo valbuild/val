@@ -79,7 +79,20 @@ export type PatchGroupResolver = (
 ) => PatchGroupMembership | undefined;
 
 export type SaveResult =
-  | { status: "saved"; newPatchIds: PatchId[]; parentRef: ParentRef }
+  | {
+      status: "saved";
+      newPatchIds: PatchId[];
+      parentRef: ParentRef;
+      /**
+       * Which group the server put these patches in, where it has groups.
+       *
+       * The write names no group, so this is the ONLY way the client learns the
+       * id of the group its own first write created — see
+       * `PatchStore.ownPatchGroupId`. Absent in `fs` mode and against a content
+       * API that predates groups.
+       */
+      patchGroupId?: string;
+    }
   | { status: "conflict"; message: string }
   | {
       status: "rejected";
@@ -539,6 +552,11 @@ export class PatchSync {
       this.savedNotInStat.push(...result.newPatchIds);
       // The ids the SERVER named, not the ids we sent — see `markSaved`.
       this.patchStore.markSaved(result.newPatchIds);
+      if (result.patchGroupId !== undefined) {
+        // Before the event, so anything woken by `patch:saved` already sees the
+        // group its patches landed in.
+        this.patchStore.recordOwnPatchGroup(result.patchGroupId);
+      }
       this.events.emit({
         type: "patch:saved",
         patches: result.newPatchIds,

@@ -28,6 +28,10 @@ import {
   PatchStagingProvider,
   type PatchGroupChange,
 } from "../PatchStagingProvider";
+import {
+  useIndexedPatchSets,
+  usePatchGroupRepair,
+} from "../usePatchGroupRepair";
 import { useCurrentPatchGroup } from "../useCurrentPatchGroup";
 import {
   CLOSURE_VERSION,
@@ -183,7 +187,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const currentPatchIds = useCurrentPatchIds();
   const committedPatchIds = useCommittedPatches();
   const patchSets = usePatchSets();
-  usePatchGroupWrites();
+  usePatchGroupWrites(patchSets);
+  usePatchGroupScope(patchSets);
   const profilesByAuthorIds = useProfilesByAuthorId();
   const currentAuthorId = useCurrentAuthorId();
   const portalContainer = useValPortal();
@@ -1033,10 +1038,132 @@ function CompareView() {
  * the patch sets (which need the schema) and the group. `PatchSync` can see
  * neither, which is why it takes a resolver rather than working it out.
  */
-function usePatchGroupWrites(): void {
+/**
+ * Move this client's patch group, locally and on the server.
+ *
+ * Shared by the review screen's controls and by the automatic repair, because
+ * they must do exactly the same thing: the repair is a stage the user did not
+ * click, and a second implementation of "stage" is how the two come to disagree
+ * about what was persisted.
+ */
+function usePatchGroupChange(
+  patchGroupId: string | undefined,
+): (next: Set<PatchId>, change: PatchGroupChange) => void {
+  const val = useValSystem();
+  return useCallback(
+    (next: Set<PatchId>, change: PatchGroupChange) => {
+      if (val === null) return;
+      const current = val.system.patchGroup();
+      if (current !== null && sameMembers(current, next)) {
+        /*
+         * Nothing moved. Worth checking because this runs from a repair that
+         * fires on every recomputation of the patch-set index, from two places
+         * — the shell and the review screen — and a no-op that still sent a
+         * request would put one on the wire per keystroke batch.
+         */
+        return;
+      }
+      /*
+       * Scoped locally FIRST, so the screen answers immediately, and persisted
+       * after. The request can fail; the next `GET /patches` re-reads the
+       * annotation and puts the view back to what the server holds, so a failed
+       * persist is corrected rather than silently kept.
+       */
+      val.system.setPatchGroup([...next]);
+      if (patchGroupId === undefined) {
+        // No group yet — nothing has been written on this branch by this user,
+        // so there is nothing to stage into. The first write creates it.
+        return;
+      }
+      /*
+       * What the user asked for AND what the closure dragged along. The server
+       * unions on stage and removes on unstage, so sending only `requested`
+       * would leave the group holding a suffix of a patch set — the shape the
+       * prefix invariant exists to prevent.
+       */
+      const patchIds = [...change.requested, ...change.alsoMoved];
+      if (patchIds.length === 0) return;
+      const call =
+        change.type === "stage"
+          ? val.system.stagePatches
+          : val.system.unstagePatches;
+      void call({
+        patchGroupId,
+        patchIds,
+        closureVersion: change.closureVersion,
+      }).then((res) => {
+        if (res.status === "error") {
+          console.error("Val: could not update patch group", res.message);
+        }
+      });
+    },
+    [val, patchGroupId],
+  );
+}
+
+function sameMembers(a: readonly PatchId[], b: ReadonlySet<PatchId>): boolean {
+  if (a.length !== b.size) return false;
+  for (const patchId of a) {
+    if (!b.has(patchId)) return false;
+  }
+  return true;
+}
+
+/**
+ * Keep the group prefix-closed while somebody is EDITING.
+ *
+ * The same repair runs inside `PatchStagingProvider`, but that is mounted only
+ * on the review screen — and the thing it defends against, a third party's
+ * insert coalescing two patch sets, arrives while the user is typing somewhere
+ * else entirely. A hole that opens then would sit there until they happened to
+ * open Compare, and the publish gate would refuse in the meantime with nothing
+ * on screen explaining why.
+ *
+ * Also seeds the scope the first time the server's answer is known, so publish
+ * is scoped before anybody touches a control rather than after.
+ */
+function usePatchGroupScope(patchSets: ReturnType<typeof usePatchSets>): void {
   const val = useValSystem();
   const group = useCurrentPatchGroup();
-  const patchSets = usePatchSets();
+  const chainOrder = useChainOrder();
+  const onChange = usePatchGroupChange(group.patchGroupId);
+  const scoped = val?.system.patchGroup() ?? null;
+
+  useEffect(() => {
+    if (val === null || !group.enabled) return;
+    if (scoped !== null) return;
+    val.system.setPatchGroup([...group.members]);
+  }, [val, group.enabled, group.members, scoped]);
+
+  const members = useMemo(
+    () => (scoped === null ? group.members : new Set(scoped)),
+    [scoped, group.members],
+  );
+  const indexed = useIndexedPatchSets(
+    patchSets.status === "success" ? patchSets.data : undefined,
+    chainOrder,
+  );
+  usePatchGroupRepair({
+    enabled: group.enabled,
+    indexed,
+    group: members,
+    onChange,
+  });
+}
+
+function usePatchGroupWrites(
+  /*
+   * Handed in rather than subscribed to again.
+   *
+   * Every `usePatchSets()` is its OWN `getPatchSets()` round trip into the
+   * worker, re-run on each chain movement — which is once per keystroke batch.
+   * This hook is called from the shell, which already has the answer, so
+   * calling it here made the shell group the whole chain twice for one result.
+   */
+  patchSets: ReturnType<typeof usePatchSets>,
+): void {
+  const val = useValSystem();
+  const group = useCurrentPatchGroup();
   const chainOrder = useChainOrder();
   const patchSetsData =
     patchSets.status === "success" ? patchSets.data : undefined;
@@ -1128,62 +1255,17 @@ function StagedCompare({
    * including other authors' patches, which is the failure this feature exists
    * to prevent.
    *
-   * So the system holds it, `onChange` moves it, and the annotation SEEDS it.
+   * So the system holds it, `onChange` moves it, and the annotation seeds it —
+   * the seeding itself lives in `usePatchGroupScope`, at shell level, because
+   * publish must be scoped whether or not this screen was ever opened.
    */
   const scoped = val?.system.patchGroup() ?? null;
-  useEffect(() => {
-    if (val === null || !group.enabled) return;
-    if (scoped !== null) return;
-    // First time we know what the server holds: scope source and publish to it,
-    // before anybody touches a control.
-    val.system.setPatchGroup([...group.members]);
-  }, [val, group.enabled, group.members, scoped]);
-
   const members = useMemo(
     () => (scoped === null ? group.members : new Set(scoped)),
     [scoped, group.members],
   );
 
-  const onChange = useCallback(
-    (next: Set<PatchId>, change: PatchGroupChange) => {
-      if (val === null) return;
-      /*
-       * Scoped locally FIRST, so the screen answers immediately, and persisted
-       * after. The request can fail; the next `GET /patches` re-reads the
-       * annotation and puts the view back to what the server holds, so a failed
-       * persist is corrected rather than silently kept.
-       */
-      val.system.setPatchGroup([...next]);
-      const patchGroupId = group.patchGroupId;
-      if (patchGroupId === undefined) {
-        // No group yet — nothing has been written on this branch by this user,
-        // so there is nothing to stage into. The first write creates it.
-        return;
-      }
-      /*
-       * What the user asked for AND what the closure dragged along. The server
-       * unions on stage and removes on unstage, so sending only `requested`
-       * would leave the group holding a suffix of a patch set — the shape the
-       * prefix invariant exists to prevent.
-       */
-      const patchIds = [...change.requested, ...change.alsoMoved];
-      if (patchIds.length === 0) return;
-      const call =
-        change.type === "stage"
-          ? val.system.stagePatches
-          : val.system.unstagePatches;
-      void call({
-        patchGroupId,
-        patchIds,
-        closureVersion: change.closureVersion,
-      }).then((res) => {
-        if (res.status === "error") {
-          console.error("Val: could not update patch group", res.message);
-        }
-      });
-    },
-    [val, group.patchGroupId],
-  );
+  const onChange = usePatchGroupChange(group.patchGroupId);
 
   return (
     <PatchStagingProvider

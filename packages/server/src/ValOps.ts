@@ -2103,6 +2103,8 @@ export abstract class ValOps {
         error?: undefined;
         patchId: PatchId;
         createdAt: string;
+        /** See {@link SaveSourceFilePatchResult} — absent where there are no groups. */
+        patchGroupId?: string;
       },
       | { errorType: "other"; error: GenericErrorMessage }
       | { errorType: "patch-head-conflict" }
@@ -2129,6 +2131,11 @@ export abstract class ValOps {
     return result.ok({
       patchId,
       createdAt: new Date().toISOString(),
+      // Spread rather than assigned: absent has to stay distinguishable from a
+      // group whose id is undefined, all the way to the client.
+      ...(saveRes.value.patchGroupId !== undefined
+        ? { patchGroupId: saveRes.value.patchGroupId }
+        : {}),
     });
   }
 
@@ -2251,7 +2258,16 @@ export type PatchGroupMembership = {
 };
 
 export type SaveSourceFilePatchResult = result.Result<
-  { patchId: PatchId },
+  {
+    patchId: PatchId;
+    /**
+     * The group the patch ended up in, where the store has groups at all.
+     *
+     * Absent in `fs` mode and against a content API that predates groups. The
+     * client uses it to learn the id of the group its own first write created.
+     */
+    patchGroupId?: string;
+  },
   | ({ errorType: "other" } & GenericErrorMessage)
   | { errorType: "patch-head-conflict" }
 >;

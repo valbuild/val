@@ -294,6 +294,17 @@ export type SystemEvent =
    */
   | { type: "patch:chain"; version: number }
   /**
+   * The patch GROUPS moved — not the chain.
+   *
+   * Deliberately its own event rather than folded into `patch:chain`, in both
+   * directions. Groups change without the chain changing: a stage or unstage
+   * moves membership and touches no patch, and a save can learn the id of the
+   * group it just created while the chain is exactly as it was. And the chain
+   * changes constantly without the groups moving — once per keystroke batch —
+   * so a consumer that only wants groups would re-read on every one of those.
+   */
+  | { type: "patch:groups"; version: number }
+  /**
    * These locally-created patches are on their way to the server.
    *
    * The write is the one thing in this system that is NOT demand-driven: a read

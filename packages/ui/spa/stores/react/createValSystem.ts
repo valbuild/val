@@ -549,6 +549,12 @@ export function createValSystem(
               status: "saved",
               newPatchIds: res.json.newPatchIds,
               parentRef: res.json.parentRef,
+              // Spread, so absent stays absent: `fs` mode and a content API
+              // without groups answer without one, and the client reads that as
+              // "there is no group to stage into here".
+              ...(res.json.patchGroupId !== undefined
+                ? { patchGroupId: res.json.patchGroupId }
+                : {}),
             };
           },
         }

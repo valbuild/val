@@ -235,3 +235,61 @@ test("omits the group fields entirely when there is no group", async () => {
   expect("alsoAddPatchIds" in body).toBe(false);
   expect("closureVersion" in body).toBe(false);
 });
+
+/**
+ * What comes BACK, which is the only way the client can learn its group.
+ *
+ * The write names no group on purpose — the content API resolves this author's
+ * open one and creates it if absent — so on a fresh branch the group comes into
+ * existence in this response and nowhere else. The chain annotation refreshes
+ * only when a fetch has missing ids to ask for, and a patch this client made is
+ * never missing, so a dropped id here is a tab that can never stage anything.
+ */
+async function savedGroupId(
+  responseJson: Record<string, unknown>,
+): Promise<string | undefined> {
+  const res = await withFetch(
+    (async (url: string, init?: { body?: string }) => {
+      if (String(url).endsWith("/patches") && init?.body) {
+        return { ok: true, status: 200, json: async () => responseJson };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    }) as unknown as typeof fetch,
+    () =>
+      exposedOps().saveForTest({
+        alsoAddPatchIds: [],
+        closureVersion: 1,
+      }),
+  );
+  if (
+    typeof res !== "object" ||
+    res === null ||
+    !("value" in res) ||
+    typeof res.value !== "object" ||
+    res.value === null
+  ) {
+    throw new Error(`save did not succeed: ${JSON.stringify(res)}`);
+  }
+  const value = res.value;
+  if (!("patchGroupId" in value)) {
+    return undefined;
+  }
+  const patchGroupId: unknown = value.patchGroupId;
+  if (typeof patchGroupId !== "string") {
+    throw new Error(`patchGroupId was not a string: ${String(patchGroupId)}`);
+  }
+  return patchGroupId;
+}
+
+test("reports the group the content API put the patch in", async () => {
+  expect(
+    await savedGroupId({ patchId: "p1", patchGroupId: "group-alice" }),
+  ).toBe("group-alice");
+});
+
+test("a content API that predates groups still saves, with no group", async () => {
+  // The field is optional in the response schema for exactly this: an older
+  // content API answers without it, and the save must succeed rather than fail
+  // to parse. Absent, so the client reads it as "no groups here".
+  expect(await savedGroupId({ patchId: "p1" })).toBe(undefined);
+});

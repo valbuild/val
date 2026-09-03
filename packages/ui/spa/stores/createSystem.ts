@@ -28,6 +28,11 @@ import {
   type PatchGroupResolver,
 } from "./PatchSync";
 import { HostStore } from "./HostStore";
+import {
+  indexPatchSets,
+  validateGroup,
+  type PrefixViolation,
+} from "../utils/patchGroups";
 import { PreviewStore } from "./PreviewStore";
 import { PatchSetStore, type PatchSetRequest } from "./PatchSetStore";
 import { PatchSetChain, type PatchSetPlan } from "./PatchSetChain";
@@ -565,6 +570,43 @@ export function createSystem(options: SystemOptions): System {
    * editor was never shown.
    */
   let patchGroupIds: readonly PatchId[] | null = null;
+  /**
+   * Widen the scope to include these patches, keeping both halves in step.
+   *
+   * The scope means "my group", and there are two ways a patch joins one
+   * without anybody touching a staging control:
+   *
+   * - this client WROTE it. The server puts a new patch in its author's open
+   *   group unconditionally, so a scope that did not grow with it would hide
+   *   the author's own typing behind their own filter;
+   * - it is in the CLOSURE of something this client wrote. The write path sends
+   *   `alsoAddPatchIds` and the server unions them in, so those patches are in
+   *   the group on the server whether or not this client is showing them — and
+   *   not showing them is the exact failure this feature exists to prevent:
+   *   publishing a set the editor was never shown.
+   *
+   * A no-op when unscoped (`null` — fs mode, or a content API without groups),
+   * where everything is visible already.
+   */
+  function extendPatchGroup(patchIds: readonly PatchId[]): void {
+    if (patchGroupIds === null) {
+      return;
+    }
+    const next = new Set(patchGroupIds);
+    let grew = false;
+    for (const patchId of patchIds) {
+      if (next.has(patchId)) continue;
+      next.add(patchId);
+      grew = true;
+    }
+    if (!grew) {
+      return;
+    }
+    patchGroupIds = [...next];
+    // Same call for both halves, for the reason `setPatchGroup` documents: what
+    // is visible and what will ship must not come apart.
+    sourceStore.setVisiblePatchIds(patchGroupIds);
+  }
   /** One whole-project validation at a time. See `validateEverything`. */
   let fullValidationRunning = false;
   /**
@@ -582,6 +624,85 @@ export function createSystem(options: SystemOptions): System {
    * and one answer, which is what they wanted anyway.
    */
   let patchSetsInFlight: Promise<SerializedPatchSet> | null = null;
+  /**
+   * The grouping, shared by `System.getPatchSets` and the publish gate.
+   *
+   * Hoisted out of the object literal because the publish gate needs it too and
+   * `this` inside a returned literal is not something to build a safety check
+   * on. One in-flight build either way.
+   */
+  /**
+   * Which patch sets `toPublish` would leave a hole in.
+   *
+   * Empty means safe: within every patch set, what is about to ship is a prefix
+   * of what the chain holds.
+   *
+   * A patch that has ALREADY shipped counts as shipped — it cannot be left
+   * behind by this commit, and a chain still carrying it (an `appliedAt` that
+   * arrived before the new commit did) would otherwise read as a hole in front
+   * of everything staged and refuse every publish.
+   */
+  async function prefixViolations(
+    toPublish: readonly PatchId[],
+  ): Promise<PrefixViolation[]> {
+    const chain = patchStore.allRecords();
+    let index;
+    try {
+      index = indexPatchSets(
+        await computePatchSets(),
+        chain.map((record) => record.patchId),
+      );
+    } catch {
+      /*
+       * The grouping and the chain disagree, which is a skew rather than a
+       * malformed group — the two are read at slightly different moments and a
+       * patch can land in between.
+       *
+       * Failed OPEN, deliberately, and it is the one judgement call in this
+       * gate. Refusing here would make a publish impossible whenever the worker
+       * hiccups, with a message about patch sets that says nothing a user can
+       * act on. The case this gate exists for — a group that really does skip a
+       * patch — is not transient and is caught on the next click.
+       */
+      return [];
+    }
+    const shipped = new Set<PatchId>(toPublish);
+    for (const record of chain) {
+      if (record.appliedAt !== null && record.appliedAt !== undefined) {
+        shipped.add(record.patchId);
+      }
+    }
+    for (const patchId of patchStore.publishedPatchIds()) {
+      shipped.add(patchId);
+    }
+    return validateGroup(index, shipped);
+  }
+
+  function computePatchSets(): Promise<SerializedPatchSet> {
+    if (patchSetsInFlight !== null) {
+      return patchSetsInFlight;
+    }
+    const run = (async () => {
+      // `allRecords()`, so the chain compared against is the patches whose OPS
+      // have arrived — not `ordered`, which can name an announced patch this
+      // client has never seen the contents of. Using `ordered` would ask for a
+      // rebuild carrying a record that does not exist yet; using this means a
+      // foreign patch announced mid-chain reads as `current` until its data
+      // lands, and as a rebuild the moment it does.
+      const chain = patchStore.allRecords();
+      const plan = patchSetChain.plan(chain.map((record) => record.patchId));
+      const request = patchSetRequest(plan, chain);
+      const sets = await patchSetStore.getPatchSets(request);
+      // AFTER the call, not before: a worker that threw or a message that was
+      // never answered must not leave the host believing the grouping moved.
+      patchSetChain.covers(plan);
+      return sets;
+    })().finally(() => {
+      patchSetsInFlight = null;
+    });
+    patchSetsInFlight = run;
+    return run;
+  }
   // See `PatchStore.publishInFlight`: a stat landing mid-publish would otherwise
   // reconcile away the patches `/save` has just deleted server-side.
   patchStore.setPublishInFlight(() => publishing);
@@ -739,6 +860,21 @@ export function createSystem(options: SystemOptions): System {
 
   const unsubscribe = [
     patchStore.listenTo(stat, sourceStore),
+    /*
+     * A patch this client just wrote joins the scope — BEFORE the source store
+     * is told about it.
+     *
+     * Order is the whole point of registering it here rather than with the
+     * other listeners further down. `SourceStore.listenTo` is next in this
+     * list, and a `StoreBus` calls its listeners in registration order, so
+     * running first means the patch is already visible by the time
+     * `applyEntries` decides whether to hold it. Registered after, the patch
+     * would be applied as held and then un-held by a full module rebuild —
+     * correct, but a rebuild of the module's whole chain on every keystroke.
+     */
+    patchStore.events.on("patch:create", (event) => {
+      extendPatchGroup(event.patches);
+    }),
     sourceStore.listenTo(patchStore),
     // The write is the one path that is not demand-driven: a local patch has to
     // reach the server whether or not anything reads it again. So the sync
@@ -1111,30 +1247,8 @@ export function createSystem(options: SystemOptions): System {
       await rescanReferences();
       return referenceStore.at(path);
     },
-    async getPatchSets() {
-      if (patchSetsInFlight !== null) {
-        return patchSetsInFlight;
-      }
-      const run = (async () => {
-        // `allRecords()`, so the chain compared against is the patches whose OPS
-        // have arrived — not `ordered`, which can name an announced patch this
-        // client has never seen the contents of. Using `ordered` would ask for a
-        // rebuild carrying a record that does not exist yet; using this means a
-        // foreign patch announced mid-chain reads as `current` until its data
-        // lands, and as a rebuild the moment it does.
-        const chain = patchStore.allRecords();
-        const plan = patchSetChain.plan(chain.map((record) => record.patchId));
-        const request = patchSetRequest(plan, chain);
-        const sets = await patchSetStore.getPatchSets(request);
-        // AFTER the call, not before: a worker that threw or a message that was
-        // never answered must not leave the host believing the grouping moved.
-        patchSetChain.covers(plan);
-        return sets;
-      })().finally(() => {
-        patchSetsInFlight = null;
-      });
-      patchSetsInFlight = run;
-      return run;
+    getPatchSets() {
+      return computePatchSets();
     },
     async search(query, limit, offset) {
       // Gather ONLY what the index owes a pass for. On a first query that is
@@ -1206,7 +1320,31 @@ export function createSystem(options: SystemOptions): System {
       }
     },
     setPatchGroupResolver(resolver) {
-      patchSync.setPatchGroupResolver(resolver);
+      if (resolver === undefined) {
+        patchSync.setPatchGroupResolver(undefined);
+        return;
+      }
+      /*
+       * Wrapped, so the CLOSURE lands in the local scope as well as on the
+       * server.
+       *
+       * The resolver's answer is "these other patches must join my group for it
+       * to stay applicable" — another author's array insert that this edit sits
+       * on top of, typically. The server unions them in, so after this write
+       * they are in the group; if the scope did not follow, the editor would be
+       * rendering its own edit WITHOUT the insert it was written against, and a
+       * publish would ship a combination that was never on screen.
+       *
+       * Here rather than in `PatchSync` because the scope lives here, and here
+       * rather than in the caller because every caller would have to remember.
+       */
+      patchSync.setPatchGroupResolver((patchIds) => {
+        const membership = resolver(patchIds);
+        if (membership !== undefined) {
+          extendPatchGroup([...patchIds, ...membership.alsoAddPatchIds]);
+        }
+        return membership;
+      });
     },
     async stagePatches(request) {
       if (options.stagePatches === undefined) {
@@ -1381,6 +1519,46 @@ export function createSystem(options: SystemOptions): System {
           : groupScoped;
         if (toPublish.length === 0) {
           return { status: "nothing-to-publish" };
+        }
+
+        /*
+         * The prefix invariant, checked where it actually costs something.
+         *
+         * A scoped publish is only safe because a group holds a PREFIX of every
+         * patch set it touches: what stays behind is in other patch sets and
+         * cannot have its paths shifted by this commit. Skip a patch and ship a
+         * later one from the same set and the later one applies onto a value
+         * that has never existed — silently, and in a commit.
+         *
+         * `stageClosure` cannot produce such a group; that is what it is for.
+         * But a group can arrive this way regardless — a stale annotation, a
+         * client on an older closure version, a repair that has not run, a
+         * hand-written request to `/patch-groups` — so the invariant is checked
+         * here rather than assumed, at the one point where getting it wrong is
+         * not recoverable.
+         *
+         * Refused rather than repaired. `repairGroup(..., "extend")` would make
+         * it valid by ADDING the missing patches, which means publishing work
+         * the user never staged and may not have written. Widening a publish
+         * without being asked is the failure this whole feature exists to
+         * prevent, so the answer is no, with the holes named; staging them is
+         * the review screen's job and the user's decision.
+         */
+        if (patchGroupIds !== null) {
+          const violations = await prefixViolations(toPublish);
+          if (violations.length > 0) {
+            const missing = violations.flatMap(
+              (violation) => violation.missing,
+            );
+            return {
+              status: "failed",
+              message:
+                "These changes depend on earlier changes that are not staged: " +
+                missing.join(", ") +
+                ". Stage them, or unstage the changes that depend on them.",
+              retryable: false,
+            };
+          }
         }
 
         // Validate the affected modules, and validate them rather than reading
