@@ -150,13 +150,32 @@ const TOOL_DISPLAY: Record<ToolName, { label: string; icon: React.ReactNode }> =
 
 type ToolDisplay = { label: string; icon: React.ReactNode };
 
+/**
+ * The same map, keyed by plain string.
+ *
+ * `TOOL_DISPLAY` is `Record<ToolName, …>` so that adding a tool to `toolNames`
+ * fails to compile until it has a label. But the server can send a tool this
+ * build has never heard of, which is exactly what the fallback below is for -
+ * and `TOOL_DISPLAY[name as ToolName]` would assert away the very case it
+ * handles, telling the compiler the lookup cannot miss. Widening by assignment
+ * keeps both: the exhaustive check above, and an honest `| undefined` here.
+ */
+const TOOL_DISPLAY_BY_NAME: Partial<Record<string, ToolDisplay>> = TOOL_DISPLAY;
+
 function toolDisplay(name: string): ToolDisplay {
   return (
-    TOOL_DISPLAY[name as ToolName] ?? {
+    TOOL_DISPLAY_BY_NAME[name] ?? {
       label: name,
       icon: <Sparkles className="h-3 w-3" />,
     }
   );
+}
+
+/** What a status is called for a screen reader, where the icon says nothing. */
+function statusLabel(status: ToolActivityStatus): string {
+  if (status === "pending") return "Running";
+  if (status === "error") return "Failed";
+  return "Completed";
 }
 
 /**
@@ -315,7 +334,11 @@ function ToolCallGroup({
                     : "text-fg-secondary",
                 )}
               >
-                <span className="shrink-0">
+                {/* Status is a glyph and a colour, neither of which reaches a
+                    screen reader - so the word goes in, and the two icons come
+                    out. Without it "Updating content" is all three of running,
+                    failed and done. */}
+                <span className="shrink-0" aria-hidden="true">
                   {activity.status === "pending" ? (
                     <Loader2 className="h-3 w-3 animate-spin" />
                   ) : activity.status === "error" ? (
@@ -324,7 +347,8 @@ function ToolCallGroup({
                     <Check className="h-3 w-3" />
                   )}
                 </span>
-                <span className="shrink-0 text-fg-tertiary">
+                <span className="sr-only">{statusLabel(activity.status)}</span>
+                <span className="shrink-0 text-fg-tertiary" aria-hidden="true">
                   {display.icon}
                 </span>
                 <span className="min-w-0 truncate">

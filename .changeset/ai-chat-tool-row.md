@@ -12,8 +12,10 @@ you had to scroll for. The row now says what is happening ("Reading content…"
 while it runs, "Used 5 tools" when it is done) and the list is behind a
 disclosure.
 
-While a call is in flight its label shimmers, so a turn that is thinking looks
-different from one that has stalled without needing a spinner to watch.
+While a call is in flight its label shimmers, so the row shows the turn is
+still working without a spinner to stare at. It marks a call as pending, not as
+healthy: a stalled call stays pending, and goes on shimmering until the turn
+times out.
 
 `ask_user_question` cards stay outside the collapsible and always visible: the
 turn is blocked until one is answered, and hiding it leaves a session that has

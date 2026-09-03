@@ -107,6 +107,21 @@ describe("ToolActivities", () => {
     expect(screen.queryByText("Please answer to continue")).not.toBeNull();
   });
 
+  it("names each call's status for a screen reader", () => {
+    // Sighted readers get a spinner, a cross or a tick. Everyone else got
+    // three identical rows.
+    renderRow([
+      tool("get_source", "complete"),
+      tool("create_patch", "error"),
+      tool("validate_content", "pending"),
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: /validating/i }));
+
+    expect(screen.queryByText("Completed")).not.toBeNull();
+    expect(screen.queryByText("Failed")).not.toBeNull();
+    expect(screen.queryByText("Running")).not.toBeNull();
+  });
+
   it("falls back to the raw name for a tool it has no label for", () => {
     renderRow([tool("some_new_server_tool", "pending")]);
 

@@ -197,21 +197,29 @@ function LiveDemo() {
 
   useEffect(() => {
     setActivities([]);
+    // Every phase is one interval tick, the two trailing ones included. A
+    // `setTimeout` for the reset raced the interval instead: at 1500ms against
+    // a 1400ms tick the next cycle had already added its first tool before the
+    // clear landed, so every replay after the first began at the SECOND tool.
+    const completeAll = (prev: ToolActivity[]): ToolActivity[] =>
+      prev.map((a) => ({ ...a, status: "complete" }));
     let step = 0;
     const timer = setInterval(() => {
-      if (step >= SEQUENCE.length) {
-        setActivities((prev) =>
-          prev.map((a) => ({ ...a, status: "complete" as const })),
-        );
+      if (step === SEQUENCE.length) {
+        setActivities(completeAll);
+        step += 1;
+        return;
+      }
+      if (step > SEQUENCE.length) {
+        setActivities([]);
         step = 0;
-        setTimeout(() => setActivities([]), 1500);
         return;
       }
       const name = SEQUENCE[step];
       const index = step;
       step += 1;
-      setActivities((prev) => [
-        ...prev.map((a) => ({ ...a, status: "complete" as const })),
+      setActivities((prev): ToolActivity[] => [
+        ...completeAll(prev),
         { toolCallId: `live-${index}`, name, status: "pending" },
       ]);
     }, 1400);
