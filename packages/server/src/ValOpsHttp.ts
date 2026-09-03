@@ -34,6 +34,7 @@ import {
   Patch,
   ValCommit,
   ValDeployment,
+  type PatchGroupT,
 } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
 import { getErrorMessageFromUnknownJson } from "@valbuild/shared/internal";
@@ -163,6 +164,18 @@ const CommitResponse = z.object({
   commit: CommitSha,
   branch: z.string(),
 });
+const PatchGroupsResponse = z.object({
+  patchGroups: z.array(
+    z.object({
+      patchGroupId: z.string(),
+      authorId: z.string().nullable(),
+      createdAt: z.string(),
+      publishedAt: z.string().nullable(),
+      patchIds: z.array(PatchId),
+    }),
+  ),
+});
+
 const PatchGroupMutationResponse = z.object({
   patchGroupId: z.string(),
   patchIds: z.array(PatchId),
@@ -766,6 +779,58 @@ export class ValOpsHttp extends ValOps {
       `patch-groups/${encodeURIComponent(patchGroupId)}/patches`,
       { patchIds },
     );
+  }
+
+  /**
+   * Every patch group on this branch, with what each holds.
+   *
+   * Read rather than mutated, and used to answer "which pending patches is THIS
+   * person allowed to see". A draft render that skips this shows base + every
+   * pending patch on the branch, including work other people have not
+   * published — which is what independent publish exists to prevent.
+   *
+   * A failure is an empty list rather than a throw, and the caller decides what
+   * that means. For a draft render the honest fallback is "show nothing
+   * pending" rather than "show everything": being shown your own committed
+   * content when the group lookup is down is a worse experience than being
+   * shown somebody else's unpublished draft is a bug.
+   */
+  async getPatchGroups(): Promise<
+    | { status: "ok"; patchGroups: PatchGroupT[] }
+    | { status: "error"; message: string }
+  > {
+    try {
+      const res = await fetch(
+        `${this.contentUrl}/v1/${this.project}/patch-groups`,
+        { headers: this.authHeaders },
+      );
+      if (!res.ok) {
+        return {
+          status: "error",
+          message:
+            res.status === 401
+              ? "Could not read patch groups: unauthorized. Verify that the val api keys are correct."
+              : `Could not read patch groups. HTTP error: ${res.status} ${res.statusText}`,
+        };
+      }
+      const parsed = PatchGroupsResponse.safeParse(await res.json());
+      if (!parsed.success) {
+        return {
+          status: "error",
+          message: `Could not parse patch groups response. Error: ${fromError(
+            parsed.error,
+          )}`,
+        };
+      }
+      return { status: "ok", patchGroups: parsed.data.patchGroups };
+    } catch (err) {
+      return {
+        status: "error",
+        message: `Could not read patch groups. Error: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      };
+    }
   }
 
   private async mutatePatchGroup(

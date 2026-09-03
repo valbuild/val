@@ -236,6 +236,7 @@ describe("/sources/~ patch group scoping", () => {
           exclude_patches: false,
           apply_patches: true,
           patch_id: patchId as never,
+          own_patch_groups_only: undefined,
         },
         cookies: { [VAL_SESSION_COOKIE]: encodeJwt({}, "") },
       });

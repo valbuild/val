@@ -744,14 +744,24 @@ See `packages/ui/spa/stores/architecture.md`.
       told to, and everything only when told nothing. Covered by
       `packages/server/src/sourcesPatchGroup.test.ts`.
 
-- [ ] **The RSC caller does not yet name its group.** `fetchVal` / `useVal` in draft mode
-      do NOT go through the client stores — `initValRsc` calls `PUT /sources/~` and the
-      server replays patches — so the client-side scoping above does not reach that path.
-      The mechanism is now there; what is missing is resolving which group the session's
-      user owns, which needs a lookup against the content API and a decision about paying
-      for it per render. Until then a draft render shows base + everything pending, and a
-      server-rendered preview and the Studio disagree about what is pending. Safe —
-      nothing publishes from that path — but visible.
+- [x] **The RSC caller names its group** — `own_patch_groups_only` on `PUT /sources/~`.
+      A draft render has no client state and so cannot know its own group ids; it asks
+      for "mine" and the server resolves them from the session via
+      `ValOpsHttp.getPatchGroups`, taking the caller's OPEN groups. `patch_id` still
+      wins when given: an explicit list is a caller that already knows what it wants.
+      fs mode is unscoped, because every pending patch there is the one local person's.
+
+      A failed lookup renders BASE, not everything. Being shown only committed content
+      while the content API is unreachable is a degraded preview; being shown another
+      author's unpublished draft because a lookup failed is the bug this feature exists
+      to prevent, and it would be silent. Covered by `patchGroupResolution.test.ts`.
+
+- [ ] **A header overriding the resolved groups**, so a caller can preview a set of
+      groups other than its own. Sound in principle: a group holds a prefix of every
+      patch set it touches, and the union of two prefixes of the same sequence is the
+      longer one — so a union of groups cannot produce a view whose paths nobody's ops
+      were chosen against. Needs an authorization rule first: naming somebody else's
+      group must not be a way to read their unpublished work.
 - [ ] **Auto-save** — fs-only today (`ValProvider.tsx` guards on `mode !== "fs"`),
       and fs has no groups, so it is correct as it stands. If groups ever reach fs
       mode, auto-save must send the group's ids: what it saves has to be exactly what

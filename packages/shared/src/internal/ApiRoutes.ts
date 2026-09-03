@@ -985,6 +985,19 @@ export const Api = {
            * base.
            */
           patch_id: z.array(PatchId).optional(),
+          /**
+           * Apply only the patches in the CALLER'S OWN patch groups.
+           *
+           * The server resolves them from the session, so a draft render does
+           * not have to know its own group ids — which it cannot, since it has
+           * no client state. This is what makes `fetchVal` in draft mode show
+           * the person their own staged work rather than everybody's.
+           *
+           * Ignored when `patch_id` is given: an explicit list is a caller that
+           * already knows what it wants, and silently intersecting the two
+           * would make the narrower one invisible.
+           */
+          own_patch_groups_only: onlyOneBooleanQueryParam.optional(),
         },
         cookies: {
           val_session: z.string().optional(),

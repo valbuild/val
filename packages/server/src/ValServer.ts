@@ -1560,7 +1560,47 @@ export const ValServer = (
           patches: [],
         };
         if (query.exclude_patches !== true) {
-          const requestedPatchIds = query.patch_id;
+          /**
+           * The caller's own groups, resolved from their session.
+           *
+           * A draft render cannot name its own group ids — it has no client
+           * state — so it asks for "mine" and the server works out which. Only
+           * when `patch_id` is absent: an explicit list is a caller that already
+           * knows what it wants.
+           *
+           * A group lookup that FAILS renders base rather than everything. Being
+           * shown only committed content while the content API is unreachable is
+           * a degraded preview; being shown another author's unpublished draft
+           * because a lookup failed is the bug this feature exists to prevent,
+           * and it would be silent.
+           */
+          let ownPatchIds: PatchId[] | undefined;
+          if (
+            query.patch_id === undefined &&
+            query.own_patch_groups_only === true
+          ) {
+            if (serverOps instanceof ValOpsHttp && "id" in auth && auth.id) {
+              const groupsRes = await serverOps.getPatchGroups();
+              ownPatchIds =
+                groupsRes.status === "ok"
+                  ? groupsRes.patchGroups
+                      .filter(
+                        (group) =>
+                          group.publishedAt === null &&
+                          group.authorId === auth.id,
+                      )
+                      .flatMap((group) => group.patchIds)
+                  : [];
+            } else {
+              /*
+               * fs mode, or a server with no groups: there is nothing to scope
+               * BY, and every pending patch is this one person's anyway. Left
+               * `undefined` so the existing "apply everything" path runs.
+               */
+              ownPatchIds = undefined;
+            }
+          }
+          const requestedPatchIds = query.patch_id ?? ownPatchIds;
           if (
             requestedPatchIds !== undefined &&
             requestedPatchIds.length === 0
