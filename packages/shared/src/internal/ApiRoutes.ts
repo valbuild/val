@@ -971,6 +971,20 @@ export const Api = {
           validate_binary_files: onlyOneBooleanQueryParam.optional(),
           exclude_patches: onlyOneBooleanQueryParam.optional(),
           apply_patches: onlyOneBooleanQueryParam.optional(),
+          /**
+           * Apply ONLY these patches, rather than everything pending.
+           *
+           * This is what makes a draft-mode render match the caller's staged
+           * view. Without it `/sources/~` replays every pending patch on the
+           * branch, so a server-rendered preview shows other people's
+           * unpublished work — the one thing independent publish is for.
+           *
+           * Omitted means everything pending, which is the behaviour every
+           * existing caller has and must keep. An EMPTY array is a different
+           * answer and is honoured as one: a group holding nothing renders
+           * base.
+           */
+          patch_id: z.array(PatchId).optional(),
         },
         cookies: {
           val_session: z.string().optional(),

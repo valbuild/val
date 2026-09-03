@@ -197,6 +197,26 @@ export type System = HostRealm &
     /** What the field at one path points at. Scans first if a pass is owed. */
     referenceAt(path: SourcePath): Promise<Reference | null>;
     /**
+     * Scope this client to a patch group: what it renders and what it publishes.
+     *
+     * One call sets both, because the two must not be able to disagree —
+     * publishing something the editor was never shown is the failure this whole
+     * feature exists to prevent, and two setters is how that happens.
+     *
+     * `null` is unscoped: every pending patch renders and publishes, which is
+     * what this system did before groups existed, and is what fs mode and a
+     * content API without patch groups stay on. `[]` is a real and different
+     * answer — a group holding nothing, so the studio shows base.
+     *
+     * The ids are the group's FULL membership, closure included. This does not
+     * compute the closure: that needs patch sets, which need the schema, and it
+     * is `utils/patchGroups.ts` that owns it. Handing a set that breaks the
+     * prefix invariant will publish a set that breaks it.
+     */
+    setPatchGroup(patchIds: readonly PatchId[] | null): void;
+    /** The current group, or `null` when unscoped. See {@link System.setPatchGroup}. */
+    patchGroup(): readonly PatchId[] | null;
+    /**
      * Commit patches, if they are publishable.
      *
      * On the system because it is the one operation that needs three stores at
@@ -475,6 +495,22 @@ export function createSystem(options: SystemOptions): System {
   const patchSetChain = new PatchSetChain();
   /** One publish at a time. See `publish`. */
   let publishing = false;
+  /**
+   * The patch group: which pending patches are THIS user's to see and publish.
+   *
+   * `null` means unscoped — fs mode, or a content API without patch groups —
+   * and everything pending applies and publishes, which is what this system did
+   * before groups existed. An empty array is a real, different answer: a group
+   * holding nothing.
+   *
+   * Held here rather than in `SourceStore` because two stores need the same
+   * answer and neither owns it. Source needs it to decide what the studio and
+   * the preview render; publish needs it to decide what ships. Letting them
+   * hold it separately is how they come to disagree, and the two disagreeing is
+   * precisely the bug this feature exists to prevent — publishing something the
+   * editor was never shown.
+   */
+  let patchGroupIds: readonly PatchId[] | null = null;
   /** One whole-project validation at a time. See `validateEverything`. */
   let fullValidationRunning = false;
   /**
@@ -1115,6 +1151,15 @@ export function createSystem(options: SystemOptions): System {
         });
       }
     },
+    setPatchGroup(ids) {
+      patchGroupIds = ids === null ? null : [...ids];
+      // Source is scoped in the same call, so "what I can see" and "what I will
+      // publish" cannot come apart.
+      sourceStore.setVisiblePatchIds(patchGroupIds);
+    },
+    patchGroup() {
+      return patchGroupIds;
+    },
     async publish(requestedPatchIds, message, publishOptions) {
       const exact = publishOptions?.exact === true;
       if (options.publishPatches === undefined) {
@@ -1224,15 +1269,41 @@ export function createSystem(options: SystemOptions): System {
          * is typing, and a save that refuses whenever that happens is a save
          * that never runs.
          */
+        /**
+         * The chain, restricted to the caller's patch group.
+         *
+         * This is where independent publish actually happens, and it is a
+         * deliberate weakening of the rule the comment above states. "Publish
+         * the whole pending chain" is the conservative approximation of the
+         * real constraint, which is that what ships must not leave behind a
+         * patch whose paths it could move. Two patches that can move each
+         * other's paths are, by definition, in the same PATCH SET — and a group
+         * is required to hold a prefix of every patch set it touches
+         * (`utils/patchGroups.ts`). So a group is safe to publish even though it
+         * is not a prefix of the chain: what stays behind is in other patch
+         * sets, and committing this cannot shift it.
+         *
+         * Chain ORDER is preserved by filtering `chainNow` rather than using
+         * the group's own ordering, because the server applies what it is given
+         * in the order it is given, and the group is a set.
+         *
+         * Unscoped (`null`) is unchanged: the whole chain, exactly as before.
+         */
+        const groupScoped =
+          patchGroupIds === null
+            ? chainNow
+            : ((ids) => chainNow.filter((patchId) => ids.has(patchId)))(
+                new Set(patchGroupIds),
+              );
         const toPublish = exact
           ? takeNamedPrefix(
-              chainNow,
+              groupScoped,
               new Set(requestedPatchIds),
               new Set(
                 patchStore.unsavedRecords().map((record) => record.patchId),
               ),
             )
-          : chainNow;
+          : groupScoped;
         if (toPublish.length === 0) {
           return { status: "nothing-to-publish" };
         }

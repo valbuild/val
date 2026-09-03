@@ -98,6 +98,23 @@ const initFetchValStega =
               exclude_patches: false,
               // RSC pre-render uses the legacy "server applies patches" path.
               apply_patches: undefined,
+              /*
+               * Everything pending, which is what a draft render shows today.
+               *
+               * `/sources/~` now takes the caller's patch group here, and the
+               * Studio scopes its own view to one (`System.setPatchGroup`). This
+               * path cannot yet: resolving which group the session's user owns
+               * needs a lookup against the content API, and doing it per render
+               * is a cost decision that has not been made. So draft mode still
+               * shows base + every pending patch on the branch, including work
+               * other people have not published.
+               *
+               * Passing the group here is the last step of independent publish
+               * (PLAN §10). Until it happens, a server-rendered draft preview
+               * and the Studio disagree about what is pending — which is safe,
+               * because nothing publishes from this path, but it is visible.
+               */
+              patch_id: undefined,
             },
             cookies: {
               [VAL_SESSION_COOKIE]: cookies?.get(VAL_SESSION_COOKIE)?.value,

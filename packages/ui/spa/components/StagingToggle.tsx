@@ -285,35 +285,3 @@ export function StagingBulkActions({
     </span>
   );
 }
-
-/**
- * Summary of what this group is holding back, for the compare view header.
- *
- * Held changes must stay visible. If unstaging something made it disappear from
- * the review screen, unstaging would be a one-way trapdoor — you could not find
- * the change again to put it back.
- */
-export function HeldSummary() {
-  const staging = usePatchStaging();
-  if (!staging.enabled || staging.held.length === 0) {
-    return null;
-  }
-  // Deduplicated: one patch can belong to two patch sets — any `move` does — and
-  // would otherwise be counted once per set.
-  const heldIds = new Set<PatchId>();
-  for (const { unstaged } of staging.held) {
-    for (const patchId of unstaged) {
-      heldIds.add(patchId);
-    }
-  }
-  const count = heldIds.size;
-  return (
-    <p className="text-sm text-fg-secondary">
-      {count} {count === 1 ? "change is" : "changes are"} held back and will not
-      be published.{" "}
-      <span className="text-fg-tertiary">
-        They still exist, and someone else may publish them.
-      </span>
-    </p>
-  );
-}

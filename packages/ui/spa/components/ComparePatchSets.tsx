@@ -73,11 +73,7 @@ import { prettifyModulePath } from "../utils/prettifyText";
 import { FieldPathLink } from "./FieldPathLink";
 import { useNavLink } from "./navLink";
 import { refToUrl } from "./MediaPicker/refToUrl";
-import {
-  HeldSummary,
-  StagingBulkActions,
-  StagingToggle,
-} from "./StagingToggle";
+import { StagingBulkActions, StagingToggle } from "./StagingToggle";
 import { splitTreesByStaging } from "../utils/splitTreesByStaging";
 import { usePatchStaging } from "./PatchStagingProvider";
 
@@ -450,7 +446,7 @@ function StagedSections({
       )}
       <SectionHeading
         title="Unstaged"
-        detail="Held back. These stay pending and can be staged again."
+        detail="Held back. These stay pending and can be staged again — or published by someone else."
         count={countRows(held)}
         actions={
           <StagingBulkActions
@@ -836,7 +832,6 @@ function CompareSummaryStrip({
           />
         </span>
       </div>
-      <HeldSummary />
       <div className="flex items-center gap-3 shrink-0 sm:ml-auto border-t border-border-primary pt-2 sm:border-t-0 sm:pt-0">
         {deployingCount > 0 && pendingPatchIds.length > 0 && (
           <span className="text-xs text-fg-tertiary whitespace-nowrap">

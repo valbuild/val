@@ -1561,7 +1561,21 @@ export const ValServer = (
         };
         if (query.exclude_patches !== true) {
           patchOps = await serverOps.fetchPatches({
-            patchIds: undefined,
+            /*
+             * The caller's patch group, when it named one.
+             *
+             * `undefined` means every pending patch, which is what every
+             * existing caller gets and has to keep getting. A draft-mode render
+             * that names its group gets base + that group instead, so a
+             * server-rendered preview shows the same thing the person editing
+             * is looking at rather than everybody's unpublished work.
+             *
+             * An empty array is deliberately NOT folded into `undefined`: a
+             * group holding nothing renders base, and treating that as "no
+             * filter" would render the whole branch instead — the most
+             * dangerous possible reading of an empty set.
+             */
+            patchIds: query.patch_id,
             excludePatchOps: false,
           });
         }

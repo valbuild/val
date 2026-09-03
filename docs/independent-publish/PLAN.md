@@ -719,19 +719,39 @@ See `packages/ui/spa/stores/architecture.md`.
       nothing calls it on the write path yet. (`holdBackForGroupIds` is still accepted
       by the endpoint but is inert now that a patch only ever joins its own author's
       group — there is no fan-out for it to suppress.)
-- [ ] **Group-scoped source** — `SourceStore` folds in only the group's patches, so
-      studio and preview show `base + your group` rather than everything pending.
-      This is the item that makes "staged is the truth" (§2) true rather than aspirational.
+- [x] **Group-scoped source** — `SourceStore.setVisiblePatchIds` rebuilds each module
+      as base + the visible chain, so studio and preview show `base + your group`. Held
+      patches stay in `chains` — held is not gone, and re-staging must not need a
+      re-fetch. `null` is unscoped and keeps the pre-group behaviour; `[]` is a real,
+      different answer. Covered by `stores/patchGroupPublish.test.ts`.
 - [ ] **Enforce the guard at the point of editing** — `editWouldRestage` on the write
       path (`useAddPatch` / `writePath`), so a held region is genuinely read-only
       instead of a rule the tests know and the app does not.
-- [ ] **Publish the group, not everything** — `PublishSeam` already takes
-      `patchIds: PatchId[]`, so this is choosing the group's ids; also pass
-      `patchGroupId` to `POST /commit` for the bookkeeping.
+- [x] **Publish the group, not everything** — `createSystem.publish` filters the
+      chain by the group, preserving CHAIN order rather than the order the group names.
+      This deliberately weakens "publish the whole pending chain": that was the
+      conservative approximation of "do not leave behind a patch whose paths this could
+      move", and the precise version is the patch-set prefix invariant the group already
+      satisfies. Still to do: pass `patchGroupId` to `POST /commit` for bookkeeping.
+
+- [x] **One setter for both** — `System.setPatchGroup` scopes source and publish in the
+      same call, so "what I can see" and "what I will publish" cannot come apart.
+      Publishing something the editor was never shown is the failure this feature exists
+      to prevent, and two setters is how it would happen.
 - [ ] **Feed the real group into `PatchStagingProvider`** where the compare view is
       mounted, replacing the local state the Storybook stories use.
-- [ ] `patch_group_id` on `PUT /sources/~?apply_patches=true`, so server-rendered
-      applied source matches the caller's staged view.
+- [x] **`patch_id` on `PUT /sources/~`** — the server applies exactly the patches it is
+      told to, and everything only when told nothing. Covered by
+      `packages/server/src/sourcesPatchGroup.test.ts`.
+
+- [ ] **The RSC caller does not yet name its group.** `fetchVal` / `useVal` in draft mode
+      do NOT go through the client stores — `initValRsc` calls `PUT /sources/~` and the
+      server replays patches — so the client-side scoping above does not reach that path.
+      The mechanism is now there; what is missing is resolving which group the session's
+      user owns, which needs a lookup against the content API and a decision about paying
+      for it per render. Until then a draft render shows base + everything pending, and a
+      server-rendered preview and the Studio disagree about what is pending. Safe —
+      nothing publishes from that path — but visible.
 - [ ] **Auto-save** — fs-only today (`ValProvider.tsx` guards on `mode !== "fs"`),
       and fs has no groups, so it is correct as it stands. If groups ever reach fs
       mode, auto-save must send the group's ids: what it saves has to be exactly what

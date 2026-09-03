@@ -1407,6 +1407,125 @@ export class SourceStore {
   }
 
   /**
+   * Which patches the reader is allowed to see, or `null` for all of them.
+   *
+   * This is what makes "staged is the truth" true rather than aspirational: the
+   * studio, the preview and every field read `base + your patch group`, not
+   * `base + everything anybody has pending`.
+   *
+   * `null` is not the same as "the empty set" and the distinction is load
+   * bearing. `null` means nothing is scoping this store — fs mode, or a content
+   * API without patch groups — and every patch applies, which is the behaviour
+   * this store had before groups existed. An empty Set means a group that holds
+   * nothing, and then base is what you see.
+   *
+   * Held patches stay in `chains`. They are not dropped, because they are not
+   * gone: unstaging is reversible, another author is still working on them, and
+   * re-staging has to be able to put them back without re-fetching. So the chain
+   * remains the whole truth and this is a filter over it.
+   */
+  private visiblePatchIds: Set<PatchId> | null = null;
+
+  /**
+   * Whether this patch is in the reader's view.
+   *
+   * The one place the filter is interpreted, so "no scope means everything"
+   * cannot drift between the call sites that replay a chain.
+   */
+  private isVisible(patchId: PatchId): boolean {
+    return this.visiblePatchIds === null || this.visiblePatchIds.has(patchId);
+  }
+
+  /**
+   * Scope every module's source to these patches, and rebuild what moved.
+   *
+   * Rebuilds rather than un-applies, for the reason `dropFromChains` explains: a
+   * JSON patch is not invertible, so "stop showing this patch" can only mean
+   * recompute base + the patches still visible.
+   *
+   * Only modules whose VISIBLE set actually changed are rebuilt. Staging one
+   * patch in one module must not bump the revision of every module in the
+   * project — every field in the studio would repaint, and the wake would say
+   * "external change" about modules where nothing changed at all.
+   */
+  setVisiblePatchIds(patchIds: readonly PatchId[] | null): void {
+    const next = patchIds === null ? null : new Set(patchIds);
+    const changed: ModuleFilePath[] = [];
+    const touched: SourcePath[] = [];
+    for (const [moduleFilePath, chain] of this.chains) {
+      let differs = false;
+      for (const entry of chain) {
+        const wasVisible = this.isVisible(entry.record.patchId);
+        const nowVisible = next === null || next.has(entry.record.patchId);
+        if (wasVisible !== nowVisible) {
+          differs = true;
+          // Whichever direction it moved, the paths that patch touches are the
+          // ones whose displayed value is about to change.
+          touched.push(...touchedSourcePaths(entry.record));
+        }
+      }
+      if (differs) {
+        changed.push(moduleFilePath);
+      }
+    }
+    this.visiblePatchIds = next;
+    if (changed.length === 0) {
+      return;
+    }
+    const rebuilt: ModuleFilePath[] = [];
+    for (const moduleFilePath of changed) {
+      const base = this.baseSources[moduleFilePath];
+      if (base === undefined) {
+        // Not loaded, so there is no source to rebuild. The filter still moved,
+        // and the replay when it loads will honour it.
+        continue;
+      }
+      this.activity.work("source:rebuild-module", moduleFilePath);
+      this.sources[moduleFilePath] = deepClone(base as JSONValue);
+      const baseEntries = this.baseJsonEntries.get(moduleFilePath);
+      if (baseEntries !== undefined) {
+        this.jsonEntries.set(
+          moduleFilePath,
+          new Map(
+            [...baseEntries].map(([key, value]) => [
+              key,
+              deepClone(value as JSONValue),
+            ]),
+          ),
+        );
+      }
+      this.bump(moduleFilePath);
+      rebuilt.push(moduleFilePath);
+    }
+    if (rebuilt.length === 0) {
+      return;
+    }
+    // Same ordering as a drop, and for the same reason: consumers see the
+    // modules go back to base and THEN the visible patches land, rather than
+    // watching patches land on a value that still appeared to contain them.
+    this.events.emit({ type: "source:patch-drop", modules: rebuilt });
+    for (const moduleFilePath of rebuilt) {
+      const chain = this.chains.get(moduleFilePath);
+      if (chain === undefined || chain.length === 0) continue;
+      this.applyEntries(
+        chain.map((entry) => ({
+          record: entry.record,
+          // `external` for the reason a drop uses it: the author of a patch that
+          // just became visible or invisible is a reader who must be woken, not
+          // the one suppression exists to spare.
+          origin: "external" as const,
+          creatorFieldId: undefined,
+        })),
+      );
+    }
+    if (touched.length > 0) {
+      this.wakeListeners(new Set(rebuilt), [
+        { origin: "external", creatorFieldId: undefined, paths: touched },
+      ]);
+    }
+  }
+
+  /**
    * Forget these patches and rebuild the modules they touched.
    *
    * An applied patch cannot be un-applied: a JSON patch is not invertible in
@@ -1903,6 +2022,16 @@ export class SourceStore {
       paths: SourcePath[];
     }[] = [];
     for (const { record, origin, creatorFieldId } of entries) {
+      /*
+       * A patch outside the reader's group is in the chain but not in the view.
+       *
+       * Enforced HERE rather than only at the call sites that replay a chain,
+       * because a held patch reaches this method by several routes — a fresh
+       * `receive`, a module loading late, a drop rebuilding its neighbours — and
+       * every one of them would otherwise re-land it. It stays in `chains`: it
+       * is held, not gone, and re-staging has to be able to put it back.
+       */
+      if (!this.isVisible(record.patchId)) continue;
       const raw = this.sources[record.moduleFilePath];
       /**
        * Applied to the SUBSTITUTED module, not the raw one.
