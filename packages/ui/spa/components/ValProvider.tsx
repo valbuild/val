@@ -2021,12 +2021,34 @@ export function useCurrentProfile() {
  * so the two cannot drift into disagreeing about who you are.
  */
 export function useCurrentAuthorId(): string | null {
-  const { profileId, profiles, mode } = useContext(ValContext);
-  if (profileId) {
-    return profileId;
+  const context = useContext(ValContext);
+  /*
+   * No provider is an honest `null` here, not a crash.
+   *
+   * The default context is a Proxy that throws on any property read, which is
+   * the right guard for a hook that cannot do its job without one. This hook
+   * can: "who is the current author" has a correct answer when nobody is
+   * mounted, and it is nobody. Without this, one presentational component
+   * reaching for the author takes down every render of the whole review
+   * screen — which is what happened when the summary strip started naming
+   * authors, and it took out every ComparePatchSets story, not only the ones
+   * about authorship.
+   *
+   * The destructure is what throws, not `useContext`, so the hook is still
+   * called unconditionally and hook order is unaffected.
+   */
+  let resolved: Pick<ValContextValue, "profileId" | "profiles" | "mode">;
+  try {
+    const { profileId, profiles, mode } = context;
+    resolved = { profileId, profiles, mode };
+  } catch {
+    return null;
   }
-  if (mode === "fs") {
-    const [firstAuthorId] = Object.keys(profiles);
+  if (resolved.profileId) {
+    return resolved.profileId;
+  }
+  if (resolved.mode === "fs") {
+    const [firstAuthorId] = Object.keys(resolved.profiles);
     return firstAuthorId ?? null;
   }
   return null;
