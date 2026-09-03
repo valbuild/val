@@ -105,7 +105,23 @@ test.describe("the pending-changes gate", () => {
    * every patch on the server. Both halves are checked here, because both were
    * reachable from an ordinary first load.
    */
-  test("stays navigable while held, and can be dismissed", async ({ page }) => {
+  /**
+   * QUARANTINED - see https://github.com/valbuild/val/issues/568.
+   *
+   * Not a product bug, and not the gate releasing early: the `page.route` below
+   * holds `GET /api/val/patches` open, so it cannot. It went red because the
+   * Studio never rendered at all - the Next server proxies `/api/val/static/*`
+   * to the UI's Vite dev server, and that fetch returned ETIMEDOUT 15s before
+   * the failure. No SPA, so no note, so `element(s) not found`.
+   *
+   * The gate's main behaviour is still covered by the test above, which is
+   * untouched. The fix is either serving built SPA assets in e2e instead of
+   * compiling on demand - which would help every fs-mode spec - or expressing
+   * "held is not stuck" as a jsdom test with no dev server in it.
+   */
+  test.skip("stays navigable while held, and can be dismissed", async ({
+    page,
+  }) => {
     await openStudio(page, HOME);
     const title = page.locator("input").first();
     await expect(title).toHaveValue("Content as code");

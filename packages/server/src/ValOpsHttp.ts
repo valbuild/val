@@ -61,9 +61,6 @@ const MetadataRes = z.object({
   type: z.union([z.literal("file"), z.literal("image")]).nullable(),
 });
 
-const SummaryResponse = z.object({
-  commitSummary: z.string(),
-});
 const GetApplicablePatches = z.object({
   patches: z.array(
     z.object({
@@ -313,79 +310,6 @@ export class ValOpsHttp extends ValOps {
         statusCode: 500,
         error: {
           message: `Could not get presigned auth nonce. Error: ${
-            e instanceof Error ? e.message : JSON.stringify(e)
-          }`,
-        },
-      };
-    }
-  }
-
-  override async getCommitSummary(preparedCommit: PreparedCommit): Promise<
-    | {
-        commitSummary: string | null;
-        error?: undefined;
-      }
-    | {
-        commitSummary?: undefined;
-        error: GenericErrorMessage;
-      }
-  > {
-    try {
-      const res = await fetch(
-        `${this.contentUrl}/v1/${this.project}/commit-summary`,
-        {
-          method: "POST",
-          headers: {
-            ...this.authHeaders,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            patchedSourceFiles: preparedCommit.patchedSourceFiles,
-            previousSourceFiles: preparedCommit.previousSourceFiles,
-          }),
-        },
-      );
-      if (res.ok) {
-        const json = await res.json();
-        const parsed = SummaryResponse.safeParse(json);
-        if (parsed.success) {
-          return { commitSummary: parsed.data.commitSummary };
-        }
-        console.error(
-          `Could not parse summary response.  Error: ${fromError(parsed.error).toString()}`,
-        );
-        return {
-          error: {
-            message: `Cannot get the summary of your changes. An error has been logged. Possible cause: the current version of Val might be too old. Please try again later or contact the developers on your team.`,
-          },
-        };
-      }
-      if (res.status === 401) {
-        console.error("Unauthorized to get summary");
-        return {
-          error: {
-            message:
-              "Could not get summary. Although your user is authorized, the application has authorization issues. Contact the developers on your team and ask them to verify the api keys.",
-          },
-        };
-      }
-      const unknownErrorMessage = `Could not get summary. HTTP error: ${res.status} ${res.statusText}`;
-      if (res.headers.get("Content-Type")?.includes("application/json")) {
-        const json = await res.json();
-        const message = getErrorMessageFromUnknownJson(
-          json,
-          unknownErrorMessage,
-        );
-        console.error("Summary error:", message);
-        return { error: { message } };
-      }
-      console.error(unknownErrorMessage);
-      return { error: { message: unknownErrorMessage } };
-    } catch (e) {
-      console.error("Could not get summary (connection error?):", e);
-      return {
-        error: {
-          message: `Could not get summary. Error: ${
             e instanceof Error ? e.message : JSON.stringify(e)
           }`,
         },
@@ -1406,57 +1330,6 @@ export class ValOpsHttp extends ValOps {
           },
         };
       });
-  }
-
-  async getCommitMessage(preparedCommit: PreparedCommit): Promise<
-    | {
-        commitSummary: string;
-        error?: undefined;
-      }
-    | {
-        error: GenericErrorMessage;
-      }
-  > {
-    const res = await fetch(
-      `${this.contentUrl}/v1/${this.project}/commit-summary`,
-      {
-        method: "POST",
-        headers: {
-          ...this.authHeaders,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          patchedSourceFiles: preparedCommit.patchedSourceFiles,
-          previousSourceFiles: preparedCommit.previousSourceFiles,
-        }),
-      },
-    );
-    if (res.ok) {
-      const json = await res.json();
-      const parsed = SummaryResponse.safeParse(json);
-      if (parsed.success) {
-        return { commitSummary: parsed.data.commitSummary };
-      }
-      return {
-        error: {
-          message: `Could not parse commit summary response. Error: ${fromError(parsed.error)}`,
-        },
-      };
-    }
-    if (res.headers.get("Content-Type")?.includes("application/json")) {
-      const json = await res.json();
-      const message = getErrorMessageFromUnknownJson(json, "Unknown error");
-      return { error: { message } };
-    }
-    return {
-      error: {
-        message:
-          "Could not get commit message. HTTP error: " +
-          res.status +
-          " " +
-          res.statusText,
-      },
-    };
   }
 
   async commit(

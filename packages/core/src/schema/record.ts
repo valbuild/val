@@ -27,6 +27,7 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 import { splitRemoteRef } from "../remote/splitRemoteRef";
+import { mimeTypeMatchesAccept } from "../mimeType";
 import type { ImageEncodeOption } from "./image";
 
 type MediaOptions = {
@@ -510,23 +511,7 @@ export class RecordSchema<
       return `Invalid mime type format. Got: '${mimeType}'`;
     }
 
-    const acceptedTypes = accept.split(",").map((type) => type.trim());
-
-    const isValidMimeType = acceptedTypes.some((acceptedType) => {
-      if (acceptedType === "*/*") {
-        return true;
-      }
-      if (acceptedType === "image/*") {
-        return mimeType.startsWith("image/");
-      }
-      if (acceptedType.endsWith("/*")) {
-        const baseType = acceptedType.slice(0, -2);
-        return mimeType.startsWith(baseType);
-      }
-      return acceptedType === mimeType;
-    });
-
-    if (!isValidMimeType) {
+    if (!mimeTypeMatchesAccept(mimeType, accept)) {
       return `Mime type mismatch. Found '${mimeType}' but schema accepts '${accept}'`;
     }
 

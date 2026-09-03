@@ -9,7 +9,7 @@ import { JSONValue } from "@valbuild/core/patch";
 import { useSchemas } from "./ValFieldProvider";
 import { useAddModuleFilePatch } from "./ValProvider";
 import { useNavigation } from "./ValRouter";
-import { emptyOf } from "./fields/emptyOf";
+import { emptyOf } from "@valbuild/shared/internal";
 
 /**
  * Create a page under a router, and open it.

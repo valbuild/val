@@ -44,6 +44,7 @@ export function getReferencedFiles(
       schema.type === "date" ||
       schema.type === "dateTime" ||
       schema.type === "color" ||
+      schema.type === "code" ||
       schema.type === "keyOf" ||
       schema.type === "image" ||
       schema.type === "file" ||

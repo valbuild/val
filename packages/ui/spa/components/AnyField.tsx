@@ -12,6 +12,7 @@ import { StringField } from "./fields/StringField";
 import { UnionField } from "./fields/UnionField";
 import { DateField } from "./fields/DateField";
 import { DateTimeField } from "./fields/DateTimeField";
+import { CodeField } from "./fields/CodeField";
 import { ColorField } from "./fields/ColorField";
 import { FieldSchemaError } from "./FieldSchemaError";
 import { FileField } from "./fields/FileField";
@@ -144,6 +145,8 @@ export function AnyField({
     leaf = <DateTimeField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "color") {
     leaf = <ColorField key={path} path={path} {...leafProps} />;
+  } else if (schema.type === "code") {
+    leaf = <CodeField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "file") {
     leaf = <FileField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "literal") {

@@ -64,6 +64,7 @@ import {
   useAIWebSocket,
   type AIMessageHandler,
   type AIClientMessage,
+  type AIModel,
   type AISession,
   AITool,
 } from "../hooks/useAIWebSocket";
@@ -191,6 +192,8 @@ type ValContextValue = {
     },
   ) => Promise<AIMessagesResponse>;
   aiSetSessionName: (sessionId: string, name: string) => Promise<void>;
+  /** The model to use, or null when no key makes any model reachable. */
+  availableAiModel: AIModel | null;
   aiSessionImagesToPatchFile: (args: {
     patchId: PatchId;
     parentRef: ParentRef;
@@ -246,10 +249,19 @@ export function ValProvider({
   ] = useStatus(client);
 
   const isStatConnected = "data" in stat && !!stat.data;
+  /**
+   * Whether to open the AI socket.
+   *
+   * Two things need it now, not one. Commit summaries moved onto this socket, so
+   * gating it on experimental chat alone would have silently taken AI summaries
+   * away from every project that had them without opting into the chat — the
+   * chat flag is about the panel, not about whether AI exists.
+   */
   const wsEnabled =
     isStatConnected &&
     ("data" in stat && stat.data
-      ? stat.data.config?.ai?.chat?.experimental?.enable === true
+      ? stat.data.config?.ai?.chat?.experimental?.enable === true ||
+        stat.data.config?.ai?.commitMessages?.disabled !== true
       : false);
   const {
     subscribeToMessages: subscribeToWsMessages,
@@ -258,6 +270,7 @@ export function ValProvider({
     authError: aiAuthError,
     connectionError: aiConnectionError,
     retryConnection: retryAiConnection,
+    availableModel: availableAiModel,
   } = useAIWebSocket(wsEnabled, client);
 
   const aiGetSessions = useCallback(
@@ -721,6 +734,7 @@ export function ValProvider({
         aiGetSessions,
         aiGetSessionMessages,
         aiSetSessionName,
+        availableAiModel,
         aiSessionImagesToPatchFile,
       }}
     >
@@ -1078,6 +1092,18 @@ export function useAIContext() {
     aiSetSessionName,
     aiSessionImagesToPatchFile,
   };
+}
+
+/**
+ * The model AI calls should ask for, or null when there is none.
+ *
+ * Null is the ordinary state for a project with no AI key configured: with
+ * bring-your-own-key there is no fallback, so the callers treat it as "AI is
+ * off" rather than as an error.
+ */
+export function useAvailableAIModel(): AIModel | null {
+  const { availableAiModel } = useContext(ValContext);
+  return availableAiModel;
 }
 
 export function useDeployments() {
@@ -1722,7 +1748,6 @@ type PublishSummaryState = z.infer<typeof PublishSummaryState>;
  */
 export function usePublishSummary() {
   const {
-    client,
     publishSummaryState,
     setPublishSummaryState,
     config: runtimeConfig,
@@ -1738,17 +1763,6 @@ export function usePublishSummary() {
     }
     return false;
   }, [patchErrors]);
-  const [canGenerate, setCanGenerate] = useState(false);
-  useEffect(() => {
-    if (
-      runtimeConfig?.ai?.commitMessages?.disabled === undefined ||
-      runtimeConfig.ai.commitMessages.disabled === false
-    ) {
-      setCanGenerate(true);
-    } else {
-      setCanGenerate(false);
-    }
-  }, [runtimeConfig]);
   useEffect(() => {
     if (publishSummaryState.type === "not-asked") {
       const storedSummaryState = getSummaryStateFromLocalStorage(
@@ -1764,57 +1778,6 @@ export function usePublishSummary() {
       }
     }
   }, [publishSummaryState, runtimeConfig, setPublishSummaryState]);
-  const generateSummary = useCallback(async (): Promise<
-    { type: "ai"; text: string } | { type: "error"; message: string }
-  > => {
-    if (globalServerSidePatchIds === null) {
-      return {
-        type: "error",
-        message: "Empty patch set",
-      };
-    }
-    if (
-      "isGenerating" in publishSummaryState &&
-      publishSummaryState.isGenerating
-    ) {
-      return {
-        type: "error",
-        message: "Already generating summary",
-      };
-    }
-    setPublishSummaryState((prev) => {
-      return {
-        ...prev,
-        isGenerating: true,
-      };
-    });
-    try {
-      const res = await client("/commit-summary", "GET", {
-        query: {
-          patch_id: globalServerSidePatchIds,
-        },
-      });
-      if (res.status === 200) {
-        if (res.json.commitSummary) {
-          return { type: "ai", text: res.json.commitSummary };
-        } else {
-          return {
-            type: "error",
-            message: "Commit summary could not be generated",
-          };
-        }
-      } else {
-        return { type: "error", message: res.json.message };
-      }
-    } finally {
-      setPublishSummaryState((prev) => {
-        return {
-          ...prev,
-          isGenerating: false,
-        };
-      });
-    }
-  }, [client, globalServerSidePatchIds, publishSummaryState]);
   const [isPublishing, setIsPublishing] = useState(false);
   const publish = useCallback(
     async (summary: string) => {
@@ -1931,8 +1894,13 @@ export function usePublishSummary() {
      */
     publishDisabled: isPublishing || hasPatchErrors === true,
     isPublishing,
-    generateSummary,
-    canGenerate,
+    /**
+     * Whether the project wants AI to write its commit messages.
+     *
+     * `ai.commitMessages.disabled` is an explicit opt-out, so absent config
+     * means enabled — same reading the removed REST path had.
+     */
+    aiEnabled: runtimeConfig?.ai?.commitMessages?.disabled !== true,
     summary: publishSummaryState,
     setSummary,
   };
@@ -2011,6 +1979,7 @@ export type ShallowSource = EnsureAllTypes<{
   date: string;
   dateTime: string;
   color: string;
+  code: string;
   file: {
     path: string;
     mimeType?: string;
@@ -2755,6 +2724,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     type === "date" ||
     type === "dateTime" ||
     type === "color" ||
+    type === "code" ||
     type === "string" ||
     type === "literal"
   ) {

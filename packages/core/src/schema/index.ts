@@ -13,6 +13,7 @@ import { SerializedRecordSchema } from "./record";
 import { SerializedRichTextSchema } from "./richtext";
 import { RawString, SerializedStringSchema } from "./string";
 import { SerializedUnionSchema } from "./union";
+import { SerializedCodeSchema } from "./code";
 import { SerializedColorSchema } from "./color";
 import { SerializedDateSchema } from "./date";
 import { SerializedDateTimeSchema } from "./datetime";
@@ -44,6 +45,7 @@ export type SerializedSchema =
   | SerializedDateSchema
   | SerializedDateTimeSchema
   | SerializedColorSchema
+  | SerializedCodeSchema
   | SerializedRouteSchema
   | SerializedImageSchema;
 

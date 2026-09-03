@@ -27,6 +27,7 @@
     "@babel/preset-env": "^7.28.6",
     "@babel/preset-react": "^7.28.5",
     "@babel/preset-typescript": "^7.28.5",
+    "@changesets/changelog-github": "^1.0.0",
     "@changesets/cli": "^3.0.1",
     "@eslint/eslintrc": "^3.3.6",
     "@eslint/js": "^10.0.1",

@@ -106,6 +106,7 @@ import {
   getMimeType,
   mimeTypeToFileExt,
   filenameToMimeType,
+  mimeTypeMatchesAccept,
   EXT_TO_MIME_TYPES,
   MIME_TYPES_TO_EXT,
 } from "./mimeType";
@@ -147,6 +148,13 @@ export {
   ColorSchema,
 } from "./schema/color";
 export {
+  type SerializedCodeSchema,
+  type CodeOptions,
+  type CodeLanguage,
+  CodeSchema,
+  CODE_LANGUAGES,
+} from "./schema/code";
+export {
   type ColorFormat,
   type ParsedColor,
   COLOR_FORMATS,
@@ -179,14 +187,7 @@ export {
   type PreviewScope,
   previewScope,
 } from "./preview";
-export {
-  type CodeLanguage,
-  type StringRender,
-  type InlineRender,
-  type FieldRender,
-  CODE_LANGUAGES,
-  isInlineRender,
-} from "./render";
+export { type InlineRender, type FieldRender, isInlineRender } from "./render";
 export type { ValRouter, RouteValidationError } from "./router";
 export { getSourcePathFromRoute } from "./getSourcePathFromRoute";
 import { nextAppRouter, externalPageRouter } from "./router";
@@ -264,6 +265,7 @@ const Internal = {
   getMimeType,
   mimeTypeToFileExt,
   filenameToMimeType,
+  mimeTypeMatchesAccept,
   EXT_TO_MIME_TYPES,
   MIME_TYPES_TO_EXT,
   ModuleFilePathSep,

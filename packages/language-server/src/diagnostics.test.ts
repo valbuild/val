@@ -40,6 +40,21 @@ describe("diagnostics over LSP", () => {
     expect(published.diagnostics).toEqual([]);
   });
 
+  test("publishes nothing for an image whose metadata matches its file", async () => {
+    // The reported bug: core reports `image:check-metadata` on every image that
+    // carries metadata -- it cannot read bytes, so it defers rather than
+    // finding anything -- and the server used to publish that verbatim, putting
+    // a permanent warning on every image in the project. `jsonEntryMedia` holds
+    // a correct 944x944 image, and is the awkward `.jsonValues()` shape whose
+    // value lives in a separate *.val.json.
+    const file = path.join(EXAMPLE_APP, "content", "jsonEntryMedia.val.ts");
+    const uri = `file://${file}`;
+    session.openDocument(uri, fs.readFileSync(file, "utf8"));
+
+    const published = await session.nextDiagnostics(uri);
+    expect(published.diagnostics).toEqual([]);
+  });
+
   test("reports a fixable validation error as a warning", async () => {
     // Known bad image metadata in the example app. Val's own CLI prints fixable
     // errors with a warning glyph, so an editor shows them as warnings.

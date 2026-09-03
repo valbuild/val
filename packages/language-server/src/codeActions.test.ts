@@ -154,7 +154,11 @@ describe("code actions over LSP", () => {
     expect(fixable.length).toBeGreaterThan(0);
 
     const actions = await session.requestCodeActions(FIXTURE_URI, fixable);
-    expect(actions.length).toBeGreaterThan(0);
+    // Exactly one. Both the width and the height are wrong, so this is reported
+    // as two diagnostics -- but one patch corrects both, so offering the same
+    // "Val: update image metadata" twice would be noise.
+    expect(fixable.length).toBe(2);
+    expect(actions).toHaveLength(1);
 
     const action = actions[0];
     expect(action.kind).toBe("quickfix");
@@ -174,14 +178,12 @@ describe("code actions over LSP", () => {
     expect(applied).toContain(`path: "${FIXTURE_IMAGE_REF}"`);
   });
 
-  test("applying the fix writes the image's real dimensions and adds no new errors", async () => {
-    // NOTE: deliberately not asserting the diagnostic disappears. For a direct
-    // `s.image()`, core reports "Found metadata, but it could not be validated"
-    // both before AND after the fix, even though the resulting metadata has
-    // width/height/mimeType all present and correct (944/944/image/png). So this
-    // error class is not cleared by image:check-metadata -- worth chasing down in
-    // Val separately. What must hold is that the fix writes the real dimensions
-    // and does not make things worse.
+  test("applying the fix clears the diagnostic and adds no new errors", async () => {
+    // This used to be the other way round: core reports `image:check-metadata`
+    // for a direct `s.image()` whether or not the metadata is right, so the
+    // warning survived its own fix and sat on every image in the project. The
+    // server now adjudicates that placeholder against the file, so a correct
+    // image has nothing to report.
     session.openDocument(FIXTURE_URI, FIXTURE_TEXT);
 
     const published = await session.nextDiagnostics(FIXTURE_URI, (d) =>
@@ -203,9 +205,15 @@ describe("code actions over LSP", () => {
     expect(applied).toMatch(/height:\s*944/);
     expect(applied).toMatch(/mimeType:\s*"image\/png"/);
 
-    // Re-validate the fixed buffer: no new problems introduced.
+    // Re-validate the fixed buffer: the metadata now agrees with the file, so
+    // the warning is gone rather than merely no worse.
     session.changeDocument(FIXTURE_URI, 2, applied);
     const after = await session.nextDiagnostics(FIXTURE_URI);
+    expect(
+      after.diagnostics.filter((d) =>
+        d.data?.fixes?.some((f) => f.endsWith("check-metadata")),
+      ),
+    ).toEqual([]);
     expect(after.diagnostics.length).toBeLessThanOrEqual(
       published.diagnostics.length,
     );
@@ -327,9 +335,11 @@ describe("code actions over LSP", () => {
     const stillFixable = afterClose.diagnostics.filter((d) =>
       d.data?.fixes?.some((f) => f.endsWith("check-metadata")),
     );
-    // The diagnostic itself survives — core reports check-metadata for a direct
-    // `s.image()` whether or not the metadata is right — but there is nothing
-    // left to change, so no action is offered.
+    // On disk the entry already says 944x944, so once the overlay is gone there
+    // is nothing left to report: the placeholder core still emits is
+    // adjudicated against the file and dropped. (It used to survive, and only
+    // the absence of an offered action showed the invalidation had worked.)
+    expect(stillFixable).toEqual([]);
     const actions = await session.requestCodeActions(
       ENTRY_MODULE_URI,
       stillFixable,

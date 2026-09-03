@@ -11,6 +11,7 @@ import { KeyOfPreview } from "./fields/KeyOfField";
 import { RoutePreview } from "./fields/RouteField";
 import { DatePreview } from "./fields/DateField";
 import { DateTimePreview } from "./fields/DateTimeField";
+import { CodePreview } from "./fields/CodeField";
 import { ColorPreview } from "./fields/ColorField";
 import { LiteralPreview } from "./fields/LiteralPreview";
 import { RecordPreview } from "./fields/RecordFields";
@@ -65,6 +66,8 @@ export function Preview({
     return <DateTimePreview path={path} />;
   } else if (type === "color") {
     return <ColorPreview path={path} />;
+  } else if (type === "code") {
+    return <CodePreview path={path} />;
   } else if (type === "literal") {
     return <LiteralPreview path={path} />;
   } else if (type === "record") {

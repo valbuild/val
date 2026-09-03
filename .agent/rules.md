@@ -515,6 +515,32 @@ Releases go out through changesets: land a PR with a changeset on `main`, the
 Release workflow opens a "Version Packages" PR, and merging that publishes to
 npm.
 
+### The changeset summary is the release note
+
+`.changeset/config.json` generates changelogs with
+`@changesets/changelog-github`, so `changeset version` writes each changeset's
+summary into every affected package's `CHANGELOG.md` under the new version,
+prefixed with the PR link, the commit link and the author. `changesets/action`
+then uses that entry as the body of the GitHub Release it creates for the tag,
+and the file ships in the npm tarball.
+
+So the summary in `.changeset/*.md` is what users read on the release — write it
+for them, not for the reviewer of the PR. It is Markdown, and lists, code fences
+and `#123` issue references all survive (the last gets linkified).
+Front-matter-style lines in the summary are consumed rather than printed:
+`pr: 123`, `commit: <sha>` and `author: @who` override what changesets inferred
+from git, which is how a changeset that landed via a squash or a rebase gets the
+right link.
+
+Two things to know before running `changeset version` by hand:
+
+- It needs a `GITHUB_TOKEN` in the environment. Without one the GitHub API call
+  fails with `Bad credentials` and **no files are written** — the generator is
+  fail-closed, so a missing token stops the release rather than publishing a
+  version with empty notes. CI has the token; a laptop usually does not.
+- Normal releases do not need it run by hand at all. The Release workflow runs
+  `pnpm run version-packages` and puts the result in the "Version Packages" PR.
+
 **After a release, ask whether to update the starter template** — and default to
 yes. The template repository ([`valbuild/template-nextjs-starter`](https://github.com/valbuild/template-nextjs-starter))
 pins `@valbuild/*` versions in its `package.json`, so it keeps serving the old

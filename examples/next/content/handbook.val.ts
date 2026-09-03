@@ -42,7 +42,7 @@ export const handbookChapterSchema = s
   .object({
     title: s.string().minLength(2),
     slug: s.string().regexp(/^[a-z0-9-]+$/),
-    summary: s.string().render({ as: "textarea" }),
+    summary: s.string().multiline(),
     owner: s.keyOf(authorsVal),
     sections: s.array(handbookSectionSchema),
   })

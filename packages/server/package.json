@@ -16,7 +16,7 @@
     "./package.json": "./package.json"
   },
   "types": "dist/valbuild-server.cjs.d.ts",
-  "version": "0.110.0",
+  "version": "0.117.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest",
@@ -42,6 +42,7 @@
     "node": "^20.19.0 || >=22"
   },
   "files": [
+    "CHANGELOG.md",
     "dist"
   ]
 }

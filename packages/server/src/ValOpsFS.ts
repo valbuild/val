@@ -209,17 +209,6 @@ export class ValOpsFS extends ValOps {
     }
   }
 
-  async getCommitSummary(): Promise<
-    | { commitSummary: string | null; error?: undefined }
-    | { commitSummary?: undefined; error: GenericErrorMessage }
-  > {
-    return {
-      error: {
-        message: "Val is in development / local mode. Cannot generate summary",
-      },
-    };
-  }
-
   async getStat(
     params: {
       baseSha: BaseSha;

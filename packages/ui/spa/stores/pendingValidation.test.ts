@@ -26,13 +26,16 @@ const module = () => {
  * Waits for the store's own `validation:result` event for each module in
  * `moduleFilePaths` — not a sleep past the debounce.
  *
- * The debounce itself has to stay real: the "one validation per burst" test
- * below is only meaningful if the burst genuinely finishes before it fires.
- * But NOTHING about the "did it eventually validate" tests needs to guess how
- * long that takes — the event that means "yes" already exists, so waiting for
- * it directly resolves the instant the real pass completes rather than after
- * a fixed padding chosen to outlast it. The timeout is a failure detector, not
- * the mechanism: a run this slow means something is actually stuck.
+ * Nothing here needs to guess how long a pass takes: the event that means
+ * "yes" already exists, so waiting for it resolves the instant the pass
+ * completes rather than after a fixed padding chosen to outlast it. The
+ * timeout is a failure detector, not the mechanism — a run this slow means
+ * something is actually stuck.
+ *
+ * Two tests below keep the REAL 300ms debounce, and deliberately: they are what
+ * proves the default wiring arms and fires at all. The ones that assert
+ * counting over a burst drive the pass by hand instead, because a count is not
+ * a claim about elapsed time — see `manualPendingValidation`.
  */
 function afterValidated(
   validationStore: ValidationStore,
@@ -88,9 +91,28 @@ describe("validation of pending modules", () => {
     dispose();
   });
 
+  /**
+   * Forty patches arm ONE pass, and the pass validates once.
+   *
+   * Both halves used to be inferred from a race: the burst was run against the
+   * real 300ms debounce and the test asserted that nothing had validated yet.
+   * That is a claim about wall-clock time — 40 awaited writes measured ~100ms
+   * on an idle box, so it passed with a margin nobody chose, and it went red on
+   * a CI runner where something other than CPU stretched the burst past 300ms.
+   *
+   * Driving the pass by hand says the same thing exactly. `armed` is the
+   * coalescing itself rather than a shadow of it, so a regression that armed a
+   * pass per patch fails with `40` instead of failing one run in fifty.
+   */
   it("costs one validation for a burst, not one per keystroke", async () => {
-    const { sourceStore, patchStore, validationStore, activity, dispose } =
-      initTestSystem();
+    const {
+      sourceStore,
+      patchStore,
+      validationStore,
+      activity,
+      pendingValidation,
+      dispose,
+    } = initTestSystem({ manualPendingValidation: true });
     await sourceStore.testReceive([module()]);
 
     const before = activity.position();
@@ -99,14 +121,14 @@ describe("validation of pending modules", () => {
         { op: "replace", path: ["title"], value: `Hello ${index}` },
       ]);
     }
-    // Still nothing during the burst — the debounce has not elapsed. This is
-    // the one property in the file that needs the debounce to be REAL: the
-    // claim is that 40 awaited writes finish inside it, which a shortened or
-    // faked one would not be testing.
+    // One pass armed for the whole burst — the property, asserted directly.
+    expect(pendingValidation.armed).toBe(1);
+    // And nothing has validated, because nothing runs a pass but this test.
     expect(
       activity.count("validation:schema-validate", { since: before }),
     ).toBe(0);
 
+    expect(pendingValidation.fire()).toBe(1);
     await afterValidated(validationStore, ["/t.val.ts"]);
 
     // One pass over the pending modules, not forty.
@@ -164,8 +186,14 @@ describe("validation of pending modules", () => {
     /** `[modules touched, chain length, validations]`, collected then asserted. */
     const measured: [number, number, number][] = [];
     for (const touched of [1, 3, 10]) {
-      const { sourceStore, patchStore, validationStore, activity, dispose } =
-        initTestSystem();
+      const {
+        sourceStore,
+        patchStore,
+        validationStore,
+        activity,
+        pendingValidation,
+        dispose,
+      } = initTestSystem({ manualPendingValidation: true });
       await sourceStore.testReceive(modules);
 
       const before = activity.position();
@@ -179,6 +207,13 @@ describe("validation of pending modules", () => {
           ]);
         }
       }
+      // One pass, fired once the whole burst is in: on the real debounce a pass
+      // that fired MID-burst validated the modules touched so far, the next
+      // patches marked them stale again, and the following pass validated them
+      // a second time — so the count came out above `touched` and the test read
+      // as a scaling regression rather than as the race it was.
+      expect(pendingValidation.armed).toBe(1);
+      pendingValidation.fire();
       await afterValidated(
         validationStore,
         Array.from({ length: touched }, (_, index) => `/m${index}.val.ts`),

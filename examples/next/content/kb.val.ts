@@ -28,7 +28,7 @@ export const kbArticleSchema = s.object({
         ? "the word 'forbidden' is not allowed in a title"
         : false,
     ),
-  body: s.string().render({ as: "textarea" }),
+  body: s.string().multiline(),
   order: s.number(),
   author: s.keyOf(authorsVal),
   related: s.route(),

@@ -12,7 +12,7 @@
     "next",
     "react"
   ],
-  "version": "0.110.0",
+  "version": "0.117.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest"
@@ -77,6 +77,7 @@
     "next"
   ],
   "files": [
+    "CHANGELOG.md",
     "dist",
     "client",
     "server",

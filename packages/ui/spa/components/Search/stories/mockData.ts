@@ -347,9 +347,9 @@ function createMockData() {
         s
           .object({
             name: s.string(),
-            description: s.string().render({ as: "textarea" }),
+            description: s.string().multiline(),
             price: s.number(),
-            code: s.string().render({ as: "code", language: "json" }),
+            code: s.code({ language: "json" }),
           })
           .preview(({ val }) => {
             return {
@@ -416,8 +416,8 @@ function createMockData() {
       s
         .object({
           key: s.string(),
-          value: s.string().render({ as: "code", language: "typescript" }),
-          description: s.string().render({ as: "textarea" }),
+          value: s.code({ language: "typescript" }),
+          description: s.string().multiline(),
         })
         .preview(({ val }) => {
           return {

@@ -33,7 +33,8 @@ export function CodeEditor({
   options,
   className,
 }: {
-  language: CodeLanguage;
+  /** Omitted for a plain monospaced editor: `s.code()` with no language. */
+  language?: CodeLanguage;
   placeholder?: string;
   options?: BasicSetupOptions;
   value: string;
@@ -44,6 +45,11 @@ export function CodeEditor({
   className?: string;
 }) {
   const extensions = useMemo(() => {
+    if (language === undefined) {
+      // `s.code()` with no language: a monospaced box, no highlighting. Not an
+      // error — the exhaustive check below is for a language we forgot.
+      return [];
+    }
     if (language === "typescript") {
       return [javascript({ typescript: true })];
     } else if (language === "typescriptreact") {
