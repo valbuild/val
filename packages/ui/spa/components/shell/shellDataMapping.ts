@@ -5,6 +5,7 @@ import { routePatternToString } from "../NavMenu/SitemapItem";
 import { ValEnrichedDeployment } from "../../utils/mergeCommitsAndDeployments";
 import {
   ShellActivityEntry,
+  ShellAdminLinks,
   ShellData,
   ShellDataModule,
   ShellDeployment,
@@ -299,6 +300,37 @@ export function hostLabel(url: string): string {
     // showing nothing.
     return url;
   }
+}
+
+/**
+ * The project's pages in Val Build's admin app.
+ *
+ * `config.project` is `"<org>/<project>"` — the format `val connect` insists
+ * on — so anything else has no page to open: a project that was never
+ * connected has no `project` at all, and a malformed one would only produce a
+ * link to a 404. Both return `undefined`, which is what hides the link and the
+ * settings buttons rather than offering a way out that goes nowhere.
+ *
+ * The member list is reached through `/manage-members/<org>`, which the admin
+ * app keeps for exactly this — it redirects to wherever the org's members
+ * currently live, so Val does not have to track that page moving.
+ */
+export function toAdminLinks(
+  config: { project?: string; appHost?: string } | undefined,
+): ShellAdminLinks | undefined {
+  if (!config?.project || !config.appHost) {
+    return undefined;
+  }
+  const parts = config.project.split("/");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    return undefined;
+  }
+  const [org, project] = parts;
+  const host = config.appHost.replace(/\/+$/, "");
+  return {
+    project: `${host}/~/${encodeURIComponent(org)}/${encodeURIComponent(project)}`,
+    members: `${host}/manage-members/${encodeURIComponent(org)}`,
+  };
 }
 
 export function initialsOf(fullName: string): string {

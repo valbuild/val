@@ -522,7 +522,11 @@ const mockNewPageRoutes: ShellNewPageRoutes = {
 };
 
 export const mockShellData: ShellData = {
-  projectName: "val-demo-project",
+  projectName: "val-demo/val-demo-project",
+  admin: {
+    project: "https://admin.val.build/~/val-demo/val-demo-project",
+    members: "https://admin.val.build/manage-members/val-demo",
+  },
   branch: "main",
   hasRouters: true,
   pages: mockPages,
