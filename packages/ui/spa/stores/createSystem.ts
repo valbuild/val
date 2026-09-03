@@ -234,6 +234,12 @@ export type System = HostRealm &
      * `undefined` clears it, and writing without a group is exactly what this
      * client did before groups existed.
      */
+    /**
+     * Scope to what the server says this user's group holds, keeping whatever
+     * this tab has written since. See the implementation for why the union is
+     * not optional.
+     */
+    seedPatchGroup(ids: readonly PatchId[]): void;
     setPatchGroupResolver(resolver: PatchGroupResolver | undefined): void;
     /**
      * Persist a change to what this user's group holds.
@@ -1363,6 +1369,34 @@ export function createSystem(options: SystemOptions): System {
         };
       }
       return options.unstagePatches(request);
+    },
+    seedPatchGroup(ids) {
+      /*
+       * Adopt the server's answer as a STARTING POINT, without losing what this
+       * tab has written since that answer was read.
+       *
+       * The annotation is fetched when the chain gains ids this client does not
+       * have, and a patch this client wrote is never one of those — so at the
+       * moment the shell first has a group to scope to, the annotation
+       * routinely predates the last few things the user typed. Seeding it
+       * verbatim held those patches: the editor showed the value from before
+       * the keystroke, having just accepted the keystroke.
+       *
+       * Union with every INTERNAL patch in the chain, because a patch this tab
+       * wrote is in this author's group on the server by construction — the
+       * content API puts it there. Only the seed does this. An explicit stage
+       * or unstage is the user's decision and is honoured exactly, which is why
+       * it goes through `setPatchGroup` instead; unstaging your own change has
+       * to be able to hide it.
+       */
+      const next = new Set(ids);
+      for (const record of patchStore.allRecords()) {
+        if (patchStore.originOf(record.patchId) === "internal") {
+          next.add(record.patchId);
+        }
+      }
+      patchGroupIds = [...next];
+      sourceStore.setVisiblePatchIds(patchGroupIds);
     },
     setPatchGroup(ids) {
       patchGroupIds = ids === null ? null : [...ids];

@@ -1132,7 +1132,9 @@ function usePatchGroupScope(patchSets: ReturnType<typeof usePatchSets>): void {
   useEffect(() => {
     if (val === null || !group.enabled) return;
     if (scoped !== null) return;
-    val.system.setPatchGroup([...group.members]);
+    // `seed`, not `set`: the annotation is routinely older than the last thing
+    // the user typed, and scoping to it verbatim hides their own writes.
+    val.system.seedPatchGroup([...group.members]);
   }, [val, group.enabled, group.members, scoped]);
 
   const members = useMemo(

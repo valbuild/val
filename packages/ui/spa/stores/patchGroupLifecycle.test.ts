@@ -5,6 +5,7 @@ import {
   type SourcePath,
 } from "@valbuild/core";
 import { createSystem, type System } from "./createSystem";
+import type { PatchRecord } from "./types";
 
 /**
  * A scoped client OVER TIME: type, publish, type again, publish again.
@@ -21,6 +22,7 @@ import { createSystem, type System } from "./createSystem";
 const MODULE = "/a.val.ts" as ModuleFilePath;
 const OTHER = "/b.val.ts" as ModuleFilePath;
 const TITLE = '/a.val.ts?p="title"' as SourcePath;
+const OTHER_TITLE = '/b.val.ts?p="title"' as SourcePath;
 
 const project = () => {
   const { c, s } = initVal();
@@ -30,10 +32,24 @@ const project = () => {
   ];
 };
 
-function makeSystem() {
+/** A patch from somebody else, which the chain learns about through `/stat`. */
+const FOREIGN: PatchRecord = {
+  patchId: "theirs" as PatchId,
+  moduleFilePath: OTHER,
+  patch: [{ op: "replace", path: ["title"], value: "theirs" }],
+  createdAt: "2026-01-01T00:00:00.000Z",
+  authorId: "someone-else",
+  appliedAt: null,
+};
+
+function makeSystem(options?: { foreign?: PatchRecord[] }) {
   const publishes: PatchId[][] = [];
   const system = createSystem({
-    fetchPatches: async () => ({ patches: [] }),
+    fetchPatches: async (patchIds) => ({
+      patches: (options?.foreign ?? []).filter((record) =>
+        patchIds.includes(record.patchId),
+      ),
+    }),
     createPatchId: (() => {
       let next = 0;
       return () => `p${++next}` as PatchId;
@@ -141,4 +157,43 @@ test("a group that skips an earlier patch of its own set is refused", async () =
 
   expect(publishes).toEqual([]);
   expect(res.status).toBe("failed");
+});
+
+test("seeding from the server does not hide what this tab just wrote", async () => {
+  const { system } = makeSystem();
+  /*
+   * The order a real session produces: the user types, and only then does the
+   * shell first have a group annotation to scope to. That annotation was
+   * fetched before the keystroke — the chain gains group information when it
+   * gains ids this client does not have, and a patch this client wrote is never
+   * one of those — so it names nothing.
+   */
+  await edit(system, MODULE, "just typed");
+  expect(read(system, TITLE)).toBe("just typed");
+
+  system.seedPatchGroup([]);
+
+  // Scoping to the stale answer verbatim showed the value from BEFORE the
+  // keystroke, having just accepted the keystroke.
+  expect(read(system, TITLE)).toBe("just typed");
+});
+
+test("seeding still holds another author's patch", async () => {
+  const { system } = makeSystem({ foreign: [FOREIGN] });
+  const mine = await edit(system, MODULE, "mine");
+  // Not this tab's: announced by `/stat` and fetched, like any foreign patch.
+  system.stat.receiveStat({
+    patches: [mine, FOREIGN.patchId],
+    baseSha: "sha",
+  });
+  await system.patchSync.flush();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(read(system, OTHER_TITLE)).toBe("theirs");
+
+  system.seedPatchGroup([mine]);
+
+  // The union is with THIS TAB's writes, not with everything pending. A seed
+  // that adopted the whole chain would make the scope meaningless.
+  expect(read(system, TITLE)).toBe("mine");
+  expect(read(system, OTHER_TITLE)).toBe("base B");
 });
