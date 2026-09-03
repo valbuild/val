@@ -197,6 +197,13 @@ async function loadJwks(
  * `null` when the window has not elapsed, which the caller reads as "nothing
  * new to try" rather than as a failure.
  *
+ * The limit is on *starting* a fetch, not on benefiting from one. A fetch
+ * already in flight is joined whatever the window says, because joining it
+ * costs the issuer nothing — and the case that matters is precisely a burst:
+ * at a rotation, many requests arrive at once carrying the same new `kid`, and
+ * refusing all but the first would be the outage this whole path exists to
+ * prevent, merely shortened from five minutes to thirty seconds.
+ *
  * Only ever called with a successfully-fetched key set in hand. An error entry
  * has its own, shorter TTL and its own recovery, and letting an unknown `kid`
  * shortcut it would hand an unreachable issuer a retry storm.
@@ -206,6 +213,12 @@ async function refetchForUnknownKid(
   nowMs: number,
 ): Promise<JwksCacheEntry | null> {
   const url = jwksUrl(config.issuer);
+  const existing = inFlight.get(url);
+  if (existing) {
+    // Somebody is already asking. Waiting for their answer adds no request to
+    // the issuer, so the rate limit has nothing to protect against here.
+    return existing;
+  }
   const lastAttemptMs = unknownKidRefetchAtMs.get(url);
   if (
     lastAttemptMs !== undefined &&
@@ -213,8 +226,8 @@ async function refetchForUnknownKid(
   ) {
     return null;
   }
-  // Recorded before the await, so a burst of unknown `kid`s arriving together
-  // does not all pass the check on its way to the same conclusion.
+  // Recorded before the await, so that once this fetch has finished the window
+  // is already closed against the next unknown `kid`.
   unknownKidRefetchAtMs.set(url, nowMs);
   return fetchJwks(config, nowMs);
 }

@@ -80,22 +80,46 @@ function serveJwks(keys: Record<string, unknown>[]): {
   fetchImpl: typeof fetch;
   calls: () => number;
   publish: (keys: Record<string, unknown>[]) => void;
+  hold: () => () => void;
 } {
   let calls = 0;
   let published = keys;
+  let gate: Promise<void> | null = null;
   const fetchImpl: typeof fetch = async (input) => {
     calls++;
     const url = typeof input === "string" ? input : String(input);
     if (!url.endsWith("/.well-known/jwks.json")) {
       return new Response("not found", { status: 404 });
     }
+    if (gate) {
+      await gate;
+    }
     return new Response(JSON.stringify({ keys: published }), { status: 200 });
   };
   return {
     fetchImpl,
+    // Counted before the gate, so this is "fetches started", which is what the
+    // issuer would see.
     calls: () => calls,
     publish: (next) => {
       published = next;
+    },
+    /**
+     * Hold every fetch open until the returned function is called.
+     *
+     * The only way to test what happens *while* a fetch is in flight: without
+     * it the mock resolves in a microtask and there is no window for a second
+     * request to arrive in.
+     */
+    hold: () => {
+      let open = (): void => {};
+      gate = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      return () => {
+        gate = null;
+        open();
+      };
     },
   };
 }
@@ -536,6 +560,50 @@ describe("verifyValAccessToken", () => {
       expect(res).toMatchObject({ status: "refused", error: "invalid_token" });
     }
 
+    expect(jwks.calls()).toBe(2);
+  });
+
+  test("a burst arriving during a rotation all joins the one refetch", async () => {
+    const oldKeys = makeKeys("old-key");
+    const newKeys = makeKeys("new-key");
+    const jwks = serveJwks([oldKeys.publicJwk]);
+    const config = oauth(jwks.fetchImpl);
+
+    await verifyValAccessToken(
+      request(signToken(oldKeys, { scope: "val:read" }, { kid: "old-key" })),
+      config,
+    );
+    expect(jwks.calls()).toBe(1);
+
+    jwks.publish([oldKeys.publicJwk, newKeys.publicJwk]);
+    const release = jwks.hold();
+
+    // The shape of a real rotation: not one request meeting the new key, but
+    // every in-flight request meeting it at once. The rate limit is on starting
+    // a fetch — a request that arrives while one is already running has to join
+    // it, or all but the first are refused and the rotation is still an outage.
+    const pending = Promise.all([
+      verifyValAccessToken(
+        request(signToken(newKeys, { scope: "val:read" }, { kid: "new-key" })),
+        config,
+      ),
+      verifyValAccessToken(
+        request(signToken(newKeys, { scope: "val:read" }, { kid: "new-key" })),
+        config,
+      ),
+      verifyValAccessToken(
+        request(signToken(newKeys, { scope: "val:read" }, { kid: "new-key" })),
+        config,
+      ),
+    ]);
+    // A macrotask boundary, so every one of the three has reached the fetch
+    // before it is allowed to resolve. Awaiting microtasks would not prove it.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    release();
+
+    const results = await pending;
+    expect(results.map((res) => res.status)).toEqual(["ok", "ok", "ok"]);
+    // Joined, not repeated: the issuer saw one more request, not three.
     expect(jwks.calls()).toBe(2);
   });
 

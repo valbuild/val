@@ -13,7 +13,9 @@ a rotation on the issuer's side showed up as an outage on yours.
 A token naming a key the cache does not hold now provokes one refetch of the key
 set, at most once per issuer every 30 seconds. The rate limit matters because the
 key id comes from the token: without it, unknown key ids would be a way to make
-your app call its issuer once per request.
+your app call its issuer once per request. It limits how often a fetch is
+_started_, so requests that arrive while one is already running join it — which
+is the normal shape of a rotation, where many requests meet the new key at once.
 
 Separately, an MCP call that presents an access token to a project running in
 local filesystem mode is still refused — there is nothing to authenticate against
