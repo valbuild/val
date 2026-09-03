@@ -27,6 +27,7 @@ import {
   ValCookies,
   ValServerError,
   ValServerErrorStatus,
+  type PatchGroupT,
 } from "@valbuild/shared/internal";
 import {
   decodeJwtWithoutVerifying,
@@ -1318,10 +1319,55 @@ export const ValServer = (
         }
         // TODO: we should sort by parentRef instead:
         patches.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        /**
+         * Patch groups, ANNOTATED onto the chain rather than filtering it.
+         *
+         * The client computes a new patch's parent as the last id in this
+         * response, so a filtered chain would make every client name a parent
+         * that is not the real head and `POST /patches` would answer 409
+         * forever. Annotate, never filter.
+         *
+         * Absent — not empty — where there are no groups: `fs` mode, a content
+         * API that predates them, or a failed lookup. The client reads absence
+         * as "this deployment has no groups" and leaves staging off, which is
+         * the behaviour every project has today. An empty array would say
+         * "groups exist and hold nothing", which would turn the staging UI on
+         * with everything held.
+         */
+        let patchGroups: PatchGroupT[] | undefined;
+        if (serverOps instanceof ValOpsHttp) {
+          const groupsRes = await serverOps.getPatchGroups();
+          if (groupsRes.status === "ok" && groupsRes.patchGroups.length > 0) {
+            patchGroups = groupsRes.patchGroups;
+          } else if (groupsRes.status === "error") {
+            // Not fatal: the chain is what this endpoint is for, and staging
+            // simply stays off for this read rather than the whole review
+            // screen failing to load.
+            console.error(
+              "Val: could not read patch groups",
+              groupsRes.message,
+            );
+          }
+        }
+        const groupIdsByPatchId = new Map<PatchId, string[]>();
+        for (const group of patchGroups ?? []) {
+          for (const patchId of group.patchIds) {
+            const existing = groupIdsByPatchId.get(patchId);
+            if (existing) {
+              existing.push(group.patchGroupId);
+            } else {
+              groupIdsByPatchId.set(patchId, [group.patchGroupId]);
+            }
+          }
+        }
         return {
           status: 200,
           json: {
-            patches: patches,
+            patches: patches.map((patch) => {
+              const patchGroupIds = groupIdsByPatchId.get(patch.patchId);
+              return patchGroupIds ? { ...patch, patchGroupIds } : patch;
+            }),
+            ...(patchGroups ? { patchGroups } : {}),
             baseSha: await serverOps.getBaseSha(),
           },
         };
