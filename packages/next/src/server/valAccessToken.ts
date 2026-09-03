@@ -229,7 +229,7 @@ async function refetchForUnknownKid(
   // Recorded before the await, so that once this fetch has finished the window
   // is already closed against the next unknown `kid`.
   unknownKidRefetchAtMs.set(url, nowMs);
-  return fetchJwks(config, nowMs);
+  return fetchJwks(config, nowMs, { keepCacheOnError: true });
 }
 
 /**
@@ -237,10 +237,30 @@ async function refetchForUnknownKid(
  *
  * Shares {@link inFlight} with every other caller, so a forced refetch that
  * lands during an ordinary miss joins it rather than opening a second request.
+ * Only the caller that *starts* a fetch writes the cache — a joiner returns the
+ * shared promise above — so `keepCacheOnError` is a property of the fetch, not a
+ * race between callers.
  */
 async function fetchJwks(
   config: ValOAuthConfig,
   nowMs: number,
+  {
+    /**
+     * Leave a good cached key set alone if this fetch fails.
+     *
+     * For the unknown-`kid` path, where the cache being replaced is *live* —
+     * fetched inside its TTL and able to verify every token signed by a key it
+     * already holds. Overwriting that with an error entry on a transient 500
+     * would refuse those tokens too, for the length of the error TTL, and the
+     * `kid` that triggered the fetch comes from whoever is calling: one token
+     * naming a key that does not exist would be enough to do it.
+     *
+     * Deliberately off for the ordinary TTL-expiry fetch. There the cached set
+     * is stale by policy, and "we could not reach the issuer" is the honest
+     * answer rather than a set we have decided to stop trusting.
+     */
+    keepCacheOnError = false,
+  }: { keepCacheOnError?: boolean } = {},
 ): Promise<JwksCacheEntry> {
   const url = jwksUrl(config.issuer);
   const existing = inFlight.get(url);
@@ -269,6 +289,18 @@ async function fetchJwks(
   inFlight.set(url, pending);
   try {
     const entry = await pending;
+    const cached = jwksCache.get(url);
+    if (
+      entry.status === "error" &&
+      keepCacheOnError &&
+      cached?.status === "keys"
+    ) {
+      // Keep the good set, and keep its original `fetchedAtMs` so it still
+      // expires on schedule: this preserves a cache, it does not extend one.
+      // The failure is still reported to the caller, which is what lets the
+      // refusal say "could not be fetched" rather than "not published".
+      return entry;
+    }
     jwksCache.set(url, entry);
     return entry;
   } finally {
@@ -370,7 +402,18 @@ export async function verifyValAccessToken(
      * not changed, the refusal below is the same refusal as before, only later.
      */
     const refetched = await refetchForUnknownKid(config, nowMs);
-    if (refetched !== null && refetched.status === "keys") {
+    if (refetched !== null) {
+      if (refetched.status === "error") {
+        // The one request that could have told us about this key did not
+        // arrive, so "the issuer does not publish that key" is not something
+        // we know — it is a guess, and the wrong one sends the client off to
+        // re-authorize when it should simply retry. The cache still holds the
+        // keys it had, so this refusal is confined to tokens naming a `kid` we
+        // have not seen.
+        return invalidToken(
+          "The access token could not be verified because the Val authorization server's keys could not be fetched. This may be temporary.",
+        );
+      }
       candidates = refetched.keys.filter((key) => isVerifyingP256Key(key, kid));
     }
   }

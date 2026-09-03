@@ -81,10 +81,12 @@ function serveJwks(keys: Record<string, unknown>[]): {
   calls: () => number;
   publish: (keys: Record<string, unknown>[]) => void;
   hold: () => () => void;
+  breakIssuer: () => void;
 } {
   let calls = 0;
   let published = keys;
   let gate: Promise<void> | null = null;
+  let broken = false;
   const fetchImpl: typeof fetch = async (input) => {
     calls++;
     const url = typeof input === "string" ? input : String(input);
@@ -93,6 +95,9 @@ function serveJwks(keys: Record<string, unknown>[]): {
     }
     if (gate) {
       await gate;
+    }
+    if (broken) {
+      return new Response("boom", { status: 500 });
     }
     return new Response(JSON.stringify({ keys: published }), { status: 200 });
   };
@@ -120,6 +125,10 @@ function serveJwks(keys: Record<string, unknown>[]): {
         gate = null;
         open();
       };
+    },
+    /** Every fetch from now on fails, as a flaky issuer would. */
+    breakIssuer: () => {
+      broken = true;
     },
   };
 }
@@ -605,6 +614,71 @@ describe("verifyValAccessToken", () => {
     expect(results.map((res) => res.status)).toEqual(["ok", "ok", "ok"]);
     // Joined, not repeated: the issuer saw one more request, not three.
     expect(jwks.calls()).toBe(2);
+  });
+
+  test("a failed unknown-kid refetch leaves the cached key set alone", async () => {
+    const keys = makeKeys("published-key");
+    const jwks = serveJwks([keys.publicJwk]);
+    const config = oauth(jwks.fetchImpl);
+    const good = signToken(
+      keys,
+      { scope: "val:read" },
+      { kid: "published-key" },
+    );
+
+    expect((await verifyValAccessToken(request(good), config)).status).toBe(
+      "ok",
+    );
+    expect(jwks.calls()).toBe(1);
+
+    // One token naming a key that does not exist, arriving while the issuer is
+    // briefly down. Nothing about it should be able to reach the keys we
+    // already hold — but the forced refetch writes the cache, so before the
+    // fix a single such token replaced a live key set with an error entry and
+    // took every other token down with it for the error TTL.
+    jwks.breakIssuer();
+    const refused = await verifyValAccessToken(
+      request(signToken(keys, { scope: "val:read" }, { kid: "ghost" })),
+      config,
+    );
+    expect(refused).toMatchObject({
+      status: "refused",
+      error: "invalid_token",
+    });
+    expect(jwks.calls()).toBe(2);
+
+    // The load-bearing assertion: a token signed by a key we had cached all
+    // along still verifies, and costs no further fetch.
+    expect((await verifyValAccessToken(request(good), config)).status).toBe(
+      "ok",
+    );
+    expect(jwks.calls()).toBe(2);
+  });
+
+  test("says the keys could not be fetched when the refetch itself failed", async () => {
+    const keys = makeKeys("published-key");
+    const jwks = serveJwks([keys.publicJwk]);
+    const config = oauth(jwks.fetchImpl);
+
+    await verifyValAccessToken(
+      request(signToken(keys, { scope: "val:read" }, { kid: "published-key" })),
+      config,
+    );
+    jwks.breakIssuer();
+
+    const res = await verifyValAccessToken(
+      request(signToken(keys, { scope: "val:read" }, { kid: "ghost" })),
+      config,
+    );
+
+    expect(res).toMatchObject({ status: "refused", error: "invalid_token" });
+    if (res.status === "refused") {
+      // "The issuer does not publish that key" is not something we learned —
+      // the request that would have told us never arrived. Saying it anyway
+      // sends the client off to re-authorize when it should retry.
+      expect(res.description).toMatch(/temporary/i);
+      expect(res.description).not.toMatch(/does not publish/i);
+    }
   });
 
   test("does not refetch on an unknown kid when the cached key set is an error", async () => {
