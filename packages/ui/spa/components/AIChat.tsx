@@ -47,6 +47,7 @@ import {
   collectImageKeysFromDoc,
 } from "./AIChatEditor";
 import { ToolActivities, isPendingQuestion } from "./AIChatToolActivities";
+import { decideBubble } from "./aiChatBubble";
 import type {
   AskUserQuestionAnswer,
   AskUserQuestionItem,
@@ -1483,23 +1484,16 @@ function MessageBubble({
   );
   const textContent = getTextContent(message.content);
   const fileUrls = getImageUrls(message.content);
-  // Once a token has landed the cursor belongs at the end of the text. Before
-  // that it is redundant with the tool row, which is already saying "working".
-  const showCursor =
-    isStreamingMsg &&
-    !hasPendingQuestion &&
-    (textContent.length > 0 || !hasRunningTool);
-  // A bubble with nothing in it is noise under the tool row, so the turn skips
-  // it entirely while the tools are all there is. With no tools at all an
-  // empty assistant turn still gets its bubble - that is where "Empty
-  // response" is said.
-  const hasBubble =
-    isUser ||
-    isError ||
-    textContent.length > 0 ||
-    fileUrls.length > 0 ||
-    showCursor ||
-    activities.length === 0;
+  // See aiChatBubble.ts - the rule is subtler than it looks.
+  const { hasBubble, showCursor } = decideBubble({
+    isUser,
+    isError,
+    isStreaming: isStreamingMsg,
+    hasText: textContent.length > 0,
+    hasFiles: fileUrls.length > 0,
+    hasRunningTool,
+    hasPendingQuestion,
+  });
 
   return (
     <div

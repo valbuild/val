@@ -952,3 +952,33 @@ function ToolStreamDemo() {
 export const ToolsStreaming: Story = {
   render: () => <ToolStreamDemo />,
 };
+
+/**
+ * The turn ran its tools and then said nothing.
+ *
+ * The tool row must NOT be the whole answer here: "Empty response" is the
+ * message. Hiding the bubble for a finished turn made an empty model reply
+ * look like a tidy row of ticks.
+ */
+export const ToolsThenEmptyResponse: Story = {
+  args: {
+    initialMessages: [
+      {
+        id: "empty-user-1",
+        role: "user",
+        content: "Shorten the hero title",
+        status: "complete",
+      },
+      {
+        id: "empty-assistant-1",
+        role: "assistant",
+        content: "",
+        status: "complete",
+        toolActivities: [
+          { toolCallId: "em-tc-1", name: "get_source", status: "complete" },
+          { toolCallId: "em-tc-2", name: "create_patch", status: "complete" },
+        ],
+      },
+    ],
+  },
+};
