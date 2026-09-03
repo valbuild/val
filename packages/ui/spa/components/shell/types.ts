@@ -188,6 +188,11 @@ export type ShellBreakpoint = "mobile" | "tablet" | "desktop";
  */
 export type ShellData = {
   projectName: string;
+  /**
+   * Where this project lives in Val Build. Absent when there is nowhere to
+   * go — see `toAdminLinks`.
+   */
+  admin?: ShellAdminLinks;
   /** From `config.gitBranch`. Absent outside a git checkout. */
   branch?: string;
   /**
@@ -231,6 +236,20 @@ export type ShellData = {
    * entirely rather than showing an item that can never say anything.
    */
   deployments?: ShellDeployment[];
+};
+
+/**
+ * The project's pages in Val Build's admin app.
+ *
+ * Val itself edits content; everything about the project as a thing that is
+ * paid for, deployed and shared with people lives in the admin app, so these
+ * are the two links out to it that an editor has a reason to follow.
+ */
+export type ShellAdminLinks = {
+  /** The project's own page: settings, API keys, versions, AI keys. */
+  project: string;
+  /** The organisation's member list. */
+  members: string;
 };
 
 /**
