@@ -6,3 +6,13 @@ find the full documentation for it [in our repository](https://github.com/change
 
 We have a quick list of common questions to get you started engaging with this project in
 [our documentation](https://github.com/changesets/changesets/blob/main/docs/common-questions.md)
+
+## In this repo
+
+The summary you write in a changeset is the release note. It is rendered into
+each affected package's `CHANGELOG.md` and becomes the body of the GitHub
+Release for the tag, so write it for the people who will read it on the release
+page — Markdown, lists and code fences all survive, and `#123` becomes a link.
+
+`changeset version` is run by the Release workflow, not by hand; it needs a
+`GITHUB_TOKEN` to resolve the PR and author links.

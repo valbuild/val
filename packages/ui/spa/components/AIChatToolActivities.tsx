@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { Button } from "./designSystem/button";
 import { cn } from "./designSystem/cn";
-import { ToolName } from "../utils/toolNames";
+import { ToolName } from "@valbuild/shared/internal";
 
 // ---------------------------------------------------------------------------
 // Types

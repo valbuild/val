@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/core",
-  "version": "0.111.0",
+  "version": "0.117.0",
   "private": false,
   "description": "Val - supercharged hard-coded content",
   "repository": {
@@ -45,6 +45,7 @@
     "ts-toolbelt": "^9.6.0"
   },
   "files": [
+    "CHANGELOG.md",
     "dist",
     "fp/dist",
     "fp/package.json",

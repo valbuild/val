@@ -5,7 +5,7 @@ import {
   type SourcePath,
   type ValidationError,
 } from "@valbuild/core";
-import { resolveSchemaSourceFixes } from "@valbuild/shared/internal";
+import { resolveSchemaSourceFixes } from "../resolveSchemaSourceFixes";
 import { partitionValidationErrors } from "./partitionValidationErrors";
 
 /**

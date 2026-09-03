@@ -4,6 +4,7 @@ import {
   hostLabel,
   initialsOf,
   toActivity,
+  toAdminLinks,
   toDataModules,
   toExternalPages,
   toShellPages,
@@ -414,5 +415,44 @@ describe("availableDestinations", () => {
       "media",
       "data",
     ]);
+  });
+});
+
+describe("toAdminLinks", () => {
+  const appHost = "https://admin.val.build";
+
+  test("splits config.project into the org's and the project's pages", () => {
+    expect(toAdminLinks({ project: "acme/marketing-site", appHost })).toEqual({
+      project: "https://admin.val.build/~/acme/marketing-site",
+      members: "https://admin.val.build/manage-members/acme",
+    });
+  });
+
+  test("a project that is not connected has nowhere to go", () => {
+    expect(toAdminLinks({ appHost })).toBeUndefined();
+    expect(toAdminLinks(undefined)).toBeUndefined();
+  });
+
+  test("a project that is not <org>/<project> has nowhere to go", () => {
+    // Rather than a link to a 404: `val connect` rejects these too.
+    expect(
+      toAdminLinks({ project: "marketing-site", appHost }),
+    ).toBeUndefined();
+    expect(
+      toAdminLinks({ project: "acme/marketing/site", appHost }),
+    ).toBeUndefined();
+    expect(toAdminLinks({ project: "acme/", appHost })).toBeUndefined();
+    expect(
+      toAdminLinks({ project: "/marketing-site", appHost }),
+    ).toBeUndefined();
+  });
+
+  test("a trailing slash on the host does not double up", () => {
+    expect(
+      toAdminLinks({ project: "acme/marketing-site", appHost: appHost + "/" }),
+    ).toEqual({
+      project: "https://admin.val.build/~/acme/marketing-site",
+      members: "https://admin.val.build/manage-members/acme",
+    });
   });
 });
