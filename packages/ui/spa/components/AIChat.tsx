@@ -1382,7 +1382,14 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                         size="sm"
                         disabled={isStreaming}
                         className="h-7 px-2 text-xs text-fg-secondary gap-1"
-                        aria-label={`Model: ${selectedLabel(models, selectedModel)}`}
+                        aria-label={
+                          // Not "Model: <label>": with nothing selected the
+                          // label is itself "Model", and a screen reader would
+                          // read "Model: Model".
+                          selectedLabel(models, selectedModel) === MODEL_UNSET
+                            ? "Choose a model"
+                            : `Change model, currently ${selectedLabel(models, selectedModel)}`
+                        }
                       >
                         {selectedLabel(models, selectedModel)}
                         <ChevronDown className="h-3 w-3" />
@@ -1745,6 +1752,8 @@ function MessageBubble({
 }
 
 /** What the picker button says: the chosen model's label, or a prompt. */
+const MODEL_UNSET = "Model";
+
 function selectedLabel(
   models: AIModelInfo[],
   selected: AIModel | null | undefined,
@@ -1756,7 +1765,7 @@ function selectedLabel(
           info.ref.model === selected.model,
       )
     : undefined;
-  return match?.label ?? "Model";
+  return match?.label ?? MODEL_UNSET;
 }
 
 function StreamingCursor() {

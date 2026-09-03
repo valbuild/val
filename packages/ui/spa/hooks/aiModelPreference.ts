@@ -1,4 +1,4 @@
-import type { AIModel } from "./useAIWebSocket";
+import { AIModel } from "./useAIWebSocket";
 
 /**
  * Which model this editor last chose.
@@ -23,16 +23,14 @@ export function readPreferredModel(): AIModel | null {
     if (!raw) {
       return null;
     }
-    const parsed: unknown = JSON.parse(raw);
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      typeof (parsed as AIModel).provider === "string" &&
-      typeof (parsed as AIModel).model === "string"
-    ) {
-      return parsed as AIModel;
-    }
-    return null;
+    // Validated, not cast. What is in storage was written by some earlier
+    // version of this code and is untrusted like anything else read back from
+    // the world: a provider this build cannot drive must not be handed on as
+    // an `AIModel`, and a rebuilt object leaves any extra fields behind.
+    const parsed = AIModel.safeParse(JSON.parse(raw));
+    return parsed.success
+      ? { provider: parsed.data.provider, model: parsed.data.model }
+      : null;
   } catch {
     return null;
   }

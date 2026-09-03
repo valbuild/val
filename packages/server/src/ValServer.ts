@@ -2143,8 +2143,12 @@ export const ValServer = (
               json: {
                 nonce: json.nonce,
                 wsUrl,
-                ...(providers ? { providers } : {}),
-                ...(models ? { models } : {}),
+                // Explicit, because the distinction matters and truthiness
+                // is a bad way to express it: an empty array means "no
+                // reachable provider", which the client must be able to tell
+                // apart from an older server that reports nothing at all.
+                ...(providers !== undefined ? { providers } : {}),
+                ...(models !== undefined ? { models } : {}),
               },
             };
           } catch (err) {

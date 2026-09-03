@@ -112,6 +112,38 @@ function toModelInfos(
   });
 }
 
+/**
+ * What to offer when the server reports no models of its own.
+ *
+ * With `providers` reported, the built-in catalog filtered to those providers:
+ * every entry is one the server said it can reach.
+ *
+ * With `providers` absent — an older content server — only the fallback model.
+ * Offering the whole catalog there would let someone pick a provider that
+ * server may have no key or no implementation for, and `pickAvailableModel`
+ * already treats a silent server as the original single-model default. One
+ * entry also means the picker hides itself, which is the honest UI for "there
+ * is no choice to make".
+ */
+function fallbackModels(
+  serverProviders: string[] | undefined,
+  fallback: AIModel | null,
+): AIModelInfo[] {
+  if (serverProviders === undefined) {
+    const known = fallback
+      ? VAL_AI_MODELS.find(
+          (info) =>
+            info.ref.provider === fallback.provider &&
+            info.ref.model === fallback.model,
+        )
+      : undefined;
+    return known ? [known] : [];
+  }
+  return VAL_AI_MODELS.filter((info) =>
+    serverProviders.includes(info.ref.provider),
+  );
+}
+
 export const AITool = z.object({
   name: z.string(),
   description: z.string(),
@@ -493,11 +525,7 @@ export function useAIWebSocket(
       const offered =
         reported.length > 0
           ? reported
-          : VAL_AI_MODELS.filter((info) =>
-              res.json.providers === undefined
-                ? true
-                : res.json.providers.includes(info.ref.provider),
-            );
+          : fallbackModels(res.json.providers, fallback);
       setAvailableModels(offered);
       setSelectedModel(
         resolvePreferredModel(

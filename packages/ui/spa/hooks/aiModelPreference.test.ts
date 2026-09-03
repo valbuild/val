@@ -64,6 +64,30 @@ describe("resolvePreferredModel", () => {
     expect(resolvePreferredModel([], null)).toBe(null);
   });
 
+  /**
+   * Storage was written by some earlier version of this code and is untrusted
+   * like anything else read back from the world. A provider this build cannot
+   * drive must not be handed on as an `AIModel`.
+   */
+  test("a stored provider this build does not know is rejected", () => {
+    store.set(
+      "val:ai:model",
+      JSON.stringify({ provider: "some-future-provider", model: "x" }),
+    );
+    expect(resolvePreferredModel([opus, gpt], gpt)).toEqual(gpt);
+  });
+
+  test("extra fields in storage are not carried through", () => {
+    store.set(
+      "val:ai:model",
+      JSON.stringify({ ...haiku, injected: "should not survive" }),
+    );
+    expect(resolvePreferredModel([opus, haiku], opus)).toEqual({
+      provider: haiku.provider,
+      model: haiku.model,
+    });
+  });
+
   test("a corrupt stored value is ignored rather than thrown", () => {
     store.set("val:ai:model", "{not json");
     expect(resolvePreferredModel([opus], opus)).toEqual(opus);
