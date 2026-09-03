@@ -3,7 +3,7 @@ import { Internal, ModulePath } from "@valbuild/core";
 import { JSONValue } from "@valbuild/core/patch";
 import { useAddModuleFilePatch } from "./ValProvider";
 import { useSchemas, useAllSources } from "./ValFieldProvider";
-import { emptyOf } from "./fields/emptyOf";
+import { emptyOf } from "@valbuild/shared/internal";
 import { CreatableRouter, collectCreatableRouters } from "./creatableRouters";
 
 export type { CreatableRouter };

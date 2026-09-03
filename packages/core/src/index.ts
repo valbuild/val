@@ -106,6 +106,7 @@ import {
   getMimeType,
   mimeTypeToFileExt,
   filenameToMimeType,
+  mimeTypeMatchesAccept,
   EXT_TO_MIME_TYPES,
   MIME_TYPES_TO_EXT,
 } from "./mimeType";
@@ -264,6 +265,7 @@ const Internal = {
   getMimeType,
   mimeTypeToFileExt,
   filenameToMimeType,
+  mimeTypeMatchesAccept,
   EXT_TO_MIME_TYPES,
   MIME_TYPES_TO_EXT,
   ModuleFilePathSep,

@@ -27,6 +27,11 @@ import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 export type TopBarProps = {
   breakpoint: ShellBreakpoint;
   projectName: string;
+  /**
+   * The project's page in Val Build. Absent leaves the name as a label — see
+   * `ProjectName`.
+   */
+  projectHref?: string;
   openPanel: ShellPanel | null;
   onTogglePanel: (panel: ShellPanel) => void;
   /** Opens the navigation: the rail's panels, reached from a menu button. */
@@ -116,6 +121,7 @@ export type PublishState = "idle" | "publishing" | "error" | "blocked";
 export function TopBar({
   breakpoint,
   projectName,
+  projectHref,
   openPanel,
   onTogglePanel,
   onOpenMenu,
@@ -162,7 +168,7 @@ export function TopBar({
           <ValLogo className="h-5" blinking={isLoading} />
         </div>
       )}
-      <ProjectName projectName={projectName} />
+      <ProjectName projectName={projectName} projectHref={projectHref} />
       <SearchTrigger breakpoint={breakpoint} onClick={onOpenSearch} />
       <div className="ml-auto flex items-center gap-1.5 shrink-0">
         {!isMobile && (
@@ -664,12 +670,38 @@ export function PublishButton({
 /**
  * The project's name. Val runs one project per config, so this is a label
  * rather than a switcher — there is nothing to switch to.
+ *
+ * It is a link to the project in Val Build when there is one: the name is
+ * where an editor already points at "this project", and everything Val does
+ * not do to a project — members, keys, subscription — is over there. A project
+ * that is not connected has no page, so the name stays a plain label rather
+ * than becoming a link that goes nowhere.
  */
-function ProjectName({ projectName }: { projectName: string }) {
+function ProjectName({
+  projectName,
+  projectHref,
+}: {
+  projectName: string;
+  projectHref?: string;
+}) {
+  const shared =
+    "min-w-0 px-2 text-[0.8125rem] font-semibold tracking-tight truncate";
+  if (projectHref === undefined) {
+    return <span className={shared}>{projectName}</span>;
+  }
   return (
-    <span className="min-w-0 px-2 text-[0.8125rem] font-semibold tracking-tight truncate">
+    <a
+      href={projectHref}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={`Open ${projectName} in Val Build`}
+      className={cn(
+        shared,
+        "rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+      )}
+    >
       {projectName}
-    </span>
+    </a>
   );
 }
 

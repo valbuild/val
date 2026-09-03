@@ -46,7 +46,7 @@ import {
 } from "lucide-react";
 import type { AISession } from "../hooks/useAIWebSocket";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
-import { ToolName } from "../utils/toolNames";
+import { ToolName } from "@valbuild/shared/internal";
 import { safeHref } from "../utils/safeHref";
 import {
   DropdownMenu,

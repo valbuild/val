@@ -6,7 +6,7 @@ import type {
 } from "@valbuild/core";
 import { useValSystem } from "../stores/react/SystemContext";
 import { useValidationErrorsAtPath } from "../stores/react/useValidationErrors";
-import { filterBlockingValidationErrors } from "../validation/blockingValidationErrors";
+import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
 
 /**
  * Validation errors, for the components that show them.

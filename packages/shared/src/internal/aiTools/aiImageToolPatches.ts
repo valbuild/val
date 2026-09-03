@@ -4,8 +4,8 @@ import {
   type SerializedSchema,
   type Source,
 } from "@valbuild/core";
-import { Patch } from "@valbuild/shared/internal";
-import type { ToolName } from "../utils/toolNames";
+import { Patch } from "../zod/Patch";
+import type { ToolName } from "./toolNames";
 
 export type CombinedImageMetadata = ImageMetadata;
 

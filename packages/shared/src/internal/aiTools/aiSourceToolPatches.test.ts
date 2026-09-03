@@ -80,6 +80,7 @@ describe("decideOp, via buildEmptyAtPathPatch", () => {
       const res = buildEmptyAtPathPatch(
         { destinationPath: [...path] },
         mod.schema,
+        mod.source,
       );
       expect(res.kind).toBe("ok");
       if (res.kind !== "ok") return;
@@ -91,6 +92,7 @@ describe("decideOp, via buildEmptyAtPathPatch", () => {
     const res = buildEmptyAtPathPatch(
       { destinationPath: ["title"] },
       nestedModule.schema,
+      nestedModule.source,
     );
     expect(res.kind).toBe("ok");
     if (res.kind !== "ok") return;
@@ -101,6 +103,7 @@ describe("decideOp, via buildEmptyAtPathPatch", () => {
     const res = buildEmptyAtPathPatch(
       { destinationPath: [] },
       recordModule.schema,
+      recordModule.source,
     );
     expect(res.kind).toBe("ok");
     if (res.kind !== "ok") return;
@@ -111,6 +114,7 @@ describe("decideOp, via buildEmptyAtPathPatch", () => {
     const res = buildEmptyAtPathPatch(
       { destinationPath: ["nope", "deeper"] },
       nestedModule.schema,
+      nestedModule.source,
     );
     expect(res.kind).toBe("error");
   });
@@ -132,6 +136,7 @@ describe("decideOp, via buildEmptyAtPathPatch", () => {
     const res = buildEmptyAtPathPatch(
       { destinationPath: [...destinationPath] },
       nestedModule.schema,
+      nestedModule.source,
     );
     expect(res.kind).toBe("wrong-tool");
     if (res.kind !== "wrong-tool") return;
@@ -145,6 +150,7 @@ describe("decideOp, via buildEmptyAtPathPatch", () => {
     const res = buildEmptyAtPathPatch(
       { destinationPath: [...destinationPath] },
       nestedModule.schema,
+      nestedModule.source,
     );
     expect(res.kind).toBe("wrong-tool");
     if (res.kind !== "wrong-tool") return;
@@ -187,6 +193,71 @@ describe("buildDuplicatePatch", () => {
       nestedModule.source,
     );
     expect(res.kind).toBe("wrong-tool");
+  });
+});
+
+describe("writing over an existing entry", () => {
+  test("duplicating onto an occupied record key is refused", () => {
+    // Silent data loss otherwise: `add` into a record replaces whatever is at
+    // the key, the patch is valid, the content stays valid, and the entry that
+    // was there is simply gone.
+    const res = buildDuplicatePatch(
+      { sourcePath: ["byKey", "a"], destinationPath: ["byKey", "a"] },
+      nestedModule.schema,
+      nestedModule.source,
+    );
+    expect(res.kind).toBe("error");
+    if (res.kind !== "error") return;
+    expect(res.message).toContain("already exists");
+  });
+
+  test("scaffolding onto an occupied record key is refused", () => {
+    const res = buildEmptyAtPathPatch(
+      { destinationPath: ["byKey", "a"] },
+      nestedModule.schema,
+      nestedModule.source,
+    );
+    expect(res.kind).toBe("error");
+    if (res.kind !== "error") return;
+    expect(res.message).toContain("already exists");
+  });
+
+  test("a free record key is still allowed", () => {
+    const res = buildEmptyAtPathPatch(
+      { destinationPath: ["byKey", "free"] },
+      nestedModule.schema,
+      nestedModule.source,
+    );
+    expect(res.kind).toBe("ok");
+  });
+
+  test("an occupied array index is allowed, because add inserts there", () => {
+    // Different op semantics, so the same guard would be wrong: JSON Patch
+    // `add` at an index shifts the rest along rather than overwriting.
+    const res = buildEmptyAtPathPatch(
+      { destinationPath: ["items", "0"] },
+      nestedModule.schema,
+      nestedModule.source,
+    );
+    expect(res.kind).toBe("ok");
+  });
+
+  test("an object field is allowed, because replacing one is the point", () => {
+    const res = buildEmptyAtPathPatch(
+      { destinationPath: ["title"] },
+      nestedModule.schema,
+      nestedModule.source,
+    );
+    expect(res.kind).toBe("ok");
+  });
+
+  test("a record module's own root key is checked too", () => {
+    const res = buildEmptyAtPathPatch(
+      { destinationPath: ["first"] },
+      recordModule.schema,
+      recordModule.source,
+    );
+    expect(res.kind).toBe("error");
   });
 });
 

@@ -6,7 +6,7 @@ import {
 } from "@valbuild/core";
 import { JSONValue } from "@valbuild/core/patch";
 import { useState, useEffect, useCallback } from "react";
-import { emptyOf } from "./fields/emptyOf";
+import { emptyOf } from "@valbuild/shared/internal";
 import { Button } from "./designSystem/button";
 import { Input } from "./designSystem/input";
 import {

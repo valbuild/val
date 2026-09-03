@@ -15,6 +15,7 @@ import { useValConfig } from "../ValFieldProvider";
 import { ShellData, ShellMediaGallery } from "./types";
 import {
   toActivity,
+  toAdminLinks,
   toDataModules,
   toDeployments,
   toExternalPages,
@@ -111,6 +112,7 @@ export function useShellData(): ShellDataState {
       status: "success",
       data: {
         projectName: config?.project ?? "Val",
+        admin: toAdminLinks(config),
         branch: config?.gitBranch,
         hasRouters: navData?.hasRouters ?? false,
         pages: navData?.sitemap

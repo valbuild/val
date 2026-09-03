@@ -203,24 +203,26 @@ export function createValCommands(deps: ValCommandDeps): {
     }
     const { connection } = deps;
     try {
-      const session = await startValLogin();
+      const authorization = await startValLogin();
       // `showDocument` with `external` is the standard way to reach a browser;
       // there is no Val-specific request for it, which is what lets any LSP
       // client drive this flow.
       await connection.sendRequest(ShowDocumentRequest.type, {
-        uri: session.url,
+        uri: authorization.verificationUriComplete,
         external: true,
       });
-      // The poll runs for up to five minutes. Without progress the editor looks
+      // The poll runs until the code expires. Without progress the editor looks
       // hung, and there is nothing to tell the user the browser is the next step.
+      // The user code goes in the message so it can be compared against what the
+      // browser shows — that comparison is what makes approving safe.
       const progress = await withProgress(
         connection,
         "Val: waiting for login",
-        "Complete the login in your browser.",
+        `Approve the login in your browser. Code: ${authorization.userCode}`,
       );
       let confirmed;
       try {
-        confirmed = await awaitValLoginConfirmation(session.nonce, {
+        confirmed = await awaitValLoginConfirmation(authorization, {
           signal: progress.signal,
         });
       } finally {
