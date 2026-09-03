@@ -177,6 +177,11 @@ export const SerializedImageSchema: z.ZodType<SerializedImageSchemaT> =
 export const RichTextOptions: z.ZodType<SerializedRichTextOptionsT> = z.lazy(
   () =>
     z.object({
+      // Set by `.maxLength()` / `.minLength()`, not by the options argument.
+      // These z.objects strip unknown keys, so leaving them out drops the
+      // length constraints in transit.
+      maxLength: z.number().optional(),
+      minLength: z.number().optional(),
       bold: z.boolean().optional(),
       italic: z.boolean().optional(),
       lineThrough: z.boolean().optional(),

@@ -24,6 +24,13 @@ export type RichTextOptions = Partial<{
   // custom: Record<string, Schema<SelectorSource>>;
 }>;
 export type SerializedRichTextOptions = Partial<{
+  /**
+   * `.maxLength()` / `.minLength()` are not authored in the options argument,
+   * but they serialize into the same object - so the wire type has to name
+   * them, or a parser that strips unknown keys drops them in transit.
+   */
+  maxLength: number;
+  minLength: number;
   bold: boolean;
   italic: boolean;
   lineThrough: boolean;

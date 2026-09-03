@@ -34,7 +34,7 @@ export type SerializedRichTextSchema = {
   /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
   preview?: true;
   opt: boolean;
-  options?: SerializedRichTextOptions & ValidationOptions;
+  options?: SerializedRichTextOptions;
   customValidate?: boolean;
   readonly?: boolean;
   hidden?: boolean;
@@ -771,7 +771,7 @@ export class RichTextSchema<
         return this.options.a;
       }
     };
-    const serializedOptions: SerializedRichTextOptions & ValidationOptions = {
+    const serializedOptions: SerializedRichTextOptions = {
       maxLength: this.options.maxLength,
       minLength: this.options.minLength,
       bold: this.options.bold,
