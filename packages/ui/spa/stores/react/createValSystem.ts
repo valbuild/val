@@ -1,6 +1,6 @@
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import { Internal } from "@valbuild/core";
-import type { ValClient } from "@valbuild/shared/internal";
+import type { ValClient, PatchGroupT } from "@valbuild/shared/internal";
 import { createSystem, type System } from "../createSystem";
 import type { SchemaValidationBridge } from "../bridges";
 import { createSchemaValidationBridge } from "../../validation/schemaValidationBridge";
@@ -196,6 +196,7 @@ export function createValSystem(
     fetchPatches: async (patchIds) => {
       const patches: PatchRecord[] = [];
       const errors: Record<PatchId, string> = {};
+      let patchGroups: PatchGroupT[] | undefined;
       // In batches whose query strings fit. All the ids on one URL is ~19KB at
       // 410 pending changes, which a Node server rejects before the handler runs.
       //
@@ -230,6 +231,15 @@ export function createValSystem(
           failedChunks++;
           continue;
         }
+        /*
+         * Annotations from the LAST chunk win, and every chunk carries the same
+         * answer: the groups are a property of the branch, not of the ids asked
+         * for. Recorded outside the patch loop because a chunk can legitimately
+         * return no patches and still carry them.
+         */
+        if ("patchGroups" in res.json && res.json.patchGroups !== undefined) {
+          patchGroups = res.json.patchGroups;
+        }
         for (const patch of res.json.patches) {
           if (patch.patch === undefined) {
             // Announced by stat but the server has no ops for it. An error rather
@@ -251,6 +261,10 @@ export function createValSystem(
       return {
         patches,
         errors,
+        // Spread, so "the server reported no groups" stays `undefined` rather
+        // than becoming an empty array. The two are different claims and the
+        // store branches on which one it got.
+        ...(patchGroups !== undefined ? { patchGroups } : {}),
         // `error` is what reaches the user, through `patch:fetch-failed`. Set it
         // only when NO chunk came back: a partial failure already has an entry
         // per id, and `patch:announced-not-delivered` describes it precisely.

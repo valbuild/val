@@ -1,6 +1,7 @@
 import { Internal, type ModuleFilePath, type PatchId } from "@valbuild/core";
 import type { Json } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
+import type { PatchGroupT } from "@valbuild/shared/internal";
 import { StoreBus } from "./StoreBus";
 import type {
   Head,
@@ -25,6 +26,20 @@ import type { ParentRef } from "@valbuild/shared/internal";
  */
 export type FetchPatches = (patchIds: PatchId[]) => Promise<{
   patches: PatchRecord[];
+  /**
+   * The patch groups on this branch, as the server reported them.
+   *
+   * `undefined` means this deployment has no groups — `fs` mode, a content API
+   * that predates them, or a lookup that failed — and staging stays off, which
+   * is what every project does today. An empty ARRAY would be a different
+   * claim: groups exist and hold nothing, which would turn staging on with
+   * everything held. The two must not be folded together.
+   *
+   * Carried on the patch fetch rather than fetched separately because it is
+   * read from the same response: `GET /patches` annotates the chain, and a
+   * second round trip could only disagree with it.
+   */
+  patchGroups?: PatchGroupT[];
   /**
    * Per patch: why THIS patch could not be read.
    *
@@ -176,6 +191,14 @@ export class PatchStore {
   private dataById = new Map<PatchId, PatchRecord>();
   private originById = new Map<PatchId, PatchOrigin>();
   /** Learned from `source:patch-apply` — the source store is the authority. */
+  /**
+   * The patch groups the server last reported, or `undefined` if it reported
+   * none.
+   *
+   * `undefined` and `[]` are different answers — see {@link FetchPatches} — so
+   * this is deliberately not initialised to an empty array.
+   */
+  private patchGroups: PatchGroupT[] | undefined;
   private appliedIds = new Set<PatchId>();
   /**
    * Patches the source store reported as HELD — outside the reader's patch
@@ -549,6 +572,9 @@ export class PatchStore {
         patches: missing,
         message: res.error,
       });
+    }
+    if (res.patchGroups !== undefined) {
+      this.patchGroups = res.patchGroups;
     }
     const received: PatchId[] = [];
     for (const record of res.patches) {
@@ -1197,6 +1223,19 @@ export class PatchStore {
    * order and already holds every record, so a second incremental copy of that
    * fact was bookkeeping nobody had asked for.
    */
+  /**
+   * The patch groups on this branch, or `undefined` where there are none.
+   *
+   * The distinction is the whole contract: `undefined` means this deployment
+   * has no groups and staging must stay off; an empty array means groups exist
+   * and this branch's hold nothing. Reading the second as the first turns
+   * staging off where it should be on; the reverse turns it on with everything
+   * held.
+   */
+  groups(): PatchGroupT[] | undefined {
+    return this.patchGroups;
+  }
+
   allRecords(): PatchRecord[] {
     return this.recordsFor(this.ordered);
   }
