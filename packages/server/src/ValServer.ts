@@ -1560,24 +1560,43 @@ export const ValServer = (
           patches: [],
         };
         if (query.exclude_patches !== true) {
-          patchOps = await serverOps.fetchPatches({
+          const requestedPatchIds = query.patch_id;
+          if (
+            requestedPatchIds !== undefined &&
+            requestedPatchIds.length === 0
+          ) {
             /*
-             * The caller's patch group, when it named one.
+             * A group that holds nothing renders base, and is handled HERE.
              *
-             * `undefined` means every pending patch, which is what every
-             * existing caller gets and has to keep getting. A draft-mode render
-             * that names its group gets base + that group instead, so a
-             * server-rendered preview shows the same thing the person editing
-             * is looking at rather than everybody's unpublished work.
+             * `fetchPatches` cannot express it: both implementations read an
+             * empty `patchIds` as "no filter" and return the whole chain
+             * (`ValOpsFS`: `patchIds.length > 0 ? new Set(...) : null`;
+             * `ValOpsHttp`: an explicit `length === 0` branch that fetches all).
+             * That is the right default for every caller that has ever passed a
+             * list, since none of them can mean "none" — but it is the most
+             * dangerous possible reading of an EXPLICITLY empty group, which
+             * would render every unpublished patch on the branch instead of
+             * base.
              *
-             * An empty array is deliberately NOT folded into `undefined`: a
-             * group holding nothing renders base, and treating that as "no
-             * filter" would render the whole branch instead — the most
-             * dangerous possible reading of an empty set.
+             * Answered before the call rather than by changing that shared
+             * default, which seven other call sites rely on.
              */
-            patchIds: query.patch_id,
-            excludePatchOps: false,
-          });
+            patchOps = { patches: [] };
+          } else {
+            patchOps = await serverOps.fetchPatches({
+              /*
+               * The caller's patch group, when it named one.
+               *
+               * `undefined` means every pending patch, which is what every
+               * existing caller gets and has to keep getting. A draft-mode
+               * render that names its group gets base + that group instead, so
+               * a server-rendered preview shows the same thing the person
+               * editing is looking at rather than everybody's unpublished work.
+               */
+              patchIds: requestedPatchIds,
+              excludePatchOps: false,
+            });
+          }
         }
         // We check authorization here, because it is the first call to the backend
         if (patchOps.error && patchOps.unauthorized) {

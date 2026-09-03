@@ -4,6 +4,7 @@ import path from "path";
 import { initVal, modules } from "@valbuild/core";
 import type { SelectorSource, ValModule } from "@valbuild/core";
 import { createValApiRouter, createValServer } from "./ValRouter";
+import { VAL_SESSION_COOKIE } from "@valbuild/shared/internal";
 import { encodeJwt } from "./jwt";
 
 /**
@@ -80,6 +81,35 @@ describe("/sources/~ patch group scoping", () => {
       const onRoute = createOnRoute(
         c.define(AUTHORS, authorsSchema, authorsSource),
       );
+      await seedPatches(onRoute);
+      const url = new URL(
+        `http://localhost:3000/api/val/sources/~${query ? `?${query}` : ""}`,
+      );
+      const res = await onRoute(
+        fakeRequest({
+          method: "PUT",
+          url,
+          json: {},
+          headers: new Headers({
+            Cookie: `val_session=${encodeJwt({}, "")}`,
+          }),
+        }),
+      );
+      if (res.status !== 200 || !("json" in res)) {
+        throw new Error(`Expected 200 from /sources/~, got ${res.status}`);
+      }
+      return readAuthors(res.json);
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(valRoot, { recursive: true, force: true });
+    }
+  }
+
+  /** The two pending patches, from two authors, on one chain. */
+  async function seedPatches(
+    onRoute: (req: Request) => Promise<{ status: number; json?: unknown }>,
+  ): Promise<void> {
+    {
       const cookie = new Headers({
         Cookie: `val_session=${encodeJwt({}, "")}`,
       });
@@ -139,33 +169,80 @@ describe("/sources/~ patch group scoping", () => {
           `Expected the patches to be accepted, got ${put.status}`,
         );
       }
+    }
+  }
 
-      const url = new URL(
-        `http://localhost:3000/api/val/sources/~${query ? `?${query}` : ""}`,
+  /** The one module's source out of a `/sources/~` body. */
+  function readAuthors(body: unknown): Authors {
+    if (
+      body === null ||
+      typeof body !== "object" ||
+      !("modules" in body) ||
+      body.modules === null ||
+      typeof body.modules !== "object"
+    ) {
+      throw new Error("Expected /sources/~ to return modules");
+    }
+    const module = (body.modules as Record<string, { source?: unknown }>)[
+      AUTHORS
+    ];
+    if (!module || typeof module.source !== "object" || !module.source) {
+      throw new Error(`Expected a source for ${AUTHORS}`);
+    }
+    return module.source as Authors;
+  }
+
+  /**
+   * The same fixture, but calling the server object directly.
+   *
+   * `initValRsc` reaches `/sources/~` this way rather than through the router,
+   * so this is the shape the draft path really uses — and the only one that can
+   * carry a query value a URL cannot encode.
+   */
+  async function sourcesDirect(patchId: string[]): Promise<Authors> {
+    const valRoot = fs.mkdtempSync(path.join(os.tmpdir(), "val-patch-group-"));
+    const cwdSpy = jest.spyOn(process, "cwd").mockReturnValue(valRoot);
+    try {
+      const onRoute = createOnRoute(
+        c.define(AUTHORS, authorsSchema, authorsSource),
       );
-      const res = await onRoute(
-        fakeRequest({ method: "PUT", url, json: {}, headers: cookie }),
+      await seedPatches(onRoute);
+
+      const valServer = await createValServer(
+        modules(config, [
+          {
+            def: () =>
+              Promise.resolve({
+                default: c.define(AUTHORS, authorsSchema, authorsSource),
+              }),
+          },
+        ]),
+        route,
+        { disableCache: true },
+        config,
+        {
+          async isEnabled() {
+            return true;
+          },
+          async onDisable() {},
+          async onEnable() {},
+        },
       );
-      if (res.status !== 200 || !("json" in res)) {
+      const res = await valServer["/sources/~"]["PUT"]({
+        path: "/",
+        query: {
+          validate_sources: false,
+          validate_binary_files: false,
+          exclude_patches: false,
+          apply_patches: true,
+          patch_id: patchId as never,
+        },
+        cookies: { [VAL_SESSION_COOKIE]: encodeJwt({}, "") },
+      });
+      if (res.status !== 200) {
         throw new Error(`Expected 200 from /sources/~, got ${res.status}`);
       }
-      const body = res.json;
-      if (
-        body === null ||
-        typeof body !== "object" ||
-        !("modules" in body) ||
-        body.modules === null ||
-        typeof body.modules !== "object"
-      ) {
-        throw new Error("Expected /sources/~ to return modules");
-      }
-      const module = (body.modules as Record<string, { source?: unknown }>)[
-        AUTHORS
-      ];
-      if (!module || typeof module.source !== "object" || !module.source) {
-        throw new Error(`Expected a source for ${AUTHORS}`);
-      }
-      return module.source as Authors;
+      return readAuthors(res.json);
     } finally {
       cwdSpy.mockRestore();
       fs.rmSync(valRoot, { recursive: true, force: true });
@@ -195,6 +272,38 @@ describe("/sources/~ patch group scoping", () => {
 
     expect(source.freekh.name).toBe(MY_VALUE);
     expect(source.teddy.name).toBe(THEIR_VALUE);
+  });
+
+  test("an explicitly EMPTY group renders base, not everything", async () => {
+    /*
+     * The dangerous case, and the one the underlying `fetchPatches` gets wrong
+     * on its own: both implementations read an empty `patchIds` as "no filter"
+     * and hand back the whole chain. For a group that genuinely holds nothing —
+     * someone who unstaged their last change — that would render every
+     * unpublished patch on the branch, which is the exact opposite of what was
+     * asked for.
+     *
+     * Driven through the server object rather than a URL, because an empty
+     * array is NOT expressible as a query string: `?patch_id=` parses as `[""]`
+     * (one unknown id, covered below) and omitting it gives `undefined`. The
+     * only caller that can produce a genuinely empty array is a programmatic
+     * one — which is exactly the RSC draft path, `initValRsc` calling
+     * `valServer["/sources/~"]["PUT"]` directly.
+     */
+    const source = await sourcesDirect([]);
+
+    expect(source.freekh.name).toBe(authorsSource.freekh.name);
+    expect(source.teddy.name).toBe(authorsSource.teddy.name);
+  });
+
+  test("an unknown patch id applies nothing, and is not an error", async () => {
+    // `?patch_id=` reaches the handler as `[""]`. Distinct from the empty array
+    // above: this is a non-empty group naming something the chain does not
+    // hold, and it must filter to nothing rather than fall back to everything.
+    const source = await sourcesWith("patch_id=");
+
+    expect(source.freekh.name).toBe(authorsSource.freekh.name);
+    expect(source.teddy.name).toBe(authorsSource.teddy.name);
   });
 
   test("naming nothing still applies everything", async () => {
