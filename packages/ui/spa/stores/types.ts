@@ -383,6 +383,20 @@ export type SystemEvent =
       success: PatchId[];
       failed: { patchId: PatchId; message: string }[];
       /**
+       * Deliberately NOT applied, because the reader's patch group excludes it.
+       *
+       * A third answer, and it has to be one. "Applied" and "failed" are the
+       * two ways a patch can be finished with, and a held patch is neither —
+       * but it IS decided, and saying nothing about it is what breaks
+       * `PatchStore.chainSettled`, which waits for every patch in the chain to
+       * be accounted for. Silence there reads as "still working", so the editor
+       * holds every field inert forever.
+       *
+       * Not folded into `failed`: nothing went wrong, and a failure is
+       * surfaced to the user as a patch that could not be applied.
+       */
+      held: PatchId[];
+      /**
        * Modules whose source actually changed.
        *
        * Reported here rather than recovered by the consumers: the source store

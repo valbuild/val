@@ -177,6 +177,15 @@ export class PatchStore {
   private originById = new Map<PatchId, PatchOrigin>();
   /** Learned from `source:patch-apply` — the source store is the authority. */
   private appliedIds = new Set<PatchId>();
+  /**
+   * Patches the source store reported as HELD — outside the reader's patch
+   * group, so deliberately not applied.
+   *
+   * Separate from `appliedIds` because they answer different questions: applied
+   * is "the effect is in the value", held is "we are done deciding about it".
+   * {@link chainSettled} needs the second; every value reader needs the first.
+   */
+  private heldIds = new Set<PatchId>();
   private failedById = new Map<PatchId, string>();
   /** Ids announced by stat whose fetch is in flight, so we do not re-fetch. */
   private fetching = new Set<PatchId>();
@@ -358,6 +367,30 @@ export class PatchStore {
       for (const failure of event.failed) {
         this.failedById.set(failure.patchId, failure.message);
         this.appliedIds.delete(failure.patchId);
+      }
+      /*
+       * Held: decided, and deliberately not in source.
+       *
+       * Tracked so {@link chainSettled} can tell "we are still working on this"
+       * from "we are finished with it and it is not in the view". Without it a
+       * patch outside the reader's group is never accounted for, the chain
+       * never settles, and the editor holds every field inert for the life of
+       * the tab.
+       *
+       * It is NOT applied, so it does not join `appliedIds` — a reader asking
+       * "is this patch's effect in the value" must still be told no.
+       */
+      for (const patchId of event.held) {
+        this.heldIds.add(patchId);
+        this.failedById.delete(patchId);
+        this.appliedIds.delete(patchId);
+      }
+      for (const patchId of [
+        ...event.success,
+        ...event.failed.map((f) => f.patchId),
+      ]) {
+        // Re-staged, or now applying: it is no longer held.
+        this.heldIds.delete(patchId);
       }
       this.events.emit({ type: "patch:head", head: this.currentHead() });
     });
@@ -1288,7 +1321,12 @@ export class PatchStore {
     for (const patchId of this.ordered) {
       if (this.failedById.has(patchId)) continue;
       if (!this.dataById.has(patchId)) return false;
-      if (!this.appliedIds.has(patchId) && !this.pendingIds.has(patchId)) {
+      if (
+        !this.appliedIds.has(patchId) &&
+        !this.pendingIds.has(patchId) &&
+        // Held is an answer, not a wait. See `heldIds`.
+        !this.heldIds.has(patchId)
+      ) {
         return false;
       }
     }

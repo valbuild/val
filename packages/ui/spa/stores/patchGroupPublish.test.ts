@@ -186,6 +186,58 @@ test("a held patch is hidden, not discarded — re-staging brings it back", asyn
   expect(read(system, OTHER_TITLE)).toBe("theirs");
 });
 
+test("a patch held before it ever applies still settles the chain", async () => {
+  /*
+   * The failure this pins is severe and completely invisible from the value.
+   *
+   * `chainSettled()` waits for every patch in the chain to be accounted for as
+   * applied, failed or pending, and the editor holds EVERY field inert until it
+   * is true (`useInitialPatchesApplied`). A held patch is none of those three,
+   * so a source store that simply skips it leaves the chain unsettled and the
+   * whole Studio dimmed for the life of the tab — while rendering exactly the
+   * right content, which is what makes it so hard to spot.
+   *
+   * The ORDER here is the whole test. Applying a patch and then holding it
+   * leaves a stale `appliedIds` entry that keeps the chain looking settled, so
+   * that version passes with the bug present — it did, and it was worthless.
+   * The real path is a foreign patch that is held from the moment it arrives
+   * and therefore never applies at all: the Studio opens with a group set, and
+   * somebody else's pending work comes down from the server.
+   */
+  const theirs = "p-theirs" as PatchId;
+  const system = createSystem({
+    fetchPatches: async () => ({
+      patches: [
+        {
+          patchId: theirs,
+          moduleFilePath: OTHER,
+          patch: [{ op: "replace", path: ["title"], value: "theirs" }],
+          createdAt: new Date().toISOString(),
+          authorId: "someone-else",
+        },
+      ] as never,
+    }),
+    createPatchId: () => "p-mine" as PatchId,
+    savePatches: async ({ patches, parentRef }) => ({
+      status: "saved",
+      newPatchIds: patches.map((patch) => patch.patchId),
+      parentRef,
+    }),
+    publishPatches: async () => ({ status: "published" }),
+  });
+  system.host.receive(project());
+  // Scoped BEFORE anything arrives, which is what a real session does.
+  system.setPatchGroup([]);
+  system.stat.receiveStat({ patches: [theirs], baseSha: "sha" });
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  // Held, so not in the view...
+  expect(read(system, OTHER_TITLE)).toBe("base B");
+  // ...and yet the chain is finished with it.
+  expect(system.patchStore.chainSettled()).toBe(true);
+});
+
 test("later patches in a module survive an earlier one being held", async () => {
   const { system } = makeSystem();
 

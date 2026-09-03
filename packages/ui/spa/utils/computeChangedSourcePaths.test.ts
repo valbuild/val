@@ -435,3 +435,61 @@ function changeOf(node: ChangeTreeNode): NonNullable<ChangeTreeNode["change"]> {
   }
   return withChange.change;
 }
+
+/**
+ * A multi-op patch is ONE patch, not one per op.
+ *
+ * `PatchSets.insert` records every op, so a patch touching two paths in the
+ * same patch set appears twice in `patchSet.patches` — deliberately, since each
+ * entry carries its own `patchPath`. Anything deriving PATCH ids from it has to
+ * collapse them, or one edit is counted as two: the staging controls would say
+ * "2 changes" for one save, and the closure would be handed a list with repeats.
+ *
+ * Regression cover for the whole-patch `insert` change, whose old per-patch
+ * de-duplication masked this by dropping every op after the first.
+ */
+describe("a patch with several ops in one patch set", () => {
+  test("counts once in patchIds and once per author", () => {
+    const patchSets = buildPatchSets(MODULE_FILE_PATH, schema, [
+      {
+        patchId: "patch-multi" as PatchId,
+        /*
+         * TWO OPS ON THE SAME PATH, which is what makes this reproduce. Two ops
+         * at DIFFERENT paths land in different tree nodes, so neither node ever
+         * sees the id twice — a fixture like that passes with the bug present.
+         * A field edited twice inside one debounce window produces exactly this.
+         */
+        patch: [
+          { op: "replace", path: ["/contact", "title"], value: "One" },
+          { op: "replace", path: ["/contact", "title"], value: "Two" },
+        ],
+        createdAt: "2025-04-01T10:00:00Z",
+        author: "alice",
+      },
+    ]);
+
+    // Both ops really are recorded — that is what the array is for.
+    const recorded = patchSets.flatMap((set) =>
+      set.patches.map((patch) => patch.patchId),
+    );
+    expect(recorded).toEqual(["patch-multi", "patch-multi"]);
+
+    const res = computeChangedSourcePaths(patchSets);
+    const ids = new Set<string>();
+    const authorEdits: unknown[] = [];
+    const walk = (node: ChangeTreeNode): void => {
+      if (node.change) {
+        for (const id of node.change.patchIds) ids.add(id);
+        for (const edits of Object.values(node.change.patchesByAuthorIds)) {
+          authorEdits.push(...edits);
+        }
+      }
+      for (const child of node.children) walk(child);
+    };
+    for (const tree of res.trees) walk(tree);
+
+    expect([...ids]).toEqual(["patch-multi"]);
+    // One edit, not two, for the one author.
+    expect(authorEdits).toHaveLength(1);
+  });
+});

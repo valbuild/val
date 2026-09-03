@@ -454,6 +454,7 @@ export class SourceStore {
           type: "source:patch-apply",
           success: [],
           failed: [],
+          held: [],
           modules,
         });
       }
@@ -593,6 +594,7 @@ export class SourceStore {
       type: "source:patch-apply",
       success: [],
       failed: [],
+      held: [],
       modules: [moduleFilePath],
     });
   }
@@ -2011,6 +2013,7 @@ export class SourceStore {
     if (entries.length === 0) return;
     const success: PatchId[] = [];
     const failed: { patchId: PatchId; message: string }[] = [];
+    const held: PatchId[] = [];
     const touched: SourcePath[] = [];
     const changedModules = new Set<ModuleFilePath>();
 
@@ -2030,8 +2033,16 @@ export class SourceStore {
        * `receive`, a module loading late, a drop rebuilding its neighbours — and
        * every one of them would otherwise re-land it. It stays in `chains`: it
        * is held, not gone, and re-staging has to be able to put it back.
+       *
+       * REPORTED, not silently skipped. `chainSettled` waits for every patch in
+       * the chain to be accounted for as applied or failed, so a held patch that
+       * says nothing reads as "still working" and the editor holds every field
+       * inert for as long as the tab is open.
        */
-      if (!this.isVisible(record.patchId)) continue;
+      if (!this.isVisible(record.patchId)) {
+        held.push(record.patchId);
+        continue;
+      }
       const raw = this.sources[record.moduleFilePath];
       /**
        * Applied to the SUBSTITUTED module, not the raw one.
@@ -2096,11 +2107,17 @@ export class SourceStore {
       }
     }
 
-    // An apply in which nothing applied is not news, and every consumer would
-    // otherwise have to defend against an event whose three payloads are all
-    // empty. Reached whenever every record targeted a module that is not
-    // loaded — which is now a deferral rather than a loss.
-    if (success.length === 0 && failed.length === 0) {
+    // An apply in which nothing HAPPENED is not news, and every consumer would
+    // otherwise have to defend against an event whose payloads are all empty.
+    // Reached whenever every record targeted a module that is not loaded —
+    // which is a deferral rather than a loss.
+    //
+    // `held` counts as something happening, and leaving it out of this guard is
+    // what made the first version of this fix useless: a replay in which EVERY
+    // patch was held — the normal case for a reader scoped to a small group —
+    // returned here, the event was never emitted, and `chainSettled` waited
+    // forever on patches it was never told about.
+    if (success.length === 0 && failed.length === 0 && held.length === 0) {
       return;
     }
 
@@ -2112,6 +2129,7 @@ export class SourceStore {
       type: "source:patch-apply",
       success,
       failed,
+      held,
       modules: [...changedModules],
     });
 

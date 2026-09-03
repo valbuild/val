@@ -1581,16 +1581,40 @@ export const ValServer = (
           ) {
             if (serverOps instanceof ValOpsHttp && "id" in auth && auth.id) {
               const groupsRes = await serverOps.getPatchGroups();
-              ownPatchIds =
-                groupsRes.status === "ok"
-                  ? groupsRes.patchGroups
-                      .filter(
-                        (group) =>
-                          group.publishedAt === null &&
-                          group.authorId === auth.id,
-                      )
-                      .flatMap((group) => group.patchIds)
-                  : [];
+              if (groupsRes.status !== "ok") {
+                /*
+                 * We could not ask. Render base rather than everything: a
+                 * degraded preview is recoverable, showing another author's
+                 * unpublished draft is not, and it would be silent.
+                 */
+                ownPatchIds = [];
+              } else if (groupsRes.patchGroups.length === 0) {
+                /*
+                 * The branch has no groups AT ALL, so this deployment is not
+                 * using them — a content API that predates patch groups, or a
+                 * project where nobody has staged anything since they existed.
+                 *
+                 * Unscoped, which is the behaviour every such project has
+                 * today. Collapsing this into "your group is empty" would make
+                 * every draft render base and silently drop all pending
+                 * content, which is what happened before this branch: nothing
+                 * writes a group yet, so EVERY project is in this state right
+                 * now.
+                 */
+                ownPatchIds = undefined;
+              } else {
+                /*
+                 * Groups exist and none are this person's: they have staged
+                 * nothing, and base is the honest answer. Distinct from the
+                 * case above, which is why the two are not one expression.
+                 */
+                ownPatchIds = groupsRes.patchGroups
+                  .filter(
+                    (group) =>
+                      group.publishedAt === null && group.authorId === auth.id,
+                  )
+                  .flatMap((group) => group.patchIds);
+              }
             } else {
               /*
                * fs mode, or a server with no groups: there is nothing to scope

@@ -84,8 +84,14 @@ test("reads the groups on the branch, with what each holds", async () => {
   );
 
   expect(res).toEqual({ status: "ok", patchGroups: GROUPS.patchGroups });
+  /*
+   * `branch` asserted, not incidental. The endpoint answers 400 without it, and
+   * the first version of this test pinned the URL WITHOUT it — so the test
+   * encoded the bug instead of catching it, and a lookup that always failed
+   * looked verified.
+   */
   expect(calls).toEqual([
-    `https://content.val.build/v1/${PROJECT}/patch-groups`,
+    `https://content.val.build/v1/${PROJECT}/patch-groups?branch=main`,
   ]);
 });
 

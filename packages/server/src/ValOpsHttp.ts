@@ -800,8 +800,16 @@ export class ValOpsHttp extends ValOps {
     | { status: "error"; message: string }
   > {
     try {
+      /*
+       * `branch` is REQUIRED by the endpoint, which answers 400 without it.
+       *
+       * Same two params every other read here sends (`fetchPatchesInternal`,
+       * `saveSourceFilePatch`): groups are per branch, so a request without one
+       * is not merely under-specified, it is rejected.
+       */
+      const params = new URLSearchParams([["branch", this.branch]]);
       const res = await fetch(
-        `${this.contentUrl}/v1/${this.project}/patch-groups`,
+        `${this.contentUrl}/v1/${this.project}/patch-groups?${params}`,
         { headers: this.authHeaders },
       );
       if (!res.ok) {
