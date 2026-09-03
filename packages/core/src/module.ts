@@ -390,9 +390,9 @@ export function resolvePath<
       ) {
         resolvedSchema =
           resolvedSchema instanceof RichTextSchema
-            ? resolvedSchema["options"]?.inline?.a &&
-              typeof resolvedSchema["options"]?.inline?.a !== "boolean"
-              ? resolvedSchema["options"].inline.a
+            ? resolvedSchema["options"]?.a &&
+              typeof resolvedSchema["options"]?.a !== "boolean"
+              ? resolvedSchema["options"].a
               : resolvedSchema
             : resolvedSchema;
       }
@@ -663,9 +663,9 @@ export function safeResolvePath<
       ) {
         resolvedSchema =
           resolvedSchema instanceof RichTextSchema
-            ? resolvedSchema["options"]?.inline?.a &&
-              typeof resolvedSchema["options"]?.inline?.a !== "boolean"
-              ? resolvedSchema["options"].inline.a
+            ? resolvedSchema["options"]?.a &&
+              typeof resolvedSchema["options"]?.a !== "boolean"
+              ? resolvedSchema["options"].a
               : resolvedSchema
             : resolvedSchema;
       }

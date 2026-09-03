@@ -674,7 +674,7 @@ export const schema = s.richtext({
   // h3: true,
   // h4: true,
   // h5: true,
-  // h6: true
+  // h6: true,
   //a: true, // enables links
   //img: true, // enables images
 });
