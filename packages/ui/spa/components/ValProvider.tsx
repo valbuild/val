@@ -203,16 +203,28 @@ type ValContextValue = {
     files: { filePath: string; metadata: ImageMetadata }[];
   }>;
 };
-const ValContext = React.createContext<ValContextValue>(
-  new Proxy(
-    {},
-    {
-      get: () => {
-        throw new Error("Cannot use ValContext outside of ValProvider");
-      },
+/**
+ * The context value that means "nobody mounted a provider".
+ *
+ * A Proxy that throws on any property read, so a hook which genuinely cannot do
+ * its job without a provider fails loudly at the first field it touches rather
+ * than quietly computing from undefined.
+ *
+ * Named, rather than inline in `createContext`, so a hook that CAN answer
+ * without a provider can recognise it by identity — see `useCurrentAuthorId`.
+ * The alternative is catching the throw, which means either swallowing every
+ * error raised during a destructure or matching on a message string.
+ */
+const NO_VAL_PROVIDER = new Proxy(
+  {},
+  {
+    get: () => {
+      throw new Error("Cannot use ValContext outside of ValProvider");
     },
-  ) as ValContextValue,
-);
+  },
+) as ValContextValue;
+
+const ValContext = React.createContext<ValContextValue>(NO_VAL_PROVIDER);
 
 export function useClient() {
   return useContext(ValContext).client;
@@ -2021,7 +2033,29 @@ export function useCurrentProfile() {
  * so the two cannot drift into disagreeing about who you are.
  */
 export function useCurrentAuthorId(): string | null {
-  const { profileId, profiles, mode } = useContext(ValContext);
+  const context = useContext(ValContext);
+  /*
+   * No provider is an honest `null` here, not a crash.
+   *
+   * The default context throws on any property read, which is the right guard
+   * for a hook that cannot do its job without a provider. This hook can: "who
+   * is the current author" has a correct answer when nobody is mounted, and it
+   * is nobody. Without this, one presentational component reaching for the
+   * author takes down every render of the whole review screen — which is what
+   * happened when the summary strip started naming authors, and it took out
+   * every ComparePatchSets story, not only the ones about authorship.
+   *
+   * Recognised by IDENTITY rather than by catching the throw. A `try` around
+   * the destructure would swallow every error raised inside it, not only this
+   * one, so a real fault in a mounted provider would surface as a silent
+   * "nobody" instead of a stack trace; matching on the message string would be
+   * worse again. `useContext` is still called unconditionally, so hook order is
+   * unaffected.
+   */
+  if (context === NO_VAL_PROVIDER) {
+    return null;
+  }
+  const { profileId, profiles, mode } = context;
   if (profileId) {
     return profileId;
   }
