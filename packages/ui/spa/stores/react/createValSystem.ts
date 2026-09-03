@@ -211,6 +211,12 @@ export function createValSystem(
         const res = await client("/patches", "GET", {
           query: {
             exclude_patch_ops: false,
+            /*
+             * Once per fetch, not once per chunk. The groups are a property of
+             * the branch and identical in every chunk, so asking on each one is
+             * N identical lookups against the content API.
+             */
+            include_patch_groups: chunks === 1,
             // The ids we actually want, not the whole table. The engine asks for
             // everything because it keeps a whole-project map; this store is asked
             // for specific ids by `StatStore` and can say so.

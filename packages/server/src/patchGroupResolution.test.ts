@@ -215,6 +215,17 @@ test("sends the group id and the client's closure with the patch", async () => {
   expect(body.patchId).toBe("p1");
 });
 
+/*
+ * There is deliberately no test for "omits `patchGroupId` when the membership
+ * has none".
+ *
+ * `JSON.stringify` drops `undefined` keys, so a body built with the key set to
+ * `undefined` and one built without the key at all are byte-identical. The
+ * assertion would pass whichever way the code is written, which makes it a test
+ * that cannot fail. What the client must not do — hold a group id across
+ * publishes and send a stale one — is enforced where the id is produced, in
+ * `ValShell`'s resolver, not here.
+ */
 test("omits the group fields entirely when there is no group", async () => {
   const body = await bodyOfSave(undefined);
 

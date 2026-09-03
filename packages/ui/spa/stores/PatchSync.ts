@@ -45,7 +45,20 @@ export type SavePatches = (request: {
  * wrong element.
  */
 export type PatchGroupMembership = {
-  patchGroupId: string;
+  /**
+   * Deliberately absent on the write path.
+   *
+   * The server resolves "this author's open group on this branch, creating it
+   * if absent" when no id is named — `patchGroupId ?? null` triggers
+   * `getOrCreateOpen`. Naming one from the client means holding an id across
+   * publishes, and a published group is refused: the stale id would fail the
+   * write and lose the save. The server always knows which group is current;
+   * the client does not.
+   *
+   * Explicit stage and unstage DO name one, because they act on a specific
+   * group rather than on whichever is open.
+   */
+  patchGroupId?: string;
   alsoAddPatchIds: PatchId[];
   closureVersion: number;
 };

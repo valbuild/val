@@ -951,7 +951,12 @@ export class ValOpsHttp extends ValOps {
          */
         ...(patchGroup
           ? {
-              patchGroupId: patchGroup.patchGroupId,
+              // Only when the caller named one. Omitted, the content API
+              // resolves this author's open group and creates it if absent,
+              // which is what every write wants.
+              ...(patchGroup.patchGroupId !== undefined
+                ? { patchGroupId: patchGroup.patchGroupId }
+                : {}),
               alsoAddPatchIds: patchGroup.alsoAddPatchIds,
               closureVersion: patchGroup.closureVersion,
             }

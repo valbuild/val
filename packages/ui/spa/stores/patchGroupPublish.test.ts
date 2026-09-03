@@ -5,6 +5,7 @@ import {
   type SourcePath,
 } from "@valbuild/core";
 import { createSystem, type System } from "./createSystem";
+import type { PatchGroupMembership } from "./PatchSync";
 
 /**
  * Independent publish, at the seam where it either works or does not.
@@ -340,4 +341,49 @@ test("writes with no group when no resolver is registered", async () => {
   // Absent, not null: this is what every client did before groups existed, and
   // what fs mode and a content API without them keep doing.
   expect(saves).toEqual([{ patchGroup: undefined }]);
+});
+
+/**
+ * The write path names no group, and the server resolves one.
+ *
+ * A review found the client holding a `patchGroupId` across writes. It cannot:
+ * a publish CLOSES the group, and the content API refuses a write into a closed
+ * one — so the stale id would fail the next save and lose the edit. It also
+ * made a fresh branch unbootstrappable in one reading, since a client with no
+ * group would never ask for one.
+ *
+ * The server resolves "this author's open group, created if absent" whenever no
+ * id is named (`patchGroupId ?? null` triggers `getOrCreateOpen`), so the right
+ * thing for a write to send is the closure and nothing else.
+ */
+test("a write sends the closure without naming a group", async () => {
+  const saves: { patchGroup?: PatchGroupMembership }[] = [];
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: () => "p-mine" as PatchId,
+    savePatches: async ({ patches, parentRef, patchGroup }) => {
+      saves.push({ patchGroup });
+      return {
+        status: "saved",
+        newPatchIds: patches.map((patch) => patch.patchId),
+        parentRef,
+      };
+    },
+    publishPatches: async () => ({ status: "published" }),
+  });
+  system.host.receive(project());
+  system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+  system.setPatchGroupResolver(() => ({
+    alsoAddPatchIds: ["p-theirs" as PatchId],
+    closureVersion: 1,
+  }));
+
+  await edit(system, MODULE, "mine");
+  await system.patchSync.flush();
+
+  expect(saves).toHaveLength(1);
+  // The closure travels; the id does not.
+  expect(saves[0].patchGroup?.alsoAddPatchIds).toEqual(["p-theirs"]);
+  expect(saves[0].patchGroup?.patchGroupId).toBeUndefined();
 });

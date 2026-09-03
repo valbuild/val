@@ -1043,23 +1043,24 @@ function usePatchGroupWrites(): void {
 
   useEffect(() => {
     if (val === null) return;
-    if (!group.enabled || group.patchGroupId === undefined) {
-      // No groups on this deployment, or none for this user yet. Writing with
-      // no group is what every client did before groups existed.
+    if (!group.enabled) {
+      // No groups on this deployment. Writing with no group is what every
+      // client did before groups existed.
       val.system.setPatchGroupResolver(undefined);
       return;
     }
-    const patchGroupId = group.patchGroupId;
+    /*
+     * No group id is sent, even when we know one. The server resolves this
+     * author's open group and creates it if absent, so a fresh branch
+     * bootstraps on the first write — and no stale id survives a publish to
+     * fail the next one.
+     */
     val.system.setPatchGroupResolver((patchIds) => {
       if (patchSetsData === undefined) {
         // The grouping has not been computed yet. The patch still joins the
         // group; it simply drags nothing along, and a later stage repairs the
         // prefix if one was owed.
-        return {
-          patchGroupId,
-          alsoAddPatchIds: [],
-          closureVersion: CLOSURE_VERSION,
-        };
+        return { alsoAddPatchIds: [], closureVersion: CLOSURE_VERSION };
       }
       let index;
       try {
@@ -1069,22 +1070,27 @@ function usePatchGroupWrites(): void {
         // possibility mid-sync. Join without a closure rather than refusing the
         // write: losing the edit is worse than an under-closed group, which
         // `repairGroup` fixes.
-        return {
-          patchGroupId,
-          alsoAddPatchIds: [],
-          closureVersion: CLOSURE_VERSION,
-        };
+        return { alsoAddPatchIds: [], closureVersion: CLOSURE_VERSION };
       }
-      const next = stageClosure(index, group.members, patchIds);
+      /*
+       * The base is what this client is scoped to RIGHT NOW, read at call time
+       * rather than captured. A stage or unstage moves the scope without moving
+       * the annotation, so closing over `group.members` would compute the
+       * closure against a group the user has already changed.
+       */
+      const base = val.system.patchGroup();
+      const held: ReadonlySet<PatchId> =
+        base === null ? group.members : new Set(base);
+      const next = stageClosure(index, held, patchIds);
       /*
        * Only what is NEW. The server unions, so re-sending what the group
        * already holds is a no-op — but it is also a much larger request on a
        * long chain, once per keystroke batch.
        */
       const alsoAddPatchIds = [...next].filter(
-        (patchId) => !group.members.has(patchId) && !patchIds.includes(patchId),
+        (patchId) => !held.has(patchId) && !patchIds.includes(patchId),
       );
-      return { patchGroupId, alsoAddPatchIds, closureVersion: CLOSURE_VERSION };
+      return { alsoAddPatchIds, closureVersion: CLOSURE_VERSION };
     });
   }, [val, group, patchSetsData, chainOrder]);
 }
@@ -1110,6 +1116,33 @@ function StagedCompare({
   const val = useValSystem();
   const group = useCurrentPatchGroup();
   const chainOrder = useChainOrder();
+
+  /**
+   * What this client is scoped to, which is the LOCAL truth.
+   *
+   * Two things made the annotation alone wrong as the provider's `group`.
+   * Nothing re-reads it after a stage or unstage — `PatchStore` refreshes
+   * groups only when it fetches missing patch ids — so a toggle moved the
+   * server and nothing on screen. And until the first toggle the system was
+   * never scoped at all, so `publish` shipped the whole pending chain
+   * including other authors' patches, which is the failure this feature exists
+   * to prevent.
+   *
+   * So the system holds it, `onChange` moves it, and the annotation SEEDS it.
+   */
+  const scoped = val?.system.patchGroup() ?? null;
+  useEffect(() => {
+    if (val === null || !group.enabled) return;
+    if (scoped !== null) return;
+    // First time we know what the server holds: scope source and publish to it,
+    // before anybody touches a control.
+    val.system.setPatchGroup([...group.members]);
+  }, [val, group.enabled, group.members, scoped]);
+
+  const members = useMemo(
+    () => (scoped === null ? group.members : new Set(scoped)),
+    [scoped, group.members],
+  );
 
   const onChange = useCallback(
     (next: Set<PatchId>, change: PatchGroupChange) => {
@@ -1157,7 +1190,7 @@ function StagedCompare({
       enabled={group.enabled}
       patchSets={patchSets}
       chainOrder={chainOrder}
-      group={group.members}
+      group={members}
       onChange={onChange}
     >
       <ComparePatchSets

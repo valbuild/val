@@ -805,6 +805,15 @@ export const Api = {
         query: {
           patch_id: z.array(PatchId).optional(),
           exclude_patch_ops: onlyOneBooleanQueryParam.optional(),
+          /**
+           * Include the patch group annotation in the answer.
+           *
+           * Off by default because the client CHUNKS this request — a long
+           * chain is several round trips — and the groups are a property of the
+           * branch, identical in every chunk. Asking on each one is N identical
+           * lookups against the content API to learn the same thing.
+           */
+          include_patch_groups: onlyOneBooleanQueryParam.optional(),
         },
         cookies: {
           val_session: z.string().optional(),

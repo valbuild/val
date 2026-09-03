@@ -32,9 +32,20 @@ export function useCurrentPatchGroup(): CurrentPatchGroup {
     if (groups === undefined) {
       return { enabled: false, patchGroupId: undefined, members: new Set() };
     }
+    if (authorId === null) {
+      /*
+       * We do not know who this is yet — the profile has not loaded, or there
+       * is no session. Matching anyway would compare `null === null` and adopt
+       * a group whose author is null (an api-key or PAT write), so this client
+       * would stage into, and publish, a stranger's work.
+       */
+      return { enabled: true, patchGroupId: undefined, members: new Set() };
+    }
     const mine = groups.find(
       (group: PatchGroupT) =>
-        group.publishedAt === null && group.authorId === authorId,
+        group.publishedAt === null &&
+        group.authorId !== null &&
+        group.authorId === authorId,
     );
     return {
       enabled: true,

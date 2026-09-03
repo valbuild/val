@@ -1167,15 +1167,27 @@ export const ValServer = (
          * from. Kept in the schema so a client that still sends it is not
          * refused.
          */
-        const requestedPatchGroupId = req.body.patchGroupId;
-        // Null as well as undefined: the field is nullable, so a client that
-        // sends an explicit `null` means "no group" exactly as one that omits
-        // it. Checking only `undefined` would build a membership keyed by null.
+        /*
+         * A membership is present if EITHER field is.
+         *
+         * The common case names no group: the content API resolves the author's
+         * open group, creating it if absent, so the client never has to hold an
+         * id across publishes. It still sends the closure, which is the part it
+         * alone can compute.
+         *
+         * `patchGroupId` is nullable, so an explicit `null` means "no group
+         * named" exactly as omitting it does — it is passed through as
+         * `undefined` rather than becoming a membership keyed by null.
+         */
+        const requestedPatchGroupId = req.body.patchGroupId ?? undefined;
+        const requestedAlsoAdd = req.body.alsoAddPatchIds;
         const patchGroup =
-          requestedPatchGroupId !== undefined && requestedPatchGroupId !== null
+          requestedPatchGroupId !== undefined || requestedAlsoAdd !== undefined
             ? {
-                patchGroupId: requestedPatchGroupId,
-                alsoAddPatchIds: req.body.alsoAddPatchIds ?? [],
+                ...(requestedPatchGroupId !== undefined
+                  ? { patchGroupId: requestedPatchGroupId }
+                  : {}),
+                alsoAddPatchIds: requestedAlsoAdd ?? [],
                 closureVersion: req.body.closureVersion ?? 0,
               }
             : undefined;
@@ -1360,7 +1372,10 @@ export const ValServer = (
          * with everything held.
          */
         let patchGroups: PatchGroupT[] | undefined;
-        if (serverOps instanceof ValOpsHttp) {
+        if (
+          query.include_patch_groups === true &&
+          serverOps instanceof ValOpsHttp
+        ) {
           const groupsRes = await serverOps.getPatchGroups();
           if (groupsRes.status === "ok" && groupsRes.patchGroups.length > 0) {
             patchGroups = groupsRes.patchGroups;

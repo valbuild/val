@@ -2240,7 +2240,12 @@ export type GenericErrorMessage = {
  * identifiable and recomputable after the fact.
  */
 export type PatchGroupMembership = {
-  patchGroupId: string;
+  /**
+   * Absent means "the author's open group, created if absent" — the content API
+   * resolves it. The client does not hold an id across publishes, because a
+   * published group is refused and the stale id would lose the write.
+   */
+  patchGroupId?: string;
   alsoAddPatchIds: PatchId[];
   closureVersion: number;
 };
