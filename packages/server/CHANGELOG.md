@@ -1,5 +1,29 @@
 # @valbuild/server
 
+## 0.120.1
+
+### Patch Changes
+
+- [#590](https://github.com/valbuild/val/pull/590) [`6f318d4`](https://github.com/valbuild/val/commit/6f318d406295b772e721bf463283f47e2822e996) Thanks [@freekh](https://github.com/freekh)! - MCP: survive a signing-key rotation, and say what a refused local token means.
+
+  `@valbuild/next` caches the authorization server's JWKS for five minutes. Until
+  now a token signed with a key that arrived inside that window was refused
+  outright, so every warm instance rejected valid tokens until the cache expired —
+  a rotation on the issuer's side showed up as an outage on yours.
+
+  A token naming a key the cache does not hold now provokes one refetch of the key
+  set, at most once per issuer every 30 seconds. The rate limit matters because the
+  key id comes from the token: without it, unknown key ids would be a way to make
+  your app call its issuer once per request. It limits how often a fetch is
+  _started_, so requests that arrive while one is already running join it — which
+  is the normal shape of a rotation, where many requests meet the new key at once.
+
+  Separately, an MCP call that presents an access token to a project running in
+  local filesystem mode is still refused — there is nothing to authenticate against
+  — but the message now names the cause, which is that the project has an `oauth`
+  issuer configured (often `VAL_OAUTH_ISSUER` in a local `.env`) and should not
+  have one for local development.
+
 ## 0.120.0
 
 ### Patch Changes
