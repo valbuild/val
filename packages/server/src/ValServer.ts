@@ -2093,6 +2093,7 @@ export const ValServer = (
             const json = (await upstreamRes.json()) as {
               nonce: string;
               providers?: unknown;
+              models?: unknown;
             };
             const wsUrl =
               options.valContentUrl
@@ -2107,12 +2108,47 @@ export const ValServer = (
                     typeof provider === "string",
                 )
               : undefined;
+            // Same posture as `providers`: forwarded, shape-checked, not
+            // interpreted. Which models a key can reach is the content
+            // server's answer to give, and a malformed entry is dropped rather
+            // than allowed to sink the whole response.
+            const models = Array.isArray(json.models)
+              ? json.models.flatMap((entry) => {
+                  if (typeof entry !== "object" || entry === null) {
+                    return [];
+                  }
+                  const model = entry as Record<string, unknown>;
+                  if (
+                    typeof model.provider !== "string" ||
+                    typeof model.model !== "string" ||
+                    typeof model.label !== "string"
+                  ) {
+                    return [];
+                  }
+                  return [
+                    {
+                      provider: model.provider,
+                      model: model.model,
+                      label: model.label,
+                      contextWindow:
+                        typeof model.contextWindow === "number"
+                          ? model.contextWindow
+                          : null,
+                    },
+                  ];
+                })
+              : undefined;
             return {
               status: 200 as const,
               json: {
                 nonce: json.nonce,
                 wsUrl,
-                ...(providers ? { providers } : {}),
+                // Explicit, because the distinction matters and truthiness
+                // is a bad way to express it: an empty array means "no
+                // reachable provider", which the client must be able to tell
+                // apart from an older server that reports nothing at all.
+                ...(providers !== undefined ? { providers } : {}),
+                ...(models !== undefined ? { models } : {}),
               },
             };
           } catch (err) {

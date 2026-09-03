@@ -1171,6 +1171,31 @@ export const Api = {
              * of. Unknown entries are simply ignored.
              */
             providers: z.array(z.string()).optional(),
+            /**
+             * The models those keys can actually use, as the providers report
+             * them.
+             *
+             * Which models *exist* is something only the provider knows: it
+             * depends on the account, its tier, and what has shipped since this
+             * Studio was built. So the server asks and passes the answer on,
+             * and the picker offers exactly this.
+             *
+             * Optional and loosely typed for the same reason as `providers`: a
+             * content server that does not report them, or reports a provider
+             * this version has not heard of, must not invalidate the whole
+             * response. Absent or empty means fall back to the built-in
+             * catalog.
+             */
+            models: z
+              .array(
+                z.object({
+                  provider: z.string(),
+                  model: z.string(),
+                  label: z.string(),
+                  contextWindow: z.number().nullable().optional(),
+                }),
+              )
+              .optional(),
           }),
         }),
         z.object({
