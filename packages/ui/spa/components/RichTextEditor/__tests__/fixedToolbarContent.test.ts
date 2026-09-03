@@ -47,24 +47,24 @@ describe("the fixed toolbar is mounted only when it has content", () => {
   });
 
   test.each<[string, SerializedRichTextOptions]>([
-    ["bold", { style: { bold: true } }],
-    ["italic", { style: { italic: true } }],
-    ["lineThrough", { style: { lineThrough: true } }],
-    ["a bullet list", { block: { ul: true } }],
-    ["an ordered list", { block: { ol: true } }],
-    ["h1", { block: { h1: true } }],
-    ["h2", { block: { h2: true } }],
-    ["h3", { block: { h3: true } }],
-    ["links", { inline: { a: true } }],
-    ["images", { inline: { img: true } }],
+    ["bold", { bold: true }],
+    ["italic", { italic: true }],
+    ["lineThrough", { lineThrough: true }],
+    ["a bullet list", { ul: true }],
+    ["an ordered list", { ol: true }],
+    ["h1", { h1: true }],
+    ["h2", { h2: true }],
+    ["h3", { h3: true }],
+    ["links", { a: true }],
+    ["images", { img: true }],
   ])("%s: toolbar", (_name, options) => {
     expect(shows(options)).toBe(true);
   });
 
   test.each<[string, SerializedRichTextOptions]>([
-    ["h4", { block: { h4: true } }],
-    ["h5", { block: { h5: true } }],
-    ["h6", { block: { h6: true } }],
+    ["h4", { h4: true }],
+    ["h5", { h5: true }],
+    ["h6", { h6: true }],
   ])("%s alone: no toolbar, because it has no control", (_name, options) => {
     // `getBlockTypeItems` only offers levels 1-3, so h4-h6 are real features
     // with nothing in the bar to represent them. This is exactly why the
@@ -74,7 +74,7 @@ describe("the fixed toolbar is mounted only when it has content", () => {
   });
 
   test("an image field with nowhere to get an image from: no toolbar", () => {
-    const features = resolve({ inline: { img: true } });
+    const features = resolve({ img: true });
     const schema = buildSchema({ features });
     expect(
       hasFixedToolbarContent({ schema, features, canInsertImage: false }),

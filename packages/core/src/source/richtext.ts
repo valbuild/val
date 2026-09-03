@@ -4,91 +4,67 @@ import { StringSchema, SerializedStringSchema } from "../schema/string";
 import { ImageSource } from "./media";
 
 export type RichTextOptions = Partial<{
-  style: Partial<{
-    bold: boolean;
-    italic: boolean;
-    lineThrough: boolean;
-  }>;
-  block: Partial<{
-    h1: boolean;
-    h2: boolean;
-    h3: boolean;
-    h4: boolean;
-    h5: boolean;
-    h6: boolean;
-    ul: boolean;
-    ol: boolean;
-    // TODO:
-    // custom: Record<string, Schema<SelectorSource>>;
-  }>;
-  inline: Partial<{
-    a: boolean | RouteSchema<string> | StringSchema<string>;
-    img: boolean | ImageSchema<ImageSource>;
-    // custom: Record<string, Schema<SelectorSource>>;
-  }>;
+  // styles:
+  bold: boolean;
+  italic: boolean;
+  lineThrough: boolean;
+  // block-level tags:
+  h1: boolean;
+  h2: boolean;
+  h3: boolean;
+  h4: boolean;
+  h5: boolean;
+  h6: boolean;
+  ul: boolean;
+  ol: boolean;
+  // inline tags:
+  a: boolean | RouteSchema<string> | StringSchema<string>;
+  img: boolean | ImageSchema<ImageSource>;
+  // TODO:
+  // custom: Record<string, Schema<SelectorSource>>;
 }>;
 export type SerializedRichTextOptions = Partial<{
-  style: Partial<{
-    bold: boolean;
-    italic: boolean;
-    lineThrough: boolean;
-  }>;
-  block: Partial<{
-    h1: boolean;
-    h2: boolean;
-    h3: boolean;
-    h4: boolean;
-    h5: boolean;
-    h6: boolean;
-    ul: boolean;
-    ol: boolean;
-    // TODO:
-    // custom: Record<string, Schema<SelectorSource>>;
-  }>;
-  inline: Partial<{
-    a: boolean | SerializedRouteSchema | SerializedStringSchema;
-    img: boolean | SerializedImageSchema;
-    // custom: Record<string, Schema<SelectorSource>>;
-  }>;
+  bold: boolean;
+  italic: boolean;
+  lineThrough: boolean;
+  h1: boolean;
+  h2: boolean;
+  h3: boolean;
+  h4: boolean;
+  h5: boolean;
+  h6: boolean;
+  ul: boolean;
+  ol: boolean;
+  a: boolean | SerializedRouteSchema | SerializedStringSchema;
+  img: boolean | SerializedImageSchema;
+  // TODO:
+  // custom: Record<string, Schema<SelectorSource>>;
 }>;
 export type AllRichTextOptions = {
-  style: {
-    bold: true;
-    italic: true;
-    lineThrough: true;
-  };
-  block: {
-    h1: true;
-    h2: true;
-    h3: true;
-    h4: true;
-    h5: true;
-    h6: true;
-    ul: true;
-    ol: true;
-  };
-  inline: {
-    a: true;
-    img: true;
-  };
+  bold: true;
+  italic: true;
+  lineThrough: true;
+  h1: true;
+  h2: true;
+  h3: true;
+  h4: true;
+  h5: true;
+  h6: true;
+  ul: true;
+  ol: true;
+  a: true;
+  img: true;
 };
 
 //#region Classes
-export type LineThrough<O extends RichTextOptions> = NonNullable<
-  O["style"]
->["lineThrough"] extends true
-  ? "line-through"
-  : never;
+export type LineThrough<O extends RichTextOptions> =
+  O["lineThrough"] extends true ? "line-through" : never;
 
-export type Italic<O extends RichTextOptions> = NonNullable<
-  O["style"]
->["italic"] extends true
+export type Italic<O extends RichTextOptions> = O["italic"] extends true
   ? "italic"
   : never;
 
-export type Bold<O extends RichTextOptions> = NonNullable<
-  O["style"]
->["bold"] extends true
+export type Bold<O extends RichTextOptions> = O["bold"] extends true
   ? "bold"
   : never;
 
@@ -131,11 +107,9 @@ export type SpanNode<O extends RichTextOptions> = {
 };
 
 //#region Image
-export type ImageNode<O extends RichTextOptions> = NonNullable<
-  O["inline"]
->["img"] extends true
+export type ImageNode<O extends RichTextOptions> = O["img"] extends true
   ? { tag: "img"; src: ImageSource }
-  : NonNullable<O["inline"]>["img"] extends ImageSchema<infer Src>
+  : O["img"] extends ImageSchema<infer Src>
     ? Src extends ImageSource
       ? { tag: "img"; src: Src }
       : never
@@ -147,13 +121,9 @@ type LinkTagNode<O extends RichTextOptions> = {
   href: string;
   children: (string | SpanNode<O> | ImageNode<O> | CustomInlineNode<O>)[];
 };
-export type LinkNode<O extends RichTextOptions> = NonNullable<
-  O["inline"]
->["a"] extends true
+export type LinkNode<O extends RichTextOptions> = O["a"] extends true
   ? LinkTagNode<O>
-  : NonNullable<O["inline"]>["a"] extends
-        | RouteSchema<string>
-        | StringSchema<string>
+  : O["a"] extends RouteSchema<string> | StringSchema<string>
     ? LinkTagNode<O>
     : never;
 
@@ -162,17 +132,13 @@ type ListItemTagNode<O extends RichTextOptions> = {
   tag: "li";
   children: (ParagraphNode<O> | UnorderedListNode<O> | OrderedListNode<O>)[];
 };
-export type ListItemNode<O extends RichTextOptions> = NonNullable<
-  O["block"]
->["ul"] extends true
+export type ListItemNode<O extends RichTextOptions> = O["ul"] extends true
   ? ListItemTagNode<O>
-  : never | NonNullable<O["block"]>["ol"] extends true
+  : O["ol"] extends true
     ? ListItemTagNode<O>
     : never;
 
-export type UnorderedListNode<O extends RichTextOptions> = NonNullable<
-  O["block"]
->["ul"] extends true
+export type UnorderedListNode<O extends RichTextOptions> = O["ul"] extends true
   ? {
       tag: "ul";
       // dir?: "ltr" | "rtl"; TODO: add this
@@ -180,9 +146,7 @@ export type UnorderedListNode<O extends RichTextOptions> = NonNullable<
     }
   : never;
 
-export type OrderedListNode<O extends RichTextOptions> = NonNullable<
-  O["block"]
->["ol"] extends true
+export type OrderedListNode<O extends RichTextOptions> = O["ol"] extends true
   ? {
       tag: "ol";
       // dir?: "ltr" | "rtl"; TODO: add this
@@ -191,10 +155,11 @@ export type OrderedListNode<O extends RichTextOptions> = NonNullable<
   : never;
 
 //#region Heading
+export type HeadingTag = "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
 export type HeadingTagOf<
-  S extends keyof NonNullable<NonNullable<O["block"]>>,
+  S extends HeadingTag,
   O extends RichTextOptions,
-> = NonNullable<NonNullable<O["block"]>>[S] extends true
+> = O[S] extends true
   ? {
       tag: S;
 
@@ -220,8 +185,8 @@ export type HeadingNode<O extends RichTextOptions> =
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export type CustomInlineNode<O extends RichTextOptions> = never;
 // export type CustomInlineNode<O extends RichTextOptions> = NonNullable<
-//   NonNullable<O["inline"]>["custom"]
-// >[keyof NonNullable<NonNullable<O["inline"]>["custom"]>] extends Schema<
+//   O["custom"]
+// >[keyof NonNullable<O["custom"]>] extends Schema<
 //   infer Src
 // >
 //   ? ReplaceRawStringWithString<Src>

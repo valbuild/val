@@ -34,7 +34,7 @@ const nestedModule = serialize(
       title: s.string(),
       items: s.array(item),
       byKey: s.record(item),
-      body: s.richtext({ block: { h1: true } }),
+      body: s.richtext({ h1: true }),
       hero: s.image(),
       gallery: s.images({
         directory: "/public/val/images",

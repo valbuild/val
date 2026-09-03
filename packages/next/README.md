@@ -662,27 +662,21 @@ import { s, c } from "./val.config";
 
 export const schema = s.richtext({
   // styling
-  style: {
-    bold: true, // enables bold
-    italic: true, // enables italic text
-    lineThrough: true, // enables line/strike-through
-  },
+  bold: true, // enables bold
+  italic: true, // enables italic text
+  lineThrough: true, // enables line/strike-through
   // tags:
-  block: {
-    //ul: true, // enables unordered lists
-    //ol: true, // enables ordered lists
-    // headings:
-    h1: true,
-    h2: true,
-    // h3: true,
-    // h4: true,
-    // h5: true,
-    // h6: true
-  },
-  inline: {
-    //a: true, // enables links
-    //img: true, // enables images
-  },
+  //ul: true, // enables unordered lists
+  //ol: true, // enables ordered lists
+  // headings:
+  h1: true,
+  h2: true,
+  // h3: true,
+  // h4: true,
+  // h5: true,
+  // h6: true
+  //a: true, // enables links
+  //img: true, // enables images
 });
 
 export default c.define("/src/app/content", schema, [
@@ -713,9 +707,7 @@ export default function Page() {
     <main>
       <ValRichText
         theme={{
-          style: {
-            bold: "font-bold", // <- maps bold to a class. NOTE: tailwind classes are supported
-          },
+          bold: "font-bold", // <- maps bold to a class. NOTE: tailwind classes are supported
           //
         }}
         content={content}
@@ -739,7 +731,7 @@ To add classes to `ValRichText` you can use the theme property:
 />
 ```
 
-**NOTE**: if a theme is defined, you must define a mapping for every tag that the you get. What tags you have is decided based on the `options` defined on the `s.richtext()` schema. For example: `s.richtext({ style: { bold: true } })` requires that you add a `bold` theme.
+**NOTE**: if a theme is defined, you must define a mapping for every tag that the you get. What tags you have is decided based on the `options` defined on the `s.richtext()` schema. For example: `s.richtext({ bold: true, })` requires that you add a `bold` theme.
 
 ```tsx
 <ValRichText

@@ -177,33 +177,21 @@ export const SerializedImageSchema: z.ZodType<SerializedImageSchemaT> =
 export const RichTextOptions: z.ZodType<SerializedRichTextOptionsT> = z.lazy(
   () =>
     z.object({
-      style: z
-        .object({
-          bold: z.boolean().optional(),
-          italic: z.boolean().optional(),
-          lineThrough: z.boolean().optional(),
-        })
+      bold: z.boolean().optional(),
+      italic: z.boolean().optional(),
+      lineThrough: z.boolean().optional(),
+      h1: z.boolean().optional(),
+      h2: z.boolean().optional(),
+      h3: z.boolean().optional(),
+      h4: z.boolean().optional(),
+      h5: z.boolean().optional(),
+      h6: z.boolean().optional(),
+      ul: z.boolean().optional(),
+      ol: z.boolean().optional(),
+      a: z
+        .union([z.boolean(), SerializedRouteSchema, SerializedStringSchema])
         .optional(),
-      block: z
-        .object({
-          h1: z.boolean().optional(),
-          h2: z.boolean().optional(),
-          h3: z.boolean().optional(),
-          h4: z.boolean().optional(),
-          h5: z.boolean().optional(),
-          h6: z.boolean().optional(),
-          ul: z.boolean().optional(),
-          ol: z.boolean().optional(),
-        })
-        .optional(),
-      inline: z
-        .object({
-          a: z
-            .union([z.boolean(), SerializedRouteSchema, SerializedStringSchema])
-            .optional(),
-          img: z.union([z.boolean(), SerializedImageSchema]).optional(),
-        })
-        .optional(),
+      img: z.union([z.boolean(), SerializedImageSchema]).optional(),
     }),
 );
 export const SerializedRichTextSchema: z.ZodType<SerializedRichTextSchemaT> =

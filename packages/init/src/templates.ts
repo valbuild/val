@@ -185,28 +185,21 @@ export const testSchema = s.object({
    */
   richText: s.richtext({
     // styling:
-    style: {
-      bold: true, // enables bold
-      italic: true, // enables italic text
-      lineThrough: true, // enables line/strike-through
-    },
-    // block-level elements:
-    block: {
-      // tags:
-      h1: true, // enables h1
-      h2: true,
-      h3: true,
-      h4: true,
-      h5: true,
-      h6: true,
-      ul: true, // enables unordered lists
-      ol: true, // enables ordered lists
-    },
-    // inline elements:
-    inline: {
-      a: true,
-      img: true,
-    },
+    bold: true, // enables bold
+    italic: true, // enables italic text
+    lineThrough: true, // enables line/strike-through
+    // block-level tags:
+    h1: true, // enables h1
+    h2: true,
+    h3: true,
+    h4: true,
+    h5: true,
+    h6: true,
+    ul: true, // enables unordered lists
+    ol: true, // enables ordered lists
+    // inline tags:
+    a: true,
+    img: true,
   }),
 
   /**

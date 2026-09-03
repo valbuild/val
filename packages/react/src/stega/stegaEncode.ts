@@ -323,7 +323,7 @@ function inlineImageSchemaOf(
   if (schema?.type !== "richtext") {
     return undefined;
   }
-  const img = schema.options?.inline?.img;
+  const img = schema.options?.img;
   if (!img) {
     return undefined;
   }
