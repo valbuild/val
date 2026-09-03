@@ -1327,6 +1327,20 @@ export class PatchStore {
     this.bumpGroups();
   }
 
+  /**
+   * Patches the source store is deliberately NOT applying, because they are
+   * outside this reader's group.
+   *
+   * Reported because held is invisible in the value and yet is not absence. A
+   * reader that only compares the displayed source against base sees a module
+   * whose one pending patch is held as IDENTICAL to one whose pending patch was
+   * undone — and calling a held change "reverted" tells its author their work
+   * is gone and offers to discard it.
+   */
+  heldPatchIds(): ReadonlySet<PatchId> {
+    return this.heldIds;
+  }
+
   /** Changes whenever the groups do. See the `patch:groups` event. */
   groupsVersion(): number {
     return this.groupsVersionCounter;

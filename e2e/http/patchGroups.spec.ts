@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   contextAs,
   mock,
@@ -244,5 +244,126 @@ test.describe("patch groups in http mode", () => {
         status: "ready",
         data: "Second value",
       });
+  });
+});
+
+/**
+ * Reach the review screen the way an editor does.
+ *
+ * `page.goto("/val/compare")` looks equivalent and is not: it reloads the SPA,
+ * throwing away the intake and the pending edit the view exists to show. Review
+ * is the route in, and it only appears once there is something to review — so
+ * clicking it is also the wait for the edit having landed.
+ *
+ * The name is matched WITHOUT requiring a count, unlike the `fs` suite's
+ * version. Review's badge is `hasNetChanges ? pendingChanges : 0`, and a held
+ * patch makes the scoped source equal base — so once everything is unstaged the
+ * button is still there and still works, but it reads "Review changes" rather
+ * than "Review 1 change". Requiring the digits made this test unable to reach
+ * the one screen a held change can be put back from.
+ */
+async function openCompare(page: Page, studio: Locator): Promise<void> {
+  const review = studio.getByRole("button", {
+    name: /^Review( \d+)? changes?$/,
+  });
+  await expect(review).toBeVisible({ timeout: 30_000 });
+  await review.click();
+}
+
+/**
+ * The staging CONTROLS, which until now existed only in stories.
+ *
+ * Everything above drives the scope through the system. This drives the button,
+ * which is a different claim: that a click reaches the content service at all.
+ * The two are easy to confuse and the difference is invisible on screen — a
+ * stage that moves the local scope and never persists looks exactly like one
+ * that did, right up until the reload that silently brings the change back
+ * staged and the next publish ships what the user meant to hold.
+ */
+test.describe("the staging controls", () => {
+  test("unstaging a change persists, survives a reload, and holds the publish", async ({
+    page,
+  }) => {
+    await openHttpStudio(page);
+    const patchId = await writePatch(page, AUTHORS, [
+      { op: "replace", path: ["teddy", "name"], value: "Ada, then held back" },
+    ]);
+    const state = await mock.state();
+    const patchGroupId = state.patchGroups[0]?.patchGroupId;
+    expect(patchGroupId, "the write created no group").toBeTruthy();
+    expect(state.patchGroups[0].patchIds).toEqual([patchId]);
+
+    const studio = page.locator("#val-shadow-root");
+    await openCompare(page, studio);
+
+    const unstage = studio.getByRole("button", { name: /^Unstage / }).first();
+    await expect(
+      unstage,
+      "the review screen offered no staging control, so groups never reached the UI",
+    ).toBeVisible({ timeout: 30_000 });
+    await unstage.click();
+
+    // The SERVER lost it, which is the half a screenshot cannot show.
+    await expect
+      .poll(
+        async () =>
+          (await mock.state()).patchGroups.find(
+            (group) => group.patchGroupId === patchGroupId,
+          )?.patchIds,
+        { message: "the unstage never reached the content service" },
+      )
+      .toEqual([]);
+
+    // And the editor stops showing it: held is not published, but it is not
+    // yours to see in your own scoped view either.
+    await expect
+      .poll(() => peek(page, TEDDY))
+      .toMatchObject({ status: "ready", data: "Theodor René Carlsen" });
+
+    // A group holding nothing publishes nothing, rather than falling back to
+    // the whole chain — which is what folding "no scope" and "empty scope"
+    // together would do, and it would ship the thing just held back.
+    expect((await publishAll(page, "should not ship")).status).toBe(
+      "nothing-to-publish",
+    );
+    expect((await mock.state()).commits).toHaveLength(0);
+
+    /*
+     * The reload is the point of the whole test.
+     *
+     * Local scope is rebuilt from scratch here, so if the click had only moved
+     * this tab's state the change would come back STAGED and the next publish
+     * would ship what the user meant to hold — silently, and in a commit.
+     */
+    await openHttpStudio(page);
+    await expect
+      .poll(() => scope(page), {
+        message: "the client never re-scoped after the reload",
+      })
+      .toEqual([]);
+    await expect
+      .poll(() => peek(page, TEDDY))
+      .toMatchObject({ status: "ready", data: "Theodor René Carlsen" });
+
+    // Staging it again brings it back, and then it ships.
+    await openCompare(page, studio);
+    const stage = studio.getByRole("button", { name: /^Stage / }).first();
+    await expect(stage).toBeVisible({ timeout: 30_000 });
+    await stage.click();
+    await expect
+      .poll(
+        async () =>
+          (await mock.state()).patchGroups.find(
+            (group) => group.patchGroupId === patchGroupId,
+          )?.patchIds,
+        { message: "the re-stage never reached the content service" },
+      )
+      .toEqual([patchId]);
+
+    const published = await publishAll(page, "Ada ships it after all");
+    expect(published.status, published.message ?? "").toBe("published");
+    expect(await mock.committedSource(AUTHORS)).toContain(
+      "Ada, then held back",
+    );
   });
 });

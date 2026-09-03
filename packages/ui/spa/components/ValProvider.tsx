@@ -1444,7 +1444,28 @@ export function useNoOpSourcePaths(
     void sourcesVersion;
     void chainVersion;
     const store = val.system.sourceStore;
+    /*
+     * Modules with a HELD patch, which are never no-ops.
+     *
+     * `peek` answers with the scoped source, so a module whose only pending
+     * patch is held back reads exactly like one whose pending patch was undone
+     * — and the review screen files it under "reverted", tells its author the
+     * content matches what is published, and offers only Discard. That is the
+     * screen a held change has to be put BACK from, so getting this wrong
+     * strands the change with no way to re-stage it.
+     *
+     * A held patch's two sides are not equal. They only look equal because we
+     * are hiding it.
+     */
+    const heldModules = new Set<ModuleFilePath>();
+    for (const record of val.system.patchStore.recordsFor([
+      ...val.system.patchStore.heldPatchIds(),
+    ])) {
+      heldModules.add(record.moduleFilePath);
+    }
     for (const path of paths) {
+      const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+      if (heldModules.has(moduleFilePath)) continue;
       const after = store.peek(path);
       const before = store.peekBase(path);
       // Only a settled pair can be compared. Anything still loading is not
