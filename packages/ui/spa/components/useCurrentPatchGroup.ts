@@ -14,9 +14,11 @@ import {
  * Three states, and collapsing any two of them is a bug with a different
  * symptom each time:
  *
- * - `enabled: false` — this deployment has no patch groups. `fs` mode, a
- *   content API that predates them, or a lookup that failed. The staging
- *   controls stay off, which is what every project does today.
+ * - `enabled: false` — there is no group to talk about. This deployment has
+ *   none (`fs` mode, a content API that predates them, or a lookup that
+ *   failed), or we do not yet know who the user is, so we cannot say which
+ *   group is theirs. The staging controls stay off, which is what every
+ *   project does today.
  * - `enabled: true` with a `patchGroupId` — this user has an open group, and
  *   `members` is what it holds.
  * - `enabled: true` with no `patchGroupId` — groups exist but this user has none
@@ -48,17 +50,30 @@ export function useCurrentPatchGroup(): CurrentPatchGroup {
     }
     if (authorId === null) {
       /*
-       * We do not know who this is yet — the profile has not loaded, or there
-       * is no session. Matching the ANNOTATION anyway would compare
-       * `null === null` and adopt a group whose author is null (an api-key or
-       * PAT write), so this client would stage into, and publish, a stranger's
-       * work.
+       * We do not know who this is yet.
        *
-       * `ownGroupId` is not a match and is safe here: the server named it in
-       * the answer to this client's own write, so it is ours by construction
-       * rather than by comparing an author id we do not have.
+       * `profileId` comes from `useStatus`'s own `/stat` poll; the annotation
+       * comes from `GET /patches`. Two independent requests, either order. So
+       * this branch is a RACE, not a steady state, and answering
+       * `enabled: true` with no members made it a permanent one: the shell
+       * seeds the scope from those empty members, `seedPatchGroup([])` scopes
+       * the client to nothing, and the seed never runs again because the scope
+       * is no longer `null`. The user's own pending patches from an earlier
+       * session stay held for the life of the tab — base on screen, Publish
+       * disabled, "N changes are held back".
+       *
+       * So: not enabled until we know whose group to ask for. Matching the
+       * annotation anyway would be worse — `null === null` would adopt a group
+       * whose author is null (an api-key or PAT write) and this client would
+       * stage into, and publish, a stranger's work.
+       *
+       * `ownGroupId` is the exception and is safe: the server named it in the
+       * answer to this client's OWN write, so it is ours by construction rather
+       * than by comparing an author id we do not have.
        */
-      return { enabled: true, patchGroupId: ownGroupId, members: new Set() };
+      return ownGroupId === undefined
+        ? { enabled: false, patchGroupId: undefined, members: new Set() }
+        : { enabled: true, patchGroupId: ownGroupId, members: new Set() };
     }
     const mine = groups?.find(
       (group: PatchGroupT) =>

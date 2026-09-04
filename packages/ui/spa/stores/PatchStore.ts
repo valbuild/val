@@ -1200,6 +1200,11 @@ export class PatchStore {
       this.fetching.delete(patchId);
       this.notDeliveredOnce.delete(patchId);
       this.publishErrorById.delete(patchId);
+      // Held is a fact about a patch that EXISTS. Left behind, `heldPatchIds()`
+      // keeps naming an id nothing can find, and Publish tells the reader "1
+      // change is held back — stage it in Review" about a patch that is not
+      // there to stage.
+      this.heldIds.delete(patchId);
       forgotten.push(patchId);
     }
     if (forgotten.length === 0) return;
@@ -1241,6 +1246,11 @@ export class PatchStore {
       this.fetching.delete(patchId);
       this.notDeliveredOnce.delete(patchId);
       this.publishErrorById.delete(patchId);
+      // Held is a fact about a patch that EXISTS. Left behind, `heldPatchIds()`
+      // keeps naming an id nothing can find, and Publish tells the reader "1
+      // change is held back — stage it in Review" about a patch that is not
+      // there to stage.
+      this.heldIds.delete(patchId);
       this.publishedIds.delete(patchId);
       dropped.push(patchId);
     }

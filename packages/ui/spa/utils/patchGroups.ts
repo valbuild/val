@@ -131,28 +131,9 @@ export function indexPatchSets(
   return { sets, labels, setsOf, chainPosition };
 }
 
-/**
- * Does this group hold back anything in any patch set that `patchId` belongs to?
+/*
+ * WHY A GROUP IS NOT A BLANKET
  *
- * Used to decide whether a newly arrived patch should join this group. It joins by
- * closure — see `DEFAULT_GROUP_IS_EVERYTHING` — *unless* the author has
- * deliberately held that region back, in which case it stays out and the region
- * stays held.
- */
-export function holdsRegionOf(
-  index: PatchSetIndex,
-  group: PatchGroup,
-  patchId: PatchId,
-): boolean {
-  const ordinals = index.setsOf.get(patchId) ?? [];
-  return ordinals.some((ordinal) =>
-    index.sets[ordinal].some(
-      (member) => member !== patchId && !group.has(member),
-    ),
-  );
-}
-
-/**
  * Why a group contains its owner's patches CLOSED OVER THEIR PATCH SETS, and
  * nothing else.
  *
@@ -194,8 +175,6 @@ export function holdsRegionOf(
  * (`editWouldRestage`), because inside it your view and the published result
  * disagree — the same hole as above, entered deliberately.
  */
-export const DEFAULT_GROUP_IS_EVERYTHING = false;
-
 /**
  * Stage `requested` into `group`, pulling in whatever the prefix invariant
  * requires.

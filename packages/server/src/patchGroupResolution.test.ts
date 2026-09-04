@@ -281,6 +281,50 @@ async function savedGroupId(
   return patchGroupId;
 }
 
+/**
+ * A content API that PREDATES patch groups answers 404, and that is not a
+ * failure — it is "there are no groups here".
+ *
+ * The distinction decides what a draft render shows. `/sources/~` reads an
+ * error as "could not ask" and renders BASE, so folding 404 into error made
+ * every existing http deployment silently drop all pending content from every
+ * draft preview — the opposite of the "keeps working unchanged" this feature
+ * promises, and invisible to whoever is looking at the page.
+ */
+test("a missing patch-groups endpoint reads as unsupported, not as an error", async () => {
+  const res = await withFetch(
+    (async () =>
+      ({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+        json: async () => ({ message: "Not found" }),
+        text: async () => "Not found",
+      }) as unknown as Response) as unknown as typeof fetch,
+    () => ops().getPatchGroups(),
+  );
+  expect(res.status).toBe("unsupported");
+});
+
+test("a real failure is still an error, so the caller can degrade", async () => {
+  // 401/500/network all mean the endpoint is THERE and did not answer. Base is
+  // the honest render for those; unscoped would leak other authors' drafts.
+  for (const status of [401, 500]) {
+    const res = await withFetch(
+      (async () =>
+        ({
+          ok: false,
+          status,
+          statusText: "Nope",
+          json: async () => ({}),
+          text: async () => "nope",
+        }) as unknown as Response) as unknown as typeof fetch,
+      () => ops().getPatchGroups(),
+    );
+    expect(res.status).toBe("error");
+  }
+});
+
 test("reports the group the content API put the patch in", async () => {
   expect(
     await savedGroupId({ patchId: "p1", patchGroupId: "group-alice" }),

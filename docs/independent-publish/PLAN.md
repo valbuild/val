@@ -162,9 +162,10 @@ the closure, not by a blanket.
 
 So the rule is: **a new patch joins its own author's group, together with whatever the
 prefix invariant drags along inside its patch sets. It joins nobody else's group, and
-it does not pull in patches from other patch sets.** `DEFAULT_GROUP_IS_EVERYTHING` in
-`packages/ui/spa/utils/patchGroups.ts` is the flag that records this, and its doc block
-is the canonical statement of the argument.
+it does not pull in patches from other patch sets.** The "why a group is not a blanket"
+block in `packages/ui/spa/utils/patchGroups.ts` is the canonical statement of the
+argument. (It used to hang off a `DEFAULT_GROUP_IS_EVERYTHING = false` constant that
+nothing read, and which the comments citing it had come to describe backwards.)
 
 Where a blanket and the closure differ is patches in **different** patch sets: Alice
 edits `?title` while Bob edits `?items`. Bob's group excludes her title change, and

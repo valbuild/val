@@ -29,9 +29,12 @@ import {
  * one place where the prefix invariant is maintained, and it is the same code the
  * scenario suite tests (`utils/patchGroups.ts`).
  *
- * A group holds every pending patch by default — see `DEFAULT_GROUP_IS_EVERYTHING`
- * — so with staging untouched the UI behaves exactly as it did before: everything
- * is staged, Publish publishes everything.
+ * A group does NOT hold every pending patch. It holds its owner's own work plus
+ * whatever the closure entangled with it, so with staging untouched Publish
+ * ships that and not the whole chain — see "why a group is not a blanket" in
+ * `utils/patchGroups.ts` for why a blanket was rejected. Where a deployment has
+ * no groups at all the provider is handed `enabled: false` and the review
+ * screen is the flat list it always was.
  */
 
 export type RowStagingState =

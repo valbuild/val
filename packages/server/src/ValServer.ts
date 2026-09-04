@@ -1118,6 +1118,16 @@ export const ValServer = (
         if (serverOps instanceof ValOpsFS) {
           return { status: 200, json: { patchGroupId, patchIds } };
         }
+        if (!("id" in auth) || !auth.id) {
+          return { status: 401, json: { message: "Unauthorized" } };
+        }
+        const refusal = await refuseUnlessOwn(serverOps, patchGroupId, auth.id);
+        if (refusal !== null) {
+          return {
+            status: refusal.status,
+            json: { message: refusal.message },
+          };
+        }
         const res = await serverOps.stagePatches(
           patchGroupId,
           patchIds,
@@ -1138,6 +1148,16 @@ export const ValServer = (
         const { patchGroupId, patchIds } = req.body;
         if (serverOps instanceof ValOpsFS) {
           return { status: 200, json: { patchGroupId, patchIds } };
+        }
+        if (!("id" in auth) || !auth.id) {
+          return { status: 401, json: { message: "Unauthorized" } };
+        }
+        const refusal = await refuseUnlessOwn(serverOps, patchGroupId, auth.id);
+        if (refusal !== null) {
+          return {
+            status: refusal.status,
+            json: { message: refusal.message },
+          };
         }
         const res = await serverOps.unstagePatches(patchGroupId, patchIds);
         if (res.error) {
@@ -1201,7 +1221,7 @@ export const ValServer = (
           return {
             status: 400,
             json: {
-              type: "patch-error" as const,
+              type: "patch-error",
               message:
                 "Patch groups are not available in fs mode. Omit the patch group fields.",
               errors: {},
@@ -1687,11 +1707,23 @@ export const ValServer = (
           ) {
             if (serverOps instanceof ValOpsHttp && "id" in auth && auth.id) {
               const groupsRes = await serverOps.getPatchGroups();
-              if (groupsRes.status !== "ok") {
+              if (groupsRes.status === "unsupported") {
                 /*
-                 * We could not ask. Render base rather than everything: a
-                 * degraded preview is recoverable, showing another author's
-                 * unpublished draft is not, and it would be silent.
+                 * A content API that PREDATES patch groups — the endpoint 404s.
+                 *
+                 * Unscoped, which is what those deployments do today and must
+                 * keep doing. Reading this as a failure and rendering base
+                 * would silently drop every pending patch from every draft
+                 * preview on every existing http project — the exact opposite
+                 * of "keeps working unchanged", and invisible to the reader.
+                 */
+                ownPatchIds = undefined;
+              } else if (groupsRes.status === "error") {
+                /*
+                 * We could not ask, and this deployment DOES have the endpoint.
+                 * Render base rather than everything: a degraded preview is
+                 * recoverable, showing another author's unpublished draft is
+                 * not, and it would be silent.
                  */
                 ownPatchIds = [];
               } else if (groupsRes.patchGroups.length === 0) {
@@ -3120,6 +3152,56 @@ export type ValServerCallbacks = {
   onEnable: (success: boolean) => Promise<void>;
   onDisable: (success: boolean) => Promise<void>;
 };
+
+/**
+ * Refuse to touch a group that is not the caller's.
+ *
+ * Exported for `patchGroupOwnership.test.ts`: this is the whole of the
+ * authorization for stage and unstage, and nothing else in the process checks
+ * it, so it is worth testing as a policy rather than only through a route.
+ *
+ * `getAuth` only proves a session EXISTS; it says nothing about whose
+ * group this is. And the content API cannot decide either — every call
+ * from here carries the app's API key, not the editor's identity — so if
+ * this does not check, nothing does.
+ *
+ * `GET /patches?include_patch_groups=true` hands every editor the id and
+ * author of every open group on the branch, so without this any logged-in
+ * editor can unstage another author's patches (their next publish
+ * silently ships less) or stage into their group (it silently ships
+ * more). The 403 declared for this route in `ApiRoutes.ts` was
+ * unreachable.
+ *
+ * Fails CLOSED: if the groups cannot be read, the mutation is refused
+ * rather than allowed unverified.
+ */
+export async function refuseUnlessOwn(
+  ops: ValOpsHttp,
+  patchGroupId: string,
+  authorId: string,
+): Promise<{ status: 403 | 500; message: string } | null> {
+  const groupsRes = await ops.getPatchGroups();
+  if (groupsRes.status !== "ok") {
+    return {
+      status: 500,
+      message:
+        "Could not verify that this patch group is yours, so it was not changed.",
+    };
+  }
+  const group = groupsRes.patchGroups.find(
+    (candidate) => candidate.patchGroupId === patchGroupId,
+  );
+  if (group === undefined) {
+    return { status: 403, message: "Patch group not found" };
+  }
+  if (group.authorId === null || group.authorId !== authorId) {
+    // A null author is a group written by an api key or a PAT. Nobody
+    // owns it, so nobody may stage into it — `null === null` must not
+    // read as a match.
+    return { status: 403, message: "Patch group belongs to another user" };
+  }
+  return null;
+}
 
 function verifyCallbackReq(
   stateCookie: string | undefined,

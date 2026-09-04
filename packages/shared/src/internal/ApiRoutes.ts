@@ -85,7 +85,7 @@ const GenericError = z.object({ message: z.string() });
  * patches must move together; a patch group is curated and says which ones this
  * user wants live. See `docs/independent-publish/PLAN.md`.
  */
-const PatchGroup = z.object({
+export const PatchGroup = z.object({
   patchGroupId: z.string(),
   authorId: z.string().nullable(),
   createdAt: z.string(),
@@ -607,7 +607,6 @@ export const Api = {
               // cannot detect a stage/unstage: the set of pending patches is
               // unchanged, only who holds them. Without this, unstaging in one tab
               // never reaches another. Optional so FS mode can omit it.
-              patchGroupsSha: z.string().optional(),
               /**
                * Unpublished changes the store threw away because it could not
                * read them.
@@ -636,7 +635,6 @@ export const Api = {
               sourcesSha: z.string(),
               commitSha: z.string(),
               patches: z.array(PatchId),
-              patchGroupsSha: z.string().optional(),
               commits: z.array(ValCommit),
               config: ValConfig,
               profileId: z.string().nullable(),

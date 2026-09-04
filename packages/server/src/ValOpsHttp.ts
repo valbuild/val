@@ -35,6 +35,7 @@ import {
   Patch,
   ValCommit,
   ValDeployment,
+  PatchGroup,
   type PatchGroupT,
 } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
@@ -172,16 +173,16 @@ const CommitResponse = z.object({
   commit: CommitSha,
   branch: z.string(),
 });
+/*
+ * The shared schema, not a copy of it.
+ *
+ * This re-declared `PatchGroup` field for field while the file already imported
+ * `PatchGroupT` from the same module — so a field added on one side and not the
+ * other would have `getPatchGroups()` return a `PatchGroupT[]` silently missing
+ * it, with no type error anywhere.
+ */
 const PatchGroupsResponse = z.object({
-  patchGroups: z.array(
-    z.object({
-      patchGroupId: z.string(),
-      authorId: z.string().nullable(),
-      createdAt: z.string(),
-      publishedAt: z.string().nullable(),
-      patchIds: z.array(PatchId),
-    }),
-  ),
+  patchGroups: z.array(PatchGroup),
 });
 
 const PatchGroupMutationResponse = z.object({
@@ -805,6 +806,7 @@ export class ValOpsHttp extends ValOps {
    */
   async getPatchGroups(): Promise<
     | { status: "ok"; patchGroups: PatchGroupT[] }
+    | { status: "unsupported" }
     | { status: "error"; message: string }
   > {
     try {
@@ -820,6 +822,20 @@ export class ValOpsHttp extends ValOps {
         `${this.contentUrl}/v1/${this.project}/patch-groups?${params}`,
         { headers: this.authHeaders },
       );
+      if (res.status === 404) {
+        /*
+         * The endpoint is not there, which is a content API that PREDATES patch
+         * groups — not a failure.
+         *
+         * The distinction decides what a draft render shows, and collapsing it
+         * into "error" is not a small mistake: a caller that reads an error as
+         * "could not ask" renders BASE, so every existing http deployment would
+         * silently drop all pending content from every draft preview. "There
+         * are no groups here" has to mean unscoped, which is exactly the
+         * behaviour those projects have today.
+         */
+        return { status: "unsupported" };
+      }
       if (!res.ok) {
         return {
           status: "error",
@@ -866,7 +882,7 @@ export class ValOpsHttp extends ValOps {
       if (res.ok) {
         const parsed = PatchGroupMutationResponse.safeParse(await res.json());
         if (parsed.success) {
-          return { patchIds: parsed.data.patchIds as PatchId[] };
+          return { patchIds: parsed.data.patchIds };
         }
         return {
           status: 500,

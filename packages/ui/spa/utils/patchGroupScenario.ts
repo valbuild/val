@@ -346,7 +346,7 @@ class Run {
      * cannot move anything here, so it has no business in this group, and keeping
      * it out is what makes the publish independent.
      *
-     * See `DEFAULT_GROUP_IS_EVERYTHING`.
+     * See "why a group is not a blanket" in `patchGroups.ts`.
      */
     this.repairOthers(step.by, `${step.edit} changed the patch sets`);
     this.showGroups();

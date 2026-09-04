@@ -1078,9 +1078,16 @@ function usePatchGroupChange(
       }
       /*
        * Scoped locally FIRST, so the screen answers immediately, and persisted
-       * after. The request can fail; the next `GET /patches` re-reads the
-       * annotation and puts the view back to what the server holds, so a failed
-       * persist is corrected rather than silently kept.
+       * after.
+       *
+       * KNOWN GAP: if the persist fails, nothing corrects the local scope.
+       * `PatchStore` only re-reads the group annotation inside a fetch it makes
+       * for MISSING patch ids, so on a quiet branch the next `GET /patches`
+       * that would put the view back may never happen — the screen keeps
+       * showing a stage the server refused, and it is lost on reload. The
+       * failure is logged below; it is not yet reconciled. Same root cause as
+       * a stage in one tab not reaching another. See
+       * `docs/independent-publish/DESIGN.md`.
        */
       val.system.setPatchGroup([...next]);
       if (patchGroupId === undefined) {

@@ -4,7 +4,6 @@ import { PatchSets } from "./PatchSets";
 import {
   editWouldRestage,
   heldPatchSets,
-  holdsRegionOf,
   inChainOrder,
   indexPatchSets,
   stageClosure,
@@ -221,7 +220,7 @@ describe("validateGroup", () => {
   });
 });
 
-describe("heldPatchSets and holdsRegionOf", () => {
+describe("heldPatchSets", () => {
   test("reports each patch set with something left out", () => {
     expect(heldPatchSets(arrayChain(), ids("p1", "p2"))).toEqual([
       { patchSet: `${MODULE}?items`, unstaged: ["p3"] },
@@ -230,15 +229,6 @@ describe("heldPatchSets and holdsRegionOf", () => {
 
   test("a fully staged group holds nothing", () => {
     expect(heldPatchSets(arrayChain(), ids("p1", "p2", "p3"))).toEqual([]);
-  });
-
-  test("holdsRegionOf is true only for patches whose region is held", () => {
-    const i = arrayChain();
-    const group = ids("p1");
-    // `?items` has p2 and p3, neither staged, so both their regions are held.
-    expect(holdsRegionOf(i, group, "p3" as PatchId)).toBe(true);
-    // p1 is alone in `?title`, and it is staged, so nothing there is held.
-    expect(holdsRegionOf(i, group, "p1" as PatchId)).toBe(false);
   });
 });
 
