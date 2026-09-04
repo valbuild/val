@@ -54,6 +54,14 @@ independently stay safe.
   own ids: `PUT /sources/~` with `own_patch_groups_only`, and the server
   resolves the caller's open groups from the session.
 
+Scoping applies to **pending** work only. A published patch stays in the chain
+with `appliedAt` set until the next deployment moves the base, so a scoped render
+applies its caller's group UNION everything already applied — keyed on
+`appliedAt` rather than the group's `publishedAt`, because a partial publish
+leaves the group open with only some of its patches applied. Without that, the
+moment someone published, their own preview reverted the field they had just
+shipped and nobody else saw it until the deploy landed.
+
 Three states are kept distinct at every hop, and collapsing any two is a bug
 with a different symptom each time:
 
@@ -63,8 +71,17 @@ with a different symptom each time:
 | `[]`          | a group holding nothing      | render base, ship nothing |
 | `[...]`       | a group                      | scoped                    |
 
-A failed group lookup renders **base**, not everything: a degraded preview beats
-leaking someone's draft.
+A group lookup has three outcomes, not two. **404** means the content API has no
+patch groups at all, and that deployment stays unscoped. Any other failure means
+the endpoint is there and did not answer, and renders **base**: a degraded
+preview beats leaking someone's draft. (The shipped assumption is that the
+content API _does_ have groups — valbuild/home#37 — so the 404 path is a
+belt-and-braces fallback rather than a supported configuration.)
+
+Stage and unstage are refused unless the caller owns the group and it is still
+open. `getAuth` only proves a session exists, and every call to the content API
+carries the app's key rather than the editor's identity, so this server is the
+only place that knows both who is asking and whose group it is.
 
 ## Keeping the invariant
 
@@ -98,9 +115,11 @@ on publish.
 3. Repair policy is `extend`, which silently grows a group to include another
    author's patch. `truncate` would silently drop the user's own work instead.
    Neither is obviously right.
-4. Scope is client-held local truth seeded from the server's annotation and
-   corrected by the next fetch. A failed stage is corrected rather than kept —
-   but there is a window where the screen and the server disagree.
+4. Scope is client-held local truth seeded from the server's annotation, and
+   nothing reconciles it. `PatchStore` re-reads the annotation only inside a
+   fetch it makes for MISSING patch ids, so on a quiet branch a failed stage is
+   kept on screen until the page is reloaded, and a stage in one tab never
+   reaches another. Closing both needs the annotation to refresh on its own.
 5. Held patches count as _settled_ but not _applied_ (`chainSettled`), because
    the editor holds every field inert until the chain settles. A held patch that
    counted as neither would dim the Studio permanently.
