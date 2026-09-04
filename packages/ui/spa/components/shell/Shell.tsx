@@ -53,6 +53,7 @@ import { PagesPanel } from "./PagesPanel";
 import { SettingsPanel } from "./SettingsPanel";
 import { ShellAccountError } from "./AccountError";
 import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
+import { isDeploymentNews } from "./Deployments";
 import { PublishState, TopBar } from "./TopBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { availableDestinations } from "./shellDataMapping";
@@ -495,7 +496,8 @@ export function Shell({
   // A publish is the one thing here that finishes somewhere else, so the list
   // opens itself when a commit Val has not seen before shows up. The first
   // feed after mount is history rather than news: opening on it would pop a
-  // panel at someone who has not published anything.
+  // panel at someone who has not published anything. So is a commit that has
+  // been serving the site for a while - see `isDeploymentNews`.
   const seenCommits = useRef<ReadonlySet<string> | null>(null);
   useEffect(() => {
     if (data.deployments === undefined) {
@@ -507,7 +509,12 @@ export function Shell({
     if (seen === null) {
       return;
     }
-    if (data.deployments.some((d) => !seen.has(d.commitSha))) {
+    const now = Date.now();
+    if (
+      data.deployments.some(
+        (d) => !seen.has(d.commitSha) && isDeploymentNews(d, now),
+      )
+    ) {
       setDeploymentsOpen(true);
       setDeploymentsAutoOpened(true);
     }

@@ -11,6 +11,7 @@ export {
   summarizeDeployments,
 } from "./Deployments";
 export type { DeploymentSummary } from "./Deployments";
+export { isDeploymentNews, DEPLOYMENT_NEWS_WINDOW_MS } from "./Deployments";
 export { FloatingPanel } from "./FloatingPanel";
 export {
   OverlayMenuLauncher,

@@ -43,6 +43,42 @@ export function summarizeDeployments(
 }
 
 /**
+ * How recently a publish must have gone live to be worth popping the list for.
+ */
+export const DEPLOYMENT_NEWS_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * Whether a publish showing up in the feed is news, or history.
+ *
+ * The list opens itself for a commit it has not seen before, which is right
+ * for a publish that just happened and wrong for one that finished long ago -
+ * and the two are indistinguishable from "not in the previous feed". A commit
+ * arrives that way whenever the feed is first fetched in a new tab, when a
+ * colleague published while this tab was closed, or when the deploy feed
+ * simply comes back in a different order.
+ *
+ * A publish still on its way out is always news: it is going to change again,
+ * and its result is what the list exists to show. One already serving the site
+ * is news only while it is fresh - past that, someone opening Val is not
+ * looking at their own publish, so the list stays shut and the status bar says
+ * "Deployed" like it would for anything else.
+ */
+export function isDeploymentNews(
+  deployment: ShellDeployment,
+  now: number,
+): boolean {
+  if (!deployment.isLive) {
+    return true;
+  }
+  const updatedAt = new Date(deployment.updatedAt).getTime();
+  if (Number.isNaN(updatedAt)) {
+    // An unreadable timestamp is not grounds for hiding a publish.
+    return true;
+  }
+  return now - updatedAt <= DEPLOYMENT_NEWS_WINDOW_MS;
+}
+
+/**
  * Whether a publish is still on its way out.
  *
  * `isLive` — Val has seen the site answer with this commit — settles it on its

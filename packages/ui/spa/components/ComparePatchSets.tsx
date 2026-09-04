@@ -67,7 +67,7 @@ import {
   PopoverTrigger,
 } from "./designSystem/popover";
 import { Skeleton } from "./designSystem/skeleton";
-import { getInitials } from "../utils/getInitials";
+import { ProfileAvatar } from "./Avatar";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { prettifyModulePath } from "../utils/prettifyText";
 import { FieldPathLink } from "./FieldPathLink";
@@ -2337,11 +2337,14 @@ function AvatarStack({
   return (
     <div className="flex items-center" aria-label="Authors">
       {visible.map((id, i) => (
-        <SummaryAvatar
+        <ProfileAvatar
           key={id}
           profile={profilesByAuthorIds[id] ?? null}
-          isFirst={i === 0}
           mode={mode}
+          size="sm"
+          className={classNames("border-2 border-bg-primary", {
+            "-ml-2": i > 0,
+          })}
         />
       ))}
       {overflow > 0 && (
@@ -2353,49 +2356,6 @@ function AvatarStack({
         </span>
       )}
     </div>
-  );
-}
-
-function SummaryAvatar({
-  profile,
-  isFirst,
-  mode,
-}: {
-  profile: Profile | null;
-  isFirst: boolean;
-  mode: "fs" | "http" | "unknown";
-}) {
-  const cls = classNames(
-    "shrink-0 w-7 h-7 rounded-full inline-flex items-center justify-center text-[11px] font-semibold overflow-hidden border-2 border-bg-primary",
-    { "-ml-2": !isFirst },
-  );
-  if (!profile) {
-    return (
-      <span
-        className={classNames(cls, "bg-bg-secondary text-fg-disabled")}
-        title={mode === "fs" ? "Local changes" : "Unknown author"}
-      >
-        {mode === "fs" ? <Save size={12} /> : <User size={12} />}
-      </span>
-    );
-  }
-  if (profile.avatar?.url) {
-    return (
-      <img
-        src={profile.avatar.url}
-        alt={profile.fullName}
-        title={profile.fullName}
-        className={classNames(cls, "object-cover")}
-      />
-    );
-  }
-  return (
-    <span
-      className={classNames(cls, "bg-bg-brand-primary text-fg-brand-primary")}
-      title={profile.fullName}
-    >
-      {getInitials(profile.fullName)}
-    </span>
   );
 }
 

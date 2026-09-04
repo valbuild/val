@@ -1,4 +1,8 @@
-import { summarizeDeployments } from "./Deployments";
+import {
+  DEPLOYMENT_NEWS_WINDOW_MS,
+  isDeploymentNews,
+  summarizeDeployments,
+} from "./Deployments";
 import { formatRelativeTime, toDeployments } from "./shellDataMapping";
 import { ShellDeployment } from "./types";
 
@@ -13,12 +17,17 @@ import { ShellDeployment } from "./types";
  * outranks `state` once it is true. A fixture that is live by default would
  * make every case below assert the live path by accident.
  */
+const NOW = new Date("2026-08-25T12:00:00Z").getTime();
+const minutesAgo = (minutes: number): string =>
+  new Date(NOW - minutes * 60 * 1000).toISOString();
+
 const deployment = (
   overrides: Partial<ShellDeployment> & Pick<ShellDeployment, "commitSha">,
 ): ShellDeployment => ({
   state: "success",
   message: "A change",
   timestamp: "just now",
+  updatedAt: minutesAgo(0),
   isLive: false,
   ...overrides,
 });
@@ -180,5 +189,78 @@ describe("toDeployments", () => {
       commitSha: `sha-${index}`,
     }));
     expect(toDeployments(many, new Set(), {}, now)).toHaveLength(10);
+  });
+});
+
+/**
+ * Whether an unseen commit is worth opening the list for. See
+ * `isDeploymentNews` - "not in the previous feed" cannot tell a publish that
+ * just happened from one that finished before this tab existed.
+ */
+describe("isDeploymentNews", () => {
+  test("a publish still on its way out is news however old it is", () => {
+    expect(
+      isDeploymentNews(
+        deployment({
+          commitSha: "a",
+          state: "pending",
+          updatedAt: minutesAgo(120),
+        }),
+        NOW,
+      ),
+    ).toBe(true);
+  });
+
+  test("a failed publish is news however old it is", () => {
+    expect(
+      isDeploymentNews(
+        deployment({
+          commitSha: "a",
+          state: "failure",
+          updatedAt: minutesAgo(120),
+        }),
+        NOW,
+      ),
+    ).toBe(true);
+  });
+
+  test("a publish that just went live is news", () => {
+    expect(
+      isDeploymentNews(
+        deployment({ commitSha: "a", isLive: true, updatedAt: minutesAgo(1) }),
+        NOW,
+      ),
+    ).toBe(true);
+  });
+
+  test("a publish live for longer than the window is not", () => {
+    expect(
+      isDeploymentNews(
+        deployment({ commitSha: "a", isLive: true, updatedAt: minutesAgo(11) }),
+        NOW,
+      ),
+    ).toBe(false);
+  });
+
+  test("the window itself still counts as news", () => {
+    expect(
+      isDeploymentNews(
+        deployment({
+          commitSha: "a",
+          isLive: true,
+          updatedAt: new Date(NOW - DEPLOYMENT_NEWS_WINDOW_MS).toISOString(),
+        }),
+        NOW,
+      ),
+    ).toBe(true);
+  });
+
+  test("an unreadable timestamp is not grounds for hiding a publish", () => {
+    expect(
+      isDeploymentNews(
+        deployment({ commitSha: "a", isLive: true, updatedAt: "not a date" }),
+        NOW,
+      ),
+    ).toBe(true);
   });
 });

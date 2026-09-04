@@ -25,7 +25,7 @@ import {
   CommandItem,
   CommandList,
 } from "../designSystem/command";
-import { Button } from "../designSystem/button";
+import { Button, insetFocusRing } from "../designSystem/button";
 import { cn } from "../designSystem/cn";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useNavigation } from "../../components/ValRouter";
@@ -72,6 +72,7 @@ export function KeySelector({
           aria-expanded={open}
           className={cn(
             "w-full justify-start text-left border border-border-primary bg-bg-primary hover:bg-bg-primary-hover h-auto py-1.5",
+            insetFocusRing,
             className,
           )}
         >

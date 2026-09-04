@@ -277,6 +277,7 @@ function useSimulatedPublish(enabled: boolean): ShellDeployment | null {
       message: "Rewrite the pricing page",
       author: "Fredrik Ekholdt",
       timestamp: "just now",
+      updatedAt: new Date().toISOString(),
       isLive: false,
     };
     const started = setTimeout(() => setDeployment(base), 1500);

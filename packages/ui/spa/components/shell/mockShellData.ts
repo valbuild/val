@@ -12,6 +12,7 @@ import {
   ShellPage,
   ShellValidationError,
 } from "./types";
+import { placeholderAvatar } from "../stories/placeholderAssets";
 
 /**
  * Mock data for the shell stories.
@@ -460,6 +461,14 @@ export const mockActivity: ShellActivityEntry[] = [
 ];
 
 /** Full 40-character shas, as git produces and as the deployment feed joins on. */
+/**
+ * A fixed instant the mock timestamps are relative to, so `updatedAt` and the
+ * already-formatted `timestamp` beside it agree with each other.
+ */
+const MOCK_NOW = new Date("2026-08-25T12:00:00Z").getTime();
+const mockMinutesAgo = (minutes: number): string =>
+  new Date(MOCK_NOW - minutes * 60 * 1000).toISOString();
+
 export const mockDeployments: ShellDeployment[] = [
   {
     commitSha: "9f21c4ae0b7d1e5a3c8f2d6b04e7a915cd83f620",
@@ -467,6 +476,7 @@ export const mockDeployments: ShellDeployment[] = [
     message: "Update hero copy and pricing table",
     author: "Fredrik Ekholdt",
     timestamp: "just now",
+    updatedAt: mockMinutesAgo(0),
     isLive: false,
   },
   {
@@ -475,6 +485,7 @@ export const mockDeployments: ShellDeployment[] = [
     message: "Add customer story: nordic-retail",
     author: "Ida Sørensen",
     timestamp: "12 minutes ago",
+    updatedAt: mockMinutesAgo(12),
     isLive: true,
   },
   {
@@ -483,6 +494,7 @@ export const mockDeployments: ShellDeployment[] = [
     message: "Swap footer links",
     author: "Fredrik Ekholdt",
     timestamp: "1 hour ago",
+    updatedAt: mockMinutesAgo(60),
     isLive: false,
   },
 ];
@@ -540,8 +552,8 @@ export const mockShellData: ShellData = {
   deployments: mockDeployments,
   user: {
     name: "Fredrik Ekholdt",
-    initials: "FE",
     email: "fredrik@valbuild.com",
+    avatarUrl: placeholderAvatar("Fredrik Ekholdt"),
   },
 };
 
