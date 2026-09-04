@@ -80,9 +80,7 @@ test.describe("the overlay's select mode", () => {
     // The select-mode toggle, by its icon: the menu buttons carry tooltips
     // rather than labels, and the tooltip is in a hover card that is not open.
     const armed = await page.evaluate(() => {
-      const root = (
-        document.querySelector("#val-shadow-root") as HTMLElement | null
-      )?.shadowRoot;
+      const root = document.getElementById("val-shadow-root")?.shadowRoot;
       const button = root
         ? [...root.querySelectorAll("button")].find((candidate) =>
             candidate.querySelector("svg.lucide-square-dashed-mouse-pointer"),
@@ -99,11 +97,16 @@ test.describe("the overlay's select mode", () => {
       tagged,
       "the page rendered no tagged content to select",
     ).toBeVisible();
+    // A throw rather than an `expect`, because everything below needs the box
+    // itself: a matcher fails the test but does not narrow the type, so the
+    // reads after it would each have to assert the null away again.
     const box = await tagged.boundingBox();
-    expect(box, "the tagged element has no box to point at").toBeTruthy();
+    if (box === null) {
+      throw new Error("the tagged element has no box to point at");
+    }
     const centre = {
-      x: box!.x + box!.width / 2,
-      y: box!.y + box!.height / 2,
+      x: box.x + box.width / 2,
+      y: box.y + box.height / 2,
     };
 
     // On the content: the overlay takes the click, which is the point of the
