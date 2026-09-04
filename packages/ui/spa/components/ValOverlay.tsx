@@ -251,9 +251,20 @@ export function ValOverlay(props: ValOverlayProps) {
             }
           }
         }
-        if (boundingBox) {
-          setBoundingBox(boundingBox);
-        }
+        /**
+         * Set unconditionally, `null` included.
+         *
+         * `null` is the answer whenever the pointer is over nothing Val
+         * tracks, and it has to be written: this used to set only when it
+         * found something, so the box stayed parked over the last piece of
+         * content the pointer crossed for as long as select mode was on. That
+         * box is the thing that turns a click into "edit this" — it sits above
+         * the page and stops the event — so whatever the page had at those
+         * coordinates stopped responding, and a link under it could not be
+         * followed. The stale outline looked like a rendering quirk; the dead
+         * link underneath was the real cost.
+         */
+        setBoundingBox(boundingBox);
       };
       const touchListener = (ev: TouchEvent) => {
         listener(ev.touches[0].clientX, ev.touches[0].clientY);
