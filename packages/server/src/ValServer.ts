@@ -3405,7 +3405,14 @@ export async function refuseUnlessOwn(
   patchGroupId: string,
   authorId: string,
 ): Promise<{ status: 403 | 409 | 500; message: string } | null> {
-  const groupsRes = await ops.getPatchGroups();
+  /*
+   * Never from the cache. This answers "is this group yours", and a group is at
+   * its youngest exactly when the question is asked — the first write creates
+   * it and the shell flushes its queued stages the moment the save response
+   * names it. A cached list fetched a few hundred milliseconds earlier does not
+   * contain it, and every one of those stages was refused and dropped.
+   */
+  const groupsRes = await ops.getPatchGroups({ fresh: true });
   if (groupsRes.status !== "ok") {
     return {
       status: 500,

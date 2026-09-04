@@ -586,6 +586,26 @@ export class ValOpsHttp extends ValOps {
     }
     const allPatches: OrderedPatches["patches"] = [];
     const allErrors: OrderedPatches["errors"] = [];
+    /*
+     * The commits, which are a fact about the whole BRANCH, not about a chunk.
+     *
+     * This loop used to return only `patches` and `errors`, so a filtered fetch
+     * silently answered with no commits at all. That is not cosmetic:
+     * the publish-head guard in `ValServer` reads `newestCommitSha(commits)`,
+     * got `undefined` for every publish (a publish always names patch ids, so
+     * it always takes this branch), and skipped the check entirely. Two clients
+     * could publish against the same head with neither told.
+     *
+     * Taken from the first chunk that carries them, which is sound for the
+     * reason the dedupe below exists: each chunk's response describes the whole
+     * chain regardless of which ids it asked about.
+     *
+     * `deployments` is not carried, because it is declared only on
+     * `OrderedPatchesMetadata` and this is generic over both shapes. Nothing
+     * reads it from a filtered fetch today; if something starts to, it needs
+     * the same treatment and a home on `OrderedPatches` first.
+     */
+    let commits: OrderedPatches["commits"];
     if (patchIds === undefined || patchIds.length === 0) {
       return this.fetchPatchesInternal({
         patchIds: patchIds,
@@ -606,6 +626,9 @@ export class ValOpsHttp extends ValOps {
       allPatches.push(...(res.patches as OrderedPatches["patches"]));
       if (res.errors) {
         allErrors.push(...res.errors);
+      }
+      if (commits === undefined && res.commits !== undefined) {
+        commits = res.commits;
       }
     }
     // Chunking is a query-string-length workaround, NOT a filter: the content
@@ -634,6 +657,10 @@ export class ValOpsHttp extends ValOps {
     return {
       patches,
       errors: Object.keys(allErrors).length > 0 ? allErrors : undefined,
+      // Spread rather than set to `undefined`, so a caller that distinguishes
+      // "absent" from "empty" — `newestCommitSha` does not, but the annotation
+      // readers do — sees the same shape the unchunked path gives it.
+      ...(commits !== undefined ? { commits } : {}),
     } as ExcludePatchOps extends true ? OrderedPatchesMetadata : OrderedPatches;
   }
 
@@ -906,13 +933,32 @@ export class ValOpsHttp extends ValOps {
       | { status: "unsupported" };
   } | null = null;
 
-  async getPatchGroups(): Promise<
+  async getPatchGroups(options?: {
+    /**
+     * Ask the content API even if a recent answer is remembered.
+     *
+     * For the checks that DECIDE something rather than render something.
+     * `refuseUnlessOwn` reads this list to say whether a group is yours, and a
+     * group is at its youngest exactly when that matters: the first write
+     * creates it, the save response names it, and the shell flushes its queued
+     * stages immediately — well inside the cache window. Served from a list
+     * fetched before the group existed, every one of those was refused 403 and
+     * dropped, so the queue that exists to survive the post-publish window
+     * persisted nothing in the flow it was built for.
+     *
+     * Not solved by shortening the window: the cache sits on this instance,
+     * which outlives the request, so "recent" is recent for the whole server
+     * and not for one render.
+     */
+    fresh?: boolean;
+  }): Promise<
     | { status: "ok"; patchGroups: PatchGroupT[] }
     | { status: "unsupported" }
     | { status: "error"; message: string }
   > {
     const now = Date.now();
     if (
+      options?.fresh !== true &&
       this.patchGroupsCache !== null &&
       now - this.patchGroupsCache.at < PATCH_GROUPS_CACHE_MS
     ) {
