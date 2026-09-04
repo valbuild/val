@@ -15,7 +15,9 @@ import {
   AiSettingsFields,
   AiSettingsValue,
   NoSettingsModule,
+  SettingsTabs,
 } from "./SettingsPanel";
+import { Sparkles } from "lucide-react";
 import { PanelSkeleton } from "./PanelPrimitives";
 
 /**
@@ -96,19 +98,30 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
   const readonly =
     schema.status === "success" ? !!schema.data.readonly : undefined;
   return (
-    <AiSettingsFields
-      value={{
-        enabled: enabledValue,
-        context: contextValue,
-        tone: toneValue,
-      }}
-      onChange={onAiChange}
-      maxLength={AI_SETTINGS_MAX_LENGTH}
-      errors={{
-        context: contextErrors[0]?.message,
-        tone: toneErrors[0]?.message,
-      }}
-      readonly={readonly}
+    <SettingsTabs
+      tabs={[
+        {
+          id: "ai",
+          label: "AI",
+          icon: Sparkles,
+          content: (
+            <AiSettingsFields
+              value={{
+                enabled: enabledValue,
+                context: contextValue,
+                tone: toneValue,
+              }}
+              onChange={onAiChange}
+              maxLength={AI_SETTINGS_MAX_LENGTH}
+              errors={{
+                context: contextErrors[0]?.message,
+                tone: toneErrors[0]?.message,
+              }}
+              readonly={readonly}
+            />
+          ),
+        },
+      ]}
     />
   );
 }

@@ -13,7 +13,12 @@ import {
 import { ShellDeployment } from "../types";
 import { CanvasView } from "../canvas/PageWorkspace";
 import { mockCanvasPage } from "../canvas/mockCanvasPage";
-import { AiSettingsFields, AiSettingsValue } from "../SettingsPanel";
+import {
+  AiSettingsFields,
+  AiSettingsValue,
+  SettingsTabs,
+} from "../SettingsPanel";
+import { Sparkles } from "lucide-react";
 import { AI_SETTINGS_MAX_LENGTH } from "@valbuild/core";
 
 /**
@@ -206,12 +211,23 @@ function MockSettingsSections() {
     tone: "Plain and direct. British English, sentence case in headings, and no exclamation marks.",
   });
   return (
-    <AiSettingsFields
-      value={value}
-      onChange={(field, next) =>
-        setValue((current) => ({ ...current, [field]: next }))
-      }
-      maxLength={AI_SETTINGS_MAX_LENGTH}
+    <SettingsTabs
+      tabs={[
+        {
+          id: "ai",
+          label: "AI",
+          icon: Sparkles,
+          content: (
+            <AiSettingsFields
+              value={value}
+              onChange={(field, next) =>
+                setValue((current) => ({ ...current, [field]: next }))
+              }
+              maxLength={AI_SETTINGS_MAX_LENGTH}
+            />
+          ),
+        },
+      ]}
     />
   );
 }

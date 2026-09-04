@@ -422,7 +422,7 @@ describe("availableDestinations", () => {
     ).toEqual(["settings"]);
   });
 
-  test("Settings sits between Media and Data", () => {
+  test("Settings is last, since it sits at the foot of the rail", () => {
     expect(
       availableDestinations(
         project({
@@ -439,7 +439,7 @@ describe("availableDestinations", () => {
         }),
         false,
       ),
-    ).toEqual(["pages", "media", "settings", "data"]);
+    ).toEqual(["pages", "media", "data", "settings"]);
   });
 
   test("a project using none of it offers nothing", () => {
@@ -452,9 +452,21 @@ describe("availableDestinations", () => {
     expect(availableDestinations(project({}), true)).toEqual([
       "pages",
       "media",
-      "settings",
       "data",
     ]);
+  });
+
+  test("Settings is NOT offered while loading", () => {
+    // Unlike the other three: its icon stands on its own at the foot of the
+    // rail, so a cog that appears and then goes reads as something breaking
+    // rather than as data arriving. A project without `s.settings()` never
+    // shows it at all.
+    expect(
+      availableDestinations(
+        project({ settings: { moduleFilePath: "/settings.val.ts" } }),
+        true,
+      ),
+    ).not.toContain("settings");
   });
 });
 

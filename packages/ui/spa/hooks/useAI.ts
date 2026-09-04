@@ -47,6 +47,13 @@ import type {
   AIMessageContentBlock,
   AIPromptMessage,
 } from "./useAIWebSocket";
+import {
+  AiProjectSettings,
+  aiProjectSettingsPromptSection,
+  NO_AI_PROJECT_SETTINGS,
+  readAiProjectSettings,
+  settingsModuleFilePath,
+} from "./aiProjectSettings";
 import { useAISearch } from "./useAISearch";
 import { useAIValidation } from "./useAIValidation";
 import type {
@@ -640,6 +647,24 @@ export function useAI(
       },
       getAllSourcesSnapshot(): Record<ModuleFilePath, Json> {
         return system?.sourceStore.allSources() ?? {};
+      },
+      /**
+       * The project's own settings for the assistant.
+       *
+       * Read when the prompt is built rather than held: an editor who changes
+       * the tone of voice and sends a message expects the next message to use
+       * it, not the next time the Studio is reloaded.
+       */
+      getAiProjectSettings(): AiProjectSettings {
+        const moduleFilePath = settingsModuleFilePath(
+          system?.schemaStore.all() ?? {},
+        );
+        if (moduleFilePath === null) {
+          return NO_AI_PROJECT_SETTINGS;
+        }
+        return readAiProjectSettings(
+          system?.sourceStore.moduleSource(moduleFilePath),
+        );
       },
       getSourceSnapshot(
         moduleFilePath: ModuleFilePath,
@@ -2452,7 +2477,9 @@ Do not describe what you will do unless you do it for clarification — just do 
 - Be concise and friendly.
 - This is a CMS, it is not a chat. The intention of user is to find and edit content. If user asks existential questions, interpret them as a technical question. If for example they ask "who they are", they probably mean "what is my profile". If they ask "what can you do?", they probably want to know what kind of content changes you can make or what information you can provide about their content. Always interpret vague questions in a way that assumes the user wants to understand or change their content, rather than asking about the assistant itself.
 - Confirm changes in plain language after every successful update.
-- If something goes wrong, explain what happened and what to do next.`,
+- If something goes wrong, explain what happened and what to do next.${aiProjectSettingsPromptSection(
+              valReads.getAiProjectSettings(),
+            )}`,
             tools: ALL_TOOLS,
           },
         ],

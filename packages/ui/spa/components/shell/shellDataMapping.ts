@@ -374,7 +374,7 @@ export function initialsOf(fullName: string): string {
  * Pages hangs off `hasRouters` rather than off `pages` being non-empty, because
  * a router with no entries yet is a site map to add the first page to.
  *
- * Media, Settings and Data hang off their own data, which is already exactly
+ * Media, Data and Settings hang off their own data, which is already exactly
  * the right question. `media` is the `s.images()`/`s.files()` modules, and an
  * empty gallery still lists as a gallery — so an empty `media` means no gallery
  * module exists. `settings` is the project's `s.settings()` module, and an empty
@@ -392,12 +392,16 @@ export function availableDestinations(
   data: Pick<ShellData, "hasRouters" | "media" | "settings" | "data">,
   isLoading: boolean,
 ): ShellDestination[] {
-  if (isLoading) return ["pages", "media", "settings", "data"];
+  // Settings is NOT offered while loading, unlike the other three: it is the
+  // only one whose icon sits on its own at the foot of the rail, so a cog that
+  // appears and then goes reads as something that broke rather than as data
+  // arriving. A project without `s.settings()` never shows it at all.
+  if (isLoading) return ["pages", "media", "data"];
   const available: ShellDestination[] = [];
   if (data.hasRouters) available.push("pages");
   if (data.media.length > 0) available.push("media");
-  if (data.settings) available.push("settings");
   if (data.data.length > 0) available.push("data");
+  if (data.settings) available.push("settings");
   return available;
 }
 

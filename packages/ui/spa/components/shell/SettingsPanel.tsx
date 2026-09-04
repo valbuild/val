@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useState } from "react";
-import { Sparkles } from "lucide-react";
+import { LucideIcon } from "lucide-react";
 import { FloatingPanel, PanelEmptyState } from "./FloatingPanel";
 import { PanelErrorState, PanelSkeleton } from "./PanelPrimitives";
 import { Switch } from "../designSystem/switch";
@@ -23,14 +23,6 @@ export type SettingsPanelProps = {
    * the same section components with local state — see the stories.
    */
   children?: ReactNode;
-  /**
-   * Where settings live, e.g. `/settings.val.ts`.
-   *
-   * Shown at the foot of the panel because the answer to "where do I put this
-   * in source control" is the first thing a developer asks of a screen that
-   * edits project-wide configuration.
-   */
-  moduleFilePath?: string;
   /** Show placeholder rows instead of content while data loads. */
   isLoading?: boolean;
   /** Message to show instead of content when the data could not be loaded. */
@@ -58,7 +50,6 @@ export function SettingsPanel({
   onClose,
   navSwitcher,
   children,
-  moduleFilePath,
   isLoading,
   loadError,
   onRetryLoad,
@@ -72,13 +63,6 @@ export function SettingsPanel({
       breakpoint={breakpoint}
       onClose={onClose}
       subheader={navSwitcher}
-      footer={
-        moduleFilePath ? (
-          <div className="px-4 py-2 text-[0.6875rem] text-fg-secondary-alt truncate">
-            {moduleFilePath}
-          </div>
-        ) : undefined
-      }
     >
       {isLoading ? (
         <PanelSkeleton rows={4} />
@@ -91,25 +75,78 @@ export function SettingsPanel({
   );
 }
 
-/** One settings section: a titled block with an icon and a lead paragraph. */
+export type SettingsTab = {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  content: ReactNode;
+};
+
+/**
+ * The settings panel's tabs.
+ *
+ * One tab today — AI — and the strip is drawn anyway. Settings is a place with
+ * sections coming to it (locales, skills, a permissions model), and a panel
+ * that grows a tab strip later would move everything an editor had learned the
+ * position of. A single tab also says what this panel is: not "the AI panel",
+ * but the project's settings, of which AI is one.
+ *
+ * Presentational, and the selected tab is its own state: which tab you were on
+ * is not worth a URL parameter, and reopening the panel on the first one is the
+ * behaviour every other panel in the shell has.
+ */
+export function SettingsTabs({ tabs }: { tabs: SettingsTab[] }) {
+  const [active, setActive] = useState(tabs[0]?.id);
+  const current = tabs.find((tab) => tab.id === active) ?? tabs[0];
+  if (!current) {
+    return null;
+  }
+  return (
+    <div className="flex flex-col">
+      <div
+        role="tablist"
+        aria-label="Settings sections"
+        // Left-aligned and natural width, not `flex-1`: with one tab, stretching
+        // it to the panel drew a full-width button rather than a tab, and a strip
+        // that re-flows every tab as sections are added is one that moves the tab
+        // an editor had learned the position of.
+        className="flex gap-0.5 m-3 p-0.5 rounded-md bg-bg-float-raised self-start w-fit"
+      >
+        {tabs.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={current.id === id}
+            onClick={() => setActive(id)}
+            className={cn(
+              "inline-flex items-center justify-center gap-1.5 h-7 px-3 rounded text-[0.6875rem]",
+              current.id === id
+                ? "bg-bg-float text-fg-primary shadow-sm font-medium"
+                : "text-fg-secondary hover:text-fg-primary",
+            )}
+          >
+            <Icon size={13} />
+            {label}
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel">{current.content}</div>
+    </div>
+  );
+}
+
+/** One settings section: a lead paragraph and the fields under it. */
 export function SettingsSection({
-  title,
-  icon: Icon,
   description,
   children,
 }: {
-  title: string;
-  icon: typeof Sparkles;
   description: string;
   children: ReactNode;
 }) {
   return (
-    <section className="px-4 py-4 border-b border-border-float last:border-b-0">
-      <h3 className="flex items-center gap-2 text-[0.8125rem] font-medium tracking-tight">
-        <Icon size={14} className="text-fg-secondary-alt" />
-        {title}
-      </h3>
-      <p className="mt-1 text-xs text-fg-secondary-alt leading-relaxed">
+    <section className="px-4 pb-4">
+      <p className="text-xs text-fg-secondary-alt leading-relaxed">
         {description}
       </p>
       <div className="mt-3 flex flex-col gap-4">{children}</div>
@@ -167,11 +204,7 @@ export function AiSettingsFields({
    */
   const enabled = value.enabled !== false;
   return (
-    <SettingsSection
-      title="AI"
-      icon={Sparkles}
-      description="Told to the assistant with every message it sends."
-    >
+    <SettingsSection description="Told to the assistant with every message it sends.">
       <div className="flex items-center justify-between gap-3">
         <label htmlFor="val-ai-enabled" className="text-xs font-medium">
           Assistant

@@ -19,13 +19,16 @@ export type RailItem = {
 /**
  * The destinations, in rail order.
  *
- * Settings is the project's own — the `s.settings()` module — and sits directly
- * below Media because it is content that is edited and published like any
- * other. What lives at the FOOT of the rail is the account (the theme, auto
- * save, the branch, signing out), which is per-person rather than a place in
- * the project; where there is no account, a cog takes its place there. Two
- * different cogs would be one too many, which is why the account button is not
- * one and this one is.
+ * Settings is last, and on desktop it is drawn at the FOOT of the rail rather
+ * than in the strip at the top — directly above the account button, which is
+ * where a project's own configuration belongs: near the other thing that is
+ * about the setup rather than about a piece of content. The account button is
+ * below it, and is not a destination at all (it is per-person: the theme, auto
+ * save, signing out).
+ *
+ * It is still a member of this list because mobile has no rail — the switcher
+ * at the top of every sheet stands in for it, and Settings has to be reachable
+ * there too. `LeftRail` is what splits the list; see `FOOT_PANEL`.
  *
  * External pages are not a top-level destination either — they live at the
  * bottom of the Pages panel, because that is where someone looks for "the
@@ -37,9 +40,16 @@ export type RailItem = {
 export const RAIL_ITEMS: RailItem[] = [
   { panel: "pages", label: "Pages", icon: FileText },
   { panel: "media", label: "Media", icon: Image },
-  { panel: "settings", label: "Settings", icon: Settings },
   { panel: "data", label: "Data", icon: Braces },
+  { panel: "settings", label: "Settings", icon: Settings },
 ];
+
+/**
+ * The destination drawn at the foot of the rail instead of in the top strip.
+ *
+ * One, and named here so `LeftRail` and its tests agree on which.
+ */
+const FOOT_PANEL: ShellDestination = "settings";
 
 /**
  * The rail items a project offers, in rail order.
@@ -97,6 +107,8 @@ export function LeftRail({
   isLoading,
 }: LeftRailProps) {
   const items = visibleRailItems(destinations);
+  const topItems = items.filter((item) => item.panel !== FOOT_PANEL);
+  const footItem = items.find((item) => item.panel === FOOT_PANEL);
   return (
     <nav
       aria-label="Main"
@@ -105,7 +117,7 @@ export function LeftRail({
       <div className="grid place-items-center w-8 h-8 mb-1 shrink-0 text-fg-primary">
         <ValLogo className="h-6" blinking={isLoading} />
       </div>
-      {items.map(({ panel, label, icon: Icon }) => (
+      {topItems.map(({ panel, label, icon: Icon }) => (
         <Tooltip key={panel}>
           <TooltipTrigger asChild>
             <button
@@ -138,7 +150,33 @@ export function LeftRail({
        * A person outline rather than a cog: the cog is Settings now, and the
        * same icon twice in one strip reads as one control drawn twice.
        */}
-      <div className="mt-auto shrink-0">
+      {/*
+       * Settings, immediately above the account: the project's own setup next
+       * to the person's own. Absent for a project with no `s.settings()`
+       * module — see `availableDestinations`.
+       */}
+      <div className="mt-auto shrink-0 flex flex-col items-center gap-1">
+        {footItem && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={footItem.label}
+                aria-current={openPanel === footItem.panel ? "true" : undefined}
+                onClick={() => onSelect(footItem.panel)}
+                className={cn(
+                  "grid place-items-center w-8 h-8 rounded-md shrink-0 transition-colors",
+                  openPanel === footItem.panel
+                    ? "bg-bg-float-raised text-fg-primary"
+                    : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+                )}
+              >
+                <footItem.icon size={17} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">{footItem.label}</TooltipContent>
+          </Tooltip>
+        )}
         {user ? (
           <Tooltip>
             <TooltipTrigger asChild>

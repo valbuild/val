@@ -6,7 +6,9 @@ import {
   AiSettingsValue,
   NoSettingsModule,
   SettingsPanel,
+  SettingsTabs,
 } from "../SettingsPanel";
+import { Sparkles } from "lucide-react";
 import { ShellBreakpoint } from "../types";
 
 /**
@@ -77,7 +79,6 @@ function SettingsPanelHarness({
     <div className="relative w-full h-svh bg-bg-canvas">
       <SettingsPanel
         breakpoint={breakpoint}
-        moduleFilePath={missing ? undefined : "/settings.val.ts"}
         onClose={() => undefined}
         isLoading={isLoading}
         loadError={loadError}
@@ -85,14 +86,25 @@ function SettingsPanelHarness({
         {missing ? (
           <NoSettingsModule />
         ) : (
-          <AiSettingsFields
-            value={value}
-            onChange={(field, next) =>
-              setValue((current) => ({ ...current, [field]: next }))
-            }
-            maxLength={AI_SETTINGS_MAX_LENGTH}
-            errors={errors}
-            readonly={readonly}
+          <SettingsTabs
+            tabs={[
+              {
+                id: "ai",
+                label: "AI",
+                icon: Sparkles,
+                content: (
+                  <AiSettingsFields
+                    value={value}
+                    onChange={(field, next) =>
+                      setValue((current) => ({ ...current, [field]: next }))
+                    }
+                    maxLength={AI_SETTINGS_MAX_LENGTH}
+                    errors={errors}
+                    readonly={readonly}
+                  />
+                ),
+              },
+            ]}
           />
         )}
       </SettingsPanel>

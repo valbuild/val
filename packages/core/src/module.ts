@@ -18,6 +18,7 @@ import { ImageSchema, SerializedImageSchema } from "./schema/image";
 import { isJson } from "./source/json";
 import { AllRichTextOptions, RichTextSource } from "./source/richtext";
 import { RecordSchema, SerializedRecordSchema } from "./schema/record";
+import { SerializedSettingsSchema, SettingsSchema } from "./schema/settings";
 import { RawString } from "./schema/string";
 import { ImageSource } from "./source/media";
 import { ModuleFilePathSep } from ".";
@@ -133,6 +134,26 @@ function isObjectSchema(
   return (
     schema instanceof ObjectSchema ||
     (typeof schema === "object" && "type" in schema && schema.type === "object")
+  );
+}
+
+/**
+ * Settings, which walks like an object but whose keys are all OPTIONAL.
+ *
+ * That difference is the whole reason it is not an object schema: descending
+ * into an unset section must resolve to `undefined`, not fail — see
+ * `SettingsSource`.
+ */
+function isSettingsSchema(
+  schema: Schema<SelectorSource> | SerializedSchema,
+): schema is
+  | SettingsSchema<{ [key: string]: SelectorSource }>
+  | SerializedSettingsSchema {
+  return (
+    schema instanceof SettingsSchema ||
+    (typeof schema === "object" &&
+      "type" in schema &&
+      schema.type === "settings")
   );
 }
 
@@ -288,6 +309,28 @@ export function resolvePath<
           `Cannot resolve path into a jsonValues entry until its content is loaded. Path: ${path}`,
         );
       }
+    } else if (isSettingsSchema(resolvedSchema)) {
+      if (
+        resolvedSource !== null &&
+        resolvedSource !== undefined &&
+        typeof resolvedSource !== "object"
+      ) {
+        throw Error(
+          `Schema type error: expected source to be type of object, but got ${typeof resolvedSource}`,
+        );
+      }
+      // An absent key is NOT an error here, unlike an object's: every settings
+      // key is optional, so a path into a section the project has not set
+      // resolves to `undefined` — and keeps resolving, one level per part, so a
+      // path two deep into an unset section still lands on the right schema.
+      resolvedSource =
+        resolvedSource === null || resolvedSource === undefined
+          ? resolvedSource
+          : resolvedSource[part];
+      resolvedSchema =
+        resolvedSchema instanceof SettingsSchema
+          ? resolvedSchema["items"][part]
+          : resolvedSchema.items[part];
     } else if (isObjectSchema(resolvedSchema)) {
       if (typeof resolvedSource !== "object") {
         throw Error(
@@ -547,6 +590,22 @@ export function safeResolvePath<
           message: `Cannot resolve path into a jsonValues entry until its content is loaded. Path: ${path}`,
         };
       }
+    } else if (isSettingsSchema(resolvedSchema)) {
+      if (resolvedSource !== null && typeof resolvedSource !== "object") {
+        return {
+          status: "error",
+          message: `Schema type error: expected source to be type of object, but got ${typeof resolvedSource}`,
+        };
+      }
+      // Absent is a value here — see the note in `resolvePath`.
+      resolvedSource =
+        resolvedSource === null || resolvedSource === undefined
+          ? resolvedSource
+          : resolvedSource[part];
+      resolvedSchema =
+        resolvedSchema instanceof SettingsSchema
+          ? resolvedSchema["items"][part]
+          : resolvedSchema.items[part];
     } else if (isObjectSchema(resolvedSchema)) {
       if (resolvedSource === undefined) {
         return {

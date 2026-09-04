@@ -71,6 +71,11 @@ import { getInitials } from "../utils/getInitials";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { prettifyModulePath } from "../utils/prettifyText";
 import { FieldPathLink } from "./FieldPathLink";
+import {
+  SETTINGS_MODULE_TITLE,
+  settingsFieldLabel,
+} from "./settingsChangeLabels";
+import { useShellPanelLink } from "./shell/shellPanelLink";
 import { useNavLink } from "./navLink";
 import { refToUrl } from "./MediaPicker/refToUrl";
 
@@ -979,6 +984,7 @@ function ModuleGroup({
   const moduleSchema = schemas?.[moduleFilePath];
   const isRouterModule =
     moduleSchema?.type === "record" && !!moduleSchema.router;
+  const isSettingsModule = moduleSchema?.type === "settings";
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { deletePatches } = useDeletePatches();
   const [now] = useState(() => new Date());
@@ -1048,7 +1054,10 @@ function ModuleGroup({
             : "border-border-primary",
         )}
       >
-        <ModulePathLabel moduleFilePath={moduleFilePath} />
+        <ModulePathLabel
+          moduleFilePath={moduleFilePath}
+          isSettingsModule={isSettingsModule}
+        />
         <div className="ml-auto flex items-center gap-2 shrink-0">
           {tree.isCommitted && (
             /*
@@ -1308,11 +1317,34 @@ function ChangeCluster({
 
 function ModulePathLabel({
   moduleFilePath,
+  isSettingsModule,
 }: {
   moduleFilePath: ModuleFilePath;
+  /**
+   * The project's settings, which is named and linked differently.
+   *
+   * Its file path is fixed by Val rather than chosen by the project, so
+   * "settings" as a breadcrumb tells the reader nothing — and the place to go
+   * from here is the Settings panel, not the module in the editor.
+   */
+  isSettingsModule: boolean;
 }) {
   const parts = Internal.splitModuleFilePath(moduleFilePath);
   const moduleLink = useNavLink(moduleFilePath);
+  const settingsLink = useShellPanelLink("settings");
+  if (isSettingsModule) {
+    return (
+      <h2 className="text-sm font-medium text-fg-primary truncate min-w-0">
+        <a
+          {...settingsLink}
+          title={moduleFilePath}
+          className="flex items-center gap-1.5 min-w-0 rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+        >
+          {SETTINGS_MODULE_TITLE}
+        </a>
+      </h2>
+    );
+  }
   return (
     <h2 className="text-sm font-medium text-fg-primary truncate min-w-0">
       {/*
@@ -1650,7 +1682,20 @@ function ChangeTargetLabel({
   isRouterPageKey: boolean;
   parentMediaType?: "images" | "files";
 }) {
+  const schemas = useSchemas();
+  const isSettingsModule =
+    schemas.status === "success" &&
+    schemas.data[moduleFilePath]?.type === "settings";
   const label = ((): string => {
+    if (isSettingsModule) {
+      // The words the Settings panel uses, so a change to "Tone of voice" is
+      // not reviewed as "Ai / Tone". `null` for a section this Studio does not
+      // know, which falls through to the generic label below.
+      const settingsLabel = settingsFieldLabel(modulePath);
+      if (settingsLabel !== null) {
+        return settingsLabel;
+      }
+    }
     if (parentMediaType) {
       const { filename, folder } = getRefParts(segment);
       // `folder` is "/" for a ref that sits directly in the media directory, so
