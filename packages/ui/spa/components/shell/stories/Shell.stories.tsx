@@ -13,6 +13,8 @@ import {
 import { ShellDeployment } from "../types";
 import { CanvasView } from "../canvas/PageWorkspace";
 import { mockCanvasPage } from "../canvas/mockCanvasPage";
+import { AiSettingsFields, AiSettingsValue } from "../SettingsPanel";
+import { AI_SETTINGS_MAX_LENGTH } from "@valbuild/core";
 
 /**
  * The whole shell in one story.
@@ -41,8 +43,9 @@ const meta: Meta<typeof ShellHarness> = {
         null,
         "pages",
         "media",
-        "data",
         "settings",
+        "data",
+        "account",
         "utility",
         "ai",
         "notifications",
@@ -187,6 +190,32 @@ function deploymentsFor(
  * story, and keys the shell on the mount-time args so changing a control
  * remounts it into that state.
  */
+/**
+ * The settings sections, as the app supplies them.
+ *
+ * The real ones read source and write patches (`ValSettingsSections`), which
+ * needs a running system; these hold the same values in local state. Without
+ * something here the Settings panel in this story would be the empty-project
+ * state, which is not what the panel normally looks like.
+ */
+function MockSettingsSections() {
+  const [value, setValue] = useState<AiSettingsValue>({
+    enabled: true,
+    context:
+      "A CMS for developers, run by a team of four in Oslo. The product is Val, never VAL.",
+    tone: "Plain and direct. British English, sentence case in headings, and no exclamation marks.",
+  });
+  return (
+    <AiSettingsFields
+      value={value}
+      onChange={(field, next) =>
+        setValue((current) => ({ ...current, [field]: next }))
+      }
+      maxLength={AI_SETTINGS_MAX_LENGTH}
+    />
+  );
+}
+
 function ShellHarness({
   openPanel,
   selectionId,
@@ -232,6 +261,7 @@ function ShellHarness({
   };
   return (
     <Shell
+      renderSettings={() => <MockSettingsSections />}
       key={`${openPanel}-${selectionId}-${empty}-${withoutRouters}-${aiEnabled}-${searchOpen}-${isLoading}-${loadError}-${deployments}-${deploymentsOpen}-${canvasOpen}-${canvasView}-${canvasReported}`}
       data={data}
       initialPanel={openPanel}
@@ -389,6 +419,21 @@ export const NotificationsOpen: Story = {
 };
 
 /** Account and workspace settings — and, on mobile, the status controls. */
+export const AccountOpen: Story = {
+  args: {
+    ...Default.args,
+    openPanel: "account",
+    selectionId: mockSelectionIds.home,
+  },
+};
+
+/**
+ * The project's settings, behind the cog under Media.
+ *
+ * The sections come from the app (`renderSettings`), so in the shell's own
+ * story the panel is empty chrome — see `Shell/SettingsPanel` for the sections
+ * themselves.
+ */
 export const SettingsOpen: Story = {
   args: {
     ...Default.args,
@@ -557,11 +602,11 @@ export const NoDeploymentFeed: Story = {
   },
 };
 
-/** On mobile the status bar is gone, so the feed lives in Settings. */
+/** On mobile the status bar is gone, so the feed lives in Account. */
 export const DeploymentsOnMobile: Story = {
   args: {
     ...Default.args,
-    openPanel: "settings",
+    openPanel: "account",
     deployments: "mixed",
   },
 };

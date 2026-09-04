@@ -1,4 +1,4 @@
-import { Braces, FileText, Image, Settings } from "lucide-react";
+import { Braces, CircleUser, FileText, Image, Settings } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import {
   Tooltip,
@@ -17,13 +17,15 @@ export type RailItem = {
 };
 
 /**
- * The content destinations, and only those.
+ * The destinations, in rail order.
  *
- * Settings is not one of them: the account button at the foot of the rail
- * opens the same panel, and two controls that do the same thing in one strip
- * of four icons is one too many. Where there is no account — running against
- * the working copy on disk, where there is no session — a cog takes its place
- * at the foot of the rail rather than being added here.
+ * Settings is the project's own — the `s.settings()` module — and sits directly
+ * below Media because it is content that is edited and published like any
+ * other. What lives at the FOOT of the rail is the account (the theme, auto
+ * save, the branch, signing out), which is per-person rather than a place in
+ * the project; where there is no account, a cog takes its place there. Two
+ * different cogs would be one too many, which is why the account button is not
+ * one and this one is.
  *
  * External pages are not a top-level destination either — they live at the
  * bottom of the Pages panel, because that is where someone looks for "the
@@ -35,6 +37,7 @@ export type RailItem = {
 export const RAIL_ITEMS: RailItem[] = [
   { panel: "pages", label: "Pages", icon: FileText },
   { panel: "media", label: "Media", icon: Image },
+  { panel: "settings", label: "Settings", icon: Settings },
   { panel: "data", label: "Data", icon: Braces },
 ];
 
@@ -124,12 +127,16 @@ export function LeftRail({
         </Tooltip>
       ))}
       {/*
-       * The foot of the rail: the account, or a cog where there is no account.
+       * The foot of the rail: the account, or a faceless one where there is no
+       * account.
        *
-       * Settings is not only about the person signed in — the theme, dev mode,
-       * auto save and the branch all live there — so hiding the account button
-       * on a local checkout hid the whole panel with it, and there was no way
-       * to reach it at all.
+       * The panel it opens is not only about the person signed in — the theme,
+       * dev mode, auto save and the branch all live there — so hiding the
+       * button on a local checkout hid the whole panel with it, and there was
+       * no way to reach it at all.
+       *
+       * A person outline rather than a cog: the cog is Settings now, and the
+       * same icon twice in one strip reads as one control drawn twice.
        */}
       <div className="mt-auto shrink-0">
         {user ? (
@@ -138,8 +145,8 @@ export function LeftRail({
               <button
                 type="button"
                 aria-label={`Account: ${user.name}`}
-                aria-current={openPanel === "settings" ? "true" : undefined}
-                onClick={() => onSelect("settings")}
+                aria-current={openPanel === "account" ? "true" : undefined}
+                onClick={() => onSelect("account")}
                 className="relative grid place-items-center w-8 h-8 rounded-full"
               >
                 <Avatar initials={user.initials} size="sm" />
@@ -158,17 +165,17 @@ export function LeftRail({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                aria-label="Settings"
-                aria-current={openPanel === "settings" ? "true" : undefined}
-                onClick={() => onSelect("settings")}
+                aria-label="Account"
+                aria-current={openPanel === "account" ? "true" : undefined}
+                onClick={() => onSelect("account")}
                 className={cn(
                   "relative grid place-items-center w-8 h-8 rounded-md transition-colors",
-                  openPanel === "settings"
+                  openPanel === "account"
                     ? "bg-bg-float-raised text-fg-primary"
                     : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
                 )}
               >
-                <Settings size={17} />
+                <CircleUser size={17} />
                 {accountError && <AccountErrorDot />}
                 {hasDraftChanges && (
                   <span className="absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full bg-fg-secondary ring-2 ring-bg-float" />
@@ -176,7 +183,7 @@ export function LeftRail({
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              {accountError ? accountError.message : "Settings"}
+              {accountError ? accountError.message : "Account"}
             </TooltipContent>
           </Tooltip>
         )}

@@ -20,10 +20,7 @@ export function getDependentModuleFiles(
   ) {
     if (schemaNode.type === "array" || schemaNode.type === "record") {
       rec(rootModuleFilePath, schemaNode.item);
-    } else if (
-      schemaNode.type === "object" ||
-      schemaNode.type === "settings"
-    ) {
+    } else if (schemaNode.type === "object" || schemaNode.type === "settings") {
       for (const key in schemaNode.items) {
         rec(rootModuleFilePath, schemaNode.items[key]);
       }

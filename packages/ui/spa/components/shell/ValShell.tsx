@@ -9,6 +9,7 @@ import { SaveState } from "./StatusBar";
 import { PublishState } from "./TopBar";
 import { ShellData, ShellMediaGallery, ShellValidationError } from "./types";
 import { useShellData } from "./useShellData";
+import { ValSettingsSections } from "./ValSettingsSections";
 import { discardAllDescription } from "../discardAllDescription";
 import { useValPortal } from "../ValPortalProvider";
 import { useContentSearch } from "./useContentSearch";
@@ -363,6 +364,24 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       />
     ),
     [navigation.currentSourcePath],
+  );
+
+  /**
+   * The settings panel's sections.
+   *
+   * The connected half is mounted only while the panel is open (the shell calls
+   * this from inside it), which is what keeps a project without a settings
+   * module from calling hooks with a path it does not have.
+   */
+  const renderSettings = useCallback(
+    () => (
+      <ValSettingsSections
+        moduleFilePath={
+          data.settings?.moduleFilePath as ModuleFilePath | undefined
+        }
+      />
+    ),
+    [data.settings?.moduleFilePath],
   );
 
   /**
@@ -872,6 +891,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       selectionId={overrideEditor ? null : selectionId}
       onSelectionChange={onSelectionChange}
       renderEditor={renderEditor}
+      renderSettings={renderSettings}
       editorOverride={overrideEditor}
       publishSlot={<PublishButton />}
       publishState={publishState}

@@ -142,11 +142,15 @@ export { type SerializedBooleanSchema, BooleanSchema } from "./schema/boolean";
 export { type SerializedImageSchema, ImageSchema } from "./schema/image";
 export { type SerializedFileSchema, FileSchema } from "./schema/file";
 export { type SerializedDateSchema, DateSchema } from "./schema/date";
-export { type SerializedSettingsSchema, SettingsSchema } from "./schema/settings";
+export {
+  type SerializedSettingsSchema,
+  SettingsSchema,
+} from "./schema/settings";
 export {
   type SettingsSource,
   type AiSettingsSource,
   AI_SETTINGS_MAX_LENGTH,
+  isAiEnabled,
 } from "./source/settings";
 export {
   type ResolvedSettingsModule,

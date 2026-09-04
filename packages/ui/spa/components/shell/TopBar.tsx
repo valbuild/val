@@ -241,7 +241,7 @@ export function TopBar({
                   : `Account: ${user?.name}`
               }
               title={accountError?.message}
-              onClick={() => onTogglePanel("settings")}
+              onClick={() => onTogglePanel("account")}
               className="relative shrink-0 rounded-full"
             >
               {user ? (

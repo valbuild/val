@@ -42,9 +42,9 @@ describe("SettingsSchema", () => {
       settings()["executeAssert"]("path" as SourcePath, "not an object")
         .success,
     ).toBe(false);
-    expect(
-      settings()["executeAssert"]("path" as SourcePath, []).success,
-    ).toBe(false);
+    expect(settings()["executeAssert"]("path" as SourcePath, []).success).toBe(
+      false,
+    );
   });
 
   test("a partially filled section is valid", () => {
@@ -181,7 +181,9 @@ describe("resolveSettingsModule", () => {
       "/settings.val.ts",
     ]);
     for (const error of res.errors) {
-      expect(error.message).toContain("'/config.val.ts' and '/settings.val.ts'");
+      expect(error.message).toContain(
+        "'/config.val.ts' and '/settings.val.ts'",
+      );
     }
   });
 });

@@ -50,7 +50,8 @@ const noProgress = (): ChainProgress => ({
 });
 import { NotificationsPanel } from "./NotificationsPanel";
 import { PagesPanel } from "./PagesPanel";
-import { SettingsPanel } from "./SettingsPanel";
+import { AccountPanel } from "./AccountPanel";
+import { NoSettingsModule, SettingsPanel } from "./SettingsPanel";
 import { ShellAccountError } from "./AccountError";
 import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
 import { PublishState, TopBar } from "./TopBar";
@@ -222,6 +223,14 @@ export type ShellProps = {
    */
   renderEditor?: (selection: ShellSelection) => ReactNode;
   /**
+   * The settings panel's sections, connected to the store.
+   *
+   * A slot for the same reason `renderEditor` is one: a section edits content,
+   * and the shell is presentational. Absent — in Storybook, or in a project
+   * with no settings module — and the panel explains how to add one.
+   */
+  renderSettings?: () => ReactNode;
+  /**
    * Something to show in the editor column instead of the selection's editor.
    *
    * The compare and errors views are not items: they take the whole column and
@@ -372,6 +381,7 @@ export function Shell({
   selectionId,
   onSelectionChange,
   renderEditor,
+  renderSettings,
   editorOverride,
   onPublish,
   publishSlot,
@@ -548,6 +558,7 @@ export function Shell({
       openPanel !== null &&
       (openPanel === "pages" ||
         openPanel === "media" ||
+        openPanel === "settings" ||
         openPanel === "data") &&
       !destinations.includes(openPanel)
     ) {
@@ -813,7 +824,7 @@ export function Shell({
         // The menu button opens the first destination this project has, which
         // is Pages wherever there is one — but a project with no routes has to
         // land somewhere that exists.
-        onOpenMenu={() => setOpenPanel(destinations[0] ?? "settings")}
+        onOpenMenu={() => setOpenPanel(destinations[0] ?? "account")}
         onOpenSearch={openSearch}
         unreadNotifications={
           data.notifications === undefined ? undefined : unreadNotifications
@@ -867,7 +878,7 @@ export function Shell({
           onExitCanvas={isCanvasOpen ? closeCanvas : undefined}
           onPublish={onPublish ?? (() => undefined)}
           publishSlot={publishSlot}
-          onOpenStatus={() => setOpenPanel("settings")}
+          onOpenStatus={() => setOpenPanel("account")}
           onOpenQuickActions={() => setOpenPanel("utility")}
         />
       ) : (
@@ -958,6 +969,19 @@ export function Shell({
 
       {openPanel === "settings" && (
         <SettingsPanel
+          breakpoint={breakpoint}
+          moduleFilePath={data.settings?.moduleFilePath}
+          onClose={closePanel}
+          navSwitcher={navSwitcher}
+          isLoading={isLoading}
+          loadError={loadError}
+        >
+          {renderSettings ? renderSettings() : <NoSettingsModule />}
+        </SettingsPanel>
+      )}
+
+      {openPanel === "account" && (
+        <AccountPanel
           breakpoint={breakpoint}
           mode={mode}
           user={data.user}

@@ -33,6 +33,7 @@ const PANELS: ShellPanel[] = [
   "media",
   "data",
   "settings",
+  "account",
   "utility",
   "ai",
   "notifications",

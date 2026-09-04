@@ -34,6 +34,14 @@ export type SettingsSource = {
  */
 export type AiSettingsSource = {
   /**
+   * Whether the assistant is available in this project at all.
+   *
+   * Unset means ON: a project that has bothered to write a settings module and
+   * filled in its AI section did not do so to leave the assistant off, and
+   * `false` is there to say otherwise.
+   */
+  enabled?: boolean | null;
+  /**
    * Background the model would otherwise have to guess: what this site is, who
    * runs it, what the product does, names and spellings that matter.
    */
@@ -57,3 +65,20 @@ export type AiSettingsSource = {
  * not dominate the system prompt they are appended to.
  */
 export const AI_SETTINGS_MAX_LENGTH = 4000;
+
+/**
+ * Whether the assistant is on, from the settings module's source.
+ *
+ * Unset is ON — see {@link AiSettingsSource.enabled} — so this is not
+ * `!!settings?.ai?.enabled`, which is the mistake it exists to prevent. A
+ * project with NO settings module has nothing to say either way and is left to
+ * whatever decided that before settings existed.
+ *
+ * TODO: `config.ai.chat` is on its way here (`enabled`, and the chat's title,
+ * description and suggestions with it), at which point this is the only answer
+ * to "is the assistant on". The AI commit-message summariser is deliberately
+ * NOT part of that move: it gets settings of its own later.
+ */
+export function isAiEnabled(settings: SettingsSource | undefined): boolean {
+  return settings?.ai?.enabled !== false;
+}

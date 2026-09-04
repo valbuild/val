@@ -1,7 +1,4 @@
-import {
-  computeValModuleShas,
-  extractValModules,
-} from "./extractValModules";
+import { computeValModuleShas, extractValModules } from "./extractValModules";
 import { initVal } from "./initVal";
 import { modules } from "./modules";
 import type { ValConfig } from "./initVal";

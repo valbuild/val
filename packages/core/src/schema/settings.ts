@@ -1,9 +1,4 @@
-import {
-  AssertError,
-  Schema,
-  SchemaAssertResult,
-  SerializedSchema,
-} from ".";
+import { AssertError, Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { PreviewScope, ReifiedPreview } from "../preview";
 import { FieldRender } from "../render";
 import { SelectorSource } from "../selector";
@@ -17,6 +12,7 @@ import {
   SettingsSource,
 } from "../source/settings";
 import { ModuleFilePath, SourcePath } from "../val";
+import { boolean } from "./boolean";
 import { string } from "./string";
 import {
   ValidationError,
@@ -288,6 +284,11 @@ export class SettingsSchema<
 export function settings(): SettingsSchema<SettingsSource> {
   return new SettingsSchema<SettingsSource>({
     ai: new SettingsSchema<AiSettingsSource>({
+      enabled: boolean()
+        .nullable()
+        .describe(
+          "Whether the assistant is available in this project. On unless this is off.",
+        ),
       context: string()
         .multiline()
         .maxLength(AI_SETTINGS_MAX_LENGTH)

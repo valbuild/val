@@ -42,14 +42,14 @@ export type Selector<T extends Source> = Source extends T
               T extends SettingsSource
               ? GenericSelector<T>
               : T extends string
-              ? StringSelector<T>
-              : T extends number
-                ? NumberSelector<T>
-                : T extends boolean
-                  ? BooleanSelector<T>
-                  : T extends null
-                    ? PrimitiveSelector<null>
-                    : never;
+                ? StringSelector<T>
+                : T extends number
+                  ? NumberSelector<T>
+                  : T extends boolean
+                    ? BooleanSelector<T>
+                    : T extends null
+                      ? PrimitiveSelector<null>
+                      : never;
 
 export type SelectorSource =
   | SourcePrimitive
