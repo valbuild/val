@@ -99,17 +99,37 @@ export function useCurrentPatchGroup(): CurrentPatchGroup {
         group.authorId !== null &&
         group.authorId === authorId,
     );
+    /*
+     * `ownGroupId` WINS. This was the other way round, and backwards.
+     *
+     * The reasoning was that the annotation is the server's current answer
+     * while `ownGroupId` is only what a save said at some point. But the
+     * annotation is refetched solely when a chain fetch has missing ids to
+     * ask for, so it is routinely the older of the two — whereas
+     * `ownGroupId` comes from the most recent save response and is cleared by
+     * `markPublished` at precisely the moment it stops being true. When it is
+     * set it names a group the server put our writes into and that we have
+     * not published since: fresher, and open by construction.
+     *
+     * With the annotation preferred, the first write after a publish learned
+     * the new group's id and this hook went on answering the OLD one, so
+     * every stage kept 409-ing and `usePatchGroupFlush` never fired for the
+     * group that existed.
+     *
+     * `members` still comes from the annotation, and only when it is the
+     * group we are naming: it is the sole source of membership, and reporting
+     * one group's id with another group's members is how the staging screen
+     * comes to show a set that will not publish.
+     */
+    const patchGroupId = ownGroupId ?? mine?.patchGroupId;
     return {
       enabled: true,
-      /*
-       * The annotation wins where it has one. Both name the same group in the
-       * steady state, but the annotation is the server's current answer while
-       * `ownGroupId` is what a save said at some point — and a publish CLOSES a
-       * group, so after one the annotation is right and the remembered id is
-       * stale.
-       */
-      patchGroupId: mine?.patchGroupId ?? ownGroupId,
-      members: new Set(mine?.patchIds ?? []),
+      patchGroupId,
+      members: new Set(
+        mine !== undefined && mine.patchGroupId === patchGroupId
+          ? mine.patchIds
+          : [],
+      ),
     };
   }, [groups, supported, authorId, ownGroupId]);
 }

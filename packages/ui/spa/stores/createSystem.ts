@@ -809,8 +809,18 @@ export function createSystem(options: SystemOptions): System {
       // Unscoped: no group to keep closed.
       return [];
     }
+    /*
+     * Was the index built from a chain that contains these patches?
+     *
+     * `chainPosition`, not `setsOf`: `PatchSets.insertOp` skips `file` and
+     * `test` ops, so a patch made only of those — a gallery delete's file op is
+     * the everyday one — is in no set at all and never will be. Asking
+     * `setsOf.has` made that read as "the index is stale", so every such save
+     * paid a second full `computePatchSets` round trip that could not change
+     * the answer.
+     */
     const covers = (index: PatchSetIndex) =>
-      patchIds.every((patchId) => index.setsOf.has(patchId));
+      patchIds.every((patchId) => index.chainPosition.has(patchId));
     let index: PatchSetIndex;
     try {
       index = indexPatchSets(
@@ -1561,9 +1571,38 @@ export function createSystem(options: SystemOptions): System {
       // queues behind nothing and is sent on its own rather than being replayed
       // twice by the next flush.
       deferredGroupChanges = [];
+      /*
+       * Replayed against the CURRENT scope, not verbatim.
+       *
+       * Verbatim was wrong in the very case the queue exists for. The group id
+       * appears because the user went and wrote something, and that write runs
+       * its own closure: a queued unstage of a patch the closure then pulled
+       * back in would be replayed afterwards and take it out of the group on
+       * the server — while the local scope, and therefore publish, still held
+       * it. The result was a hole in front of the user's own patch, surfacing a
+       * publish refusal naming raw ids, and only after a reload.
+       *
+       * The local scope is what this client intends the group to be, and every
+       * click has already been folded into it. So the queue is only a means of
+       * persisting that intent, and where the two disagree the scope wins —
+       * which is the write winning over the earlier click, as it must.
+       *
+       * Snapshotted once, so a scope change during the flush cannot make two
+       * entries in one replay disagree with each other.
+       */
+      const scope = patchGroupIds === null ? null : new Set(patchGroupIds);
       void (async () => {
         for (const change of queued) {
-          await sendPatchGroupChange(patchGroupId, change);
+          const patchIds =
+            scope === null
+              ? change.patchIds
+              : change.patchIds.filter((patchId) =>
+                  change.type === "stage"
+                    ? scope.has(patchId)
+                    : !scope.has(patchId),
+                );
+          if (patchIds.length === 0) continue;
+          await sendPatchGroupChange(patchGroupId, { ...change, patchIds });
         }
       })();
     },

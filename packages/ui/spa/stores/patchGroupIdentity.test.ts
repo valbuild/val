@@ -253,3 +253,79 @@ test("the annotation alone is enough to know groups exist here", async () => {
 
   expect(system.patchStore.patchGroupsSupported()).toBe(true);
 });
+
+/** Deliver an annotation, which only a fetch for a MISSING id can carry. */
+async function deliverGroups(
+  system: ReturnType<typeof makeSystem>,
+): Promise<void> {
+  // `p1` is listed alongside it: stat is authoritative about what the chain
+  // holds, so leaving this tab's own patch out of it drops the patch.
+  system.stat.receiveStat({
+    patches: ["foreign" as PatchId, "p1" as PatchId],
+    baseSha: "sha",
+  });
+  await system.patchSync.flush();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+const openGroup = (patchIds: PatchId[]): PatchGroupT => ({
+  patchGroupId: "g1",
+  authorId: "author-1",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  publishedAt: null,
+  patchIds,
+});
+
+test("a publish closes the published group in the ANNOTATION too", async () => {
+  const system = makeSystem({
+    savedInGroup: "g1",
+    fetchAnswers: [
+      { patches: [], patchGroups: [openGroup(["p1" as PatchId])] },
+    ],
+  });
+  await edit(system, "edited");
+  await deliverGroups(system);
+  expect(system.patchStore.groups()?.[0].publishedAt).toBeNull();
+
+  const res = await system.publish([], "ship it");
+  expect(res.status).toBe("published");
+
+  /*
+   * Forgetting `ownGroupId` was only half of it. Nothing refetches the
+   * annotation — `forgetPublished` drops the published ids from `dataById`, so
+   * the next `/stat` that re-lists them (they stay in the chain until the
+   * deploy) files them as stale and asks for nothing — so the client went on
+   * believing g1 was open. Every stage in the review screen was then sent to a
+   * closed group and refused with 409, and the deferred queue never engaged
+   * because there appeared to be a group to send to.
+   */
+  expect(system.patchStore.groups()?.[0].publishedAt).not.toBeNull();
+});
+
+test("a PARTIAL publish leaves the group open", async () => {
+  const system = makeSystem({
+    savedInGroup: "g1",
+    fetchAnswers: [
+      {
+        patches: [],
+        // The server put a second patch in the group that this publish does not
+        // ship — another tab of the same author, typically.
+        patchGroups: [openGroup(["p1" as PatchId, "p2" as PatchId])],
+      },
+    ],
+  });
+  await edit(system, "edited");
+  await deliverGroups(system);
+
+  expect((await system.publish([], "only part of it")).status).toBe(
+    "published",
+  );
+
+  /*
+   * ALL of a group's ids, not any. A partial publish leaves the group open on
+   * the server with only some of its patches applied, so closing it here would
+   * hide a group its owner can still add to — and send their next stage down
+   * the deferred path forever.
+   */
+  expect(system.patchStore.groups()?.[0].publishedAt).toBeNull();
+});

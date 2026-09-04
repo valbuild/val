@@ -206,6 +206,17 @@ export function createValSystem(
       let requestError: string | undefined;
       let chunks = 0;
       let failedChunks = 0;
+      /*
+       * Has any chunk come back 200 yet?
+       *
+       * Not the same question as "do we have groups". A branch where no group
+       * holds anything is answered with the key OMITTED — `ValServer` guards on
+       * `length > 0` — so keying on `patchGroups === undefined` alone made every
+       * chunk ask, and every chunk cost one content API lookup, which is the N
+       * lookups this is meant to avoid. A successful chunk has given its answer,
+       * whether or not that answer had groups in it.
+       */
+      let answered = false;
       for (const chunk of chunkPatchIds(patchIds, "patch_id")) {
         chunks++;
         const res = await client("/patches", "GET", {
@@ -216,14 +227,14 @@ export function createValSystem(
              * the branch and identical in every chunk, so asking on each one is
              * N identical lookups against the content API.
              *
-             * Keyed on not having them YET rather than on being the first
-             * chunk: a chunk that fails is skipped (`failedChunks++; continue`),
-             * so asking only on chunk 1 meant one transient failure lost the
-             * annotation for the whole fetch even though every other chunk
-             * succeeded — and the stale groups then survived until some later
-             * fetch happened to have missing ids.
+             * Keyed on no chunk having ANSWERED yet rather than on being the
+             * first chunk: a chunk that fails is skipped (`failedChunks++;
+             * continue`), so asking only on chunk 1 meant one transient failure
+             * lost the annotation for the whole fetch even though every other
+             * chunk succeeded — and the stale groups then survived until some
+             * later fetch happened to have missing ids.
              */
-            include_patch_groups: patchGroups === undefined,
+            include_patch_groups: !answered,
             // The ids we actually want, not the whole table. The engine asks for
             // everything because it keeps a whole-project map; this store is asked
             // for specific ids by `StatStore` and can say so.
@@ -244,6 +255,7 @@ export function createValSystem(
           failedChunks++;
           continue;
         }
+        answered = true;
         /*
          * The FIRST chunk that carries them wins, which is also the only one
          * that asks — see `include_patch_groups` above. The groups are a

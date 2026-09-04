@@ -195,6 +195,73 @@ test("a refused change is logged, not thrown", async () => {
   errors.mockRestore();
 });
 
+test("a queued unstage is dropped when the scope has taken the patch back", async () => {
+  const { system, sent } = makeSystem();
+  /*
+   * The case the queue was added for, and the one it got wrong.
+   *
+   * Alice unstages Bob's patch while she has no group. Then she edits a field
+   * in the same patch set, which creates her group AND runs the write closure
+   * — and that closure pulls Bob's patch back in, because her edit sits on top
+   * of it. Replaying the unstage verbatim afterwards took it out of the group
+   * on the server while the local scope, and therefore publish, still held it:
+   * a hole in front of her own patch, surfacing only as a publish refusal
+   * naming raw ids, and only after a reload.
+   *
+   * The scope is what this client intends the group to be, and every click has
+   * already been folded into it. So where the queue and the scope disagree, the
+   * scope wins — the write beating the earlier click, as it must.
+   */
+  system.persistPatchGroupChange(undefined, unstage(["theirs" as PatchId]));
+  system.setPatchGroup(["p1" as PatchId, "theirs" as PatchId]);
+
+  system.flushPatchGroupChanges("g-new");
+  await settle();
+
+  expect(sent).toEqual([]);
+});
+
+test("a queued stage is dropped when the scope no longer holds the patch", async () => {
+  const { system, sent } = makeSystem();
+  // The mirror image: staged while there was no group, then unstaged again
+  // before one existed. Sending the stage would put back what she just removed.
+  system.persistPatchGroupChange(undefined, stage(["theirs" as PatchId]));
+  system.setPatchGroup(["p1" as PatchId]);
+
+  system.flushPatchGroupChanges("g-new");
+  await settle();
+
+  expect(sent).toEqual([]);
+});
+
+test("a queued change that still agrees with the scope is sent", async () => {
+  const { system, sent } = makeSystem();
+  system.persistPatchGroupChange(undefined, unstage(["theirs" as PatchId]));
+  system.persistPatchGroupChange(undefined, stage(["mine" as PatchId]));
+  // `theirs` stayed out and `mine` stayed in, so both clicks still stand.
+  system.setPatchGroup(["p1" as PatchId, "mine" as PatchId]);
+
+  system.flushPatchGroupChanges("g-new");
+  await settle();
+
+  expect(sent.map((call) => [call.type, call.patchIds])).toEqual([
+    ["unstage", ["theirs"]],
+    ["stage", ["mine"]],
+  ]);
+});
+
+test("an unscoped client replays verbatim, having no scope to reconcile against", async () => {
+  const { system, sent } = makeSystem();
+  // `null` is fs mode or a content API without groups. Filtering against a
+  // scope that does not exist would drop everything.
+  system.persistPatchGroupChange(undefined, unstage(["theirs" as PatchId]));
+
+  system.flushPatchGroupChanges("g-new");
+  await settle();
+
+  expect(sent.map((call) => call.patchIds)).toEqual([["theirs"]]);
+});
+
 test("the studio still reads normally around all of this", async () => {
   const { system } = makeSystem();
   system.persistPatchGroupChange(undefined, stage(["a" as PatchId]));

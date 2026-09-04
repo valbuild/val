@@ -528,6 +528,19 @@ export class PatchSync {
        * grouping behind and send an empty closure.
        */
       const patchGroup = await this.patchGroupResolver?.(patchIds);
+      /*
+       * The await above opened a window that did not exist before it.
+       *
+       * `setState({ status: "saving" })` and `save(...)` used to run in the same
+       * tick, so the only `stopped` check that mattered was the one after `save`
+       * returned. Now a sync disposed during the resolver's worker round trip
+       * would still issue the PUT — and the post-save check would then skip
+       * `markSaved` and `recordOwnPatchGroup`, leaving the server holding a
+       * patch this client never recorded as saved.
+       */
+      if (this.stopped) {
+        return;
+      }
       const result = await save({
         patches: batch.map((record) => ({
           path: record.moduleFilePath,

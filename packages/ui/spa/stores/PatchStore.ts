@@ -1128,6 +1128,7 @@ export class PatchStore {
       changed = true;
     }
     if (changed) this.bump();
+    let groupsMoved = false;
     if (this.ownPatchGroupId !== undefined) {
       /*
        * A publish CLOSES the group, and the content API refuses a write or a
@@ -1140,8 +1141,48 @@ export class PatchStore {
        * names it, exactly as the first one did.
        */
       this.ownPatchGroupId = undefined;
-      this.bumpGroups();
+      groupsMoved = true;
     }
+    /*
+     * And the ANNOTATION, which nothing else will correct.
+     *
+     * Forgetting the id alone was half a fix. The annotation still listed the
+     * group as open, and nothing refetches it: `forgetPublished` drops the
+     * published ids from `dataById`, so when `/stat` re-lists them — they stay
+     * in the chain until the deploy lands — `onStatPatchIds` files them under
+     * stale and asks the server for nothing.
+     *
+     * So `useCurrentPatchGroup` went on resolving the closed group, every stage
+     * and unstage in the review screen was sent to it and refused with 409, and
+     * the deferred queue never engaged because there appeared to be a group.
+     * On reload an unstaged change came back staged and the next publish
+     * shipped it. Exactly the window the queue exists for, on every branch
+     * whose annotation has ever been fetched.
+     *
+     * ALL of a group's ids, not any: a partial publish leaves the group open on
+     * the server with only some of its patches applied, and closing it here
+     * would hide a group its owner can still add to.
+     *
+     * The timestamp is ours rather than the server's. What is being recorded is
+     * the FACT that the group is closed, which we know because we closed it;
+     * the exact instant is the server's to state and nothing reads it.
+     */
+    if (this.patchGroups !== undefined) {
+      const closedNow = new Date().toISOString();
+      const next = this.patchGroups.map((group) => {
+        if (group.publishedAt !== null) return group;
+        if (group.patchIds.length === 0) return group;
+        if (
+          !group.patchIds.every((patchId) => this.publishedIds.has(patchId))
+        ) {
+          return group;
+        }
+        groupsMoved = true;
+        return { ...group, publishedAt: closedNow };
+      });
+      if (groupsMoved) this.patchGroups = next;
+    }
+    if (groupsMoved) this.bumpGroups();
   }
 
   /**

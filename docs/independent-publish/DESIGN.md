@@ -122,6 +122,21 @@ follow, and both were wrong before:
   queues it on the system and the shell flushes it when an id appears — on the
   system rather than on the review screen, because the id normally appears
   BECAUSE the user left that screen to type something.
+- **The replay is reconciled, not verbatim.** The write that creates the group
+  runs its own closure, which can re-stage the very patch a queued unstage names.
+  At flush time an unstage whose ids are back in the scope is dropped, and so is
+  a stage whose ids have left it: the scope is what this client intends the group
+  to be, so where the two disagree the write beats the earlier click.
+
+Two things go stale in opposite directions and must not be confused. The chain
+**annotation** refreshes only inside a fetch for MISSING patch ids, so on a quiet
+branch it is arbitrarily old; `ownPatchGroupId` comes from the last save response
+and is cleared the moment a publish makes it wrong. So `ownPatchGroupId` wins
+where it is set, and `markPublished` also closes the annotation's copy of any
+group whose every patch it just shipped — nothing else ever will, because
+`forgetPublished` drops those ids and the next `/stat` files them as stale. Named
+the closed group instead and every stage is a silent 409 and the queue never
+engages.
 
 ## Invariants worth attacking in review
 
