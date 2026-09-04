@@ -1196,6 +1196,13 @@ export class PatchStore {
      * the server with only some of its patches applied, and closing it here
      * would hide a group its owner can still add to.
      *
+     * "Nothing of it is still pending" rather than "all of it is in
+     * `publishedIds`", and via the same {@link pendingAmong} the publish path
+     * uses to decide whether to close the group on the SERVER. Those two were
+     * written out separately and disagreed as soon as a member could be applied
+     * by somebody else's publish: the server closed the group and this left the
+     * annotation saying it was open.
+     *
      * The timestamp is ours rather than the server's. What is being recorded is
      * the FACT that the group is closed, which we know because we closed it;
      * the exact instant is the server's to state and nothing reads it.
@@ -1206,11 +1213,7 @@ export class PatchStore {
       const next = this.patchGroups.map((group) => {
         if (group.publishedAt !== null) return group;
         if (group.patchIds.length === 0) return group;
-        if (
-          !group.patchIds.every((patchId) => this.publishedIds.has(patchId))
-        ) {
-          return group;
-        }
+        if (this.pendingAmong(group.patchIds).size > 0) return group;
         annotationMoved = true;
         return { ...group, publishedAt: closedNow };
       });
@@ -1449,6 +1452,50 @@ export class PatchStore {
    */
   async getHead(): Promise<Head> {
     return this.currentHead();
+  }
+
+  /**
+   * Which of these are still waiting to ship.
+   *
+   * ONE predicate, because there were two and they drifted. "Has this shipped"
+   * was written out at each call site — `publishedIds` in one, `publishedIds`
+   * plus `appliedAt` in the other — and the moment applied-set sync landed the
+   * two disagreed: a member another author's publish had applied counted as
+   * shipped when deciding to close the group on the server, and as pending when
+   * closing the annotation's copy of it. The group closed there and stayed open
+   * here, `useCurrentPatchGroup` went on naming it, and every stage 409'd. That
+   * is the failure the previous round fixed, reached through a different door.
+   *
+   * Three states collapse to two, and the third is the one that was missing:
+   *
+   * - shipped — `publishedIds` (this session's own publish, which no record's
+   *   `appliedAt` will ever show) or a record with `appliedAt` set;
+   * - GONE — not in the chain at all, because it was discarded or the deploy
+   *   moved the base and `forgetPublished` dropped it. Not pending. Reading a
+   *   missing record as pending meant one discard of your own staged patch left
+   *   the group unclosable for the rest of the session, and its id reused for
+   *   every later publish — the degradation `patchGroupId` on commit exists to
+   *   avoid;
+   * - pending — in the chain, and nothing says it shipped. A record not fetched
+   *   yet is pending: absent data is not evidence of a commit.
+   *
+   * `appliedAt` is truthy only for a commit sha. `null` is
+   * server-known-uncommitted and `undefined` is created locally, and BOTH mean
+   * pending — the trap this codebase has already fallen into once.
+   *
+   * One pass over the chain rather than a lookup per id, so a long chain does
+   * not cost a scan per group member.
+   */
+  pendingAmong(patchIds: Iterable<PatchId>): Set<PatchId> {
+    const wanted = new Set(patchIds);
+    const pending = new Set<PatchId>();
+    for (const patchId of this.ordered) {
+      if (!wanted.has(patchId)) continue;
+      if (this.publishedIds.has(patchId)) continue;
+      if (this.dataById.get(patchId)?.appliedAt) continue;
+      pending.add(patchId);
+    }
+    return pending;
   }
 
   /** In chain order, only those whose data is known. */

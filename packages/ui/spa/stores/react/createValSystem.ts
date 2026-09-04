@@ -385,7 +385,11 @@ export function createValSystem(
       if (res.status === 200) {
         // `removed` is what the save threw away to be able to write anything at
         // all — fs mode only, and empty on the happy path.
-        return { status: "published", removed: res.json.removed };
+        return {
+          status: "published",
+          commitSha: res.json.commitSha,
+          removed: res.json.removed,
+        };
       }
       if (res.status === 409) {
         // Two different refusals share the status. `headMoved` is the server

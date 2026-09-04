@@ -2212,6 +2212,44 @@ export const ValServer = (
          * store wholesale.
          */
         const consumed = patches.patches.map((patch) => patch.patchId);
+        /*
+         * Has somebody else published since this was decided?
+         *
+         * The client names the newest commit it knew about; anything newer here
+         * means the review screen it acted on described a world that has moved.
+         * The answer is "look again" rather than "your commit was rejected".
+         *
+         * Git's own not-fast-forward guard cannot see this: the chain is
+         * fetched and committed fresh at this point, so the parent commit sent
+         * is always the server's current one.
+         *
+         * Checked HERE, before `analyzePatches` and `prepare`, rather than just
+         * before the commit: a publish that is going to be refused should not
+         * first pay to apply every patch in it. And compared against the
+         * commits `fetchPatches` just returned — `applicable/patches` filters
+         * its PATCHES by the requested ids and never its commits, so the second
+         * whole-chain fetch this used to make asked for a list it already had.
+         *
+         * Only when the client sends a head. One that does not publishes
+         * exactly as it did before, and this cannot start refusing publishes for
+         * a field it never sets.
+         */
+        if (serverOps instanceof ValOpsHttp) {
+          const expectedHead = body.expectedHeadCommitSha;
+          if (expectedHead !== undefined) {
+            const serverHead = newestCommitSha(patches.commits);
+            if (serverHead !== null && serverHead !== expectedHead) {
+              return {
+                status: 409,
+                json: {
+                  message:
+                    "Someone else published while you were reviewing. Nothing was published — open Review again to see what changed.",
+                  headMoved: true,
+                },
+              };
+            }
+          }
+        }
         const analysis = serverOps.analyzePatches(
           patches.patches,
           patches.commits,
@@ -2388,42 +2426,6 @@ export const ValServer = (
             json: removed.length > 0 ? { removed } : {},
           };
         } else if (serverOps instanceof ValOpsHttp) {
-          /*
-           * Has somebody else published since this was decided?
-           *
-           * The client names the newest commit it knew about; anything newer
-           * here means the review screen it acted on described a world that has
-           * moved. Refused BEFORE the commit, so nothing is written and the
-           * answer is "look again" rather than "your commit was rejected".
-           *
-           * Git's own not-fast-forward guard cannot see this: the chain is
-           * fetched and committed fresh at this point, so the parent commit
-           * sent is always the server's current one.
-           *
-           * Only when the client sends a head. One that does not publishes
-           * exactly as it did before, and this cannot start refusing publishes
-           * for a field it never sets.
-           */
-          const expectedHead = body.expectedHeadCommitSha;
-          if (expectedHead !== undefined) {
-            const serverHead = newestCommitSha(
-              (
-                await serverOps.fetchPatches({
-                  excludePatchOps: true,
-                })
-              ).commits,
-            );
-            if (serverHead !== null && serverHead !== expectedHead) {
-              return {
-                status: 409,
-                json: {
-                  message:
-                    "Someone else published while you were reviewing. Nothing was published — open Review again to see what changed.",
-                  headMoved: true,
-                },
-              };
-            }
-          }
           if (auth.error === undefined && auth.id) {
             const message =
               body.message ||
@@ -2468,9 +2470,18 @@ export const ValServer = (
               };
             }
             // TODO: serverOps.markApplied(patchIds);
+            /*
+             * The new head, back to the client that made it.
+             *
+             * Nothing else tells it in time: `headCommitSha` moves on a `/stat`
+             * response, so until the next poll the client still believes the
+             * pre-publish head — and its next publish sent that as
+             * `expectedHeadCommitSha`, hit the check above against the commit it
+             * had itself just made, and was told somebody else had published.
+             */
             return {
               status: 200,
-              json: {} as Record<string, never>, // TODO:
+              json: { commitSha: commitRes.commit },
             };
           }
           return {

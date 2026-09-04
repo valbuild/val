@@ -375,7 +375,7 @@ test.describe("the staging controls", () => {
     const staged = (await mock.state()).patchGroups.find(
       (group) => group.patchGroupId === patchGroupId,
     );
-    expect(staged?.explicitPatchIds).toEqual([patchId]);
+    expect(staged?.askedForPatchIds).toEqual([patchId]);
 
     const published = await publishAll(page, "Ada ships it after all");
     expect(published.status, published.message ?? "").toBe("published");

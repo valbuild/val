@@ -4,6 +4,7 @@ import {
   type PatchId,
   type SourcePath,
 } from "@valbuild/core";
+import type { PatchGroupT } from "@valbuild/shared/internal";
 import { createSystem } from "./createSystem";
 import type { PatchRecord } from "./types";
 
@@ -44,10 +45,22 @@ const FOREIGN: PatchRecord = {
   appliedAt: null,
 };
 
-function makeSystem() {
+/** The group both this client and the server think holds `p1` and `theirs`. */
+const GROUP: PatchGroupT = {
+  patchGroupId: "g1",
+  authorId: "me",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  publishedAt: null,
+  patchIds: ["p1" as PatchId, THEIRS],
+};
+
+function makeSystem(options?: { withGroups?: boolean }) {
+  /** What each publish told the server it was closing. */
+  const publishes: { closesPatchGroupId: string | undefined }[] = [];
   const system = createSystem({
     fetchPatches: async (patchIds) => ({
       patches: patchIds.includes(THEIRS) ? [FOREIGN] : [],
+      ...(options?.withGroups ? { patchGroups: [GROUP] } : {}),
     }),
     createPatchId: (() => {
       let next = 0;
@@ -57,12 +70,16 @@ function makeSystem() {
       status: "saved",
       newPatchIds: patches.map((patch) => patch.patchId),
       parentRef,
+      ...(options?.withGroups ? { patchGroupId: "g1" } : {}),
     }),
-    publishPatches: async () => ({ status: "published" }),
+    publishPatches: async (request) => {
+      publishes.push({ closesPatchGroupId: request.closesPatchGroupId });
+      return { status: "published" };
+    },
   });
   system.host.receive(project());
   system.stat.receiveStat({ patches: [], baseSha: "sha" });
-  return system;
+  return Object.assign(system, { publishes });
 }
 
 /** Deliver the foreign patch, so this client holds its record. */
@@ -154,4 +171,79 @@ test("an unknown id is ignored rather than invented", async () => {
       .allRecords()
       .some((record) => record.patchId === ("never-seen" as PatchId)),
   ).toBe(false);
+});
+
+test("a group whose other member shipped ELSEWHERE closes in both places at once", async () => {
+  /*
+   * The two "is this group empty now" rules, which were written out separately
+   * and disagreed the moment a member could be applied by somebody else.
+   *
+   * `emptiesOwnPatchGroup` counted a member shipped if it was in the publish, in
+   * `publishedIds`, or had `appliedAt` set — which now includes
+   * APPLIED_ELSEWHERE. The annotation close in `markPublished` asked only
+   * whether every member was in `publishedIds`. So: the group holds `p1` and
+   * `theirs`, somebody else's publish applied `theirs`, and publishing `p1`
+   * told the SERVER to close the group while leaving the local annotation
+   * saying it was open. `useCurrentPatchGroup` then fell back to the annotation,
+   * named the closed group, and every stage 409'd with the deferred queue never
+   * engaging — the failure the previous round fixed, back through a different
+   * door.
+   *
+   * Both now go through `PatchStore.pendingAmong`, so they cannot drift again.
+   */
+  const system = makeSystem({ withGroups: true });
+  await deliver(system, [THEIRS]);
+  expect(appliedAtOf(system)).toBeTruthy();
+
+  await system.patchStore.createPatch(MODULE, [
+    { op: "replace", path: ["title"], value: "mine" },
+  ]);
+  await system.patchSync.flush();
+  const mine = system.patchStore
+    .allRecords()
+    .filter((record) => record.patchId !== THEIRS)
+    .map((record) => record.patchId);
+  system.setOwnPatchGroupId("g1");
+  system.setPatchGroup(mine);
+
+  expect((await system.publish(mine, "ship mine")).status).toBe("published");
+
+  // Told the server to close it...
+  expect(system.publishes).toHaveLength(1);
+  expect(system.publishes[0].closesPatchGroupId).toBe("g1");
+  // ...and closed our own copy, which nothing else ever will.
+  expect(system.patchStore.groups()?.[0].publishedAt).not.toBeNull();
+});
+
+test("a group member that has left the chain does not keep the group open", async () => {
+  /*
+   * GONE is not pending, and reading it as pending cost a session.
+   *
+   * An id in the scope or the annotation with no record left — discarded, or
+   * deployed away and dropped by `forgetPublished` — used to answer `false` to
+   * "has this shipped", so the group could never be named on a commit again.
+   * It then never closed, and its id was reused for every later publish, which
+   * is exactly the degradation `patchGroupId` on commit was added to avoid.
+   */
+  const system = makeSystem({ withGroups: true });
+  await deliver(system);
+
+  await system.patchStore.createPatch(MODULE, [
+    { op: "replace", path: ["title"], value: "mine" },
+  ]);
+  await system.patchSync.flush();
+  const mine = system.patchStore
+    .allRecords()
+    .filter((record) => record.patchId !== THEIRS)
+    .map((record) => record.patchId);
+
+  // The other member is discarded, so it leaves the chain entirely — while the
+  // annotation fetched earlier still lists it.
+  system.patchStore.drop([THEIRS]);
+
+  system.setOwnPatchGroupId("g1");
+  system.setPatchGroup(mine);
+  expect((await system.publish(mine, "ship mine")).status).toBe("published");
+
+  expect(system.publishes[0].closesPatchGroupId).toBe("g1");
 });

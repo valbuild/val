@@ -901,7 +901,9 @@ export class ValOpsHttp extends ValOps {
    */
   private patchGroupsCache: {
     at: number;
-    res: Awaited<ReturnType<ValOpsHttp["fetchPatchGroups"]>>;
+    res:
+      | { status: "ok"; patchGroups: PatchGroupT[] }
+      | { status: "unsupported" };
   } | null = null;
 
   async getPatchGroups(): Promise<
@@ -917,7 +919,25 @@ export class ValOpsHttp extends ValOps {
       return this.patchGroupsCache.res;
     }
     const res = await this.fetchPatchGroups();
-    this.patchGroupsCache = { at: now, res };
+    /*
+     * ANSWERS are cached; failures are not.
+     *
+     * A transient failure held for a second is replayed to every caller in it,
+     * and the callers are not equivalent: `refuseUnlessOwn` turns it into a 500
+     * that refuses the stage, a scoped draft render falls back to base and
+     * drops every pending patch on the page, and `GET /patches` omits the
+     * annotation. One flaky request became a second of all three. The point of
+     * this cache is to collapse the several `fetchVal` calls in one render into
+     * one round trip, and an error is exactly the case worth retrying inside
+     * that window rather than the case worth remembering.
+     *
+     * `unsupported` is cached with `ok` deliberately: it is a real answer about
+     * the deployment — this content API predates patch groups — and it will not
+     * change between two renders.
+     */
+    if (res.status === "ok" || res.status === "unsupported") {
+      this.patchGroupsCache = { at: now, res };
+    }
     return res;
   }
 

@@ -233,7 +233,7 @@ export type MockPatchGroup = {
    * together files every patch — the clicked one included — as something the
    * closure dragged in.
    */
-  explicitPatchIds: string[];
+  askedForPatchIds: string[];
 };
 
 export type MockState = {

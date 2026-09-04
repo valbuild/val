@@ -28,7 +28,7 @@ const project = () => {
   return [c.define(MODULE, s.object({ title: s.string() }), { title: "base" })];
 };
 
-function makeSystem(options?: { headMoved?: boolean }) {
+function makeSystem(options?: { headMoved?: boolean; commitSha?: string }) {
   const sent: (string | undefined)[] = [];
   const system = createSystem({
     fetchPatches: async () => ({ patches: [] }),
@@ -45,7 +45,12 @@ function makeSystem(options?: { headMoved?: boolean }) {
       sent.push(request.expectedHeadCommitSha);
       return options?.headMoved
         ? { status: "head-moved", message: "someone else published" }
-        : { status: "published" };
+        : {
+            status: "published",
+            ...(options?.commitSha !== undefined
+              ? { commitSha: options.commitSha }
+              : {}),
+          };
     },
   });
   system.host.receive(project());
@@ -132,4 +137,54 @@ test("the head is the latest one stat said, not the first", async () => {
 
   expect(sent).toEqual(["commit-2"]);
   expect(system.sourceStore.peek(TITLE)).toMatchObject({ status: "ready" });
+});
+
+test("a publish moves the head, so the NEXT one is not refused as somebody else's", async () => {
+  /*
+   * The client refusing its own second publish.
+   *
+   * `headCommitSha` moved only on a `/stat` response, so between a publish and
+   * the next poll this client still believed the pre-publish head. Its next
+   * publish sent that as `expectedHeadCommitSha`, the server compared it with
+   * the commit this same client had just made, and answered 409 "someone else
+   * published while you were reviewing". With auto-publish, which publishes on
+   * every pause in typing, that window is hit routinely — and the message
+   * blames a colleague for the user's own commit.
+   *
+   * `/save` now answers with the sha it just wrote, and this is where it lands.
+   * No `/stat` is delivered between the two publishes below, which is the
+   * point: the second one must already know about the first.
+   */
+  const { system, sent } = makeSystem({ commitSha: "commit-2" });
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headCommitSha: "commit-1",
+  });
+
+  await edit(system);
+  expect((await system.publish([], "first")).status).toBe("published");
+  expect(sent).toEqual(["commit-1"]);
+
+  await edit(system);
+  expect((await system.publish([], "second")).status).toBe("published");
+  expect(sent).toEqual(["commit-1", "commit-2"]);
+});
+
+test("a server that answers no sha leaves the head where it was", async () => {
+  // `fs` mode has no publish head, and neither does a server that predates
+  // this. Neither may have the head cleared out from under it.
+  const { system, sent } = makeSystem();
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headCommitSha: "commit-1",
+  });
+
+  await edit(system);
+  await system.publish([], "first");
+  await edit(system);
+  await system.publish([], "second");
+
+  expect(sent).toEqual(["commit-1", "commit-1"]);
 });

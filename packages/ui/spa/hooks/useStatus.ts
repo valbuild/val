@@ -1,6 +1,11 @@
 import { Patch } from "@valbuild/core/patch";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
-import { ValClient, ValCommit, ValDeployment } from "@valbuild/shared/internal";
+import {
+  newestCommitSha,
+  ValClient,
+  ValCommit,
+  ValDeployment,
+} from "@valbuild/shared/internal";
 import React, {
   useState,
   useEffect,
@@ -485,14 +490,29 @@ async function execStat(
                 console.debug("Commit", message.commit);
                 setStat((prev) => {
                   if ("data" in prev && prev.data) {
+                    const commits = (prev.data.commits || []).concat(
+                      message.commit,
+                    );
                     // we don't want to set the wait time to 0 here, because we want to keep the polling
                     return {
                       status: "ws-message-received",
                       data: {
                         ...prev.data,
-                        commits: (prev.data.commits || []).concat(
-                          message.commit,
-                        ),
+                        commits,
+                        /*
+                         * The publish head moves HERE too, not only on a poll.
+                         *
+                         * This message is how another author's publish reaches
+                         * this client, and `headCommitSha` was only ever set by
+                         * a `/stat` response — so between the two, a publish
+                         * from this tab carried a head the server had already
+                         * moved past and came back 409. Derived with the same
+                         * `newestCommitSha` the server compares with, rather
+                         * than assuming the message is the newest: commits
+                         * arrive in whatever order the socket delivers them.
+                         */
+                        headCommitSha:
+                          newestCommitSha(commits) ?? prev.data.headCommitSha,
                       },
                       waitStart:
                         "waitStart" in prev ? prev.waitStart : Date.now(),

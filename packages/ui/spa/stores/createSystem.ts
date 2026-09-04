@@ -736,21 +736,23 @@ export function createSystem(options: SystemOptions): System {
       ...patchGroupIds,
       ...(annotated?.patchIds ?? []),
     ]);
+    /*
+     * `pendingAmong` is the store's one answer to "has this shipped", and it is
+     * used here rather than restated. The predicate was written out at both
+     * this call site and `markPublished`'s annotation close, and the two
+     * disagreed the moment a member could be applied by somebody else's
+     * publish: this one closed the group on the server, that one left the
+     * annotation saying it was open, and every stage afterwards 409'd.
+     *
+     * It also answers the third state neither of them had. An id in the scope
+     * or the annotation with no record left is GONE — discarded, or deployed
+     * away — not pending, so one discard of a staged patch no longer leaves the
+     * group unclosable for the rest of the session.
+     */
     const shipping = new Set(toPublish);
-    const published = patchStore.publishedPatchIds();
-    const appliedAt = new Map(
-      patchStore
-        .recordsFor([...accountedFor])
-        .map((record) => [record.patchId, record.appliedAt]),
+    return [...patchStore.pendingAmong(accountedFor)].every((patchId) =>
+      shipping.has(patchId),
     );
-    return [...accountedFor].every((patchId) => {
-      if (shipping.has(patchId)) return true;
-      if (published.has(patchId)) return true;
-      // `null` is server-known-uncommitted and `undefined` is created locally.
-      // BOTH mean pending; only a commit sha means shipped.
-      const applied = appliedAt.get(patchId);
-      return applied !== null && applied !== undefined;
-    });
   }
 
   /**
@@ -2186,6 +2188,21 @@ export function createSystem(options: SystemOptions): System {
               outcome.status === "not-fast-forward" ||
               outcome.status === "network-error",
           };
+        }
+
+        /*
+         * The head this publish just made.
+         *
+         * Set before anything else, and this is the fix for a client refusing
+         * its OWN next publish: `stat.currentHeadCommitSha()` above is what
+         * goes out as `expectedHeadCommitSha`, and until a `/stat` response
+         * lands it was still the pre-publish head. The server then compared it
+         * against the commit this client had just made and answered 409
+         * "someone else published while you were reviewing" — for the user's
+         * own commit, on every pause in typing with auto-publish on.
+         */
+        if (outcome.commitSha !== undefined) {
+          stat.setHeadCommitSha(outcome.commitSha);
         }
 
         /*

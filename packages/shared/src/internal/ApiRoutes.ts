@@ -1225,6 +1225,24 @@ export const Api = {
           status: z.literal(200),
           json: z.object({
             /**
+             * The commit this publish just made, which becomes the new publish
+             * head.
+             *
+             * Sent back because nothing else tells this client about its own
+             * commit in time. `headCommitSha` moves on a `/stat` response, and
+             * until the next poll lands the client still believes the
+             * PRE-publish head — so a second publish inside that window carried
+             * a stale `expectedHeadCommitSha`, the server compared it against
+             * the commit this same client had just made, and answered 409
+             * "someone else published". With auto-publish, which publishes on
+             * every pause in typing, that window is hit routinely and the
+             * message blames a colleague for the user's own commit.
+             *
+             * Optional: `fs` mode has no publish head, and neither does a
+             * server that predates this.
+             */
+            commitSha: z.string().optional(),
+            /**
              * Unpublished changes the save threw away because they could not be
              * applied.
              *

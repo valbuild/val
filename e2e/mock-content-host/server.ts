@@ -166,7 +166,7 @@ type MockPatchGroup = {
    * something the closure dragged in. Modelled here so a test can tell the two
    * apart; nothing in the mock's own behaviour depends on it.
    */
-  explicitPatchIds: Set<string>;
+  askedForPatchIds: Set<string>;
 };
 
 type MockCommit = {
@@ -716,7 +716,7 @@ const savePatch: Handler = async (req, res) => {
     // The new patch is what its author meant; the closure is what came with it.
     // `home` files them as 'explicit' and 'dependency' respectively.
     if (!group.patchIds.has(body.patchId)) {
-      group.explicitPatchIds.add(body.patchId);
+      group.askedForPatchIds.add(body.patchId);
     }
     group.patchIds.add(body.patchId);
     for (const patchId of withPatchIds) {
@@ -771,7 +771,7 @@ function getOrCreateOpenGroup(
     createdAt: nowIso(),
     publishedAt: null,
     patchIds: new Set(),
-    explicitPatchIds: new Set(),
+    askedForPatchIds: new Set(),
   };
   state.patchGroups.set(group.patchGroupId, group);
   return group;
@@ -889,12 +889,12 @@ const mutatePatchGroup: Handler = async (req, res, url) => {
        * server that does not behave that way.
        */
       if (!group.patchIds.has(patchId) && explicit.includes(patchId)) {
-        group.explicitPatchIds.add(patchId);
+        group.askedForPatchIds.add(patchId);
       }
       group.patchIds.add(patchId);
     } else {
       group.patchIds.delete(patchId);
-      group.explicitPatchIds.delete(patchId);
+      group.askedForPatchIds.delete(patchId);
     }
   }
   json(res, 200, {
@@ -917,7 +917,7 @@ const deletePatches: Handler = async (req, res) => {
     // ON DELETE CASCADE.
     for (const group of state.patchGroups.values()) {
       group.patchIds.delete(patchId);
-      group.explicitPatchIds.delete(patchId);
+      group.askedForPatchIds.delete(patchId);
     }
   }
   /*
@@ -933,7 +933,7 @@ const deletePatches: Handler = async (req, res) => {
   for (const patchId of body?.unstagePatchIds ?? []) {
     for (const group of state.patchGroups.values()) {
       group.patchIds.delete(patchId);
-      group.explicitPatchIds.delete(patchId);
+      group.askedForPatchIds.delete(patchId);
     }
   }
   broadcastChain();
@@ -1193,7 +1193,7 @@ const commit: Handler = async (req, res) => {
     for (const group of state.patchGroups.values()) {
       for (const patchId of committed) {
         group.patchIds.delete(patchId);
-        group.explicitPatchIds.delete(patchId);
+        group.askedForPatchIds.delete(patchId);
       }
     }
   }
@@ -1674,7 +1674,7 @@ const controlPlane: Handler = async (req, res, url) => {
         patchIds: [...group.patchIds],
         // Exposed only here, on the test-facing state dump — the content API's
         // own `GET /patch-groups` does not report it either.
-        explicitPatchIds: [...group.explicitPatchIds],
+        askedForPatchIds: [...group.askedForPatchIds],
       })),
       /**
        * Every uploaded file, whatever state its patch is in.

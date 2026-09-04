@@ -75,7 +75,7 @@ export type RemovedPatch = {
 };
 
 export type PublishOutcome =
-  | { status: "published"; removed?: RemovedPatch[] }
+  | { status: "published"; commitSha?: string; removed?: RemovedPatch[] }
   | { status: "not-fast-forward"; message: string }
   /**
    * Somebody else published between this being decided and Save being clicked.
@@ -125,7 +125,12 @@ export type DiscardPatches = (
  * to them rather than saying no.
  */
 export type PublishResult =
-  | { status: "published"; patchIds: PatchId[]; removed?: RemovedPatch[] }
+  | {
+      status: "published";
+      patchIds: PatchId[];
+      commitSha?: string;
+      removed?: RemovedPatch[];
+    }
   | { status: "nothing-to-publish" }
   | {
       status: "refused";

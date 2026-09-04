@@ -262,11 +262,22 @@ test("the annotation alone is enough to know groups exist here", async () => {
 /** Deliver an annotation, which only a fetch for a MISSING id can carry. */
 async function deliverGroups(
   system: ReturnType<typeof makeSystem>,
+  /**
+   * Group members held by somebody else, which stat has to list too.
+   *
+   * `/stat` is branch-wide and authoritative about what is still pending, so an
+   * id the annotation names as a group member is in it by construction — that
+   * is what makes the id pending rather than applied or deleted. A test that
+   * names one only in the annotation is describing a state the server cannot
+   * produce, and "not in the chain at all" now means GONE, which is the whole
+   * point of reading a missing id as shipped rather than as blocking.
+   */
+  alsoPending: PatchId[] = [],
 ): Promise<void> {
   // `p1` is listed alongside it: stat is authoritative about what the chain
   // holds, so leaving this tab's own patch out of it drops the patch.
   system.stat.receiveStat({
-    patches: ["foreign" as PatchId, "p1" as PatchId],
+    patches: ["foreign" as PatchId, "p1" as PatchId, ...alsoPending],
     baseSha: "sha",
   });
   await system.patchSync.flush();
@@ -320,7 +331,7 @@ test("a group holding another TAB's work is not closed", async () => {
     ],
   });
   await edit(system, "edited");
-  await deliverGroups(system);
+  await deliverGroups(system, ["other" as PatchId]);
   // What the shell does from `useCurrentPatchGroup`, which is the only place
   // that can resolve whose group this is.
   system.setOwnPatchGroupId("g1");
@@ -396,7 +407,7 @@ test("a PARTIAL publish leaves the group open", async () => {
     ],
   });
   await edit(system, "edited");
-  await deliverGroups(system);
+  await deliverGroups(system, ["p2" as PatchId]);
 
   expect((await system.publish([], "only part of it")).status).toBe(
     "published",

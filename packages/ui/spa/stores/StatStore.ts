@@ -126,6 +126,25 @@ export class StatStore {
   }
 
   /**
+   * Move the publish head without waiting for a `/stat` response.
+   *
+   * Two things know the head has moved before the next poll does: this
+   * client's own publish, which gets the sha back from `/save`, and the
+   * websocket `commit` message, which is how another author's publish arrives.
+   * Neither used to move it, so between a publish and the next poll the head
+   * here was the PRE-publish one — and a second publish in that window sent it
+   * as `expectedHeadCommitSha`, was compared against the commit this same
+   * client had just made, and came back 409 "someone else published". With
+   * auto-publish that window is hit on every pause in typing.
+   *
+   * No event: nothing renders the head, and the one reader asks for it at the
+   * moment it publishes.
+   */
+  setHeadCommitSha(headCommitSha: string): void {
+    this.headCommitSha = headCommitSha;
+  }
+
+  /**
    * What the chain is rooted at, or `null` if no stat has said.
    *
    * Read rather than carried on `stat:receive`, for the same reason the patch
