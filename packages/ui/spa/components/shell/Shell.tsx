@@ -306,6 +306,12 @@ export type ShellProps = {
   onSelectActivity?: (entry: ShellActivityEntry) => void;
   /** Create a page under a route. See `PagesPanelProps`. */
   onNewPage?: (moduleFilePath: ModuleFilePath, urlPath: string) => void;
+  /** Copy a page to another URL under the same route. See `PagesPanelProps`. */
+  onDuplicatePage?: (
+    moduleFilePath: ModuleFilePath,
+    fromUrlPath: string,
+    toUrlPath: string,
+  ) => void;
   onUploadMedia?: (gallery: ShellMediaGallery) => void;
   /** Open the review view. Offered from the top bar and the quick actions. */
   onCompare?: () => void;
@@ -389,6 +395,7 @@ export function Shell({
   onSelectValidationError,
   onSelectActivity,
   onNewPage,
+  onDuplicatePage,
   onUploadMedia,
   onCompare,
   onDiscardAll,
@@ -929,6 +936,7 @@ export function Shell({
             if (next) select(next);
           }}
           onNewPage={onNewPage ?? (() => undefined)}
+          onDuplicatePage={onDuplicatePage}
           // Only where a route accepts one. A project of static routes has no
           // key to invent, so there is nothing for a New page button to do.
           newPage={onNewPage ? data.newPage : undefined}

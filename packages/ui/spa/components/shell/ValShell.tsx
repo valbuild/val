@@ -21,6 +21,7 @@ import {
 import { Module } from "../Module";
 import { useRequestUpload } from "../UploadRequest";
 import { useAddPage } from "../useAddPage";
+import { useDuplicateRecordEntry } from "../useDuplicateRecordEntry";
 import { PublishButton } from "../PublishButton";
 import { ValidationErrorsView } from "../ValidationErrors";
 import { ComparePatchSets, CompareLoading } from "../ComparePatchSets";
@@ -62,6 +63,7 @@ import {
   useFilePatchIds,
   useGetNavPath,
   useResolveNavPath,
+  useSchemas,
 } from "../ValFieldProvider";
 import type { NavPathResolution } from "../getNavPath";
 import { refToUrl } from "../MediaPicker/refToUrl";
@@ -598,6 +600,32 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * cannot come to disagree about what an empty page is. See `useAddPage`.
    */
   const addPage = useAddPage();
+  /**
+   * Copy a page to another URL, and open the copy.
+   *
+   * The router module IS the record, so the two URLs are the two keys and the
+   * copy is one `copy` op - see `useDuplicateRecordEntry`, which the page's own
+   * toolbar goes through as well.
+   */
+  const duplicateRecordEntry = useDuplicateRecordEntry();
+  const schemas = useSchemas();
+  const duplicatePage = useCallback(
+    (
+      moduleFilePath: ModuleFilePath,
+      fromUrlPath: string,
+      toUrlPath: string,
+    ) => {
+      const schema =
+        schemas.status === "success" ? schemas.data[moduleFilePath] : undefined;
+      void duplicateRecordEntry({
+        parentPath: moduleFilePath,
+        fromKey: fromUrlPath,
+        toKey: toUrlPath,
+        jsonValues: schema?.type === "record" && schema.jsonValues === true,
+      });
+    },
+    [duplicateRecordEntry, schemas],
+  );
 
   const requestUpload = useRequestUpload();
   const uploadInto = useCallback(
@@ -920,6 +948,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       initialCanvasTransform={urlState.initial.canvasTransform}
       onViewStateChange={setViewState}
       onNewPage={addPage}
+      onDuplicatePage={duplicatePage}
       onUploadMedia={uploadInto}
       onPreview={openPreviewTab}
       // Also as an href, so the menu item is a link that can be copied. The URL
