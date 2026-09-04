@@ -119,6 +119,18 @@ which is the path the event actually travelled — `useDismissOnOutsidePointer`
 does. This cost the Preview menu's "Open in a new tab" and every suggestion in
 the canvas address bar.
 
+**A Radix popup with no `container` opens OUTSIDE the shadow root, and that also
+reads as a dead button.** The default portal target is `document.body`, where
+none of Val's styles reach the menu and nothing gives it a stacking context
+above the overlay — so it opens, correctly positioned, invisible behind the
+Studio. Nothing is logged and the trigger's `data-state` flips to `open`, so the
+only symptom is a click that appears to do nothing. Every Studio popup therefore
+passes `container={useValPortal()}`; `DropdownMenuContent` and `TooltipContent`
+now render INLINE rather than portalling when they are not given one, because
+clipped is recoverable and invisible is not. This cost the AI chat's model
+picker, which was read as "the model switcher does not work", and the confirm in
+`UtilityPanel` before it.
+
 **A ref mutated during render survives a discarded render; the `setState` beside
 it does not.** So the "adjust state when a prop changes" pattern must hold the
 previous prop in **state**, never a ref:
