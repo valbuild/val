@@ -7,13 +7,13 @@ import {
   useCommittedPatches,
   usePendingClientSidePatchIds,
   useHasNetChanges,
-  useHeldPatchIds,
   usePendingServerSidePatchIds,
   usePublishSummary,
   useValMode,
 } from "./ValProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useValPortal } from "./ValPortalProvider";
+import { useOwnHeldPatchIds } from "./useOwnHeldPatchIds";
 import { useNavigation, VAL_ERRORS_ROUTE } from "./ValRouter";
 import {
   describePublishButton,
@@ -108,7 +108,9 @@ export function PublishButton({
   );
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
   const hasNetChanges = useHasNetChanges();
-  const heldChangeIds = useHeldPatchIds();
+  // Only this user's own held patches: the message offers to stage them, and
+  // a colleague's change is not theirs to stage. See `useOwnHeldPatchIds`.
+  const heldChangeIds = useOwnHeldPatchIds();
   const mode = useValMode();
   const portalContainer = useValPortal();
   const { autoPublish } = useAutoPublish();
