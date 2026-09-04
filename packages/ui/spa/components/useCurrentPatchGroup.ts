@@ -6,6 +6,7 @@ import {
   useCurrentAuthorId,
   useOwnPatchGroupId,
   usePatchGroups,
+  usePatchGroupsSupported,
 } from "./ValProvider";
 
 /**
@@ -21,9 +22,12 @@ import {
  *   project does today.
  * - `enabled: true` with a `patchGroupId` — this user has an open group, and
  *   `members` is what it holds.
- * - `enabled: true` with no `patchGroupId` — groups exist but this user has none
- *   yet. One is created by their first write (membership travels with the
- *   patch), so there is nothing to stage into until then.
+ * - `enabled: true` with no `patchGroupId` — groups exist here but this user has
+ *   none open. Before their first write on the branch, and again after every
+ *   publish, since a publish closes the group and the next write creates the
+ *   next one. Staging stays ON in this window: the review screen is usable, and
+ *   `System.persistPatchGroupChange` holds what the user does there until there
+ *   is a group to send it to.
  */
 export type CurrentPatchGroup = {
   enabled: boolean;
@@ -33,6 +37,7 @@ export type CurrentPatchGroup = {
 
 export function useCurrentPatchGroup(): CurrentPatchGroup {
   const groups = usePatchGroups();
+  const supported = usePatchGroupsSupported();
   const authorId = useCurrentAuthorId();
   /*
    * What our own save was told, which the annotation may not know yet.
@@ -45,7 +50,20 @@ export function useCurrentPatchGroup(): CurrentPatchGroup {
    */
   const ownGroupId = useOwnPatchGroupId();
   return useMemo<CurrentPatchGroup>(() => {
-    if (groups === undefined && ownGroupId === undefined) {
+    /*
+     * Asked of the DEPLOYMENT, not of what we currently hold.
+     *
+     * This used to be `groups === undefined && ownGroupId === undefined`, which
+     * is a different question with the same answer only until the first
+     * publish. A publish closes the group, so the annotation stops carrying one
+     * (it is absent, not empty, when no group holds anything) and
+     * `markPublished` forgets the remembered id — and on a branch with a single
+     * author both went unset at once. Staging disappeared from the review
+     * screen and the write resolver was dropped, so every patch written between
+     * that publish and the next page load joined no group and could not be
+     * published as part of one. `patchGroupsSupported` latches instead.
+     */
+    if (!supported) {
       return { enabled: false, patchGroupId: undefined, members: new Set() };
     }
     if (authorId === null) {
@@ -93,7 +111,7 @@ export function useCurrentPatchGroup(): CurrentPatchGroup {
       patchGroupId: mine?.patchGroupId ?? ownGroupId,
       members: new Set(mine?.patchIds ?? []),
     };
-  }, [groups, authorId, ownGroupId]);
+  }, [groups, supported, authorId, ownGroupId]);
 }
 
 /**

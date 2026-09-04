@@ -215,8 +215,15 @@ export function createValSystem(
              * Once per fetch, not once per chunk. The groups are a property of
              * the branch and identical in every chunk, so asking on each one is
              * N identical lookups against the content API.
+             *
+             * Keyed on not having them YET rather than on being the first
+             * chunk: a chunk that fails is skipped (`failedChunks++; continue`),
+             * so asking only on chunk 1 meant one transient failure lost the
+             * annotation for the whole fetch even though every other chunk
+             * succeeded — and the stale groups then survived until some later
+             * fetch happened to have missing ids.
              */
-            include_patch_groups: chunks === 1,
+            include_patch_groups: patchGroups === undefined,
             // The ids we actually want, not the whole table. The engine asks for
             // everything because it keeps a whole-project map; this store is asked
             // for specific ids by `StatStore` and can say so.
@@ -238,10 +245,11 @@ export function createValSystem(
           continue;
         }
         /*
-         * Annotations from the LAST chunk win, and every chunk carries the same
-         * answer: the groups are a property of the branch, not of the ids asked
-         * for. Recorded outside the patch loop because a chunk can legitimately
-         * return no patches and still carry them.
+         * The FIRST chunk that carries them wins, which is also the only one
+         * that asks — see `include_patch_groups` above. The groups are a
+         * property of the branch, not of the ids asked for, so any chunk's
+         * answer is the whole answer. Recorded outside the patch loop because a
+         * chunk can legitimately return no patches and still carry them.
          */
         if ("patchGroups" in res.json && res.json.patchGroups !== undefined) {
           patchGroups = res.json.patchGroups;

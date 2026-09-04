@@ -76,7 +76,7 @@ export type PatchGroupMembership = {
  */
 export type PatchGroupResolver = (
   patchIds: PatchId[],
-) => PatchGroupMembership | undefined;
+) => Promise<PatchGroupMembership | undefined>;
 
 export type SaveResult =
   | {
@@ -521,7 +521,13 @@ export class PatchSync {
        * one true when the write goes out, since that is what the server unions
        * into the group.
        */
-      const patchGroup = this.patchGroupResolver?.(patchIds);
+      /*
+       * AWAITED. The closure needs a grouping that contains the patch being
+       * saved, and this flush runs synchronously off `patch:create` — so a
+       * resolver that answered from already-rendered state would always be one
+       * grouping behind and send an empty closure.
+       */
+      const patchGroup = await this.patchGroupResolver?.(patchIds);
       const result = await save({
         patches: batch.map((record) => ({
           path: record.moduleFilePath,

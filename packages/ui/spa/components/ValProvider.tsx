@@ -70,7 +70,8 @@ import {
   type AISession,
   AITool,
 } from "../hooks/useAIWebSocket";
-import { concatModulePath } from "../utils/sourcePath";
+import { concatModulePath, isPathWithin } from "../utils/sourcePath";
+import { touchedSourcePaths } from "../stores/SourceStore";
 
 export type { AITool };
 
@@ -1282,6 +1283,23 @@ export function useOwnPatchGroupId(): string | undefined {
   }, [val, groupsVersion]);
 }
 
+/**
+ * Whether this deployment has patch groups at all.
+ *
+ * Not the same question as "do I have a group", and asking the second in place
+ * of the first is what turned staging off after a publish — see
+ * `PatchStore.patchGroupsSeen`.
+ */
+export function usePatchGroupsSupported(): boolean {
+  const val = useValSystem();
+  const groupsVersion = useGroupsVersion();
+  return useMemo(() => {
+    void groupsVersion;
+    if (val === null) return false;
+    return val.system.patchStore.patchGroupsSupported();
+  }, [val, groupsVersion]);
+}
+
 export function usePatchSets():
   | {
       status: "success";
@@ -1500,15 +1518,32 @@ export function useNoOpSourcePaths(
      * A held patch's two sides are not equal. They only look equal because we
      * are hiding it.
      */
-    const heldModules = new Set<ModuleFilePath>();
+    const heldPaths: SourcePath[] = [];
     for (const record of val.system.patchStore.recordsFor([
       ...val.system.patchStore.heldPatchIds(),
     ])) {
-      heldModules.add(record.moduleFilePath);
+      heldPaths.push(...touchedSourcePaths(record));
     }
+    /*
+     * Per PATH, not per module.
+     *
+     * Excluding every path in a module that has any held patch is too coarse: a
+     * field the user typed back to its original, in a module that also happens
+     * to carry somebody else's held insert, never reaches the comparison and is
+     * listed as a live change it is not.
+     *
+     * A path is skipped when a held patch touches it, or touches something
+     * inside it — the second because a held change to `?items/0/title` is
+     * hidden from `?items` too, so `?items` compares equal for the same reason
+     * and would be misread the same way.
+     */
+    const hiddenAt = (path: SourcePath) =>
+      heldPaths.some(
+        (heldPath) =>
+          isPathWithin(heldPath, path) || isPathWithin(path, heldPath),
+      );
     for (const path of paths) {
-      const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
-      if (heldModules.has(moduleFilePath)) continue;
+      if (hiddenAt(path)) continue;
       const after = store.peek(path);
       const before = store.peekBase(path);
       // Only a settled pair can be compared. Anything still loading is not

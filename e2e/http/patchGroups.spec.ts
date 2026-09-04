@@ -366,6 +366,103 @@ test.describe("the staging controls", () => {
       "Ada, then held back",
     );
   });
+
+  /**
+   * The window after a publish, when this author has no open group.
+   *
+   * A publish CLOSES the group, and the next one is created by the next write —
+   * so between the two there is nothing to stage into, and the client remembers
+   * no id. Two things went wrong there, and this drives both:
+   *
+   * - a stage made in the window reached the local scope and nothing else. On
+   *   screen that is indistinguishable from one that persisted, and it is gone
+   *   on reload. That is what the final assertion here is;
+   * - staging turned OFF entirely. "Do I have a group" was being asked in place
+   *   of "does this deployment have groups", so on a branch whose ONLY group
+   *   had just been closed both answers went no at once — the controls vanished
+   *   and `usePatchGroupWrites` dropped the write resolver, so the next patch
+   *   joined no group and could never be published as part of one. Bob's
+   *   pending group keeps the annotation non-empty here, so that half is out of
+   *   this test's reach; `patchGroupIdentity.test.ts` pins it at the store.
+   */
+  test("staging survives the window after a publish", async ({
+    page,
+    browser,
+  }) => {
+    // Bob's change, which stays pending throughout: it is what Alice has left
+    // to stage once her own work has shipped.
+    const bobContext = await contextAs(browser, "linus");
+    const bobPage = await bobContext.newPage();
+    await openHttpStudio(bobPage);
+    const bobPatch = await writePatch(bobPage, AUTHORS, [
+      { op: "replace", path: ["freekh", "name"], value: "Bob is waiting" },
+    ]);
+
+    await openHttpStudio(page);
+    await writePatch(page, AUTHORS, [
+      { op: "replace", path: ["teddy", "name"], value: "Alice ships first" },
+    ]);
+    expect((await publishAll(page, "Alice ships")).status).toBe("published");
+    await expect
+      .poll(() => ownGroupId(page), {
+        message: "the client kept an id for a group the publish closed",
+      })
+      .toBe(undefined);
+
+    const studio = page.locator("#val-shadow-root");
+    await openCompare(page, studio);
+    const stage = studio.getByRole("button", { name: /^Stage / }).first();
+    await expect(
+      stage,
+      "the staging controls disappeared after the publish",
+    ).toBeVisible({ timeout: 30_000 });
+    await stage.click();
+
+    /*
+     * Nowhere to send it yet, so Bob's group must be untouched — and no group
+     * of Alice's may have been invented to hold it.
+     */
+    const during = await mock.state();
+    expect(
+      during.patchGroups.find((group) => group.patchIds.includes(bobPatch))
+        ?.authorId,
+    ).toBe(USERS.linus.profileId);
+    expect(
+      during.patchGroups.filter(
+        (group) =>
+          group.authorId === USERS.ada.profileId && group.publishedAt === null,
+      ),
+      "an open group appeared for Alice before she wrote anything",
+    ).toHaveLength(0);
+
+    /*
+     * Alice types again. That creates her next group, and the held stage goes
+     * out with it — which is why the queue lives on the system: this write
+     * happens after she has navigated off the review screen that took the
+     * click.
+     */
+    const alicePatch = await writePatch(page, AUTHORS, [
+      { op: "replace", path: ["teddy", "name"], value: "Alice, again" },
+    ]);
+
+    await expect
+      .poll(
+        async () => {
+          const state = await mock.state();
+          const mine = state.patchGroups.find(
+            (group) =>
+              group.authorId === USERS.ada.profileId &&
+              group.publishedAt === null,
+          );
+          return mine?.patchIds ? [...mine.patchIds].sort() : undefined;
+        },
+        {
+          message:
+            "the post-publish write joined no group, or the held stage never went out",
+        },
+      )
+      .toEqual([alicePatch, bobPatch].sort());
+  });
 });
 
 /**

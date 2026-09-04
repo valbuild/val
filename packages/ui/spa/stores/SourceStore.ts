@@ -212,6 +212,20 @@ function sameEntriesStatus(a: EntriesStatus, b: EntriesStatus): boolean {
   return true;
 }
 
+/**
+ * Has this patch shipped?
+ *
+ * `appliedAt` is `null` for a patch the server knows about and has not
+ * committed, and `undefined` for one created locally, which by definition has
+ * not — so BOTH mean "still pending" and only a commit sha means shipped.
+ * Writing `appliedAt !== null` catches the local case as applied, which makes
+ * every patch this tab just wrote unconditionally visible and defeats the whole
+ * scope. It did, briefly.
+ */
+function isApplied(record: PatchRecord): boolean {
+  return record.appliedAt !== null && record.appliedAt !== undefined;
+}
+
 export class SourceStore {
   readonly events = new StoreBus<SystemEvent>();
 
@@ -1434,8 +1448,29 @@ export class SourceStore {
    * The one place the filter is interpreted, so "no scope means everything"
    * cannot drift between the call sites that replay a chain.
    */
-  private isVisible(patchId: PatchId): boolean {
-    return this.visiblePatchIds === null || this.visiblePatchIds.has(patchId);
+  private isVisible(record: PatchRecord): boolean {
+    if (this.visiblePatchIds === null) {
+      return true;
+    }
+    /*
+     * Scoping is about PENDING work. Anything already committed is part of
+     * everyone's view, whatever the scope says.
+     *
+     * A published patch stays in the chain with `appliedAt` set until the next
+     * deployment moves the base, so between publish and deploy it is live
+     * content that no group holds — the publisher's own group was CLOSED by the
+     * publish, and nobody else's ever held it. Filtering it out made the Studio
+     * disagree with the server (`scopedPatches` applies it), count live content
+     * as held, and — after a reload — hide the author's own just-shipped change
+     * from them.
+     *
+     * `prefixViolations` in `createSystem` already treats applied as shipped;
+     * this is the same rule at the other end of the same feature.
+     */
+    if (isApplied(record)) {
+      return true;
+    }
+    return this.visiblePatchIds.has(record.patchId);
   }
 
   /**
@@ -1457,8 +1492,11 @@ export class SourceStore {
     for (const [moduleFilePath, chain] of this.chains) {
       let differs = false;
       for (const entry of chain) {
-        const wasVisible = this.isVisible(entry.record.patchId);
-        const nowVisible = next === null || next.has(entry.record.patchId);
+        const wasVisible = this.isVisible(entry.record);
+        const nowVisible =
+          next === null ||
+          isApplied(entry.record) ||
+          next.has(entry.record.patchId);
         if (wasVisible !== nowVisible) {
           differs = true;
           // Whichever direction it moved, the paths that patch touches are the
@@ -1515,7 +1553,7 @@ export class SourceStore {
           // `external` for the reason a drop uses it: the author of a patch that
           // just became visible or invisible is a reader who must be woken, not
           // the one suppression exists to spare.
-          origin: "external" as const,
+          origin: "external",
           creatorFieldId: undefined,
         })),
       );
@@ -2039,7 +2077,7 @@ export class SourceStore {
        * says nothing reads as "still working" and the editor holds every field
        * inert for as long as the tab is open.
        */
-      if (!this.isVisible(record.patchId)) {
+      if (!this.isVisible(record)) {
         held.push(record.patchId);
         continue;
       }
@@ -2275,8 +2313,13 @@ function samePeek(a: SourcePeek, b: SourcePeek): boolean {
  * Op paths are patch paths (`["field"]`); listeners register source paths
  * (`/test.val.ts?"field"`), so each op path is converted and qualified with the
  * module. `move`/`copy` change two places, so both ends are reported.
+ *
+ * Exported for `useNoOpSourcePaths`, which needs to know WHICH paths a held
+ * patch hides rather than only which module it is in — excluding the whole
+ * module misclassifies a genuinely reverted field that happens to share a
+ * module with somebody else's held change.
  */
-function touchedSourcePaths(record: PatchRecord): SourcePath[] {
+export function touchedSourcePaths(record: PatchRecord): SourcePath[] {
   const paths: SourcePath[] = [];
   const add = (patchPath: string[]) => {
     paths.push(

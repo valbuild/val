@@ -206,3 +206,50 @@ test("an unchanged annotation keeps its identity", async () => {
   expect(system.patchStore.groups()).toBe(first);
   expect(system.patchStore.groupsVersion()).toBe(afterFirst);
 });
+
+test("a publish does not make the deployment look like one without groups", async () => {
+  const system = makeSystem({ savedInGroup: "g1" });
+  await edit(system, "edited");
+  expect(system.patchStore.patchGroupsSupported()).toBe(true);
+
+  await system.publish([], "ship it");
+
+  /*
+   * The id is gone — a publish closes the group — but "this deployment has
+   * patch groups" is a fact about the deployment and cannot stop being true.
+   *
+   * They used to be the same answer: the annotation is ABSENT rather than
+   * empty when no group holds anything, so on a single-author branch the
+   * publish left both unset and the client concluded there were no groups
+   * here. `useCurrentPatchGroup` then reported `enabled: false`, which turns
+   * the staging controls off AND makes `usePatchGroupWrites` drop the write
+   * resolver — so every patch written between that publish and the next page
+   * load joined no group at all.
+   */
+  expect(system.patchStore.ownGroupId()).toBe(undefined);
+  expect(system.patchStore.patchGroupsSupported()).toBe(true);
+});
+
+test("a deployment that never mentions a group is not reported as having them", async () => {
+  const system = makeSystem();
+  await edit(system, "edited");
+
+  // `fs` mode, or a content API that predates groups. Latching on the first
+  // sighting must not mean latching on nothing.
+  expect(system.patchStore.patchGroupsSupported()).toBe(false);
+});
+
+test("the annotation alone is enough to know groups exist here", async () => {
+  const system = makeSystem({
+    fetchAnswers: [{ patches: [], patchGroups: [GROUP] }],
+  });
+  expect(system.patchStore.patchGroupsSupported()).toBe(false);
+
+  // Somebody else's group, on a branch this client has not written to. It still
+  // proves the deployment has them.
+  system.stat.receiveStat({ patches: ["foreign" as PatchId], baseSha: "sha" });
+  await system.patchSync.flush();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(system.patchStore.patchGroupsSupported()).toBe(true);
+});

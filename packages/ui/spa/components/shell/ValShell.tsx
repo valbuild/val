@@ -30,12 +30,9 @@ import {
 } from "../PatchStagingProvider";
 
 import { useCurrentPatchGroup } from "../useCurrentPatchGroup";
-import {
-  CLOSURE_VERSION,
-  indexPatchSets,
-  stageClosure,
-} from "../../utils/patchGroups";
+import { CLOSURE_VERSION } from "../../utils/patchGroups";
 import type { SerializedPatchSet } from "../../utils/PatchSets";
+import { isPathWithin } from "../../utils/sourcePath";
 import type { Profile } from "../ValProvider";
 import { LoginDialog } from "../LoginDialog";
 import { PatchErrorsDialog } from "../PatchErrorsDialog";
@@ -186,8 +183,9 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const committedPatchIds = useCommittedPatches();
   const patchSets = usePatchSets();
   const ownPendingChanges = useOwnPendingChangeCount();
-  usePatchGroupWrites(patchSets);
+  usePatchGroupWrites();
   usePatchGroupScope();
+  usePatchGroupFlush();
   const profilesByAuthorIds = useProfilesByAuthorId();
   const currentAuthorId = useCurrentAuthorId();
   const portalContainer = useValPortal();
@@ -1037,6 +1035,33 @@ function CompareView() {
 }
 
 /**
+ * Scope the client to this user's group, once, as soon as the server's answer
+ * is known.
+ *
+ * At shell level rather than in the review screen, because publish must be
+ * scoped whether or not that screen was ever opened — otherwise the first
+ * publish of a session ships the whole pending chain.
+ *
+ * This is the only place the scope is set from the annotation, and it runs
+ * once: after it, the scope is local truth that only the user moves. Nothing
+ * repairs the group when patch sets coalesce — see `PatchStagingProvider` for
+ * why that is the policy — so this hook has no other job.
+ */
+function usePatchGroupScope(): void {
+  const val = useValSystem();
+  const group = useCurrentPatchGroup();
+  const scoped = val?.system.patchGroup() ?? null;
+
+  useEffect(() => {
+    if (val === null || !group.enabled) return;
+    if (scoped !== null) return;
+    // `seed`, not `set`: the annotation is routinely older than the last thing
+    // the user typed, and scoping to it verbatim hides their own writes.
+    val.system.seedPatchGroup([...group.members]);
+  }, [val, group.enabled, group.members, scoped]);
+}
+
+/**
  * Make every write carry this user's patch group.
  *
  * Registered from the SHELL, not from the compare view, and that is the point:
@@ -1077,21 +1102,11 @@ function usePatchGroupChange(
        * Scoped locally FIRST, so the screen answers immediately, and persisted
        * after.
        *
-       * KNOWN GAP: if the persist fails, nothing corrects the local scope.
-       * `PatchStore` only re-reads the group annotation inside a fetch it makes
-       * for MISSING patch ids, so on a quiet branch the next `GET /patches`
-       * that would put the view back may never happen — the screen keeps
-       * showing a stage the server refused, and it is lost on reload. The
-       * failure is logged below; it is not yet reconciled. Same root cause as
-       * a stage in one tab not reaching another. See
-       * `docs/independent-publish/DESIGN.md`.
+       * If the persist fails, nothing corrects the local scope — a KNOWN GAP,
+       * spelled out where the failure is handled (`sendPatchGroupChange` in
+       * `createSystem`) and in `docs/independent-publish/DESIGN.md`.
        */
       val.system.setPatchGroup([...next]);
-      if (patchGroupId === undefined) {
-        // No group yet — nothing has been written on this branch by this user,
-        // so there is nothing to stage into. The first write creates it.
-        return;
-      }
       /*
        * What the user asked for AND what the closure dragged along. The server
        * unions on stage and removes on unstage, so sending only `requested`
@@ -1100,18 +1115,20 @@ function usePatchGroupChange(
        */
       const patchIds = [...change.requested, ...change.alsoMoved];
       if (patchIds.length === 0) return;
-      const call =
-        change.type === "stage"
-          ? val.system.stagePatches
-          : val.system.unstagePatches;
-      void call({
-        patchGroupId,
+      /*
+       * `patchGroupId` is `undefined` in two windows the review screen is
+       * perfectly usable in: before this author's first write on a branch, and
+       * after every publish, since a publish closes the group and the next one
+       * is created by the next write. This used to return here, so a stage made
+       * in either window moved the screen and persisted nothing. The system
+       * holds it and sends it when a group exists — the queue cannot live here,
+       * because this screen unmounts as soon as the user navigates off to make
+       * the write that creates the group.
+       */
+      val.system.persistPatchGroupChange(patchGroupId, {
+        type: change.type,
         patchIds,
         closureVersion: change.closureVersion,
-      }).then((res) => {
-        if (res.status === "error") {
-          console.error("Val: could not update patch group", res.message);
-        }
       });
     },
     [val, patchGroupId],
@@ -1127,48 +1144,24 @@ function sameMembers(a: readonly PatchId[], b: ReadonlySet<PatchId>): boolean {
 }
 
 /**
- * Scope the client to this user's group, once, as soon as the server's answer
- * is known.
+ * Make every write carry this user's patch group.
  *
- * At shell level rather than in the review screen, because publish must be
- * scoped whether or not that screen was ever opened — otherwise the first
- * publish of a session ships the whole pending chain.
+ * Registered from the SHELL, not from the compare view, and that is the point:
+ * writes happen while somebody is editing, which is exactly when the review
+ * screen is closed. Registering it there would mean a patch joins a group only
+ * if you happened to have Compare open when you typed.
  *
- * This is the only place the scope is set from the annotation, and it runs
- * once: after it, the scope is local truth that only the user moves. Nothing
- * repairs the group when patch sets coalesce — see `PatchStagingProvider` for
- * why that is the policy — so this hook has no other job.
+ * The closure itself is `System.computeWriteClosure`, not something computed
+ * here. It has to be: the flush runs synchronously off `patch:create`, so
+ * anything derived from already-rendered patch sets is one grouping behind and
+ * cannot contain the patch being saved — which made `alsoAddPatchIds` empty in
+ * the normal case. The system awaits a grouping that covers the batch.
+ *
+ * All this hook decides is WHETHER to send a group at all.
  */
-function usePatchGroupScope(): void {
+function usePatchGroupWrites(): void {
   const val = useValSystem();
   const group = useCurrentPatchGroup();
-  const scoped = val?.system.patchGroup() ?? null;
-
-  useEffect(() => {
-    if (val === null || !group.enabled) return;
-    if (scoped !== null) return;
-    // `seed`, not `set`: the annotation is routinely older than the last thing
-    // the user typed, and scoping to it verbatim hides their own writes.
-    val.system.seedPatchGroup([...group.members]);
-  }, [val, group.enabled, group.members, scoped]);
-}
-
-function usePatchGroupWrites(
-  /*
-   * Handed in rather than subscribed to again.
-   *
-   * Every `usePatchSets()` is its OWN `getPatchSets()` round trip into the
-   * worker, re-run on each chain movement — which is once per keystroke batch.
-   * This hook is called from the shell, which already has the answer, so
-   * calling it here made the shell group the whole chain twice for one result.
-   */
-  patchSets: ReturnType<typeof usePatchSets>,
-): void {
-  const val = useValSystem();
-  const group = useCurrentPatchGroup();
-  const chainOrder = useChainOrder();
-  const patchSetsData =
-    patchSets.status === "success" ? patchSets.data : undefined;
 
   useEffect(() => {
     if (val === null) return;
@@ -1184,44 +1177,33 @@ function usePatchGroupWrites(
      * bootstraps on the first write — and no stale id survives a publish to
      * fail the next one.
      */
-    val.system.setPatchGroupResolver((patchIds) => {
-      if (patchSetsData === undefined) {
-        // The grouping has not been computed yet. The patch still joins the
-        // group; it simply drags nothing along, and a later stage repairs the
-        // prefix if one was owed.
-        return { alsoAddPatchIds: [], closureVersion: CLOSURE_VERSION };
-      }
-      let index;
-      try {
-        index = indexPatchSets(patchSetsData, chainOrder);
-      } catch {
-        // A skew between the grouping and the chain, which is a real
-        // possibility mid-sync. Join without a closure rather than refusing the
-        // write: losing the edit is worse than an under-closed group, which
-        // staging what is missing fixes.
-        return { alsoAddPatchIds: [], closureVersion: CLOSURE_VERSION };
-      }
-      /*
-       * The base is what this client is scoped to RIGHT NOW, read at call time
-       * rather than captured. A stage or unstage moves the scope without moving
-       * the annotation, so closing over `group.members` would compute the
-       * closure against a group the user has already changed.
-       */
-      const base = val.system.patchGroup();
-      const held: ReadonlySet<PatchId> =
-        base === null ? group.members : new Set(base);
-      const next = stageClosure(index, held, patchIds);
-      /*
-       * Only what is NEW. The server unions, so re-sending what the group
-       * already holds is a no-op — but it is also a much larger request on a
-       * long chain, once per keystroke batch.
-       */
-      const alsoAddPatchIds = [...next].filter(
-        (patchId) => !held.has(patchId) && !patchIds.includes(patchId),
-      );
-      return { alsoAddPatchIds, closureVersion: CLOSURE_VERSION };
-    });
-  }, [val, group, patchSetsData, chainOrder]);
+    val.system.setPatchGroupResolver(async (patchIds) => ({
+      alsoAddPatchIds: await val.system.computeWriteClosure(patchIds),
+      closureVersion: CLOSURE_VERSION,
+    }));
+  }, [val, group.enabled]);
+}
+
+/**
+ * Send the group changes that were made before there was a group.
+ *
+ * At SHELL level for the same reason the queue is on the system: the id
+ * normally appears because the user left the review screen and typed
+ * something, so the component that took the clicks is unmounted by the time
+ * there is anywhere to send them. This one is mounted throughout.
+ *
+ * Runs on every id change, not only the first. A publish closes the group, so a
+ * session goes through this repeatedly — and the id it flushes into is always
+ * the current open group, never the closed one the clicks were made against.
+ */
+function usePatchGroupFlush(): void {
+  const val = useValSystem();
+  const group = useCurrentPatchGroup();
+
+  useEffect(() => {
+    if (val === null || group.patchGroupId === undefined) return;
+    val.system.flushPatchGroupChanges(group.patchGroupId);
+  }, [val, group.patchGroupId]);
 }
 
 /**
@@ -1318,22 +1300,6 @@ export function resolveSelectionId(
   for (const gallery of data.media) consider(gallery.id);
   for (const module of data.data) consider(module.id);
   return best;
-}
-
-/**
- * Whether `path` is `id` or something inside it.
- *
- * A prefix test alone is not enough: `/content/authors.val.ts` is a textual
- * prefix of `/content/authorsExtra.val.ts`, and a page id ending in a quoted
- * route key is a prefix of a longer key that merely starts the same way
- * (`?p="/blog"` and `?p="/blogs"`). The next character therefore has to be one
- * that actually starts a new segment.
- */
-function isPathWithin(path: string, id: string): boolean {
-  if (path === id) return true;
-  if (!path.startsWith(id)) return false;
-  const next = path[id.length];
-  return next === "?" || next === ".";
 }
 
 /**

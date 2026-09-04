@@ -603,10 +603,6 @@ export const Api = {
               schemaSha: z.string(),
               sourcesSha: z.string(),
               patches: z.array(PatchId),
-              // Hash over the caller's patch group membership. Patch ids alone
-              // cannot detect a stage/unstage: the set of pending patches is
-              // unchanged, only who holds them. Without this, unstaging in one tab
-              // never reaches another. Optional so FS mode can omit it.
               /**
                * Unpublished changes the store threw away because it could not
                * read them.

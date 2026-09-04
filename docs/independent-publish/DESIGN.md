@@ -109,6 +109,20 @@ Commits the group's patches in chain order; the content API closes the group
 comes back. The next write creates the next group, so the client forgets the id
 on publish.
 
+That leaves a window — before the first write on a branch, and after every
+publish — where groups exist here and this author has none open. Two things
+follow, and both were wrong before:
+
+- **Staging stays on.** "Does this deployment have groups" is latched
+  (`PatchStore.patchGroupsSeen`), separately from "do I have one". Asking the
+  second in place of the first turned staging off after every publish and, worse,
+  dropped the write resolver, so patches written before the next reload joined no
+  group at all.
+- **A stage in that window is held, not dropped.** `persistPatchGroupChange`
+  queues it on the system and the shell flushes it when an id appears — on the
+  system rather than on the review screen, because the id normally appears
+  BECAUSE the user left that screen to type something.
+
 ## Invariants worth attacking in review
 
 1. Is the prefix invariant actually sufficient, or can two patches in _different_
@@ -126,7 +140,9 @@ on publish.
    nothing reconciles it. `PatchStore` re-reads the annotation only inside a
    fetch it makes for MISSING patch ids, so on a quiet branch a failed stage is
    kept on screen until the page is reloaded, and a stage in one tab never
-   reaches another. Closing both needs the annotation to refresh on its own.
+   reaches another. Closing both needs the annotation to refresh on its own. The
+   deferred queue above narrows this but does not close it: a change held while
+   there is no group is lost if the tab closes before one exists.
 5. Held patches count as _settled_ but not _applied_ (`chainSettled`), because
    the editor holds every field inert until the chain settles. A held patch that
    counted as neither would dim the Studio permanently.

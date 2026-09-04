@@ -238,6 +238,23 @@ export class PatchStore {
    * reader can tell a real group from a bare id.
    */
   private ownPatchGroupId: string | undefined;
+  /**
+   * Has this deployment got patch groups AT ALL?
+   *
+   * A fact about the deployment, so it is latched: once the server has answered
+   * with a group annotation, or named the group one of our own saves joined,
+   * groups exist here and cannot stop existing.
+   *
+   * It has to be its own flag because neither of the two things that reveal it
+   * stays true. The annotation is ABSENT rather than empty where no group holds
+   * anything, and {@link ownPatchGroupId} is deliberately forgotten on publish
+   * — so straight after a publish, on a branch whose only group was the one
+   * just closed, both were unset and the client concluded the deployment had no
+   * groups. Staging vanished from the review screen and, far worse,
+   * `usePatchGroupWrites` dropped the resolver, so the next write joined no
+   * group and could not be published as part of one.
+   */
+  private patchGroupsSeen = false;
   private appliedIds = new Set<PatchId>();
   /**
    * Patches the source store reported as HELD — outside the reader's patch
@@ -626,6 +643,7 @@ export class PatchStore {
        * repaint the review screen.
        */
       this.patchGroups = res.patchGroups;
+      this.patchGroupsSeen = true;
       this.bumpGroups();
     }
     const received: PatchId[] = [];
@@ -1334,7 +1352,18 @@ export class PatchStore {
       return;
     }
     this.ownPatchGroupId = patchGroupId;
+    this.patchGroupsSeen = true;
     this.bumpGroups();
+  }
+
+  /**
+   * Whether this deployment has patch groups. See {@link patchGroupsSeen}.
+   *
+   * Never goes back to false, so a publish — which closes the group and clears
+   * the remembered id — does not turn staging off.
+   */
+  patchGroupsSupported(): boolean {
+    return this.patchGroupsSeen;
   }
 
   /**

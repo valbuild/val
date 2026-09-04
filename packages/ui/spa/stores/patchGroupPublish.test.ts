@@ -291,7 +291,7 @@ test("sends the resolver's group and closure with the write", async () => {
   system.stat.receiveStat({ patches: [], baseSha: "sha" });
 
   const asked: PatchId[][] = [];
-  system.setPatchGroupResolver((patchIds) => {
+  system.setPatchGroupResolver(async (patchIds) => {
     asked.push([...patchIds]);
     return {
       patchGroupId: "group-alice",
@@ -374,7 +374,7 @@ test("a write sends the closure without naming a group", async () => {
   system.host.receive(project());
   system.stat.receiveStat({ patches: [], baseSha: "sha" });
 
-  system.setPatchGroupResolver(() => ({
+  system.setPatchGroupResolver(async () => ({
     alsoAddPatchIds: ["p-theirs" as PatchId],
     closureVersion: 1,
   }));
@@ -386,4 +386,61 @@ test("a write sends the closure without naming a group", async () => {
   // The closure travels; the id does not.
   expect(saves[0].patchGroup?.alsoAddPatchIds).toEqual(["p-theirs"]);
   expect(saves[0].patchGroup?.patchGroupId).toBeUndefined();
+});
+
+/**
+ * The closure a write actually carries, computed the way the app computes it.
+ *
+ * Every other test here STUBS the resolver, which is why the real one could be
+ * empty in the normal case and nothing noticed. `PatchSync.listenTo` flushes
+ * synchronously on `patch:create`, so a resolver answering from already-rendered
+ * patch sets is one grouping behind: the patch being saved is in no set,
+ * `stageClosure` has nothing to pull in for it, and `alsoAddPatchIds` comes out
+ * empty — the exact hole `DESIGN.md` says a write cannot open.
+ */
+test("a write carries the patches its own edit is entangled with", async () => {
+  const saves: { alsoAddPatchIds?: readonly PatchId[] }[] = [];
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: (() => {
+      let next = 0;
+      return () => `p${++next}` as PatchId;
+    })(),
+    savePatches: async ({ patches, parentRef, patchGroup }) => {
+      saves.push({ alsoAddPatchIds: patchGroup?.alsoAddPatchIds });
+      return {
+        status: "saved",
+        newPatchIds: patches.map((patch) => patch.patchId),
+        parentRef,
+      };
+    },
+    publishPatches: async () => ({ status: "published" }),
+  });
+  system.host.receive(project());
+  system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+  // The real resolver, as `ValShell` registers it.
+  system.setPatchGroupResolver(async (patchIds) => ({
+    alsoAddPatchIds: await system.computeWriteClosure(patchIds),
+    closureVersion: 1,
+  }));
+
+  // An earlier edit to the same path, held back — so it is in this client's
+  // chain, in the same patch set as what comes next, and NOT in its group.
+  const earlier = await edit(system, MODULE, "earlier");
+  await system.patchSync.flush();
+  system.setPatchGroup([]);
+  saves.length = 0;
+
+  await edit(system, MODULE, "mine");
+  await system.patchSync.flush();
+
+  expect(saves).toHaveLength(1);
+  /*
+   * The whole claim. `earlier` precedes this edit in the same patch set, so it
+   * has to join the group or the group holds a suffix and the publish gate
+   * refuses it. Empty here is the bug: it means the grouping used to compute
+   * the closure did not yet contain the patch being written.
+   */
+  expect(saves[0].alsoAddPatchIds).toEqual([earlier]);
 });

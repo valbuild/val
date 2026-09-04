@@ -30,7 +30,9 @@ import {
 import { HostStore } from "./HostStore";
 import {
   indexPatchSets,
+  stageClosure,
   validateGroup,
+  type PatchSetIndex,
   type PrefixViolation,
 } from "../utils/patchGroups";
 import { PreviewStore } from "./PreviewStore";
@@ -242,6 +244,16 @@ export type System = HostRealm &
     seedPatchGroup(ids: readonly PatchId[]): void;
     setPatchGroupResolver(resolver: PatchGroupResolver | undefined): void;
     /**
+     * The closure for a write: which OTHER patches must join this author's
+     * group so it stays prefix-closed.
+     *
+     * On the system because it needs an AWAITED grouping — see the
+     * implementation for why answering from already-rendered patch sets makes
+     * the closure empty in the normal case. A caller registering a resolver
+     * should delegate to this rather than computing it themselves.
+     */
+    computeWriteClosure(patchIds: readonly PatchId[]): Promise<PatchId[]>;
+    /**
      * Persist a change to what this user's group holds.
      *
      * Separate from {@link System.setPatchGroup}, which only scopes THIS client.
@@ -255,6 +267,34 @@ export type System = HostRealm &
     unstagePatches(
       request: Parameters<StagePatches>[0],
     ): ReturnType<StagePatches>;
+    /**
+     * Send a group change, or hold it until there is a group to send it to.
+     *
+     * `patchGroupId` is `undefined` whenever this author has no open group:
+     * before their first write on a branch, and again after every publish,
+     * because a publish closes the group and the next one is created by the
+     * next write. The review screen is usable in both windows — unstaging
+     * somebody else's patch, or re-staging one held earlier — and every such
+     * change used to reach only the local scope and then be lost on reload.
+     *
+     * Held on the SYSTEM rather than in the review screen, because the screen
+     * unmounts the moment the user navigates off it to make the write that
+     * creates the group. A queue that lives on the screen is a queue that is
+     * gone before it can be flushed.
+     */
+    persistPatchGroupChange(
+      patchGroupId: string | undefined,
+      change: PatchGroupChangeRequest,
+    ): void;
+    /**
+     * Send everything {@link System.persistPatchGroupChange} held back.
+     *
+     * Called when a group id appears. In chain order of the user's clicks: the
+     * server unions on stage and removes on unstage, so replaying the moves in
+     * the order they were made lands on the membership the user asked for, even
+     * when they toggled the same patch twice.
+     */
+    flushPatchGroupChanges(patchGroupId: string): void;
     /** The current group, or `null` when unscoped. See {@link System.setPatchGroup}. */
     patchGroup(): readonly PatchId[] | null;
     /**
@@ -320,6 +360,28 @@ export type StagePatches = (request: {
   patchIds: PatchId[];
   closureVersion: number;
 }) => Promise<{ status: "ok" } | { status: "error"; message: string }>;
+
+/**
+ * One move of this author's group, as it goes on the wire.
+ *
+ * Named because it is also what gets QUEUED when the group does not exist yet —
+ * see {@link System.persistPatchGroupChange}.
+ */
+/**
+ * How many un-persistable group changes to remember.
+ *
+ * Only reached on a branch where the group never comes into existence, which
+ * means the user never writes — so this is a bound on a pathological session,
+ * not a working one.
+ */
+const MAX_DEFERRED_GROUP_CHANGES = 100;
+
+export type PatchGroupChangeRequest = {
+  type: "stage" | "unstage";
+  /** What the user asked for AND what the closure moved along with it. */
+  patchIds: PatchId[];
+  closureVersion: number;
+};
 
 export type SystemOptions = {
   fetchPatches: FetchPatches;
@@ -577,6 +639,43 @@ export function createSystem(options: SystemOptions): System {
    */
   let patchGroupIds: readonly PatchId[] | null = null;
   /**
+   * Group changes made while this author had no open group. See
+   * {@link System.persistPatchGroupChange}.
+   */
+  let deferredGroupChanges: PatchGroupChangeRequest[] = [];
+
+  /** One stage or unstage, on the wire. Failures are logged, not thrown. */
+  async function sendPatchGroupChange(
+    patchGroupId: string,
+    change: PatchGroupChangeRequest,
+  ): Promise<void> {
+    const call =
+      change.type === "stage" ? options.stagePatches : options.unstagePatches;
+    if (call === undefined) {
+      // No seam configured, which is `fs` mode: membership is local truth
+      // there, and the local scope has already moved.
+      return;
+    }
+    const res = await call({
+      patchGroupId,
+      patchIds: change.patchIds,
+      closureVersion: change.closureVersion,
+    });
+    if (res.status === "error") {
+      /*
+       * KNOWN GAP: nothing puts the local scope back.
+       *
+       * `PatchStore` re-reads the group annotation only inside a fetch it makes
+       * for MISSING patch ids, so on a quiet branch the request that would
+       * correct the screen may never happen — the user keeps seeing a stage the
+       * server refused until they reload. Same root cause as a stage in one tab
+       * not reaching another. See `docs/independent-publish/DESIGN.md`.
+       */
+      console.error("Val: could not update patch group", res.message);
+    }
+  }
+
+  /**
    * Widen the scope to include these patches, keeping both halves in step.
    *
    * The scope means "my group", and there are two ways a patch joins one
@@ -683,6 +782,64 @@ export function createSystem(options: SystemOptions): System {
       shipped.add(patchId);
     }
     return validateGroup(index, shipped);
+  }
+
+  /**
+   * The closure a write must carry: which OTHER patches have to join this
+   * author's group so it stays prefix-closed.
+   *
+   * Computed here rather than in the caller, and against a grouping that is
+   * AWAITED rather than one already rendered. That is the whole point:
+   * `PatchSync.listenTo` flushes synchronously on `patch:create`, so a resolver
+   * reading the last-rendered patch sets sees an index that does not contain
+   * the patch being saved — it is in no set, `stageClosure` has nothing to pull
+   * in for it, and `alsoAddPatchIds` comes out empty in the NORMAL case, not a
+   * corner one. That is precisely the hole `DESIGN.md` says a write cannot
+   * open, and with automatic repair removed it now surfaces only as a publish
+   * refusal naming raw patch ids.
+   *
+   * Returns only what is NEW. The server set-unions, so re-sending what the
+   * group already holds is a no-op — and on a long chain it is a much larger
+   * request, once per keystroke batch.
+   */
+  async function computeWriteClosure(
+    patchIds: readonly PatchId[],
+  ): Promise<PatchId[]> {
+    if (patchGroupIds === null) {
+      // Unscoped: no group to keep closed.
+      return [];
+    }
+    const covers = (index: PatchSetIndex) =>
+      patchIds.every((patchId) => index.setsOf.has(patchId));
+    let index: PatchSetIndex;
+    try {
+      index = indexPatchSets(
+        await computePatchSets(),
+        patchStore.allRecords().map((record) => record.patchId),
+      );
+      if (!covers(index)) {
+        /*
+         * A build that was already in flight when this write happened, so it
+         * planned against a chain without these ids. `computePatchSets` shares
+         * the in-flight promise, which is right for readers and wrong here.
+         * The first has settled by now, so this starts a fresh one.
+         */
+        index = indexPatchSets(
+          await computePatchSets(),
+          patchStore.allRecords().map((record) => record.patchId),
+        );
+      }
+    } catch {
+      // The grouping and the chain disagree, which is possible mid-sync. Join
+      // the group without a closure rather than refusing the write: losing the
+      // edit is worse, and the prefix can still be restored by staging.
+      return [];
+    }
+    const held = new Set(patchGroupIds);
+    const next = stageClosure(index, held, patchIds);
+    return [...next].filter(
+      (patchId) => !held.has(patchId) && !patchIds.includes(patchId),
+    );
   }
 
   function computePatchSets(): Promise<SerializedPatchSet> {
@@ -1326,6 +1483,9 @@ export function createSystem(options: SystemOptions): System {
         });
       }
     },
+    computeWriteClosure(patchIds) {
+      return computeWriteClosure(patchIds);
+    },
     setPatchGroupResolver(resolver) {
       if (resolver === undefined) {
         patchSync.setPatchGroupResolver(undefined);
@@ -1345,8 +1505,8 @@ export function createSystem(options: SystemOptions): System {
        * Here rather than in `PatchSync` because the scope lives here, and here
        * rather than in the caller because every caller would have to remember.
        */
-      patchSync.setPatchGroupResolver((patchIds) => {
-        const membership = resolver(patchIds);
+      patchSync.setPatchGroupResolver(async (patchIds) => {
+        const membership = await resolver(patchIds);
         if (membership !== undefined) {
           extendPatchGroup([...patchIds, ...membership.alsoAddPatchIds]);
         }
@@ -1370,6 +1530,42 @@ export function createSystem(options: SystemOptions): System {
         };
       }
       return options.unstagePatches(request);
+    },
+    persistPatchGroupChange(patchGroupId, change) {
+      if (change.patchIds.length === 0) return;
+      if (patchGroupId === undefined) {
+        /*
+         * Nothing to stage into yet. Held rather than dropped — see the
+         * declaration; the alternative was a control that moved the screen and
+         * silently persisted nothing.
+         *
+         * Capped so a user clicking away at a review screen on a branch whose
+         * group never materialises cannot grow this without bound. The oldest
+         * moves are the ones a later toggle is most likely to have already
+         * undone, so they are the ones dropped.
+         */
+        deferredGroupChanges.push(change);
+        if (deferredGroupChanges.length > MAX_DEFERRED_GROUP_CHANGES) {
+          deferredGroupChanges = deferredGroupChanges.slice(
+            -MAX_DEFERRED_GROUP_CHANGES,
+          );
+        }
+        return;
+      }
+      void sendPatchGroupChange(patchGroupId, change);
+    },
+    flushPatchGroupChanges(patchGroupId) {
+      if (deferredGroupChanges.length === 0) return;
+      const queued = deferredGroupChanges;
+      // Cleared BEFORE sending, so a change made while the flush is in flight
+      // queues behind nothing and is sent on its own rather than being replayed
+      // twice by the next flush.
+      deferredGroupChanges = [];
+      void (async () => {
+        for (const change of queued) {
+          await sendPatchGroupChange(patchGroupId, change);
+        }
+      })();
     },
     seedPatchGroup(ids) {
       /*
