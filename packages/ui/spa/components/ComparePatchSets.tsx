@@ -2485,14 +2485,26 @@ function BeforeSourceOverride({
  * in our favour - the wheel and the finger land on this box instead.
  */
 function CompareScrollBox({
+  side,
   className,
   children,
 }: {
+  /**
+   * Which half of a comparison this is, as a test hook.
+   *
+   * The two sides are told apart on screen by position and by a label that only
+   * appears when they stack, neither of which a test can hold on to - and
+   * `e2e/compare.spec.ts` has to assert that the before side shows the previous
+   * value and the after side the new one, not merely that both strings are
+   * somewhere in the row. Same reason `data-val-studio-path` exists.
+   */
+  side?: "before" | "after";
   className?: string;
   children: React.ReactNode;
 }) {
   return (
     <div
+      data-val-compare-side={side}
       className={classNames(
         "min-w-0 overflow-x-auto overflow-y-auto overscroll-contain",
         // Generous on purpose: it engages only for a value that would
@@ -2523,7 +2535,7 @@ function BeforeAfterLayout({
           <div className="text-xs font-medium text-fg-tertiary mb-1">
             Before
           </div>
-          <CompareScrollBox>{before}</CompareScrollBox>
+          <CompareScrollBox side="before">{before}</CompareScrollBox>
         </div>
         <div
           className="hidden lg:flex items-center justify-center text-fg-tertiary pt-3"
@@ -2533,7 +2545,7 @@ function BeforeAfterLayout({
         </div>
         <div className="pl-1 min-w-0">
           <div className="text-xs font-medium text-fg-tertiary mb-1">After</div>
-          <CompareScrollBox>{after}</CompareScrollBox>
+          <CompareScrollBox side="after">{after}</CompareScrollBox>
         </div>
       </div>
     );
@@ -2561,7 +2573,7 @@ function BeforeAfterLayout({
          * wider, so the dense desktop row does not grow two redundant captions.
          */}
         <StackedSideLabel>Before</StackedSideLabel>
-        <CompareScrollBox>{before}</CompareScrollBox>
+        <CompareScrollBox side="before">{before}</CompareScrollBox>
       </div>
       <div
         className="hidden lg:flex items-center justify-center text-fg-tertiary"
@@ -2571,7 +2583,7 @@ function BeforeAfterLayout({
       </div>
       <div className="pl-4 lg:pl-1 pr-3 py-2 min-w-0">
         <StackedSideLabel>After</StackedSideLabel>
-        <CompareScrollBox>{after}</CompareScrollBox>
+        <CompareScrollBox side="after">{after}</CompareScrollBox>
       </div>
     </div>
   );

@@ -59,21 +59,41 @@ test.describe("the compare view", () => {
     await expect(rows.first()).toBeVisible({ timeout: 30000 });
 
     /*
+     * The change is on screen — the guard that keeps the rest non-vacuous.
+     *
+     * On the VALUE, not on the presence of a field. A read-only value in a
+     * dense row is rendered as text rather than as a disabled input: an input
+     * is `inert` here, so a line longer than the box could not be focused,
+     * scrolled or even selected, and the rest of it was unreachable. So
+     * "there is at least one field" is no longer the same question as "there
+     * is something to look at", and it is the second one this view is for.
+     */
+    const afterSide = studio
+      .locator("article[data-val-studio-path] [data-val-compare-side='after']")
+      .first();
+    await expect(afterSide).toContainText("Compared title");
+
+    /*
      * No field in the view can be written to — counted, not sampled.
      *
-     * "Cannot be written to" has two implementations in this codebase and the
-     * check has to accept both, or it asserts the mechanism instead of the
-     * behaviour: a `readOnly`/`disabled` attribute, or `ReadonlyGuard`, which
-     * wraps the field in an `inert` div (the input keeps its attributes and stops
-     * receiving events). Only the second is what a `readonly` field actually
-     * gets, which is why an attribute-only check passed a field nobody can type
-     * in — and would keep passing if the guard were removed.
+     * "Cannot be written to" has three implementations in this codebase and
+     * the check has to accept all of them, or it asserts the mechanism instead
+     * of the behaviour: a `readOnly`/`disabled` attribute; `ReadonlyGuard`,
+     * which wraps the field in an `inert` div (the input keeps its attributes
+     * and stops receiving events); or no field at all, which is what a
+     * read-only value in a dense row now renders as. Only the guard is what a
+     * `readonly` field actually gets, which is why an attribute-only check
+     * passed a field nobody can type in — and would keep passing if the guard
+     * were removed.
+     *
+     * Zero fields is a pass, and safely: the assertion above has already
+     * established that the value is on screen, so this cannot be vacuous by
+     * the view having rendered nothing.
      */
     const inputs = studio.locator(
       "article[data-val-studio-path] input, article[data-val-studio-path] textarea, article[data-val-studio-path] [contenteditable='true']",
     );
     const count = await inputs.count();
-    expect(count).toBeGreaterThan(0);
     for (let i = 0; i < count; i++) {
       const input = inputs.nth(i);
       const writable = await input.evaluate((node) => {
@@ -92,14 +112,14 @@ test.describe("the compare view", () => {
     }
 
     // And the behaviour itself, on the "After" side, which is the one that used
-    // to take an edit: typing at it changes nothing.
-    const after = studio.locator("article[data-val-studio-path] input").last();
-    const beforeTyping = await after.inputValue();
-    await after.click({ force: true, timeout: 5000 }).catch(() => {
-      // An inert field may refuse the click outright, which is the same answer.
+    // to take an edit: clicking at it and typing changes nothing it shows.
+    const beforeTyping = await afterSide.innerText();
+    await afterSide.click({ force: true, timeout: 5000 }).catch(() => {
+      // An inert subtree may refuse the click outright, which is the same
+      // answer.
     });
     await page.keyboard.type("nope");
-    expect(await after.inputValue()).toBe(beforeTyping);
+    expect(await afterSide.innerText()).toBe(beforeTyping);
 
     // And discarding is still offered — it is what this view is for.
     await expect(studio.getByLabel(/Discard/).first()).toBeVisible();
@@ -129,15 +149,20 @@ test.describe("the compare view", () => {
     const row = studio.locator("article[data-val-studio-path]").first();
     await expect(row).toBeVisible({ timeout: 30000 });
 
-    // Both values are on screen, and they are different: the whole point of a
-    // before/after. Read off the inputs rather than the text, because the fields
-    // are what renders the value.
-    const values = await row
-      .locator("input, textarea")
-      .evaluateAll((nodes) =>
-        nodes.map((node) => (node as HTMLInputElement).value),
-      );
-    expect(values).toContain(after);
-    expect(values).toContain(before);
+    /*
+     * Each value on its OWN side, which is the whole point of a before/after.
+     *
+     * Read off the rendered text, because a read-only value in a dense row is
+     * text now rather than an input. And per side rather than "both strings
+     * are somewhere in the row": `after` here is `before` plus a suffix, so a
+     * row-wide `toContain(before)` would pass on the after value alone and the
+     * test would survive both sides showing the new one — which is the bug it
+     * was written for.
+     */
+    const side = (which: "before" | "after") =>
+      row.locator(`[data-val-compare-side='${which}']`).first();
+    await expect(side("before")).toContainText(before);
+    await expect(side("after")).toContainText(after);
+    expect(await side("before").innerText()).not.toContain(after);
   });
 });
