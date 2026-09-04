@@ -122,28 +122,33 @@ export async function initHandlerOptions(
 /**
  * Build the data layer a {@link ValServerConfig} calls for.
  *
- * `auth` decides *whose* credential the http backend sees. Left out, it is the
- * app's own API key — which is what the Studio wants, because there the app has
- * already verified a session cookie and is acting on the user's behalf under its
- * own authority.
+ * The http backend always sees the app's own API key. That is what the Studio
+ * wants — there the app has already verified a session cookie and is acting on
+ * the user's behalf under its own authority — and it is now the only shape:
+ * every caller that reaches here has been authenticated by the app itself, so
+ * there is no request left on which the app is a pipe rather than an authority.
  *
- * A caller acting for a user it has *not* authenticated itself must pass that
- * user's personal access token instead, so the backend is the one that decides
- * what the caller may do. That is the whole of `docs/plans/mcp.md` D.2: the app
- * stops being an authority and goes back to being a pipe. Passing the app's API
- * key on such a request is the D.6 confused deputy, and it is worth being blunt
- * about why it is tempting — it works, and it works for every project the key
- * can reach, including the ones the caller cannot.
+ * This took a parameter for the other case: a caller acting for a user it had
+ * *not* authenticated passed that user's personal access token, and the backend
+ * decided what the caller could do. `ValOpsHttp` still accepts such a token —
+ * the CLI's `debug` command uses the developer's own from `val login` — but no
+ * server request builds one any more, because a request the app cannot
+ * authenticate is now refused instead of relayed.
+ *
+ * What has not changed is why the API key must never stand in for a credential
+ * that was merely *absent*: it works, and it works for every project the key
+ * can reach, including the ones the caller cannot. Callers are refused for a
+ * missing credential well before this point.
  */
 export function createValOps(
   valModules: ValModules,
   options: ValServerConfig,
-  auth?: { pat: string },
 ): ValOpsFS | ValOpsHttp {
   if (options.mode === "fs") {
     // No credential in fs mode: this reads and writes the developer's own
-    // working tree, and there is no backend to authenticate to. A PAT handed in
-    // here is not ignored quietly — the caller is told, in createValTools.
+    // working tree, and there is no backend to authenticate to. A credential
+    // that arrives for such a project is not ignored quietly — the caller is
+    // told, in createValTools.
     return new ValOpsFS(options.valContentUrl, options.cwd, valModules, {
       formatter: options.formatter,
       config: options.config,
@@ -155,7 +160,7 @@ export function createValOps(
       options.project,
       options.commit,
       options.branch,
-      auth ?? { apiKey: options.apiKey },
+      { apiKey: options.apiKey },
       valModules,
       {
         formatter: options.formatter,

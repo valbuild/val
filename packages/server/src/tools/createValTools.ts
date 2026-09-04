@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { ValModules } from "@valbuild/core";
 import { z } from "zod";
 import type { ValServerConfig } from "../ValServer";
@@ -19,17 +18,6 @@ import {
 } from "./types";
 
 export type ValToolsOptions = ValServerConfig;
-
-/**
- * How many callers' data layers to keep around in proxy mode.
- *
- * Each entry holds one `ValOpsHttp`, and each of those caches the project's
- * evaluated modules once `initSources` has run — so this bounds memory, not just
- * entry count. Small on purpose: the cost of a miss is re-evaluating the
- * modules on the next call, which is what happened on *every* call before this
- * cache existed.
- */
-const MAX_CACHED_OPS = 8;
 
 /**
  * Val's server-side tool registry.
@@ -136,17 +124,25 @@ export function createValTools(
  * Pick the data layer for a call, which in proxy mode means picking whose
  * credential the backend will see.
  *
- * This is the one place authorization is decided, and it decides it by *not*
- * deciding: in proxy mode the caller's own personal access token goes to the
- * backend, which is the only party that can say what that token may do. The app
- * never inspects it, never caches a verdict about it, and never substitutes its
- * own API key for a missing one — see `docs/plans/mcp.md` D.2.
+ * This is the one place authorization is decided, and in proxy mode there is
+ * exactly one credential it will act on: an access token whose signature,
+ * issuer, audience and expiry the host verified against the authorization
+ * server's published key. Anything less is refused here rather than forwarded.
  *
- * The alternative shape, and the reason this function exists at all, is an
- * `authenticate()` that checks the PAT once and then acts under the app's key.
- * That reads as more secure and is strictly less so: the check happens in the
- * app, so every bug in it becomes full access to every project the app's key
- * can reach, and the backend's own permission model stops being consulted (D.6).
+ * There used to be a second route — the caller's personal access token, passed
+ * through unread on the reasoning that the backend, not the app, is the
+ * authority on what it may do. That was true, and it was still the wrong shape:
+ * it made an unauthenticated bearer token on a deployed endpoint a supported
+ * configuration, and it meant `initValMcp` had a path where an app served MCP
+ * without ever being told where to authorize. A host that has not verified
+ * anything now gets a refusal that names the missing `oauth` config.
+ *
+ * What has *not* changed is why a verified token does not become the app's own
+ * API key by some other name. The app authenticates to the backend with its own
+ * key here, and who did what travels as the patch's `authorId` — so the
+ * profile has to be one the host checked cryptographically, never one it was
+ * handed. An `authenticate()` that decided a credential's rights inside the app
+ * would make every bug in it full access to every project that key can reach.
  */
 function createOpsResolver(
   valModules: ValModules,
@@ -163,21 +159,18 @@ function createOpsResolver(
         // and the difference matters, because fs mode writes straight to disk
         // with no backend permission check at all.
         //
-        // The two credentials get different messages because they arrive here
-        // for different reasons. A PAT is something the caller chose to send. A
-        // verified access token is not: it only exists because this app
-        // advertised an authorization server, so the developer seeing this did
-        // not do anything wrong — a config file did, and naming it is the
-        // difference between a two-minute fix and an afternoon.
+        // A verified access token is not something the caller chose to send: it
+        // only exists because this app advertised an authorization server, so
+        // the developer seeing this did not do anything wrong — a config file
+        // did, and naming it is the difference between a two-minute fix and an
+        // afternoon.
         return {
           status: "error",
           result: {
             status: "error",
             code: "unsupported",
             message:
-              ctx.auth.type === "verified-profile"
-                ? "This Val project is running in local filesystem mode, so there is nothing to authenticate against, but it is configured with an `oauth` issuer and is therefore asking clients for an access token it cannot use. Remove the `oauth` config (or `VAL_OAUTH_ISSUER` from your local `.env`) for local development."
-                : "This Val project is running in local filesystem mode, where there is nothing to authenticate against. Do not send a credential.",
+              "This Val project is running in local filesystem mode, so there is nothing to authenticate against, but it is configured with an `oauth` issuer and is therefore asking clients for an access token it cannot use. Remove the `oauth` config (or `VAL_OAUTH_ISSUER` from your local `.env`) for local development.",
           },
         };
       }
@@ -185,71 +178,50 @@ function createOpsResolver(
     };
   }
 
-  // Keyed by a hash of the PAT, so the same caller reuses their own instance and
-  // two callers can never share one. Hashing is not a security boundary — the
-  // instance holds the token regardless — but it keeps credentials out of the
-  // key set, which is the thing that ends up in a heap dump or an error dump.
-  const byPatHash = new Map<string, ValOps>();
   /**
-   * One instance for every verified caller, and unlike the PAT map that is
-   * correct rather than a shortcut: this instance authenticates with the app's
-   * own API key, so there is nothing per-caller in it to keep apart. Who did
-   * what travels as the patch's `authorId` instead — see `writePath`.
+   * One instance for every verified caller, and that is correct rather than a
+   * shortcut: this instance authenticates with the app's own API key, so there
+   * is nothing per-caller in it to keep apart. Who did what travels as the
+   * patch's `authorId` instead — see `writePath`.
+   *
+   * One instance is also all proxy mode keeps now. It could not share while a
+   * personal access token reached this function: each token needed its own
+   * `ValOpsHttp` to hold it, each of those cached the project's evaluated
+   * modules, and the bounded cache that kept that memory in check turned an
+   * eviction into a re-evaluation of every module on the next call.
    */
   let sharedOps: ValOps | null = null;
 
   return (ctx) => {
-    if (!ctx.auth) {
+    if (ctx.auth?.type !== "verified-profile") {
       return {
         status: "error",
         result: {
           status: "error",
           code: "forbidden",
           message:
-            "This Val project talks to the Val content backend, so every call needs a credential: an access token from the Val authorization server, or the caller's own personal access token from `val login`.",
+            "This Val project talks to the Val content backend, so every call needs an access token from the Val authorization server. If this endpoint is not asking clients to authorize, it has no `oauth` config — give `initValMcp` one, or run the project in local filesystem mode for development.",
         },
       };
     }
-    if (ctx.auth.type === "verified-profile") {
-      if (!options.apiKey) {
-        // Proxy mode is inferred from the api key being present, so this is
-        // unreachable through `initHandlerOptions`. It stays because the
-        // alternative to refusing is building ops with no credential at all.
-        return {
+    if (!options.apiKey) {
+      // Proxy mode is inferred from the api key being present, so this is
+      // unreachable through `initHandlerOptions`. It stays because the
+      // alternative to refusing is building ops with no credential at all.
+      return {
+        status: "error",
+        result: {
           status: "error",
-          result: {
-            status: "error",
-            code: "forbidden",
-            message:
-              "This Val project has no API key configured, so a verified access token cannot be exchanged for backend access.",
-          },
-        };
-      }
-      if (!sharedOps) {
-        sharedOps = createValOps(valModules, options);
-      }
-      return { status: "ok", ops: sharedOps };
+          code: "forbidden",
+          message:
+            "This Val project has no API key configured, so a verified access token cannot be exchanged for backend access.",
+        },
+      };
     }
-    const key = createHash("sha256").update(ctx.auth.pat).digest("hex");
-    const cached = byPatHash.get(key);
-    if (cached) {
-      // Re-inserted so eviction drops the least recently used rather than the
-      // oldest — a long-running caller should not be evicted by a burst of
-      // one-off ones.
-      byPatHash.delete(key);
-      byPatHash.set(key, cached);
-      return { status: "ok", ops: cached };
+    if (!sharedOps) {
+      sharedOps = createValOps(valModules, options);
     }
-    const ops = createValOps(valModules, options, { pat: ctx.auth.pat });
-    byPatHash.set(key, ops);
-    while (byPatHash.size > MAX_CACHED_OPS) {
-      const oldest = byPatHash.keys().next();
-      if (oldest.done) {
-        break;
-      }
-      byPatHash.delete(oldest.value);
-    }
-    return { status: "ok", ops };
+    return { status: "ok", ops: sharedOps };
   };
 }
 

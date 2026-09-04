@@ -8,11 +8,7 @@ import {
   type ValTools,
 } from "@valbuild/server";
 import { VERSION } from "../version";
-import {
-  readBearerToken,
-  verifyValAccessToken,
-  type ValOAuthConfig,
-} from "./valAccessToken";
+import { verifyValAccessToken, type ValOAuthConfig } from "./valAccessToken";
 import {
   createValMcpMetadata,
   wwwAuthenticate,
@@ -72,11 +68,11 @@ export function initValMcp(
     /**
      * Where to authorize, and what audience to expect.
      *
-     * Omit it and nothing changes: the endpoint behaves exactly as it did
-     * before OAuth existed, which keeps local development a one-liner and keeps
-     * an app that has not been reconfigured working. Provide it and every call
-     * needs a verified access token — including in fs mode, where a token is
-     * refused rather than ignored, because a host that thinks it is
+     * Required for proxy mode, and only omittable in local filesystem mode —
+     * where there is no authorization server to talk to and no backend to
+     * authenticate to, so local development stays a one-liner. Provide it and
+     * every call needs a verified access token, including in fs mode, where a
+     * token is refused rather than ignored: a host that thinks it is
      * authenticating should never silently get unauthenticated local access.
      */
     oauth?: ValOAuthConfig;
@@ -158,57 +154,69 @@ export function initValMcp(
         return { status: "refused", response: refusal };
       }
 
-      // Not the MCP session id, in either branch below. Val's patch `sessionId`
+      // Not the MCP session id, in any branch below. Val's patch `sessionId`
       // names a Val AI session, and putting an unrelated id in it would claim a
       // relationship that does not exist.
       const sessionId = null;
 
-      if (oauth) {
-        const verified = await verifyValAccessToken(request, oauth);
-        if (verified.status === "refused") {
-          // 401 for a missing or bad token, 403 once the token is good but does
-          // not carry the scope: RFC 6750 section 3.1, and the distinction is
-          // what tells a client whether to authorize again or to give up.
-          const status = verified.error === "insufficient_scope" ? 403 : 401;
+      if (!oauth) {
+        if (setup.mode !== "fs") {
+          // Reachable only by configuring proxy mode and leaving `oauth` out,
+          // which used to serve MCP to whoever presented a bearer token: the
+          // app relayed it unread, because without an issuer it has no key to
+          // check anything against. It was a supported configuration and should
+          // not have been — "I cannot check this" is not a reason to forward a
+          // credential, it is the reason to refuse it. So the endpoint now says
+          // what is missing instead of answering. `refuseUnsafeRequest` covers
+          // the mirror image, fs mode on a deployed host.
           return {
             status: "refused",
-            response: new Response(
-              JSON.stringify({
-                error: verified.error,
-                error_description: verified.description,
-              }),
-              {
-                status,
-                headers: {
-                  "Content-Type": "application/json",
-                  "WWW-Authenticate": wwwAuthenticate(oauth, scopesSupported, {
-                    error: verified.error,
-                    description: verified.description,
-                  }),
-                },
-              },
-            ),
+            response: jsonResponse(500, {
+              error:
+                "Val: this MCP endpoint has no `oauth` config, and this project is configured to talk to the Val content backend. Pass `oauth` to `initValMcp` with the authorization server's URL and this endpoint's own URL, so callers authorize as themselves.",
+            }),
           };
         }
+        // Local filesystem mode: no credential to hold, and patches are written
+        // with no author, exactly as the Studio does locally. A token presented
+        // to such a project is refused in `createValTools` rather than ignored.
         return {
           status: "ok",
           tools: setup.tools,
-          ctx: { auth: verified.auth, sessionId },
+          ctx: { auth: null, sessionId },
         };
       }
 
-      const pat = readBearerToken(request);
+      const verified = await verifyValAccessToken(request, oauth);
+      if (verified.status === "refused") {
+        // 401 for a missing or bad token, 403 once the token is good but does
+        // not carry the scope: RFC 6750 section 3.1, and the distinction is
+        // what tells a client whether to authorize again or to give up.
+        const status = verified.error === "insufficient_scope" ? 403 : 401;
+        return {
+          status: "refused",
+          response: new Response(
+            JSON.stringify({
+              error: verified.error,
+              error_description: verified.description,
+            }),
+            {
+              status,
+              headers: {
+                "Content-Type": "application/json",
+                "WWW-Authenticate": wwwAuthenticate(oauth, scopesSupported, {
+                  error: verified.error,
+                  description: verified.description,
+                }),
+              },
+            },
+          ),
+        };
+      }
       return {
         status: "ok",
         tools: setup.tools,
-        ctx: {
-          // Passed through unverified, deliberately: without an `oauth` config
-          // this app has no key to check anything against, so it is not the
-          // authority on what the token may do and the registry sends it to the
-          // backend that is. See `docs/plans/mcp.md` D.2.
-          auth: pat === null ? null : { type: "pat", pat },
-          sessionId,
-        },
+        ctx: { auth: verified.auth, sessionId },
       };
     },
   };
@@ -224,7 +232,8 @@ export function initValMcp(
  *    that is unauthenticated write access to the site's content for anyone who
  *    can reach the port. There is no configuration that makes it safe, so there
  *    is no flag to turn this off — a project that wants MCP in production wants
- *    proxy mode, where every call carries its caller's own token.
+ *    proxy mode with an `oauth` config, where every call carries an access
+ *    token this app verified itself.
  *
  * 2. **A browser driving the local server.** A page on any origin can `fetch`
  *    `http://localhost:3000/api/mcp` while a developer has the app running, and
@@ -293,9 +302,9 @@ const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
  *
  * The cost is that behind a proxy that rewrites `Host`, a *browser* request
  * whose `Origin` is the public name no longer matches. That is acceptable: such
- * a request carries no personal access token, so proxy mode refuses it anyway,
- * and a non-browser MCP client sends no `Origin` and never reaches the
- * comparison. Trusting the forwarded header would need an explicit trusted-proxy
+ * a request carries no access token, so proxy mode refuses it anyway, and a
+ * non-browser MCP client sends no `Origin` and never reaches the comparison.
+ * Trusting the forwarded header would need an explicit trusted-proxy
  * configuration, which is a bigger thing than this needs.
  */
 function requestHost(request: Request): string | null {
