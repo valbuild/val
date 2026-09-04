@@ -1701,6 +1701,8 @@ export const ValServer = (
            * and it would be silent.
            */
           let ownPatchIds: PatchId[] | undefined;
+          /** See where this is set: committed work is nobody's to hold back. */
+          let scopeAlsoIncludesApplied = false;
           if (
             query.patch_id === undefined &&
             query.own_patch_groups_only === true
@@ -1752,6 +1754,25 @@ export const ValServer = (
                       group.publishedAt === null && group.authorId === auth.id,
                   )
                   .flatMap((group) => group.patchIds);
+                /*
+                 * Scoping applies to PENDING work only. Anything already
+                 * committed is part of everyone's view.
+                 *
+                 * A published patch stays in the chain with `appliedAt` set
+                 * until the next deployment moves the base, and the unscoped
+                 * path applies it. Filtering to open groups dropped it — so the
+                 * moment someone published, their own draft preview reverted
+                 * the field they had just shipped, and nobody else saw it
+                 * either until the deploy landed. Anything written on top in
+                 * that window is authored against content that is already
+                 * stale on `main`.
+                 *
+                 * Unioned by `appliedAt` rather than by pulling in groups with
+                 * a `publishedAt`, because a partial publish leaves the group
+                 * OPEN with some of its patches applied — those are committed
+                 * too, and no group flag names them.
+                 */
+                scopeAlsoIncludesApplied = true;
               }
             } else {
               /*
@@ -1763,7 +1784,30 @@ export const ValServer = (
             }
           }
           const requestedPatchIds = query.patch_id ?? ownPatchIds;
-          if (
+          if (scopeAlsoIncludesApplied) {
+            /*
+             * Scoped to this caller's groups, PLUS everything already
+             * committed.
+             *
+             * Filtered here rather than through `patchIds`, because the set is
+             * not knowable before the fetch: `appliedAt` lives on the patch,
+             * not on the group. One request either way — the whole chain is
+             * what the unscoped path fetches too — so this costs a filter, not
+             * a round trip.
+             *
+             * This also subsumes the empty-group case below: a caller holding
+             * nothing, on a branch with nothing applied, filters down to no
+             * patches, which is base.
+             */
+            const all = await serverOps.fetchPatches({
+              patchIds: undefined,
+              excludePatchOps: false,
+            });
+            patchOps = {
+              ...all,
+              patches: scopedPatches(all.patches, ownPatchIds),
+            };
+          } else if (
             requestedPatchIds !== undefined &&
             requestedPatchIds.length === 0
           ) {
@@ -3175,11 +3219,41 @@ export type ValServerCallbacks = {
  * Fails CLOSED: if the groups cannot be read, the mutation is refused
  * rather than allowed unverified.
  */
+
+/**
+ * The patches a scoped draft render should apply: the caller's own group, plus
+ * everything already committed.
+ *
+ * Scoping is about PENDING work. A published patch stays in the chain with
+ * `appliedAt` set until the next deployment moves the base, and it is part of
+ * everyone's view in that window — the unscoped path applies it. Dropping it
+ * meant the moment somebody published, their own draft preview reverted the
+ * field they had just shipped, and nobody else saw it either until the deploy
+ * landed; anything written on top in that window is authored against content
+ * already stale on `main`.
+ *
+ * Keyed on `appliedAt` rather than on the group's `publishedAt`, because a
+ * PARTIAL publish leaves the group open with only some of its patches applied.
+ * Those are committed too, and no flag on the group names them.
+ *
+ * `undefined` scope is unscoped and never reaches here; an EMPTY scope is a
+ * caller holding nothing, and on a branch with nothing applied it correctly
+ * filters down to no patches, which renders base.
+ */
+export function scopedPatches<
+  T extends { patchId: PatchId; appliedAt: { commitSha: CommitSha } | null },
+>(patches: T[], ownPatchIds: PatchId[] | undefined): T[] {
+  const own = new Set(ownPatchIds ?? []);
+  return patches.filter(
+    (patch) => own.has(patch.patchId) || patch.appliedAt !== null,
+  );
+}
+
 export async function refuseUnlessOwn(
   ops: ValOpsHttp,
   patchGroupId: string,
   authorId: string,
-): Promise<{ status: 403 | 500; message: string } | null> {
+): Promise<{ status: 403 | 409 | 500; message: string } | null> {
   const groupsRes = await ops.getPatchGroups();
   if (groupsRes.status !== "ok") {
     return {
@@ -3191,14 +3265,32 @@ export async function refuseUnlessOwn(
   const group = groupsRes.patchGroups.find(
     (candidate) => candidate.patchGroupId === patchGroupId,
   );
-  if (group === undefined) {
-    return { status: 403, message: "Patch group not found" };
+  if (
+    group === undefined ||
+    group.authorId === null ||
+    group.authorId !== authorId
+  ) {
+    /*
+     * "Not found" and "not yours" are the SAME refusal on purpose: the route
+     * schema has no 404, and `GET /patches` already lists every group on the
+     * branch, so distinguishing them hides nothing and only adds a second
+     * message to keep consistent.
+     *
+     * A null author is a group written by an api key or a PAT. Nobody owns it,
+     * so nobody may stage into it — `null === null` must not read as a match.
+     */
+    return {
+      status: 403,
+      message: "You can only change your own patch group",
+    };
   }
-  if (group.authorId === null || group.authorId !== authorId) {
-    // A null author is a group written by an api key or a PAT. Nobody
-    // owns it, so nobody may stage into it — `null === null` must not
-    // read as a match.
-    return { status: 403, message: "Patch group belongs to another user" };
+  if (group.publishedAt !== null) {
+    /*
+     * Already shipped, so it can never be written again. The content API
+     * answers this too; refusing here saves the round trip and keeps the
+     * wording the same as every other refusal on this route.
+     */
+    return { status: 409, message: "Patch group is already published" };
   }
   return null;
 }

@@ -16,7 +16,7 @@ Holding a region back is designed to make it read-only until it is staged again,
 
 Also fixes a pre-existing bug in patch set grouping: patch set paths were compared with a raw string prefix test, and nothing terminates a path segment, so `?foobar/title` matched `?foo`. Deleting record key `foo` and retitling record key `foobar` were treated as one inseparable change. Previously that over-grouped two unrelated edits in the review screen; with staging it would have meant publishing a deletion nobody asked for.
 
-The `/patches` routes gain optional patch group fields and `/patch-groups/~/patches` is new. Everything is additive: a content API **without** patch group support answers 404 for the group lookup, which is read as "there are no groups here" and leaves that deployment unscoped — exactly the behaviour it has today. Filesystem mode keeps the group in the client, since it has a single author and already sends an explicit patch id list when publishing.
+The `/patches` routes gain optional patch group fields and `/patch-groups/~/patches` is new. This needs a content API that has patch groups. Filesystem mode keeps the group in the client, since it has a single author and already sends an explicit patch id list when publishing.
 
 Two things this does **not** do yet, both of which need the group annotation to refresh on its own rather than only inside a fetch for missing patch ids:
 

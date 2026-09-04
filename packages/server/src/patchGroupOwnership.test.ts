@@ -54,7 +54,7 @@ test("the group's own author may change it", async () => {
 test("another author may not", async () => {
   const refusal = await refuseUnlessOwn(groups("alice"), GROUP, "mallory");
   expect(refusal?.status).toBe(403);
-  expect(refusal?.message).toContain("another user");
+  expect(refusal?.message).toContain("your own patch group");
 });
 
 test("a group with no author belongs to nobody, not to everybody", async () => {
@@ -69,9 +69,28 @@ test("a group with no author belongs to nobody, not to everybody", async () => {
 });
 
 test("a group id the branch does not have is refused, not passed through", async () => {
+  // Same 403 and same words as "not yours": the route schema has no 404, and
+  // `GET /patches` lists every group anyway, so there is nothing to hide by
+  // telling the two apart.
   const refusal = await refuseUnlessOwn(groups("alice"), "made-up", "alice");
   expect(refusal?.status).toBe(403);
-  expect(refusal?.message).toContain("not found");
+  expect(refusal?.message).toContain("your own patch group");
+});
+
+test("an already-published group is refused with 409, not 403", async () => {
+  /*
+   * Distinct from "not yours" because the answer to it is different: this group
+   * IS the caller's, it has simply shipped and can never be written again. The
+   * content API answers 409 for the same case; refusing here saves the round
+   * trip.
+   */
+  const refusal = await refuseUnlessOwn(
+    groups("alice", "2026-01-02T00:00:00.000Z"),
+    GROUP,
+    "alice",
+  );
+  expect(refusal?.status).toBe(409);
+  expect(refusal?.message).toContain("already published");
 });
 
 test("a failed lookup refuses rather than allowing unverified", async () => {

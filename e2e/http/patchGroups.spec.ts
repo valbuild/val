@@ -367,3 +367,111 @@ test.describe("the staging controls", () => {
     );
   });
 });
+
+/**
+ * The two things a route-level walkthrough found that the store tests could not.
+ *
+ * Both need a real `ValServer` in proxy mode talking to a content service that
+ * has groups, which is exactly what this suite is.
+ */
+test.describe("the server routes", () => {
+  test("one editor cannot change another editor's group", async ({
+    page,
+    browser,
+  }) => {
+    // Bob writes, so the content service creates HIS open group.
+    const bobContext = await contextAs(browser, "linus");
+    const bobPage = await bobContext.newPage();
+    await openHttpStudio(bobPage);
+    const bobPatch = await writePatch(bobPage, AUTHORS, [
+      { op: "replace", path: ["freekh", "name"], value: "Bob's work" },
+    ]);
+
+    await openHttpStudio(page);
+    const alicePatch = await writePatch(page, AUTHORS, [
+      { op: "replace", path: ["teddy", "name"], value: "Alice's work" },
+    ]);
+
+    const state = await mock.state();
+    const bobGroup = state.patchGroups.find(
+      (group) => group.authorId === USERS.linus.profileId,
+    );
+    expect(bobGroup?.patchIds).toEqual([bobPatch]);
+
+    /*
+     * Alice, with nothing but her own session, aims at Bob's group id. Group
+     * ids are not secret — `GET /patches?include_patch_groups=true` hands every
+     * editor the id and author of every group on the branch — so this is a
+     * request any logged-in editor can make.
+     */
+    const unstage = await page.request.fetch(
+      "/api/val/patch-groups/~/patches",
+      {
+        method: "DELETE",
+        data: { patchGroupId: bobGroup?.patchGroupId, patchIds: [bobPatch] },
+      },
+    );
+    expect(unstage.status()).toBe(403);
+
+    const stage = await page.request.fetch("/api/val/patch-groups/~/patches", {
+      method: "PUT",
+      data: {
+        patchGroupId: bobGroup?.patchGroupId,
+        patchIds: [alicePatch],
+        closureVersion: 1,
+      },
+    });
+    expect(stage.status()).toBe(403);
+
+    // Refused is not enough — the group has to be untouched. Emptying Bob's
+    // group would make his next publish ship nothing; adding to it would make
+    // it ship Alice's change under his name.
+    const after = await mock.state();
+    expect(
+      after.patchGroups.find(
+        (group) => group.patchGroupId === bobGroup?.patchGroupId,
+      )?.patchIds,
+    ).toEqual([bobPatch]);
+
+    await bobContext.close();
+  });
+
+  test("a published change stays visible to everyone until the deploy lands", async ({
+    page,
+    browser,
+  }) => {
+    const bobContext = await contextAs(browser, "linus");
+    const bobPage = await bobContext.newPage();
+    await openHttpStudio(bobPage);
+    await writePatch(bobPage, AUTHORS, [
+      { op: "replace", path: ["freekh", "name"], value: "Bob published this" },
+    ]);
+    expect((await publishAll(bobPage, "Bob ships")).status).toBe("published");
+
+    /*
+     * Publishing commits the patch but does not move the base — it stays in the
+     * chain with `appliedAt` set until the next deployment. Scoping used to
+     * drop it, so in this window Bob's own preview reverted the field he had
+     * just shipped and Alice never saw it at all. Anything she wrote on top
+     * would be authored against content already stale on `main`.
+     */
+    for (const [who, viewer] of [
+      ["Bob", bobPage],
+      ["Alice", page],
+    ] as const) {
+      if (viewer === page) await openHttpStudio(page);
+      const draft = await viewer.request.fetch(
+        "/api/val/sources/~?own_patch_groups_only=true",
+        { method: "PUT", data: {} },
+      );
+      expect(draft.status()).toBe(200);
+      const json = await draft.json();
+      expect(
+        json.modules[AUTHORS]?.source?.freekh?.name,
+        `${who}'s scoped draft lost the published change`,
+      ).toBe("Bob published this");
+    }
+
+    await bobContext.close();
+  });
+});
