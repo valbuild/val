@@ -1,5 +1,5 @@
 import { initVal } from "../initVal";
-import { AI_SETTINGS_MAX_LENGTH } from "../source/settings";
+import { AI_SETTINGS_MAX_LENGTH, isAiEnabled } from "../source/settings";
 import { ModuleFilePath, SourcePath } from "../val";
 import { deserializeSchema } from "./deserialize";
 import { resolveSettingsModule } from "../settingsModule";
@@ -125,6 +125,23 @@ describe("SettingsSchema", () => {
       },
     });
     expect(settingsVal).toBeDefined();
+  });
+});
+
+describe("isAiEnabled", () => {
+  test("unset means on", () => {
+    // The rule the whole tri-state exists for: a project that wrote a settings
+    // module did not do so to leave the assistant off, and a project with no
+    // settings module has said nothing at all.
+    expect(isAiEnabled(undefined)).toBe(true);
+    expect(isAiEnabled({})).toBe(true);
+    expect(isAiEnabled({ ai: {} })).toBe(true);
+    expect(isAiEnabled({ ai: { enabled: null } })).toBe(true);
+  });
+
+  test("off only when it says off", () => {
+    expect(isAiEnabled({ ai: { enabled: false } })).toBe(false);
+    expect(isAiEnabled({ ai: { enabled: true } })).toBe(true);
   });
 });
 

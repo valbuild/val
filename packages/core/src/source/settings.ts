@@ -74,10 +74,11 @@ export const AI_SETTINGS_MAX_LENGTH = 4000;
  * project with NO settings module has nothing to say either way and is left to
  * whatever decided that before settings existed.
  *
- * TODO: `config.ai.chat` is on its way here (`enabled`, and the chat's title,
- * description and suggestions with it), at which point this is the only answer
- * to "is the assistant on". The AI commit-message summariser is deliberately
- * NOT part of that move: it gets settings of its own later.
+ * This is the only answer to "is the assistant on": `config.ai.chat` is gone,
+ * and with it the chat's title, description and suggestions, which nothing
+ * replaces. The AI commit-message summariser is deliberately not part of this —
+ * `config.ai.commitMessages` stays where it is, and gets settings of its own
+ * later.
  */
 export function isAiEnabled(settings: SettingsSource | undefined): boolean {
   return settings?.ai?.enabled !== false;

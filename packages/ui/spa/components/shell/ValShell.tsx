@@ -125,9 +125,9 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   /**
    * Whether there is an assistant at all.
    *
-   * `ai.chat.experimental.enable` in the project config. Not the connection —
-   * a configured assistant that is currently offline still gets its panel,
-   * which is where `aiConnectionError` and its retry are shown.
+   * `ai.enabled` in the project's settings module — see `useIsAiEnabled`. Not
+   * the connection: an assistant that is currently offline still gets its
+   * panel, which is where `aiConnectionError` and its retry are shown.
    */
   const { isAIChatEnabled, setOpenAIChatImpl } = useAIChatActions();
   const insertFieldRef = useInsertFieldRef();

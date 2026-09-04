@@ -37,10 +37,7 @@ import {
   useProfilesByAuthorId,
   useAIContext,
 } from "../components/ValProvider";
-import {
-  useGetDirectFileUploadSettings,
-  useValConfig,
-} from "../components/ValFieldProvider";
+import { useGetDirectFileUploadSettings } from "../components/ValFieldProvider";
 import type {
   AISession,
   AIServerMessage,
@@ -55,6 +52,7 @@ import {
   settingsModuleFilePath,
 } from "./aiProjectSettings";
 import { useAISearch } from "./useAISearch";
+import { useIsAiEnabled } from "./useIsAiEnabled";
 import { useAIValidation } from "./useAIValidation";
 import type {
   ImageMetadata,
@@ -854,8 +852,7 @@ export function useAI(
   const currentProfile = useCurrentProfile();
   const profiles = useProfilesByAuthorId();
   const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
-  const config = useValConfig();
-  const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
+  const isChatEnabled = useIsAiEnabled();
   // The editor's pick where they have made one, and the best available model
   // until they do. `useAvailableAIModel` is the floor: it still answers when
   // the content server reports providers but no models, which is what an older

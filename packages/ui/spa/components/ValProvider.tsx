@@ -266,19 +266,22 @@ export function ValProvider({
 
   const isStatConnected = "data" in stat && !!stat.data;
   /**
-   * Whether to open the AI socket.
+   * Whether to open the AI socket: whenever there is a project to open it for.
    *
-   * Two things need it now, not one. Commit summaries moved onto this socket, so
-   * gating it on experimental chat alone would have silently taken AI summaries
-   * away from every project that had them without opting into the chat — the
-   * chat flag is about the panel, not about whether AI exists.
+   * It used to ask the config whether either AI feature was wanted. It cannot
+   * ask that any more, and should not: whether the ASSISTANT is on is now the
+   * project's own content (`s.settings()`, `ai.enabled`), which lives in the
+   * store this component builds below — and the old question had a false
+   * negative in it anyway, since a project that had disabled commit summaries
+   * and enabled the chat got no socket at all.
+   *
+   * Nothing is lost by opening it: the socket's job is to report what is
+   * reachable, and a project with no key gets `availableModel: null`, which is
+   * what turns both features off downstream. Commit summaries still honour
+   * `config.ai.commitMessages.disabled`, and the chat still honours settings —
+   * each where it is used, rather than here.
    */
-  const wsEnabled =
-    isStatConnected &&
-    ("data" in stat && stat.data
-      ? stat.data.config?.ai?.chat?.experimental?.enable === true ||
-        stat.data.config?.ai?.commitMessages?.disabled !== true
-      : false);
+  const wsEnabled = isStatConnected;
   const {
     subscribeToMessages: subscribeToWsMessages,
     send: sendWsMessage,
