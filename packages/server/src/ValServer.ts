@@ -1114,7 +1114,8 @@ export const ValServer = (
         if (auth.error) {
           return { status: 401, json: { message: auth.error } };
         }
-        const { patchGroupId, patchIds, closureVersion } = req.body;
+        const { patchGroupId, patchIds, explicitPatchIds, closureVersion } =
+          req.body;
         if (serverOps instanceof ValOpsFS) {
           return { status: 200, json: { patchGroupId, patchIds } };
         }
@@ -1131,6 +1132,7 @@ export const ValServer = (
         const res = await serverOps.stagePatches(
           patchGroupId,
           patchIds,
+          explicitPatchIds,
           closureVersion,
           // Forwarded so the content API can refuse independently. This server
           // has already refused a group that is not the caller's; sending the

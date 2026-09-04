@@ -358,6 +358,18 @@ export type System = HostRealm &
 export type StagePatches = (request: {
   patchGroupId: string;
   patchIds: PatchId[];
+  /**
+   * Which of `patchIds` the user actually asked for.
+   *
+   * The content API stores membership as `explicit` or `dependency`, and
+   * without this every row lands as `dependency` — including the patch someone
+   * clicked. That is not a cosmetic label: it is the only record of what the
+   * author chose as opposed to what the closure dragged along, and anything
+   * later reasoning about intent would read it backwards.
+   *
+   * Only meaningful on stage; unstage names what it removes.
+   */
+  explicitPatchIds?: PatchId[];
   closureVersion: number;
 }) => Promise<{ status: "ok" } | { status: "error"; message: string }>;
 
@@ -380,6 +392,8 @@ export type PatchGroupChangeRequest = {
   type: "stage" | "unstage";
   /** What the user asked for AND what the closure moved along with it. */
   patchIds: PatchId[];
+  /** The subset of `patchIds` the user asked for. See {@link StagePatches}. */
+  explicitPatchIds: PatchId[];
   closureVersion: number;
 };
 
@@ -659,6 +673,11 @@ export function createSystem(options: SystemOptions): System {
     const res = await call({
       patchGroupId,
       patchIds: change.patchIds,
+      // Only on stage. An unstage names exactly what it removes, and the
+      // content API's DELETE has no use for the distinction.
+      ...(change.type === "stage"
+        ? { explicitPatchIds: change.explicitPatchIds }
+        : {}),
       closureVersion: change.closureVersion,
     });
     if (res.status === "error") {
@@ -1602,7 +1621,16 @@ export function createSystem(options: SystemOptions): System {
                     : !scope.has(patchId),
                 );
           if (patchIds.length === 0) continue;
-          await sendPatchGroupChange(patchGroupId, { ...change, patchIds });
+          // The explicit subset follows the filter, or it would name ids that
+          // are no longer being sent.
+          const kept = new Set(patchIds);
+          await sendPatchGroupChange(patchGroupId, {
+            ...change,
+            patchIds,
+            explicitPatchIds: change.explicitPatchIds.filter((patchId) =>
+              kept.has(patchId),
+            ),
+          });
         }
       })();
     },

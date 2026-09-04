@@ -761,6 +761,20 @@ export class ValOpsHttp extends ValOps {
   async stagePatches(
     patchGroupId: string,
     patchIds: PatchId[],
+    /**
+     * Which of `patchIds` the user actually asked for.
+     *
+     * The content API stores each membership row as `explicit` or `dependency`
+     * and treats anything not named here as a dependency. Sending nothing
+     * therefore files the patch somebody clicked as one the closure dragged in
+     * — the exact opposite of what happened, and the only record anywhere of
+     * what the author chose.
+     *
+     * Optional so a caller with no notion of "requested" — a repair, a script —
+     * can still send a correct closure without claiming an intent it does not
+     * have.
+     */
+    explicitPatchIds: PatchId[] | undefined,
     closureVersion: number,
     /**
      * WHO is asking, so the content API can refuse a group that is not theirs.
@@ -784,7 +798,11 @@ export class ValOpsHttp extends ValOps {
       // like "../../commit" would reach a different endpoint carrying this
       // project's auth headers.
       `patch-groups/${encodeURIComponent(patchGroupId)}/patches`,
-      { patchIds, closureVersion },
+      {
+        patchIds,
+        ...(explicitPatchIds !== undefined ? { explicitPatchIds } : {}),
+        closureVersion,
+      },
       authorId,
     );
   }

@@ -151,13 +151,32 @@ engages.
    sit un-publishable until they act. That is deliberate — see "keeping the
    invariant" — but it means a third party's insert can block your publish, and
    the refusal names raw patch ids rather than describing the change.
-4. Scope is client-held local truth seeded from the server's annotation, and
+4. **Two fields the content API accepts and this client does not send**, found
+   by reading `valbuild/home#37` against this branch rather than from either
+   side alone:
+
+   - **`patchGroupId` on `POST /commit`.** `home` closes the published group
+     only when the commit body names it, and `ValOpsHttp.commit` does not — so
+     against production the publisher's group is emptied
+     (`removePatchesFromAllGroups` does run) but stays open, and `published_at`
+     is never set. The e2e mock closes it, so the whole post-publish design here
+     is green against a rule the real server does not implement. Either send it
+     — only on a FULL publish, since `home` closes unconditionally and a partial
+     publish must not close — or have `home` derive the close from
+     `appliedPatches`, which is what the mock already does. Whichever is chosen,
+     the mock has to match it.
+   - **`alsoUnstagePatchIds` on `DELETE /patches`.** Discarding a patch out of
+     the middle of a patch set leaves every other group holding a suffix of it.
+     `home` takes the forward closure and drops those memberships; nothing here
+     computes or sends it.
+
+5. Scope is client-held local truth seeded from the server's annotation, and
    nothing reconciles it. `PatchStore` re-reads the annotation only inside a
    fetch it makes for MISSING patch ids, so on a quiet branch a failed stage is
    kept on screen until the page is reloaded, and a stage in one tab never
    reaches another. Closing both needs the annotation to refresh on its own. The
    deferred queue above narrows this but does not close it: a change held while
    there is no group is lost if the tab closes before one exists.
-5. Held patches count as _settled_ but not _applied_ (`chainSettled`), because
+6. Held patches count as _settled_ but not _applied_ (`chainSettled`), because
    the editor holds every field inert until the chain settles. A held patch that
    counted as neither would dim the Studio permanently.

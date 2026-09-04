@@ -156,6 +156,16 @@ type MockPatchGroup = {
   publishedAt: string | null;
   /** Insertion-ordered, though nothing depends on it: a group is a set. */
   patchIds: Set<string>;
+  /**
+   * The subset the client said the user actually ASKED for.
+   *
+   * `home` stores this per membership row (`explicit` vs `dependency`) and
+   * reads anything unnamed as a dependency, so a client that omits it files
+   * every patch — the clicked one included — as something the closure dragged
+   * in. Modelled here so a test can tell the two apart; nothing in the mock's
+   * own behaviour depends on it.
+   */
+  explicitPatchIds: Set<string>;
 };
 
 type MockCommit = {
@@ -755,6 +765,7 @@ function getOrCreateOpenGroup(
     createdAt: nowIso(),
     publishedAt: null,
     patchIds: new Set(),
+    explicitPatchIds: new Set(),
   };
   state.patchGroups.set(group.patchGroupId, group);
   return group;
@@ -844,8 +855,13 @@ const mutatePatchGroup: Handler = async (req, res, url) => {
     res.end("Patch group belongs to another user");
     return;
   }
-  const body = await readJsonBody<{ patchIds: string[] }>(req);
+  const body = await readJsonBody<{
+    patchIds: string[];
+    explicitPatchIds?: string[];
+  }>(req);
   const patchIds = body?.patchIds ?? [];
+  // Absent means "all of these are dependencies", which is how `home` reads it.
+  const explicit = new Set(body?.explicitPatchIds ?? []);
   for (const patchId of patchIds) {
     if (req.method === "POST") {
       if (!state.patches.has(patchId)) {
@@ -853,8 +869,12 @@ const mutatePatchGroup: Handler = async (req, res, url) => {
         return;
       }
       group.patchIds.add(patchId);
+      if (explicit.has(patchId)) {
+        group.explicitPatchIds.add(patchId);
+      }
     } else {
       group.patchIds.delete(patchId);
+      group.explicitPatchIds.delete(patchId);
     }
   }
   json(res, 200, {
@@ -1587,6 +1607,9 @@ const controlPlane: Handler = async (req, res, url) => {
         authorId: group.authorId,
         publishedAt: group.publishedAt,
         patchIds: [...group.patchIds],
+        // Exposed only here, on the test-facing state dump — the content API's
+        // own `GET /patch-groups` does not report it either.
+        explicitPatchIds: [...group.explicitPatchIds],
       })),
       /**
        * Every uploaded file, whatever state its patch is in.

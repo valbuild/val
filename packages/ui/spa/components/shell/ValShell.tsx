@@ -1128,6 +1128,9 @@ function usePatchGroupChange(
       val.system.persistPatchGroupChange(patchGroupId, {
         type: change.type,
         patchIds,
+        // What the user clicked, told apart from what the closure moved with
+        // it: the content API stores the distinction and cannot infer it.
+        explicitPatchIds: change.requested,
         closureVersion: change.closureVersion,
       });
     },

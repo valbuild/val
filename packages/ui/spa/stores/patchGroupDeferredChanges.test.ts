@@ -33,7 +33,13 @@ const project = () => {
   return [c.define(MODULE, s.object({ title: s.string() }), { title: "base" })];
 };
 
-type Sent = PatchGroupChangeRequest & { patchGroupId: string };
+type Sent = {
+  patchGroupId: string;
+  type: "stage" | "unstage";
+  patchIds: PatchId[];
+  explicitPatchIds?: PatchId[];
+  closureVersion: number;
+};
 
 function makeSystem(options?: { stageFails?: boolean }) {
   const sent: Sent[] = [];
@@ -54,8 +60,19 @@ function makeSystem(options?: { stageFails?: boolean }) {
       parentRef,
     }),
     publishPatches: async () => ({ status: "published" }),
-    stagePatches: async ({ patchGroupId, patchIds, closureVersion }) => {
-      sent.push({ patchGroupId, type: "stage", patchIds, closureVersion });
+    stagePatches: async ({
+      patchGroupId,
+      patchIds,
+      explicitPatchIds,
+      closureVersion,
+    }) => {
+      sent.push({
+        patchGroupId,
+        type: "stage",
+        patchIds,
+        ...(explicitPatchIds !== undefined ? { explicitPatchIds } : {}),
+        closureVersion,
+      });
       return options?.stageFails
         ? { status: "error", message: "nope" }
         : { status: "ok" };
@@ -73,14 +90,20 @@ function makeSystem(options?: { stageFails?: boolean }) {
 /** Let the fire-and-forget sends settle. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-const stage = (patchIds: PatchId[]): PatchGroupChangeRequest => ({
+/** `explicit` defaults to all of them — the plain "the user clicked this" case. */
+const stage = (
+  patchIds: PatchId[],
+  explicitPatchIds: PatchId[] = patchIds,
+): PatchGroupChangeRequest => ({
   type: "stage",
   patchIds,
+  explicitPatchIds,
   closureVersion: 1,
 });
 const unstage = (patchIds: PatchId[]): PatchGroupChangeRequest => ({
   type: "unstage",
   patchIds,
+  explicitPatchIds: patchIds,
   closureVersion: 1,
 });
 
@@ -95,9 +118,42 @@ test("a change with a group id goes straight out", async () => {
       patchGroupId: "g1",
       type: "stage",
       patchIds: ["a"],
+      explicitPatchIds: ["a"],
       closureVersion: 1,
     },
   ]);
+});
+
+test("a stage tells the server which ids the user actually asked for", async () => {
+  const { system, sent } = makeSystem();
+
+  /*
+   * `theirs` came along because the closure pulled it in; `a` is the click.
+   * The content API records each membership row as `explicit` or
+   * `dependency` and reads anything unnamed as a dependency, so without this
+   * the patch someone chose is filed as one they never asked for — and that row
+   * is the only record of the difference.
+   */
+  system.persistPatchGroupChange(
+    "g1",
+    stage(["theirs" as PatchId, "a" as PatchId], ["a" as PatchId]),
+  );
+  await settle();
+
+  expect(sent[0]).toMatchObject({
+    patchIds: ["theirs", "a"],
+    explicitPatchIds: ["a"],
+  });
+});
+
+test("an unstage does not claim an explicit subset", async () => {
+  const { system, sent } = makeSystem();
+  // It names exactly what it removes, and the content API's DELETE has no use
+  // for the distinction.
+  system.persistPatchGroupChange("g1", unstage(["a" as PatchId]));
+  await settle();
+
+  expect(sent[0].explicitPatchIds).toBe(undefined);
 });
 
 test("a change with no group id is held, then sent when one appears", async () => {

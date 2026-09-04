@@ -866,6 +866,16 @@ export const Api = {
           patchIds: z
             .array(PatchId)
             .min(1, "At least one patch id is required"),
+          /*
+           * Which of `patchIds` the user actually asked for.
+           *
+           * The content API records membership as `explicit` or `dependency`,
+           * and reads everything not named here as a dependency — so omitting
+           * it files the patch someone clicked as something the closure dragged
+           * in. Optional, because a client that predates it is still sending a
+           * correct closure; it just cannot say which part of it was the point.
+           */
+          explicitPatchIds: z.array(PatchId).optional(),
           closureVersion: z.number(),
         }),
         cookies: {

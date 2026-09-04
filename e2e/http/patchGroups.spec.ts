@@ -365,6 +365,21 @@ test.describe("the staging controls", () => {
     expect(await mock.committedSource(AUTHORS)).toContain(
       "Ada, then held back",
     );
+
+    /*
+     * And the content service was told WHICH id the user clicked.
+     *
+     * `home` stores every membership row as `explicit` or `dependency` and
+     * reads anything the request does not name as a dependency — so a client
+     * that never sends `explicitPatchIds` files the patch someone chose as one
+     * the closure dragged in. That row is the only record anywhere of the
+     * difference between what an author decided and what followed from it, and
+     * nothing in the response or the screen shows it is wrong.
+     */
+    const staged = (await mock.state()).patchGroups.find(
+      (group) => group.patchGroupId === patchGroupId,
+    );
+    expect(staged?.explicitPatchIds).toEqual([patchId]);
   });
 
   /**
