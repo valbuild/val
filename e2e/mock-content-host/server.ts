@@ -713,6 +713,11 @@ const savePatch: Handler = async (req, res) => {
       json(res, 404, { message: "Patch group not found" });
       return;
     }
+    // The new patch is what its author meant; the closure is what came with it.
+    // `home` files them as 'explicit' and 'dependency' respectively.
+    if (!group.patchIds.has(body.patchId)) {
+      group.explicitPatchIds.add(body.patchId);
+    }
     group.patchIds.add(body.patchId);
     for (const patchId of withPatchIds) {
       group.patchIds.add(patchId);
@@ -872,10 +877,21 @@ const mutatePatchGroup: Handler = async (req, res, url) => {
         json(res, 400, { message: `Unknown patch id: ${patchId}` });
         return;
       }
-      group.patchIds.add(patchId);
-      if (explicit.includes(patchId)) {
+      /*
+       * The reason is recorded on FIRST entry only, because `home`'s upsert is
+       * `ON CONFLICT DO NOTHING` — so a patch that arrived as a dependency
+       * stays one even when its owner later stages it by hand, and one that
+       * arrived explicit is not demoted by a later closure.
+       *
+       * Modelled rather than glossed over: this mock has twice been kinder than
+       * the thing it stands in for (the missing `x-val-profile-id`, and closing
+       * groups on a rule of its own), and both times a test was green against a
+       * server that does not behave that way.
+       */
+      if (!group.patchIds.has(patchId) && explicit.includes(patchId)) {
         group.explicitPatchIds.add(patchId);
       }
+      group.patchIds.add(patchId);
     } else {
       group.patchIds.delete(patchId);
       group.explicitPatchIds.delete(patchId);
