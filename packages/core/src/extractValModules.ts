@@ -5,6 +5,7 @@ import { getSchema, SelectorSource } from "./selector";
 import { Source } from "./source";
 import { getValPath, ModuleFilePath, SourcePath } from "./val";
 import { getSource } from "./module";
+import { resolveSettingsModule } from "./settingsModule";
 
 export type ExtractedModuleError = {
   message: string;
@@ -323,6 +324,17 @@ export async function extractValModules(
       // the live array at this point in the loop. See `moduleErrorsAt`.
       moduleErrorsAt: moduleErrors.length,
     });
+  }
+  // Settings is the one rule that cannot be checked while looking at a single
+  // module: "one per project, at the root" is a statement about the whole set.
+  // Reported here so that every consumer of extraction gets it — the dev
+  // server, `val validate` and the Studio all read `moduleErrors`.
+  //
+  // Appended AFTER the loop on purpose: each entry's `moduleErrorsAt` is the
+  // error count at the time it was folded in, so the SHAs stay a function of
+  // the modules themselves.
+  for (const error of resolveSettingsModule(serializedSchemas).errors) {
+    moduleErrors.push(error);
   }
   return {
     sources,

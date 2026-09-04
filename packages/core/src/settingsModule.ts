@@ -36,12 +36,25 @@ export type ResolvedSettingsModule = {
   /**
    * What is wrong with how settings are declared, ready to print.
    *
-   * Empty in the ordinary cases — one settings module, or none. The three
-   * places that enforce this each do something different with these (the module
-   * loader throws, `val validate` reports, the Studio shows them), so the
-   * messages are written to read the same in all three.
+   * Empty in the ordinary cases — one settings module, or none. Reported as
+   * MODULE errors, each attributed to the file it is about: extraction appends
+   * them, which is what puts them in front of the reader in all three places at
+   * once — the dev server refuses to serve sources with a module error,
+   * `val validate` reports them against the file, and the Studio shows them.
+   *
+   * A duplicate produces one error per offending module, each naming all of
+   * them, so the message is there whichever of the files you happen to open.
    */
-  errors: string[];
+  errors: SettingsModuleError[];
+};
+
+/**
+ * Structurally an `ExtractedModuleError`, declared here rather than imported to
+ * keep `extractValModules` -> `settingsModule` a one-way dependency.
+ */
+export type SettingsModuleError = {
+  message: string;
+  path: ModuleFilePath;
 };
 
 /**
@@ -71,18 +84,23 @@ export function resolveSettingsModule(
       nestedModules.push(moduleFilePath);
     }
   }
-  const errors: string[] = [];
+  const errors: SettingsModuleError[] = [];
   for (const moduleFilePath of nestedModules) {
-    errors.push(
-      `Settings must be defined at the root of the content tree, but was found in '${moduleFilePath}'. Move it to '${SETTINGS_MODULE_CONVENTION}'.`,
-    );
+    errors.push({
+      path: moduleFilePath,
+      message: `Settings must be defined at the root of the content tree, but s.settings() was found in '${moduleFilePath}'. Move it to '${SETTINGS_MODULE_CONVENTION}'.`,
+    });
   }
   if (rootModules.length > 1) {
-    errors.push(
-      `A project can only define settings once, but s.settings() was found in ${rootModules
-        .map((moduleFilePath) => `'${moduleFilePath}'`)
-        .join(" and ")}. Keep one of them.`,
-    );
+    const listed = rootModules
+      .map((moduleFilePath) => `'${moduleFilePath}'`)
+      .join(" and ");
+    for (const moduleFilePath of rootModules) {
+      errors.push({
+        path: moduleFilePath,
+        message: `A project can only define settings once, but s.settings() was found in ${listed}. Keep one of them.`,
+      });
+    }
   }
   return {
     moduleFilePath:

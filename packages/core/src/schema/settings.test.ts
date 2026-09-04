@@ -163,8 +163,8 @@ describe("resolveSettingsModule", () => {
     });
     expect(res.moduleFilePath).toBe(null);
     expect(res.errors).toHaveLength(1);
-    expect(res.errors[0]).toContain("/content/settings.val.ts");
-    expect(res.errors[0]).toContain("root");
+    expect(res.errors[0].path).toBe("/content/settings.val.ts");
+    expect(res.errors[0].message).toContain("root");
   });
 
   test("two settings modules is an error, and neither wins", () => {
@@ -175,8 +175,13 @@ describe("resolveSettingsModule", () => {
       ["/config.val.ts" as ModuleFilePath]: settingsSchema,
     });
     expect(res.moduleFilePath).toBe(null);
-    expect(res.errors).toHaveLength(1);
-    expect(res.errors[0]).toContain("/config.val.ts");
-    expect(res.errors[0]).toContain("/settings.val.ts");
+    // One per offending module, so the message is there whichever file you open.
+    expect(res.errors.map((error) => error.path)).toEqual([
+      "/config.val.ts",
+      "/settings.val.ts",
+    ]);
+    for (const error of res.errors) {
+      expect(error.message).toContain("'/config.val.ts' and '/settings.val.ts'");
+    }
   });
 });
