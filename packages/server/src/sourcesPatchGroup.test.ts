@@ -6,6 +6,7 @@ import type { SelectorSource, ValModule } from "@valbuild/core";
 import { createValApiRouter, createValServer } from "./ValRouter";
 import { VAL_SESSION_COOKIE } from "@valbuild/shared/internal";
 import { encodeJwt } from "./jwt";
+import { fakeRequest } from "./fakeRequest";
 
 /**
  * Draft-mode rendering, scoped to a patch group.
@@ -317,22 +318,3 @@ describe("/sources/~ patch group scoping", () => {
     expect(source.teddy.name).toBe(THEIR_VALUE);
   });
 });
-
-function fakeRequest({
-  url,
-  method,
-  headers,
-  json,
-}: {
-  method: string;
-  url: URL;
-  headers?: Headers;
-  json?: unknown;
-}): Request {
-  return {
-    method,
-    url,
-    headers,
-    json: async () => json,
-  } as unknown as Request;
-}
