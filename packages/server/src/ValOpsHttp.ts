@@ -201,6 +201,14 @@ const NonceResponse = z.object({
   url: z.string(),
 });
 
+/**
+ * How long a patch-group lookup is reused. See `ValOpsHttp.patchGroupsCache`.
+ *
+ * Sized to cover one server render, not to be a cache: several `fetchVal` calls
+ * in one request share an answer, and the next request asks again.
+ */
+const PATCH_GROUPS_CACHE_MS = 1000;
+
 export class ValOpsHttp extends ValOps {
   private readonly authHeaders:
     | { Authorization: string }
@@ -841,7 +849,42 @@ export class ValOpsHttp extends ValOps {
    * content when the group lookup is down is a worse experience than being
    * shown somebody else's unpublished draft is a bug.
    */
+  /**
+   * The last group lookup, and when it was made.
+   *
+   * A draft render calls `getPatchGroups` once per `fetchVal`, in series with
+   * the whole-chain fetch, and a page that calls `fetchVal` several times pays
+   * the round trip several times. Groups are per branch and change rarely, so a
+   * short window removes the multiplier without letting a stage go unseen for
+   * meaningfully longer than one render.
+   *
+   * Deliberately short. This is a read whose staleness decides whose draft
+   * content someone sees, so it is a per-request de-duplication rather than a
+   * cache: a second render a second later asks again.
+   */
+  private patchGroupsCache: {
+    at: number;
+    res: Awaited<ReturnType<ValOpsHttp["fetchPatchGroups"]>>;
+  } | null = null;
+
   async getPatchGroups(): Promise<
+    | { status: "ok"; patchGroups: PatchGroupT[] }
+    | { status: "unsupported" }
+    | { status: "error"; message: string }
+  > {
+    const now = Date.now();
+    if (
+      this.patchGroupsCache !== null &&
+      now - this.patchGroupsCache.at < PATCH_GROUPS_CACHE_MS
+    ) {
+      return this.patchGroupsCache.res;
+    }
+    const res = await this.fetchPatchGroups();
+    this.patchGroupsCache = { at: now, res };
+    return res;
+  }
+
+  private async fetchPatchGroups(): Promise<
     | { status: "ok"; patchGroups: PatchGroupT[] }
     | { status: "unsupported" }
     | { status: "error"; message: string }
@@ -954,10 +997,18 @@ export class ValOpsHttp extends ValOps {
       // 403 (not your group) and 409 (already published) are meaningful to the
       // client, so they are passed through rather than flattened to a 500.
       if (res.status === 403 || res.status === 409) {
+        // `home` answers these with a JSON body, so `res.text()` put the literal
+        // `{"message":"..."}` in front of the user. Every other branch in this
+        // class unwraps it; this one now does too.
         return {
           status: res.status,
           patchIds: [],
-          error: { message: await res.text() },
+          error: {
+            message: getErrorMessageFromUnknownJson(
+              await res.json().catch(() => undefined),
+              `Could not update patch group. HTTP error: ${res.status} ${res.statusText}`,
+            ),
+          },
         };
       }
       // A 401 here is the app's own credentials failing, not the user's, so it gets

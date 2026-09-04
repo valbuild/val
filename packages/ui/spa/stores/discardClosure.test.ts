@@ -32,7 +32,8 @@ const project = () => {
   ];
 };
 
-function makeSystem() {
+function makeSystem(options?: { patchGroups?: boolean }) {
+  const hasGroups = options?.patchGroups !== false;
   const discards: {
     patchIds: PatchId[];
     alsoUnstage: PatchId[] | undefined;
@@ -47,6 +48,9 @@ function makeSystem() {
       status: "saved",
       newPatchIds: patches.map((patch) => patch.patchId),
       parentRef,
+      // A deployment that HAS patch groups, which is the only place a discard
+      // closure means anything — there are no memberships to repair otherwise.
+      ...(hasGroups ? { patchGroupId: "g1" } : {}),
     }),
     publishPatches: async () => ({ status: "published" }),
     discardPatches: async (patchIds, alsoUnstagePatchIds) => {
@@ -128,6 +132,25 @@ test("a discard in an untouched module names nothing", async () => {
   const { elsewhere } = await scenario(system);
 
   await system.discard([elsewhere]);
+
+  expect(discards[0].alsoUnstage).toEqual([]);
+});
+
+test("a deployment without patch groups computes no closure at all", async () => {
+  /*
+   * There are no memberships to repair, and `ValOpsFS.deletePatches` ignores
+   * the answer — so a full worker patch-set build here is pure delay in front
+   * of the delete, on the longest chains most of all.
+   *
+   * Keyed on the DEPLOYMENT having groups, not on this client being scoped. An
+   * http client in the window before its scope is seeded is unscoped while
+   * other people's groups exist perfectly well, and skipping there would let a
+   * discard leave them holding a suffix.
+   */
+  const { system, discards } = makeSystem({ patchGroups: false });
+  const { insert } = await scenario(system);
+
+  await system.discard([insert]);
 
   expect(discards[0].alsoUnstage).toEqual([]);
 });

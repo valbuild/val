@@ -6,6 +6,9 @@ import {
 } from "@valbuild/core";
 import { createSystem, type System } from "./createSystem";
 import type { PatchGroupMembership } from "./PatchSync";
+import { PatchSetStore } from "./PatchSetStore";
+import { SearchStore } from "./SearchStore";
+import { ReferenceStore } from "./ReferenceStore";
 
 /**
  * Independent publish, at the seam where it either works or does not.
@@ -442,5 +445,98 @@ test("a write carries the patches its own edit is entangled with", async () => {
    * refuses it. Empty here is the bug: it means the grouping used to compute
    * the closure did not yet contain the patch being written.
    */
+  expect(saves[0].alsoAddPatchIds).toEqual([earlier]);
+});
+
+/**
+ * The same claim, with a patch-set build ALREADY IN FLIGHT.
+ *
+ * Which is the normal case while someone is typing, not a corner: `usePatchSets`
+ * re-runs on every chain movement and the save flushes synchronously on
+ * `patch:create`, so a build is usually running when the next write lands.
+ *
+ * `computePatchSets` shares the in-flight promise — right for readers, wrong
+ * here, because that build planned against a chain from before this patch
+ * existed. The guard against it was there and could never fire: it asked the
+ * INDEX whether it knew the id, and the index was being built from the current
+ * records while only the sets came from the stale build. Always true, retry
+ * dead, closure empty. The build now carries the chain it planned against, so
+ * the question is answerable.
+ *
+ * The test above passes with the bug present, because nothing is in flight
+ * there. That is the whole reason this one exists.
+ */
+test("a write during a patch-set build still carries its closure", async () => {
+  const saves: { alsoAddPatchIds?: readonly PatchId[] }[] = [];
+  /*
+   * A real worker round trip, held open on demand.
+   *
+   * Without this the in-process bridge answers within a microtask, so the build
+   * has always settled by the time the write lands and the case cannot be
+   * reached at all — which is exactly why the test above passes with the bug
+   * present.
+   */
+  const realPatchSets = new PatchSetStore();
+  let gate: Promise<void> | null = null;
+  const system = createSystem({
+    workerRealm: {
+      search: new SearchStore(),
+      references: new ReferenceStore(),
+      patchSets: {
+        getPatchSets: async (request) => {
+          if (gate !== null) await gate;
+          return realPatchSets.getPatchSets(request);
+        },
+      },
+    },
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: (() => {
+      let next = 0;
+      return () => `p${++next}` as PatchId;
+    })(),
+    savePatches: async ({ patches, parentRef, patchGroup }) => {
+      saves.push({ alsoAddPatchIds: patchGroup?.alsoAddPatchIds });
+      return {
+        status: "saved",
+        newPatchIds: patches.map((patch) => patch.patchId),
+        parentRef,
+      };
+    },
+    publishPatches: async () => ({ status: "published" }),
+  });
+  system.host.receive(project());
+  system.stat.receiveStat({ patches: [], baseSha: "sha" });
+  system.setPatchGroupResolver(async (patchIds) => ({
+    alsoAddPatchIds: await system.computeWriteClosure(patchIds),
+    closureVersion: 1,
+  }));
+
+  const earlier = await edit(system, MODULE, "earlier");
+  await system.patchSync.flush();
+  system.setPatchGroup([]);
+  saves.length = 0;
+
+  /*
+   * A build in flight and NOT finished — exactly what the review screen leaves
+   * running when the user goes back to typing.
+   */
+  let openGate: () => void = () => {};
+  gate = new Promise<void>((resolve) => {
+    openGate = resolve;
+  });
+  const inFlight = system.getPatchSets();
+  // The write is not awaited either: it has to reach the resolver WHILE the
+  // build is stuck, which is the whole scenario.
+  const written = (async () => {
+    await edit(system, MODULE, "mine");
+    await system.patchSync.flush();
+  })();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  gate = null;
+  openGate();
+  await inFlight;
+  await written;
+
+  expect(saves).toHaveLength(1);
   expect(saves[0].alsoAddPatchIds).toEqual([earlier]);
 });

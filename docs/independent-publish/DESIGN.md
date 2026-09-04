@@ -83,6 +83,25 @@ open. `getAuth` only proves a session exists, and every call to the content API
 carries the app's key rather than the editor's identity, so this server is the
 only place that knows both who is asking and whose group it is.
 
+## Editing inside a region you are holding back
+
+Allowed, and the held patches are loaded back in. An earlier design made such a
+region **read-only** until it was staged again, for a real reason: an author
+picks an array index against their own view, so re-staging patches afterwards
+shifts the content under the path they just chose and their edit lands on the
+wrong element — cleanly, every invariant intact, only the content wrong.
+
+That guard is not what ships, and the trade is deliberate. The shape is rare in
+practice (two people's edits mostly land in different routes), and refusing an
+edit for a reason the author cannot see is a worse everyday experience than the
+case it prevents. So the corruption case is **mitigated rather than prevented**:
+the widened set is what the editor renders and what the compare view lists, so
+the real result is on screen immediately rather than being argued about.
+
+`editWouldRestage` in `utils/patchGroups.ts` is the guard that would have
+enforced it. Nothing in production calls it; it survives as the executable
+statement of the rule and is exercised by `patchGroupScenario`.
+
 ## Keeping the invariant
 
 - **Writes** carry their closure (above), so a group cannot gain a hole from
@@ -177,13 +196,24 @@ engages.
    sit un-publishable until they act. That is deliberate — see "keeping the
    invariant" — but it means a third party's insert can block your publish, and
    the refusal names raw patch ids rather than describing the change.
-4. Scope is client-held local truth seeded from the server's annotation, and
+4. **A second tab's STAGE can be closed away by this tab's publish.**
+   `emptiesOwnPatchGroup` decides from the local scope plus the chain
+   annotation, and treats an absent annotation as "nothing else is in the
+   group" — it has to, or a single-author branch never fetches one and the group
+   never closes at all. A patch WRITTEN in another tab is a missing id here, so
+   the fetch that pulls it in carries the annotation and the check sees it. A
+   patch that other tab merely STAGED is already in this chain, so nothing
+   fetches, and this tab can name a group that still holds it. Closed by the
+   same thing that closes the rest of this list: the annotation refreshing on
+   its own.
+
+5. Scope is client-held local truth seeded from the server's annotation, and
    nothing reconciles it. `PatchStore` re-reads the annotation only inside a
    fetch it makes for MISSING patch ids, so on a quiet branch a failed stage is
    kept on screen until the page is reloaded, and a stage in one tab never
    reaches another. Closing both needs the annotation to refresh on its own. The
    deferred queue above narrows this but does not close it: a change held while
    there is no group is lost if the tab closes before one exists.
-5. Held patches count as _settled_ but not _applied_ (`chainSettled`), because
+6. Held patches count as _settled_ but not _applied_ (`chainSettled`), because
    the editor holds every field inert until the chain settles. A held patch that
    counted as neither would dim the Studio permanently.

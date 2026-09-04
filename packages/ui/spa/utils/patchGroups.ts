@@ -391,6 +391,18 @@ export function heldPatchSets(
  * that this function's job — leaving it to callers meant the source array of a move
  * out of a held region was silently unchecked.
  */
+/**
+ * NOT WIRED. The read-only guard this describes was considered and rejected.
+ *
+ * See "Editing inside a region you are holding back" in
+ * `docs/independent-publish/DESIGN.md`: refusing an edit for a reason its author
+ * cannot see is a worse everyday experience than the rare case it prevents, so
+ * the held patches are loaded back in and the widened result is shown instead.
+ *
+ * Kept because it is the executable statement of the rule — `patchGroupScenario`
+ * runs it, and a future design that does want to enforce it starts here rather
+ * than from the prose.
+ */
 export function editWouldRestage(
   index: PatchSetIndex,
   group: PatchGroup,

@@ -121,7 +121,30 @@ export function useCurrentPatchGroup(): CurrentPatchGroup {
      * one group's id with another group's members is how the staging screen
      * comes to show a set that will not publish.
      */
-    const patchGroupId = ownGroupId ?? mine?.patchGroupId;
+    /*
+     * …unless the annotation says that group has been PUBLISHED.
+     *
+     * `markPublished` runs only for a publish made HERE, so the same user
+     * publishing from another tab leaves this tab's `ownGroupId` set while a
+     * later annotation refetch shows the group closed. Naming it then makes
+     * every stage from this tab a 409 that is only logged, while the local
+     * scope moves anyway — and `usePatchGroupFlush` never queues, because there
+     * appears to be a group to send to.
+     *
+     * Falling through to `mine` (which already filters on `publishedAt ===
+     * null`) or to `undefined` puts this tab back in the post-publish window it
+     * is really in, where the deferred queue holds the change until the next
+     * write names the next group.
+     */
+    const ownGroupPublished =
+      ownGroupId !== undefined &&
+      groups?.some(
+        (group: PatchGroupT) =>
+          group.patchGroupId === ownGroupId && group.publishedAt !== null,
+      ) === true;
+    const patchGroupId = ownGroupPublished
+      ? mine?.patchGroupId
+      : (ownGroupId ?? mine?.patchGroupId);
     return {
       enabled: true,
       patchGroupId,

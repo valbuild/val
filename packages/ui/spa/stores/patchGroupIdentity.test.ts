@@ -49,6 +49,8 @@ function makeSystem(options?: {
   }[];
 }) {
   const answers = [...(options?.fetchAnswers ?? [])];
+  /** What each publish told the server it was closing. */
+  const publishes: { closesPatchGroupId: string | undefined }[] = [];
   const system = createSystem({
     fetchPatches: async (patchIds) => {
       const next = answers.shift();
@@ -78,11 +80,14 @@ function makeSystem(options?: {
         ? { patchGroupId: options.savedInGroup }
         : {}),
     }),
-    publishPatches: async () => ({ status: "published" }),
+    publishPatches: async (request) => {
+      publishes.push({ closesPatchGroupId: request.closesPatchGroupId });
+      return { status: "published" };
+    },
   });
   system.host.receive(project());
   system.stat.receiveStat({ patches: [], baseSha: "sha" });
-  return system;
+  return Object.assign(system, { publishes });
 }
 
 async function edit(
@@ -300,6 +305,82 @@ test("a publish closes the published group in the ANNOTATION too", async () => {
    * because there appeared to be a group to send to.
    */
   expect(system.patchStore.groups()?.[0].publishedAt).not.toBeNull();
+});
+
+test("a group holding another TAB's work is not closed", async () => {
+  const system = makeSystem({
+    savedInGroup: "g1",
+    fetchAnswers: [
+      {
+        patches: [],
+        // The annotation knows about `other`; this tab's scope never will,
+        // because the scope grows only on this tab's own writes.
+        patchGroups: [openGroup(["p1" as PatchId, "other" as PatchId])],
+      },
+    ],
+  });
+  await edit(system, "edited");
+  await deliverGroups(system);
+  // What the shell does from `useCurrentPatchGroup`, which is the only place
+  // that can resolve whose group this is.
+  system.setOwnPatchGroupId("g1");
+  system.setPatchGroup(["p1" as PatchId]);
+
+  expect((await system.publish([], "ship my half")).status).toBe("published");
+
+  /*
+   * Deciding from the local scope alone passed the "does this empty the group"
+   * check and NAMED the group on the commit — and the content API closes what
+   * it is named without looking. `other` would have fallen into a closed group
+   * and out of the next one, and the other tab's next stage into that id would
+   * have been a 409.
+   *
+   * Asserted on what went to the server, not on the local annotation: the
+   * client-side close in `markPublished` has its own rule and would leave the
+   * group open here either way, so it cannot tell the two apart.
+   */
+  expect(system.publishes).toHaveLength(1);
+  expect(system.publishes[0].closesPatchGroupId).toBe(undefined);
+});
+
+test("no annotation still names the group, on the strength of the scope", async () => {
+  /*
+   * Refusing without an annotation sounds safer and is not.
+   *
+   * On a single-author branch nothing is ever missing from the chain, so no
+   * fetch is made, so no annotation ever arrives — and the group would never
+   * close on exactly the branches where that matters most, which is the bug
+   * `patchGroupId` on commit was added to fix. The test above is the case where
+   * the annotation exists and disagrees; this is the case where there is
+   * nothing to disagree with.
+   */
+  const system = makeSystem({ savedInGroup: "g1" });
+  await edit(system, "edited");
+  system.setOwnPatchGroupId("g1");
+  system.setPatchGroup(["p1" as PatchId]);
+
+  expect((await system.publish([], "ship it")).status).toBe("published");
+
+  expect(system.publishes[0].closesPatchGroupId).toBe("g1");
+});
+
+test("a publish that DOES empty the group names it", async () => {
+  // The positive control. Without it the test above passes for any reason at
+  // all, including a `closesPatchGroupId` that is never sent.
+  const system = makeSystem({
+    savedInGroup: "g1",
+    fetchAnswers: [
+      { patches: [], patchGroups: [openGroup(["p1" as PatchId])] },
+    ],
+  });
+  await edit(system, "edited");
+  await deliverGroups(system);
+  system.setOwnPatchGroupId("g1");
+  system.setPatchGroup(["p1" as PatchId]);
+
+  expect((await system.publish([], "ship all of it")).status).toBe("published");
+
+  expect(system.publishes[0].closesPatchGroupId).toBe("g1");
 });
 
 test("a PARTIAL publish leaves the group open", async () => {

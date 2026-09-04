@@ -91,6 +91,35 @@ test("a save response beats a stale annotation", () => {
   expect([...res.members]).toEqual([]);
 });
 
+test("a group this user published in ANOTHER tab is not named", () => {
+  /*
+   * `markPublished` runs only for a publish made in this tab, so `ownGroupId`
+   * survives one made elsewhere — and preferring it unconditionally then named
+   * a group the server has closed. Every stage from this tab became a 409 that
+   * is only logged, while the local scope moved anyway, and the deferred queue
+   * never engaged because there appeared to be a group.
+   */
+  const res = current({
+    groups: [group({ publishedAt: "2026-01-02T00:00:00.000Z" })],
+    ownGroupId: "gA",
+  });
+  expect(res.patchGroupId).toBe(undefined);
+  // Which puts this tab back in the post-publish window it is really in.
+  expect(res.enabled).toBe(true);
+});
+
+test("a published own group falls through to a newer open one", () => {
+  const res = current({
+    groups: [
+      group({ publishedAt: "2026-01-02T00:00:00.000Z" }),
+      group({ patchGroupId: "gB", patchIds: ["p2" as PatchId] }),
+    ],
+    ownGroupId: "gA",
+  });
+  expect(res.patchGroupId).toBe("gB");
+  expect([...res.members]).toEqual(["p2"]);
+});
+
 test("a published annotation group is never named", () => {
   // What `markPublished` now writes locally, since nothing refetches it.
   const res = current({

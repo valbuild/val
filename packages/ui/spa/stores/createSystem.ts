@@ -707,14 +707,45 @@ export function createSystem(options: SystemOptions): System {
   function emptiesOwnPatchGroup(toPublish: readonly PatchId[]): boolean {
     if (ownPatchGroupId === undefined) return false;
     if (patchGroupIds === null) return false;
+    /*
+     * The SERVER's account of the group as well as this tab's scope.
+     *
+     * The scope is seeded once and then grows only on this tab's own writes, so
+     * the same author writing or staging from a second tab adds ids the
+     * annotation knows about and the scope never will. Deciding from the scope
+     * alone passed this check on a group that still held unshipped work — and
+     * the content API closes what it is named without looking, so those patches
+     * fell into a closed group and out of the next one, and the other tab's
+     * next stage into that id got a 409.
+     *
+     * An ABSENT annotation is treated as no additional members rather than as a
+     * refusal, and that is the deliberate half. Refusing without it sounds
+     * safer and is not: on a single-author branch nothing is ever missing from
+     * the chain, so no fetch is made, so no annotation ever arrives — and the
+     * group would then never close on exactly the branches where it matters
+     * most. That is the bug the `patchGroupId` field was added to fix.
+     *
+     * What is left is narrow, because the case that worries us mostly brings
+     * the annotation with it: a patch written in another tab is a MISSING id
+     * here, so the chain fetch that pulls it in carries the groups too. The
+     * residual is another tab STAGING an id this chain already has, with no
+     * fetch to trigger — recorded in `DESIGN.md`.
+     */
+    const annotated = patchStore
+      .groups()
+      ?.find((group) => group.patchGroupId === ownPatchGroupId);
+    const accountedFor = new Set([
+      ...patchGroupIds,
+      ...(annotated?.patchIds ?? []),
+    ]);
     const shipping = new Set(toPublish);
     const published = patchStore.publishedPatchIds();
     const appliedAt = new Map(
       patchStore
-        .recordsFor(patchGroupIds)
+        .recordsFor([...accountedFor])
         .map((record) => [record.patchId, record.appliedAt]),
     );
-    return patchGroupIds.every((patchId) => {
+    return [...accountedFor].every((patchId) => {
       if (shipping.has(patchId)) return true;
       if (published.has(patchId)) return true;
       // `null` is server-known-uncommitted and `undefined` is created locally.
@@ -746,6 +777,23 @@ export function createSystem(options: SystemOptions): System {
     patchIds: readonly PatchId[],
   ): Promise<PatchId[]> {
     if (patchIds.length === 0) return [];
+    if (!patchStore.patchGroupsSupported()) {
+      /*
+       * No groups on this deployment, so there are no memberships to repair and
+       * `ValOpsFS.deletePatches` ignores the answer. Without this, every discard
+       * paid for a full worker patch-set build that nobody read — on a long
+       * chain, that is the delay before anything is deleted.
+       *
+       * NOT `patchGroupIds === null`, which is the condition
+       * `computeWriteClosure` uses and would be wrong here. That one asks "do I
+       * have a group to keep closed", and an unscoped client has none. This
+       * asks whether ANYONE does — a client that has not been scoped yet, in
+       * the window before the annotation arrives, is unscoped and other
+       * people's groups exist regardless. Skipping there would let a discard in
+       * that window leave them holding a suffix.
+       */
+      return [];
+    }
     try {
       const chain = patchStore.allRecords().map((record) => record.patchId);
       const index = indexPatchSets(await computePatchSets(), chain);
@@ -858,7 +906,7 @@ export function createSystem(options: SystemOptions): System {
    * suffix twice. Sharing the in-flight call gives concurrent readers one build
    * and one answer, which is what they wanted anyway.
    */
-  let patchSetsInFlight: Promise<SerializedPatchSet> | null = null;
+  let patchSetsInFlight: Promise<PatchSetsBuild> | null = null;
   /**
    * The grouping, shared by `System.getPatchSets` and the publish gate.
    *
@@ -939,35 +987,43 @@ export function createSystem(options: SystemOptions): System {
       return [];
     }
     /*
-     * Was the index built from a chain that contains these patches?
+     * Did the BUILD plan against a chain containing these patches?
      *
-     * `chainPosition`, not `setsOf`: `PatchSets.insertOp` skips `file` and
-     * `test` ops, so a patch made only of those — a gallery delete's file op is
-     * the everyday one — is in no set at all and never will be. Asking
-     * `setsOf.has` made that read as "the index is stale", so every such save
-     * paid a second full `computePatchSets` round trip that could not change
-     * the answer.
+     * Asked of the build, not of the index. Two earlier versions asked
+     * something else and were both wrong, in opposite directions:
+     *
+     * - `index.setsOf.has(id)` — false forever for a patch of only `file` or
+     *   `test` ops, which `PatchSets.insertOp` skips, so every gallery delete
+     *   paid for a second build that could not change its answer;
+     * - `index.chainPosition.has(id)` — true always, because the index was
+     *   being built from `allRecords()` at THIS moment while the sets came
+     *   from a shared in-flight promise planned before this patch existed. The
+     *   retry below became dead code and every write made during a build sent
+     *   an empty closure. That is the normal case while typing, since
+     *   `usePatchSets` re-runs on each chain movement and the save flushes
+     *   synchronously on `patch:create`.
+     *
+     * The build now carries its own chain, so the question is answerable. The
+     * index is built from that same chain too, or its positions would describe
+     * a chain the sets do not.
      */
-    const covers = (index: PatchSetIndex) =>
-      patchIds.every((patchId) => index.chainPosition.has(patchId));
+    const covers = (build: PatchSetsBuild) => {
+      const planned = new Set(build.chain);
+      return patchIds.every((patchId) => planned.has(patchId));
+    };
     let index: PatchSetIndex;
     try {
-      index = indexPatchSets(
-        await computePatchSets(),
-        patchStore.allRecords().map((record) => record.patchId),
-      );
-      if (!covers(index)) {
+      let build = await computePatchSetsBuild();
+      if (!covers(build)) {
         /*
          * A build that was already in flight when this write happened, so it
-         * planned against a chain without these ids. `computePatchSets` shares
-         * the in-flight promise, which is right for readers and wrong here.
-         * The first has settled by now, so this starts a fresh one.
+         * planned against a chain without these ids. `computePatchSetsBuild`
+         * shares the in-flight promise, which is right for readers and wrong
+         * here. The first has settled by now, so this starts a fresh one.
          */
-        index = indexPatchSets(
-          await computePatchSets(),
-          patchStore.allRecords().map((record) => record.patchId),
-        );
+        build = await computePatchSetsBuild();
       }
+      index = indexPatchSets(build.sets, build.chain);
     } catch {
       // The grouping and the chain disagree, which is possible mid-sync. Join
       // the group without a closure rather than refusing the write: losing the
@@ -981,7 +1037,22 @@ export function createSystem(options: SystemOptions): System {
     );
   }
 
-  function computePatchSets(): Promise<SerializedPatchSet> {
+  /**
+   * A grouping, together with the chain it was PLANNED against.
+   *
+   * The chain is part of the answer, not context: `computePatchSets` shares an
+   * in-flight build, so a caller can be handed a grouping planned before the
+   * patch it is asking about existed. Without the chain there is no way to tell
+   * — see `computeWriteClosure`, where asking the wrong question made the
+   * staleness check dead code and every write during a build under-closed.
+   */
+  type PatchSetsBuild = {
+    sets: SerializedPatchSet;
+    /** Chain order at plan time, which is also what `sets` describes. */
+    chain: PatchId[];
+  };
+
+  function computePatchSetsBuild(): Promise<PatchSetsBuild> {
     if (patchSetsInFlight !== null) {
       return patchSetsInFlight;
     }
@@ -993,18 +1064,23 @@ export function createSystem(options: SystemOptions): System {
       // foreign patch announced mid-chain reads as `current` until its data
       // lands, and as a rebuild the moment it does.
       const chain = patchStore.allRecords();
-      const plan = patchSetChain.plan(chain.map((record) => record.patchId));
+      const patchIds = chain.map((record) => record.patchId);
+      const plan = patchSetChain.plan(patchIds);
       const request = patchSetRequest(plan, chain);
       const sets = await patchSetStore.getPatchSets(request);
       // AFTER the call, not before: a worker that threw or a message that was
       // never answered must not leave the host believing the grouping moved.
       patchSetChain.covers(plan);
-      return sets;
+      return { sets, chain: patchIds };
     })().finally(() => {
       patchSetsInFlight = null;
     });
     patchSetsInFlight = run;
     return run;
+  }
+
+  function computePatchSets(): Promise<SerializedPatchSet> {
+    return computePatchSetsBuild().then((build) => build.sets);
   }
   // See `PatchStore.publishInFlight`: a stat landing mid-publish would otherwise
   // reconcile away the patches `/save` has just deleted server-side.

@@ -1167,6 +1167,7 @@ export class PatchStore {
      * the FACT that the group is closed, which we know because we closed it;
      * the exact instant is the server's to state and nothing reads it.
      */
+    let annotationMoved = false;
     if (this.patchGroups !== undefined) {
       const closedNow = new Date().toISOString();
       const next = this.patchGroups.map((group) => {
@@ -1177,12 +1178,19 @@ export class PatchStore {
         ) {
           return group;
         }
-        groupsMoved = true;
+        annotationMoved = true;
         return { ...group, publishedAt: closedNow };
       });
-      if (groupsMoved) this.patchGroups = next;
+      /*
+       * Tracked apart from `groupsMoved`, which is also set by forgetting
+       * `ownPatchGroupId`. On a partial publish that one is true and this one is
+       * not, and sharing the flag replaced the annotation with an element-wise
+       * identical copy — a new array identity, so every `usePatchGroups`
+       * consumer repaints for no news at all.
+       */
+      if (annotationMoved) this.patchGroups = next;
     }
-    if (groupsMoved) this.bumpGroups();
+    if (groupsMoved || annotationMoved) this.bumpGroups();
   }
 
   /**

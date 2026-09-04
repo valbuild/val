@@ -1485,14 +1485,34 @@ export const ValServer = (
         }
         const ids = query.id;
         /*
-         * Forwarded verbatim, and only the client can compute it: which OTHER
-         * patches must lose their group membership because these are going
-         * needs the patch sets, which need the schema, which lives in the
-         * browser. `ValOpsFS` ignores it — there are no groups there.
+         * Which OTHER patches lose their group membership because these are
+         * going. Only the client can COMPUTE it — that needs the patch sets,
+         * which need the schema — but it is bounded here rather than trusted,
+         * because the content API strips those memberships from every group
+         * without an ownership check. See `boundUnstageClosure`.
+         *
+         * Only in `http` mode: `ValOpsFS` has no groups and ignores it, and the
+         * client does not send it there.
          */
+        let alsoUnstagePatchIds: PatchId[] | undefined;
+        const requestedUnstage = req.body?.alsoUnstagePatchIds;
+        if (
+          serverOps instanceof ValOpsHttp &&
+          requestedUnstage !== undefined &&
+          requestedUnstage.length > 0
+        ) {
+          const chain = await serverOps.fetchPatches({
+            excludePatchOps: true,
+          });
+          alsoUnstagePatchIds = boundUnstageClosure(
+            chain.patches,
+            ids,
+            requestedUnstage,
+          );
+        }
         const deleteRes = await serverOps.deletePatches(
           ids,
-          req.body?.alsoUnstagePatchIds,
+          alsoUnstagePatchIds,
         );
         if (deleteRes.errors && Object.keys(deleteRes.errors).length > 0) {
           console.error("Val: Failed to delete patches", deleteRes.errors);
@@ -3275,6 +3295,61 @@ export function scopedPatches<
   return patches.filter(
     (patch) => own.has(patch.patchId) || patch.appliedAt !== null,
   );
+}
+
+/**
+ * Which of the client's `alsoUnstagePatchIds` this server is willing to forward.
+ *
+ * The forward closure of a discard is the client's to compute — it needs the
+ * patch sets, which need the schema — and it was being forwarded verbatim. But
+ * the content API removes those memberships from EVERY group with no ownership
+ * check, so any logged-in editor could strip arbitrary patches out of any other
+ * author's group by attaching them to a delete of one of their own throwaway
+ * patches. That is the outcome the 403 on `/patch-groups` exists to prevent,
+ * reached by a different door: their next publish silently ships less.
+ *
+ * Neither server can compute the true closure, but this one can BOUND it. A
+ * patch can only be invalidated by a delete if it was written after that delete
+ * — its paths were chosen against a view that had it — and if it is in the same
+ * module, since a patch set never spans two. Anything outside those bounds was
+ * not in the closure whatever the client says, so it is dropped rather than
+ * refused: the delete is still correct, and refusing the whole request over an
+ * over-broad extra would turn a discard into an error the user cannot act on.
+ *
+ * Exported for the test. Pure, and given the chain rather than fetching it, so
+ * the ordering it depends on is visible in the test rather than mocked.
+ */
+export function boundUnstageClosure(
+  /** The pending chain, in chain order, as `fetchPatches` returns it. */
+  chain: readonly { patchId: PatchId; path: ModuleFilePath }[],
+  deleted: readonly PatchId[],
+  requested: readonly PatchId[],
+): PatchId[] {
+  if (requested.length === 0) {
+    return [];
+  }
+  const positionOf = new Map<PatchId, number>();
+  const moduleOf = new Map<PatchId, ModuleFilePath>();
+  chain.forEach((entry, index) => {
+    positionOf.set(entry.patchId, index);
+    moduleOf.set(entry.patchId, entry.path);
+  });
+  const doomed = new Set(deleted);
+  return requested.filter((patchId) => {
+    // A patch being deleted anyway does not need its membership stripped
+    // separately, and naming one is how an over-broad list hides.
+    if (doomed.has(patchId)) return false;
+    const position = positionOf.get(patchId);
+    const moduleFilePath = moduleOf.get(patchId);
+    if (position === undefined || moduleFilePath === undefined) return false;
+    return deleted.some((deletedId) => {
+      const deletedPosition = positionOf.get(deletedId);
+      if (deletedPosition === undefined) return false;
+      return (
+        position > deletedPosition && moduleOf.get(deletedId) === moduleFilePath
+      );
+    });
+  });
 }
 
 export async function refuseUnlessOwn(
