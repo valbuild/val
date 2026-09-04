@@ -541,6 +541,7 @@ export function ModuleGallery({
       schema,
       remoteFiles,
       encode,
+      remoteSettingsPending,
     ],
   );
 
@@ -550,8 +551,17 @@ export function ModuleGallery({
       dragCounterRef.current = 0;
       setIsDraggingOver(false);
       if (requireRemote && (!remoteData || !currentRemoteFileBucket)) {
+        /**
+         * Same distinction as `handleUpload`, and this is the path that needs
+         * it most: a drop has no button to disable, so `canUpload` cannot keep
+         * anyone out of here. Dropping a file while `/remote/settings` is still
+         * in flight is the one way an editor can still meet this, and it is
+         * transient - saying "not available" would be false.
+         */
         setUploadError(
-          "Remote uploads are not available. Please try again later.",
+          remoteSettingsPending
+            ? "Preparing remote uploads - try again in a moment."
+            : "Remote uploads are not available. Please try again later.",
         );
         return;
       }
@@ -677,6 +687,11 @@ export function ModuleGallery({
       computeRef,
       handleProgress,
       encode,
+      // Derived from `remoteFiles`, which is NOT otherwise a dependency here.
+      // On loading -> inactive neither `remoteData` nor the bucket changes
+      // (both stay null), so without this the flag stays stale at `true` and a
+      // genuinely unavailable remote would keep saying "try again in a moment".
+      remoteSettingsPending,
     ],
   );
 
