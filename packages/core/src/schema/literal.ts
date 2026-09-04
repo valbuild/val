@@ -160,12 +160,12 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  readonly(): LiteralSchema<Src> {
+  readonly(isReadonly: boolean = true): LiteralSchema<Src> {
     return new LiteralSchema<Src>(
       this.value,
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.renderInput,
@@ -173,13 +173,13 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  hidden(): LiteralSchema<Src> {
+  hidden(isHidden: boolean = true): LiteralSchema<Src> {
     return new LiteralSchema<Src>(
       this.value,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.renderInput,
       this.previewInput,

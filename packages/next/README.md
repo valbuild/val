@@ -48,6 +48,7 @@
   - [Number](#number)
   - [Boolean](#boolean)
   - [Nullable](#nullable)
+  - [Read-only and hidden fields](#read-only-and-hidden-fields)
   - [Array](#array)
   - [Record](#record)
   - [Router](#router)
@@ -382,6 +383,24 @@ All schema types can be nullable (optional). A nullable schema creates a union o
 import { s } from "./val.config";
 
 s.string().nullable(); // <- Schema<string | null>
+```
+
+## Read-only and hidden fields
+
+`.readonly()` renders a field disabled in the Val editor, and `.hidden()` leaves
+it out of the editor entirely. Both are UI-only: the value is still stored,
+validated and serialized as normal.
+
+Both take an optional flag which defaults to `true`, so `.readonly()` and
+`.readonly(true)` are the same thing. Pass it when the decision comes from a
+variable rather than being written out:
+
+```ts
+import { s } from "./val.config";
+
+s.string().readonly(); // same as .readonly(true)
+s.string().readonly(!canEdit);
+s.image().hidden(hideMedia);
 ```
 
 ## Description

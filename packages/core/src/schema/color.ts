@@ -228,12 +228,12 @@ export class ColorSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  readonly(): ColorSchema<Src> {
+  readonly(isReadonly: boolean = true): ColorSchema<Src> {
     return new ColorSchema<Src>(
       this.options,
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.renderInput,
@@ -241,13 +241,13 @@ export class ColorSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  hidden(): ColorSchema<Src> {
+  hidden(isHidden: boolean = true): ColorSchema<Src> {
     return new ColorSchema<Src>(
       this.options,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.renderInput,
       this.previewInput,
