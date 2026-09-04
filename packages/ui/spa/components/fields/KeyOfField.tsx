@@ -187,6 +187,16 @@ export function KeySelector({
       <PopoverContent
         className="w-[var(--radix-popover-trigger-width)] p-0"
         container={portalContainer}
+        /**
+         * Above the combobox, and the field it belongs to.
+         *
+         * A reference is usually set from inside a form, so opening downwards
+         * puts the list over the fields the editor has not filled in yet - and
+         * over the "+" and the go-to-reference link on this same row. Radix
+         * keeps collision detection on, so it still flips below when there is
+         * no room above.
+         */
+        side="top"
       >
         {creating && onCreate !== undefined ? (
           createRoutePattern ? (

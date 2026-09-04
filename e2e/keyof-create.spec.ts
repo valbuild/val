@@ -118,6 +118,33 @@ test.describe("creating a referenced entry from a keyOf field", () => {
     ).toHaveValue("");
   });
 
+  test("the menu renders in the Studio's portal, above the combobox", async ({
+    page,
+  }) => {
+    const studio = await openBlogPost(page);
+    await authorField(studio).getByRole("combobox").click();
+
+    // In the Studio's own portal node, which is INSIDE the shadow root: a
+    // popover portalled to `document.body` lands outside it and loses every
+    // Val style, and one left in the field's own box is clipped by it.
+    const panel = studio.locator("[data-val-portal] [data-side]");
+    await expect(panel, "the menu is not in the Studio's portal").toHaveCount(
+      1,
+    );
+    // Above the row, so it does not cover the fields below it or this row's own
+    // "+" and go-to-reference link.
+    await expect(panel).toHaveAttribute("data-side", "top");
+    // And the portal node is not also sitting on the panel as a DOM attribute,
+    // which is what reading it off `props` and spreading the rest did.
+    expect(await panel.getAttribute("container")).toBeNull();
+
+    const trigger = await authorField(studio)
+      .getByRole("combobox")
+      .boundingBox();
+    const menu = await panel.boundingBox();
+    expect(trigger && menu && menu.y + menu.height <= trigger.y + 1).toBe(true);
+  });
+
   test("the + beside the dropdown opens the same form", async ({ page }) => {
     const studio = await openBlogPost(page);
 
