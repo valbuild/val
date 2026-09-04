@@ -1132,6 +1132,11 @@ export const ValServer = (
           patchGroupId,
           patchIds,
           closureVersion,
+          // Forwarded so the content API can refuse independently. This server
+          // has already refused a group that is not the caller's; sending the
+          // author means the check also holds for anything reaching the content
+          // API without coming through here.
+          auth.id as AuthorId,
         );
         if (res.error) {
           return { status: res.status, json: { message: res.error.message } };
@@ -1159,7 +1164,11 @@ export const ValServer = (
             json: { message: refusal.message },
           };
         }
-        const res = await serverOps.unstagePatches(patchGroupId, patchIds);
+        const res = await serverOps.unstagePatches(
+          patchGroupId,
+          patchIds,
+          auth.id as AuthorId,
+        );
         if (res.error) {
           return { status: res.status, json: { message: res.error.message } };
         }

@@ -818,6 +818,32 @@ const mutatePatchGroup: Handler = async (req, res, url) => {
     res.end("Patch group is already published");
     return;
   }
+  /*
+   * The content API's OWN ownership check, modelled on `home`'s
+   * `resolveOwnOpenGroup`.
+   *
+   * The app's API key names the PROJECT, not the person, so the caller's
+   * identity arrives as `x-val-profile-id` — a claim the app makes alongside
+   * its key. Without it there is no profile to compare against `group.authorId`
+   * and the real content API answers 403 rather than trusting the key.
+   *
+   * Modelling the refusal matters as much as modelling the success: this mock
+   * had no auth on these routes at all, so `ValOpsHttp` not sending the header
+   * looked like it worked here while failing every stage in production.
+   */
+  const profileId = req.headers["x-val-profile-id"];
+  if (typeof profileId !== "string" || profileId.length === 0) {
+    res.writeHead(403, { "Content-Type": "text/plain", ...corsHeaders(res) });
+    res.end(
+      "Cannot resolve the caller's profile, so patch group ownership cannot be checked",
+    );
+    return;
+  }
+  if (group.authorId === null || group.authorId !== profileId) {
+    res.writeHead(403, { "Content-Type": "text/plain", ...corsHeaders(res) });
+    res.end("Patch group belongs to another user");
+    return;
+  }
   const body = await readJsonBody<{ patchIds: string[] }>(req);
   const patchIds = body?.patchIds ?? [];
   for (const patchId of patchIds) {

@@ -762,6 +762,21 @@ export class ValOpsHttp extends ValOps {
     patchGroupId: string,
     patchIds: PatchId[],
     closureVersion: number,
+    /**
+     * WHO is asking, so the content API can refuse a group that is not theirs.
+     *
+     * Every call from this class carries the app's API key, which says which
+     * PROJECT is calling and nothing about which editor. Without this the
+     * content API cannot tell one of a project's editors from another, so the
+     * only check on stage and unstage is the one in `ValServer` — and anything
+     * reaching the content API by another route (an API key, a PAT) has none at
+     * all.
+     *
+     * `null` where there is no session. The content API refuses rather than
+     * treating that as a match: a group written by an api key has a null author
+     * too, and `null === null` must not read as ownership.
+     */
+    authorId: AuthorId | null,
   ): Promise<PatchGroupMutationResult> {
     return this.mutatePatchGroup(
       "POST",
@@ -770,6 +785,7 @@ export class ValOpsHttp extends ValOps {
       // project's auth headers.
       `patch-groups/${encodeURIComponent(patchGroupId)}/patches`,
       { patchIds, closureVersion },
+      authorId,
     );
   }
 
@@ -782,11 +798,14 @@ export class ValOpsHttp extends ValOps {
   async unstagePatches(
     patchGroupId: string,
     patchIds: PatchId[],
+    /** See {@link stagePatches} — the content API's half of the ownership check. */
+    authorId: AuthorId | null,
   ): Promise<PatchGroupMutationResult> {
     return this.mutatePatchGroup(
       "DELETE",
       `patch-groups/${encodeURIComponent(patchGroupId)}/patches`,
       { patchIds },
+      authorId,
     );
   }
 
@@ -869,12 +888,32 @@ export class ValOpsHttp extends ValOps {
     method: "POST" | "DELETE",
     path: string,
     body: Record<string, unknown>,
+    /**
+     * WHO is asking. Sent as `x-val-profile-id`, which is what the content API
+     * reads to decide whether this group is the caller's.
+     *
+     * `this.authHeaders` is the app's API key, and that names the PROJECT, not
+     * the person — so without this the content API cannot resolve a profile
+     * and refuses every stage and unstage with
+     * "Cannot resolve the caller's profile". The group endpoints are the only
+     * ones here that need it, because they are the only ones whose answer
+     * depends on which of a project's editors is calling.
+     *
+     * Omitted when there is no session rather than sent empty: the content API
+     * treats an unidentified caller as a refusal, which is what we want, and an
+     * empty header would be a different and less obvious way to say it.
+     *
+     * A PAT already identifies a person, so `authHeaders` carries the identity
+     * on its own there and this adds nothing.
+     */
+    authorId: AuthorId | null,
   ): Promise<PatchGroupMutationResult> {
     try {
       const res = await fetch(`${this.contentUrl}/v1/${this.project}/${path}`, {
         method,
         headers: {
           ...this.authHeaders,
+          ...(authorId !== null ? { "x-val-profile-id": authorId } : {}),
           "Content-Type": "application/json",
         },
         body: JSON.stringify(body),
