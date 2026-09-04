@@ -1619,6 +1619,20 @@ export const ValServer = (
         const { key, keys, offset, limit } = req.query;
         // Defaults to true, mirroring /sources/~. The Studio opts out.
         const applyPatches = req.query.apply_patches !== false;
+        /*
+         * Whose pending work this render may see.
+         *
+         * The same resolution `/sources/~` runs, through the same function: a
+         * draft page renders module content and `jsonValues` entries together,
+         * and this route used to apply every pending patch on the branch while
+         * the modules beside it were scoped — so one screen showed the caller's
+         * view and everybody's unpublished work at once.
+         */
+        const { ownPatchIds } = await resolveOwnPatchScope(serverOps, {
+          explicitPatchIds: undefined,
+          ownGroupsOnly: req.query.own_patch_groups_only === true,
+          authorId: ("id" in auth && auth.id) || undefined,
+        });
         const isWindow = offset !== undefined || limit !== undefined;
         const shapes = [key !== undefined, keys !== undefined, isWindow].filter(
           Boolean,
@@ -1641,6 +1655,7 @@ export const ValServer = (
         if (key !== undefined) {
           const res = await serverOps.getJsonEntry(moduleFilePath, key, {
             applyPatches,
+            patchIds: ownPatchIds,
           });
           if (res.status === "unauthorized") {
             return { status: 401, json: { message: res.message } };
@@ -1661,7 +1676,7 @@ export const ValServer = (
           keys !== undefined
             ? { keys }
             : { offset: offset as number, limit: limit as number },
-          { applyPatches },
+          { applyPatches, patchIds: ownPatchIds },
         );
         if (res.status === "unauthorized") {
           return { status: 401, json: { message: res.message } };
@@ -1741,89 +1756,12 @@ export const ValServer = (
            * because a lookup failed is the bug this feature exists to prevent,
            * and it would be silent.
            */
-          let ownPatchIds: PatchId[] | undefined;
-          /** See where this is set: committed work is nobody's to hold back. */
-          let scopeAlsoIncludesApplied = false;
-          if (
-            query.patch_id === undefined &&
-            query.own_patch_groups_only === true
-          ) {
-            if (serverOps instanceof ValOpsHttp && "id" in auth && auth.id) {
-              const groupsRes = await serverOps.getPatchGroups();
-              if (groupsRes.status === "unsupported") {
-                /*
-                 * A content API that PREDATES patch groups — the endpoint 404s.
-                 *
-                 * Unscoped, which is what those deployments do today and must
-                 * keep doing. Reading this as a failure and rendering base
-                 * would silently drop every pending patch from every draft
-                 * preview on every existing http project — the exact opposite
-                 * of "keeps working unchanged", and invisible to the reader.
-                 */
-                ownPatchIds = undefined;
-              } else if (groupsRes.status === "error") {
-                /*
-                 * We could not ask, and this deployment DOES have the endpoint.
-                 * Render base rather than everything: a degraded preview is
-                 * recoverable, showing another author's unpublished draft is
-                 * not, and it would be silent.
-                 */
-                ownPatchIds = [];
-              } else if (groupsRes.patchGroups.length === 0) {
-                /*
-                 * The branch has no groups AT ALL, so this deployment is not
-                 * using them — a content API that predates patch groups, or a
-                 * project where nobody has staged anything since they existed.
-                 *
-                 * Unscoped, which is the behaviour every such project has
-                 * today. Collapsing this into "your group is empty" would make
-                 * every draft render base and silently drop all pending
-                 * content, which is what happened before this branch: nothing
-                 * writes a group yet, so EVERY project is in this state right
-                 * now.
-                 */
-                ownPatchIds = undefined;
-              } else {
-                /*
-                 * Groups exist and none are this person's: they have staged
-                 * nothing, and base is the honest answer. Distinct from the
-                 * case above, which is why the two are not one expression.
-                 */
-                ownPatchIds = groupsRes.patchGroups
-                  .filter(
-                    (group) =>
-                      group.publishedAt === null && group.authorId === auth.id,
-                  )
-                  .flatMap((group) => group.patchIds);
-                /*
-                 * Scoping applies to PENDING work only. Anything already
-                 * committed is part of everyone's view.
-                 *
-                 * A published patch stays in the chain with `appliedAt` set
-                 * until the next deployment moves the base, and the unscoped
-                 * path applies it. Filtering to open groups dropped it — so the
-                 * moment someone published, their own draft preview reverted
-                 * the field they had just shipped, and nobody else saw it
-                 * either until the deploy landed. Anything written on top in
-                 * that window is authored against content that is already
-                 * stale on `main`.
-                 *
-                 * Unioned by `appliedAt` rather than by pulling in groups with
-                 * a `publishedAt`, because a partial publish leaves the group
-                 * OPEN with some of its patches applied — those are committed
-                 * too, and no group flag names them.
-                 */
-                scopeAlsoIncludesApplied = true;
-              }
-            } else {
-              /*
-               * fs mode, or a server with no groups: there is nothing to scope
-               * BY, and every pending patch is this one person's anyway. Left
-               * `undefined` so the existing "apply everything" path runs.
-               */
-              ownPatchIds = undefined;
-            }
-          }
+          const { ownPatchIds, scopeAlsoIncludesApplied } =
+            await resolveOwnPatchScope(serverOps, {
+              explicitPatchIds: query.patch_id,
+              ownGroupsOnly: query.own_patch_groups_only === true,
+              authorId: ("id" in auth && auth.id) || undefined,
+            });
           const requestedPatchIds = query.patch_id ?? ownPatchIds;
           if (scopeAlsoIncludesApplied) {
             /*
@@ -3398,6 +3336,114 @@ export function boundUnstageClosure(
       );
     });
   });
+}
+
+/**
+ * Which pending patches this caller may see, when they asked for "only mine".
+ *
+ * Shared by `/sources/~` and `/json`, and it has to be: a draft page renders
+ * both, so two answers to "whose work is this" put one person's half-finished
+ * edit on another person's preview through whichever route was not scoped. That
+ * is exactly what happened — `/json` applied every pending patch on the branch
+ * while the module content beside it was scoped.
+ *
+ * `undefined` means "apply everything", which is what every caller that does
+ * not ask for scoping gets and must keep getting.
+ */
+export async function resolveOwnPatchScope(
+  serverOps: ValOpsFS | ValOpsHttp,
+  opts: {
+    /** A caller that named a list already knows what it wants. */
+    explicitPatchIds: PatchId[] | undefined;
+    ownGroupsOnly: boolean;
+    /** `undefined` where there is no session to have one. */
+    authorId: string | undefined;
+  },
+): Promise<{
+  ownPatchIds: PatchId[] | undefined;
+  scopeAlsoIncludesApplied: boolean;
+}> {
+  let ownPatchIds: PatchId[] | undefined;
+  /** See where this is set: committed work is nobody's to hold back. */
+  let scopeAlsoIncludesApplied = false;
+  if (opts.explicitPatchIds === undefined && opts.ownGroupsOnly) {
+    if (serverOps instanceof ValOpsHttp && opts.authorId) {
+      const groupsRes = await serverOps.getPatchGroups();
+      if (groupsRes.status === "unsupported") {
+        /*
+         * A content API that PREDATES patch groups — the endpoint 404s.
+         *
+         * Unscoped, which is what those deployments do today and must
+         * keep doing. Reading this as a failure and rendering base
+         * would silently drop every pending patch from every draft
+         * preview on every existing http project — the exact opposite
+         * of "keeps working unchanged", and invisible to the reader.
+         */
+        ownPatchIds = undefined;
+      } else if (groupsRes.status === "error") {
+        /*
+         * We could not ask, and this deployment DOES have the endpoint.
+         * Render base rather than everything: a degraded preview is
+         * recoverable, showing another author's unpublished draft is
+         * not, and it would be silent.
+         */
+        ownPatchIds = [];
+      } else if (groupsRes.patchGroups.length === 0) {
+        /*
+         * The branch has no groups AT ALL, so this deployment is not
+         * using them — a content API that predates patch groups, or a
+         * project where nobody has staged anything since they existed.
+         *
+         * Unscoped, which is the behaviour every such project has
+         * today. Collapsing this into "your group is empty" would make
+         * every draft render base and silently drop all pending
+         * content, which is what happened before this branch: nothing
+         * writes a group yet, so EVERY project is in this state right
+         * now.
+         */
+        ownPatchIds = undefined;
+      } else {
+        /*
+         * Groups exist and none are this person's: they have staged
+         * nothing, and base is the honest answer. Distinct from the
+         * case above, which is why the two are not one expression.
+         */
+        ownPatchIds = groupsRes.patchGroups
+          .filter(
+            (group) =>
+              group.publishedAt === null && group.authorId === opts.authorId,
+          )
+          .flatMap((group) => group.patchIds);
+        /*
+         * Scoping applies to PENDING work only. Anything already
+         * committed is part of everyone's view.
+         *
+         * A published patch stays in the chain with `appliedAt` set
+         * until the next deployment moves the base, and the unscoped
+         * path applies it. Filtering to open groups dropped it — so the
+         * moment someone published, their own draft preview reverted
+         * the field they had just shipped, and nobody else saw it
+         * either until the deploy landed. Anything written on top in
+         * that window is authored against content that is already
+         * stale on `main`.
+         *
+         * Unioned by `appliedAt` rather than by pulling in groups with
+         * a `publishedAt`, because a partial publish leaves the group
+         * OPEN with some of its patches applied — those are committed
+         * too, and no group flag names them.
+         */
+        scopeAlsoIncludesApplied = true;
+      }
+    } else {
+      /*
+       * fs mode, or a server with no groups: there is nothing to scope
+       * BY, and every pending patch is this one person's anyway. Left
+       * `undefined` so the existing "apply everything" path runs.
+       */
+      ownPatchIds = undefined;
+    }
+  }
+  return { ownPatchIds, scopeAlsoIncludesApplied };
 }
 
 export async function refuseUnlessOwn(

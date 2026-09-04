@@ -475,7 +475,8 @@ export abstract class ValOps {
   async getJsonEntry(
     moduleFilePath: ModuleFilePath,
     entryKey: string,
-    opts?: { applyPatches?: boolean },
+    /** Passed straight through — see {@link getJsonEntries}. */
+    opts?: { applyPatches?: boolean; patchIds?: PatchId[] },
   ): Promise<
     | { status: "success"; content: JSONValue | null }
     | { status: "not-found"; message: string }
@@ -525,7 +526,18 @@ export abstract class ValOps {
   async getJsonEntries(
     moduleFilePath: ModuleFilePath,
     selector: { keys: string[] } | { offset: number; limit: number },
-    opts?: { applyPatches?: boolean },
+    opts?: {
+      applyPatches?: boolean;
+      /**
+       * Only these pending patches, or every one when `undefined`.
+       *
+       * A draft render is scoped to the caller's own groups, and a page renders
+       * `jsonValues` entries beside module content — so without this the two
+       * halves of one page disagreed about whose unpublished work they showed.
+       * `undefined` is what every other caller passes and must keep getting.
+       */
+      patchIds?: PatchId[];
+    },
   ): Promise<
     | {
         status: "success";
@@ -583,9 +595,11 @@ export abstract class ValOps {
           message: `Could not fetch patches: ${JSON.stringify(patchOps.errors)}`,
         };
       }
-      modulePatches = patchOps.patches
-        .filter((p) => p.path === moduleFilePath && !p.appliedAt)
-        .map((p) => ({ patchId: p.patchId, patch: p.patch }));
+      modulePatches = scopedModulePatches(
+        patchOps.patches,
+        moduleFilePath,
+        opts?.patchIds,
+      ).map((p) => ({ patchId: p.patchId, patch: p.patch }));
       try {
         serializedSchema = schemas[moduleFilePath]?.["executeSerialize"]();
       } catch {
@@ -2401,6 +2415,49 @@ export type PatchReadError =
       parentPatchId: ParentPatchId;
       message: string;
     };
+
+/**
+ * The patches a json entry render should apply, out of the whole chain.
+ *
+ * Three rules, and the second is the one that was missing. A draft page renders
+ * `jsonValues` entries beside module content, and only the modules were scoped
+ * — so one screen showed the caller's own view for its modules and base plus
+ * EVERY pending patch on the branch for the entries beside them, including
+ * another author's half-finished edit rendered as though it were live.
+ *
+ * 1. this module's, since the chain is branch-wide;
+ * 2. this caller's, when they asked to be scoped. `undefined` is "everything",
+ *    which is what every unscoped caller gets and must keep getting;
+ * 3. not already applied — a fact about this path rather than about scoping,
+ *    and true with or without a scope.
+ *
+ * Filtered here rather than by asking `fetchPatches` for a list, and that is
+ * load-bearing: both implementations read an empty `patchIds` as "no filter"
+ * and return the whole chain. That is the right default for a caller that
+ * cannot mean "none", and the most dangerous possible reading of a group that
+ * is genuinely empty — it would render every unpublished patch on the branch
+ * instead of base. It costs no round trip either: the whole chain is what the
+ * unscoped path fetches anyway.
+ */
+export function scopedModulePatches<
+  T extends {
+    path: ModuleFilePath;
+    patchId: PatchId;
+    appliedAt: { commitSha: CommitSha } | null;
+  },
+>(
+  patches: T[],
+  moduleFilePath: ModuleFilePath,
+  patchIds: PatchId[] | undefined,
+): T[] {
+  const scope = patchIds && new Set(patchIds);
+  return patches.filter(
+    (patch) =>
+      patch.path === moduleFilePath &&
+      !patch.appliedAt &&
+      (scope === undefined || scope.has(patch.patchId)),
+  );
+}
 
 export type OrderedPatches = {
   patches: {

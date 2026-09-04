@@ -312,6 +312,8 @@ export function createValSystem(
           // server apply them too would double-apply — the same reason the engine
           // passes false here.
           apply_patches: false,
+          // The Studio applies patches itself, so there is nothing to scope.
+          own_patch_groups_only: undefined,
         },
       });
       if (res.status !== 200 || !("entries" in res.json)) {

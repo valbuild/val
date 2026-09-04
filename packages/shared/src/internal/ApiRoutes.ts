@@ -1396,6 +1396,15 @@ export const Api = {
             )
             .optional(),
           apply_patches: onlyOneBooleanQueryParam.optional(),
+          /**
+           * The caller's own staged work, and nobody else's.
+           *
+           * The same flag `/sources/~` takes, and for the same reason — a draft
+           * page renders both, so a scoped module beside an unscoped
+           * `jsonValues` entry showed one person's view and everybody's pending
+           * work on the same screen.
+           */
+          own_patch_groups_only: onlyOneBooleanQueryParam.optional(),
         },
         cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
       },
