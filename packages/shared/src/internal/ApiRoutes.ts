@@ -708,6 +708,28 @@ export const Api = {
         query: {
           id: z.array(PatchId).min(1, "At least one patch id is required"),
         },
+        body: z
+          .object({
+            /*
+             * Patches that are NOT being deleted but must lose their patch
+             * group membership because these are.
+             *
+             * Deleting a patch out of the middle of a patch set leaves every
+             * group holding the rest with a non-prefix intersection, and a
+             * prefix is the one invariant a group has. Which patches those are
+             * needs the content schema, so the client computes the forward
+             * closure and sends it; the content API drops the memberships
+             * without touching the patches.
+             *
+             * In the BODY while the ids to delete are in the query, because
+             * this list is unbounded in the same way and the query string is
+             * already chunked to fit. Optional throughout: `fs` mode has no
+             * groups, and a client that predates this is deleting correctly,
+             * just not repairing.
+             */
+            alsoUnstagePatchIds: z.array(PatchId).optional(),
+          })
+          .optional(),
         cookies: {
           val_session: z.string().optional(),
         },
@@ -1109,6 +1131,18 @@ export const Api = {
         body: z.object({
           message: z.string().optional(),
           patchIds: z.array(PatchId),
+          /*
+           * The patch group this commit EMPTIES, if it empties one.
+           *
+           * Forwarded to the content API, which closes the group it names —
+           * and closes it unconditionally, without checking that the commit
+           * shipped all of it. So the client sends it only when the publish
+           * accounts for every patch the group still holds; a partial publish
+           * omits it and the group stays open with the rest in it.
+           *
+           * Optional, and absent in `fs` mode, which has no groups.
+           */
+          patchGroupId: z.string().optional(),
         }),
         cookies: {
           val_session: z.string().optional(),

@@ -1207,6 +1207,22 @@ function usePatchGroupFlush(): void {
     if (val === null || group.patchGroupId === undefined) return;
     val.system.flushPatchGroupChanges(group.patchGroupId);
   }, [val, group.patchGroupId]);
+
+  /*
+   * And the same id reaches `publish`, which has to tell the content API which
+   * group its commit empties.
+   *
+   * Set from here because resolving "which group is mine" needs the author id
+   * and the chain annotation, and `useCurrentPatchGroup` is the one place that
+   * decision is made. The system holding a second copy of the reasoning is how
+   * the two come to disagree about whose group is being closed.
+   */
+  useEffect(() => {
+    if (val === null) return;
+    val.system.setOwnPatchGroupId(
+      group.enabled ? group.patchGroupId : undefined,
+    );
+  }, [val, group.enabled, group.patchGroupId]);
 }
 
 /**

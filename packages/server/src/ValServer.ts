@@ -1484,7 +1484,16 @@ export const ValServer = (
           };
         }
         const ids = query.id;
-        const deleteRes = await serverOps.deletePatches(ids);
+        /*
+         * Forwarded verbatim, and only the client can compute it: which OTHER
+         * patches must lose their group membership because these are going
+         * needs the patch sets, which need the schema, which lives in the
+         * browser. `ValOpsFS` ignores it — there are no groups there.
+         */
+        const deleteRes = await serverOps.deletePatches(
+          ids,
+          req.body?.alsoUnstagePatchIds,
+        );
         if (deleteRes.errors && Object.keys(deleteRes.errors).length > 0) {
           console.error("Val: Failed to delete patches", deleteRes.errors);
           return {
@@ -2369,6 +2378,14 @@ export const ValServer = (
               message,
               auth.id as AuthorId,
               options.config.files?.directory || "/public/val",
+              undefined,
+              /*
+               * Forwarded verbatim, and only the client can decide it: the
+               * content API closes the group it is named without checking that
+               * the commit shipped all of it, and whether it did needs the
+               * patch sets, which live in the browser.
+               */
+              body.patchGroupId,
             );
             if (commitRes.error) {
               console.error("Failed to commit", commitRes.error);

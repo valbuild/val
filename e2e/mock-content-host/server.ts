@@ -885,11 +885,36 @@ const mutatePatchGroup: Handler = async (req, res, url) => {
 
 /** `DELETE /v1/{project}/patches` — what discard and the auto-delete path call. */
 const deletePatches: Handler = async (req, res) => {
-  const body = await readJsonBody<{ patchIds: string[] }>(req);
+  const body = await readJsonBody<{
+    patchIds: string[];
+    alsoUnstagePatchIds?: string[];
+  }>(req);
   const ids = body?.patchIds ?? [];
   for (const patchId of ids) {
     state.patches.delete(patchId);
     state.patchFiles.delete(patchId);
+    // Membership of a deleted patch goes with it — `home` gets this from an
+    // ON DELETE CASCADE.
+    for (const group of state.patchGroups.values()) {
+      group.patchIds.delete(patchId);
+      group.explicitPatchIds.delete(patchId);
+    }
+  }
+  /*
+   * A cascade alone is not enough.
+   *
+   * Deleting a patch out of the middle of a patch set leaves every group still
+   * holding the rest with a non-prefix intersection, which is the one invariant
+   * a group has: the patches after the hole were written against a view that
+   * had it. Working out which those are needs the content schema, so the client
+   * computes the forward closure and sends it, and those lose their membership
+   * everywhere WITHOUT being deleted.
+   */
+  for (const patchId of body?.alsoUnstagePatchIds ?? []) {
+    for (const group of state.patchGroups.values()) {
+      group.patchIds.delete(patchId);
+      group.explicitPatchIds.delete(patchId);
+    }
   }
   broadcastChain();
   // Every id comes back as deleted, including ones that were already gone: a
@@ -1060,6 +1085,8 @@ const commit: Handler = async (req, res) => {
     committer: string;
     existingBranch: string;
     newBranch?: string;
+    /** The group this commit empties, if the client says it empties one. */
+    patchGroupId?: string;
   }>(req);
   if (!body) {
     json(res, 400, { message: "Invalid commit body" });
@@ -1114,21 +1141,39 @@ const commit: Handler = async (req, res) => {
     }
   }
   /*
-   * A publish CLOSES the group.
+   * A publish CLOSES the group the request NAMES, and no other.
    *
-   * That is what makes the next write create a fresh one, and what makes a
-   * client that remembered the old id fail — which is why it must not. Closed
-   * per group rather than per patch: a group is the unit that ships.
+   * This used to close any group all of whose patches the commit shipped, which
+   * was a nicer rule and not `home`'s: `postCommit.ts` calls `markPublished`
+   * only when the body carries `patchGroupId`. So the mock was closing groups
+   * production leaves open, and every test of the post-publish window here was
+   * green against a rule the real server does not implement — the same shape as
+   * the missing `x-val-profile-id`, which this mock also failed to catch by
+   * being more permissive than the thing it stands in for.
+   *
+   * Unconditional, like `home`: it does not check that the commit shipped the
+   * whole group. That is exactly why the client must only name a group it has
+   * emptied — and why the mock must not quietly make a mistaken name safe.
+   */
+  if (state.patchGroupsEnabled && typeof body.patchGroupId === "string") {
+    const group = state.patchGroups.get(body.patchGroupId);
+    if (group !== undefined && group.publishedAt === null) {
+      group.publishedAt = nowIso();
+    }
+  }
+  /*
+   * And the applied ids leave EVERY group, named or not.
+   *
+   * `home` does this on its own (`removePatchesFromAllGroups`), separately from
+   * closing: they are in the base now, so leaving them behind would make the
+   * next person's publish try to re-apply an applied patch.
    */
   if (state.patchGroupsEnabled) {
     const committed = new Set(Object.values(body.appliedPatches ?? {}).flat());
     for (const group of state.patchGroups.values()) {
-      if (group.publishedAt !== null || group.patchIds.size === 0) continue;
-      const allShipped = [...group.patchIds].every((patchId) =>
-        committed.has(patchId),
-      );
-      if (allShipped) {
-        group.publishedAt = nowIso();
+      for (const patchId of committed) {
+        group.patchIds.delete(patchId);
+        group.explicitPatchIds.delete(patchId);
       }
     }
   }

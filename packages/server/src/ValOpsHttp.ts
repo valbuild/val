@@ -1457,7 +1457,19 @@ export class ValOpsHttp extends ValOps {
     };
   }
 
-  override async deletePatches(patchIds: PatchId[]): Promise<
+  override async deletePatches(
+    patchIds: PatchId[],
+    /**
+     * Patches that are NOT deleted but must lose their group membership.
+     *
+     * Deleting a patch out of the middle of a patch set leaves every group
+     * still holding the rest with a non-prefix intersection — the patches after
+     * the hole were written against a view that had it. The content API cannot
+     * work out which those are (it has no schema), so the client sends the
+     * forward closure and it drops those memberships without deleting anything.
+     */
+    alsoUnstagePatchIds?: PatchId[],
+  ): Promise<
     | { deleted: PatchId[]; errors?: undefined; error?: undefined }
     | {
         deleted: PatchId[];
@@ -1473,6 +1485,9 @@ export class ValOpsHttp extends ValOps {
       },
       body: JSON.stringify({
         patchIds,
+        ...(alsoUnstagePatchIds !== undefined && alsoUnstagePatchIds.length > 0
+          ? { alsoUnstagePatchIds }
+          : {}),
       }),
     })
       .then(async (res) => {
@@ -1529,6 +1544,21 @@ export class ValOpsHttp extends ValOps {
     committer: AuthorId,
     filesDirectory: string,
     newBranch?: string,
+    /**
+     * The patch group this commit EMPTIES, if it empties one.
+     *
+     * The content API closes the group it is given — and closes it WITHOUT
+     * checking that the commit shipped all of it, so a caller that names a
+     * group still holding work takes those patches out of every group and
+     * leaves their author unable to publish them. The client therefore sends it
+     * only when the publish accounts for everything the group still holds.
+     *
+     * Omitting it is not neutral: the commit still empties the group (the
+     * content API drops applied ids from every group), but `published_at` is
+     * never set, so the id is reused across publishes instead of a new group
+     * per publish and the "already published" refusal can never fire.
+     */
+    patchGroupId?: string,
   ): Promise<
     | {
         isNotFastForward?: boolean;
@@ -1562,6 +1592,7 @@ export class ValOpsHttp extends ValOps {
           message,
           existingBranch,
           newBranch,
+          ...(patchGroupId !== undefined ? { patchGroupId } : {}),
         }),
       });
       if (res.ok) {

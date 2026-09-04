@@ -360,12 +360,6 @@ test.describe("the staging controls", () => {
       )
       .toEqual([patchId]);
 
-    const published = await publishAll(page, "Ada ships it after all");
-    expect(published.status, published.message ?? "").toBe("published");
-    expect(await mock.committedSource(AUTHORS)).toContain(
-      "Ada, then held back",
-    );
-
     /*
      * And the content service was told WHICH id the user clicked.
      *
@@ -375,11 +369,36 @@ test.describe("the staging controls", () => {
      * the closure dragged in. That row is the only record anywhere of the
      * difference between what an author decided and what followed from it, and
      * nothing in the response or the screen shows it is wrong.
+     *
+     * Checked BEFORE the publish, which empties the group.
      */
     const staged = (await mock.state()).patchGroups.find(
       (group) => group.patchGroupId === patchGroupId,
     );
     expect(staged?.explicitPatchIds).toEqual([patchId]);
+
+    const published = await publishAll(page, "Ada ships it after all");
+    expect(published.status, published.message ?? "").toBe("published");
+    expect(await mock.committedSource(AUTHORS)).toContain(
+      "Ada, then held back",
+    );
+
+    /*
+     * The publish CLOSED the group, which only happens because the client named
+     * it on the commit.
+     *
+     * `home` calls `markPublished` only when `POST /commit` carries
+     * `patchGroupId`, and this client never sent it — so in production the
+     * group was emptied and left open forever while the mock closed it on a
+     * rule of its own. The mock now matches `home`, so this assertion is about
+     * the client sending the field rather than about the mock being generous.
+     */
+    const after = (await mock.state()).patchGroups.find(
+      (group) => group.patchGroupId === patchGroupId,
+    );
+    expect(after?.publishedAt, "the publish did not close the group").not.toBe(
+      null,
+    );
   });
 
   /**

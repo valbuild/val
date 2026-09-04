@@ -31,6 +31,7 @@ import { HostStore } from "./HostStore";
 import {
   indexPatchSets,
   stageClosure,
+  unstageClosure,
   validateGroup,
   type PatchSetIndex,
   type PrefixViolation,
@@ -244,6 +245,17 @@ export type System = HostRealm &
     seedPatchGroup(ids: readonly PatchId[]): void;
     setPatchGroupResolver(resolver: PatchGroupResolver | undefined): void;
     /**
+     * Tell the system which patch group is this client's.
+     *
+     * Resolving that needs the author id and the chain annotation, neither of
+     * which these stores see — `useCurrentPatchGroup` is where the decision
+     * lives. `publish` needs the answer so it can tell the content API which
+     * group a commit empties, and the content API closes what it is told
+     * without checking, so getting this wrong closes a group that still holds
+     * somebody's unpublished work.
+     */
+    setOwnPatchGroupId(patchGroupId: string | undefined): void;
+    /**
      * The closure for a write: which OTHER patches must join this author's
      * group so it stays prefix-closed.
      *
@@ -253,6 +265,15 @@ export type System = HostRealm &
      * should delegate to this rather than computing it themselves.
      */
     computeWriteClosure(patchIds: readonly PatchId[]): Promise<PatchId[]>;
+    /**
+     * The forward closure of a DISCARD: which other patches must lose their
+     * group membership because these are being deleted.
+     *
+     * See the implementation. Sent to the content API as `alsoUnstagePatchIds`
+     * — the name is the content API's, kept identical here so there is one
+     * thing to grep for across both repos.
+     */
+    computeDiscardClosure(patchIds: readonly PatchId[]): Promise<PatchId[]>;
     /**
      * Persist a change to what this user's group holds.
      *
@@ -653,10 +674,99 @@ export function createSystem(options: SystemOptions): System {
    */
   let patchGroupIds: readonly PatchId[] | null = null;
   /**
+   * Which group is this client's, as the shell resolved it.
+   *
+   * Held rather than derived because resolving it needs the author id, which
+   * lives in `/stat` and never reaches these stores — see
+   * `useCurrentPatchGroup`, which weighs the save response against the chain
+   * annotation and is the one place that decision is made. This is only its
+   * answer, kept where `publish` can read it.
+   */
+  let ownPatchGroupId: string | undefined;
+  /**
    * Group changes made while this author had no open group. See
    * {@link System.persistPatchGroupChange}.
    */
   let deferredGroupChanges: PatchGroupChangeRequest[] = [];
+
+  /**
+   * Does committing exactly these patches leave this client's group empty?
+   *
+   * The content API closes the group a commit names, and closes it WITHOUT
+   * checking that the commit shipped all of it — so naming a group that still
+   * holds work would take those patches out of every group and leave their
+   * author unable to publish them. This is therefore the conservative
+   * direction: unsure means no, and the cost of a false negative is only that
+   * the group stays open and its id is reused.
+   *
+   * A member already shipped does not keep the group open. A publish leaves its
+   * patches in the chain with `appliedAt` set until the deploy lands, and the
+   * content API drops applied ids from every group anyway, so a scope carrying
+   * one is describing something that is no longer the group's to hold.
+   */
+  function emptiesOwnPatchGroup(toPublish: readonly PatchId[]): boolean {
+    if (ownPatchGroupId === undefined) return false;
+    if (patchGroupIds === null) return false;
+    const shipping = new Set(toPublish);
+    const published = patchStore.publishedPatchIds();
+    const appliedAt = new Map(
+      patchStore
+        .recordsFor(patchGroupIds)
+        .map((record) => [record.patchId, record.appliedAt]),
+    );
+    return patchGroupIds.every((patchId) => {
+      if (shipping.has(patchId)) return true;
+      if (published.has(patchId)) return true;
+      // `null` is server-known-uncommitted and `undefined` is created locally.
+      // BOTH mean pending; only a commit sha means shipped.
+      const applied = appliedAt.get(patchId);
+      return applied !== null && applied !== undefined;
+    });
+  }
+
+  /**
+   * Which OTHER patches must lose their group membership when these are deleted.
+   *
+   * Deleting a patch out of the middle of a patch set leaves every group that
+   * still holds the rest with a non-prefix intersection — and a prefix is the
+   * one invariant a group has, because the patches after the hole were written
+   * against a view that had it. The patches at risk are the ones built on top,
+   * which is the forward closure, and deriving it needs the schema: the content
+   * API cannot compute it, so the client sends it.
+   *
+   * Returns only the OTHERS. The deleted patches lose their memberships by
+   * cascade on the content side; naming them again would be noise.
+   *
+   * `[]` on any failure. This rides along with a delete that is going to happen
+   * regardless, so a closure that cannot be computed must not take the discard
+   * down with it — the cost is a group left holding a suffix, which `publish`
+   * refuses and names, rather than a discard that silently does nothing.
+   */
+  async function computeDiscardClosure(
+    patchIds: readonly PatchId[],
+  ): Promise<PatchId[]> {
+    if (patchIds.length === 0) return [];
+    try {
+      const chain = patchStore.allRecords().map((record) => record.patchId);
+      const index = indexPatchSets(await computePatchSets(), chain);
+      /*
+       * Run against the WHOLE chain rather than against this client's group.
+       *
+       * What is being computed is not "what leaves my group" but "what can no
+       * longer be a member of any group anywhere", and the answer is the same
+       * set whoever is asking. Scoping it to the local group would name only
+       * the part this author happens to hold and leave everybody else's group
+       * holding the suffix — the exact thing this exists to prevent.
+       */
+      const surviving = unstageClosure(index, new Set(chain), patchIds);
+      const discarded = new Set(patchIds);
+      return chain.filter(
+        (patchId) => !surviving.has(patchId) && !discarded.has(patchId),
+      );
+    } catch {
+      return [];
+    }
+  }
 
   /** One stage or unstage, on the wire. Failures are logged, not thrown. */
   async function sendPatchGroupChange(
@@ -1003,7 +1113,10 @@ export function createSystem(options: SystemOptions): System {
       );
       return;
     }
-    const res = await options.discardPatches(toDelete);
+    const res = await options.discardPatches(
+      toDelete,
+      await computeDiscardClosure(toDelete),
+    );
     if (res.status === "error") {
       // Left for the next round: if the patch is still on the server it will be
       // announced again, fail again, and be attempted again — which is what the
@@ -1515,6 +1628,12 @@ export function createSystem(options: SystemOptions): System {
     computeWriteClosure(patchIds) {
       return computeWriteClosure(patchIds);
     },
+    computeDiscardClosure(patchIds) {
+      return computeDiscardClosure(patchIds);
+    },
+    setOwnPatchGroupId(patchGroupId) {
+      ownPatchGroupId = patchGroupId;
+    },
     setPatchGroupResolver(resolver) {
       if (resolver === undefined) {
         patchSync.setPatchGroupResolver(undefined);
@@ -1934,6 +2053,9 @@ export function createSystem(options: SystemOptions): System {
         const outcome = await options.publishPatches({
           patchIds: toPublish,
           message,
+          ...(emptiesOwnPatchGroup(toPublish)
+            ? { closesPatchGroupId: ownPatchGroupId }
+            : {}),
         });
         if (outcome.status === "patch-errors") {
           // Recorded, not just returned. A server refusal never resolves itself,
@@ -2025,7 +2147,18 @@ export function createSystem(options: SystemOptions): System {
           message: "This system has no discard seam configured.",
         };
       }
-      const res = await options.discardPatches(patchIds);
+      /*
+       * Computed here, not in the seam.
+       *
+       * The seam is the network call; this needs the patch sets, which only
+       * this graph has. And it has to be computed BEFORE the delete: afterwards
+       * the discarded patches are gone from the chain, so the sets they were in
+       * no longer say what was built on top of them.
+       */
+      const res = await options.discardPatches(
+        patchIds,
+        await computeDiscardClosure(patchIds),
+      );
       if (res.status === "error") {
         return { status: "failed", message: res.message };
       }

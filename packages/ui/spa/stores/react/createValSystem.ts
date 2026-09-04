@@ -353,9 +353,18 @@ export function createValSystem(
      * the only way a TS-AST-only failure ever reaches an editor: the client
      * applies patches to evaluated JSON and cannot see those at all.
      */
-    publishPatches: async ({ patchIds, message }) => {
+    publishPatches: async ({ patchIds, message, closesPatchGroupId }) => {
       const res = await client("/save", "POST", {
-        body: { message, patchIds },
+        body: {
+          message,
+          patchIds,
+          // Present only when this commit accounts for everything the group
+          // still holds — the content API closes what it is named without
+          // checking. See `emptiesOwnPatchGroup`.
+          ...(closesPatchGroupId !== undefined
+            ? { patchGroupId: closesPatchGroupId }
+            : {}),
+        },
       });
       if (res.status === null) {
         return {
@@ -417,7 +426,7 @@ export function createValSystem(
       };
     },
 
-    discardPatches: async (patchIds) => {
+    discardPatches: async (patchIds, alsoUnstagePatchIds) => {
       /*
        * One request per chunk the URL can carry: "discard all" on a long chain
        * otherwise built a query string the server refuses before the handler
@@ -433,6 +442,19 @@ export function createValSystem(
       for (const chunk of chunkPatchIds(patchIds, "id")) {
         const res = await client("/patches", "DELETE", {
           query: { id: chunk },
+          /*
+           * Sent with EVERY chunk, and that is deliberate.
+           *
+           * Dropping a membership is idempotent, so repeating it costs a little
+           * work and nothing else — whereas sending it with only the first
+           * chunk would lose it entirely if that chunk is the one that fails,
+           * and the closure is about the whole discard rather than about this
+           * slice of it.
+           */
+          body:
+            alsoUnstagePatchIds !== undefined && alsoUnstagePatchIds.length > 0
+              ? { alsoUnstagePatchIds }
+              : undefined,
         });
         if (res.status !== 200) {
           return {

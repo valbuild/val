@@ -21,6 +21,20 @@ import type { ModuleFilePath, PatchId } from "@valbuild/core";
 export type PublishPatches = (request: {
   patchIds: PatchId[];
   message?: string;
+  /**
+   * The patch group this publish EMPTIES, if it empties one.
+   *
+   * Sent on to the content API, which closes the group it names — and closes it
+   * unconditionally, without checking that the commit shipped the whole thing.
+   * So this is present only when the publish accounts for every patch the group
+   * still holds; a partial publish sends nothing and leaves the group open with
+   * the rest of its patches in it, which is what its owner is still working on.
+   *
+   * Without it the group is emptied by the commit and never closed: the id gets
+   * reused across publishes instead of a new group per publish, and the
+   * "already published" refusal can never fire.
+   */
+  closesPatchGroupId?: string;
 }) => Promise<PublishOutcome>;
 
 /**
@@ -67,6 +81,21 @@ export type PublishOutcome =
 /** Throw patches away — `DELETE /patches`. */
 export type DiscardPatches = (
   patchIds: PatchId[],
+  /**
+   * Which OTHER patches must lose their group membership because of this
+   * delete.
+   *
+   * Deleting a patch out of the middle of a patch set leaves every group that
+   * still holds the rest with a non-prefix intersection, and a prefix is the
+   * one invariant a group has. Deriving which patches those are needs the
+   * schema, so the client computes the forward closure and the content API
+   * drops those memberships without deleting the patches.
+   *
+   * Passed as a second argument rather than folded into `patchIds`, because
+   * they mean opposite things: the first list is deleted, the second is kept
+   * and merely unstaged.
+   */
+  alsoUnstagePatchIds?: PatchId[],
 ) => Promise<
   | { status: "discarded"; patchIds: PatchId[] }
   | { status: "error"; message: string }

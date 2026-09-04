@@ -102,10 +102,36 @@ only place that knows both who is asking and whose group it is.
   assertion fires and the only trace of the loss is their group quietly
   emptying. Both decide, silently, the one thing only that person can.
 
+## Three things the client alone can compute
+
+The content API has no schema, so it cannot derive patch sets — every closure is
+the client's to send, and each one is a field the two sides have to agree on.
+Getting any of them wrong is invisible from either repo alone.
+
+- **`alsoAddPatchIds`** on `PUT /patches` — the prefix closure of a write.
+- **`explicitPatchIds`** on stage — which of those the user actually clicked.
+  Membership is stored as `explicit` or `dependency` and anything unnamed reads
+  as a dependency, so omitting it files the patch someone chose as one the
+  closure dragged in.
+- **`alsoUnstagePatchIds`** on `DELETE /patches` — the forward closure of a
+  discard. Deleting a patch out of the middle of a patch set leaves every group
+  still holding the rest with a non-prefix intersection; those memberships are
+  dropped without the patches being deleted. Computed against the whole chain,
+  not against the discarder's own group: the question is what can no longer be a
+  member of ANY group, and scoping it locally leaves everyone else holding the
+  suffix.
+
 ## Publish
 
 Commits the group's patches in chain order; the content API closes the group
-(`publishedAt`). Patches stay in the chain marked `applied` until the new commit
+(`publishedAt`) — but only when `POST /commit` NAMES it, and it closes what it is
+named without checking that the commit shipped all of it. So the client sends
+`patchGroupId` only when the publish accounts for every patch the group still
+holds (`emptiesOwnPatchGroup`); a partial publish omits it and the group stays
+open with the rest in it. Omitting it always is not neutral: the commit still
+empties the group, but `published_at` is never set, so the id is reused across
+publishes instead of a new group per publish and the "already published" refusal
+can never fire. Patches stay in the chain marked `applied` until the new commit
 comes back. The next write creates the next group, so the client forgets the id
 on publish.
 
@@ -151,32 +177,13 @@ engages.
    sit un-publishable until they act. That is deliberate — see "keeping the
    invariant" — but it means a third party's insert can block your publish, and
    the refusal names raw patch ids rather than describing the change.
-4. **Two fields the content API accepts and this client does not send**, found
-   by reading `valbuild/home#37` against this branch rather than from either
-   side alone:
-
-   - **`patchGroupId` on `POST /commit`.** `home` closes the published group
-     only when the commit body names it, and `ValOpsHttp.commit` does not — so
-     against production the publisher's group is emptied
-     (`removePatchesFromAllGroups` does run) but stays open, and `published_at`
-     is never set. The e2e mock closes it, so the whole post-publish design here
-     is green against a rule the real server does not implement. Either send it
-     — only on a FULL publish, since `home` closes unconditionally and a partial
-     publish must not close — or have `home` derive the close from
-     `appliedPatches`, which is what the mock already does. Whichever is chosen,
-     the mock has to match it.
-   - **`alsoUnstagePatchIds` on `DELETE /patches`.** Discarding a patch out of
-     the middle of a patch set leaves every other group holding a suffix of it.
-     `home` takes the forward closure and drops those memberships; nothing here
-     computes or sends it.
-
-5. Scope is client-held local truth seeded from the server's annotation, and
+4. Scope is client-held local truth seeded from the server's annotation, and
    nothing reconciles it. `PatchStore` re-reads the annotation only inside a
    fetch it makes for MISSING patch ids, so on a quiet branch a failed stage is
    kept on screen until the page is reloaded, and a stage in one tab never
    reaches another. Closing both needs the annotation to refresh on its own. The
    deferred queue above narrows this but does not close it: a change held while
    there is no group is lost if the tab closes before one exists.
-6. Held patches count as _settled_ but not _applied_ (`chainSettled`), because
+5. Held patches count as _settled_ but not _applied_ (`chainSettled`), because
    the editor holds every field inert until the chain settles. A held patch that
    counted as neither would dim the Studio permanently.
