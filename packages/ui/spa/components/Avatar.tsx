@@ -57,13 +57,19 @@ export function Avatar({
     setFailed(false);
   }, [imageUrl]);
 
-  const initials = name ? getInitials(name) : null;
+  // `null` is "there is nobody here" and takes the fallback glyph; an empty
+  // string is a profile that loaded WITHOUT a name, which is a person - so it
+  // gets initials, and `getInitials` answers "?" for it rather than nothing.
+  const initials = name === null ? null : getInitials(name);
   const showImage = !!imageUrl && !failed;
-  const accessibleName = label ?? name ?? undefined;
+  // An empty name must not become an empty `aria-label`, and a `role="img"`
+  // with no accessible name at all is worse than no role: without one the
+  // initials are read as the ordinary text they are.
+  const accessibleName = label ?? (name || undefined);
 
   return (
     <span
-      role="img"
+      role={accessibleName === undefined ? undefined : "img"}
       aria-label={accessibleName}
       title={accessibleName}
       className={cn(
@@ -78,8 +84,8 @@ export function Avatar({
       {showImage && (
         <img
           src={imageUrl}
-          // The wrapper is the labelled `img` role; a name here would be read
-          // out twice.
+          // The wrapper carries the name (as `role="img"`, when there is one),
+          // so a name here would be read out twice.
           alt=""
           className="absolute inset-0 h-full w-full object-cover"
           onError={() => setFailed(true)}

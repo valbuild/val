@@ -78,7 +78,7 @@ export function useDuplicateRecordEntry(): DuplicateRecordEntry {
         Internal.joinModuleFilePathAndModulePath(
           moduleFilePath,
           Internal.patchPathToModulePath(newPatchPath),
-        ) as SourcePath,
+        ),
       );
     },
     [addModuleFilePatch, navigate, val],
