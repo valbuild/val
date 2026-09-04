@@ -90,11 +90,17 @@ only place that knows both who is asking and whose group it is.
 - **Coalescing** can still open one: `PatchSets.insertPath` merges an existing
   set into a broader one, so a third party's insert can swallow two leaf sets
   and leave a hole in a group whose owner touched nothing.
-  `repairGroup(index, group, "extend")` runs on _every_ recomputation of the
-  patch-set index — from the shell, not only the review screen, because the
-  insert arrives while the owner is editing elsewhere.
-- **Publish** re-checks and _refuses_ a group with holes, naming them. It does
-  not repair: extending at publish time would ship work the user never staged.
+- **Nothing repairs that.** A group grows when its owner writes, and at no other
+  time. The hole stays, and **publish refuses the group and names what is
+  missing**; the review screen is where the owner resolves it, by staging the
+  missing patch or unstaging what depends on it.
+
+  Both automatic repairs were rejected, each for its own reason. `extend`
+  restores the prefix by pulling the missing patches in — publishing work the
+  owner deliberately excluded, without asking. `truncate` honours the exclusion
+  by dropping their own edit instead, which leaves a _valid_ group, so no
+  assertion fires and the only trace of the loss is their group quietly
+  emptying. Both decide, silently, the one thing only that person can.
 
 ## Publish
 
@@ -112,9 +118,10 @@ on publish.
    client can write an under-closed group. `closureVersion` is stored per
    membership row so such rows are identifiable and recomputable — but nothing
    currently recomputes them.
-3. Repair policy is `extend`, which silently grows a group to include another
-   author's patch. `truncate` would silently drop the user's own work instead.
-   Neither is obviously right.
+3. A coalesced hole is left for the user rather than repaired, so a group can
+   sit un-publishable until they act. That is deliberate — see "keeping the
+   invariant" — but it means a third party's insert can block your publish, and
+   the refusal names raw patch ids rather than describing the change.
 4. Scope is client-held local truth seeded from the server's annotation, and
    nothing reconciles it. `PatchStore` re-reads the annotation only inside a
    fetch it makes for MISSING patch ids, so on a quiet branch a failed stage is

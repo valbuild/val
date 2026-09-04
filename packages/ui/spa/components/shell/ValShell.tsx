@@ -28,10 +28,7 @@ import {
   PatchStagingProvider,
   type PatchGroupChange,
 } from "../PatchStagingProvider";
-import {
-  useIndexedPatchSets,
-  usePatchGroupRepair,
-} from "../usePatchGroupRepair";
+
 import { useCurrentPatchGroup } from "../useCurrentPatchGroup";
 import {
   CLOSURE_VERSION,
@@ -190,7 +187,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const patchSets = usePatchSets();
   const ownPendingChanges = useOwnPendingChangeCount();
   usePatchGroupWrites(patchSets);
-  usePatchGroupScope(patchSets);
+  usePatchGroupScope();
   const profilesByAuthorIds = useProfilesByAuthorId();
   const currentAuthorId = useCurrentAuthorId();
   const portalContainer = useValPortal();
@@ -1130,23 +1127,21 @@ function sameMembers(a: readonly PatchId[], b: ReadonlySet<PatchId>): boolean {
 }
 
 /**
- * Keep the group prefix-closed while somebody is EDITING.
+ * Scope the client to this user's group, once, as soon as the server's answer
+ * is known.
  *
- * The same repair runs inside `PatchStagingProvider`, but that is mounted only
- * on the review screen — and the thing it defends against, a third party's
- * insert coalescing two patch sets, arrives while the user is typing somewhere
- * else entirely. A hole that opens then would sit there until they happened to
- * open Compare, and the publish gate would refuse in the meantime with nothing
- * on screen explaining why.
+ * At shell level rather than in the review screen, because publish must be
+ * scoped whether or not that screen was ever opened — otherwise the first
+ * publish of a session ships the whole pending chain.
  *
- * Also seeds the scope the first time the server's answer is known, so publish
- * is scoped before anybody touches a control rather than after.
+ * This is the only place the scope is set from the annotation, and it runs
+ * once: after it, the scope is local truth that only the user moves. Nothing
+ * repairs the group when patch sets coalesce — see `PatchStagingProvider` for
+ * why that is the policy — so this hook has no other job.
  */
-function usePatchGroupScope(patchSets: ReturnType<typeof usePatchSets>): void {
+function usePatchGroupScope(): void {
   const val = useValSystem();
   const group = useCurrentPatchGroup();
-  const chainOrder = useChainOrder();
-  const onChange = usePatchGroupChange(group.patchGroupId);
   const scoped = val?.system.patchGroup() ?? null;
 
   useEffect(() => {
@@ -1156,21 +1151,6 @@ function usePatchGroupScope(patchSets: ReturnType<typeof usePatchSets>): void {
     // the user typed, and scoping to it verbatim hides their own writes.
     val.system.seedPatchGroup([...group.members]);
   }, [val, group.enabled, group.members, scoped]);
-
-  const members = useMemo(
-    () => (scoped === null ? group.members : new Set(scoped)),
-    [scoped, group.members],
-  );
-  const indexed = useIndexedPatchSets(
-    patchSets.status === "success" ? patchSets.data : undefined,
-    chainOrder,
-  );
-  usePatchGroupRepair({
-    enabled: group.enabled,
-    indexed,
-    group: members,
-    onChange,
-  });
 }
 
 function usePatchGroupWrites(
@@ -1218,7 +1198,7 @@ function usePatchGroupWrites(
         // A skew between the grouping and the chain, which is a real
         // possibility mid-sync. Join without a closure rather than refusing the
         // write: losing the edit is worse than an under-closed group, which
-        // `repairGroup` fixes.
+        // staging what is missing fixes.
         return { alsoAddPatchIds: [], closureVersion: CLOSURE_VERSION };
       }
       /*

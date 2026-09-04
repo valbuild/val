@@ -617,32 +617,36 @@ describe("patch groups", () => {
   });
   // #endregion
 
-  // #region DECISION — repair policy
-  describe("DECISION — repair policy when a merge invalidates a group", () => {
-    // The one genuinely open choice left, and the only path to a group that breaks
-    // the prefix invariant without its owner doing anything wrong.
-    //
-    // Alice holds Bob's rename of item 0 — a leaf patch set, so it does not stop her
-    // editing item 1, which is a different patch set. Then Carol appends to the
-    // array. That widens the patch set path to the whole array and swallows both
-    // leaves, so `?items` becomes [p1, p2, p3]. Alice's group has p2 but not p1: a
-    // hole she never made.
-    //
-    // Compare the traces. `extend` gives Alice back Bob's rename, so her hold is
-    // overridden and she ships a change she deliberately excluded. `truncate` honours
-    // the hold and drops her own edit instead — leaving a perfectly valid group, so
-    // no assertion fires and the only trace of the loss is her group going empty.
-    // That invisibility is itself the argument for `extend`.
-    const mergeScenario = (
-      repairPolicy: Scenario["repairPolicy"],
-    ): Scenario => ({
-      name: `Alice holds item 0 and edits item 1, then Carol's append merges both (repair: ${repairPolicy})`,
+  // #region a group is only ever grown by its owner
+  describe("a merge that invalidates a group leaves it alone", () => {
+    /*
+     * The one path to a group that breaks the prefix invariant without its
+     * owner doing anything wrong.
+     *
+     * Alice holds Bob's rename of item 0 — a leaf patch set, so it does not
+     * stop her editing item 1, which is a different patch set. Then Carol
+     * appends to the array. An array op keys on the parent, so `?items`
+     * swallows both leaves and becomes [p1, p2, p3]. Alice's group has p2 but
+     * not p1: a hole she never made.
+     *
+     * A group grows when its owner writes, and at no other time. So nothing
+     * repairs this. `publish` refuses her group and names what is missing, and
+     * she decides — stage Bob's rename, or unstage her own edit.
+     *
+     * Both automatic repairs were rejected, and each for its own reason.
+     * `extend` restored the prefix by pulling p1 in, which publishes work Alice
+     * had deliberately excluded, without asking. `truncate` honoured the
+     * exclusion by dropping p2 instead — leaving a perfectly valid group, so no
+     * assertion fired and the only trace of Alice losing her edit was her group
+     * quietly going empty. Both decide, silently, the one thing only she can.
+     */
+    const mergeScenario = (): Scenario => ({
+      name: "Alice holds item 0 and edits item 1, then Carol's append merges both",
       moduleFilePath: "/content/page.val.ts",
       schema: page,
       shape: pageShape,
       base: threeItems,
       render: renderPage,
-      repairPolicy,
       steps: [
         {
           edit: "p1",
@@ -653,8 +657,9 @@ describe("patch groups", () => {
         },
         { unstage: ["p1"], by: "alice" },
         {
-          // Allowed: `?items/1/title` is not inside the held `?items/0/title`, and a
-          // replace does not shift indices, so Alice's path stays meaningful.
+          // Allowed: `?items/1/title` is not inside the held `?items/0/title`,
+          // and a replace does not shift indices, so Alice's path stays
+          // meaningful.
           edit: "p2",
           by: "alice",
           intent: 'rename "B" to "B*"',
@@ -677,18 +682,24 @@ describe("patch groups", () => {
       ],
     });
 
-    test("extend: Alice's hold is overridden and she ships Bob's rename", () => {
-      const { report, problems } = runScenario(mergeScenario("extend"));
-      // Extend restores the prefix, so nothing is left broken.
-      expect(problems).toEqual([]);
-      expect(report).toContain("repaired alice's group +p1");
-      expect(report).toMatchSnapshot();
-    });
-
-    test("truncate: Alice's hold survives at the cost of dropping her own edit", () => {
-      const { report, problems } = runScenario(mergeScenario("truncate"));
-      expect(problems).toEqual([]);
-      expect(report).toContain("repaired alice's group -p2");
+    test("the hole is reported, not filled, and Alice keeps her own edit", () => {
+      const { report, problems } = runScenario(mergeScenario());
+      /*
+       * The hole is REAL and it stays. `problems` is the harness's own
+       * invariant check, run independently of the trace, and here it is the
+       * assertion rather than a failure: under this policy an invalidated group
+       * is a state the system is allowed to be in, and `publish` is what
+       * refuses it.
+       */
+      expect(problems).toEqual([
+        "step 4: alice's group breaks the prefix invariant in patch set /content/page.val.ts?items: staged [p2] but missing [p1]",
+      ]);
+      // Named, so it is actionable rather than a silent refusal later.
+      expect(report).toContain("alice's group now has a hole: needs p1");
+      // Not widened: Bob's rename did not join her group.
+      expect(report).not.toContain("alice's group +p1");
+      // Not truncated either: her own edit is still hers to publish.
+      expect(report).not.toContain("alice's group -p2");
       expect(report).toMatchSnapshot();
     });
   });

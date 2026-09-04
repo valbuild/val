@@ -15,10 +15,7 @@ import {
   stageClosure,
   unstageClosure,
 } from "../utils/patchGroups";
-import {
-  useIndexedPatchSets,
-  usePatchGroupRepair,
-} from "./usePatchGroupRepair";
+import { useIndexedPatchSets } from "./useIndexedPatchSets";
 
 /**
  * Staging state for the compare view.
@@ -113,15 +110,20 @@ export function PatchStagingProvider({
   const index = indexed.value;
 
   /*
-   * Kept prefix-closed here as well as in the shell.
+   * Nothing repairs the group here, and that is the policy rather than an
+   * omission.
    *
-   * The shell runs the same repair, because the coalescing insert that needs it
-   * arrives while somebody is EDITING and this provider is mounted only on the
-   * review screen. It stays here too so the provider is correct on its own —
-   * stories and tests mount it directly — and running twice costs nothing: the
-   * second pass validates a group the first already repaired.
+   * A group grows when its owner writes, and at no other time. Patch sets
+   * coalesce, so somebody else's insert can merge two sets and leave a hole in
+   * a group whose owner touched nothing — and the two automatic fixes each
+   * decide, silently, the one thing only that person can. `extend` pulls the
+   * missing patches in, publishing work they deliberately excluded. `truncate`
+   * drops their own edit instead, leaving a valid group so nothing complains.
+   *
+   * So the hole stays, `publish` refuses and names it, and this screen is where
+   * it gets resolved: the missing patches are in Unstaged, and staging one runs
+   * the closure that restores the prefix.
    */
-  usePatchGroupRepair({ enabled, indexed, group, onChange });
 
   const authors = useMemo(() => {
     const byId = new Map<PatchId, string | null>();

@@ -1577,12 +1577,12 @@ export function createSystem(options: SystemOptions): System {
          * here rather than assumed, at the one point where getting it wrong is
          * not recoverable.
          *
-         * Refused rather than repaired. `repairGroup(..., "extend")` would make
-         * it valid by ADDING the missing patches, which means publishing work
-         * the user never staged and may not have written. Widening a publish
-         * without being asked is the failure this whole feature exists to
-         * prevent, so the answer is no, with the holes named; staging them is
-         * the review screen's job and the user's decision.
+         * Refused rather than repaired, and this is the ONLY thing that
+         * notices. Nothing auto-repairs a coalesced hole: widening the group
+         * would publish work the user never staged, and truncating it would
+         * drop their own. So the refusal names what is missing, and the review
+         * screen is where they choose — stage it, or unstage what depends on
+         * it.
          */
         if (patchGroupIds !== null) {
           const violations = await prefixViolations(toPublish);

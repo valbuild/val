@@ -165,9 +165,11 @@ export function indexPatchSets(
  *   what is entangled with it, not everything pending. That is the feature.
  * - Patch sets coalesce retroactively — `PatchSets.insertPath` merges an existing
  *   set into a broader one — so a group that was prefix-closed can stop being so
- *   through nobody's action. `repairGroup` with the `extend` policy is what keeps
- *   it applicable; see `PatchStagingProvider`, which runs it on every
- *   recomputation of the index rather than only on stage/unstage.
+ *   through nobody's action. Nothing repairs that: a group grows when its owner
+ *   writes and at no other time, so the hole stays and `publish` refuses the
+ *   group until they stage what is missing or unstage what depends on it. Both
+ *   automatic fixes decide silently what only that person can — see
+ *   `PatchStagingProvider`.
  *
  * Independence then comes from **unstaging** as well: carve a patch set out of
  * your group and it leaves your view and your publish. The cost is that the
@@ -425,64 +427,6 @@ export function editWouldRestage(
     (a, b) =>
       positionOf(index.chainPosition, a) - positionOf(index.chainPosition, b),
   );
-}
-
-/**
- * Repair policy for a group that a patch-set merge has invalidated.
- *
- * - `extend` grows the group so the user's own change stays publishable, at the
- *   cost of publishing a patch they did not choose.
- * - `truncate` shrinks it so nothing unexpected is published, at the cost of the
- *   user's own change silently leaving their group.
- *
- * `extend` is the default because the `truncate` failure is worse: the user hits
- * Publish, gets success, and their edit is not live. `extend` is at least
- * surfaceable — the pulled-in patches are reported so the UI can say whose work
- * came along.
- */
-export type RepairPolicy = "extend" | "truncate";
-
-export type GroupRepair = {
-  group: Set<PatchId>;
-  added: PatchId[];
-  removed: PatchId[];
-};
-
-export function repairGroup(
-  index: PatchSetIndex,
-  group: PatchGroup,
-  policy: RepairPolicy = "extend",
-): GroupRepair {
-  const violations = validateGroup(index, group);
-  if (violations.length === 0) {
-    return { group: new Set(group), added: [], removed: [] };
-  }
-  if (policy === "extend") {
-    const repaired = stageClosure(index, group, group);
-    const added: PatchId[] = [];
-    for (const patchId of repaired) {
-      if (!group.has(patchId)) {
-        added.push(patchId);
-      }
-    }
-    return { group: repaired, added, removed: [] };
-  }
-  // truncate: drop the tail of every violating patch set, i.e. everything from
-  // the first hole onwards.
-  const doomed = new Set<PatchId>();
-  for (const violation of violations) {
-    for (const patchId of violation.missing) {
-      doomed.add(patchId);
-    }
-  }
-  const repaired = unstageClosure(index, group, doomed);
-  const removed: PatchId[] = [];
-  for (const patchId of group) {
-    if (!repaired.has(patchId)) {
-      removed.push(patchId);
-    }
-  }
-  return { group: repaired, added: [], removed };
 }
 
 /** The group's patches in chain order — the order they must be applied in. */

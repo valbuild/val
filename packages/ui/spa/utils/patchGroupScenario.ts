@@ -20,8 +20,6 @@ import {
   indexPatchSets,
   PatchGroup,
   PatchSetIndex,
-  repairGroup,
-  RepairPolicy,
   stageClosure,
   unstageClosure,
   validateGroup,
@@ -49,7 +47,6 @@ import {
  *    gets that for free; computing the patch sets once at the end would hide it.
  *
  * The output is a trace meant to be read. Where the design still has an open
- * choice — `RepairPolicy` is the live one — run the same scenario under both and
  * compare the traces. That is the point at which the semantics get decided rather
  * than assumed.
  */
@@ -115,7 +112,6 @@ export type Scenario = {
   /** Compact rendering for the trace. Without it the trace is unreadable JSON. */
   render?: (doc: JSONValue) => string;
   /** Defaults to "extend". Worth running a scenario under both. */
-  repairPolicy?: RepairPolicy;
   /**
    * When the script contains no `publish` step, the harness finishes by showing
    * what *would* happen if each author published, from the same state. That
@@ -145,7 +141,6 @@ export function runScenario(scenario: Scenario): ScenarioResult {
 }
 
 class Run {
-  private readonly policy: RepairPolicy;
   private readonly render: (doc: JSONValue) => string;
   private readonly out = new Report();
   private readonly problems: string[] = [];
@@ -177,7 +172,6 @@ class Run {
   private step = 0;
 
   constructor(private readonly scenario: Scenario) {
-    this.policy = scenario.repairPolicy ?? "extend";
     this.render = scenario.render ?? ((doc) => JSON.stringify(doc));
     this.base = scenario.base;
     for (const step of scenario.steps) {
@@ -196,7 +190,6 @@ class Run {
       this.out.line(`shape:    ${this.scenario.shape}`);
     }
     this.out.line(`base:     ${this.render(this.base)}`);
-    this.out.line(`repair:   ${this.policy}`);
     this.out.blank();
 
     for (const step of this.scenario.steps) {
@@ -348,7 +341,7 @@ class Run {
      *
      * See "why a group is not a blanket" in `patchGroups.ts`.
      */
-    this.repairOthers(step.by, `${step.edit} changed the patch sets`);
+    this.reportInvalidated(step.by, `${step.edit} changed the patch sets`);
     this.showGroups();
   }
 
@@ -455,7 +448,7 @@ class Run {
     this.reindex();
     this.out.line(`      new base    ${this.render(this.base)}`);
     this.out.line(`      patch sets  ${this.renderSets()}`);
-    this.repairOthers(step.publish, "the commit changed the patch sets");
+    this.reportInvalidated(step.publish, "the commit changed the patch sets");
     this.showGroups();
   }
 
@@ -493,7 +486,23 @@ class Run {
     this.groups.set(author, after);
   }
 
-  private repairOthers(except: Author, why: string) {
+  /**
+   * Report — and do not fix — a group this step has invalidated.
+   *
+   * A group grows when its owner writes, and at no other time. Patch sets
+   * coalesce, so somebody else's insert can merge two sets and leave a hole in
+   * a group whose owner touched nothing; the group is left exactly as they
+   * built it, and `publish` refuses it until they decide.
+   *
+   * The rejected alternative was to repair it automatically. `extend` restored
+   * the prefix by pulling the missing patches in — which meant publishing
+   * another author's work that this one had deliberately excluded, without
+   * asking. `truncate` honoured the exclusion by dropping the owner's own edit
+   * instead, leaving a valid group, so no assertion fired and the only trace of
+   * the loss was their group quietly emptying. Both decide, silently, something
+   * only the person can decide.
+   */
+  private reportInvalidated(except: Author, why: string) {
     for (const author of this.authors) {
       if (author === except) {
         continue;
@@ -502,22 +511,17 @@ class Run {
       if (group.size === 0) {
         continue;
       }
-      const repair = repairGroup(this.index, group, this.policy);
-      if (repair.added.length === 0 && repair.removed.length === 0) {
+      const violations = validateGroup(this.index, group);
+      if (violations.length === 0) {
         continue;
       }
-      const changes = [
-        repair.added.length > 0
-          ? `+${inChainOrder(this.index, new Set(repair.added)).join(",")}`
-          : null,
-        repair.removed.length > 0 ? `-${repair.removed.join(",")}` : null,
-      ]
-        .filter(Boolean)
-        .join(" ");
-      this.out.line(
-        `      repaired ${author}'s group ${changes} — ${why} (policy: ${this.policy})`,
+      const missing = inChainOrder(
+        this.index,
+        new Set(violations.flatMap((violation) => violation.missing)),
       );
-      this.groups.set(author, repair.group);
+      this.out.line(
+        `      ${author}'s group now has a hole: needs ${missing.join(",")} — ${why} (publish refuses until they stage or unstage)`,
+      );
     }
   }
 
