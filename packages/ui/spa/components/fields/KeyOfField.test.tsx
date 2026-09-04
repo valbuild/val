@@ -214,6 +214,23 @@ describe("KeyOfField", () => {
     );
   });
 
+  it("does not carry a search into the next time the menu is opened", () => {
+    mount(authorsRecord);
+    openDropdown();
+    fireEvent.change(screen.getByPlaceholderText("Search key..."), {
+      target: { value: "free" },
+    });
+    // Picking an existing key closes the menu. Radix only reports ITS own
+    // closes through `onOpenChange`, so closing programmatically here used to
+    // skip the reset - and the create form, which starts from the search, then
+    // opened prefilled with what was typed the time before.
+    fireEvent.click(screen.getByText("freekh"));
+
+    openDropdown();
+    fireEvent.click(screen.getByText("New entry"));
+    expect(screen.getByPlaceholderText<HTMLInputElement>("Key").value).toBe("");
+  });
+
   it("refuses a key that already exists, rather than overwriting that entry", () => {
     mount(authorsRecord);
     openDropdown();

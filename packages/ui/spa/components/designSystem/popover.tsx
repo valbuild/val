@@ -21,10 +21,10 @@ const PopoverContent = React.forwardRef<
   ) => (
     // `container` is destructured OUT, like every other primitive here
     // (`tooltip`, `dropdown-menu`, `hover-card`) does. Read off `props` and left
-    // in it, as it was, the portal node is also spread onto the content div as a
-    // DOM prop - React drops it with an "Invalid value for prop `container`"
-    // warning, so nothing looked broken, but the popover carried the whole
-    // portal element as an attribute value on every render.
+    // in it, as it was, the portal node was also handed to the content div as a
+    // DOM prop - which React refuses, with "Invalid value for prop `container`
+    // on <div> tag". So it never reached the DOM and nothing looked broken; the
+    // cost was that warning, on every popover the Studio opens.
     <PopoverPrimitive.Portal container={container}>
       <PopoverPrimitive.Content
         ref={ref}

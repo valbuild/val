@@ -244,7 +244,13 @@ export function KeySelector({
                         value={filterValue}
                         onSelect={() => {
                           onChange(key);
-                          setOpen(false);
+                          // `closeAndReset`, not `setOpen(false)`: Radix calls
+                          // `onOpenChange` for ITS own closes, not for a
+                          // programmatic one, so closing this way skipped the
+                          // reset and left the search text in state - and the
+                          // create form, which starts from it, then opened
+                          // prefilled with whatever was typed the time before.
+                          closeAndReset();
                         }}
                         className="flex items-center gap-2"
                       >
