@@ -1,5 +1,44 @@
 # @valbuild/next
 
+## 0.120.4
+
+### Patch Changes
+
+- Updated dependencies [[`6df3cae`](https://github.com/valbuild/val/commit/6df3caec1cc043a07b532d3174583b8218d4871d)]:
+  - @valbuild/ui@0.120.4
+  - @valbuild/react@0.120.4
+  - @valbuild/server@0.120.4
+  - @valbuild/language-server@0.120.4
+
+## 0.120.3
+
+### Patch Changes
+
+- Updated dependencies [[`9b96184`](https://github.com/valbuild/val/commit/9b96184cf6ad6d52a714867fb1527eeec6c776f4), [`1a2484a`](https://github.com/valbuild/val/commit/1a2484a309679bd5e963d626466c2828f74d49f8), [`71becc7`](https://github.com/valbuild/val/commit/71becc7e543432e4a57e36d54aaf803e9a447ffd)]:
+  - @valbuild/ui@0.120.3
+  - @valbuild/react@0.120.3
+  - @valbuild/server@0.120.3
+  - @valbuild/language-server@0.120.3
+
+## 0.120.2
+
+### Patch Changes
+
+- [#593](https://github.com/valbuild/val/pull/593) [`095ee0d`](https://github.com/valbuild/val/commit/095ee0dd011b069c30bc99ae58356e28796e106b) Thanks [@freekh](https://github.com/freekh)! - Publish the packages that 0.120.1 did not reach.
+
+  `@valbuild/server@0.120.1` made it to npm, but `@valbuild/cli`,
+  `@valbuild/language-server` and `@valbuild/next` did not — the release job
+  failed part-way through, and the version numbers it had already claimed could
+  not be reused. This release carries the same contents for those three packages:
+  they pick up the MCP signing-key rotation fix from `@valbuild/server@0.120.1`,
+  and there is nothing else in it.
+
+  If you are on 0.120.0, upgrade straight to this version. There is no 0.120.1 of
+  these three packages, and there will not be one.
+
+- Updated dependencies [[`095ee0d`](https://github.com/valbuild/val/commit/095ee0dd011b069c30bc99ae58356e28796e106b)]:
+  - @valbuild/language-server@0.120.2
+
 ## 0.120.1
 
 ### Patch Changes

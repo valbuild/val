@@ -38,6 +38,7 @@ export function FileGallery({
   disabled = false,
   onUploadClick,
   uploading = false,
+  uploadDisabled = false,
   defaultOpenFileRef,
   isDraggingOver = false,
 }: FileGalleryProps) {
@@ -191,7 +192,11 @@ export function FileGallery({
             <button
               type="button"
               onClick={onUploadClick}
-              disabled={uploading}
+              // `uploadDisabled` is a remote gallery waiting on
+              // `/remote/settings`: an upload started now can only fail, so the
+              // control is not offered until it can work. The title is left
+              // alone so it stays the same thing to look for either way.
+              disabled={uploading || uploadDisabled}
               className="rounded p-1.5 transition-colors text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary disabled:opacity-50"
               title="Upload file"
             >

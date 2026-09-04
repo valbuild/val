@@ -46,6 +46,24 @@ function patternStringOf(routePattern: RoutePattern[]): string {
     .join("");
 }
 
+/** Whether a router id is that of the external page router. */
+export function isExternalRouter(routerId: string): boolean {
+  return routerId === EXTERNAL_ROUTER_ID;
+}
+
+/**
+ * The route pattern a router module serves, e.g. `/blogs/[blog]`.
+ *
+ * Exported because a key of a router record IS a route: anything that lets an
+ * editor create one - the sitemap, a `s.route()` field, a `s.keyOf()` field
+ * pointing at a router - needs the pattern to know which segments to ask for.
+ */
+export function routePatternOfRouterModule(
+  moduleFilePath: ModuleFilePath,
+): RoutePattern[] {
+  return parseRoutePattern(routePatternSourceOf(moduleFilePath));
+}
+
 /**
  * A next-app-router module lives at the route it serves, so the route pattern is
  * the module path with the Val and Next.js file conventions stripped.
@@ -80,9 +98,7 @@ export function collectCreatableRouters(
       source && typeof source === "object" && !Array.isArray(source)
         ? Object.keys(source)
         : [];
-    const routePattern = parseRoutePattern(
-      routePatternSourceOf(moduleFilePath),
-    );
+    const routePattern = routePatternOfRouterModule(moduleFilePath);
     const entry: CreatableRouter = {
       moduleFilePath,
       routerId: schema.router,
@@ -91,7 +107,7 @@ export function collectCreatableRouters(
       existingKeys,
       keyDescription: schema.key?.description,
     };
-    if (schema.router === EXTERNAL_ROUTER_ID) {
+    if (isExternalRouter(schema.router)) {
       // At most one external router per project, as elsewhere in the studio.
       externalRouter = externalRouter ?? entry;
     } else {
