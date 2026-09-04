@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/shared",
-  "version": "0.117.0",
+  "version": "0.120.0",
   "private": false,
   "description": "Val shared types and utilities",
   "repository": {

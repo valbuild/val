@@ -3,7 +3,11 @@ import { VAL_AI_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
 import { AIChat, type AIChatHandle } from "./AIChat";
 import { useAI } from "../hooks/useAI";
 import { useAIChatActions } from "./AIChatActionsContext";
-import { useAIConnectionError, useValMode } from "./ValProvider";
+import {
+  useAIConnectionError,
+  useAIModelSelection,
+  useValMode,
+} from "./ValProvider";
 import { useSessionParam } from "./ValRouter";
 
 /**
@@ -43,6 +47,7 @@ export function AIChatSurface({ className }: { className?: string }) {
    */
   const unavailable = useAIConnectionError();
   const { chatEditorRef, flushPendingFieldRefs } = useAIChatActions();
+  const aiModels = useAIModelSelection();
   const { sessionParam, setSessionParam } = useSessionParam();
   // Read once, on the first render. Later URL changes — a navigation rewriting
   // the query, a `popstate` — must not reach in and swap the conversation the
@@ -112,6 +117,9 @@ export function AIChatSurface({ className }: { className?: string }) {
       chatEditorRef={chatEditorRef}
       onSendMessage={sendMessage}
       onCancel={cancel}
+      models={aiModels.models}
+      selectedModel={aiModels.selected}
+      onSelectModel={aiModels.select}
       onUploadFile={uploadAiImage}
       onNewSession={newSession}
       isConnected={isConnected}

@@ -1,5 +1,78 @@
 # @valbuild/server
 
+## 0.120.1
+
+### Patch Changes
+
+- [#590](https://github.com/valbuild/val/pull/590) [`6f318d4`](https://github.com/valbuild/val/commit/6f318d406295b772e721bf463283f47e2822e996) Thanks [@freekh](https://github.com/freekh)! - MCP: survive a signing-key rotation, and say what a refused local token means.
+
+  `@valbuild/next` caches the authorization server's JWKS for five minutes. Until
+  now a token signed with a key that arrived inside that window was refused
+  outright, so every warm instance rejected valid tokens until the cache expired —
+  a rotation on the issuer's side showed up as an outage on yours.
+
+  A token naming a key the cache does not hold now provokes one refetch of the key
+  set, at most once per issuer every 30 seconds. The rate limit matters because the
+  key id comes from the token: without it, unknown key ids would be a way to make
+  your app call its issuer once per request. It limits how often a fetch is
+  _started_, so requests that arrive while one is already running join it — which
+  is the normal shape of a rotation, where many requests meet the new key at once.
+
+  Separately, an MCP call that presents an access token to a project running in
+  local filesystem mode is still refused — there is nothing to authenticate against
+  — but the message now names the cause, which is that the project has an `oauth`
+  issuer configured (often `VAL_OAUTH_ISSUER` in a local `.env`) and should not
+  have one for local development.
+
+## 0.120.0
+
+### Patch Changes
+
+- Updated dependencies [[`c2d3c0e`](https://github.com/valbuild/val/commit/c2d3c0e6c2010c0a94c725d9dbaa618998773e8a)]:
+  - @valbuild/core@0.120.0
+  - @valbuild/shared@0.120.0
+  - @valbuild/ui@0.120.0
+
+## 0.119.0
+
+### Patch Changes
+
+- Updated dependencies [[`84165f7`](https://github.com/valbuild/val/commit/84165f743eb5802da1e8079bbe98eafcb2cdcec8)]:
+  - @valbuild/ui@0.119.0
+
+## 0.118.0
+
+### Minor Changes
+
+- [#574](https://github.com/valbuild/val/pull/574) [`198ba8b`](https://github.com/valbuild/val/commit/198ba8bd8e6c921660e97f5cd26fb17f2d5f3f95) Thanks [@freekh](https://github.com/freekh)! - The assistant lets you pick which model answers, from the models your key can
+  actually reach.
+
+  The content server now asks each provider what a key may use and reports the
+  answer; the Studio offers exactly that, beside the composer. Which model to use
+  is a per-message decision — something cheap for a typo, something strong for a
+  hard question — so the control sits where the message is written rather than in
+  a settings panel.
+
+  The choice is remembered per browser and re-checked against what is on offer
+  each time the assistant starts, so a model an account has lost access to is
+  quietly replaced instead of being sent and refused.
+
+  A content server that does not report models, or could not reach a provider,
+  leaves the built-in catalog as the fallback, filtered to reachable providers.
+
+### Patch Changes
+
+- Updated dependencies [[`198ba8b`](https://github.com/valbuild/val/commit/198ba8bd8e6c921660e97f5cd26fb17f2d5f3f95), [`198ba8b`](https://github.com/valbuild/val/commit/198ba8bd8e6c921660e97f5cd26fb17f2d5f3f95), [`fe6a398`](https://github.com/valbuild/val/commit/fe6a3981691394e6f34d4d80ec17febd356a98cc)]:
+  - @valbuild/ui@0.118.0
+  - @valbuild/shared@0.118.0
+
+## 0.117.1
+
+### Patch Changes
+
+- Updated dependencies [[`0ae7bac`](https://github.com/valbuild/val/commit/0ae7bac8a186460bc2b31f2ded89b00027bafb55)]:
+  - @valbuild/ui@0.117.1
+
 ## 0.117.0
 
 ### Minor Changes

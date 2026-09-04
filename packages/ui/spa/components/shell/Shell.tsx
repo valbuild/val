@@ -807,6 +807,7 @@ export function Shell({
       <TopBar
         breakpoint={breakpoint}
         projectName={data.projectName}
+        projectHref={data.admin?.project}
         openPanel={openPanel}
         onTogglePanel={togglePanel}
         // The menu button opens the first destination this project has, which
@@ -963,6 +964,7 @@ export function Shell({
           accountError={accountError}
           theme={theme}
           onThemeChange={onThemeChange}
+          admin={data.admin}
           autoSave={autoSave}
           onAutoSaveChange={onAutoSaveChange}
           branch={data.branch}

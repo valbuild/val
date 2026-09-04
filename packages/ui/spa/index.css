@@ -614,6 +614,51 @@
   }
 }
 
+/*
+ * The "still working" text effect: a bright band sweeping through the label.
+ *
+ * It has to be a background gradient clipped to the glyphs, not an opacity
+ * pulse - a pulse reads as "blinking error" and, at the 1-2s period that looks
+ * calm, spends half its time nearly invisible. The sweep never drops the text
+ * below `--fg-tertiary`, so the label stays readable at every frame.
+ *
+ * `-webkit-text-fill-color` is what actually makes the glyphs transparent in
+ * WebKit; `color` alone is ignored there once `background-clip: text` is on.
+ */
+@keyframes val-shimmer-text {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
+}
+.val-shimmer-text {
+  background-image: linear-gradient(
+    90deg,
+    var(--fg-tertiary) 0%,
+    var(--fg-tertiary) 30%,
+    var(--fg-primary) 50%,
+    var(--fg-tertiary) 70%,
+    var(--fg-tertiary) 100%
+  );
+  background-size: 250% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: val-shimmer-text 1.8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .val-shimmer-text {
+    animation: none;
+    background-image: none;
+    color: var(--fg-secondary);
+    -webkit-text-fill-color: var(--fg-secondary);
+  }
+}
+
 @keyframes val-scroll-highlight {
   0%,
   50% {

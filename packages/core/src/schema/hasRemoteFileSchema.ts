@@ -40,8 +40,8 @@ export function hasRemoteFileSchema(schema: SerializedSchema): boolean {
   if (schema.type === "file" || schema.type === "image") {
     return !!schema.remote;
   } else if (schema.type === "richtext") {
-    if (typeof schema.options?.inline?.img === "object") {
-      return hasRemoteFileSchema(schema.options.inline.img);
+    if (typeof schema.options?.img === "object") {
+      return hasRemoteFileSchema(schema.options.img);
     }
     return false;
   } else if (schema.type === "array") {

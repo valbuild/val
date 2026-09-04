@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { ValClient } from "@valbuild/shared/internal";
+import {
+  resolvePreferredModel,
+  writePreferredModel,
+} from "./aiModelPreference";
 
 // --- Shared types (must match server-side definitions) ---
 
@@ -81,6 +85,65 @@ export function pickAvailableModel(
   );
 }
 
+/**
+ * The server's model list, as `AIModelInfo`.
+ *
+ * Entries for a provider this version does not implement are dropped: the
+ * content server may know a provider before the Studio does, and offering one
+ * we cannot drive would be a picker entry that always fails.
+ */
+function toModelInfos(
+  reported: { provider: string; model: string; label: string }[] | undefined,
+): AIModelInfo[] {
+  if (!reported) {
+    return [];
+  }
+  return reported.flatMap((entry) => {
+    const provider = AIProviderId.safeParse(entry.provider);
+    if (!provider.success) {
+      return [];
+    }
+    return [
+      {
+        ref: { provider: provider.data, model: entry.model },
+        label: entry.label || entry.model,
+      },
+    ];
+  });
+}
+
+/**
+ * What to offer when the server reports no models of its own.
+ *
+ * With `providers` reported, the built-in catalog filtered to those providers:
+ * every entry is one the server said it can reach.
+ *
+ * With `providers` absent — an older content server — only the fallback model.
+ * Offering the whole catalog there would let someone pick a provider that
+ * server may have no key or no implementation for, and `pickAvailableModel`
+ * already treats a silent server as the original single-model default. One
+ * entry also means the picker hides itself, which is the honest UI for "there
+ * is no choice to make".
+ */
+function fallbackModels(
+  serverProviders: string[] | undefined,
+  fallback: AIModel | null,
+): AIModelInfo[] {
+  if (serverProviders === undefined) {
+    const known = fallback
+      ? VAL_AI_MODELS.find(
+          (info) =>
+            info.ref.provider === fallback.provider &&
+            info.ref.model === fallback.model,
+        )
+      : undefined;
+    return known ? [known] : [];
+  }
+  return VAL_AI_MODELS.filter((info) =>
+    serverProviders.includes(info.ref.provider),
+  );
+}
+
 export const AITool = z.object({
   name: z.string(),
   description: z.string(),
@@ -154,6 +217,12 @@ export const AIErrorMessage = z.object({
   message: z.string(),
   resetDate: z.string().optional(),
   action: AIErrorAction.optional(),
+  /**
+   * The provider's own account of the failure — status, error type, request id,
+   * verbatim message — for a developer who wants to work around the problem
+   * rather than guess at it. Shown behind a disclosure, never in the message.
+   */
+  details: z.string().optional(),
 });
 export type AIErrorMessage = z.infer<typeof AIErrorMessage>;
 
@@ -376,11 +445,26 @@ export function useAIWebSocket(
    * for any provider the Studio can drive.
    */
   availableModel: AIModel | null;
+  /**
+   * Every model the project's keys can actually reach, as the providers report
+   * them. Empty when the content server does not report them (or could not
+   * reach a provider), in which case the built-in catalog is what is offered.
+   */
+  availableModels: AIModelInfo[];
+  /** The model the editor picked, or the best default until they pick one. */
+  selectedModel: AIModel | null;
+  selectModel: (model: AIModel) => void;
 } {
   const wsRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [authError, setAuthError] = useState(false);
   const [availableModel, setAvailableModel] = useState<AIModel | null>(null);
+  const [availableModels, setAvailableModels] = useState<AIModelInfo[]>([]);
+  const [selectedModel, setSelectedModel] = useState<AIModel | null>(null);
+  const selectModel = useCallback((model: AIModel) => {
+    setSelectedModel(model);
+    writePreferredModel(model);
+  }, []);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const handlersRef = useRef<Set<AIMessageHandler>>(new Set());
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -431,7 +515,24 @@ export function useAIWebSocket(
         return;
       }
       setAuthError(false);
-      setAvailableModel(pickAvailableModel(res.json.providers));
+      const fallback = pickAvailableModel(res.json.providers);
+      setAvailableModel(fallback);
+      // What the providers actually offer, when the server could ask them. The
+      // built-in catalog is the fallback, filtered to reachable providers, so
+      // an older content server or a provider that would not answer still
+      // leaves a usable picker rather than an empty one.
+      const reported = toModelInfos(res.json.models);
+      const offered =
+        reported.length > 0
+          ? reported
+          : fallbackModels(res.json.providers, fallback);
+      setAvailableModels(offered);
+      setSelectedModel(
+        resolvePreferredModel(
+          offered.map((info) => info.ref),
+          fallback,
+        ),
+      );
 
       const ws = new WebSocket(
         res.json.wsUrl + "?nonce=" + encodeURIComponent(res.json.nonce),
@@ -554,5 +655,8 @@ export function useAIWebSocket(
     connectionError,
     retryConnection,
     availableModel,
+    availableModels,
+    selectedModel,
+    selectModel,
   };
 }

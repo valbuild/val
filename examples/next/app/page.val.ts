@@ -30,18 +30,12 @@ export const schema = s.object({
     .richtext({
       // enables all features
       // styling:
-      style: {
-        bold: true, // enables bold, ...
-        italic: true,
-        lineThrough: true,
-      },
-      block: {
-        h2: true, // enables h2 blocks, ...
-        ul: true,
-      },
-      inline: {
-        a: true,
-      },
+      bold: true, // enables bold, ...
+      italic: true,
+      lineThrough: true,
+      h2: true, // enables h2 blocks, ...
+      ul: true,
+      a: true,
     })
     .nullable(),
   video: s.object({

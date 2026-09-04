@@ -66,6 +66,7 @@ import {
   type AIMessageHandler,
   type AIClientMessage,
   type AIModel,
+  type AIModelInfo,
   type AISession,
   AITool,
 } from "../hooks/useAIWebSocket";
@@ -195,6 +196,9 @@ type ValContextValue = {
   aiSetSessionName: (sessionId: string, name: string) => Promise<void>;
   /** The model to use, or null when no key makes any model reachable. */
   availableAiModel: AIModel | null;
+  availableAiModels: AIModelInfo[];
+  selectedAiModel: AIModel | null;
+  selectAiModel: (model: AIModel) => void;
   aiSessionImagesToPatchFile: (args: {
     patchId: PatchId;
     parentRef: ParentRef;
@@ -204,16 +208,28 @@ type ValContextValue = {
     files: { filePath: string; metadata: ImageMetadata }[];
   }>;
 };
-const ValContext = React.createContext<ValContextValue>(
-  new Proxy(
-    {},
-    {
-      get: () => {
-        throw new Error("Cannot use ValContext outside of ValProvider");
-      },
+/**
+ * The context value that means "nobody mounted a provider".
+ *
+ * A Proxy that throws on any property read, so a hook which genuinely cannot do
+ * its job without a provider fails loudly at the first field it touches rather
+ * than quietly computing from undefined.
+ *
+ * Named, rather than inline in `createContext`, so a hook that CAN answer
+ * without a provider can recognise it by identity — see `useCurrentAuthorId`.
+ * The alternative is catching the throw, which means either swallowing every
+ * error raised during a destructure or matching on a message string.
+ */
+const NO_VAL_PROVIDER = new Proxy(
+  {},
+  {
+    get: () => {
+      throw new Error("Cannot use ValContext outside of ValProvider");
     },
-  ) as ValContextValue,
-);
+  },
+) as ValContextValue;
+
+const ValContext = React.createContext<ValContextValue>(NO_VAL_PROVIDER);
 
 export function useClient() {
   return useContext(ValContext).client;
@@ -272,6 +288,9 @@ export function ValProvider({
     connectionError: aiConnectionError,
     retryConnection: retryAiConnection,
     availableModel: availableAiModel,
+    availableModels: availableAiModels,
+    selectedModel: selectedAiModel,
+    selectModel: selectAiModel,
   } = useAIWebSocket(wsEnabled, client);
 
   const aiGetSessions = useCallback(
@@ -736,6 +755,9 @@ export function ValProvider({
         aiGetSessionMessages,
         aiSetSessionName,
         availableAiModel,
+        availableAiModels,
+        selectedAiModel,
+        selectAiModel,
         aiSessionImagesToPatchFile,
       }}
     >
@@ -1105,6 +1127,27 @@ export function useAIContext() {
 export function useAvailableAIModel(): AIModel | null {
   const { availableAiModel } = useContext(ValContext);
   return availableAiModel;
+}
+
+/**
+ * The models on offer, the one selected, and how to change it.
+ *
+ * The list is what the project's keys can actually reach — reported by the
+ * providers, not guessed here — so a picker built from it can only offer
+ * models that will work.
+ */
+export function useAIModelSelection(): {
+  models: AIModelInfo[];
+  selected: AIModel | null;
+  select: (model: AIModel) => void;
+} {
+  const { availableAiModels, selectedAiModel, selectAiModel } =
+    useContext(ValContext);
+  return {
+    models: availableAiModels,
+    selected: selectedAiModel,
+    select: selectAiModel,
+  };
 }
 
 export function useDeployments() {
@@ -2224,25 +2267,25 @@ export function useCurrentAuthorId(): string | null {
   /*
    * No provider is an honest `null` here, not a crash.
    *
-   * The default context is a Proxy that throws on any property read, which is
-   * the right guard for a hook that cannot do its job without one. This hook
-   * can: "who is the current author" has a correct answer when nobody is
-   * mounted, and it is nobody. Without this, one presentational component
-   * reaching for the author takes down every Storybook story and every render
-   * test of the whole review screen — which is what happened when the summary
-   * strip started naming authors.
+   * The default context throws on any property read, which is the right guard
+   * for a hook that cannot do its job without a provider. This hook can: "who
+   * is the current author" has a correct answer when nobody is mounted, and it
+   * is nobody. Without this, one presentational component reaching for the
+   * author takes down every render of the whole review screen — which is what
+   * happened when the summary strip started naming authors, and it took out
+   * every ComparePatchSets story, not only the ones about authorship.
    *
-   * The destructure is what throws, not `useContext`, so the hook is still
-   * called unconditionally and hook order is unaffected.
+   * Recognised by IDENTITY rather than by catching the throw. A `try` around
+   * the destructure would swallow every error raised inside it, not only this
+   * one, so a real fault in a mounted provider would surface as a silent
+   * "nobody" instead of a stack trace; matching on the message string would be
+   * worse again. `useContext` is still called unconditionally, so hook order is
+   * unaffected.
    */
-  let profileId: string | null;
-  let profiles: Record<string, Profile>;
-  let mode: "fs" | "http" | "unknown";
-  try {
-    ({ profileId, profiles, mode } = context);
-  } catch {
+  if (context === NO_VAL_PROVIDER) {
     return null;
   }
+  const { profileId, profiles, mode } = context;
   if (profileId) {
     return profileId;
   }

@@ -1,12 +1,20 @@
 import { ReactNode } from "react";
-import { LogOut, Moon, Sun } from "lucide-react";
+import {
+  ExternalLink,
+  LogOut,
+  LucideIcon,
+  Moon,
+  Settings2,
+  Sun,
+  Users,
+} from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { Checkbox } from "../designSystem/checkbox";
 import { FloatingPanel, PanelSectionLabel } from "./FloatingPanel";
 import { Avatar } from "./Avatar";
 import { AccountErrorNotice, ShellAccountError } from "./AccountError";
 import { DeploymentRows } from "./Deployments";
-import { ShellBreakpoint, ShellDeployment } from "./types";
+import { ShellAdminLinks, ShellBreakpoint, ShellDeployment } from "./types";
 
 export type SettingsPanelProps = {
   breakpoint: ShellBreakpoint;
@@ -21,6 +29,14 @@ export type SettingsPanelProps = {
   accountError?: ShellAccountError;
   theme: "dark" | "light";
   onThemeChange: (theme: "dark" | "light") => void;
+  /**
+   * The project's pages in Val Build.
+   *
+   * Absent for a project that is not connected to Val Build: there is no
+   * project to administer and no organisation to have members, so the section
+   * goes rather than showing two links to a sign-in page.
+   */
+  admin?: ShellAdminLinks;
   /** How Val is running. Auto save is a dev-server setting; see `StatusBar`. */
   mode?: "fs" | "http" | "unknown";
   autoSave: boolean;
@@ -54,6 +70,7 @@ export function SettingsPanel({
   accountError,
   theme,
   onThemeChange,
+  admin,
   mode,
   autoSave,
   onAutoSaveChange,
@@ -118,6 +135,26 @@ export function SettingsPanel({
           </div>
         </div>
 
+        {admin && (
+          <>
+            <PanelSectionLabel divided>Project</PanelSectionLabel>
+            <div className="px-4 pt-1 space-y-1.5">
+              <AdminLink
+                href={admin.project}
+                icon={Settings2}
+                label="Administer project"
+                description="Settings, API keys and versions in Val Build."
+              />
+              <AdminLink
+                href={admin.members}
+                icon={Users}
+                label="Manage members"
+                description="Who can edit this project's content."
+              />
+            </div>
+          </>
+        )}
+
         <PanelSectionLabel divided>Workspace</PanelSectionLabel>
         <div className="px-4 pt-1 space-y-2.5">
           {/* `fs` only, for the reason given in `StatusBar`. */}
@@ -163,6 +200,42 @@ export function SettingsPanel({
         )}
       </div>
     </FloatingPanel>
+  );
+}
+
+/**
+ * A way out to Val Build, in a new tab.
+ *
+ * A new tab rather than a navigation: leaving the Studio means leaving
+ * whatever is being edited in it, and unsaved work lives in the page.
+ */
+function AdminLink({
+  href,
+  icon: Icon,
+  label,
+  description,
+}: {
+  href: string;
+  icon: LucideIcon;
+  label: string;
+  description: string;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-start gap-2 -mx-2 px-2 py-1.5 rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+    >
+      <Icon size={13} className="mt-0.5 shrink-0" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-xs text-fg-primary">{label}</span>
+        <span className="block text-[0.6875rem] text-fg-secondary-alt">
+          {description}
+        </span>
+      </span>
+      <ExternalLink size={11} className="mt-0.5 shrink-0" />
+    </a>
   );
 }
 

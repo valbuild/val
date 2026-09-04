@@ -376,9 +376,9 @@ export function resolvePath<
       ) {
         resolvedSchema =
           resolvedSchema instanceof RichTextSchema
-            ? resolvedSchema["options"]?.inline?.img &&
-              typeof resolvedSchema["options"]?.inline?.img !== "boolean"
-              ? resolvedSchema["options"].inline.img
+            ? resolvedSchema["options"]?.img &&
+              typeof resolvedSchema["options"]?.img !== "boolean"
+              ? resolvedSchema["options"].img
               : resolvedSchema
             : resolvedSchema;
       }
@@ -390,9 +390,9 @@ export function resolvePath<
       ) {
         resolvedSchema =
           resolvedSchema instanceof RichTextSchema
-            ? resolvedSchema["options"]?.inline?.a &&
-              typeof resolvedSchema["options"]?.inline?.a !== "boolean"
-              ? resolvedSchema["options"].inline.a
+            ? resolvedSchema["options"]?.a &&
+              typeof resolvedSchema["options"]?.a !== "boolean"
+              ? resolvedSchema["options"].a
               : resolvedSchema
             : resolvedSchema;
       }
@@ -649,9 +649,9 @@ export function safeResolvePath<
       ) {
         resolvedSchema =
           resolvedSchema instanceof RichTextSchema
-            ? resolvedSchema["options"]?.inline?.img &&
-              typeof resolvedSchema["options"]?.inline?.img !== "boolean"
-              ? resolvedSchema["options"].inline.img
+            ? resolvedSchema["options"]?.img &&
+              typeof resolvedSchema["options"]?.img !== "boolean"
+              ? resolvedSchema["options"].img
               : resolvedSchema
             : resolvedSchema;
       }
@@ -663,9 +663,9 @@ export function safeResolvePath<
       ) {
         resolvedSchema =
           resolvedSchema instanceof RichTextSchema
-            ? resolvedSchema["options"]?.inline?.a &&
-              typeof resolvedSchema["options"]?.inline?.a !== "boolean"
-              ? resolvedSchema["options"].inline.a
+            ? resolvedSchema["options"]?.a &&
+              typeof resolvedSchema["options"]?.a !== "boolean"
+              ? resolvedSchema["options"].a
               : resolvedSchema
             : resolvedSchema;
       }
