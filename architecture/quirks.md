@@ -206,6 +206,16 @@ clip` creates no scroll port at all, so there is no offset to write to; that,
 and the panes being a `transform` rather than a scroll position, is what
 `PageWorkspace` relies on now.
 
+**cmdk hides a GROUP whose items do not match the search, and a separator while
+there is any search at all.** So an item that has to stay — "New page" in
+`RouteSelector`, "New entry" in `KeySelector` — needs more than its own
+`forceMount`: inside a group that cmdk has hidden it is still invisible, and the
+option is gone exactly when the editor has just established that the thing they
+are searching for does not exist. Put `forceMount` on the `CommandGroup` (it
+reaches the items through cmdk's context) and `alwaysRender` on the
+`CommandSeparator`. jsdom does not compute visibility, so a jest test clicks a
+hidden item quite happily; `e2e/keyof-create.spec.ts` is what caught it.
+
 ## Remote files and proxy mode
 
 **"Does this project use remote files" is `hasRemoteFileSchema` in
