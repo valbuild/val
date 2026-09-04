@@ -1,5 +1,5 @@
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { RoutePattern } from "@valbuild/shared/internal";
 import { Button } from "./designSystem/button";
 import { useSchemaAtPath, useShallowSourceAtPath } from "./ValFieldProvider";
@@ -57,18 +57,6 @@ export function DuplicateRecordPopover({
   const parentSource = useShallowSourceAtPath(parentPath, "record");
   const parentSchema = useSchemaAtPath(parentPath);
 
-  useEffect(() => {
-    const onKeyDown = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") {
-        setOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, []);
-
   const existingKeys = useMemo(() => {
     if ("data" in parentSource && parentSource.data) {
       return Object.keys(parentSource.data);
@@ -109,6 +97,16 @@ export function DuplicateRecordPopover({
         <TooltipTrigger asChild>
           <Button asChild size={size} variant={variant}>
             <PopoverTrigger
+              /*
+               * Named here, because the trigger is an icon and a Radix tooltip
+               * is `aria-describedby` — a description, not a name. Without this
+               * the button announces as "button" and nothing else.
+               */
+              aria-label={
+                routePattern
+                  ? `Duplicate page ${defaultValue}`
+                  : `Duplicate ${defaultValue}`
+              }
               onClick={() => {
                 setOpen(true);
               }}
