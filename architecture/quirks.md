@@ -30,6 +30,25 @@ paths; it moves _content between fixed paths_. Two consequences:
   permutation plus the patch's permutation cancel out, and the drag silently does
   nothing. Measured. `SortableList.tsx` carries the note.
 
+**A transformed ancestor moves the drag overlay, and moves the drop with it.**
+dnd-kit's `DragOverlay` — the card that follows the cursor — is `position:
+fixed` at the dragged row's client rect, and it renders inside the list rather
+than in a portal. A transformed ancestor is the containing block for every fixed
+descendant, so anything between the row and the viewport that carries a
+`transform` re-bases it. `translateX(0%)` counts: it moves nothing and still
+creates the containing block. The phone's preview put the two panes on such a
+track, and with the preview open the overlay's `top` was resolved against a box
+already pushed down by the strip of switches — the row floated 132px below the
+finger.
+
+The visible offset is the smaller half. dnd-kit collides the OVERLAY's measured
+rect against the rows to pick the drop, so the same 132px landed the row about
+three positions past where it was being aimed, which is how it was reported. If a
+drag is off by a constant, look for a `transform` above the list before looking
+at the sensors. `e2e/mobile-canvas.spec.ts` measures the gap between the finger
+and the overlay; use `isolation: isolate` where a stacking context is what the
+transform was really there for.
+
 ## Media
 
 The `/public` URL rule and the `appliedAt` gate — see [media.md](./media.md). The

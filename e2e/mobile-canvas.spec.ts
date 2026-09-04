@@ -340,3 +340,121 @@ test.describe("the preview modes on a phone", () => {
     expect(await wholeOnScreen()).toBe(true);
   });
 });
+
+/**
+ * Dragging a list row with the preview open, on a phone.
+ *
+ * dnd-kit's `DragOverlay` — the card that follows the finger — is
+ * `position: fixed`, placed at the dragged row's client rect. Fixed positioning
+ * resolves against the viewport only while no ancestor is transformed, and the
+ * phone's two panes ride on a track that was transformed even when it was
+ * standing still (`translateX(0%)` moves nothing and still creates a containing
+ * block). So with the preview open the overlay's `top` was measured against a
+ * box already pushed down by `PHONE_STRIP_CLEARANCE`: the card floated 132px
+ * below the finger.
+ *
+ * That number is not only cosmetic. dnd-kit collides the OVERLAY's rect against
+ * the rows to decide where the drop lands, so the same 132px moved the drop
+ * about three rows past where the row was being aimed — which is how this was
+ * reported. Measuring the gap between the finger and the overlay therefore pins
+ * both halves at once, and it is the half a screenshot cannot show.
+ */
+test.describe("dragging a list row on a phone", () => {
+  test.use({ hasTouch: true, isMobile: true });
+
+  /** How far the finger moves between samples, in px. */
+  const STEP = 12;
+
+  /** The drag overlay: the only `position: fixed` box holding a grip. */
+  async function overlayCenterY(page: Page): Promise<number | null> {
+    return page.evaluate(() => {
+      const root = document.getElementById("val-shadow-root")?.shadowRoot;
+      if (!root) return null;
+      const overlay = Array.from(root.querySelectorAll("div")).find(
+        (el) =>
+          getComputedStyle(el).position === "fixed" &&
+          el.querySelector("svg.lucide-grip-vertical") !== null,
+      );
+      if (!overlay) return null;
+      const rect = overlay.getBoundingClientRect();
+      return rect.top + rect.height / 2;
+    });
+  }
+
+  test("keeps the dragged row under the finger", async ({ page }) => {
+    await openPreview(page);
+    await mode(page, "Normal").click();
+
+    const grip = page
+      .locator("#val-shadow-root")
+      .locator("button:has(svg.lucide-grip-vertical)")
+      .first();
+    await expect(grip).toBeEnabled();
+    // The first list on this page is below the fold on a phone, and a drag has
+    // to start from somewhere the finger can reach.
+    await grip.scrollIntoViewIfNeeded();
+    await expect
+      .poll(async () => (await grip.boundingBox())?.y ?? -1)
+      .toBeGreaterThan(0);
+    const box = (await grip.boundingBox())!;
+
+    /*
+     * Real touch events, over CDP.
+     *
+     * Playwright's `touchscreen` taps and does not drag, and `mouse` never
+     * reaches dnd-kit's touch sensor — which is the one that matters here,
+     * since the mouse sensor is not what a phone uses.
+     */
+    const cdp = await page.context().newCDPSession(page);
+    const x = box.x + box.width / 2;
+    const startY = box.y + box.height / 2;
+    const touch = (type: "touchStart" | "touchMove" | "touchEnd", y: number) =>
+      cdp.send("Input.dispatchTouchEvent", {
+        type,
+        touchPoints: type === "touchEnd" ? [] : [{ x, y }],
+      });
+
+    await touch("touchStart", startY);
+    try {
+      /*
+       * The first move STARTS the drag rather than being part of it.
+       *
+       * dnd-kit's touch sensor activates on the first `touchmove`, and that is
+       * the event that mounts the overlay — at the row's own position, with
+       * nothing translated yet. So it is one step behind by construction and
+       * for that one event only: from the next move on the overlay is exactly
+       * where the finger is, and holding still does not change either number.
+       */
+      await touch("touchMove", startY + STEP);
+      for (let step = 2; step <= 8; step++) {
+        const y = startY + step * STEP;
+        await touch("touchMove", y);
+        /*
+         * Polled rather than read straight back: the overlay's position is a
+         * render, and the event was dispatched, not awaited to paint. A gap
+         * that is there because the overlay is anchored to the wrong box never
+         * closes, so the poll runs out and says so.
+         *
+         * One pixel of rounding, and nothing more. The bug was 132 of them, so
+         * a loose bound would catch it too — but any drift at all means the
+         * overlay is positioned against something other than the viewport,
+         * which is the mistake rather than its size.
+         */
+        await expect
+          .poll(
+            async () => {
+              const center = await overlayCenterY(page);
+              return center === null ? null : Math.abs(center - y);
+            },
+            {
+              message:
+                "the dragged row did not follow the finger — a transformed ancestor is the usual reason",
+            },
+          )
+          .toBeLessThanOrEqual(1);
+      }
+    } finally {
+      await touch("touchEnd", startY);
+    }
+  });
+});
