@@ -1,5 +1,50 @@
 # @valbuild/ui
 
+## 0.120.3
+
+### Patch Changes
+
+- [#596](https://github.com/valbuild/val/pull/596) [`9b96184`](https://github.com/valbuild/val/commit/9b96184cf6ad6d52a714867fb1527eeec6c776f4) Thanks [@freekh](https://github.com/freekh)! - The AI model picker opens again, and shows even with one model on offer.
+
+  Its menu was portalled to `document.body` — outside the shadow root the Studio
+  renders in, where none of Val's styles reach it and nothing lifts it above the
+  overlay. The menu did open; it was invisible behind the Studio, which reads as a
+  trigger that does nothing. It now portals into the Studio's own container, like
+  every other popup there.
+
+  The picker also used to hide itself unless there were at least two models, so an
+  account with one reachable model had nothing telling it which model was
+  answering. It now renders whenever there is a model at all, and only disappears
+  when there are none — which means AI is off, not that there is no choice.
+
+  `DropdownMenuContent` now renders inline instead of portalling when it is given
+  no container — the posture `TooltipContent` already took — so this cannot
+  silently happen again: a clipped menu can be recovered from, an invisible one
+  cannot.
+
+- [#600](https://github.com/valbuild/val/pull/600) [`1a2484a`](https://github.com/valbuild/val/commit/1a2484a309679bd5e963d626466c2828f74d49f8) Thanks [@freekh](https://github.com/freekh)! - Fix dragging a list row on a phone, which picked the row up well below the
+  finger and dropped it about three rows too far down.
+
+  The card that follows your finger is positioned against the viewport, and on a
+  phone the editor and the page ride on a track that was transformed even while it
+  was standing still. A transformed box becomes the reference point for everything
+  positioned that way inside it, so with the preview open the card was placed
+  against a box already pushed down by the strip of switches — 132px of it. The
+  same offset decided where the row landed, which is why the drop missed by
+  roughly three positions.
+
+  The track is now only transformed while it is actually moving between the
+  editor and the page.
+
+  Drag handles also declare `touch-action: none`, as dnd-kit asks them to. Without
+  it a phone can decide mid-drag that your finger meant to scroll, and from that
+  moment the drag and the list move at the same time. The rule had been written as
+  an HTML attribute rather than as CSS, so it had never taken effect.
+
+- [#601](https://github.com/valbuild/val/pull/601) [`71becc7`](https://github.com/valbuild/val/commit/71becc7e543432e4a57e36d54aaf803e9a447ffd) Thanks [@freekh](https://github.com/freekh)! - Fix the page going unclickable behind a stale selection box in the overlay's select mode.
+
+  In select mode the overlay draws a box over whatever Val content the pointer is on, and that box is what turns a click into "edit this" — it sits above the page and stops the event. The box was only ever written when the pointer found tagged content, never cleared when it left, so it stayed parked over the last thing the pointer crossed. Everything under that rectangle stopped responding for as long as select mode was on: most visibly, a link there could not be followed.
+
 ## 0.120.0
 
 ### Minor Changes
