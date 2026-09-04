@@ -7,6 +7,7 @@ export { StatusBar } from "./StatusBar";
 export {
   DeploymentsStatus,
   DeploymentsList,
+  MobileDeployments,
   DeploymentRows,
   summarizeDeployments,
 } from "./Deployments";

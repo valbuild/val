@@ -53,7 +53,7 @@ import { PagesPanel } from "./PagesPanel";
 import { SettingsPanel } from "./SettingsPanel";
 import { ShellAccountError } from "./AccountError";
 import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
-import { isDeploymentNews } from "./Deployments";
+import { isDeploymentNews, MobileDeployments } from "./Deployments";
 import { PublishState, TopBar } from "./TopBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { availableDestinations } from "./shellDataMapping";
@@ -851,32 +851,50 @@ export function Shell({
       />
 
       {breakpoint === "mobile" ? (
-        <MobileBottomBar
-          pendingChanges={pendingChanges}
-          onPreview={onPreview ?? (() => undefined)}
-          previewHref={previewHref}
-          onToggleCanvas={canCanvas ? togglePreview : undefined}
-          isCanvasOpen={isCanvasOpen}
-          /*
-           * What the button does NEXT, said plainly, because on a phone it is
-           * three different acts depending on where you are — see
-           * `togglePreview`. A control that swaps has to say which way.
-           */
-          canvasActionLabel={
-            !isCanvasOpen
-              ? "Open the canvas"
-              : workspacePane === "canvas"
-                ? "Back to the editor"
-                : "Back to the preview"
-          }
-          // The main half no longer closes the canvas on a phone, so the way
-          // out has to be somewhere the menu can offer it too.
-          onExitCanvas={isCanvasOpen ? closeCanvas : undefined}
-          onPublish={onPublish ?? (() => undefined)}
-          publishSlot={publishSlot}
-          onOpenStatus={() => setOpenPanel("settings")}
-          onOpenQuickActions={() => setOpenPanel("utility")}
-        />
+        <>
+          {/*
+           * The phone's answer to "did that publish go out?". The bottom bar
+           * takes the row the status bar would have had, so the list is
+           * anchored above it and behaves as the announcement it is - see
+           * `MobileDeployments`. Same `mode === "http"` gate as the status
+           * bar: there is nothing to deploy to in dev.
+           */}
+          {mode === "http" && deployments !== undefined && (
+            <MobileDeployments
+              deployments={deployments}
+              open={deploymentsOpen}
+              onOpenChange={setDeploymentsOpenByUser}
+              onDismiss={dismissDeployment}
+              autoClose={deploymentsAutoOpened}
+            />
+          )}
+          <MobileBottomBar
+            pendingChanges={pendingChanges}
+            onPreview={onPreview ?? (() => undefined)}
+            previewHref={previewHref}
+            onToggleCanvas={canCanvas ? togglePreview : undefined}
+            isCanvasOpen={isCanvasOpen}
+            /*
+             * What the button does NEXT, said plainly, because on a phone it is
+             * three different acts depending on where you are — see
+             * `togglePreview`. A control that swaps has to say which way.
+             */
+            canvasActionLabel={
+              !isCanvasOpen
+                ? "Open the canvas"
+                : workspacePane === "canvas"
+                  ? "Back to the editor"
+                  : "Back to the preview"
+            }
+            // The main half no longer closes the canvas on a phone, so the way
+            // out has to be somewhere the menu can offer it too.
+            onExitCanvas={isCanvasOpen ? closeCanvas : undefined}
+            onPublish={onPublish ?? (() => undefined)}
+            publishSlot={publishSlot}
+            onOpenStatus={() => setOpenPanel("settings")}
+            onOpenQuickActions={() => setOpenPanel("utility")}
+          />
+        </>
       ) : (
         <StatusBar
           breakpoint={breakpoint}
