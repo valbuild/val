@@ -1,5 +1,12 @@
 # @valbuild/server
 
+## 0.120.4
+
+### Patch Changes
+
+- Updated dependencies [[`6df3cae`](https://github.com/valbuild/val/commit/6df3caec1cc043a07b532d3174583b8218d4871d)]:
+  - @valbuild/ui@0.120.4
+
 ## 0.120.3
 
 ### Patch Changes
