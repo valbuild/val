@@ -31,6 +31,7 @@ import {
   PopoverTrigger,
 } from "./designSystem/popover";
 import { cn } from "./designSystem/cn";
+import { DRAG_HANDLE_TOUCH, SORTABLE_ROW_TOUCH } from "./dragHandle";
 
 export function SortableContainer({
   source,
@@ -253,13 +254,17 @@ export function SortableItemRow({
   const centerGripAndDeleteIcons = !(validationErrors[path]?.length > 0);
   return (
     <div
-      touch-action="manipulation"
       ref={setNodeRef}
       style={style}
-      className={cn("relative flex disabled:opacity-55 flex-1", {
-        "items-start": !centerGripAndDeleteIcons,
-        "items-center": centerGripAndDeleteIcons,
-      })}
+      className={cn(
+        "relative flex disabled:opacity-55 flex-1",
+        // See `SORTABLE_ROW_TOUCH`.
+        SORTABLE_ROW_TOUCH,
+        {
+          "items-start": !centerGripAndDeleteIcons,
+          "items-center": centerGripAndDeleteIcons,
+        },
+      )}
     >
       <button
         {...attributes}
@@ -270,6 +275,8 @@ export function SortableItemRow({
           // `tabIndex=0` — so it needs the same focus ring as every other
           // control, not the browser default.
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+          // See `DRAG_HANDLE_TOUCH`.
+          DRAG_HANDLE_TOUCH,
           {
             "opacity-30": disabled,
             "mt-2.5": !centerGripAndDeleteIcons,
