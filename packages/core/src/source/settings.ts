@@ -1,0 +1,59 @@
+/**
+ * The source of the project's settings module — `s.settings()`.
+ *
+ * **Every key is optional, at every level, and that is the whole point.** A
+ * settings module is written as
+ *
+ * ```typescript
+ * export default c.define("/settings.val.ts", s.settings(), {});
+ * ```
+ *
+ * and `{}` has to keep validating as sections are added to it. A project that
+ * never touched the AI settings should not have to edit its settings file the
+ * day `locales` or `permissions` land.
+ *
+ * That is why settings is not sugar over `s.object()`: an object schema errors
+ * with `Expected key 'ai' not found in object` for any absent key (see
+ * `ObjectSchema.executeAssert`), and `.nullable()` permits `null`, not absence.
+ * `SettingsSchema` gives absent keys the meaning "unset" instead.
+ *
+ * `null` means unset too, so the editor can clear a field it has already
+ * written without removing the key.
+ */
+export type SettingsSource = {
+  ai?: AiSettingsSource;
+};
+
+/**
+ * What the AI assistant is told about this project, on every message.
+ *
+ * Both fields are prose the model reads, not instructions Val interprets, and
+ * both are capped (see {@link AI_SETTINGS_MAX_LENGTH}): they are prepended to
+ * every request the chat makes, so an unbounded field here is an unbounded cost
+ * on every turn.
+ */
+export type AiSettingsSource = {
+  /**
+   * Background the model would otherwise have to guess: what this site is, who
+   * runs it, what the product does, names and spellings that matter.
+   */
+  context?: string | null;
+  /**
+   * How the model should write when it writes content — formal or playful,
+   * British or American, sentence case in headings, no exclamation marks.
+   *
+   * Named `tone` rather than `toneOfVoice` so it reads as one hint among
+   * several inside `ai`, leaving room for siblings (`audience`, `glossary`)
+   * rather than a field that looks like it should absorb them.
+   */
+  tone?: string | null;
+};
+
+/**
+ * The cap on each AI settings field, in characters.
+ *
+ * Roughly a thousand tokens each. Generous enough for a paragraph of
+ * background and a house style, small enough that the two of them together do
+ * not dominate the system prompt they are appended to.
+ */
+export const AI_SETTINGS_MAX_LENGTH = 4000;

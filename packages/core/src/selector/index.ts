@@ -12,6 +12,7 @@ import { MediaSource } from "../source/media";
 import { AllRichTextOptions, RichTextSource } from "../source/richtext";
 import { RichTextSelector } from "./richtext";
 import { JsonSource } from "../source/json";
+import { SettingsSource } from "../source/settings";
 
 export type Selector<T extends Source> = Source extends T
   ? GenericSelector<T>
@@ -29,7 +30,18 @@ export type Selector<T extends Source> = Source extends T
           ? ObjectSelector<T>
           : T extends SourceArray
             ? ArraySelector<T>
-            : T extends string
+            : // Settings, like media, is an object whose keys are OPTIONAL, so
+              // it never matched `SourceObject` and fell through to `never`.
+              //
+              // The arm has to sit BELOW `SourceObject`: every object type that
+              // does not conflict on `ai` structurally satisfies `SettingsSource`,
+              // so an arm above would swallow ordinary objects. A
+              // `GenericSelector` rather than an `ObjectSelector` because a
+              // settings module is read by the Studio and the assistant, not
+              // traversed with selectors.
+              T extends SettingsSource
+              ? GenericSelector<T>
+              : T extends string
               ? StringSelector<T>
               : T extends number
                 ? NumberSelector<T>
@@ -48,6 +60,7 @@ export type SelectorSource =
     }
   | MediaSource
   | JsonSource
+  | SettingsSource
   | RichTextSource<AllRichTextOptions>
   | GenericSelector<Source>;
 

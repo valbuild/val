@@ -142,6 +142,18 @@ export { type SerializedBooleanSchema, BooleanSchema } from "./schema/boolean";
 export { type SerializedImageSchema, ImageSchema } from "./schema/image";
 export { type SerializedFileSchema, FileSchema } from "./schema/file";
 export { type SerializedDateSchema, DateSchema } from "./schema/date";
+export { type SerializedSettingsSchema, SettingsSchema } from "./schema/settings";
+export {
+  type SettingsSource,
+  type AiSettingsSource,
+  AI_SETTINGS_MAX_LENGTH,
+} from "./source/settings";
+export {
+  type ResolvedSettingsModule,
+  SETTINGS_MODULE_CONVENTION,
+  isRootModuleFilePath,
+  resolveSettingsModule,
+} from "./settingsModule";
 export {
   type SerializedColorSchema,
   type ColorOptions,
