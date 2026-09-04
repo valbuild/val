@@ -7,6 +7,7 @@ import {
   useCommittedPatches,
   usePendingClientSidePatchIds,
   useHasNetChanges,
+  useHeldPatchIds,
   usePendingServerSidePatchIds,
   usePublishSummary,
   useValMode,
@@ -107,6 +108,7 @@ export function PublishButton({
   );
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
   const hasNetChanges = useHasNetChanges();
+  const heldChangeIds = useHeldPatchIds();
   const mode = useValMode();
   const portalContainer = useValPortal();
   const { autoPublish } = useAutoPublish();
@@ -122,6 +124,7 @@ export function PublishButton({
     pendingServerSidePatchCount: pendingServerSidePatchIds.length,
     pendingClientSidePatchCount: pendingClientSidePatchIds.length,
     netChangesEmpty: !hasNetChanges,
+    heldChangeCount: heldChangeIds.size,
   });
   const saving = mode === "fs";
   /*

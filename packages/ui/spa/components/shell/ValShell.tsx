@@ -68,6 +68,7 @@ import {
   useCurrentPatchIds,
   useDeletePatches,
   useHasNetChanges,
+  useOwnPendingChangeCount,
   useInitialPatchesApplied,
   usePatchFetchError,
   usePendingChangesProgress,
@@ -187,6 +188,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const currentPatchIds = useCurrentPatchIds();
   const committedPatchIds = useCommittedPatches();
   const patchSets = usePatchSets();
+  const ownPendingChanges = useOwnPendingChangeCount();
   usePatchGroupWrites(patchSets);
   usePatchGroupScope(patchSets);
   const profilesByAuthorIds = useProfilesByAuthorId();
@@ -899,11 +901,22 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       onAutoSaveChange={setAutoPublish}
       pendingChanges={data.pendingChanges ?? 0}
       /*
-       * Zeroed when the pending patches cancel out, so Review does not put a
-       * number on changes that will not ship. The button itself stays: that
-       * view is where Discard is, and Publish is disabled until it is used.
+       * THIS user's own pending changes, not the chain's.
+       *
+       * The badge sits beside Publish and is read as "how much is waiting for
+       * me", so it counts the scoped set. On a shared branch the chain also
+       * holds other people's pending work, which this client can neither
+       * publish nor discard — putting that on the badge asks the reader to go
+       * and do something about somebody else's edit. Unscoped (`fs`, or a
+       * content API without groups) this is the whole chain, which is the same
+       * number as before and still the right one: there is one author there.
+       *
+       * Still zeroed when the pending patches cancel out, so Review does not
+       * put a number on changes that will not ship. The button itself stays:
+       * that view is where Discard is, and where a held change is staged again,
+       * and Publish is disabled until one of those happens.
        */
-      reviewCount={hasNetChanges ? (data.pendingChanges ?? 0) : 0}
+      reviewCount={hasNetChanges ? ownPendingChanges : 0}
       /*
        * Offered only once the metadata behind the confirm has arrived.
        *

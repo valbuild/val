@@ -612,6 +612,7 @@ export function createSystem(options: SystemOptions): System {
     // Same call for both halves, for the reason `setPatchGroup` documents: what
     // is visible and what will ship must not come apart.
     sourceStore.setVisiblePatchIds(patchGroupIds);
+    patchStore.notifyGroupsChanged();
   }
   /** One whole-project validation at a time. See `validateEverything`. */
   let fullValidationRunning = false;
@@ -1397,12 +1398,17 @@ export function createSystem(options: SystemOptions): System {
       }
       patchGroupIds = [...next];
       sourceStore.setVisiblePatchIds(patchGroupIds);
+      patchStore.notifyGroupsChanged();
     },
     setPatchGroup(ids) {
       patchGroupIds = ids === null ? null : [...ids];
       // Source is scoped in the same call, so "what I can see" and "what I will
       // publish" cannot come apart.
       sourceStore.setVisiblePatchIds(patchGroupIds);
+      // And anything counting the scope is woken, which `setVisiblePatchIds`
+      // alone does not do: it bumps only the modules whose visible set moved,
+      // so a scope change that shows nothing new tells no one.
+      patchStore.notifyGroupsChanged();
     },
     patchGroup() {
       return patchGroupIds;

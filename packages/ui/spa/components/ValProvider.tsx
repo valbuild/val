@@ -1721,6 +1721,70 @@ export function useCurrentPatchIds(): PatchId[] {
   }, [val, chainVersion]);
 }
 
+/**
+ * Pending patches this client is holding BACK, because they are outside its
+ * patch group.
+ *
+ * Not the same question as "is anything pending" or "does anything change".
+ * A held patch is not applied, so the scoped source equals base and every
+ * comparison against base reads it as an undone edit — which is why anything
+ * that wants to tell those two apart has to ask this instead.
+ *
+ * Empty wherever there is no scope: `fs` mode and any content API without
+ * groups hold nothing back.
+ */
+export function useHeldPatchIds(): ReadonlySet<PatchId> {
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  const groupsVersion = useGroupsVersion();
+  return useMemo(() => {
+    if (val === null) return new Set<PatchId>();
+    void chainVersion;
+    void groupsVersion;
+    return val.system.patchStore.heldPatchIds();
+  }, [val, chainVersion, groupsVersion]);
+}
+
+/**
+ * How many pending changes are THIS user's own — what Publish would ship.
+ *
+ * Review's badge sits beside Publish and is read as "how much is waiting for
+ * me", so it counts the scoped set rather than the chain. On a shared branch
+ * the chain also holds other people's pending work, which this client can
+ * neither publish nor discard, and putting that on the badge asks the reader to
+ * go and do something about somebody else's edit.
+ *
+ * Unscoped — `fs` mode, or a content API without patch groups — is the whole
+ * chain, which is the same number as before and still the right one: there is
+ * only one author there.
+ *
+ * Committed patches are subtracted in both branches. A published patch stays in
+ * the chain in `http` mode until the new commit comes back, and counting it
+ * would have Review offer work that is already in a commit.
+ */
+export function useOwnPendingChangeCount(): number {
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  // The scope moves without the chain moving — a stage touches no patch — so
+  // both versions are dependencies. See `PatchStore.notifyGroupsChanged`.
+  const groupsVersion = useGroupsVersion();
+  const committed = useCommittedPatches();
+  return useMemo(() => {
+    if (val === null) return 0;
+    void chainVersion;
+    void groupsVersion;
+    const scope = val.system.patchGroup();
+    const inScope = scope === null ? null : new Set(scope);
+    let count = 0;
+    for (const record of val.system.patchStore.allRecords()) {
+      if (committed.has(record.patchId)) continue;
+      if (inScope !== null && !inScope.has(record.patchId)) continue;
+      count++;
+    }
+    return count;
+  }, [val, chainVersion, groupsVersion, committed]);
+}
+
 export type PendingPatch = {
   moduleFilePath: ModuleFilePath;
   patch: Patch;

@@ -1341,6 +1341,20 @@ export class PatchStore {
     return this.heldIds;
   }
 
+  /**
+   * Something about groups that this store does not hold has changed.
+   *
+   * The local SCOPE — which patches this client is showing and will publish —
+   * lives in `createSystem`, deliberately: two stores need the same answer and
+   * neither owns it. But it is group state, and a reader watching
+   * `patch:groups` for "has anything about groups moved" has to be woken by it
+   * too, or a stage moves the scope and every count derived from it stays
+   * where it was.
+   */
+  notifyGroupsChanged(): void {
+    this.bumpGroups();
+  }
+
   /** Changes whenever the groups do. See the `patch:groups` event. */
   groupsVersion(): number {
     return this.groupsVersionCounter;
