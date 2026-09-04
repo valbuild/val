@@ -4,7 +4,7 @@ import { boundUnstageClosure } from "./ValServer";
 /**
  * The client computes the forward closure of a discard; this server bounds it.
  *
- * It has to. `alsoUnstagePatchIds` was forwarded verbatim, and the content API
+ * It has to. `unstagePatchIds` was forwarded verbatim, and the content API
  * removes those memberships from EVERY group with no ownership check — so any
  * logged-in editor could strip arbitrary patches out of any other author's
  * group by attaching them to a delete of one of their own throwaway patches.

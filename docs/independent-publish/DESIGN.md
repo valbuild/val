@@ -34,9 +34,10 @@ independently stay safe.
   this branch, creating it if absent". The client must not hold an id across
   publishes — a publish closes the group and a write into a closed one is
   refused.
-- `alsoAddPatchIds` is the **closure**: other patches that must join the group
-  for the prefix invariant to hold. Computed on the client, which is the only
-  side with the schema. The server set-unions it and does not second-guess it.
+- `withPatchIds` is **what has to come with the patch**: the others that must
+  join the group for the prefix invariant to hold. Computed on the client, which
+  is the only side with the schema. The server set-unions it and does not
+  second-guess it.
 - Every refusal runs before the insert, so an invalid closure is a 400 with
   nothing written. A patch outside its author's group is one they cannot
   publish.
@@ -146,12 +147,17 @@ The content API has no schema, so it cannot derive patch sets — every closure 
 the client's to send, and each one is a field the two sides have to agree on.
 Getting any of them wrong is invisible from either repo alone.
 
-- **`alsoAddPatchIds`** on `PUT /patches` — the prefix closure of a write.
-- **`explicitPatchIds`** on stage — which of those the user actually clicked.
-  Membership is stored as `explicit` or `dependency` and anything unnamed reads
-  as a dependency, so omitting it files the patch someone chose as one the
-  closure dragged in.
-- **`alsoUnstagePatchIds`** on `DELETE /patches` — the forward closure of a
+Each of them arrives split in two: `patchIds` is what the user asked for and
+`withPatchIds` is what had to come with it. Both halves are applied, so the split
+costs nothing to get wrong in one direction — but membership is stored as
+`explicit` or `dependency` and what is not in `patchIds` reads as a dependency,
+so folding the two together files the patch someone chose as one the closure
+dragged in.
+
+- **`withPatchIds`** on `PUT /patches` — the prefix closure of a write.
+- **`patchIds` + `withPatchIds`** on stage — the click, and the prefix closure
+  behind it.
+- **`unstagePatchIds`** on `DELETE /patches` — the forward closure of a
   discard. Deleting a patch out of the middle of a patch set leaves every group
   still holding the rest with a non-prefix intersection; those memberships are
   dropped without the patches being deleted. Computed against the whole chain,
@@ -208,9 +214,10 @@ engages.
    patch sets still interact? (Patch sets are defined as "can shift each other's
    paths"; the safety argument rests entirely on that definition being complete.)
 2. The closure is computed client-side and trusted server-side. A buggy or old
-   client can write an under-closed group. `closureVersion` is stored per
-   membership row so such rows are identifiable and recomputable — but nothing
-   currently recomputes them.
+   client can write an under-closed group. Membership rows are stamped with the
+   `coreVersion` that wrote them — the same stamp the patch row carries — so
+   such rows are identifiable and recomputable, but nothing currently recomputes
+   them.
 3. A coalesced hole is left for the user rather than repaired, so a group can
    sit un-publishable until they act. That is deliberate — see "keeping the
    invariant" — but it means a third party's insert can block your publish, and

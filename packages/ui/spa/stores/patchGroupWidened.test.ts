@@ -65,8 +65,7 @@ test("a closure that moves nothing says nothing", async () => {
   const { system, widened } = makeSystem();
   system.setPatchGroup([]);
   system.setPatchGroupResolver(async () => ({
-    alsoAddPatchIds: [],
-    closureVersion: 1,
+    withPatchIds: [],
   }));
 
   await edit(system, "mine");
@@ -80,8 +79,7 @@ test("a closure that pulls another patch in announces exactly that patch", async
   const { system, widened } = makeSystem();
   system.setPatchGroup([]);
   system.setPatchGroupResolver(async () => ({
-    alsoAddPatchIds: ["theirs" as PatchId],
-    closureVersion: 1,
+    withPatchIds: ["theirs" as PatchId],
   }));
 
   await edit(system, "mine");
@@ -101,8 +99,7 @@ test("the user's own write is not announced back to them", async () => {
    * the user their own keystroke was somebody else's change.
    */
   system.setPatchGroupResolver(async (patchIds) => ({
-    alsoAddPatchIds: [...patchIds],
-    closureVersion: 1,
+    withPatchIds: [...patchIds],
   }));
 
   await edit(system, "mine");
@@ -114,8 +111,7 @@ test("the studio still reads normally around it", async () => {
   const { system } = makeSystem();
   system.setPatchGroup([]);
   system.setPatchGroupResolver(async () => ({
-    alsoAddPatchIds: ["theirs" as PatchId],
-    closureVersion: 1,
+    withPatchIds: ["theirs" as PatchId],
   }));
   await edit(system, "mine");
   expect(system.sourceStore.peek(TITLE)).toMatchObject({

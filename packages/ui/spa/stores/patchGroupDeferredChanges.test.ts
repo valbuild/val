@@ -37,8 +37,7 @@ type Sent = {
   patchGroupId: string;
   type: "stage" | "unstage";
   patchIds: PatchId[];
-  explicitPatchIds?: PatchId[];
-  closureVersion: number;
+  withPatchIds: PatchId[];
 };
 
 function makeSystem(options?: { stageFails?: boolean }) {
@@ -60,25 +59,14 @@ function makeSystem(options?: { stageFails?: boolean }) {
       parentRef,
     }),
     publishPatches: async () => ({ status: "published" }),
-    stagePatches: async ({
-      patchGroupId,
-      patchIds,
-      explicitPatchIds,
-      closureVersion,
-    }) => {
-      sent.push({
-        patchGroupId,
-        type: "stage",
-        patchIds,
-        ...(explicitPatchIds !== undefined ? { explicitPatchIds } : {}),
-        closureVersion,
-      });
+    stagePatches: async ({ patchGroupId, patchIds, withPatchIds }) => {
+      sent.push({ patchGroupId, type: "stage", patchIds, withPatchIds });
       return options?.stageFails
         ? { status: "error", message: "nope" }
         : { status: "ok" };
     },
-    unstagePatches: async ({ patchGroupId, patchIds, closureVersion }) => {
-      sent.push({ patchGroupId, type: "unstage", patchIds, closureVersion });
+    unstagePatches: async ({ patchGroupId, patchIds, withPatchIds }) => {
+      sent.push({ patchGroupId, type: "unstage", patchIds, withPatchIds });
       return { status: "ok" };
     },
   });
@@ -90,21 +78,24 @@ function makeSystem(options?: { stageFails?: boolean }) {
 /** Let the fire-and-forget sends settle. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-/** `explicit` defaults to all of them — the plain "the user clicked this" case. */
+/**
+ * Nothing came with it by default — the plain "the user clicked this" case.
+ */
 const stage = (
   patchIds: PatchId[],
-  explicitPatchIds: PatchId[] = patchIds,
+  withPatchIds: PatchId[] = [],
 ): PatchGroupChangeRequest => ({
   type: "stage",
   patchIds,
-  explicitPatchIds,
-  closureVersion: 1,
+  withPatchIds,
 });
-const unstage = (patchIds: PatchId[]): PatchGroupChangeRequest => ({
+const unstage = (
+  patchIds: PatchId[],
+  withPatchIds: PatchId[] = [],
+): PatchGroupChangeRequest => ({
   type: "unstage",
   patchIds,
-  explicitPatchIds: patchIds,
-  closureVersion: 1,
+  withPatchIds,
 });
 
 test("a change with a group id goes straight out", async () => {
@@ -118,42 +109,48 @@ test("a change with a group id goes straight out", async () => {
       patchGroupId: "g1",
       type: "stage",
       patchIds: ["a"],
-      explicitPatchIds: ["a"],
-      closureVersion: 1,
+      withPatchIds: [],
     },
   ]);
 });
 
-test("a stage tells the server which ids the user actually asked for", async () => {
+test("a stage keeps what the user asked for apart from what came with it", async () => {
   const { system, sent } = makeSystem();
 
   /*
-   * `theirs` came along because the closure pulled it in; `a` is the click.
-   * The content API records each membership row as `explicit` or
-   * `dependency` and reads anything unnamed as a dependency, so without this
-   * the patch someone chose is filed as one they never asked for — and that row
-   * is the only record of the difference.
+   * `a` is the click; `theirs` came along because the closure pulled it in.
+   * The content API records each membership row as `explicit` or `dependency`
+   * and reads what it is not told about as a dependency, so folding the two
+   * into one list files the patch someone chose as one they never asked for —
+   * and that row is the only record of the difference.
    */
   system.persistPatchGroupChange(
     "g1",
-    stage(["theirs" as PatchId, "a" as PatchId], ["a" as PatchId]),
+    stage(["a" as PatchId], ["theirs" as PatchId]),
   );
   await settle();
 
   expect(sent[0]).toMatchObject({
-    patchIds: ["theirs", "a"],
-    explicitPatchIds: ["a"],
+    patchIds: ["a"],
+    withPatchIds: ["theirs"],
   });
 });
 
-test("an unstage does not claim an explicit subset", async () => {
+test("an unstage carries the same split, and both halves go", async () => {
   const { system, sent } = makeSystem();
-  // It names exactly what it removes, and the content API's DELETE has no use
-  // for the distinction.
-  system.persistPatchGroupChange("g1", unstage(["a" as PatchId]));
+  // Both are removed identically, but the request still says which is which —
+  // and dropping `withPatchIds` would leave the group holding the later half of
+  // a patch set without the earlier half.
+  system.persistPatchGroupChange(
+    "g1",
+    unstage(["a" as PatchId], ["later" as PatchId]),
+  );
   await settle();
 
-  expect(sent[0].explicitPatchIds).toBe(undefined);
+  expect(sent[0]).toMatchObject({
+    patchIds: ["a"],
+    withPatchIds: ["later"],
+  });
 });
 
 test("a change with no group id is held, then sent when one appears", async () => {
@@ -175,7 +172,7 @@ test("a change with no group id is held, then sent when one appears", async () =
       patchGroupId: "g1",
       type: "unstage",
       patchIds: ["a"],
-      closureVersion: 1,
+      withPatchIds: [],
     },
   ]);
 });

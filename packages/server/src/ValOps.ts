@@ -2237,14 +2237,15 @@ export type GenericErrorMessage = {
 /**
  * The patch group a newly created patch joins.
  *
- * `alsoAddPatchIds` is the CLOSURE the client computed — the patches that share
+ * `withPatchIds` is the CLOSURE the client computed — the patches that share
  * a patch set with this one and must move with it. It is not derived here and
  * must not be: the closure needs the content schema, and the service that
  * stores groups does not have it. One implementation of that rule, on the side
  * that can actually compute it.
  *
- * `closureVersion` is stored per membership row, so a bad client rollout stays
- * identifiable and recomputable after the fact.
+ * Membership rows are stamped with `coreVersion` on the content side, the same
+ * stamp the patch row itself carries, so which client wrote a row stays legible
+ * after the fact.
  */
 export type PatchGroupMembership = {
   /**
@@ -2253,8 +2254,7 @@ export type PatchGroupMembership = {
    * published group is refused and the stale id would lose the write.
    */
   patchGroupId?: string;
-  alsoAddPatchIds: PatchId[];
-  closureVersion: number;
+  withPatchIds: PatchId[];
 };
 
 export type SaveSourceFilePatchResult = result.Result<

@@ -111,7 +111,7 @@ export type DiscardPatches = (
    * they mean opposite things: the first list is deleted, the second is kept
    * and merely unstaged.
    */
-  alsoUnstagePatchIds?: PatchId[],
+  unstagePatchIds?: PatchId[],
 ) => Promise<
   | { status: "discarded"; patchIds: PatchId[] }
   | { status: "error"; message: string }

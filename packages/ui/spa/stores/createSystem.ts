@@ -269,7 +269,7 @@ export type System = HostRealm &
      * The forward closure of a DISCARD: which other patches must lose their
      * group membership because these are being deleted.
      *
-     * See the implementation. Sent to the content API as `alsoUnstagePatchIds`
+     * See the implementation. Sent to the content API as `unstagePatchIds`
      * — the name is the content API's, kept identical here so there is one
      * thing to grep for across both repos.
      */
@@ -378,20 +378,19 @@ export type System = HostRealm &
  */
 export type StagePatches = (request: {
   patchGroupId: string;
+  /** What the user asked for. */
   patchIds: PatchId[];
   /**
-   * Which of `patchIds` the user actually asked for.
+   * What has to come with it, because the patches asked for are written on top
+   * of it.
    *
-   * The content API stores membership as `explicit` or `dependency`, and
-   * without this every row lands as `dependency` — including the patch someone
-   * clicked. That is not a cosmetic label: it is the only record of what the
-   * author chose as opposed to what the closure dragged along, and anything
-   * later reasoning about intent would read it backwards.
-   *
-   * Only meaningful on stage; unstage names what it removes.
+   * The content API stores each membership row as `explicit` or `dependency`
+   * and treats what it is not told about as `dependency`. Folding the two
+   * halves into one list therefore files the patch somebody clicked as one the
+   * closure dragged in — the only record anywhere of what the author chose, and
+   * read backwards.
    */
-  explicitPatchIds?: PatchId[];
-  closureVersion: number;
+  withPatchIds: PatchId[];
 }) => Promise<{ status: "ok" } | { status: "error"; message: string }>;
 
 /**
@@ -411,11 +410,10 @@ const MAX_DEFERRED_GROUP_CHANGES = 100;
 
 export type PatchGroupChangeRequest = {
   type: "stage" | "unstage";
-  /** What the user asked for AND what the closure moved along with it. */
+  /** What the user asked for. */
   patchIds: PatchId[];
-  /** The subset of `patchIds` the user asked for. See {@link StagePatches}. */
-  explicitPatchIds: PatchId[];
-  closureVersion: number;
+  /** What has to move with it. See {@link StagePatches}. */
+  withPatchIds: PatchId[];
 };
 
 export type SystemOptions = {
@@ -831,12 +829,7 @@ export function createSystem(options: SystemOptions): System {
     const res = await call({
       patchGroupId,
       patchIds: change.patchIds,
-      // Only on stage. An unstage names exactly what it removes, and the
-      // content API's DELETE has no use for the distinction.
-      ...(change.type === "stage"
-        ? { explicitPatchIds: change.explicitPatchIds }
-        : {}),
-      closureVersion: change.closureVersion,
+      withPatchIds: change.withPatchIds,
     });
     if (res.status === "error") {
       /*
@@ -862,7 +855,7 @@ export function createSystem(options: SystemOptions): System {
    *   group unconditionally, so a scope that did not grow with it would hide
    *   the author's own typing behind their own filter;
    * - it is in the CLOSURE of something this client wrote. The write path sends
-   *   `alsoAddPatchIds` and the server unions them in, so those patches are in
+   *   `withPatchIds` and the server unions them in, so those patches are in
    *   the group on the server whether or not this client is showing them — and
    *   not showing them is the exact failure this feature exists to prevent:
    *   publishing a set the editor was never shown.
@@ -970,7 +963,7 @@ export function createSystem(options: SystemOptions): System {
    * `PatchSync.listenTo` flushes synchronously on `patch:create`, so a resolver
    * reading the last-rendered patch sets sees an index that does not contain
    * the patch being saved — it is in no set, `stageClosure` has nothing to pull
-   * in for it, and `alsoAddPatchIds` comes out empty in the NORMAL case, not a
+   * in for it, and `withPatchIds` comes out empty in the NORMAL case, not a
    * corner one. That is precisely the hole `DESIGN.md` says a write cannot
    * open, and with automatic repair removed it now surfaces only as a publish
    * refusal naming raw patch ids.
@@ -1732,7 +1725,7 @@ export function createSystem(options: SystemOptions): System {
       patchSync.setPatchGroupResolver(async (patchIds) => {
         const membership = await resolver(patchIds);
         if (membership !== undefined) {
-          extendPatchGroup([...patchIds, ...membership.alsoAddPatchIds]);
+          extendPatchGroup([...patchIds, ...membership.withPatchIds]);
           /*
            * And SAY SO, when the closure brought somebody else's work along.
            *
@@ -1742,10 +1735,10 @@ export function createSystem(options: SystemOptions): System {
            * changing on the Review button.
            *
            * Announced only when the closure moved something. `patchIds` is the
-           * user's own write and is not news; an empty `alsoAddPatchIds`, which
+           * user's own write and is not news; an empty `withPatchIds`, which
            * is the common case, says nothing at all.
            */
-          const widenedBy = membership.alsoAddPatchIds.filter(
+          const widenedBy = membership.withPatchIds.filter(
             (patchId) => !patchIds.includes(patchId),
           );
           if (widenedBy.length > 0) {
@@ -1777,7 +1770,9 @@ export function createSystem(options: SystemOptions): System {
       return options.unstagePatches(request);
     },
     persistPatchGroupChange(patchGroupId, change) {
-      if (change.patchIds.length === 0) return;
+      if (change.patchIds.length === 0 && change.withPatchIds.length === 0) {
+        return;
+      }
       if (patchGroupId === undefined) {
         /*
          * Nothing to stage into yet. Held rather than dropped — see the
@@ -1828,24 +1823,21 @@ export function createSystem(options: SystemOptions): System {
       const scope = patchGroupIds === null ? null : new Set(patchGroupIds);
       void (async () => {
         for (const change of queued) {
-          const patchIds =
-            scope === null
-              ? change.patchIds
-              : change.patchIds.filter((patchId) =>
-                  change.type === "stage"
-                    ? scope.has(patchId)
-                    : !scope.has(patchId),
-                );
-          if (patchIds.length === 0) continue;
-          // The explicit subset follows the filter, or it would name ids that
-          // are no longer being sent.
-          const kept = new Set(patchIds);
+          const inScope = (patchId: PatchId) =>
+            scope === null ||
+            (change.type === "stage"
+              ? scope.has(patchId)
+              : !scope.has(patchId));
+          // Both halves are filtered the same way. Filtering only the union and
+          // then intersecting would let the request name an id it is no longer
+          // sending.
+          const patchIds = change.patchIds.filter(inScope);
+          const withPatchIds = change.withPatchIds.filter(inScope);
+          if (patchIds.length === 0 && withPatchIds.length === 0) continue;
           await sendPatchGroupChange(patchGroupId, {
             ...change,
             patchIds,
-            explicitPatchIds: change.explicitPatchIds.filter((patchId) =>
-              kept.has(patchId),
-            ),
+            withPatchIds,
           });
         }
       })();

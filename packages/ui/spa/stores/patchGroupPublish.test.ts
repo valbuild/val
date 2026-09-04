@@ -299,8 +299,7 @@ test("sends the resolver's group and closure with the write", async () => {
     return {
       patchGroupId: "group-alice",
       // Somebody else's patch, entangled with this one.
-      alsoAddPatchIds: ["p-theirs" as PatchId],
-      closureVersion: 2,
+      withPatchIds: ["p-theirs" as PatchId],
     };
   });
 
@@ -313,8 +312,7 @@ test("sends the resolver's group and closure with the write", async () => {
     {
       patchGroup: {
         patchGroupId: "group-alice",
-        alsoAddPatchIds: ["p-theirs"],
-        closureVersion: 2,
+        withPatchIds: ["p-theirs"],
       },
     },
   ]);
@@ -378,8 +376,7 @@ test("a write sends the closure without naming a group", async () => {
   system.stat.receiveStat({ patches: [], baseSha: "sha" });
 
   system.setPatchGroupResolver(async () => ({
-    alsoAddPatchIds: ["p-theirs" as PatchId],
-    closureVersion: 1,
+    withPatchIds: ["p-theirs" as PatchId],
   }));
 
   await edit(system, MODULE, "mine");
@@ -387,7 +384,7 @@ test("a write sends the closure without naming a group", async () => {
 
   expect(saves).toHaveLength(1);
   // The closure travels; the id does not.
-  expect(saves[0].patchGroup?.alsoAddPatchIds).toEqual(["p-theirs"]);
+  expect(saves[0].patchGroup?.withPatchIds).toEqual(["p-theirs"]);
   expect(saves[0].patchGroup?.patchGroupId).toBeUndefined();
 });
 
@@ -398,11 +395,11 @@ test("a write sends the closure without naming a group", async () => {
  * empty in the normal case and nothing noticed. `PatchSync.listenTo` flushes
  * synchronously on `patch:create`, so a resolver answering from already-rendered
  * patch sets is one grouping behind: the patch being saved is in no set,
- * `stageClosure` has nothing to pull in for it, and `alsoAddPatchIds` comes out
+ * `stageClosure` has nothing to pull in for it, and `withPatchIds` comes out
  * empty — the exact hole `DESIGN.md` says a write cannot open.
  */
 test("a write carries the patches its own edit is entangled with", async () => {
-  const saves: { alsoAddPatchIds?: readonly PatchId[] }[] = [];
+  const saves: { withPatchIds?: readonly PatchId[] }[] = [];
   const system = createSystem({
     fetchPatches: async () => ({ patches: [] }),
     createPatchId: (() => {
@@ -410,7 +407,7 @@ test("a write carries the patches its own edit is entangled with", async () => {
       return () => `p${++next}` as PatchId;
     })(),
     savePatches: async ({ patches, parentRef, patchGroup }) => {
-      saves.push({ alsoAddPatchIds: patchGroup?.alsoAddPatchIds });
+      saves.push({ withPatchIds: patchGroup?.withPatchIds });
       return {
         status: "saved",
         newPatchIds: patches.map((patch) => patch.patchId),
@@ -424,8 +421,7 @@ test("a write carries the patches its own edit is entangled with", async () => {
 
   // The real resolver, as `ValShell` registers it.
   system.setPatchGroupResolver(async (patchIds) => ({
-    alsoAddPatchIds: await system.computeWriteClosure(patchIds),
-    closureVersion: 1,
+    withPatchIds: await system.computeWriteClosure(patchIds),
   }));
 
   // An earlier edit to the same path, held back — so it is in this client's
@@ -445,7 +441,7 @@ test("a write carries the patches its own edit is entangled with", async () => {
    * refuses it. Empty here is the bug: it means the grouping used to compute
    * the closure did not yet contain the patch being written.
    */
-  expect(saves[0].alsoAddPatchIds).toEqual([earlier]);
+  expect(saves[0].withPatchIds).toEqual([earlier]);
 });
 
 /**
@@ -467,7 +463,7 @@ test("a write carries the patches its own edit is entangled with", async () => {
  * there. That is the whole reason this one exists.
  */
 test("a write during a patch-set build still carries its closure", async () => {
-  const saves: { alsoAddPatchIds?: readonly PatchId[] }[] = [];
+  const saves: { withPatchIds?: readonly PatchId[] }[] = [];
   /*
    * A real worker round trip, held open on demand.
    *
@@ -495,7 +491,7 @@ test("a write during a patch-set build still carries its closure", async () => {
       return () => `p${++next}` as PatchId;
     })(),
     savePatches: async ({ patches, parentRef, patchGroup }) => {
-      saves.push({ alsoAddPatchIds: patchGroup?.alsoAddPatchIds });
+      saves.push({ withPatchIds: patchGroup?.withPatchIds });
       return {
         status: "saved",
         newPatchIds: patches.map((patch) => patch.patchId),
@@ -507,8 +503,7 @@ test("a write during a patch-set build still carries its closure", async () => {
   system.host.receive(project());
   system.stat.receiveStat({ patches: [], baseSha: "sha" });
   system.setPatchGroupResolver(async (patchIds) => ({
-    alsoAddPatchIds: await system.computeWriteClosure(patchIds),
-    closureVersion: 1,
+    withPatchIds: await system.computeWriteClosure(patchIds),
   }));
 
   const earlier = await edit(system, MODULE, "earlier");
@@ -538,5 +533,5 @@ test("a write during a patch-set build still carries its closure", async () => {
   await written;
 
   expect(saves).toHaveLength(1);
-  expect(saves[0].alsoAddPatchIds).toEqual([earlier]);
+  expect(saves[0].withPatchIds).toEqual([earlier]);
 });

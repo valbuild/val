@@ -37,8 +37,8 @@ export type SavePatches = (request: {
 /**
  * Which patch group a write joins, and what it drags in with it.
  *
- * `alsoAddPatchIds` is the CLOSURE: the patches that share a patch set with the
- * ones being written and must therefore move with them. Sending the group's
+ * `withPatchIds` is what has to come with them: the patches that share a patch
+ * set with the ones being written and must therefore move with them. Sending the group's
  * current membership instead would be a no-op — the server set-unions it — and
  * would miss the case the feature exists for: another author's array insert
  * has to join your group when you edit that array, or your op lands on the
@@ -59,8 +59,7 @@ export type PatchGroupMembership = {
    * group rather than on whichever is open.
    */
   patchGroupId?: string;
-  alsoAddPatchIds: PatchId[];
-  closureVersion: number;
+  withPatchIds: PatchId[];
 };
 
 /**

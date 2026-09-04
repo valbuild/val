@@ -327,7 +327,7 @@ describe("ValRouter", () => {
 
   describe("a route with an OPTIONAL body", () => {
     /*
-     * `DELETE /patches` grew an optional body (`alsoUnstagePatchIds`) and every
+     * `DELETE /patches` grew an optional body (`unstagePatchIds`) and every
      * caller that sent none started getting `400 Could not parse request body`.
      * The router called `req.json()` for any route that DECLARES a body, and a
      * real `Request` throws on an empty one — so the schema being `.optional()`
@@ -356,15 +356,15 @@ describe("ValRouter", () => {
     });
 
     test("is not a 400 when the body is sent", async () => {
-      expect(
-        (await deleteRequest({ alsoUnstagePatchIds: [] })).status,
-      ).not.toBe(400);
+      expect((await deleteRequest({ unstagePatchIds: [] })).status).not.toBe(
+        400,
+      );
     });
 
     test("is still a 400 when the body is present and wrong", async () => {
       // Absent and malformed stay different answers: this one names the field.
       expect(
-        (await deleteRequest({ alsoUnstagePatchIds: "not-an-array" })).status,
+        (await deleteRequest({ unstagePatchIds: "not-an-array" })).status,
       ).toBe(400);
     });
   });

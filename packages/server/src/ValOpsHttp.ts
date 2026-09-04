@@ -792,33 +792,31 @@ export class ValOpsHttp extends ValOps {
   /**
    * Add patches to a patch group.
    *
-   * `patchIds` is already closed by the client — it is the prefix closure over the
-   * patch sets the staged patches belong to. We forward it as a set union and do
-   * not second-guess it: deriving the closure needs the content schema, which this
+   * The set arrives closed by the client — `withPatchIds` is the prefix closure
+   * over the patch sets the staged patches belong to. We forward it and do not
+   * second-guess it: deriving the closure needs the content schema, which this
    * process does have but content.val.build does not, and having two
    * implementations of the rule would be worse than having one.
    *
-   * `closureVersion` is stored per membership row on the content side so a bad
-   * client rollout stays identifiable, and recomputable, after the fact.
+   * Membership rows are stamped with `coreVersion` on the content side — the
+   * same stamp the patch row carries — so which client wrote a row stays
+   * legible after the fact.
    */
   async stagePatches(
     patchGroupId: string,
+    /** What the user asked to stage. */
     patchIds: PatchId[],
     /**
-     * Which of `patchIds` the user actually asked for.
+     * What has to come with it, because the staged patches are written on top
+     * of it.
      *
      * The content API stores each membership row as `explicit` or `dependency`
-     * and treats anything not named here as a dependency. Sending nothing
-     * therefore files the patch somebody clicked as one the closure dragged in
-     * — the exact opposite of what happened, and the only record anywhere of
-     * what the author chose.
-     *
-     * Optional so a caller with no notion of "requested" — a repair, a script —
-     * can still send a correct closure without claiming an intent it does not
-     * have.
+     * and treats what it is not told about as a dependency. Folding the two
+     * halves into `patchIds` therefore files the patch somebody clicked as one
+     * the closure dragged in — the exact opposite of what happened, and the
+     * only record anywhere of what the author chose.
      */
-    explicitPatchIds: PatchId[] | undefined,
-    closureVersion: number,
+    withPatchIds: PatchId[],
     /**
      * WHO is asking, so the content API can refuse a group that is not theirs.
      *
@@ -843,8 +841,8 @@ export class ValOpsHttp extends ValOps {
       `patch-groups/${encodeURIComponent(patchGroupId)}/patches`,
       {
         patchIds,
-        ...(explicitPatchIds !== undefined ? { explicitPatchIds } : {}),
-        closureVersion,
+        withPatchIds,
+        coreVersion: Internal.VERSION.core,
       },
       authorId,
     );
@@ -853,19 +851,23 @@ export class ValOpsHttp extends ValOps {
   /**
    * Remove patches from a patch group.
    *
-   * `patchIds` is already closed forwards by the client: unstaging a patch also
-   * unstages everything built on top of it within its patch sets.
+   * The set arrives closed FORWARDS by the client: unstaging a patch also
+   * unstages everything built on top of it within its patch sets, and that is
+   * what `withPatchIds` carries.
    */
   async unstagePatches(
     patchGroupId: string,
+    /** What the user asked to unstage. */
     patchIds: PatchId[],
+    /** What has to go with it: everything built on top of it. */
+    withPatchIds: PatchId[],
     /** See {@link stagePatches} — the content API's half of the ownership check. */
     authorId: AuthorId | null,
   ): Promise<PatchGroupMutationResult> {
     return this.mutatePatchGroup(
       "DELETE",
       `patch-groups/${encodeURIComponent(patchGroupId)}/patches`,
-      { patchIds },
+      { patchIds, withPatchIds },
       authorId,
     );
   }
@@ -1123,8 +1125,7 @@ export class ValOpsHttp extends ValOps {
               ...(patchGroup.patchGroupId !== undefined
                 ? { patchGroupId: patchGroup.patchGroupId }
                 : {}),
-              alsoAddPatchIds: patchGroup.alsoAddPatchIds,
-              closureVersion: patchGroup.closureVersion,
+              withPatchIds: patchGroup.withPatchIds,
             }
           : {}),
       }),
@@ -1554,7 +1555,7 @@ export class ValOpsHttp extends ValOps {
      * work out which those are (it has no schema), so the client sends the
      * forward closure and it drops those memberships without deleting anything.
      */
-    alsoUnstagePatchIds?: PatchId[],
+    unstagePatchIds?: PatchId[],
   ): Promise<
     | { deleted: PatchId[]; errors?: undefined; error?: undefined }
     | {
@@ -1571,8 +1572,8 @@ export class ValOpsHttp extends ValOps {
       },
       body: JSON.stringify({
         patchIds,
-        ...(alsoUnstagePatchIds !== undefined && alsoUnstagePatchIds.length > 0
-          ? { alsoUnstagePatchIds }
+        ...(unstagePatchIds !== undefined && unstagePatchIds.length > 0
+          ? { unstagePatchIds }
           : {}),
       }),
     })

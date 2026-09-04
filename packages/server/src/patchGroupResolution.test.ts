@@ -1,4 +1,4 @@
-import { PatchId } from "@valbuild/core";
+import { Internal, PatchId } from "@valbuild/core";
 import { ValOpsHttp } from "./ValOpsHttp";
 import type { ModuleFilePath } from "@valbuild/core";
 
@@ -204,13 +204,15 @@ async function bodyOfSave(
 test("sends the group id and the client's closure with the patch", async () => {
   const body = await bodyOfSave({
     patchGroupId: "group-alice",
-    alsoAddPatchIds: ["p0" as PatchId],
-    closureVersion: 3,
+    withPatchIds: ["p0" as PatchId],
   });
 
   expect(body.patchGroupId).toBe("group-alice");
-  expect(body.alsoAddPatchIds).toEqual(["p0"]);
-  expect(body.closureVersion).toBe(3);
+  expect(body.withPatchIds).toEqual(["p0"]);
+  // The version that computed the closure, stamped on the membership rows the
+  // content API writes. It rides along with the patch's own stamp rather than
+  // being a second, hand-maintained number.
+  expect(body.coreVersion).toBe(Internal.VERSION.core);
   // Same request as the patch, not a follow-up.
   expect(body.patchId).toBe("p1");
 });
@@ -232,8 +234,7 @@ test("omits the group fields entirely when there is no group", async () => {
   // Absent, not null. An older content API validates the shape it knows, and
   // explicit nulls are a different thing to it than missing keys.
   expect("patchGroupId" in body).toBe(false);
-  expect("alsoAddPatchIds" in body).toBe(false);
-  expect("closureVersion" in body).toBe(false);
+  expect("withPatchIds" in body).toBe(false);
 });
 
 /**
@@ -255,11 +256,7 @@ async function savedGroupId(
       }
       return { ok: true, status: 200, json: async () => ({}) };
     }) as unknown as typeof fetch,
-    () =>
-      exposedOps().saveForTest({
-        alsoAddPatchIds: [],
-        closureVersion: 1,
-      }),
+    () => exposedOps().saveForTest({ withPatchIds: [] }),
   );
   if (
     typeof res !== "object" ||

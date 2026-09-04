@@ -421,18 +421,18 @@ Existing calls, in `packages/server/src/ValOpsHttp.ts`:
 
 | Call                                                            | Change                                                                                                                                                                                                                                                                                                                                                                     |
 | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /v1/{project}/patches` (`saveSourceFilePatch`)            | **Add** `patchGroupId: string \| null` and `alsoAddPatchIds: string[]` to the body. `null` group id = "my current group, create it if absent"; the response returns the id used. `alsoAddPatchIds` is the closure prefix. The whole thing is one transaction: patch row + group membership for the patch + membership for the closure.                                     |
+| `POST /v1/{project}/patches` (`saveSourceFilePatch`)            | **Add** `patchGroupId: string \| null` and `withPatchIds: string[]` to the body. `null` group id = "my current group, create it if absent"; the response returns the id used. `withPatchIds` is the closure prefix — what has to come with the patch. The whole thing is one transaction: patch row + group membership for the patch + membership for the closure.         |
 | `GET /v1/{project}/applicable/patches` (`fetchPatchesInternal`) | **Additive only** — see §6.3. Each patch gains `patchGroupIds: string[]`. Response gains top-level `patchGroups: [{ id, authorId, createdAt, publishedAt }]`. Existing fields unchanged.                                                                                                                                                                                   |
 | `POST /v1/{project}/commit` (`commit`)                          | Already takes a prepared commit built from a patch id subset, so no signature change. It must additionally mark the group published, mark the committed patches applied so `applied.commitSha` is set for exactly those, and **remove the published patch ids from every other group** that contains them (they are applied now). No base-commit pre-condition — see §2.2. |
 | `DELETE /v1/{project}/patches`                                  | Deleting a patch must cascade-delete its `patch_group_patch` rows, and must apply the unstage rule to every group it was in (drop the tail of the patch set within each group).                                                                                                                                                                                            |
 
 New calls:
 
-| Call                                                  | Purpose                                                                                                                                             |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /v1/{project}/patch-groups/{groupId}/patches`   | Stage. Body `{ patchIds: string[] }`, the already-closed set. Idempotent upsert.                                                                    |
-| `DELETE /v1/{project}/patch-groups/{groupId}/patches` | Unstage. Body `{ patchIds: string[] }`, the already-closed (forward) set. Idempotent.                                                               |
-| `GET /v1/{project}/patch-groups`                      | Read groups without fetching the whole patch chain — for the "other people have unstaged work" indicator. Optional; §6.3 makes it non-load-bearing. |
+| Call                                                  | Purpose                                                                                                                                                     |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/{project}/patch-groups/{groupId}/patches`   | Stage. Body `{ patchIds, withPatchIds, coreVersion }` — what the user asked for, what came with it, and the version that closed the set. Idempotent upsert. |
+| `DELETE /v1/{project}/patch-groups/{groupId}/patches` | Unstage. Body `{ patchIds, withPatchIds }`, the already-closed (forward) set. Idempotent.                                                                   |
+| `GET /v1/{project}/patch-groups`                      | Read groups without fetching the whole patch chain — for the "other people have unstaged work" indicator. Optional; §6.3 makes it non-load-bearing.         |
 
 `POST /v1/{project}/patches/{patchId}/files` needs no change: a `file` op rides along
 with the source op in the same patch, and group membership is per patch.
@@ -440,7 +440,7 @@ with the source op in the same patch, and group membership is per patch.
 ### 6.2 This repo's own routes (`packages/shared/src/internal/ApiRoutes.ts`)
 
 - `PUT /patches` — body gains `patchGroupId: z.string().nullish()` and
-  `alsoAddPatchIds: z.array(PatchId).optional()`; the 200 response gains
+  `withPatchIds: z.array(PatchId).optional()`; the 200 response gains
   `patchGroupId: z.string()`.
 - `GET /patches` — each patch gains `patchGroupIds: z.array(z.string()).optional()`;
   response gains `patchGroups` (optional, so FS mode can omit it).
@@ -684,7 +684,7 @@ Built on this branch, each as its own commit:
 
 - [x] **Closure and guard** — `utils/patchGroups.ts`: `stageClosure`,
       `unstageClosure`, `validateGroup`, `repairGroup`, `heldPatchSets`,
-      `holdsRegionOf`, `editWouldRestage`, `CLOSURE_VERSION`.
+      `holdsRegionOf`, `editWouldRestage`.
 - [x] **Segment-aware patch set paths** in `PatchSets.insertPath` (§1, bug 1).
 - [x] **Scenario suite** — `patchGroupScenario.ts` plus `patchGroups.test.ts`: a step
       script (edit / stage / unstage / publish) with op paths resolved against each
@@ -701,7 +701,7 @@ Built on this branch, each as its own commit:
       the group fields on `POST /patches` (with the fan-out to every other open
       group), additive `patchGroupIds` / `patchGroups` on `applicable/patches`,
       `GET /patch-groups` and `POST`/`DELETE /patch-groups/:id/patches`, commit
-      bookkeeping, and `alsoUnstagePatchIds` on `DELETE /patches`. Behaviour-neutral:
+      bookkeeping, and `unstagePatchIds` on `DELETE /patches`. Behaviour-neutral:
       nothing reads it yet.
 
 Left. Nothing is blocked any more — the server side exists; this is the client
@@ -716,10 +716,10 @@ See `packages/ui/spa/stores/architecture.md`.
       `StatStore` so a stage/unstage in one tab reaches another. Patch ids alone
       cannot detect it: the pending set is unchanged, only who holds them.
 - [ ] **Send the closure on write** — `PatchSync` adds `patchGroupId` and
-      `alsoAddPatchIds` to `PUT /patches`. `stageClosure` already computes them;
-      nothing calls it on the write path yet. (`holdBackForGroupIds` is still accepted
-      by the endpoint but is inert now that a patch only ever joins its own author's
-      group — there is no fan-out for it to suppress.)
+      `withPatchIds` to `PUT /patches`. `stageClosure` already computes them;
+      nothing calls it on the write path yet. (`holdBackForGroupIds` was dropped:
+      it is inert now that a patch only ever joins its own author's group — there
+      is no fan-out for it to suppress.)
 - [x] **Group-scoped source** — `SourceStore.setVisiblePatchIds` rebuilds each module
       as base + the visible chain, so studio and preview show `base + your group`. Held
       patches stay in `chains` — held is not gone, and re-staging must not need a

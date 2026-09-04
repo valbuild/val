@@ -442,7 +442,7 @@ export function createValSystem(
       };
     },
 
-    discardPatches: async (patchIds, alsoUnstagePatchIds) => {
+    discardPatches: async (patchIds, unstagePatchIds) => {
       /*
        * One request per chunk the URL can carry: "discard all" on a long chain
        * otherwise built a query string the server refuses before the handler
@@ -468,8 +468,8 @@ export function createValSystem(
            * slice of it.
            */
           body:
-            alsoUnstagePatchIds !== undefined && alsoUnstagePatchIds.length > 0
-              ? { alsoUnstagePatchIds }
+            unstagePatchIds !== undefined && unstagePatchIds.length > 0
+              ? { unstagePatchIds }
               : undefined,
         });
         if (res.status !== 200) {
@@ -543,8 +543,7 @@ export function createValSystem(
                 ...(patchGroup
                   ? {
                       patchGroupId: patchGroup.patchGroupId,
-                      alsoAddPatchIds: patchGroup.alsoAddPatchIds,
-                      closureVersion: patchGroup.closureVersion,
+                      withPatchIds: patchGroup.withPatchIds,
                     }
                   : {}),
               },

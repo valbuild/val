@@ -364,9 +364,9 @@ test.describe("the staging controls", () => {
      * And the content service was told WHICH id the user clicked.
      *
      * `home` stores every membership row as `explicit` or `dependency` and
-     * reads anything the request does not name as a dependency — so a client
-     * that never sends `explicitPatchIds` files the patch someone chose as one
-     * the closure dragged in. That row is the only record anywhere of the
+     * reads what the request does not put in `patchIds` as a dependency — so a
+     * client that folds `withPatchIds` in with it files the patch someone chose
+     * as one the closure dragged in. That row is the only record anywhere of the
      * difference between what an author decided and what followed from it, and
      * nothing in the response or the screen shows it is wrong.
      *
@@ -549,7 +549,6 @@ test.describe("the server routes", () => {
       data: {
         patchGroupId: bobGroup?.patchGroupId,
         patchIds: [alicePatch],
-        closureVersion: 1,
       },
     });
     expect(stage.status()).toBe(403);

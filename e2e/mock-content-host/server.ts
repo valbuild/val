@@ -157,13 +157,14 @@ type MockPatchGroup = {
   /** Insertion-ordered, though nothing depends on it: a group is a set. */
   patchIds: Set<string>;
   /**
-   * The subset the client said the user actually ASKED for.
+   * The ids the client sent as `patchIds` — what the user actually ASKED for,
+   * as opposed to what arrived in `withPatchIds` behind it.
    *
    * `home` stores this per membership row (`explicit` vs `dependency`) and
-   * reads anything unnamed as a dependency, so a client that omits it files
-   * every patch — the clicked one included — as something the closure dragged
-   * in. Modelled here so a test can tell the two apart; nothing in the mock's
-   * own behaviour depends on it.
+   * reads what it is not told about as a dependency, so a client that folds the
+   * two halves together files every patch — the clicked one included — as
+   * something the closure dragged in. Modelled here so a test can tell the two
+   * apart; nothing in the mock's own behaviour depends on it.
    */
   explicitPatchIds: Set<string>;
 };
@@ -631,9 +632,9 @@ const savePatch: Handler = async (req, res) => {
      * author's open group. See {@link getOrCreateOpenGroup}.
      */
     patchGroupId?: string | null;
-    /** The client's prefix closure: what must move with this patch. */
-    alsoAddPatchIds?: string[];
-    closureVersion?: number;
+    /** What must move with this patch. */
+    withPatchIds?: string[];
+    coreVersion?: string | null;
   }>(req);
   if (!body || typeof body.patchId !== "string") {
     json(res, 400, { message: "Invalid save-patch body" });
@@ -671,14 +672,14 @@ const savePatch: Handler = async (req, res) => {
    * group — which is a patch its author cannot publish until a repair puts it
    * back.
    */
-  const alsoAddPatchIds = body.alsoAddPatchIds ?? [];
+  const withPatchIds = body.withPatchIds ?? [];
   if (state.patchGroupsEnabled) {
-    const unknown = alsoAddPatchIds.filter(
+    const unknown = withPatchIds.filter(
       (patchId) => !state.patches.has(patchId),
     );
     if (unknown.length > 0) {
       json(res, 400, {
-        message: `Unknown patch ids in alsoAddPatchIds: ${unknown.join(", ")}`,
+        message: `Unknown patch ids in withPatchIds: ${unknown.join(", ")}`,
       });
       return;
     }
@@ -701,7 +702,7 @@ const savePatch: Handler = async (req, res) => {
      * An earlier revision of `home` fanned every new patch out to every open
      * group on the branch. Too broad: what a view has to hold is everything
      * that could shift ITS paths, and that is exactly the author's patch sets —
-     * which `alsoAddPatchIds` already carries, computed on the client, the only
+     * which `withPatchIds` already carries, computed on the client, the only
      * side with the schema.
      */
     const group =
@@ -713,7 +714,7 @@ const savePatch: Handler = async (req, res) => {
       return;
     }
     group.patchIds.add(body.patchId);
-    for (const patchId of alsoAddPatchIds) {
+    for (const patchId of withPatchIds) {
       group.patchIds.add(patchId);
     }
     patchGroupId = group.patchGroupId;
@@ -857,19 +858,22 @@ const mutatePatchGroup: Handler = async (req, res, url) => {
   }
   const body = await readJsonBody<{
     patchIds: string[];
-    explicitPatchIds?: string[];
+    withPatchIds?: string[];
+    coreVersion?: string | null;
   }>(req);
-  const patchIds = body?.patchIds ?? [];
-  // Absent means "all of these are dependencies", which is how `home` reads it.
-  const explicit = new Set(body?.explicitPatchIds ?? []);
-  for (const patchId of patchIds) {
+  // `patchIds` is what the user asked for and `withPatchIds` is what came with
+  // it. Both join or leave the group; only the first half is `explicit`, which
+  // is how `home` files them.
+  const explicit = body?.patchIds ?? [];
+  const dependency = body?.withPatchIds ?? [];
+  for (const patchId of [...explicit, ...dependency]) {
     if (req.method === "POST") {
       if (!state.patches.has(patchId)) {
         json(res, 400, { message: `Unknown patch id: ${patchId}` });
         return;
       }
       group.patchIds.add(patchId);
-      if (explicit.has(patchId)) {
+      if (explicit.includes(patchId)) {
         group.explicitPatchIds.add(patchId);
       }
     } else {
@@ -887,7 +891,7 @@ const mutatePatchGroup: Handler = async (req, res, url) => {
 const deletePatches: Handler = async (req, res) => {
   const body = await readJsonBody<{
     patchIds: string[];
-    alsoUnstagePatchIds?: string[];
+    unstagePatchIds?: string[];
   }>(req);
   const ids = body?.patchIds ?? [];
   for (const patchId of ids) {
@@ -910,7 +914,7 @@ const deletePatches: Handler = async (req, res) => {
    * computes the forward closure and sends it, and those lose their membership
    * everywhere WITHOUT being deleted.
    */
-  for (const patchId of body?.alsoUnstagePatchIds ?? []) {
+  for (const patchId of body?.unstagePatchIds ?? []) {
     for (const group of state.patchGroups.values()) {
       group.patchIds.delete(patchId);
       group.explicitPatchIds.delete(patchId);

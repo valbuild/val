@@ -29,13 +29,6 @@ import { isInsidePatchSetPath, SerializedPatchSet } from "./PatchSets";
  * reports where it does not hold.
  */
 
-/**
- * Bumped when the closure rules below change in a way that makes previously
- * stored group membership wrong. Recorded per membership row on the server so a
- * bad client rollout is identifiable, and recomputable, after the fact.
- */
-export const CLOSURE_VERSION = 1;
-
 export type PatchGroup = ReadonlySet<PatchId>;
 
 /** Position in the patch chain: index into the chain order. */

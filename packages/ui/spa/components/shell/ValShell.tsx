@@ -30,7 +30,6 @@ import {
 } from "../PatchStagingProvider";
 
 import { useCurrentPatchGroup } from "../useCurrentPatchGroup";
-import { CLOSURE_VERSION } from "../../utils/patchGroups";
 import type { SerializedPatchSet } from "../../utils/PatchSets";
 import { isPathWithin } from "../../utils/sourcePath";
 import type { Profile } from "../ValProvider";
@@ -1110,13 +1109,13 @@ function usePatchGroupChange(
        */
       val.system.setPatchGroup([...next]);
       /*
-       * What the user asked for AND what the closure dragged along. The server
-       * unions on stage and removes on unstage, so sending only `requested`
-       * would leave the group holding a suffix of a patch set — the shape the
-       * prefix invariant exists to prevent.
+       * Both halves go. The server unions on stage and removes on unstage, so
+       * sending only what the user asked for would leave the group holding a
+       * suffix of a patch set — the shape the prefix invariant exists to
+       * prevent.
        */
-      const patchIds = [...change.requested, ...change.alsoMoved];
-      if (patchIds.length === 0) return;
+      if (change.requested.length === 0 && change.alsoMoved.length === 0)
+        return;
       /*
        * `patchGroupId` is `undefined` in two windows the review screen is
        * perfectly usable in: before this author's first write on a branch, and
@@ -1129,11 +1128,10 @@ function usePatchGroupChange(
        */
       val.system.persistPatchGroupChange(patchGroupId, {
         type: change.type,
-        patchIds,
-        // What the user clicked, told apart from what the closure moved with
-        // it: the content API stores the distinction and cannot infer it.
-        explicitPatchIds: change.requested,
-        closureVersion: change.closureVersion,
+        // What the user clicked, told apart from what moved with it: the
+        // content API stores the distinction and cannot infer it.
+        patchIds: change.requested,
+        withPatchIds: change.alsoMoved,
       });
     },
     [val, patchGroupId],
@@ -1159,7 +1157,7 @@ function sameMembers(a: readonly PatchId[], b: ReadonlySet<PatchId>): boolean {
  * The closure itself is `System.computeWriteClosure`, not something computed
  * here. It has to be: the flush runs synchronously off `patch:create`, so
  * anything derived from already-rendered patch sets is one grouping behind and
- * cannot contain the patch being saved — which made `alsoAddPatchIds` empty in
+ * cannot contain the patch being saved — which made `withPatchIds` empty in
  * the normal case. The system awaits a grouping that covers the batch.
  *
  * All this hook decides is WHETHER to send a group at all.
@@ -1183,8 +1181,7 @@ function usePatchGroupWrites(): void {
      * fail the next one.
      */
     val.system.setPatchGroupResolver(async (patchIds) => ({
-      alsoAddPatchIds: await val.system.computeWriteClosure(patchIds),
-      closureVersion: CLOSURE_VERSION,
+      withPatchIds: await val.system.computeWriteClosure(patchIds),
     }));
   }, [val, group.enabled]);
 }

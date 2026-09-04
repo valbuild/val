@@ -9,7 +9,7 @@ import { createSystem, type System } from "./createSystem";
  * invariant a group has, because the patches after the hole were written
  * against a view that had it. The content API cannot work out which patches
  * those are: it has no schema, so it cannot compute patch sets. The client
- * sends the forward closure as `alsoUnstagePatchIds` and those lose their
+ * sends the forward closure as `unstagePatchIds` and those lose their
  * membership everywhere without being deleted.
  *
  * Nothing here sent it. `home` has accepted the field since the patch-group
@@ -53,10 +53,10 @@ function makeSystem(options?: { patchGroups?: boolean }) {
       ...(hasGroups ? { patchGroupId: "g1" } : {}),
     }),
     publishPatches: async () => ({ status: "published" }),
-    discardPatches: async (patchIds, alsoUnstagePatchIds) => {
+    discardPatches: async (patchIds, unstagePatchIds) => {
       discards.push({
         patchIds: [...patchIds],
-        alsoUnstage: alsoUnstagePatchIds && [...alsoUnstagePatchIds],
+        alsoUnstage: unstagePatchIds && [...unstagePatchIds],
       });
       return { status: "discarded", patchIds };
     },

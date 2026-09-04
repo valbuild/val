@@ -1117,10 +1117,13 @@ export const ValServer = (
         if (auth.error) {
           return { status: 401, json: { message: auth.error } };
         }
-        const { patchGroupId, patchIds, explicitPatchIds, closureVersion } =
-          req.body;
+        const { patchGroupId, patchIds } = req.body;
+        const withPatchIds = req.body.withPatchIds ?? [];
         if (serverOps instanceof ValOpsFS) {
-          return { status: 200, json: { patchGroupId, patchIds } };
+          return {
+            status: 200,
+            json: { patchGroupId, patchIds: [...patchIds, ...withPatchIds] },
+          };
         }
         if (!("id" in auth) || !auth.id) {
           return { status: 401, json: { message: "Unauthorized" } };
@@ -1135,8 +1138,7 @@ export const ValServer = (
         const res = await serverOps.stagePatches(
           patchGroupId,
           patchIds,
-          explicitPatchIds,
-          closureVersion,
+          withPatchIds,
           // Forwarded so the content API can refuse independently. This server
           // has already refused a group that is not the caller's; sending the
           // author means the check also holds for anything reaching the content
@@ -1156,8 +1158,12 @@ export const ValServer = (
           return { status: 401, json: { message: auth.error } };
         }
         const { patchGroupId, patchIds } = req.body;
+        const withPatchIds = req.body.withPatchIds ?? [];
         if (serverOps instanceof ValOpsFS) {
-          return { status: 200, json: { patchGroupId, patchIds } };
+          return {
+            status: 200,
+            json: { patchGroupId, patchIds: [...patchIds, ...withPatchIds] },
+          };
         }
         if (!("id" in auth) || !auth.id) {
           return { status: 401, json: { message: "Unauthorized" } };
@@ -1172,6 +1178,7 @@ export const ValServer = (
         const res = await serverOps.unstagePatches(
           patchGroupId,
           patchIds,
+          withPatchIds,
           auth.id as AuthorId,
         );
         if (res.error) {
@@ -1195,11 +1202,6 @@ export const ValServer = (
          * author's group whenever that call failed — and a patch outside your
          * own group is one you cannot publish until a repair puts it back.
          *
-         * `holdBackForGroupIds` is accepted and ignored. It existed for the
-         * fan-out into every other open group, which is gone: a patch now joins
-         * only its own author's group, so there is nothing left to hold back
-         * from. Kept in the schema so a client that still sends it is not
-         * refused.
          */
         /*
          * A membership is present if EITHER field is.
@@ -1214,15 +1216,14 @@ export const ValServer = (
          * `undefined` rather than becoming a membership keyed by null.
          */
         const requestedPatchGroupId = req.body.patchGroupId ?? undefined;
-        const requestedAlsoAdd = req.body.alsoAddPatchIds;
+        const requestedWith = req.body.withPatchIds;
         const patchGroup =
-          requestedPatchGroupId !== undefined || requestedAlsoAdd !== undefined
+          requestedPatchGroupId !== undefined || requestedWith !== undefined
             ? {
                 ...(requestedPatchGroupId !== undefined
                   ? { patchGroupId: requestedPatchGroupId }
                   : {}),
-                alsoAddPatchIds: requestedAlsoAdd ?? [],
-                closureVersion: req.body.closureVersion ?? 0,
+                withPatchIds: requestedWith ?? [],
               }
             : undefined;
         if (patchGroup !== undefined && serverOps instanceof ValOpsFS) {
@@ -1497,8 +1498,8 @@ export const ValServer = (
          * Only in `http` mode: `ValOpsFS` has no groups and ignores it, and the
          * client does not send it there.
          */
-        let alsoUnstagePatchIds: PatchId[] | undefined;
-        const requestedUnstage = req.body?.alsoUnstagePatchIds;
+        let unstagePatchIds: PatchId[] | undefined;
+        const requestedUnstage = req.body?.unstagePatchIds;
         if (
           serverOps instanceof ValOpsHttp &&
           requestedUnstage !== undefined &&
@@ -1507,16 +1508,13 @@ export const ValServer = (
           const chain = await serverOps.fetchPatches({
             excludePatchOps: true,
           });
-          alsoUnstagePatchIds = boundUnstageClosure(
+          unstagePatchIds = boundUnstageClosure(
             chain.patches,
             ids,
             requestedUnstage,
           );
         }
-        const deleteRes = await serverOps.deletePatches(
-          ids,
-          alsoUnstagePatchIds,
-        );
+        const deleteRes = await serverOps.deletePatches(ids, unstagePatchIds);
         if (deleteRes.errors && Object.keys(deleteRes.errors).length > 0) {
           console.error("Val: Failed to delete patches", deleteRes.errors);
           return {
@@ -3337,7 +3335,7 @@ export function scopedPatches<
 }
 
 /**
- * Which of the client's `alsoUnstagePatchIds` this server is willing to forward.
+ * Which of the client's `unstagePatchIds` this server is willing to forward.
  *
  * The forward closure of a discard is the client's to compute — it needs the
  * patch sets, which need the schema — and it was being forwarded verbatim. But

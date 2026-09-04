@@ -8,7 +8,6 @@ import {
 } from "react";
 import { SerializedPatchSet } from "../utils/PatchSets";
 import {
-  CLOSURE_VERSION,
   heldPatchSets,
   inChainOrder,
   PatchGroup,
@@ -186,7 +185,6 @@ export function PatchStagingProvider({
         type: "stage",
         requested: Array.from(patchIds),
         alsoMoved: stagePreview(patchIds),
-        closureVersion: CLOSURE_VERSION,
       });
     },
     [index, group, onChange, stagePreview],
@@ -199,7 +197,6 @@ export function PatchStagingProvider({
         type: "unstage",
         requested: Array.from(patchIds),
         alsoMoved: unstagePreview(patchIds),
-        closureVersion: CLOSURE_VERSION,
       });
     },
     [index, group, onChange, unstagePreview],
@@ -244,10 +241,4 @@ export type PatchGroupChange = {
   requested: PatchId[];
   /** What the closure moved along with it. Non-empty means the UI must explain. */
   alsoMoved: PatchId[];
-  /**
-   * Which revision of the closure rules produced `alsoMoved`. Sent on to the
-   * server and stored per membership row, so a bad client rollout stays
-   * identifiable — and recomputable — after the fact.
-   */
-  closureVersion: number;
 };

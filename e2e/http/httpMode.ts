@@ -228,9 +228,10 @@ export type MockPatchGroup = {
   /**
    * Which of `patchIds` the client said the user actually asked for.
    *
-   * `home` stores this per membership row and reads anything unnamed as a
-   * dependency, so a client that never sends it files every patch — the clicked
-   * one included — as something the closure dragged in.
+   * `home` stores this per membership row and reads what it is not told about
+   * as a dependency, so a client that folds `patchIds` and `withPatchIds`
+   * together files every patch — the clicked one included — as something the
+   * closure dragged in.
    */
   explicitPatchIds: string[];
 };

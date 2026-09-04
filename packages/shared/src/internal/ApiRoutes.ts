@@ -775,7 +775,7 @@ export const Api = {
              * groups, and a client that predates this is deleting correctly,
              * just not repairing.
              */
-            alsoUnstagePatchIds: z.array(PatchId).optional(),
+            unstagePatchIds: z.array(PatchId).optional(),
           })
           .optional(),
         cookies: {
@@ -814,17 +814,10 @@ export const Api = {
           // Absent means "the caller does not know about groups" - the server then
           // behaves exactly as before.
           patchGroupId: z.string().nullish(),
-          // The prefix closure: other patch ids that must join the same group for
-          // it to stay applicable. Computed on the client, which is the only side
-          // that has the schema needed to derive patch sets.
-          alsoAddPatchIds: z.array(PatchId).optional(),
-          // A group holds every pending patch by default, so a new patch joins every
-          // other open group too — except ones deliberately holding this patch's
-          // region back. The server cannot work out which those are, because "this
-          // patch's region" is a patch set and that needs the schema, so the client
-          // names them here.
-          holdBackForGroupIds: z.array(z.string()).optional(),
-          closureVersion: z.number().optional(),
+          // What has to come with the patch: other patch ids that must join the
+          // same group for it to stay applicable. Computed on the client, which
+          // is the only side that has the schema needed to derive patch sets.
+          withPatchIds: z.array(PatchId).optional(),
         }),
         cookies: {
           val_session: z.string().optional(),
@@ -931,23 +924,30 @@ export const Api = {
   "/patch-groups/~/patches": {
     PUT: {
       req: {
-        body: z.object({
-          patchGroupId: z.string(),
-          patchIds: z
-            .array(PatchId)
-            .min(1, "At least one patch id is required"),
-          /*
-           * Which of `patchIds` the user actually asked for.
-           *
-           * The content API records membership as `explicit` or `dependency`,
-           * and reads everything not named here as a dependency — so omitting
-           * it files the patch someone clicked as something the closure dragged
-           * in. Optional, because a client that predates it is still sending a
-           * correct closure; it just cannot say which part of it was the point.
-           */
-          explicitPatchIds: z.array(PatchId).optional(),
-          closureVersion: z.number(),
-        }),
+        body: z
+          .object({
+            patchGroupId: z.string(),
+            /** What the user asked to stage. */
+            patchIds: z.array(PatchId),
+            /*
+             * What has to come with it, because the staged patches are written on
+             * top of it.
+             *
+             * The content API records membership as `explicit` or `dependency`
+             * and reads what it is not told about as a dependency — so folding
+             * the two halves into `patchIds` files the patch someone clicked as
+             * something the closure dragged in.
+             */
+            withPatchIds: z.array(PatchId).optional(),
+          })
+          .refine(
+            (body) =>
+              body.patchIds.length > 0 || (body.withPatchIds?.length ?? 0) > 0,
+            // Either half alone is a real request: a stage of only what came with
+            // it happens when the deferred queue's scope filter drops everything
+            // the user originally clicked.
+            "At least one patch id is required",
+          ),
         cookies: {
           val_session: z.string().optional(),
         },
@@ -978,12 +978,19 @@ export const Api = {
     },
     DELETE: {
       req: {
-        body: z.object({
-          patchGroupId: z.string(),
-          patchIds: z
-            .array(PatchId)
-            .min(1, "At least one patch id is required"),
-        }),
+        body: z
+          .object({
+            patchGroupId: z.string(),
+            /** What the user asked to unstage. */
+            patchIds: z.array(PatchId),
+            /** What has to go with it: everything built on top of it. */
+            withPatchIds: z.array(PatchId).optional(),
+          })
+          .refine(
+            (body) =>
+              body.patchIds.length > 0 || (body.withPatchIds?.length ?? 0) > 0,
+            "At least one patch id is required",
+          ),
         cookies: {
           val_session: z.string().optional(),
         },
