@@ -1733,6 +1733,27 @@ export function createSystem(options: SystemOptions): System {
         const membership = await resolver(patchIds);
         if (membership !== undefined) {
           extendPatchGroup([...patchIds, ...membership.alsoAddPatchIds]);
+          /*
+           * And SAY SO, when the closure brought somebody else's work along.
+           *
+           * This is the one place other people's patches enter a user's view
+           * without them asking, and until now it happened in silence — the
+           * scope widened, the modules rebuilt, and the only trace was a number
+           * changing on the Review button.
+           *
+           * Announced only when the closure moved something. `patchIds` is the
+           * user's own write and is not news; an empty `alsoAddPatchIds`, which
+           * is the common case, says nothing at all.
+           */
+          const widenedBy = membership.alsoAddPatchIds.filter(
+            (patchId) => !patchIds.includes(patchId),
+          );
+          if (widenedBy.length > 0) {
+            patchSync.events.emit({
+              type: "patch:group-widened",
+              patches: widenedBy,
+            });
+          }
         }
         return membership;
       });
@@ -2126,13 +2147,29 @@ export function createSystem(options: SystemOptions): System {
           };
         }
 
+        const headCommitSha = stat.currentHeadCommitSha();
         const outcome = await options.publishPatches({
           patchIds: toPublish,
           message,
           ...(emptiesOwnPatchGroup(toPublish)
             ? { closesPatchGroupId: ownPatchGroupId }
             : {}),
+          /*
+           * The world this publish was decided against.
+           *
+           * Read here rather than captured at the top of the call: the gate
+           * above has just re-checked the chain, so this is the head that goes
+           * with the set about to ship.
+           */
+          ...(headCommitSha !== null
+            ? { expectedHeadCommitSha: headCommitSha }
+            : {}),
         });
+        if (outcome.status === "head-moved") {
+          // Nothing was written. The review screen showed a world somebody else
+          // has changed since, so the honest answer is to look again.
+          return { status: "refused", reason: "head-moved" };
+        }
         if (outcome.status === "patch-errors") {
           // Recorded, not just returned. A server refusal never resolves itself,
           // so the publish gate has to keep seeing it after the caller that made

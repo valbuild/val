@@ -353,11 +353,21 @@ export function createValSystem(
      * the only way a TS-AST-only failure ever reaches an editor: the client
      * applies patches to evaluated JSON and cannot see those at all.
      */
-    publishPatches: async ({ patchIds, message, closesPatchGroupId }) => {
+    publishPatches: async ({
+      patchIds,
+      message,
+      closesPatchGroupId,
+      expectedHeadCommitSha,
+    }) => {
       const res = await client("/save", "POST", {
         body: {
           message,
           patchIds,
+          // The world this publish was decided against. A 409 comes back when
+          // somebody else has published since.
+          ...(expectedHeadCommitSha !== undefined
+            ? { expectedHeadCommitSha }
+            : {}),
           // Present only when this commit accounts for everything the group
           // still holds — the content API closes what it is named without
           // checking. See `emptiesOwnPatchGroup`.
@@ -378,6 +388,12 @@ export function createValSystem(
         return { status: "published", removed: res.json.removed };
       }
       if (res.status === 409) {
+        // Two different refusals share the status. `headMoved` is the server
+        // saying somebody published while this was being decided; the other is
+        // git refusing the commit itself.
+        if ("headMoved" in res.json) {
+          return { status: "head-moved", message: res.json.message };
+        }
         return { status: "not-fast-forward", message: res.json.message };
       }
       if (res.status === 400) {
@@ -633,6 +649,8 @@ export function createValSystem(
             built?.stat.receiveStat({
               baseSha: res.json.baseSha,
               patches: res.json.patches,
+              appliedPatches: res.json.appliedPatches,
+              headCommitSha: res.json.headCommitSha,
             });
           },
         }

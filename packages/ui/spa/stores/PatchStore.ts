@@ -201,6 +201,16 @@ function sameGroups(
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+/**
+ * Stands in for the commit sha of a patch somebody else published.
+ *
+ * `/stat` says WHICH patches have shipped, not what they shipped in — the sha
+ * is the server's to state and no reader here wants it. What every reader does
+ * want is `appliedAt` being set, which is the one test for "has this shipped",
+ * so a marker goes there rather than a second set living beside it.
+ */
+export const APPLIED_ELSEWHERE_SHA = "applied-elsewhere";
+
 export class PatchStore {
   readonly events = new StoreBus<SystemEvent>();
 
@@ -256,6 +266,19 @@ export class PatchStore {
    */
   private patchGroupsSeen = false;
   private appliedIds = new Set<PatchId>();
+  /**
+   * Ids `/stat` has said are committed, whether or not their record is here yet.
+   *
+   * Latched rather than applied once, because the stat that carries the news
+   * routinely arrives before the record it is about — the ids are announced,
+   * the fetch follows. Applied again on every delivery; see
+   * {@link applyServerApplied}.
+   */
+  private serverAppliedIds = new Set<PatchId>();
+  /** Told when a record becomes applied, so the chain it holds keeps up. */
+  private appliedSource: {
+    markApplied(patchIds: readonly PatchId[]): void;
+  } | null = null;
   /**
    * Patches the source store reported as HELD — outside the reader's patch
    * group, so deliberately not applied.
@@ -427,6 +450,7 @@ export class PatchStore {
    * "what does this store react to" is answerable by reading this one method.
    */
   listenTo(stat: StatStore, source: SourceStore): () => void {
+    this.appliedSource = source;
     const offStat = stat.events.on("stat:receive", (event) => {
       const baseSha = stat.currentBaseSha();
       const baseMoved =
@@ -436,6 +460,7 @@ export class PatchStore {
       if (baseSha !== null) {
         this.lastBaseSha = baseSha;
       }
+      this.receiveApplied(event.appliedPatches);
       void this.onStatPatchIds(event.patches, baseMoved);
     });
     const offApply = source.events.on("source:patch-apply", (event) => {
@@ -654,6 +679,14 @@ export class PatchStore {
       received.push(record.patchId);
       this.bump();
     }
+    /*
+     * A record that arrived AFTER the stat which said it had shipped.
+     *
+     * The routine order, not a corner: the stat announces ids and the fetch
+     * follows, so the pass that ran on the stat had nothing to mark for exactly
+     * the patch it was told about.
+     */
+    this.applyServerApplied();
     for (const [patchId, message] of Object.entries(res.errors ?? {})) {
       this.fetching.delete(patchId as PatchId);
       // An error is a definite answer, so the wait-and-confirm round that a
@@ -1194,6 +1227,72 @@ export class PatchStore {
   }
 
   /**
+   * Mark records the server says have SHIPPED.
+   *
+   * A record is fetched once and then held, so a client never re-reads one it
+   * already has — which meant it never learned that somebody else's publish had
+   * committed a patch sitting in its chain. That patch stayed pending in the
+   * scope, `prefixViolations` read a hole in front of it, and Publish refused
+   * with a reason that had stopped being true before the user read it.
+   *
+   * `appliedAt` is what everything downstream keys on, so the fact is written
+   * there rather than kept in a set beside it. The sha is the server's to
+   * state; what is known here is only that it shipped, so a marker sha is used
+   * and nothing reads it.
+   *
+   * ABSENT is not "none of them" — a server that does not send the list (`fs`
+   * mode, or one that predates it) is saying nothing, not saying no.
+   *
+   * The mark is ONE-WAY, which is what makes that safe rather than merely
+   * intended: nothing here ever clears `appliedAt`. A patch stops being applied
+   * only by leaving the chain, when the deploy moves the base and
+   * `forgetPublished` drops it.
+   */
+  private receiveApplied(appliedPatches: readonly PatchId[] | undefined): void {
+    if (appliedPatches === undefined) {
+      return;
+    }
+    for (const patchId of appliedPatches) {
+      this.serverAppliedIds.add(patchId);
+    }
+    this.applyServerApplied();
+  }
+
+  /**
+   * Write {@link serverAppliedIds} onto whatever records are here now.
+   *
+   * Run again after a fetch, not only on the stat that carried the news: the
+   * stat announces the ids and the records arrive later, so the first pass has
+   * nothing to mark for exactly the patch it was told about. Remembering the
+   * set and re-applying is what makes the two orders the same.
+   */
+  private applyServerApplied(): void {
+    if (this.serverAppliedIds.size === 0) return;
+    const marked: PatchId[] = [];
+    for (const patchId of this.serverAppliedIds) {
+      const record = this.dataById.get(patchId);
+      if (record === undefined) continue;
+      if (record.appliedAt) continue;
+      this.dataById.set(patchId, {
+        ...record,
+        appliedAt: { commitSha: APPLIED_ELSEWHERE_SHA },
+      });
+      this.appliedIds.add(patchId);
+      marked.push(patchId);
+    }
+    if (marked.length === 0) return;
+    this.bump();
+    /*
+     * And the SOURCE store, which holds its own reference to each record.
+     *
+     * Marking it here alone would be invisible on screen: the chain entry still
+     * points at the record it was given, so a held patch that has now shipped
+     * would go on being held until the deploy moved the base.
+     */
+    this.appliedSource?.markApplied(marked);
+  }
+
+  /**
    * The ids this session published, which no record's `appliedAt` will show.
    *
    * The other half of "has this shipped?" — see {@link publishedIds}. A reader
@@ -1261,6 +1360,9 @@ export class PatchStore {
       this.originById.delete(patchId);
       this.pendingIds.delete(patchId);
       this.appliedIds.delete(patchId);
+      // Pruned with the rest, and NOT an afterthought: `heldIds` was left out
+      // of these loops once and went on naming patches that no longer existed.
+      this.serverAppliedIds.delete(patchId);
       this.failedById.delete(patchId);
       this.creatorByPatchId.delete(patchId);
       this.sessionByPatchId.delete(patchId);
@@ -1307,6 +1409,9 @@ export class PatchStore {
       this.originById.delete(patchId);
       this.pendingIds.delete(patchId);
       this.appliedIds.delete(patchId);
+      // Pruned with the rest, and NOT an afterthought: `heldIds` was left out
+      // of these loops once and went on naming patches that no longer existed.
+      this.serverAppliedIds.delete(patchId);
       this.failedById.delete(patchId);
       this.creatorByPatchId.delete(patchId);
       this.sessionByPatchId.delete(patchId);

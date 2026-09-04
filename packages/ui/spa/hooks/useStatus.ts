@@ -114,6 +114,25 @@ export const StatData = z.object({
   schemaSha: z.string(),
   baseSha: z.string(),
   patches: z.array(PatchId),
+  /**
+   * Of `patches`, the ones that have already SHIPPED.
+   *
+   * `http` only: a published patch stays in the chain with `appliedAt` set
+   * until the deploy lands, and a client never re-fetches a record it already
+   * holds — so without this it never learns that somebody else's publish
+   * committed one of the patches it is holding. `fs` forgets published patches
+   * outright and does not send it.
+   *
+   * Absent is NOT "none of them": see `PatchStore.receiveApplied`.
+   */
+  appliedPatches: z.array(PatchId).optional(),
+  /**
+   * The newest commit, which is the PUBLISH head.
+   *
+   * Carried to `/save` so a publish decided against a world somebody else has
+   * since changed is refused rather than shipped. See `newestCommitSha`.
+   */
+  headCommitSha: z.string().optional(),
   commits: z.array(ValCommit).optional(),
   deployments: z.array(ValDeployment).optional(),
   mode: z.union([z.literal("fs"), z.literal("http")]),

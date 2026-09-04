@@ -83,6 +83,25 @@ open. `getAuth` only proves a session exists, and every call to the content API
 carries the app's key rather than the editor's identity, so this server is the
 only place that knows both who is asking and whose group it is.
 
+## Three things that keep a client honest about the world
+
+- **The applied set.** `/stat` sends which of the chain ids have already
+  SHIPPED, not just which exist. A record is fetched once and then held, so
+  without it a client never learns that somebody else's publish committed a
+  patch it is holding — the patch stayed pending in the scope, the prefix gate
+  read a hole in front of it, and Publish refused for a reason that had stopped
+  being true. Absent is "no news", never "none of them"; the mark is one-way and
+  is cleared only by the patch leaving the chain.
+- **The publish head.** `/save` carries the newest commit the client knew about
+  and is answered 409 when the server sees a newer one. Not `baseSha`, which
+  moves only when a deployment lands, and not git's not-fast-forward guard,
+  which cannot see this at all: the chain is fetched and committed fresh at
+  publish time, so the parent commit sent is always the server's current one.
+- **The widening toast.** The write closure is the one place other people's work
+  enters your view without you asking. It is announced after the fact, with no
+  undo — the edit that triggered it was written against a view those patches
+  produce, so it already depends on them.
+
 ## Editing inside a region you are holding back
 
 Allowed, and the held patches are loaded back in. An earlier design made such a

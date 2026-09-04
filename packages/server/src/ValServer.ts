@@ -58,7 +58,10 @@ import {
   parsePersonalAccessTokenFile,
 } from "./personalAccessTokens";
 import path from "path";
-import { getErrorMessageFromUnknownJson } from "@valbuild/shared/internal";
+import {
+  getErrorMessageFromUnknownJson,
+  newestCommitSha,
+} from "@valbuild/shared/internal";
 
 export type ValServerOptions = {
   route: string;
@@ -2387,6 +2390,42 @@ export const ValServer = (
             json: removed.length > 0 ? { removed } : {},
           };
         } else if (serverOps instanceof ValOpsHttp) {
+          /*
+           * Has somebody else published since this was decided?
+           *
+           * The client names the newest commit it knew about; anything newer
+           * here means the review screen it acted on described a world that has
+           * moved. Refused BEFORE the commit, so nothing is written and the
+           * answer is "look again" rather than "your commit was rejected".
+           *
+           * Git's own not-fast-forward guard cannot see this: the chain is
+           * fetched and committed fresh at this point, so the parent commit
+           * sent is always the server's current one.
+           *
+           * Only when the client sends a head. One that does not publishes
+           * exactly as it did before, and this cannot start refusing publishes
+           * for a field it never sets.
+           */
+          const expectedHead = body.expectedHeadCommitSha;
+          if (expectedHead !== undefined) {
+            const serverHead = newestCommitSha(
+              (
+                await serverOps.fetchPatches({
+                  excludePatchOps: true,
+                })
+              ).commits,
+            );
+            if (serverHead !== null && serverHead !== expectedHead) {
+              return {
+                status: 409,
+                json: {
+                  message:
+                    "Someone else published while you were reviewing. Nothing was published — open Review again to see what changed.",
+                  headMoved: true,
+                },
+              };
+            }
+          }
           if (auth.error === undefined && auth.id) {
             const message =
               body.message ||

@@ -39,7 +39,10 @@ import {
   type PatchGroupT,
 } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
-import { getErrorMessageFromUnknownJson } from "@valbuild/shared/internal";
+import {
+  getErrorMessageFromUnknownJson,
+  newestCommitSha,
+} from "@valbuild/shared/internal";
 
 const textEncoder = new TextEncoder();
 
@@ -373,6 +376,10 @@ export class ValOpsHttp extends ValOps {
         commits: ValCommit[];
         deployments: ValDeployment[];
         patches: PatchId[];
+        /** Of `patches`, the ones that have shipped. See the implementation. */
+        appliedPatches: PatchId[];
+        /** The newest commit, which is the publish head. */
+        headCommitSha?: string;
       }
     | {
         type: "error";
@@ -424,8 +431,26 @@ export class ValOpsHttp extends ValOps {
       }
     }
     const patches: PatchId[] = [];
+    /*
+     * Which of them have SHIPPED, alongside which of them exist.
+     *
+     * A published patch stays in the chain with `appliedAt` set until the next
+     * deployment moves the base, so "in the chain" and "has shipped" are
+     * different questions — and the chain ids alone answer only the first. A
+     * client that already holds a record never re-fetches it, so it never
+     * learns the second: another author's publish left that patch in your scope
+     * as pending, your prefix gate read a hole in front of it, and Publish
+     * refused for a reason that had stopped being true.
+     *
+     * Sent as ids rather than folded into `patches`, so a client that ignores
+     * it behaves exactly as before.
+     */
+    const appliedPatches: PatchId[] = [];
     for (const patchData of allPatchData.patches) {
       patches.push(patchData.patchId);
+      if (patchData.appliedAt) {
+        appliedPatches.push(patchData.patchId);
+      }
     }
     const webSocketNonceRes = await this.getWebSocketNonce(params.profileId);
     if (webSocketNonceRes.status === "error") {
@@ -442,6 +467,16 @@ export class ValOpsHttp extends ValOps {
       commits: allPatchData.commits || [],
       deployments: allPatchData.deployments || [],
       patches,
+      appliedPatches,
+      /*
+       * The PUBLISH head, which is not `commitSha`.
+       *
+       * `commitSha` is the commit this deployment is serving and does not move
+       * when somebody publishes — only when the new build lands. This does, so
+       * it is what a client carries back to `/save` to say which world it
+       * decided against.
+       */
+      headCommitSha: newestCommitSha(allPatchData.commits) ?? undefined,
       commitSha: this.commitSha as CommitSha,
     };
   }

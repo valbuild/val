@@ -35,6 +35,13 @@ export type PublishPatches = (request: {
    * "already published" refusal can never fire.
    */
   closesPatchGroupId?: string;
+  /**
+   * The newest commit this client knew about when the publish was decided.
+   *
+   * Sent so the server can refuse a publish decided against a world somebody
+   * else has since changed. See `expectedHeadCommitSha` in `ApiRoutes`.
+   */
+  expectedHeadCommitSha?: string;
 }) => Promise<PublishOutcome>;
 
 /**
@@ -70,6 +77,15 @@ export type RemovedPatch = {
 export type PublishOutcome =
   | { status: "published"; removed?: RemovedPatch[] }
   | { status: "not-fast-forward"; message: string }
+  /**
+   * Somebody else published between this being decided and Save being clicked.
+   *
+   * Its own outcome rather than an error, because there is a specific thing to
+   * do about it — look again — and because nothing was written. Distinct from
+   * `not-fast-forward`, which is git refusing a commit; this is refused before
+   * a commit is attempted, on a head the client named.
+   */
+  | { status: "head-moved"; message: string }
   | {
       status: "patch-errors";
       message: string;
@@ -135,6 +151,14 @@ export type PublishResult =
    * the answer was simply about a document that has since moved.
    */
   | { status: "refused"; reason: "chain-moved" }
+  /**
+   * Somebody else published while this was being decided.
+   *
+   * Refused rather than failed, and the difference matters to the user: nothing
+   * was written, and the thing to do is look at the review screen again — what
+   * it showed was decided against a head that has since moved.
+   */
+  | { status: "refused"; reason: "head-moved" }
   | {
       status: "failed";
       message: string;

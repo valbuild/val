@@ -428,12 +428,30 @@ export function ValProvider({
    */
   const statRemoved =
     "data" in stat && stat.data ? stat.data.removed : undefined;
+  /*
+   * Which of the announced ids have already SHIPPED.
+   *
+   * `undefined` where the server does not say — `fs` mode, or one that predates
+   * the field — and that is not the same as an empty list: absent leaves every
+   * record where it is, empty would un-apply the chain.
+   */
+  const statApplied =
+    "data" in stat && stat.data ? stat.data.appliedPatches : undefined;
+  /** The publish head, carried to `/save`. See `newestCommitSha`. */
+  const statHead =
+    "data" in stat && stat.data ? stat.data.headCommitSha : undefined;
   const storeStat = useMemo(
     () =>
       baseSha !== undefined && statPatches !== undefined
-        ? { baseSha, patches: statPatches, removed: statRemoved }
+        ? {
+            baseSha,
+            patches: statPatches,
+            removed: statRemoved,
+            appliedPatches: statApplied,
+            headCommitSha: statHead,
+          }
         : null,
-    [baseSha, statPatches, statRemoved],
+    [baseSha, statPatches, statRemoved, statApplied, statHead],
   );
 
   const getDirectFileUploadSettings = useCallback(async (): Promise<

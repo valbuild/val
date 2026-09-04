@@ -24,7 +24,7 @@ import type {
   SystemEvent,
 } from "./types";
 import type { SchemaStore } from "./SchemaStore";
-import type { PatchStore } from "./PatchStore";
+import { APPLIED_ELSEWHERE_SHA, type PatchStore } from "./PatchStore";
 import { noopActivity, type ActivitySink } from "./activity";
 
 const ops = new JSONOps();
@@ -1485,6 +1485,58 @@ export class SourceStore {
    * project — every field in the studio would repaint, and the wake would say
    * "external change" about modules where nothing changed at all.
    */
+  /**
+   * These patches have SHIPPED, so they apply regardless of scope.
+   *
+   * The chain holds its own reference to each `PatchRecord`, so marking one
+   * applied in `PatchStore` is invisible here — `isVisible` would go on reading
+   * the record it was given. This updates the entries and rebuilds whatever
+   * moved, which is the only way the news reaches the screen before the deploy
+   * that moves the base.
+   *
+   * Reuses `setVisiblePatchIds` for the rebuild rather than repeating it: the
+   * question "which modules changed, and what do they look like now" has one
+   * correct answer and one implementation of it. The scope is passed back
+   * unchanged, so the only thing that can differ is what these records now say
+   * about themselves.
+   */
+  markApplied(patchIds: readonly PatchId[]): void {
+    if (patchIds.length === 0) return;
+    const applied = new Set(patchIds);
+    /*
+     * Which entries were HELD and are now visible, worked out BEFORE the
+     * records are touched.
+     *
+     * `setVisiblePatchIds` decides what to rebuild by comparing `isVisible`
+     * against the entry it already holds — so updating the records first would
+     * make it compare the new state with itself and rebuild nothing at all.
+     */
+    const unheld: ModuleFilePath[] = [];
+    const touched: SourcePath[] = [];
+    for (const [moduleFilePath, chain] of this.chains) {
+      let differs = false;
+      for (const entry of chain) {
+        if (!applied.has(entry.record.patchId)) continue;
+        if (isApplied(entry.record)) continue;
+        if (!this.isVisible(entry.record)) {
+          differs = true;
+          touched.push(...touchedSourcePaths(entry.record));
+        }
+        entry.record = {
+          ...entry.record,
+          appliedAt: { commitSha: APPLIED_ELSEWHERE_SHA },
+        };
+      }
+      if (differs) unheld.push(moduleFilePath);
+    }
+    if (unheld.length === 0) {
+      // Every one of them was already on screen. The records are now honest
+      // about why, which is all this had to change.
+      return;
+    }
+    this.rebuildModules(unheld, touched);
+  }
+
   setVisiblePatchIds(patchIds: readonly PatchId[] | null): void {
     const next = patchIds === null ? null : new Set(patchIds);
     const changed: ModuleFilePath[] = [];
@@ -1512,6 +1564,20 @@ export class SourceStore {
     if (changed.length === 0) {
       return;
     }
+    this.rebuildModules(changed, touched);
+  }
+
+  /**
+   * Put these modules back to base and replay whatever is visible now.
+   *
+   * Shared by {@link setVisiblePatchIds} and {@link markApplied}, which change
+   * different halves of the same question — one moves the scope, the other
+   * moves what a record says about itself — and both then need exactly this.
+   */
+  private rebuildModules(
+    changed: readonly ModuleFilePath[],
+    touched: SourcePath[],
+  ): void {
     const rebuilt: ModuleFilePath[] = [];
     for (const moduleFilePath of changed) {
       const base = this.baseSources[moduleFilePath];

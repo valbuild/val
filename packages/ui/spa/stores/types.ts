@@ -230,7 +230,18 @@ export type SystemEvent =
       moduleFilePath: ModuleFilePath;
     }
   /** `/stat` announced the ordered patch-id list. Data not fetched yet. */
-  | { type: "stat:receive"; patches: PatchId[] }
+  | {
+      type: "stat:receive";
+      patches: PatchId[];
+      /**
+       * Of `patches`, the ones that have already SHIPPED.
+       *
+       * Absent where the server does not say — `fs` mode, or an older one — and
+       * absent is NOT "none of them": a reader that treated it that way would
+       * un-apply every record on the next stat. See `PatchStore.receiveApplied`.
+       */
+      appliedPatches?: PatchId[];
+    }
   /** Patch *data* has arrived for these ids and is now readable. */
   | { type: "patch:receive"; patches: PatchId[] }
   /**
@@ -337,6 +348,25 @@ export type SystemEvent =
       message: string;
       errors?: Record<ModuleFilePath, string[]>;
     }
+  /**
+   * A save pulled OTHER AUTHORS' patches into this user's group.
+   *
+   * The write closure is the one place other people's work enters your view
+   * without you asking for it, and it happened in silence: the scope widened,
+   * `SourceStore` rebuilt the modules, and the only trace was a number changing
+   * on the Review button.
+   *
+   * Told after the fact rather than asked first. The edit that triggered it was
+   * written against a view these patches produce, so it already depends on
+   * them; there is nothing to undo, and offering to would be offering to break
+   * the thing just typed. See "Editing inside a region you are holding back" in
+   * `docs/independent-publish/DESIGN.md` for why the alternative — refusing the
+   * edit — was rejected.
+   *
+   * Carries the ids rather than the authors: resolving a profile needs the
+   * provider, and a store event has no business knowing about one.
+   */
+  | { type: "patch:group-widened"; patches: PatchId[] }
   /**
    * A save has been failing long enough that someone should be told.
    *

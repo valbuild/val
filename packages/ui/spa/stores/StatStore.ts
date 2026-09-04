@@ -35,6 +35,31 @@ export type StatSnapshot = {
    * drains it when it hands it over, so it arrives exactly once.
    */
   removed?: { patchId: PatchId; reason: string }[];
+  /**
+   * Of `patches`, the ones that have already SHIPPED.
+   *
+   * The id list says what exists; this says what has been committed but not yet
+   * deployed. A client never re-fetches a record it already holds, so without
+   * this it never learns that somebody else's publish moved a patch it is
+   * holding — the patch stayed pending in the scope, the prefix gate read a
+   * hole in front of it, and Publish refused for a reason that had stopped
+   * being true.
+   *
+   * Optional: `fs` mode forgets published patches outright, and a server that
+   * does not send it leaves the client exactly where it was.
+   */
+  appliedPatches?: PatchId[];
+  /**
+   * The newest commit the server has told this client about.
+   *
+   * The PUBLISH HEAD. Unlike `baseSha`, which only moves once a deployment
+   * lands, it moves the instant somebody publishes — so it is the one thing a
+   * client can carry to `/save` to say which world it decided against.
+   *
+   * `undefined` where there is nothing to say (`fs` mode, or no commits yet),
+   * and absent leaves the last known head alone rather than clearing it.
+   */
+  headCommitSha?: string;
 };
 
 /**
@@ -52,6 +77,8 @@ export class StatStore {
 
   private patches: PatchId[] = [];
   private baseSha: string | null = null;
+  /** The publish head. See {@link StatSnapshot.headCommitSha}. */
+  private headCommitSha: string | null = null;
 
   /**
    * Adopt a `/stat` result. The id list is authoritative and replaces what we
@@ -62,7 +89,16 @@ export class StatStore {
     if (snapshot.baseSha !== undefined) {
       this.baseSha = snapshot.baseSha;
     }
-    this.events.emit({ type: "stat:receive", patches: [...this.patches] });
+    if (snapshot.headCommitSha !== undefined) {
+      this.headCommitSha = snapshot.headCommitSha;
+    }
+    this.events.emit({
+      type: "stat:receive",
+      patches: [...this.patches],
+      ...(snapshot.appliedPatches !== undefined
+        ? { appliedPatches: [...snapshot.appliedPatches] }
+        : {}),
+    });
     if (snapshot.removed !== undefined && snapshot.removed.length > 0) {
       // A separate event, after the id list: what this says is not "the chain
       // moved", it is "work you made no longer exists anywhere". Only one thing
@@ -76,6 +112,17 @@ export class StatStore {
 
   currentPatchIds(): PatchId[] {
     return [...this.patches];
+  }
+
+  /**
+   * The newest commit this client has been told about, or `null`.
+   *
+   * See {@link StatSnapshot.headCommitSha}. Read rather than carried on the
+   * event, for the same reason `baseSha` is: the event says something changed,
+   * and a consumer that needs this asks for it.
+   */
+  currentHeadCommitSha(): string | null {
+    return this.headCommitSha;
   }
 
   /**

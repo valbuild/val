@@ -1,0 +1,135 @@
+import {
+  initVal,
+  type ModuleFilePath,
+  type PatchId,
+  type SourcePath,
+} from "@valbuild/core";
+import { createSystem } from "./createSystem";
+
+/**
+ * Refusing a publish decided against a world somebody else has changed.
+ *
+ * Git's own not-fast-forward guard does not cover this. `ValServer` fetches the
+ * chain and commits FRESH at publish time, so the parent commit it sends is
+ * always the server's current one — the commit always applies, and the person
+ * who read the review screen never finds out that the set they approved is not
+ * the set that shipped.
+ *
+ * So the client names the newest commit it knew about, and the server refuses
+ * when it sees a newer one. Before the commit, so nothing is written and the
+ * answer is "look again" rather than "your commit was rejected".
+ */
+
+const MODULE = "/a.val.ts" as ModuleFilePath;
+const TITLE = '/a.val.ts?p="title"' as SourcePath;
+
+const project = () => {
+  const { c, s } = initVal();
+  return [c.define(MODULE, s.object({ title: s.string() }), { title: "base" })];
+};
+
+function makeSystem(options?: { headMoved?: boolean }) {
+  const sent: (string | undefined)[] = [];
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: (() => {
+      let next = 0;
+      return () => `p${++next}` as PatchId;
+    })(),
+    savePatches: async ({ patches, parentRef }) => ({
+      status: "saved",
+      newPatchIds: patches.map((patch) => patch.patchId),
+      parentRef,
+    }),
+    publishPatches: async (request) => {
+      sent.push(request.expectedHeadCommitSha);
+      return options?.headMoved
+        ? { status: "head-moved", message: "someone else published" }
+        : { status: "published" };
+    },
+  });
+  system.host.receive(project());
+  return { system, sent };
+}
+
+async function edit(system: ReturnType<typeof makeSystem>["system"]) {
+  const res = await system.patchStore.createPatch(MODULE, [
+    { op: "replace", path: ["title"], value: "mine" },
+  ]);
+  if (res.status !== "created") throw new Error(`createPatch: ${res.status}`);
+  await system.patchSync.flush();
+  return res.record.patchId;
+}
+
+test("a publish carries the head the client last saw", async () => {
+  const { system, sent } = makeSystem();
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headCommitSha: "commit-1",
+  });
+  await edit(system);
+
+  expect((await system.publish([], "ship it")).status).toBe("published");
+
+  expect(sent).toEqual(["commit-1"]);
+});
+
+test("a server that says the head moved refuses, and says which", async () => {
+  const { system } = makeSystem({ headMoved: true });
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headCommitSha: "commit-1",
+  });
+  await edit(system);
+
+  const res = await system.publish([], "ship it");
+
+  /*
+   * Refused, not failed. Nothing was written, and the thing to do about it is
+   * specific — look at the review screen again — which is why it is its own
+   * reason rather than a message on a failure.
+   */
+  expect(res).toEqual({ status: "refused", reason: "head-moved" });
+});
+
+test("a client with no head publishes exactly as before", async () => {
+  const { system, sent } = makeSystem();
+  // `fs` mode, or a server that predates the field. The check cannot start
+  // refusing publishes for something the client never sets.
+  system.stat.receiveStat({ patches: [], baseSha: "sha" });
+  await edit(system);
+
+  expect((await system.publish([], "ship it")).status).toBe("published");
+
+  expect(sent).toEqual([undefined]);
+});
+
+test("the head is the latest one stat said, not the first", async () => {
+  const { system, sent } = makeSystem();
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headCommitSha: "commit-1",
+  });
+  const mine = await edit(system);
+  /*
+   * Somebody publishes, this client is told, and it publishes afterwards. The
+   * head it names has to be the one it now knows about.
+   *
+   * `mine` is listed: stat is authoritative about what the chain holds, so
+   * leaving this tab's own patch out of it drops the patch and there is nothing
+   * left to publish.
+   */
+  system.stat.receiveStat({
+    patches: [mine],
+    baseSha: "sha",
+    headCommitSha: "commit-2",
+  });
+
+  await system.publish([], "ship it");
+
+  expect(sent).toEqual(["commit-2"]);
+  expect(system.sourceStore.peek(TITLE)).toMatchObject({ status: "ready" });
+});

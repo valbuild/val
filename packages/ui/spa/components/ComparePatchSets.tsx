@@ -2496,7 +2496,14 @@ function DiffSide({
 
 // #region AvatarStack
 
-function AvatarStack({
+/**
+ * Condensed author avatars, overflowing to a `+N` badge past nine.
+ *
+ * Exported for `PatchGroupWidenedToasts`, which answers the same question —
+ * "whose work is this?" — about the patches a write's closure pulled in. Two
+ * drawings of that would drift.
+ */
+export function AvatarStack({
   authorIds,
   profilesByAuthorIds,
   mode,

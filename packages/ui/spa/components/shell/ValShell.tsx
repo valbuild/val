@@ -38,6 +38,7 @@ import { LoginDialog } from "../LoginDialog";
 import { PatchErrorsDialog } from "../PatchErrorsDialog";
 import { GlobalErrors } from "../GlobalErrors";
 import { TransientErrorToasts } from "../TransientErrorToasts";
+import { PatchGroupWidenedToasts } from "../PatchGroupWidenedToasts";
 import { Toaster } from "../designSystem/sonner";
 import { useTheme } from "../ValThemeProvider";
 import {
@@ -109,6 +110,7 @@ export function ValShell() {
       <ValShellBody state={shellData} />
       <Toaster />
       <TransientErrorToasts />
+      <PatchGroupWidenedToasts />
       <PatchErrorsDialog />
       <GlobalErrors />
     </>

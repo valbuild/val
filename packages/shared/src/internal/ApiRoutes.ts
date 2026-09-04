@@ -604,6 +604,30 @@ export const Api = {
               sourcesSha: z.string(),
               patches: z.array(PatchId),
               /**
+               * Of `patches`, the ones that have already SHIPPED.
+               *
+               * A published patch stays in the chain with `appliedAt` set until
+               * the next deployment moves the base, so the id list alone cannot
+               * say which is which — and a client never re-fetches a record it
+               * already holds, so it never finds out on its own. Another
+               * author's publish then left that patch pending in your scope,
+               * your prefix gate read a hole in front of it, and Publish
+               * refused for a reason that had stopped being true.
+               *
+               * Optional: `fs` mode forgets published patches outright, and a
+               * client that ignores this behaves exactly as it did before.
+               */
+              appliedPatches: z.array(PatchId).optional(),
+              /**
+               * The newest commit, which is the PUBLISH head.
+               *
+               * Not `commitSha`: that is the commit this deployment serves and
+               * moves only when a new build lands. This moves the instant
+               * somebody publishes, which is what makes it the thing a client
+               * carries back to `/save` to say which world it decided against.
+               */
+              headCommitSha: z.string().optional(),
+              /**
                * Unpublished changes the store threw away because it could not
                * read them.
                *
@@ -631,6 +655,30 @@ export const Api = {
               sourcesSha: z.string(),
               commitSha: z.string(),
               patches: z.array(PatchId),
+              /**
+               * Of `patches`, the ones that have already SHIPPED.
+               *
+               * A published patch stays in the chain with `appliedAt` set until
+               * the next deployment moves the base, so the id list alone cannot
+               * say which is which — and a client never re-fetches a record it
+               * already holds, so it never finds out on its own. Another
+               * author's publish then left that patch pending in your scope,
+               * your prefix gate read a hole in front of it, and Publish
+               * refused for a reason that had stopped being true.
+               *
+               * Optional: `fs` mode forgets published patches outright, and a
+               * client that ignores this behaves exactly as it did before.
+               */
+              appliedPatches: z.array(PatchId).optional(),
+              /**
+               * The newest commit, which is the PUBLISH head.
+               *
+               * Not `commitSha`: that is the commit this deployment serves and
+               * moves only when a new build lands. This moves the instant
+               * somebody publishes, which is what makes it the thing a client
+               * carries back to `/save` to say which world it decided against.
+               */
+              headCommitSha: z.string().optional(),
               commits: z.array(ValCommit),
               config: ValConfig,
               profileId: z.string().nullable(),
@@ -1143,6 +1191,22 @@ export const Api = {
            * Optional, and absent in `fs` mode, which has no groups.
            */
           patchGroupId: z.string().optional(),
+          /*
+           * The newest commit this client knew about when it decided.
+           *
+           * Answered with 409 when the server sees a newer one, because then
+           * somebody else published between the review screen being read and
+           * Save being clicked, and what is about to ship was decided against a
+           * world that no longer exists.
+           *
+           * Git's own not-fast-forward guard does not cover this: `ValServer`
+           * fetches the chain and commits fresh at publish time, so the parent
+           * commit it sends is always the server's current one.
+           *
+           * Optional, so a client that does not track it publishes exactly as
+           * it did before.
+           */
+          expectedHeadCommitSha: z.string().optional(),
         }),
         cookies: {
           val_session: z.string().optional(),
@@ -1176,10 +1240,26 @@ export const Api = {
         }),
         z.object({
           status: z.literal(409),
-          json: z.object({
-            message: z.string(),
-            isNotFastForward: z.literal(true),
-          }),
+          json: z.union([
+            z.object({
+              message: z.string(),
+              isNotFastForward: z.literal(true),
+            }),
+            /*
+             * Somebody else published between this being decided and Save.
+             *
+             * Its own shape rather than another `isNotFastForward`, because
+             * they happen at different moments and mean different things to the
+             * user: that one is git refusing a commit, this one is refused
+             * BEFORE a commit is attempted, on a head the client named. Nothing
+             * was written either way, but only this one is answered by looking
+             * at the review screen again.
+             */
+            z.object({
+              message: z.string(),
+              headMoved: z.literal(true),
+            }),
+          ]),
         }),
         z.object({
           status: z.literal(400),
