@@ -36,6 +36,22 @@ function openMenu(trigger: HTMLElement) {
   fireEvent.keyDown(trigger, { key: "Enter" });
 }
 
+/**
+ * The portal nodes this file has made.
+ *
+ * They are appended to `document.body`, which Testing Library's cleanup does
+ * not touch — it unmounts the roots it created and nothing else. Left alone
+ * they accumulate one empty `div` per test, in the tree every `screen` query
+ * searches. Removed here so each test starts in the body it expects.
+ */
+const portalContainers: HTMLElement[] = [];
+
+afterEach(() => {
+  for (const node of portalContainers.splice(0)) {
+    node.remove();
+  }
+});
+
 function renderPicker(
   models: AIModelInfo[],
   onSelectModel: (model: AIModelInfo["ref"]) => void = () => {},
@@ -43,6 +59,7 @@ function renderPicker(
 ) {
   const portalContainer = document.createElement("div");
   document.body.appendChild(portalContainer);
+  portalContainers.push(portalContainer);
   const rendered = render(
     <AIChatModelPicker
       models={models}
