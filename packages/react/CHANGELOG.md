@@ -1,5 +1,12 @@
 # @valbuild/react
 
+## 0.122.0
+
+### Patch Changes
+
+- Updated dependencies [[`1c8b7fd`](https://github.com/valbuild/val/commit/1c8b7fda1e84cd8bd32a03a85d2789598b98c3fb)]:
+  - @valbuild/ui@0.122.0
+
 ## 0.121.0
 
 ### Patch Changes
