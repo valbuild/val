@@ -686,6 +686,13 @@ The properties that the code in this repository depends on:
   request, and becomes the token's `aud`. It resolves to a project by the
   **exact origin** of that project's production URL, so a token is bound to one
   deployment rather than to anything that merely starts with the same string.
+- **The project is on the token too**, as `val_project` (`org/name`), and
+  `@valbuild/next` refuses a token whose claim is not the project it serves.
+  `aud` binds the token to an address; the address is bound to a project by a
+  registration at the issuer that a resource server cannot see, and this is what
+  keeps a wrong binding from becoming a member of one organization writing to
+  another's content. A token carrying no such claim is refused rather than
+  accepted.
 - **Access tokens are ES256 JWTs**, one hour, verifiable against the JWKS with no
   round trip to the issuer — per-request introspection would be the wrong shape
   for a serverless route.
@@ -736,6 +743,16 @@ grant and withdraw one, and rotation of the signing keys on a schedule. The
 resource-server half of rotation is done — an unknown `kid` refetches rather than
 refusing, from 0.120.1 — so what is missing there is the schedule, not the
 ability to survive it.
+
+**Where one address per project goes next:** removing the PAT relay (#597) turned
+"a PAT works anywhere" into "OAuth or nothing", and OAuth reaches exactly one
+address per project, from a browser — so preview deployments, an app running
+locally in proxy mode, and headless clients have no way to authenticate at all.
+The follow-up is planned in the authorization server's own repository, at
+`docs/plans/multi-address-oauth.md` in `valbuild/home`: registered resource
+origins, loopback by explicit project selection, preview wildcards limited to a
+suffix the project already holds, and an RFC 8628 device grant. The `val_project`
+claim above is that plan's first step, and the only part of it that lands here.
 
 ### D.8 Prerequisite fix in `packages/server`, separate PR (done)
 

@@ -65,6 +65,28 @@ export type ValOAuthConfig = {
    */
   resource: string;
   /**
+   * The project this app serves, as `org/name`, and therefore the expected
+   * `val_project`.
+   *
+   * Filled in by {@link initValMcp} from Val's own config rather than by the
+   * app, because it is the thing the check exists to establish and an app that
+   * could state it separately could state it wrongly.
+   *
+   * This is a second binding, not a redundant one. `aud` binds a token to an
+   * *address*; the address is bound to a project by a registration at the
+   * authorization server, and that registration is the one thing in the chain
+   * this app cannot see. If it is ever wrong — a mistaken entry, a domain that
+   * changed hands — a token approved by a member of another organization would
+   * arrive here with a matching `aud` and a signature that verifies, and
+   * without this check it would be honoured. With it, the worst such a mistake
+   * can produce is a refusal.
+   *
+   * Absent only where there is nothing to compare against: local filesystem
+   * mode, where `project` is optional and there is no backend and no other
+   * tenant to be confused with.
+   */
+  project?: string;
+  /**
    * Clock skew allowance, in seconds.
    *
    * Servers disagree about the time by more than you would like, and a token
@@ -473,6 +495,27 @@ export async function verifyValAccessToken(
     return invalidToken(
       "The access token is not valid for this server (aud claim).",
     );
+  }
+  if (config.project !== undefined) {
+    /**
+     * A missing claim is refused rather than accepted for compatibility.
+     *
+     * "Accept it if it is absent" is a downgrade: anything able to obtain a
+     * token from an issuer that does not set the claim — or to strip it — would
+     * turn the check off. Val's authorization server sets it unconditionally,
+     * so the only tokens this refuses are ones minted before it did, and those
+     * expire within the hour.
+     */
+    if (typeof payload.val_project !== "string") {
+      return invalidToken(
+        "The access token does not say which Val project it was approved for (val_project claim). Authorize again.",
+      );
+    }
+    if (payload.val_project !== config.project) {
+      return invalidToken(
+        "The access token was approved for a different Val project than this server serves (val_project claim).",
+      );
+    }
   }
   const subject = payload.sub;
   if (typeof subject !== "string" || subject.length === 0) {
