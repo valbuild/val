@@ -6,9 +6,11 @@ import {
   type Source,
   type SourcePath,
   type ValidationError,
+  type ValidationFix,
   type ValModule,
 } from "@valbuild/core";
 import {
+  isSchemaSourceFixError,
   resolveSchemaSourceFixes,
   resolveSchemaSourceFixForError,
 } from "./resolveSchemaSourceFixes";
@@ -340,5 +342,318 @@ describe("resolveSchemaSourceFixForError", () => {
         { schemas: {}, sources: {} },
       ),
     ).toBeNull();
+  });
+});
+
+describe("record:fill-keys", () => {
+  const at = "/content/page.val.ts" as SourcePath;
+
+  /** A project whose settings declare `available`. */
+  function project(available: string[]) {
+    const settings = c.define("/settings.val.ts", s.settings(), {
+      locales: { available, default: available[0] ?? null },
+    });
+    return getTestData([settings]);
+  }
+
+  /** The error a declared-key record raises, before it is resolved. */
+  function unresolved(value: {
+    present: string[];
+    declared: string[] | null;
+    aliases?: Record<string, string[]>;
+  }): Record<SourcePath, ValidationError[]> {
+    return {
+      [at]: [
+        {
+          message: "Did not validate record keys.",
+          fixes: ["record:fill-keys"],
+          value,
+        },
+      ],
+    };
+  }
+
+  test("a literal union brings its own keys, and a complete record resolves away", () => {
+    expect(
+      resolveSchemaSourceFixes(
+        unresolved({ present: ["a", "b"], declared: ["a", "b"] }),
+        project([]),
+      ),
+    ).toEqual({});
+  });
+
+  test("a missing key is named, and the null is explained", () => {
+    const result = resolveSchemaSourceFixes(
+      unresolved({ present: ["a"], declared: ["a", "b"] }),
+      project([]),
+    );
+    expect(result[at][0].message).toContain("Missing key: 'b'");
+    expect(result[at][0].message).toContain("null, not absent");
+    expect(result[at][0].fixes).toBeUndefined();
+    expect(result[at][0].value).toEqual({
+      missing: ["b"],
+      declared: ["a", "b"],
+    });
+  });
+
+  test("several missing keys read as a plural, in declaration order", () => {
+    const result = resolveSchemaSourceFixes(
+      unresolved({ present: ["b"], declared: ["a", "b", "c"] }),
+      project([]),
+    );
+    expect(result[at][0].message).toContain("Missing keys: 'a', 'c'");
+  });
+
+  test("a locale record takes its keys from the settings module", () => {
+    expect(
+      resolveSchemaSourceFixes(
+        unresolved({ present: ["en-US", "nb-NO"], declared: null }),
+        project(["en-US", "nb-NO"]),
+      ),
+    ).toEqual({});
+    const result = resolveSchemaSourceFixes(
+      unresolved({ present: ["en-US"], declared: null }),
+      project(["en-US", "nb-NO"]),
+    );
+    expect(result[at][0].message).toContain("Missing key: 'nb-NO'");
+  });
+
+  test("with aliases the required keys are the spellings, not the tags", () => {
+    const result = resolveSchemaSourceFixes(
+      unresolved({
+        present: ["en"],
+        declared: null,
+        aliases: { "en-US": ["en"], "nb-NO": ["no"] },
+      }),
+      project(["en-US", "nb-NO"]),
+    );
+    expect(result[at][0].message).toContain("Missing key: 'no'");
+  });
+
+  test("a project with no languages requires nothing of a locale record", () => {
+    // The locale field's own check already says the project has declared none.
+    // Demanding entries for a list that does not exist would be a second error
+    // about the same missing decision.
+    expect(
+      resolveSchemaSourceFixes(
+        unresolved({ present: [], declared: null }),
+        project([]),
+      ),
+    ).toEqual({});
+  });
+
+  test("a malformed error value is reported as a version mismatch, not a crash", () => {
+    const result = resolveSchemaSourceFixes(
+      {
+        [at]: [
+          {
+            message: "Did not validate record keys.",
+            fixes: ["record:fill-keys"],
+            value: { declared: ["a"] },
+          },
+        ],
+      },
+      project([]),
+    );
+    expect(result[at][0].typeError).toBe(true);
+  });
+});
+
+describe("locale:check-locale", () => {
+  /** A project whose settings declare `available`, plus one locale field. */
+  function project(available: unknown) {
+    const settings = c.define("/settings.val.ts", s.settings(), {
+      locales: { available: available as string[] },
+    });
+    const page = c.define(
+      "/content/page.val.ts",
+      s.object({ locale: s.locale() }),
+      { locale: "nb-NO" },
+    );
+    return getTestData([settings, page]);
+  }
+
+  /** The error a locale field raises, before it is resolved. */
+  function unresolved(
+    locale: string,
+    aliases?: Record<string, string[]>,
+  ): Record<SourcePath, ValidationError[]> {
+    return {
+      ['/content/page.val.ts?p="locale"' as SourcePath]: [
+        {
+          message: "Did not validate locale.",
+          fixes: ["locale:check-locale"],
+          value: {
+            locale,
+            sourcePath: '/content/page.val.ts?p="locale"',
+            aliases,
+          },
+        },
+      ],
+    };
+  }
+
+  const at = '/content/page.val.ts?p="locale"' as SourcePath;
+
+  test("a declared language resolves away", () => {
+    const result = resolveSchemaSourceFixes(
+      unresolved("nb-NO"),
+      project(["en-US", "nb-NO"]),
+    );
+    expect(result).toEqual({});
+  });
+
+  test("an undeclared language names the ones the project has", () => {
+    const result = resolveSchemaSourceFixes(
+      unresolved("sv-SE"),
+      project(["en-US", "nb-NO"]),
+    );
+    expect(result[at][0].message).toBe(
+      "'sv-SE' is not one of this project's languages: 'en-US', 'nb-NO'",
+    );
+    // Resolved: no fix code is left for anything downstream to try to apply.
+    expect(result[at][0].fixes).toBeUndefined();
+  });
+
+  test("a project with no languages is told to declare them, not that the value is wrong", () => {
+    const result = resolveSchemaSourceFixes(unresolved("nb-NO"), project([]));
+    expect(result[at][0].message).toContain(
+      "Declare them under 'locales.available'",
+    );
+  });
+
+  test("a project with no settings module at all says the same", () => {
+    const result = resolveSchemaSourceFixes(unresolved("nb-NO"), {
+      schemas: {},
+      sources: {},
+    });
+    expect(result[at][0].message).toContain(
+      "Declare them under 'locales.available'",
+    );
+  });
+
+  test("with aliases, a spelling resolves and the tag does not", () => {
+    const snapshot = project(["en-US", "nb-NO"]);
+    expect(
+      resolveSchemaSourceFixes(unresolved("no", { "nb-NO": ["no"] }), snapshot),
+    ).toEqual({});
+    // The tag itself is no longer a value of this field — that is what makes
+    // one page one URL.
+    const rejected = resolveSchemaSourceFixes(
+      unresolved("nb-NO", { "nb-NO": ["no"] }),
+      snapshot,
+    );
+    expect(rejected[at][0].message).toBe(
+      "'nb-NO' is not one of this field's locales: 'no'",
+    );
+  });
+
+  test("a partial alias map is a subset of the project's languages", () => {
+    const rejected = resolveSchemaSourceFixes(
+      unresolved("fr", { "en-US": ["en"] }),
+      project(["en-US", "fr-FR"]),
+    );
+    expect(rejected[at][0].message).toBe(
+      "'fr' is not one of this field's locales: 'en'",
+    );
+  });
+
+  test("an alias for a language the project does not have names the schema's mistake", () => {
+    // The value stored here is fine — 'en' is a spelling this field accepts. It
+    // is the map that is wrong, and saying so is the whole point: the previous
+    // behaviour accepted '/de/…' as German on a site with no German.
+    const rejected = resolveSchemaSourceFixes(
+      unresolved("en", { "en-US": ["en"], "de-DE": ["de"] }),
+      project(["en-US", "nb-NO"]),
+    );
+    expect(rejected[at][0].message).toBe(
+      ".aliases() names 'de-DE', which is not one of this project's languages: " +
+        "'en-US', 'nb-NO'. Add it under 'locales.available' in the settings " +
+        "module, or drop it from the alias map.",
+    );
+    expect(rejected[at][0].fixes).toBeUndefined();
+  });
+
+  test("several undeclared aliases are named together, and read as a plural", () => {
+    const rejected = resolveSchemaSourceFixes(
+      unresolved("en", { "en-US": ["en"], "de-DE": ["de"], "sv-SE": ["sv"] }),
+      project(["en-US"]),
+    );
+    expect(rejected[at][0].message).toBe(
+      ".aliases() names 'de-DE', 'sv-SE', which are not among this project's " +
+        "languages: 'en-US'. Add them under 'locales.available' in the settings " +
+        "module, or drop them from the alias map.",
+    );
+  });
+
+  test("an undeclared alias does not lend its spellings to the field", () => {
+    // The same map, with the German spelling stored. Without the narrowing in
+    // `acceptedLocaleValues` this resolved, and '/de/…' became a German page.
+    const rejected = resolveSchemaSourceFixes(
+      unresolved("de", { "en-US": ["en"], "de-DE": ["de"] }),
+      project(["en-US"]),
+    );
+    expect(rejected[at][0].message).toContain(".aliases() names 'de-DE'");
+  });
+
+  test("a settings module of the wrong shape reads as no languages", () => {
+    // Hand-edited, mid-keystroke: the resolver must not throw on its way past.
+    expect(() =>
+      resolveSchemaSourceFixes(unresolved("nb-NO"), project("en-US")),
+    ).not.toThrow();
+    expect(() =>
+      resolveSchemaSourceFixes(unresolved("nb-NO"), project([1, null])),
+    ).not.toThrow();
+  });
+});
+
+/**
+ * A marker error is one only the whole project can answer.
+ *
+ * Every caller that resolves any of them has to resolve all of them: what a
+ * caller that misses one shows the user is the marker's own placeholder text —
+ * "should typically be processed by Val internally … version mismatch" — which
+ * is alarming and says nothing. Two of these leaked through `ValOps` exactly
+ * that way, by being added here and not to a condition in the server.
+ */
+describe("isSchemaSourceFixError", () => {
+  const markers: ValidationFix[] = [
+    "keyof:check-keys",
+    "router:check-route",
+    "locale:check-locale",
+    "record:fill-keys",
+  ];
+
+  test("every fix the resolver answers for is recognised as one", () => {
+    for (const fix of markers) {
+      expect(isSchemaSourceFixError({ message: "…", fixes: [fix] })).toBe(true);
+    }
+  });
+
+  test("and it is the same set the resolver takes on", () => {
+    // Pinned from the other end: a new marker fix that `resolveSchemaSourceFixForError`
+    // answers for and this list does not is the leak, so the two are asserted
+    // to agree rather than merely both existing.
+    const snapshot = { schemas: {}, sources: {} };
+    for (const fix of markers) {
+      expect(
+        resolveSchemaSourceFixForError(
+          { message: "…", fixes: [fix] },
+          snapshot,
+        ),
+      ).not.toBe(null);
+    }
+  });
+
+  test("an ordinary validation error is not one", () => {
+    expect(isSchemaSourceFixError({ message: "Expected 'string'" })).toBe(
+      false,
+    );
+    expect(
+      isSchemaSourceFixError({
+        message: "…",
+        fixes: ["image:check-remote"],
+      }),
+    ).toBe(false);
   });
 });

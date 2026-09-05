@@ -29,6 +29,7 @@ import {
 import { splitRemoteRef } from "../remote/splitRemoteRef";
 import { mimeTypeMatchesAccept } from "../mimeType";
 import type { ImageEncodeOption } from "./image";
+import { declaredKeySetOf, type DeclaredKeySet } from "./declaredKeys";
 
 type MediaOptions = {
   type: "files" | "images";
@@ -239,6 +240,11 @@ export class RecordSchema<
         error = { ...error, [path]: [allFilesCheckError] };
       }
     }
+    // A record whose keys are declared by its schema holds every one of them,
+    // and an entry nobody has written yet is `null` rather than absent — so
+    // `null` is a value here, not a value of the wrong type, and the item
+    // schema is not asked about it.
+    const hasDeclaredKeys = this.declaredKeySet() !== null;
     Object.entries(src).forEach(([key, elem]) => {
       if (this.keySchema) {
         const keyPath = createValPathOfItem(path, key);
@@ -283,6 +289,8 @@ export class RecordSchema<
           this.markKeyErrorsAtPath(entryErr, subPath);
         }
         error = this.mergeValidationErrors(error, entryErr);
+      } else if (hasDeclaredKeys && elem === null) {
+        // Not filled in. See above: the key is required, the content is not.
       } else if (this.isJsonValues && isJson(elem)) {
         // jsonValues record, entry not loaded: the value is a lazy JsonSource
         // marker. Deep validation is deferred and run per-entry once the backing
@@ -299,7 +307,94 @@ export class RecordSchema<
         error = this.mergeValidationErrors(error, subError);
       }
     });
+    const declaredKeys = this.getDeclaredKeysValidation(path, src);
+    error = this.mergeValidationErrors(error, declaredKeys);
+    for (const scopeError of this.localeScopeErrors()) {
+      error = this.appendValidationError(
+        error,
+        path,
+        scopeError.message,
+        src,
+        scopeError.schemaError,
+      );
+    }
     return error;
+  }
+
+  /**
+   * The check that a record with a DECLARED key set holds every one of them.
+   *
+   * `s.record(s.locale(), item)` has one entry per language and
+   * `s.record(s.union(s.literal("a"), s.literal("b")), item)` has both — the
+   * keys are part of the schema either way, so a missing one is a hole in the
+   * content rather than content nobody has written yet. TypeScript already
+   * demanded both keys of the second; this is the validator catching up, which
+   * is why the two now behave the same.
+   *
+   * Deferred to `resolveSchemaSourceFixes` even for the literal case, where the
+   * keys are known right here: a locale record's keys are in another file, and
+   * one code path for both is one message, one fix and one thing to be wrong.
+   */
+  private getDeclaredKeysValidation(
+    path: SourcePath,
+    src: Record<string, unknown>,
+  ): ValidationErrors {
+    if (this.keySchema === null) {
+      return false;
+    }
+    const declared = this.declaredKeySet();
+    if (declared === null) {
+      return false;
+    }
+    return {
+      [path]: [
+        {
+          fixes: ["record:fill-keys"],
+          message: `Did not validate record keys. This error (record:fill-keys) should typically be processed by Val internally. Seeing this error most likely means you have a Val version mismatch.`,
+          value: {
+            present: Object.keys(src),
+            declared: declared.kind === "literals" ? declared.keys : null,
+            aliases: declared.kind === "locale" ? declared.aliases : undefined,
+          },
+        },
+      ],
+    };
+  }
+
+  /**
+   * The key set this record's schema declares, computed once.
+   *
+   * `declaredKeySetOf` reads a SERIALIZED schema, and serializing the key
+   * schema walks it — twice per validate, and once per record instance, for an
+   * answer that is a property of the schema and cannot move between them. A
+   * schema is built once and validated against many times, so the walk happens
+   * on the first question and not on any after it.
+   */
+  private declaredKeys: DeclaredKeySet | null | undefined;
+
+  private declaredKeySet(): DeclaredKeySet | null {
+    if (this.declaredKeys === undefined) {
+      this.declaredKeys =
+        this.keySchema === null
+          ? null
+          : declaredKeySetOf(this.keySchema["executeSerialize"]());
+    }
+    return this.declaredKeys;
+  }
+
+  protected override opensLocaleScope(): "field" | "key" | null {
+    return this.keySchema !== null && this.keySchema["isLocaleField"]()
+      ? "key"
+      : null;
+  }
+
+  protected override localeScopeChildren(): {
+    key: string;
+    schema: Schema<SelectorSource>;
+  }[] {
+    // The KEY schema is not a child here. A locale key is what opens this
+    // record's scope; it is not something inside the scope.
+    return [{ key: "*", schema: this.item }];
   }
 
   private isRemoteUrl(url: string): boolean {
@@ -970,14 +1065,34 @@ export class RecordSchema<
   }
 }
 
+/**
+ * The source of a record, given what its key schema says about its keys.
+ *
+ * A key schema that ENUMERATES its keys (a union of literals, or `s.locale()`)
+ * makes every one of them an entry of the record, and an entry nobody has
+ * written yet is `null` rather than absent — so the value type widens by
+ * `null`. That is the whole of option F at the type level: a half-translated
+ * record is a record with nulls in it, which is data you can count, filter and
+ * see in a diff, rather than keys that are simply not there.
+ *
+ * For a union of literals TypeScript already required every key, since
+ * `SelectorOfSchema<K>` is the literal union itself. `s.locale()` is a flavoured
+ * string, so it requires nothing here and the requirement is the validator's —
+ * deliberately: which languages exist is in the settings module, where the
+ * project can change it without a deploy.
+ */
+export type RecordSrcOf<
+  K extends Schema<string>,
+  S extends Schema<SelectorSource>,
+> = K extends { __declaresRecordKeys: true }
+  ? Record<SelectorOfSchema<K>, SelectorOfSchema<S> | null>
+  : Record<SelectorOfSchema<K>, SelectorOfSchema<S>>;
+
 // Overload: with key schema
 export function record<
   K extends Schema<string>,
   S extends Schema<SelectorSource>,
->(
-  key: K,
-  schema: S,
-): RecordSchema<S, K, Record<SelectorOfSchema<K>, SelectorOfSchema<S>>>;
+>(key: K, schema: S): RecordSchema<S, K, RecordSrcOf<K, S>>;
 
 // Overload: without key schema
 export function record<S extends Schema<SelectorSource>>(
@@ -988,10 +1103,7 @@ export function record<S extends Schema<SelectorSource>>(
 export function record<
   K extends Schema<string>,
   S extends Schema<SelectorSource>,
->(
-  keyOrSchema: K | S,
-  schema?: S,
-): RecordSchema<S, K, Record<SelectorOfSchema<K>, SelectorOfSchema<S>>> {
+>(keyOrSchema: K | S, schema?: S): RecordSchema<S, K, RecordSrcOf<K, S>> {
   if (schema) {
     // Two-argument call: first is key schema, second is value schema
     return new RecordSchema(schema, false, [], null, keyOrSchema as K);

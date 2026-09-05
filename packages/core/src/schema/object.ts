@@ -143,6 +143,15 @@ export class ObjectSchema<
         customValidationError.schemaError,
       );
     }
+    for (const scopeError of this.localeScopeErrors()) {
+      error = this.appendValidationError(
+        error,
+        path,
+        scopeError.message,
+        src,
+        scopeError.schemaError,
+      );
+    }
     for (const [key, schema] of Object.entries(this.items)) {
       const subPath = createValPathOfItem(path, key);
       if (!subPath) {
@@ -276,6 +285,30 @@ export class ObjectSchema<
       this.renderInput,
       this.previewInput,
     );
+  }
+
+  /** The names of this object's `s.locale()` fields, in declaration order. */
+  protected override localeFieldNames(): string[] {
+    return Object.keys(this.items).filter((key) =>
+      this.items[key]["isLocaleField"](),
+    );
+  }
+
+  protected override opensLocaleScope(): "field" | "key" | null {
+    // More than one is itself the error, reported by `localeScopeErrors`. It
+    // still opens a scope: reporting "two locale fields" AND "a scope inside a
+    // scope" for the same object would be two errors about one mistake.
+    return this.localeFieldNames().length > 0 ? "field" : null;
+  }
+
+  protected override localeScopeChildren(): {
+    key: string;
+    schema: Schema<SelectorSource>;
+  }[] {
+    return Object.keys(this.items).map((key) => ({
+      key,
+      schema: this.items[key],
+    }));
   }
 
   protected override executeCustomValidateAt(

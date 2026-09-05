@@ -185,6 +185,24 @@ export type ShellProps = {
     canvasView: CanvasView;
     canvasTransform: CanvasTransform | null;
   }) => void;
+  /**
+   * The project's languages, for the locale filter.
+   *
+   * Undefined or empty hides the filter entirely — see `LocaleFilter`. Passed
+   * in rather than read here for the same reason everything else is: the shell
+   * is drawn in Storybook without the Val providers.
+   */
+  locales?: string[];
+  /**
+   * The language being shown, or `null` for all of them.
+   *
+   * Controlled, unlike the panel and the canvas: the filter has to reach the
+   * FIELDS, which the shell renders through `renderEditor` and does not own. So
+   * whoever owns the editor owns this, and puts it in a context the fields can
+   * read — see `LocaleFilterProvider`.
+   */
+  locale?: string | null;
+  onLocaleChange?: (locale: string | null) => void;
   /** Open the canvas on mount. */
   initialCanvasOpen?: boolean;
   initialCanvasView?: CanvasView;
@@ -384,6 +402,9 @@ export function Shell({
   onViewStateChange,
   initialCanvasOpen = false,
   initialCanvasView = "normal",
+  locales,
+  locale = null,
+  onLocaleChange,
   restoreViewState,
   skipTransition,
   selectionId,
@@ -850,6 +871,9 @@ export function Shell({
           // land somewhere that exists.
           onOpenMenu={() => setOpenPanel(destinations[0] ?? "account")}
           onOpenSearch={openSearch}
+          locales={locales}
+          locale={locale}
+          onLocaleChange={onLocaleChange}
           unreadNotifications={
             data.notifications === undefined ? undefined : unreadNotifications
           }
@@ -897,6 +921,9 @@ export function Shell({
               />
             )}
             <MobileBottomBar
+              locales={locales}
+              locale={locale}
+              onLocaleChange={onLocaleChange}
               pendingChanges={pendingChanges}
               onPreview={onPreview ?? (() => undefined)}
               previewHref={previewHref}

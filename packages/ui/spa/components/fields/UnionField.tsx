@@ -26,7 +26,7 @@ import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { FieldSourceError } from "../../components/FieldSourceError";
-import { emptyOf } from "@valbuild/shared/internal";
+
 import { AnyField } from "../../components/AnyField";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { useCallback, useEffect, useRef } from "react";
@@ -35,6 +35,7 @@ import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ObjectLikePreview } from "./ObjectFields";
 import { isJsonArray } from "../../utils/isJsonArray";
 import { ReadonlyGuard } from "./ReadonlyGuard";
+import { useEmptyOf } from "../../hooks/useEmptyOf";
 
 function isStringUnion(
   schema: SerializedUnionSchema,
@@ -209,6 +210,7 @@ export function useObjectUnion(
 ): ObjectUnionState {
   const fullSourceAtPath = useSourceAtPath(path);
   const { addPatch, patchPath } = useAddPatch(path);
+  const emptyOf = useEmptyOf();
   const keyPath = sourcePathOfItem(path, schema.key);
   const currentSourceKeyRes = useShallowSourceAtPath(keyPath, "literal");
   const currentKey =
@@ -272,7 +274,7 @@ export function useObjectUnion(
         schema.type,
       );
     },
-    [addPatch, patchPath, path, schema],
+    [addPatch, patchPath, path, schema, emptyOf],
   );
 
   const options = schema.items.flatMap((item) => {

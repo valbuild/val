@@ -1,10 +1,16 @@
 import {
   Internal,
+  acceptedLocaleValues,
+  missingDeclaredKeys,
+  undeclaredAliasedLocales,
+  resolveSettingsModule,
   type Json,
+  type LocaleAliases,
   type ModuleFilePath,
   type SerializedSchema,
   type SourcePath,
   type ValidationError,
+  type ValidationFix,
 } from "@valbuild/core";
 import {
   filterRoutesByPatterns,
@@ -259,15 +265,71 @@ function checkRouteIsValid(
   return { error: false };
 }
 
+/**
+ * The languages the project declares, from its settings module.
+ *
+ * Empty where there is no settings module, no `locales` section, or nothing in
+ * it — all of which mean the same thing: this project has not said it is
+ * translated.
+ */
+export function declaredLocales(snapshot: SchemaSourceSnapshot): string[] {
+  const { moduleFilePath } = resolveSettingsModule(snapshot.schemas);
+  if (moduleFilePath === null) {
+    return [];
+  }
+  const source = snapshot.sources[moduleFilePath];
+  if (typeof source !== "object" || source === null || Array.isArray(source)) {
+    return [];
+  }
+  const locales = (source as Record<string, Json>)["locales"];
+  if (
+    typeof locales !== "object" ||
+    locales === null ||
+    Array.isArray(locales)
+  ) {
+    return [];
+  }
+  const available = (locales as Record<string, Json>)["available"];
+  if (!Array.isArray(available)) {
+    return [];
+  }
+  return available.filter((tag): tag is string => typeof tag === "string");
+}
+
 export type ResolvedFix =
   | { status: "resolved" }
   | { status: "remaining"; error: ValidationError };
 
 /**
- * Resolves a single `keyof:check-keys` or `router:check-route` error against
- * the given schema/source snapshot. Returns:
+ * The fixes {@link resolveSchemaSourceFixForError} answers for.
+ *
+ * A marker error carrying one of these is NOT a message: it says "ask the whole
+ * project about this" and carries the value to ask with, because the schema
+ * that raised it can only see its own module. Left unresolved, what a user sees
+ * is the marker's own placeholder text — "should typically be processed by Val
+ * internally … version mismatch" — which is alarming and says nothing.
+ *
+ * A list rather than a check per call site: every caller that resolves some of
+ * these has to resolve all of them, and the two that leaked did so by adding a
+ * fix here and not to a condition somewhere else.
+ */
+const SCHEMA_SOURCE_FIXES: ValidationFix[] = [
+  "keyof:check-keys",
+  "router:check-route",
+  "locale:check-locale",
+  "record:fill-keys",
+];
+
+/** Whether an error is a marker only the whole project can answer. */
+export function isSchemaSourceFixError(error: ValidationError): boolean {
+  return (error.fixes ?? []).some((fix) => SCHEMA_SOURCE_FIXES.includes(fix));
+}
+
+/**
+ * Resolves a single marker error (see {@link SCHEMA_SOURCE_FIXES}) against the
+ * given schema/source snapshot. Returns:
  *   - null if the error is not one of these fixes (caller should pass through)
- *   - { status: "resolved" } if the referenced key/route is valid (drop error)
+ *   - { status: "resolved" } if the reference is valid (drop error)
  *   - { status: "remaining"; error } if invalid (rewritten error to surface)
  */
 export function resolveSchemaSourceFixForError(
@@ -331,6 +393,159 @@ export function resolveSchemaSourceFixForError(
       };
     }
     return { status: "resolved" };
+  }
+
+  if (fixes.includes("locale:check-locale")) {
+    const value = error.value;
+    if (typeof value !== "object" || value === null) {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          message: `Expected locale validation error to have a 'value' object. Found: ${typeof value}. ${TYPE_ERROR_MESSAGE}`,
+          typeError: true,
+          fixes: undefined,
+        },
+      };
+    }
+    const { locale, aliases } = value as {
+      locale?: unknown;
+      aliases?: LocaleAliases;
+    };
+    if (typeof locale !== "string") {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          message: `Expected locale validation error 'value' to have property 'locale' of type 'string'. Found: ${typeof locale}. ${TYPE_ERROR_MESSAGE}`,
+          typeError: true,
+          fixes: undefined,
+        },
+      };
+    }
+    const available = declaredLocales(snapshot);
+    if (available.length === 0) {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          // The project has not said it is translated, so the value is not
+          // wrong so much as premature — and the fix is in another file.
+          message: `This project has no languages. Declare them under 'locales.available' in the settings module before using s.locale().`,
+          fixes: undefined,
+        },
+      };
+    }
+    const undeclared = undeclaredAliasedLocales(available, aliases);
+    if (undeclared.length > 0) {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          // Reported before the value is looked at, and reported even when the
+          // value happens to be fine: the mistake is in the schema, so a field
+          // that only ever stores 'en' would otherwise never mention that the
+          // German it also aliases does not exist.
+          message: `.aliases() names ${undeclared
+            .map((each) => `'${each}'`)
+            .join(", ")}, which ${
+            undeclared.length === 1 ? "is not one of" : "are not among"
+          } this project's languages: ${available
+            .map((each) => `'${each}'`)
+            .join(", ")}. Add ${
+            undeclared.length === 1 ? "it" : "them"
+          } under 'locales.available' in the settings module, or drop ${
+            undeclared.length === 1 ? "it" : "them"
+          } from the alias map.`,
+          fixes: undefined,
+        },
+      };
+    }
+    const accepted = acceptedLocaleValues(available, aliases);
+    if (accepted.includes(locale)) {
+      return { status: "resolved" };
+    }
+    return {
+      status: "remaining",
+      error: {
+        ...error,
+        message:
+          aliases === undefined
+            ? `'${locale}' is not one of this project's languages: ${accepted
+                .map((each) => `'${each}'`)
+                .join(", ")}`
+            : // With aliases the tag itself is NOT a value, so naming the
+              // languages would be naming things this field does not accept.
+              `'${locale}' is not one of this field's locales: ${accepted
+                .map((each) => `'${each}'`)
+                .join(", ")}`,
+        fixes: undefined,
+      },
+    };
+  }
+
+  if (fixes.includes("record:fill-keys")) {
+    const value = error.value;
+    if (typeof value !== "object" || value === null) {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          message: `Expected record key validation error to have a 'value' object. Found: ${typeof value}. ${TYPE_ERROR_MESSAGE}`,
+          typeError: true,
+          fixes: undefined,
+        },
+      };
+    }
+    const { present, declared, aliases } = value as {
+      present?: unknown;
+      declared?: unknown;
+      aliases?: Record<string, string[]>;
+    };
+    if (!Array.isArray(present)) {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          message: `Expected record key validation error 'value' to have property 'present' of type 'array'. Found: ${typeof present}. ${TYPE_ERROR_MESSAGE}`,
+          typeError: true,
+          fixes: undefined,
+        },
+      };
+    }
+    const presentKeys = present.filter(
+      (key): key is string => typeof key === "string",
+    );
+    // A literal union brought its keys along; a locale record left them to be
+    // read out of the settings module, which is the whole reason this check is
+    // resolved here rather than in the schema.
+    const declaredKeys = Array.isArray(declared)
+      ? declared.filter((key): key is string => typeof key === "string")
+      : acceptedLocaleValues(declaredLocales(snapshot), aliases);
+    if (declaredKeys.length === 0) {
+      // A locale record on a project that has declared no languages. There is
+      // nothing to require, and the locale field's own check already says the
+      // project has not declared any — saying it twice on one record would not
+      // add anything.
+      return { status: "resolved" };
+    }
+    const missing = missingDeclaredKeys(declaredKeys, presentKeys);
+    if (missing.length === 0) {
+      return { status: "resolved" };
+    }
+    return {
+      status: "remaining",
+      error: {
+        ...error,
+        message: `Missing ${missing.length === 1 ? "key" : "keys"}: ${missing
+          .map((each) => `'${each}'`)
+          .join(
+            ", ",
+          )}. This record's keys are declared by its schema, so every one of them is an entry — an entry nobody has written yet is null, not absent.`,
+        value: { missing, declared: declaredKeys },
+        fixes: undefined,
+      },
+    };
   }
 
   if (fixes.includes("router:check-route")) {
@@ -405,10 +620,10 @@ function asRegExpPattern(value: unknown): SerializedRegExpPattern | undefined {
 /**
  * Apply schema/source fix resolution across a map of validation errors.
  *
- * Errors with `keyof:check-keys` or `router:check-route` are resolved against
- * the in-memory schema/source snapshot — valid references drop the error,
- * invalid ones are rewritten with a "did you mean…" message and have their
- * `fixes` cleared (so downstream code reports them as plain validation errors).
+ * Errors carrying one of {@link SCHEMA_SOURCE_FIXES} are resolved against the
+ * in-memory schema/source snapshot — valid references drop the error, invalid
+ * ones are rewritten with a "did you mean…" message and have their `fixes`
+ * cleared (so downstream code reports them as plain validation errors).
  * All other errors pass through untouched.
  *
  * Source paths with no remaining errors are removed from the result.

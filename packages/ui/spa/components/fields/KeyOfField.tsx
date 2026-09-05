@@ -35,13 +35,14 @@ import { Link, Check, ChevronsUpDown, Plus } from "lucide-react";
 import { DropdownPreviewRow } from "../DropdownPreviewRow";
 import { ReadonlyGuard } from "./ReadonlyGuard";
 import { AnyField } from "../AnyField";
-import { emptyOf, RoutePattern } from "@valbuild/shared/internal";
+import { RoutePattern } from "@valbuild/shared/internal";
 import { JSONValue } from "@valbuild/core/patch";
 import { RouteForm } from "../RouteForm";
 import {
   isExternalRouter,
   routePatternOfRouterModule,
 } from "../creatableRouters";
+import { useEmptyOf } from "../../hooks/useEmptyOf";
 
 export type KeyPreview = {
   title: string;
@@ -382,6 +383,7 @@ export function KeyOfField({
 }) {
   const type = "keyOf";
   const { navigate } = useNavigation();
+  const emptyOf = useEmptyOf();
   const schemaAtPath = useSchemaAtPath(path);
   const keyOf =
     "data" in schemaAtPath &&

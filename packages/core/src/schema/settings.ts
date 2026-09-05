@@ -9,11 +9,16 @@ import {
 import {
   ASSISTANT_SETTINGS_MAX_LENGTH,
   AssistantSettingsSource,
+  LocalesSettingsSource,
   SettingsSource,
 } from "../source/settings";
 import { ModuleFilePath, SourcePath } from "../val";
+import { array } from "./array";
+import { record } from "./record";
+import { locale } from "./locale";
 import { boolean } from "./boolean";
 import { string } from "./string";
+import { localeTagError } from "../locale";
 import {
   ValidationError,
   ValidationErrors,
@@ -52,6 +57,39 @@ export type SerializedSettingsSchema = {
   readonly?: boolean;
   hidden?: boolean;
   description?: string;
+  /**
+   * Which of Val's sections this is, where it is one.
+   *
+   * The name rather than the rule itself, because the rule is a closure and a
+   * closure does not survive JSON. Val owns both ends — every section's rules
+   * are in {@link sectionValidators} in this file — so the name is enough for
+   * {@link deserializeSchema} to put the same rules back, and a Studio that
+   * does not recognise the name simply runs none (see `sectionValidate`).
+   *
+   * Absent on the settings module itself, which is a bag of sections and has no
+   * rules of its own.
+   */
+  section?: string;
+};
+
+/**
+ * A rule about a section that needs more than one of its keys.
+ *
+ * Paths are WITHIN the section, so an error lands on the key it is about.
+ */
+type SectionValidate = (
+  src: Record<string, unknown>,
+) => { path: (string | number)[]; message: string }[];
+
+/**
+ * Every section's rules, by the name that travels in the serialized schema.
+ *
+ * Typed with `| undefined` on the value rather than as a `Partial`: the whole
+ * point is that a lookup can miss, because the name comes off a serialized
+ * schema that may have been written by a newer Val than the one reading it.
+ */
+const sectionValidators: Record<string, SectionValidate | undefined> = {
+  locales: localesSectionErrors,
 };
 
 /**
@@ -74,8 +112,37 @@ export class SettingsSchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    /**
+     * Which section this is, where Val has rules about it beyond its keys.
+     *
+     * Not the `validate` the class deliberately does not offer: that one is the
+     * schema author's, and `s.settings()` takes no arguments to declare it
+     * with. This names a rule Val states about a shape Val owns —
+     * `locales.default` having to be one of `locales.available` is true of
+     * every project, and there is nowhere else it can be said. A single field's
+     * rules stay on that field's own schema; this is only for the ones that
+     * need a sibling.
+     *
+     * A NAME rather than the function, so it survives serialization: the schema
+     * reaches the Studio's validation worker as JSON, and a closure would be
+     * dropped on the way — which is how these rules once went missing there.
+     */
+    private readonly section?: string,
   ) {
     super();
+  }
+
+  /**
+   * This section's rules, or `undefined` where there are none to run.
+   *
+   * A name this Val does not know means a schema written by a newer one. Its
+   * per-key validation still runs; only the cross-key rule is missed, which is
+   * the mild half of the failure and better than refusing the schema.
+   */
+  private sectionValidate(): SectionValidate | undefined {
+    return this.section === undefined
+      ? undefined
+      : sectionValidators[this.section];
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
@@ -138,6 +205,23 @@ export class SettingsSchema<
         );
       }
     }
+    const sectionValidate = this.sectionValidate();
+    if (sectionValidate) {
+      for (const { path: keys, message } of sectionValidate(src)) {
+        let subPath: SourcePath | ModuleFilePath | undefined = path;
+        for (const key of keys) {
+          subPath = subPath && createValPathOfItem(subPath, key);
+        }
+        error = this.appendValidationError(
+          error,
+          // Falls back to the section itself, which is where an error belongs
+          // when the value it is about is not addressable.
+          (subPath as SourcePath | undefined) ?? path,
+          message,
+          src,
+        );
+      }
+    }
     return error;
   }
 
@@ -173,6 +257,7 @@ export class SettingsSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.section,
     );
   }
 
@@ -183,6 +268,7 @@ export class SettingsSchema<
       true,
       this.isHidden,
       this.description,
+      this.section,
     );
   }
 
@@ -193,6 +279,7 @@ export class SettingsSchema<
       this.isReadonly,
       true,
       this.description,
+      this.section,
     );
   }
 
@@ -216,6 +303,7 @@ export class SettingsSchema<
       readonly: this.isReadonly,
       hidden: this.isHidden,
       description: this.description,
+      section: this.section,
     };
   }
 
@@ -304,6 +392,89 @@ export function settings(): SettingsSchema<SettingsSource> {
         .describe(
           "How the assistant should write when it writes content: formal or playful, British or American, how headings are cased.",
         ),
+      translation: record(
+        locale(),
+        string()
+          .multiline()
+          .maxLength(ASSISTANT_SETTINGS_MAX_LENGTH)
+          .nullable(),
+      )
+        .nullable()
+        .describe(
+          "How to translate into each language: dialect, formality, and the words that stay untranslated.",
+        ),
     }),
+    locales: new SettingsSchema<LocalesSettingsSource>(
+      {
+        // Nullable because the source type is, and because the Studio writes
+        // `null` for every sibling the first time a section is created.
+        available: array(string())
+          .nullable()
+          .describe(
+            "The languages this project publishes, as BCP 47 tags: en-US, nb-NO. The first is where the Studio starts.",
+          ),
+        default: string()
+          .nullable()
+          .describe(
+            "The language content is written in first, and the one translations are made from.",
+          ),
+      },
+      false,
+      false,
+      false,
+      undefined,
+      "locales",
+    ),
   });
+}
+
+/**
+ * The rules about `locales` that need more than one of its keys.
+ *
+ * Each tag's own spelling is checked by the field (see `localeTagError`); this
+ * is what is left: a default has to name a language the project actually has,
+ * and a language cannot be declared twice.
+ *
+ * Reads defensively rather than asserting the source's type. A settings module
+ * is a file someone edits by hand, and validation runs against whatever is in
+ * it — including the shapes the per-key pass is, in the same breath, reporting.
+ */
+function localesSectionErrors(
+  src: Record<string, unknown>,
+): { path: (string | number)[]; message: string }[] {
+  const errors: { path: (string | number)[]; message: string }[] = [];
+  const raw = Array.isArray(src["available"]) ? src["available"] : [];
+  const available: string[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < raw.length; i++) {
+    const tag = raw[i];
+    if (typeof tag !== "string") {
+      // The item's own schema has already said what is wrong with it.
+      continue;
+    }
+    available.push(tag);
+    const spelling = localeTagError(tag);
+    if (spelling !== false) {
+      errors.push({ path: ["available", i], message: spelling });
+    } else if (seen.has(tag)) {
+      errors.push({
+        path: ["available", i],
+        message: `'${tag}' is declared twice`,
+      });
+    }
+    seen.add(tag);
+  }
+  const fallback = src["default"];
+  if (typeof fallback === "string" && !seen.has(fallback)) {
+    errors.push({
+      path: ["default"],
+      message:
+        available.length === 0
+          ? `'${fallback}' is not one of this project's languages, because none are declared`
+          : `'${fallback}' is not one of this project's languages: ${available
+              .map((tag) => `'${tag}'`)
+              .join(", ")}`,
+    });
+  }
+  return errors;
 }

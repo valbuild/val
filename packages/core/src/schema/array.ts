@@ -198,6 +198,13 @@ export class ArraySchema<
     );
   }
 
+  protected override localeScopeChildren(): {
+    key: string;
+    schema: Schema<SelectorSource>;
+  }[] {
+    return [{ key: "*", schema: this.item }];
+  }
+
   protected override executeCustomValidateAt(
     path: SourcePath,
     src: Src,

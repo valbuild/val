@@ -17,6 +17,7 @@ import { NumberSchema } from "./number";
 import { ObjectSchema } from "./object";
 import { RecordSchema } from "./record";
 import { RichTextSchema } from "./richtext";
+import { LocaleSchema } from "./locale";
 import { RouteSchema } from "./route";
 import { SettingsSchema } from "./settings";
 import { StringSchema } from "./string";
@@ -118,6 +119,12 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        // Carried through, or the Studio's validation worker — which only ever
+        // sees the deserialized schema — would run every field's own rules and
+        // none of the cross-field ones, so a `locales.default` naming a
+        // language the project does not have would be reported by the CLI and
+        // silently accepted in the Studio.
+        serialized.section,
       );
     case "array":
       return new ArraySchema(
@@ -214,6 +221,17 @@ function deserializeSchemaImpl(
         serialized.description,
         serialized.render ?? null,
       );
+    case "locale": {
+      return new LocaleSchema(
+        serialized.aliases,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+        serialized.render ?? null,
+      );
+    }
     case "route": {
       const routeOptions = serialized.options
         ? {

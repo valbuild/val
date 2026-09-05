@@ -6,7 +6,7 @@ import { ChevronDown, ChevronsDown, Plus, Sparkles } from "lucide-react";
 import { Checkbox } from "./designSystem/checkbox";
 import { JSONValue } from "@valbuild/core/patch";
 import { ArrayAndRecordTools } from "./ArrayAndRecordTools";
-import { emptyOf } from "@valbuild/shared/internal";
+
 import { EmbeddedBooleanField } from "./fields/BooleanField";
 import {
   Accordion,
@@ -20,6 +20,7 @@ import { ShallowSource, useGetNavPath } from "./ValFieldProvider";
 import { useAIChatActions, useInsertFieldRef } from "./AIChatActionsContext";
 import { useFieldState } from "./useFieldState";
 import { useNavigation } from "./ValRouter";
+import { useEmptyOf } from "../hooks/useEmptyOf";
 
 export function Field({
   label,
@@ -76,6 +77,7 @@ export function Field({
   } = useFieldState(path, type, overrides, initialExpanded);
   const effectiveReadonly = readonly || hasOverrides;
   const { navigate } = useNavigation();
+  const emptyOf = useEmptyOf();
   const getNavPath = useGetNavPath();
   /**
    * Not merely enabled — see `canMentionField`. The mention opens the assistant

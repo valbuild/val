@@ -17,6 +17,7 @@ import {
   SerializedDateTimeSchema,
   SerializedColorSchema,
   SerializedCodeSchema,
+  SerializedLocaleSchema,
 } from "@valbuild/core";
 import { vercelStegaCombine, vercelStegaSplit } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
@@ -427,6 +428,12 @@ export function stegaEncode(
     if (recOpts?.schema && isCodeSchema(recOpts?.schema)) {
       return sourceOrSelector;
     }
+    // A locale ends up in `<html lang>`, in `hreflang`, and in `Intl`
+    // constructors. None of those survive invisible characters: the attribute
+    // carries them into the markup, and `Intl` throws on a tag it cannot parse.
+    if (recOpts?.schema && isLocaleSchema(recOpts?.schema)) {
+      return sourceOrSelector;
+    }
     if (recOpts?.schema && isUnionSchema(recOpts?.schema)) {
       // Handle tagged union
       const taggedSchema = resolveTaggedUnionSchema(
@@ -598,6 +605,12 @@ function isColorSchema(
   schema: SerializedSchema | undefined,
 ): schema is SerializedColorSchema {
   return schema?.type === "color";
+}
+
+function isLocaleSchema(
+  schema: SerializedSchema | undefined,
+): schema is SerializedLocaleSchema {
+  return schema?.type === "locale";
 }
 
 function isCodeSchema(

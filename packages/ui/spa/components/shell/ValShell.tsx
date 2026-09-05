@@ -83,6 +83,9 @@ import { useAllValidationErrors } from "../ValErrorProvider";
 import { AIChatSurface } from "../AIChatSurface";
 import { useAIChatActions, useInsertFieldRef } from "../AIChatActionsContext";
 import { useValSystem } from "../../stores/react/SystemContext";
+import { ProjectLocalesProvider } from "../../hooks/useProjectLocales";
+import { useLocalesFromSettings } from "../../hooks/useLocalesFromSettings";
+import { LocaleFilterProvider } from "../LocaleFilterProvider";
 
 /**
  * The Val studio on the floating shell.
@@ -163,8 +166,19 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * changes, so the address bar is always a link to what is on screen.
    */
   const urlState = useShellUrlState();
+  // The project's languages, for the locale filter in the chrome. Empty for a
+  // project that has not declared any, which hides the filter entirely.
+  //
+  // Read HERE and nowhere else: it is a whole-project subscription, and the
+  // fields below need the same answer. They get it from the provider — see
+  // `useProjectLocales`.
+  const projectLocales = useLocalesFromSettings();
+  // Owned here rather than in the shell: the filter has to reach the FIELDS,
+  // which the shell renders through a slot and does not own. See
+  // `LocaleFilterProvider`.
+  const [locale, setLocale] = useState<string | null>(urlState.initial.locale);
   const [viewState, setViewState] = useState<
-    Omit<ShellUrlState, "canvasRoute">
+    Omit<ShellUrlState, "canvasRoute" | "locale">
   >(() => ({
     panel: urlState.initial.panel,
     canvasOpen: urlState.initial.canvasOpen,
@@ -546,12 +560,13 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     useMemo(
       (): ShellUrlState => ({
         ...viewState,
+        locale,
         canvasRoute:
           typedRoute !== null && typedRoute !== selectedRoute
             ? typedRoute
             : null,
       }),
-      [viewState, typedRoute, selectedRoute],
+      [viewState, locale, typedRoute, selectedRoute],
     ),
   );
 
@@ -906,116 +921,125 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   ) : null;
 
   return (
-    <Shell
-      data={data}
-      theme={theme === "light" ? "light" : "dark"}
-      onThemeChange={setTheme}
-      mode={mode}
-      selectionId={overrideEditor ? null : selectionId}
-      onSelectionChange={onSelectionChange}
-      renderEditor={renderEditor}
-      renderSettings={renderSettings}
-      editorOverride={overrideEditor}
-      publishSlot={<PublishButton />}
-      publishState={publishState}
-      saveState={saveState}
-      autoSave={autoPublish}
-      onAutoSaveChange={setAutoPublish}
-      pendingChanges={data.pendingChanges ?? 0}
-      /*
-       * THIS user's own pending changes, not the chain's.
-       *
-       * The badge sits beside Publish and is read as "how much is waiting for
-       * me", so it counts the scoped set. On a shared branch the chain also
-       * holds other people's pending work, which this client can neither
-       * publish nor discard — putting that on the badge asks the reader to go
-       * and do something about somebody else's edit. Unscoped (`fs`, or a
-       * content API without groups) this is the whole chain, which is the same
-       * number as before and still the right one: there is one author there.
-       *
-       * Still zeroed when the pending patches cancel out, so Review does not
-       * put a number on changes that will not ship. The button itself stays:
-       * that view is where Discard is, and where a held change is staged again,
-       * and Publish is disabled until one of those happens.
-       */
-      reviewCount={hasNetChanges ? ownPendingChanges : 0}
-      /*
-       * Offered only once the metadata behind the confirm has arrived.
-       *
-       * The confirm names the other people whose work would go, and those
-       * names come from the patch sets. While those are still grouping the
-       * list is empty — so an eager button could throw away a colleague's
-       * work having promised, and shown, nothing about it. A row that appears
-       * a moment late is the cheaper mistake.
-       */
-      onDiscardAll={
-        discardablePatchIds.length > 0 && patchSets.status === "success"
-          ? () => deletePatches(discardablePatchIds)
-          : undefined
-      }
-      discardAllDescription={discardAllDescription(
-        discardablePatchIds.length,
-        discardAuthorNames,
-      )}
-      portalContainer={portalContainer}
-      isLoading={state.status === "loading"}
-      loadError={state.status === "error" ? state.error : undefined}
-      renderCanvas={renderCanvas}
-      canvasPaths={canvasPaths}
-      onSelectCanvasPath={openPath}
-      selectedCanvasPath={focusedPath}
-      canvasRoute={canvasUrl}
-      onCanvasRouteChange={onCanvasRouteChange}
-      canvasRoutes={canvasRoutes}
-      initialPanel={urlState.initial.panel}
-      initialCanvasOpen={urlState.initial.canvasOpen}
-      initialCanvasView={urlState.initial.canvasView}
-      restoreViewState={restoreViewState}
-      initialCanvasTransform={urlState.initial.canvasTransform}
-      onViewStateChange={setViewState}
-      onNewPage={addPage}
-      onDuplicatePage={duplicatePage}
-      onUploadMedia={uploadInto}
-      onPreview={openPreviewTab}
-      // Also as an href, so the menu item is a link that can be copied. The URL
-      // enables preview and redirects, so it is worth sending to someone.
-      previewHref={previewHref}
-      onSelectValidationError={onSelectValidationError}
-      onCompare={showCompare}
-      // Recent activity rows did nothing: the panel listed them and no handler
-      // was passed. They carry a real source path, so opening one is the same
-      // act as opening a search hit.
-      onSelectActivity={(entry) => openPath(entry.sourcePath as SourcePath)}
-      getMediaFileUrl={getMediaFileUrl}
-      searchContentResults={contentSearch.results}
-      isSearchingContent={contentSearch.isSearching}
-      onSearchQueryChange={setSearchQuery}
-      // A content hit is a path inside a module, so it is opened directly.
-      onOpenSearchResult={(result) => openPath(result.id as SourcePath)}
-      onSignOut={onSignOut}
-      accountError={
-        profilesError
-          ? { message: profilesError.message, onRetry: profilesError.retry }
-          : undefined
-      }
-      aiEnabled={isAIChatEnabled}
-      /*
-       * The real assistant, not a stand-in.
-       *
-       * Mounted only while the panel is open — same as the on-page overlay.
-       * The socket is not: it belongs to `ValProvider`, so closing the panel
-       * does not disconnect, and the conversation comes back because
-       * `AIChatSurface` seeds itself from the session id in the URL.
-       */
-      aiSlot={
-        isAIChatEnabled ? <AIChatSurface className="h-full" /> : undefined
-      }
-      onMentionField={(sourcePath) => insertFieldRef(sourcePath as SourcePath)}
-      // Held until the first load's patches are in — see `PendingChangesGate`.
-      pendingChangesLoaded={pendingChangesLoaded}
-      pendingChangesProgress={pendingChangesProgress}
-      pendingChangesError={pendingChangesError}
-    />
+    <ProjectLocalesProvider locales={projectLocales}>
+      <LocaleFilterProvider locale={locale}>
+        <Shell
+          data={data}
+          theme={theme === "light" ? "light" : "dark"}
+          onThemeChange={setTheme}
+          mode={mode}
+          selectionId={overrideEditor ? null : selectionId}
+          onSelectionChange={onSelectionChange}
+          renderEditor={renderEditor}
+          renderSettings={renderSettings}
+          editorOverride={overrideEditor}
+          publishSlot={<PublishButton />}
+          publishState={publishState}
+          saveState={saveState}
+          autoSave={autoPublish}
+          onAutoSaveChange={setAutoPublish}
+          pendingChanges={data.pendingChanges ?? 0}
+          /*
+           * THIS user's own pending changes, not the chain's.
+           *
+           * The badge sits beside Publish and is read as "how much is waiting for
+           * me", so it counts the scoped set. On a shared branch the chain also
+           * holds other people's pending work, which this client can neither
+           * publish nor discard — putting that on the badge asks the reader to go
+           * and do something about somebody else's edit. Unscoped (`fs`, or a
+           * content API without groups) this is the whole chain, which is the same
+           * number as before and still the right one: there is one author there.
+           *
+           * Still zeroed when the pending patches cancel out, so Review does not
+           * put a number on changes that will not ship. The button itself stays:
+           * that view is where Discard is, and where a held change is staged again,
+           * and Publish is disabled until one of those happens.
+           */
+          reviewCount={hasNetChanges ? ownPendingChanges : 0}
+          /*
+           * Offered only once the metadata behind the confirm has arrived.
+           *
+           * The confirm names the other people whose work would go, and those
+           * names come from the patch sets. While those are still grouping the
+           * list is empty — so an eager button could throw away a colleague's
+           * work having promised, and shown, nothing about it. A row that appears
+           * a moment late is the cheaper mistake.
+           */
+          onDiscardAll={
+            discardablePatchIds.length > 0 && patchSets.status === "success"
+              ? () => deletePatches(discardablePatchIds)
+              : undefined
+          }
+          discardAllDescription={discardAllDescription(
+            discardablePatchIds.length,
+            discardAuthorNames,
+          )}
+          portalContainer={portalContainer}
+          isLoading={state.status === "loading"}
+          loadError={state.status === "error" ? state.error : undefined}
+          renderCanvas={renderCanvas}
+          canvasPaths={canvasPaths}
+          onSelectCanvasPath={openPath}
+          selectedCanvasPath={focusedPath}
+          canvasRoute={canvasUrl}
+          onCanvasRouteChange={onCanvasRouteChange}
+          canvasRoutes={canvasRoutes}
+          initialPanel={urlState.initial.panel}
+          locales={projectLocales}
+          locale={locale}
+          onLocaleChange={setLocale}
+          initialCanvasOpen={urlState.initial.canvasOpen}
+          initialCanvasView={urlState.initial.canvasView}
+          restoreViewState={restoreViewState}
+          initialCanvasTransform={urlState.initial.canvasTransform}
+          onViewStateChange={setViewState}
+          onNewPage={addPage}
+          onDuplicatePage={duplicatePage}
+          onUploadMedia={uploadInto}
+          onPreview={openPreviewTab}
+          // Also as an href, so the menu item is a link that can be copied. The URL
+          // enables preview and redirects, so it is worth sending to someone.
+          previewHref={previewHref}
+          onSelectValidationError={onSelectValidationError}
+          onCompare={showCompare}
+          // Recent activity rows did nothing: the panel listed them and no handler
+          // was passed. They carry a real source path, so opening one is the same
+          // act as opening a search hit.
+          onSelectActivity={(entry) => openPath(entry.sourcePath as SourcePath)}
+          getMediaFileUrl={getMediaFileUrl}
+          searchContentResults={contentSearch.results}
+          isSearchingContent={contentSearch.isSearching}
+          onSearchQueryChange={setSearchQuery}
+          // A content hit is a path inside a module, so it is opened directly.
+          onOpenSearchResult={(result) => openPath(result.id as SourcePath)}
+          onSignOut={onSignOut}
+          accountError={
+            profilesError
+              ? { message: profilesError.message, onRetry: profilesError.retry }
+              : undefined
+          }
+          aiEnabled={isAIChatEnabled}
+          /*
+           * The real assistant, not a stand-in.
+           *
+           * Mounted only while the panel is open — same as the on-page overlay.
+           * The socket is not: it belongs to `ValProvider`, so closing the panel
+           * does not disconnect, and the conversation comes back because
+           * `AIChatSurface` seeds itself from the session id in the URL.
+           */
+          aiSlot={
+            isAIChatEnabled ? <AIChatSurface className="h-full" /> : undefined
+          }
+          onMentionField={(sourcePath) =>
+            insertFieldRef(sourcePath as SourcePath)
+          }
+          // Held until the first load's patches are in — see `PendingChangesGate`.
+          pendingChangesLoaded={pendingChangesLoaded}
+          pendingChangesProgress={pendingChangesProgress}
+          pendingChangesError={pendingChangesError}
+        />
+      </LocaleFilterProvider>
+    </ProjectLocalesProvider>
   );
 }
 

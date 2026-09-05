@@ -9,7 +9,7 @@ import { JSONValue } from "@valbuild/core/patch";
 import { useSchemas } from "./ValFieldProvider";
 import { useAddModuleFilePatch } from "./ValProvider";
 import { useNavigation } from "./ValRouter";
-import { emptyOf } from "@valbuild/shared/internal";
+import { useEmptyOf } from "../hooks/useEmptyOf";
 
 /**
  * Create a page under a router, and open it.
@@ -29,6 +29,7 @@ export function useAddPage(): (
   const { addModuleFilePatch } = useAddModuleFilePatch();
   const schemas = useSchemas();
   const { navigate } = useNavigation();
+  const emptyOf = useEmptyOf();
   return useCallback(
     (moduleFilePath: ModuleFilePath, urlPath: string) => {
       if (schemas.status !== "success") {
@@ -69,6 +70,6 @@ export function useAddPage(): (
         ) as SourcePath,
       );
     },
-    [addModuleFilePatch, schemas, navigate],
+    [addModuleFilePatch, schemas, navigate, emptyOf],
   );
 }

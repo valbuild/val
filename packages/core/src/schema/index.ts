@@ -17,6 +17,7 @@ import { SerializedCodeSchema } from "./code";
 import { SerializedColorSchema } from "./color";
 import { SerializedDateSchema } from "./date";
 import { SerializedDateTimeSchema } from "./datetime";
+import { SerializedLocaleSchema } from "./locale";
 import { SerializedRouteSchema } from "./route";
 import { SerializedSettingsSchema } from "./settings";
 import {
@@ -48,6 +49,7 @@ export type SerializedSchema =
   | SerializedColorSchema
   | SerializedCodeSchema
   | SerializedRouteSchema
+  | SerializedLocaleSchema
   | SerializedSettingsSchema
   | SerializedImageSchema;
 
@@ -87,6 +89,28 @@ export type CustomValidateFunction<Src extends SelectorSource> = (
   src: Src,
   ctx: { path: SourcePath },
 ) => false | string;
+/**
+ * A locale scope's path, as something to read in a message.
+ *
+ * The walk names the item of an array or record `*`, which says nothing to
+ * whoever has to fix this. `[]` is the convention people already read as "each
+ * of these", and a path that is nothing BUT items has no field to name at all.
+ */
+function describeScopePath(path: string[]): string {
+  if (path.every((segment) => segment === "*")) {
+    return "its entries";
+  }
+  let rendered = "";
+  for (const segment of path) {
+    if (segment === "*") {
+      rendered += "[]";
+    } else {
+      rendered += rendered === "" ? segment : `.${segment}`;
+    }
+  }
+  return `'${rendered}'`;
+}
+
 export abstract class Schema<Src extends SelectorSource> {
   /** Validate the value of source content */
   protected abstract executeValidate(
@@ -118,6 +142,147 @@ export abstract class Schema<Src extends SelectorSource> {
     path: SourcePath,
     src: Src,
   ): ValidationError[];
+
+  /**
+   * Whether this node is a locale — the field that MARKS a scope, `s.locale()`.
+   *
+   * Only `LocaleSchema` overrides this. A base implementation rather than an
+   * abstract one on purpose: every other schema class answers no, and a
+   * question every class had to answer would be twenty edits for one yes.
+   *
+   * Not the same question as {@link opensLocaleScope}: a locale field marks the
+   * scope, the object AROUND it is the scope. See `localeScope.ts`.
+   */
+  protected isLocaleField(): boolean {
+    return false;
+  }
+
+  /**
+   * Whether this node OPENS a locale scope, and what opens it.
+   *
+   * An object with a `s.locale()` field opens one; so does a record keyed by
+   * `s.locale()`. Everything below such a node is in that one language, which
+   * is why a scope may not contain another — see `localeScope.ts` for the rule
+   * and the reason it is validated rather than typed.
+   */
+  protected opensLocaleScope(): "field" | "key" | null {
+    return null;
+  }
+
+  /**
+   * The child schemas a locale scope reaches, by the path segment that reaches
+   * them.
+   *
+   * A structural walk that deliberately does NOT go through `executeSerialize`:
+   * serializing a subtree at every node to ask a question about its shape is
+   * quadratic, and this is asked during validation. `*` stands for the item of
+   * an array or record, which has no name of its own.
+   */
+  protected localeScopeChildren(): {
+    key: string;
+    schema: Schema<SelectorSource>;
+  }[] {
+    return [];
+  }
+
+  /**
+   * Every locale scope opened strictly BELOW this node, by path.
+   *
+   * Stops descending at each one it finds, so a scope three deep is reported
+   * once, by the scope immediately enclosing it, rather than by every ancestor.
+   */
+  protected localeScopesBelow(
+    prefix: string[] = [],
+  ): { path: string[]; kind: "field" | "key" }[] {
+    const found: { path: string[]; kind: "field" | "key" }[] = [];
+    for (const { key, schema } of this.localeScopeChildren()) {
+      const path = [...prefix, key];
+      const opened = schema.opensLocaleScope();
+      if (opened !== null) {
+        found.push({ path, kind: opened });
+        continue;
+      }
+      found.push(...schema.localeScopesBelow(path));
+    }
+    return found;
+  }
+
+  /**
+   * The scope rule, as errors at this node — or `false` if it is not broken.
+   *
+   * Two things are wrong and both are wrong in the SCHEMA rather than in the
+   * content, so both are `schemaError`s: an object with two locale fields (the
+   * subtree below it would be in two languages at once), and a locale scope
+   * inside another (the inner one would silently override the outer for part
+   * of a subtree that is supposed to be one language throughout).
+   *
+   * Validated rather than typed on purpose. Expressing "no scope below this
+   * one" as a constraint means threading it through every schema class's type
+   * parameter, and the errors that fall out of a recursive constraint like
+   * that name the whole tree — an unrelated typo in a `.val.ts` would print
+   * pages. See the design notes on the locales PR.
+   */
+  protected localeScopeErrors(): ValidationError[] {
+    if (this.localeScopeErrorsMemo === undefined) {
+      this.localeScopeErrorsMemo = this.computeLocaleScopeErrors();
+    }
+    return this.localeScopeErrorsMemo;
+  }
+
+  /**
+   * The answer, computed once per schema.
+   *
+   * Memoised because the question is asked from `executeValidate`, which runs
+   * once per SOURCE instance: an array of five hundred blocks asks the item
+   * schema five hundred times, and each answer walks the schema below it
+   * looking for a nested scope. The answer cannot differ between two instances
+   * of the same schema — nothing here reads the source — so the walk is done
+   * once and the result handed back after that.
+   *
+   * The error is still reported at every instance's path. Val's validation
+   * errors are keyed by source path and that is where the Studio draws them, so
+   * a schema error on a row is a schema error on every row; reporting it on one
+   * arbitrary row would put it somewhere nobody was looking.
+   */
+  private localeScopeErrorsMemo?: ValidationError[];
+
+  private computeLocaleScopeErrors(): ValidationError[] {
+    const errors: ValidationError[] = [];
+    const localeFields = this.localeFieldNames();
+    if (localeFields.length > 1) {
+      errors.push({
+        message: `An object can be in one language, so it can have one locale field. Found ${localeFields
+          .map((each) => `'${each}'`)
+          .join(", ")}.`,
+        schemaError: true,
+      });
+    }
+    const opened = this.opensLocaleScope();
+    if (opened !== null) {
+      for (const nested of this.localeScopesBelow()) {
+        errors.push({
+          message: `Everything here is already in one language, so ${describeScopePath(
+            nested.path,
+          )} cannot set another. Move the ${
+            nested.kind === "key" ? "locale-keyed record" : "locale field"
+          } out of this ${
+            opened === "key" ? "locale-keyed record" : "object"
+          }, or take the outer one away.`,
+          schemaError: true,
+        });
+      }
+    }
+    return errors;
+  }
+
+  /**
+   * This node's own `s.locale()` fields, where it is an object that has any.
+   *
+   * Empty everywhere else, so `localeScopeErrors` can live on the base class.
+   */
+  protected localeFieldNames(): string[] {
+    return [];
+  }
 
   protected executeCustomValidateFunctions(
     src: Src,
