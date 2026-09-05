@@ -36,6 +36,7 @@ import classNames from "classnames";
 import { PreviewError } from "../PreviewError";
 import { Field } from "../../components/Field";
 import { AnyField } from "../../components/AnyField";
+import { LocaleFiltered } from "../LocaleFilterProvider";
 
 export function RecordFields({
   path,
@@ -127,24 +128,25 @@ export function RecordFields({
                   matchesLocale({ key, keySchema: schema.key }),
                 )
                 .map(([key, itemPath]) => (
-                  <Field
-                    key={itemPath}
-                    label={key}
-                    path={itemPath}
-                    type={schema.item.type}
-                    readonly={readonly || schema.item.readonly}
-                    compact={compact}
-                    errorDisplay={errorDisplay}
-                  >
-                    <AnyField
+                  <LocaleFiltered key={itemPath} path={itemPath}>
+                    <Field
+                      label={key}
                       path={itemPath}
-                      schema={schema.item}
+                      type={schema.item.type}
                       readonly={readonly || schema.item.readonly}
                       compact={compact}
-                      inline={inline}
                       errorDisplay={errorDisplay}
-                    />
-                  </Field>
+                    >
+                      <AnyField
+                        path={itemPath}
+                        schema={schema.item}
+                        readonly={readonly || schema.item.readonly}
+                        compact={compact}
+                        inline={inline}
+                        errorDisplay={errorDisplay}
+                      />
+                    </Field>
+                  </LocaleFiltered>
                 ))}
         </div>
       </div>
@@ -248,36 +250,38 @@ function RecordCardList({
           );
         }
         return (
-          <div className="pb-4">
-            <div
-              onClick={() => navigate(sourcePathOfItem(path, key))}
-              className={classNames(
-                "bg-primary-foreground cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
-                "hover:bg-bg-secondary-hover",
-              )}
-            >
-              <div className="flex justify-between items-start">
-                <div className="pb-4 font-semibold text-md">{key}</div>
-                {isParentError(
-                  sourcePathOfItem(path, key),
-                  validationErrors,
-                ) && <ErrorIndicator />}
-              </div>
-              <div>
-                {unloadedKeys.has(key) ? (
-                  // An un-loaded `.jsonValues()` entry: a preview here would read
-                  // the opaque marker, which is what made these lists a wall of
-                  // spinners.
-                  <RecordRowSkeleton
-                    path={sourcePathOfItem(path, key)}
-                    height={PREVIEW_ROW_CONTENT_HEIGHT}
-                  />
-                ) : (
-                  <RefPreview path={sourcePathOfItem(path, key)} />
+          <LocaleFiltered path={sourcePathOfItem(path, key)}>
+            <div className="pb-4">
+              <div
+                onClick={() => navigate(sourcePathOfItem(path, key))}
+                className={classNames(
+                  "bg-primary-foreground cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
+                  "hover:bg-bg-secondary-hover",
                 )}
+              >
+                <div className="flex justify-between items-start">
+                  <div className="pb-4 font-semibold text-md">{key}</div>
+                  {isParentError(
+                    sourcePathOfItem(path, key),
+                    validationErrors,
+                  ) && <ErrorIndicator />}
+                </div>
+                <div>
+                  {unloadedKeys.has(key) ? (
+                    // An un-loaded `.jsonValues()` entry: a preview here would read
+                    // the opaque marker, which is what made these lists a wall of
+                    // spinners.
+                    <RecordRowSkeleton
+                      path={sourcePathOfItem(path, key)}
+                      height={PREVIEW_ROW_CONTENT_HEIGHT}
+                    />
+                  ) : (
+                    <RefPreview path={sourcePathOfItem(path, key)} />
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          </LocaleFiltered>
         );
       }}
     />
@@ -378,24 +382,26 @@ function RecordPreviewList({
           );
         }
         return (
-          <div className="pb-4">
-            <button
-              onClick={() => navigate(sourcePathOfItem(path, key))}
-              className={classNames(
-                "w-full hover:bg-bg-secondary-hover",
-                "border rounded-lg cursor-pointer border-border-primary",
-              )}
-            >
-              {unloadedKeys.has(key) ? (
-                <RecordRowSkeleton
-                  path={sourcePathOfItem(path, key)}
-                  height={PREVIEW_ROW_CONTENT_HEIGHT}
-                />
-              ) : (
-                <RefPreview path={sourcePathOfItem(path, key)} />
-              )}
-            </button>
-          </div>
+          <LocaleFiltered path={sourcePathOfItem(path, key)}>
+            <div className="pb-4">
+              <button
+                onClick={() => navigate(sourcePathOfItem(path, key))}
+                className={classNames(
+                  "w-full hover:bg-bg-secondary-hover",
+                  "border rounded-lg cursor-pointer border-border-primary",
+                )}
+              >
+                {unloadedKeys.has(key) ? (
+                  <RecordRowSkeleton
+                    path={sourcePathOfItem(path, key)}
+                    height={PREVIEW_ROW_CONTENT_HEIGHT}
+                  />
+                ) : (
+                  <RefPreview path={sourcePathOfItem(path, key)} />
+                )}
+              </button>
+            </div>
+          </LocaleFiltered>
         );
       }}
     />

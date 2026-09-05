@@ -26,5 +26,15 @@ answerable from what a list already has: an entry of a locale-keyed record (the
 key IS the language, aliases resolved, so a `/no/…` key is Norwegian) and an
 object with a `locale` field.
 
+The filter reaches record entries, array items and blocks. A locale-keyed record
+filters its KEYS, so a row in another language is never rendered at all; every
+other row asks its own content, because a list has paths and the language is in
+the row.
+
 A locale field nobody has filled in stays listed. Hiding it would hide the field
-someone has to fill in to un-hide it.
+someone has to fill in to un-hide it — and a row that has not loaded yet stays
+listed too, so a list does not shed rows as it arrives.
+
+Not yet filtered: the Pages and Data panels. A page is a tree rather than a list,
+so hiding one is a different question from hiding a row, and it is worth its own
+change.

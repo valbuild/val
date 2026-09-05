@@ -1,6 +1,12 @@
-import { localeOfValue, type SerializedSchema } from "@valbuild/core";
+import {
+  localeOfValue,
+  type SerializedSchema,
+  type SourcePath,
+} from "@valbuild/core";
 import { createContext, ReactNode, useContext, useMemo } from "react";
 import { useProjectLocales } from "../hooks/useProjectLocales";
+import { useSchemaAtPath, useShallowSourceAtPath } from "./ValFieldProvider";
+import { sourcePathOfItem } from "../utils/sourcePathOfItem";
 
 /**
  * The language the studio is currently showing, for everything below the shell.
@@ -28,6 +34,92 @@ export function LocaleFilterProvider({
 /** The language being shown, or `null` for all of them. */
 export function useLocaleFilter(): string | null {
   return useContext(LocaleFilterContext);
+}
+
+/**
+ * A row, hidden when the locale filter says another language.
+ *
+ * Wraps the row rather than filtering the list, because the answer needs the
+ * row's own content: an object says which language it is in through its `locale`
+ * FIELD, and a list has only paths. Reading that is a hook, and a hook cannot be
+ * called from inside a `.map()` — so the read happens where the row is, which is
+ * a component.
+ *
+ * The locale-keyed record case does not come through here: there the key is the
+ * language, so the list filters its keys and never renders the row at all. See
+ * `RecordFields`.
+ *
+ * Renders `null` when hidden, which is what the surrounding lists already do for
+ * a hidden item schema.
+ */
+export function LocaleFiltered({
+  path,
+  children,
+}: {
+  path: SourcePath;
+  children: ReactNode;
+}) {
+  const filter = useLocaleFilter();
+  const projectLocales = useProjectLocales();
+  const schemaAtPath = useSchemaAtPath(path);
+  const schema = "data" in schemaAtPath ? schemaAtPath.data : undefined;
+  const localeField = schema === undefined ? null : localeFieldNameOf(schema);
+  // A path that cannot exist rather than `undefined`: the hook below is a hook,
+  // so it runs whether or not this row has a locale field. It resolves to
+  // nothing, which is the answer for every row that has none.
+  const localePath: SourcePath =
+    localeField === null
+      ? ("" as SourcePath)
+      : sourcePathOfItem(path, localeField);
+  const localeSource = useShallowSourceAtPath(localePath, "locale");
+  if (filter === null || !projectLocales.includes(filter)) {
+    return <>{children}</>;
+  }
+  if (localeField === null) {
+    // No scope here, so nothing to hide: content in no language is always shown.
+    return <>{children}</>;
+  }
+  const value = "data" in localeSource ? localeSource.data : undefined;
+  if (typeof value !== "string") {
+    // Not filled in, or not loaded yet. Both stay listed — hiding a field
+    // someone has to fill in to un-hide it is the worse mistake, and a row that
+    // vanishes as its content arrives is the other one.
+    return <>{children}</>;
+  }
+  const locale = localeOfValue(
+    value,
+    projectLocales,
+    localeFieldAliases(schema, localeField),
+  );
+  if (locale !== null && locale !== filter) {
+    return null;
+  }
+  return <>{children}</>;
+}
+
+/** The name of an object schema's `s.locale()` field, if it has one. */
+function localeFieldNameOf(schema: SerializedSchema): string | null {
+  if (schema.type !== "object") {
+    return null;
+  }
+  for (const [field, item] of Object.entries(schema.items)) {
+    if (item.type === "locale") {
+      return field;
+    }
+  }
+  return null;
+}
+
+/** That field's alias table, so a stored `no` reads back as `nb-NO`. */
+function localeFieldAliases(
+  schema: SerializedSchema | undefined,
+  field: string,
+): Record<string, string[]> | undefined {
+  if (schema?.type !== "object") {
+    return undefined;
+  }
+  const item = schema.items[field];
+  return item?.type === "locale" ? item.aliases : undefined;
 }
 
 /** A node a list is about to draw, as much of it as the list already has. */

@@ -24,6 +24,7 @@ import { Loader2 } from "lucide-react";
 import { Field } from "../../components/Field";
 import { AnyField } from "../../components/AnyField";
 import { InlineSortableItem } from "../../components/InlineSortableItem";
+import { LocaleFiltered } from "../LocaleFilterProvider";
 
 export function ArrayFields({
   path,
@@ -169,24 +170,26 @@ export function ArrayFields({
               return null;
             }
             return (
-              <InlineSortableItem id={id} disabled={readonly}>
-                <Field
-                  path={itemPath}
-                  type={schema.item.type}
-                  readonly={readonly || schema.item.readonly}
-                  compact={compact}
-                  errorDisplay={errorDisplay}
-                >
-                  <AnyField
+              <LocaleFiltered path={itemPath}>
+                <InlineSortableItem id={id} disabled={readonly}>
+                  <Field
                     path={itemPath}
-                    schema={schema.item}
+                    type={schema.item.type}
                     readonly={readonly || schema.item.readonly}
                     compact={compact}
-                    inline={inline}
                     errorDisplay={errorDisplay}
-                  />
-                </Field>
-              </InlineSortableItem>
+                  >
+                    <AnyField
+                      path={itemPath}
+                      schema={schema.item}
+                      readonly={readonly || schema.item.readonly}
+                      compact={compact}
+                      inline={inline}
+                      errorDisplay={errorDisplay}
+                    />
+                  </Field>
+                </InlineSortableItem>
+              </LocaleFiltered>
             );
           }}
         />
