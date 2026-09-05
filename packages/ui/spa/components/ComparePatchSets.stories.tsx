@@ -18,6 +18,7 @@ import type { ValEnrichedDeployment } from "../utils/mergeCommitsAndDeployments"
 import { createStorySystem } from "../stores/react/storySystem";
 import type { System } from "../stores/createSystem";
 import { ValSystemProvider } from "../stores/react/SystemContext";
+import { PatchStagingProvider } from "./PatchStagingProvider";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
@@ -127,16 +128,14 @@ function applyPatchesAndSerialize(
       undefined,
       realPatchId,
     );
-    for (const op of p.patch) {
-      patchSets.insert(
-        moduleFilePath,
-        serializedSchema,
-        op,
-        realPatchId,
-        p.createdAt,
-        p.author,
-      );
-    }
+    patchSets.insert(
+      moduleFilePath,
+      serializedSchema,
+      p.patch,
+      realPatchId,
+      p.createdAt,
+      p.author,
+    );
   }
   return { patchSets: patchSets.serialize(), patchIds };
 }
@@ -220,6 +219,8 @@ function StorySetup({
   canDiscard,
   committedCount = 0,
   deployment,
+  staging,
+  initiallyHeld,
 }: {
   mockData: MockData;
   patches: TestPatch[];
@@ -240,9 +241,20 @@ function StorySetup({
    * mount. See `ComparePatchSets`.
    */
   deployment?: ValEnrichedDeployment | null;
+  /**
+   * Enable the stage / unstage affordance. Off by default so the existing
+   * stories keep showing the plain review screen, which is also what FS mode and
+   * any content API without patch group support will render.
+   */
+  staging?: boolean;
+  /**
+   * Patch indexes (into `patches`) to start unstaged, so a story can open
+   * directly on a mixed state instead of needing a click to get there.
+   */
+  initiallyHeld?: number[];
 }) {
   const client = useMemo(() => createMockClient(), []);
-  const { system, patchSets, committedPatchIds } = useMemo(() => {
+  const { system, patchSets, patchIds, committedPatchIds } = useMemo(() => {
     const system = makeSystem(mockData);
     const { patchSets, patchIds } = applyPatchesAndSerialize(
       system,
@@ -253,6 +265,7 @@ function StorySetup({
     return {
       system,
       patchSets,
+      patchIds,
       committedPatchIds: new Set(patchIds.slice(0, committedCount)),
     };
   }, [
@@ -263,15 +276,40 @@ function StorySetup({
     patches,
     committedCount,
   ]);
+
+  // The stories start from a fully staged group so the staging controls have
+  // something to act on; `initiallyHeld` carves some out. In production a group is
+  // its owner's patches closed over their patch sets, which is generally less.
+  const [group, setGroup] = useState<Set<PatchId>>(
+    () =>
+      new Set(
+        patchIds.filter((_, index) => !(initiallyHeld ?? []).includes(index)),
+      ),
+  );
+
   return (
     <StoryProviders system={system}>
-      <ComparePatchSets
+      <PatchStagingProvider
+        enabled={staging ?? false}
         patchSets={patchSets}
-        profilesByAuthorIds={mockProfiles}
-        canDiscard={canDiscard}
-        committedPatchIds={committedPatchIds}
-        deployment={committedCount > 0 ? (deployment ?? null) : undefined}
-      />
+        chainOrder={patchIds}
+        group={group}
+        onChange={(next, change) => {
+          setGroup(next);
+          // Stands in for the PUT/DELETE on /patch-groups/~/patches. Logged so the
+          // story shows what the closure moved, which is the part that is easy to
+          // get wrong and invisible in the rendered output.
+          console.log("patch group change", change);
+        }}
+      >
+        <ComparePatchSets
+          patchSets={patchSets}
+          profilesByAuthorIds={mockProfiles}
+          canDiscard={canDiscard}
+          committedPatchIds={committedPatchIds}
+          deployment={committedCount > 0 ? (deployment ?? null) : undefined}
+        />
+      </PatchStagingProvider>
     </StoryProviders>
   );
 }
@@ -1432,3 +1470,154 @@ export const ImageMixedChanges: Story = {
     />
   ),
 };
+
+// #region staging stories
+
+/**
+ * Stage / unstage, with nothing held back.
+ *
+ * Every row reads "Staged", so Publish publishes all of them and the screen looks
+ * like the old review screen. This is the shape you get when everything pending is
+ * yours, or entangled with what is.
+ */
+export const StagingNothingHeld: Story = {
+  render: () => (
+    <StorySetup
+      mockData={mockData}
+      moduleFilePath={MODULE_FILE_PATH}
+      serializedSchema={mockData.schemas[MODULE_FILE_PATH]}
+      staging
+      patches={[
+        {
+          patch: [
+            { op: "replace", path: ["/home", "title"], value: "Welcome!" },
+          ],
+          createdAt: "2025-04-15T10:00:00Z",
+          author: "alice",
+        },
+        {
+          patch: [
+            {
+              op: "replace",
+              path: ["/about", "title"],
+              value: "About our team",
+            },
+          ],
+          createdAt: "2025-04-15T11:00:00Z",
+          author: "bob",
+        },
+      ]}
+    />
+  ),
+};
+
+/**
+ * The headline case: ship one change and hold another back.
+ *
+ * Alice's title fix is staged; Bob's is held. The held row stays visible and
+ * re-stageable — if unstaging hid the change there would be no way to find it
+ * again and put it back. Hover either control to see what the toggle would move.
+ */
+export const StagingOneHeld: Story = {
+  render: () => (
+    <StorySetup
+      mockData={mockData}
+      moduleFilePath={MODULE_FILE_PATH}
+      serializedSchema={mockData.schemas[MODULE_FILE_PATH]}
+      staging
+      initiallyHeld={[1]}
+      patches={[
+        {
+          patch: [
+            { op: "replace", path: ["/home", "title"], value: "Welcome!" },
+          ],
+          createdAt: "2025-04-15T10:00:00Z",
+          author: "alice",
+        },
+        {
+          patch: [
+            {
+              op: "replace",
+              path: ["/about", "title"],
+              value: "Work in progress, do not ship",
+            },
+          ],
+          createdAt: "2025-04-15T11:00:00Z",
+          author: "bob",
+        },
+      ]}
+    />
+  ),
+};
+
+/**
+ * Two changes to the same array, which therefore cannot be published separately.
+ *
+ * Both patches land in one patch set, so toggling either one moves both. The
+ * tooltip says so, and names the other author — quietly enlarging or shrinking
+ * somebody's publish is the failure this control exists to prevent.
+ */
+export const StagingEntangledArray: Story = {
+  render: () => (
+    <StorySetup
+      mockData={mockData}
+      moduleFilePath={MODULE_FILE_PATH}
+      serializedSchema={mockData.schemas[MODULE_FILE_PATH]}
+      staging
+      patches={[
+        {
+          patch: [
+            {
+              op: "replace",
+              path: ["/home", "sections", "0", "heading"],
+              value: "Hero — revised",
+            },
+          ],
+          createdAt: "2025-04-15T10:00:00Z",
+          author: "alice",
+        },
+        {
+          patch: [
+            {
+              op: "add",
+              path: ["/home", "sections", "2"],
+              value: {
+                heading: "Contact",
+                items: [{ type: "text", content: "Say hello." }],
+              },
+            },
+          ],
+          createdAt: "2025-04-15T11:00:00Z",
+          author: "bob",
+        },
+      ]}
+    />
+  ),
+};
+
+/**
+ * Staging off — FS mode, or a content API without patch group support.
+ *
+ * No toggles, no held summary. The same component, so there is one review screen
+ * rather than two.
+ */
+export const StagingDisabled: Story = {
+  render: () => (
+    <StorySetup
+      mockData={mockData}
+      moduleFilePath={MODULE_FILE_PATH}
+      serializedSchema={mockData.schemas[MODULE_FILE_PATH]}
+      patches={[
+        {
+          patch: [
+            { op: "replace", path: ["/home", "title"], value: "Welcome!" },
+          ],
+          createdAt: "2025-04-15T10:00:00Z",
+          author: "alice",
+        },
+      ]}
+    />
+  ),
+};
+
+// #endregion

@@ -1,20 +1,38 @@
-# MCP support for Val — implementation plan
+# MCP support for Val — the plan, and what shipped
 
+> **Status, 2026-09-05: built and shipped.** This started as a plan and is now
+> the design record for something that exists. It has been reconciled with the
+> code that shipped; where the build diverged from the plan, the divergence and
+> its reason are recorded rather than edited away, because the reasons are the
+> part worth keeping.
+>
+> - **0.116.0** — the tool registry in `@valbuild/server`, the MCP endpoint, and
+>   Stage 2's personal-access-token path ([#558](https://github.com/valbuild/val/pull/558)).
+> - **0.117.0** — Stage 3's resource server: OAuth access tokens verified in
+>   `@valbuild/next`, the `WWW-Authenticate` challenge, and protected-resource
+>   metadata ([#582](https://github.com/valbuild/val/pull/582)).
+> - **0.120.1 / 0.120.2** — a token naming an unknown key provokes one
+>   rate-limited JWKS refetch instead of a refusal, so a key rotation on the
+>   issuer's side is not an outage on yours
+>   ([#590](https://github.com/valbuild/val/pull/590)).
+>
+> Val's authorization server is live at `https://admin.val.build`. Its endpoints
+> and the guarantees a resource server may rely on are in D.7.
+>
 > **How to use this document.** It is written to be self-contained: paste it into
 > a fresh session that has `valbuild/val` and `valbuild/template-nextjs-starter`
 > attached. Nothing here assumes context from the session that produced it.
 >
-> Every claim about `valbuild/val` and `valbuild/template-nextjs-starter` was
-> verified against the code on 2026-08-30 and carries a `file:line`. Claims about
-> the MCP spec and npm packages were verified the same day against the raw
-> published sources.
+> Claims about `valbuild/val` carry a `file:line`. Those were verified against
+> the code on 2026-08-30 and the files have moved since, so read a line number as
+> a hint about where to look rather than a fact. Claims about the MCP spec and
+> npm packages were verified the same day against the raw published sources.
 >
 > Part D describes what the hosted backend (admin.val.build and
-> content.val.build) has to provide. That side is not open source, so it is
-> described by the behaviour Val's own client code already depends on rather than
-> by its internals, and the specific backend work items are tracked privately —
-> see D.4. Everything stated here about the backend's request protocol is
-> observable from `packages/server` in this repository.
+> content.val.build) provides. That side is not open source, so it is described
+> by observable behaviour rather than by its internals. Everything stated here
+> about the backend's request protocol is observable from `packages/server` in
+> this repository.
 
 ---
 
@@ -24,12 +42,14 @@ Make Val content editable from any MCP client (Claude Code, Cursor, custom
 agents), with **Val exposing the tools and the auth** and **the template defining
 the actual MCP server**, so other MCP hosts can consume the same tools.
 
-Authentication ships as **personal access tokens** (Stage 2), reusing the
-`val login` device flow Val already has, with **OAuth 2.1** (Stage 3) as the
-documented destination. The Stage 2 design is **PAT pass-through**: the MCP
-route forwards the caller's PAT to content.val.build as the credential for
-every backend call, so the backend — not the app — authenticates the user.
-Local development needs no credential at all.
+Authentication shipped in two stages, and **both are live**. Stage 2 is
+**personal access tokens**, reusing the `val login` device flow Val already had:
+the MCP route forwards the caller's PAT to content.val.build as the credential
+for every backend call, so the backend — not the app — authenticates the user.
+Stage 3 is **OAuth 2.1**: an MCP client discovers Val's authorization server
+from the app, the person approves it on a consent screen, and the app verifies
+the resulting access token itself against the issuer's published keys. Local
+development needs no credential at all, on either path.
 
 **Checking the design against the backend changed it in two ways.** First, the
 content API already accepts a PAT as a first-class credential on every endpoint,
@@ -38,11 +58,11 @@ Stage 2 does not need the app to verify tokens and assert identity on the
 backend's behalf. It can pass the PAT through and let the backend enforce it,
 which is both safer and less code (D.2, D.6).
 
-Second, a set of hardening items on the credential's own lifecycle gate the
+Second, a set of hardening items on the credential's own lifecycle gated the
 release rather than the build (D.4). Shipping MCP multiplies how many PATs exist
 and how long they sit in plaintext MCP client configs on disk, so the controls
-around issuing, listing, expiring and revoking them need to be in place before
-PATs become the advertised credential for agents.
+around issuing, listing and revoking them had to be in place before PATs became
+the advertised credential for agents. They were, before 0.116.0 went out.
 
 ---
 
@@ -85,7 +105,7 @@ algorithm.
 ```
 ValOps  (ValOpsFS | ValOpsHttp)                       ← data layer, exists
     ↓                                                   (ValOpsHttp authenticates
-@valbuild/server/tools        ← NEW. Transport-agnostic registry. No MCP SDK.     per request with the
+@valbuild/server/tools        ← Transport-agnostic registry. No MCP SDK.          per request with the
   createValTools(...) → { list(), listJsonSchema(), call(name, args, ctx) }       caller's PAT — Part D.2)
     ↓
  ┌──────────────────────┬──────────────────────┬─────────────────────────┐
@@ -105,7 +125,7 @@ reorganises itself is how this rots.
 
 ## Part A — the tool registry
 
-New: `packages/server/src/tools/`.
+`packages/server/src/tools/`, shipped in 0.116.0.
 
 ```ts
 export type ValToolDefinition = {
@@ -123,11 +143,22 @@ export type ValToolDefinition = {
 
 export type ValToolContext = {
   /**
-   * The caller's credential and identity, established per request by the host
-   * (Part D.2). `null` only in local fs mode, where there is no credential
-   * (Part D.1).
+   * Who is calling, established per request by the host. `null` only in local
+   * fs mode, where there is no credential (Part D.1).
+   *
+   * Shipped as a union rather than the single shape this plan first drew,
+   * because the two credentials give the host different standing:
+   *
+   *   type ValToolAuth =
+   *     | { type: "pat"; pat: string }
+   *     | { type: "verified-profile"; profileId: AuthorId; scopes: string[] };
+   *
+   * A PAT is relayed and carries no identity — the app cannot check it, so it
+   * does not get to name who sent it (D.2). An access token's `sub` is a fact
+   * the app established against the issuer's published key, so it may be
+   * attributed and its scopes enforced (D.7).
    */
-  auth: { pat: string; profileId: ProfileId } | null;
+  auth: ValToolAuth | null;
   sessionId: string | null;
 };
 
@@ -180,10 +211,20 @@ structuredContent: data}` and `{status:"error"}` → `{content:[…], isError:tr
   2. Hold a small TTL-bounded cache of `ValOpsHttp` instances keyed by
      `sha256(pat)` inside the registry.
 
-  Prefer (1): it keeps one instance and cannot leak per-user state between
-  callers through instance-level caches. Whichever is chosen, **the app-level
-  `VAL_API_KEY` must never be the credential for an MCP-originated call** — see
-  D.6 for why.
+  **(2) shipped, not the preferred (1)**: a map of `ValOps` instances keyed by
+  `sha256(pat)`, so the same caller reuses their own instance and two callers can
+  never share one (`packages/server/src/tools/createValTools.ts`). The reason for
+  preferring (1) was that instance-level caches must not leak between callers,
+  and keying by the credential answers that directly — where threading auth
+  through every method would have touched every proxy-mode call site to arrive at
+  the same place. Hashing the key is not a security boundary, since the instance
+  holds the token either way; it keeps credentials out of the key set, which is
+  what ends up in a heap dump.
+
+  **The app-level `VAL_API_KEY` is never the credential for a PAT-authenticated
+  call** — see D.6. It _is_ the credential for an OAuth-authenticated one, with
+  the verified `sub` travelling as `authorId`; D.7 says why that is a different
+  case rather than the same mistake.
 
 ### Shared helpers move to `@valbuild/shared/internal`
 
@@ -214,6 +255,10 @@ attributable.
 ---
 
 ## Part B — tools in this pass
+
+**All eleven shipped in 0.116.0**, under these names, in
+`packages/server/src/tools/{readTools,writeTools}.ts`. The deferred four are
+still deferred.
 
 | Tool                         | Implementation                                                  | Annotation        |
 | ---------------------------- | --------------------------------------------------------------- | ----------------- |
@@ -278,10 +323,11 @@ Signature for reference:
 
 ## Part D — authorization
 
-Two stages. **Stage 2 is the shipping target**; Stage 3 is the destination and is
-kept here so Stage 2 is not built in a way that forecloses it. Between them sits
-D.4 — credential-lifecycle work that gates the Stage 2 _release_, because MCP
-turns PATs into a first-class, widely-distributed credential.
+Two stages, **both shipped**. Stage 2 was the shipping target and Stage 3 the
+destination, kept here so Stage 2 would not be built in a way that foreclosed
+it; in the event Stage 3 followed one release later. Between them sits D.4 —
+credential-lifecycle work that gated the Stage 2 _release_, because MCP turns
+PATs into a first-class, widely-distributed credential.
 
 ### D.0 The trust model the client already works within
 
@@ -348,7 +394,20 @@ image/session-key group deferred in Part B. The boundary lines up.
    use them (or equivalent checks) in the template route too, not only in
    non-`mcp-handler` hosts.
 
-### D.2 Stage 2 — PAT pass-through (ship this)
+**Both shipped, and in `@valbuild/next` rather than per app**
+(`initValMcp.ts`, `refuseUnsafeRequest`), because they are security-relevant and
+an app should not be re-implementing them. Filesystem mode is refused outside
+`NODE_ENV=development`, with no flag to turn that off: there is no configuration
+that makes an unauthenticated write endpoint safe on a deployed host, so a
+project that wants MCP in production wants proxy mode. A request carrying a
+cross-origin `Origin` is refused in either mode, and `Origin: null` — the opaque
+origin, from a sandboxed iframe or a `file://` page — is refused with the rest,
+because it cannot be compared to anything and "cannot be compared" has to mean
+refuse. In fs mode the request must also be addressed to a loopback host, which
+is the `Host` check DNS rebinding needs. MCP clients are not browsers and send no
+`Origin`, so none of this costs them anything.
+
+### D.2 Stage 2 — PAT pass-through (shipped, 0.116.0)
 
 Reuse the credential Val already issues, and let the backend enforce it.
 `val login` is an RFC 8628 device authorization grant: `startValLogin` requests
@@ -362,10 +421,9 @@ Flow:
 ```
 developer: val login                       → .val/pat.json            (exists today)
 MCP client ──Authorization: Bearer <pat>──▶ /api/mcp
-                                             │ 1. verify once per request (cached):
-                                             │    whoami(pat) → profileId    ← D.3
-                                             │ 2. execute tools with the PAT as the
-                                             ▼    backend credential:
+                                             │ the route does not verify it, and
+                                             │ derives no identity from it
+                                             ▼
                                            registry → ValOpsHttp(auth: {pat})
                                                         │  x-val-pat: <pat>
                                                         ▼
@@ -387,14 +445,23 @@ D.6):
 - **It is less code.** `ValOpsHttp` already speaks PAT; no verify-then-assert
   bridge to build.
 
-The route-level verification (step 1) still exists, for three reasons: to reject
-garbage before any tool runs, to satisfy `withMcpAuth`'s `verifyToken` contract
-with a 401 challenge, and to learn the caller's `profileId` for `authorId` and
-`ctx.auth`. **Cache resolutions keyed by `sha256(pat)` — never the raw PAT —
-with a TTL ≤ 60 seconds**: long enough to keep serverless latency sane, short
-enough that revocation (D.4) means something. Cache negative results briefly
-(a few seconds) so a bad token cannot turn the route into a backend
-amplification vector, and never log the token.
+**The route-level verification this plan called for did not ship, and should
+not.** The idea was that the route would resolve the PAT to a `profileId` first
+(D.3) — to reject garbage early, to satisfy `withMcpAuth`'s `verifyToken`
+contract, and to fill in `ctx.auth` — behind a cache keyed by `sha256(pat)` with
+a TTL short enough that revocation still meant something. Building it made the
+argument against it plain. A `profileId` the app looked up is still an identity
+the app is _asserting_, and there is nothing here for it to do: `authorId` is
+`null` on this path, and the only party that resolves this credential to a
+profile is the backend. All the check would add is a network round trip per
+cold call, a TTL to reason about, and a second copy of the answer that can
+disagree with the authoritative one.
+
+So the PAT is relayed as-is, `ctx.auth` is `{ type: "pat", pat }` with no
+identity field — the type has no room for one — and the backend decides what it
+may do. What this section said about handling still holds and is what shipped:
+accept it from `Authorization: Bearer` only, never a query parameter, never log
+it, and never let it reach a tool result.
 
 Handling rules for the PAT inside the route: accept it from the
 `Authorization: Bearer` header only (never a query parameter — those end up in
@@ -426,18 +493,32 @@ Two requirements, both small, and best landed together:
    fact. The API-key path has no authenticated end user to bind to, which is the
    asymmetry D.9 eventually removes.
 
-Val exports the verifier (`verifyValPat` in `@valbuild/server`, a thin cached
-wrapper over the extended `/settings`); the template calls it from
-`withMcpAuth`'s `verifyToken`.
+**Requirement 1 was superseded before it was built; requirement 2 still
+stands.**
 
-### D.4 Credential lifecycle: the Stage 2 release gate
+Exposing the authenticated principal was for the app's benefit, so it could name
+its caller. Stage 3 gives it a better answer than a `whoami` endpoint could: an
+access token's `sub` is signed by the authorization server, so the app knows the
+caller from the token in hand, with no round trip and nothing to cache. On the
+PAT path the app deliberately does not learn the caller at all (D.2). So there is
+no `whoami`, no `profile` in the client's `/settings` schema, and no
+`verifyValPat` in `@valbuild/server` — that function was named here and never
+existed.
+
+Binding the recorded author to the authenticated principal is a different matter
+and still belongs on the backend, which on the PAT path is the only party that
+resolves the credential to a profile. On the OAuth path the app supplies an
+`authorId` it verified cryptographically, which is a fact rather than a claim —
+see D.7.
+
+### D.4 Credential lifecycle: the Stage 2 release gate (met)
 
 MCP is what turns the PAT from an occasional developer convenience into a
 credential that exists in quantity and sits in plaintext client config files on
-disk. So the controls around its lifecycle have to be in place **before** it
-becomes the advertised way for an agent to reach Val content. These are backend
-concerns, tracked privately rather than enumerated here; what matters for this
-plan is which properties Stage 2 depends on:
+disk. So the controls around its lifecycle had to be in place **before** it
+became the advertised way for an agent to reach Val content. These are backend
+concerns rather than anything in this repository; what matters here is which
+properties Stage 2 depends on:
 
 - **Hashed at rest**, so that a credential store is not itself a set of usable
   credentials, with digest comparison rather than string equality.
@@ -457,8 +538,11 @@ plan is which properties Stage 2 depends on:
   device-code phishing — §5.4 is explicit about this — so the consent screen and
   the code comparison are load-bearing, not decoration.
 
-The first three are the release gate. The fourth already ships (see the RFC 8628
-work in `packages/server/src/login.ts`).
+The first three were the release gate. Hashing at rest, and owner-visible
+listing and revocation naming the machine that asked for each token, were in
+place before 0.116.0 shipped. Expiry is the one whose default lifetime is still
+undecided — see _Still open_, below. The fourth already shipped: see the RFC
+8628 work in `packages/server/src/login.ts`.
 
 ### D.5 Why not the session cookie
 
@@ -469,8 +553,8 @@ author id, so it needs **no backend work at all**. Rejected, for three reasons:
 1. **It conflates two lifecycles.** The session cookie is the human's Studio
    login. Reusing it as an agent credential means you cannot revoke the agent
    without logging the person out, or rotate a leaked agent token without
-   invalidating browser sessions. A PAT is separately revocable — once the D.4
-   controls land.
+   invalidating browser sessions. A PAT is separately revocable — which the D.4
+   controls made true in practice, not just in principle.
 2. **The JWT embeds a second, higher-value credential.**
    `IntegratedServerJwtPayload` (`ValServer.ts:2999-3005`) carries `token` — the
    JWT the app uses as a **Bearer credential against admin.val.build**
@@ -480,9 +564,10 @@ author id, so it needs **no backend work at all**. Rejected, for three reasons:
 3. **The UX is "copy it out of devtools."** `val login` already exists and is
    strictly better.
 
-It would also require the D.8 fix first: `decodeJwt` never checks `exp`, so a
-pasted session token is accepted by the server **forever**, not merely for the
-cookie's client-side lifetime.
+It would also have required the D.8 fix first: at the time this was written
+`decodeJwt` never checked `exp`, so a pasted session token was accepted by the
+server **forever**, not merely for the cookie's client-side lifetime. That is
+fixed now, and the other three reasons are untouched by it.
 
 ### D.6 Why not verify-then-assert (the first draft's Stage 2 — rejected)
 
@@ -502,74 +587,159 @@ every axis:
   plumbing; pass-through needs the endpoint alone. The only cost of
   pass-through is threading per-request auth into `ValOpsHttp` (Part A).
 
-### D.7 Stage 3 — OAuth 2.1 (the destination)
+### D.7 Stage 3 — OAuth 2.1 (built, 0.117.0)
 
-Stage 2 is deliberately a stepping stone, not a detour: the extended `/settings`
-(D.3) becomes token introspection, the PAT becomes an access token, and
-`val login` becomes the authorization flow.
+Stage 2 was a stepping stone rather than a detour, and Stage 3 followed one
+release later. It is live: an MCP client discovers Val's authorization server
+from the app, registers itself, sends the person to a consent screen, and comes
+back with an access token the app verifies on its own.
 
-Roles: the Next app's `/api/mcp` is the **Resource Server**; admin.val.build is
-the **Authorization Server**; the resource identifier is the endpoint URL.
+Roles, as the plan drew them: the Next app's `/api/mcp` is the **Resource
+Server**, `https://admin.val.build` is the **Authorization Server**, and the
+resource identifier is the endpoint's own URL. The Studio's existing browser
+login was not reusable — it is an internal code relay for one known client, not
+an authorization server — so this was new build, as the plan expected.
 
-Resource-server obligations (MCP authorization spec, revision 2026-07-28):
+#### The resource server (this repository)
 
-- **RFC 9728 Protected Resource Metadata** at
-  `/.well-known/oauth-protected-resource` (`MUST`; clients `MUST` use it for AS
-  discovery).
-- **401 + `WWW-Authenticate`**, `SHOULD` include `scope`:
-  `Bearer resource_metadata="…", scope="val:read val:write"`.
-- **Token validation**: signature, `iss`, `exp`, and **audience per RFC 8707** —
-  `aud` must match this resource. Audience binding is what stops a token minted
-  for one Val site being replayed against another. Note this is a property
-  **Stage 2 does not have**: a PAT is account-wide (below), so a PAT leaked from
-  one deployment works against every project the owner can reach. Accept that
-  knowingly.
-- **403 on insufficient scope.**
+`initValMcp(valModules, config, { oauth: { issuer, resource } })` turns an
+endpoint into a resource server. `@valbuild/next` ships the whole of it, on
+purpose: these are the security-relevant checks, and an app should not be
+re-implementing them per deployment.
 
-`mcp-handler` supplies all of it: `withMcpAuth(handler, verifyToken, {required,
-requiredScopes, resourceMetadataPath})`, plus `protectedResourceHandler` and
-`metadataCorsOptionsRequestHandler`.
+- **RFC 9728 protected-resource metadata.** `valMcpMetadata` is a
+  `{ GET, OPTIONS }` pair to mount at `/.well-known/oauth-protected-resource`,
+  and it is `null` when the app has no `oauth` config — so a deployment that
+  does not do OAuth answers 404 rather than publishing a document naming no
+  authorization server, which would send clients into a discovery loop. The
+  _authorization server's_ own metadata (RFC 8414) is deliberately not served by
+  the app: that document describes the issuer's endpoints, belongs at the
+  issuer, and an app serving a copy would be asserting someone else's
+  configuration and would be wrong the moment it changed.
+- **401 with `WWW-Authenticate`** carrying `resource_metadata` and `scope`, and
+  **403 on insufficient scope** — the distinction RFC 6750 section 3.1 draws,
+  and the one that tells a client whether to authorize again or to give up.
+- **Token validation** in `packages/next/src/server/valAccessToken.ts`, over
+  `node:crypto`. The rules that keep it safe are worth stating, because each is
+  there for a reason this repository has already met (D.8 is the
+  counterexample it shipped):
+  - **`alg` is pinned to ES256**, never read from the token; the header is
+    consulted for `kid` alone. A verifier that honours the token's own `alg` can
+    be handed `HS256` and will treat the _published public key_ as a shared
+    secret.
+  - **Nothing is read from the payload before the signature verifies.** Claims
+    from an unverified token are attacker input.
+  - **Keys come only from the configured issuer's JWKS** —
+    `new URL("/.well-known/jwks.json", issuer)` — never from the token. Cached
+    five minutes; a `kid` the cache does not hold provokes one refetch, rate
+    limited to once per issuer per 30 seconds. The limit matters because the
+    `kid` comes from the token: without it, unknown key ids are a way to make
+    the app call its issuer once per request.
+  - **Every claim that bounds the token is checked**: `iss`, `aud`, `exp`
+    (required) and `nbf`, with a clock-skew allowance, plus a non-empty `sub`
+    and a `scope` containing `val:read`.
+- **Scopes enforced before a tool runs** — `val:read` for every call, `val:write`
+  in addition for any tool not marked `readOnlyHint`. Enforced here as well as by
+  the backend, deliberately: this check can refuse a write before it is
+  attempted, so a token that may only read never reaches the code that builds a
+  patch.
 
-**Authorization-server requirements.** The Studio's existing browser login has
-an `/authorize` → code-exchange shape (`ValServer.ts:170-208`, `:529-541`,
-`:603-640`), and an earlier draft of this plan hoped that was most of an OAuth
-authorization server already. It is not: it is an internal code relay for one
-known client, so Stage 3 should treat it as **replace, not extend**. Its own
-hardening is tracked separately from this plan and is worth doing regardless of
-whether Stage 3 ever happens.
+`jose` was the first choice and was rejected on a fact rather than a preference:
+version 6 is ESM-only, and this package is built by preconstruct and `require`d
+by Next.js server code, so an ESM-only dependency here is a runtime failure in
+consumers' apps rather than a build inconvenience. The cryptography is still not
+hand-rolled — `node:crypto` does the ECDSA and the JWK import — but the JWS
+envelope is written out. One thing to know before touching it: **ECDSA JWS
+signatures are raw `r||s`** (RFC 7518), not DER, which is what
+`dsaEncoding: "ieee-p1363"` is for. Omit it and every valid signature is
+rejected.
 
-Assume the authorization server is new build. In particular there is no
-asymmetric-key or JWKS infrastructure to build on — both JWTs in the current
-system are HS256 with shared secrets (`VAL_SECRET` on the app side; see
-`packages/server/src/jwt.ts`). What it must provide:
+**On this path the app's API key is the backend credential, and the verified
+`sub` travels as `authorId`** — which is the shape D.6 rejects. The difference is
+what "verify" means there. D.6 rejects asserting an identity the app took on
+trust from a credential it cannot check; here the app checked a signature
+against the issuer's published key, so the `sub` is a fact it established rather
+than a claim it relayed — the same standing the Studio has for a session it
+established itself. The types are made to say so: `ValToolAuth` has no identity
+field on its `pat` variant, and the single assertion that turns a string into an
+`AuthorId` is named `authorIdFromVerifiedSubject`, so a `profileId` that was not
+verified has nowhere to enter the system.
 
-- **RFC 8414 metadata** at `/.well-known/oauth-authorization-server`.
-- **OAuth 2.1**: authorization code with **PKCE `S256` mandatory**.
-- **RFC 8707**: honour `resource` on authorization and token requests; set `aud`.
-- **RFC 9207**: return `iss` in the authorization response. New in this revision.
-- **Client registration**: current ordering is **Client ID Metadata Documents
-  (CIMD) preferred → pre-registration → Dynamic Client Registration, which is
-  deprecated**. DCR was the usual answer for MCP and is now the fallback.
-- **Scopes**: at least `val:read` / `val:write`. Org membership already carries a
-  role (`owner`/`developer`/`editor`) for these to hang off, but the content API
-  does not enforce roles today, so scope enforcement is new code either way.
-  Finer granularity is much harder to add later than now.
-- **JWKS endpoint** — prefer JWT access tokens validated against JWKS over RFC
-  7662 introspection, so the serverless route needs no per-request round trip.
-- **Consent screen** naming the resource (the flow above shows the AS currently
-  has no consent surface of its own, so budget for building one).
+#### The authorization server (admin.val.build)
 
-Given all of it is new build, seriously evaluate adopting a maintained OAuth
-provider library (or delegating the AS entirely) rather than hand-rolling —
-the hand-rolled HS256 layer already produced D.8.
+Observable behaviour, which is what a resource server may rely on:
 
-**What Stage 2 does not give you, and only Stage 3 will:** third-party clients
-that expect OAuth discovery (Claude Desktop's connector UI is OAuth-oriented),
-scoped least privilege, and per-resource audience binding.
+| Endpoint                                      | What it does                                                                                                  |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `POST /oauth/register`                        | RFC 7591 dynamic client registration. Open, and returns a `client_id` with no secret.                         |
+| `GET /oauth/authorize`                        | Sign-in, then a consent screen naming the client and the project. Returns `iss` (RFC 9207) on every response. |
+| `POST /oauth/token`                           | Authorization-code and refresh-token grants, form-encoded, with no client authentication.                     |
+| `GET /.well-known/oauth-authorization-server` | RFC 8414 metadata.                                                                                            |
+| `GET /.well-known/jwks.json`                  | The ES256 public keys.                                                                                        |
 
-### D.8 Prerequisite fix in `packages/server`, separate PR
+The properties that the code in this repository depends on:
 
-`decodeJwt` (`packages/server/src/jwt.ts:11-66`) has three problems:
+- **PKCE `S256` is mandatory.** It is the only method advertised, and a request
+  without a challenge is refused. Every client is public, so possession of the
+  verifier is what a client proves at the token endpoint — there is no secret.
+- **RFC 8707 `resource` is honoured** on both the authorization and the token
+  request, and becomes the token's `aud`. It resolves to a project by the
+  **exact origin** of that project's production URL, so a token is bound to one
+  deployment rather than to anything that merely starts with the same string.
+- **Access tokens are ES256 JWTs**, one hour, verifiable against the JWKS with no
+  round trip to the issuer — per-request introspection would be the wrong shape
+  for a serverless route.
+- **Scopes are `val:read` and `val:write`**, narrowed to what the person's role
+  in that project's organisation carries, and **re-checked when a refresh token
+  is exchanged** rather than only at consent, so losing access ends the session
+  at the next refresh.
+- **Refresh tokens rotate**, and presenting one that was already spent is treated
+  as a replay: the whole family is torn down, so a stolen token cannot be used
+  alongside the legitimate one.
+- **Consent is per client, per project**, and nothing an app or a client can do
+  produces a token without a person approving it on a screen naming both.
+
+#### The two decisions this plan left open, and where they landed
+
+1. **`aud` is the MCP endpoint's own URL** — as recommended, and proved inside
+   the exchange rather than assumed: the client sends `resource`, the
+   authorization server resolves it and stamps it as `aud`, and the app refuses
+   any token whose `aud` is not its own configured `resource`. A token minted for
+   one Val site is not accepted by another.
+
+2. **Clients register themselves; there is no pre-registration.** This plan put
+   dynamic client registration last, behind Client ID Metadata Documents and
+   pre-registration, on the strength of the spec's ordering. What shipped is RFC
+   7591 dynamic registration, because the ordering in the spec is not the
+   ordering in the clients: the MCP clients this exists for expect to register
+   themselves, and nobody is going to hand-register an agent in an admin screen
+   before a customer can connect it.
+
+   Open registration is safe **because a registration grants nothing**. A client
+   is a name and a set of redirect URIs, and it stays powerless until a signed-in
+   person approves an authorization request for it. What the registration buys is
+   the two things that make a code safe to hand out: something honest to put on
+   the consent screen, and a redirect URI pinned in advance — compared by exact
+   string equality, so a stolen `client_id` cannot deliver a code anywhere else.
+   Redirect URIs must be `https`, or `http` on a loopback host for local
+   development, and must carry no fragment; registration is rate-limited per
+   address; and the client name is untrusted display data, which is the only
+   thing a registrant gets to say about itself.
+
+**What Stage 3 gives that Stage 2 could not:** third-party clients that expect
+OAuth discovery (connector UIs are OAuth-oriented and often cannot be given a
+static header at all), scoped least privilege, and per-resource audience
+binding.
+
+**Still unbuilt:** a screen where a person can see which applications hold a
+grant and withdraw one, and rotation of the signing keys on a schedule. The
+resource-server half of rotation is done — an unknown `kid` refetches rather than
+refusing, from 0.120.1 — so what is missing there is the schedule, not the
+ability to survive it.
+
+### D.8 Prerequisite fix in `packages/server`, separate PR (done)
+
+`decodeJwt` (`packages/server/src/jwt.ts:11-66`) had three problems:
 
 1. It parses the payload and returns it **without ever checking `exp`**. Expiry
    is enforced only by the cookie's client-side `expires` attribute
@@ -585,21 +755,33 @@ scoped least privilege, and per-resource audience binding.
    should be an explicitly-named `decodeJwtUnverified` so the default path
    cannot silently skip verification.
 
-Pre-existing, and it affects the Studio's cookie path regardless of which stage
-you pick. **Fix it in its own PR** — changing `decodeJwt` changes login
-behaviour and must not ride inside an MCP change.
+**Done, in its own PR, as this section asked** — changing `decodeJwt` changes
+login behaviour and had no business riding inside an MCP change. It is
+`verifyJwt` now (`packages/server/src/jwt.ts`): the secret is required, with no
+argument shape that skips the signature check; the comparison is
+`crypto.timingSafeEqual` behind the length check that makes it usable; `exp` is
+enforced with a 60-second allowance for clock skew; and the header pins `alg` to
+`HS256`, so `alg: "none"` and the rest of the algorithm-confusion family are
+rejected before the signature is looked at. The one legitimate unverified call is
+named `decodeJwtWithoutVerifying` and its doc comment says what makes it
+legitimate, so the default path cannot silently skip verification.
 
 ### D.9 Follow-on worth designing toward
 
 The end state D.5 of the first draft hoped for — content.val.build accepting the
 **user's** credential directly and deriving the author itself — is **already
 half-real**: the PAT path does exactly that, and D.3.2 completes it by binding
-`authorId` server-side. What remains is retiring the API-key-plus-asserted-
-identity path for the Studio: once Val's AS issues user tokens (Stage 3), the
-Studio's server can forward those instead of asserting `x-val-profile-id` under
-`VAL_API_KEY`, and the API key shrinks to app-level concerns (deploy hooks,
-settings). Do not design the AS in a way that forecloses this — allow
-content.val.build to be a second registered resource.
+`authorId` server-side.
+
+What remains is retiring the API-key-plus-asserted-identity path for the Studio,
+and Stage 3 removed the reason it could not be done: Val's authorization server
+issues user tokens now, so the Studio's server could forward one instead of
+asserting `x-val-profile-id` under `VAL_API_KEY`, and the API key would shrink to
+app-level concerns (deploy hooks, settings). Note that the MCP OAuth path did not
+take this route — it verifies the token itself and calls the backend under the
+API key with a verified `authorId` (D.7) — so this is still a design to move
+toward rather than one already half-taken. Nothing in the authorization server
+forecloses it: content.val.build can be registered as a second resource.
 
 ---
 
@@ -611,89 +793,93 @@ and the Redis requirement are **gone** in 2.x — a plain `route.ts` exporting
 `GET`/`POST` is the whole thing. The 2026-07-28 protocol revision is stateless: no
 `initialize`, no `Mcp-Session-Id`.
 
-New files in `template-nextjs-starter`:
+**`examples/next` has this; `template-nextjs-starter` does not yet.** The example
+is in Val's CI, which is what makes it the reference rather than the copy: its
+`pnpm run build` is the job that catches the duplicate-`@types/react` class of
+failure, so the MCP path does not ship untested. Porting the same three files to
+the template is outstanding.
 
-- **`src/val/val.tools.ts`** — `"server-only"`; `createValTools(valModules, {...config})`,
-  mirroring the existing `src/val/val.server.ts`.
-- **`src/app/api/mcp/route.ts`** — **outside both route groups**. Route handlers
-  never render a layout, so the `(main)`/`(val)` split (which exists because each
-  group owns its own root layout) does not apply; a top-level `api/` keeps MCP
-  independent of both. Needs `export const runtime = "nodejs"` and
-  `export const dynamic = "force-dynamic"`.
+Three files, and what belongs in each:
+
+- **`val/mcp.ts`** — `"server-only"`, and one call:
 
   ```ts
-  // Mode-aware guard (D.1): in proxy mode a PAT is always required; in fs
-  // mode serve unauthenticated ONLY outside production.
-  const isProxyMode = valMode === "http";
-  if (!isProxyMode && process.env.NODE_ENV === "production") {
-    // export handlers that always return 404/503 — never an open write endpoint
-  }
-
-  const handler = createMcpHandler((server) => {
-    for (const tool of valTools.list()) {
-      server.registerTool(
-        tool.name,
-        {
-          title: tool.title,
-          description: tool.description,
-          inputSchema: tool.inputSchema,
-          annotations: tool.annotations,
-        },
-        async (args, ctx) =>
-          toCallToolResult(
-            await valTools.call(tool.name, args, {
-              // Pass-through (D.2): the caller's PAT is the backend credential
-              // for every ValOps call this request makes. authInfo.token is the
-              // verified bearer token; extra.profileId came from verifyValPat.
-              auth: ctx.http?.authInfo
-                ? {
-                    pat: ctx.http.authInfo.token,
-                    profileId: ctx.http.authInfo.extra.profileId,
-                  }
-                : null,
-              sessionId: null,
-            }),
-          ),
-      );
-    }
-  });
-
-  // Stage 2: `verifyValPat` (from @valbuild/server) resolves the bearer PAT to
-  // a Val profile via the extended /settings (D.3), cached by sha256(pat) with
-  // a ≤60s TTL. It must never log the token.
-  // Stage 3 swaps this for access-token validation and adds `requiredScopes`
-  // plus `resourceMetadataPath` — the surrounding wiring does not change.
-  const authHandler = withMcpAuth(handler, verifyValPat, {
-    required: isProxyMode,
-  });
-  export { authHandler as GET, authHandler as POST };
+  const { valMcpAuthorize, valMcpTools, valMcpMetadata } = initValMcp(
+    valModules,
+    config,
+    {
+      formatter: (code, filePath) =>
+        prettier.format(code, { filepath: filePath }),
+      // Absent by default, because the two are genuinely different
+      // deployments: local development has no authorization server to talk to
+      // and wants the endpoint to work without one, while a deployed app must
+      // not serve MCP to whoever asks. Set both and every call needs a verified
+      // access token.
+      ...(process.env.VAL_OAUTH_ISSUER && process.env.VAL_MCP_RESOURCE
+        ? {
+            oauth: {
+              issuer: process.env.VAL_OAUTH_ISSUER,
+              resource: process.env.VAL_MCP_RESOURCE,
+            },
+          }
+        : {}),
+    },
+  );
   ```
 
-  In fs mode, additionally validate `Origin`/`Host` (D.1 guard rail 2).
+  Separate from `val/server.ts` because the two share nothing but the modules:
+  one serves the Studio in a browser, the other serves an agent that has none.
+  The formatter goes to both, so a patch written to disk in local dev comes out
+  formatted the way the repo formats everything else, whichever path wrote it.
 
-- **`src/app/.well-known/oauth-protected-resource/route.ts`** — **Stage 3 only.**
-  `protectedResourceHandler({ authServerUrls: ["https://admin.val.build"] })`
-  plus `metadataCorsOptionsRequestHandler()` as `OPTIONS`. Not needed for
-  Stage 2; listed here so the route's eventual home is settled.
-- **`.env.example` + README** — the Val project vars, and how to attach the server:
-  `claude mcp add --transport http val https://site.com/api/mcp --header "Authorization: Bearer $VAL_PAT"`.
-  The README must say plainly what a PAT is worth (Risks 5): it grants
-  everything its owner can touch, across **every project of every org they
-  belong to** — treat it like a password, prefer per-agent PATs now that they can be listed and revoked, and revoke on any suspicion. Note the header is right for Stage 2
-  but **wrong for Stage 3**: once the server advertises OAuth, a rejected
-  `Authorization` header is reported as a failure rather than falling through
-  to the OAuth flow, so the header must be dropped when Stage 3 lands. Document
-  that in the README rather than discovering it.
+- **`app/api/mcp/route.ts`** — **outside both route groups**. Route handlers
+  never render a layout, so the `(main)`/`(val)` split (which exists because each
+  group owns its own root layout) does not apply; a top-level `api/` keeps MCP
+  independent of both.
+
+  `valMcpAuthorize` is called **twice**, and both are load-bearing. Once on the
+  raw request before `createMcpHandler` sees it, so a request that should not be
+  answered at all — a browser on another origin, or fs mode on a deployed host —
+  never reaches an `initialize` handshake. And once inside each tool callback,
+  from that call's own `ctx.http?.req`, because the credential belongs to the
+  caller rather than to the server instance the tools were registered on.
+  Listing needs no credential, so the tools are registered once at startup;
+  only calling them is per-caller. Export the same function as `GET`, `POST` and
+  `DELETE`.
+
+  A tool that fails returns its error **in band**, with `isError: true`, so the
+  model sees a failed tool call it can recover from rather than a dead
+  transport. The error code goes in the text, because it is what distinguishes
+  "try something else" from "try again".
+
+  Note there is no `withMcpAuth` and no `verifyValPat`: the plan had the route
+  wire `mcp-handler`'s auth wrapper around a Val-supplied verifier, and what
+  shipped puts the whole decision behind `valMcpAuthorize` in `@valbuild/next` —
+  the OAuth path, the PAT path, the fs-mode refusal and the origin check in one
+  place. See D.2 and D.3 for why the verifier stopped being needed.
+
+- **`app/.well-known/oauth-protected-resource/route.ts`** — `valMcpMetadata.GET`
+  and `.OPTIONS`, or 404 when `valMcpMetadata` is `null`. Not the SDK's
+  `protectedResourceHandler`: this document has to agree with the `oauth` config
+  the same `initValMcp` call was given, and two sources for one answer is how
+  they come to disagree.
+
+- **`.env.example` + README** — the Val project vars, and how to attach the
+  server. With OAuth configured, a client discovers everything it needs and no
+  header is involved:
+  `claude mcp add --transport http val https://site.com/api/mcp`. For the Stage 2
+  PAT path, add `--header "Authorization: Bearer $VAL_PAT"` — and the README must
+  say plainly what a PAT is worth (Risks 5): it grants everything its owner can
+  touch, across **every project of every org they belong to**. Treat it like a
+  password, prefer per-agent PATs now that they can be listed and revoked, and
+  revoke on any suspicion. **Do not configure both**: once a server advertises
+  OAuth, a rejected `Authorization` header is reported as a failure rather than
+  falling through to the OAuth flow.
 
 `package.json`: add `mcp-handler@^2`, `@modelcontextprotocol/server@^2`, `zod@^4`,
 and `"engines": { "node": ">=20" }` (both packages require it; the template
 currently declares none). `tsconfig.json` needs `"types": ["node"]` — TypeScript
 ≥6 no longer auto-includes `@types/*` and the SDK's `.d.mts` references `Buffer`.
-
-**Also add the same route to `examples/next`.** The template is not in Val's CI;
-`examples/next` is, and its `pnpm run build` is the job that catches the
-duplicate-`@types/react` class of failure. Without this the MCP path ships
-untested.
 
 ---
 
@@ -717,37 +903,49 @@ The registry is plain TypeScript over `ValOps` with zod schemas, so:
 
 ---
 
-## Order of work
+## What was done, in order
 
-1. **Backend credential-lifecycle work** (D.4): hashing at rest, PAT listing and
-   revocation with expiry, and the consent step in `val login` (already
-   shipped). This gates the Stage 2 _release_, not the Stage 2 _build_ — run it
-   in parallel with 2–6.
-2. Move shared helpers to `@valbuild/shared/internal` — separate commit, Studio
-   tests green.
-3. Registry skeleton + read-only tools + unit tests.
-4. Write path (Part C) + write tools + tests.
-5. `examples/next` MCP route; exercise locally with **no auth at all** (D.1),
-   including the production-refusal guard and Origin/Host validation.
+The plan's ten steps, with what actually happened to each:
 
-   → **Steps 2–5 are the natural first PR**: a working local MCP server with no
-   backend dependency whatsoever.
+1. **Credential-lifecycle work (D.4).** Done, and it did gate the release rather
+   than the build: hashing at rest, plus listing and revocation naming the
+   machine that asked, were in place before 0.116.0 went out.
+2. **Move shared helpers to `@valbuild/shared/internal`.** Done as its own
+   commit, with the Studio's tests green, so nothing in the live chat path had
+   to be untangled from a registry regression afterwards.
+3. **Registry skeleton + read-only tools + unit tests.** Done.
+4. **Write path (Part C) + write tools + tests.** Done.
+5. **`examples/next` MCP route.** Done — with the production refusal and the
+   origin check in `@valbuild/next` rather than in the app, which was the one
+   change worth making to this step (D.1).
+6. **Backend addition (D.3).** Superseded rather than built. Stage 3 arrived
+   before there was any need for it, and a verified `sub` from the token beats
+   an identity the app looks up and caches; see D.3.
+7. **Per-request auth threading.** Done as instance-per-credential rather than
+   as a parameter on every method (Part A), and without `verifyValPat`, which
+   step 6 removed the need for.
+8. **Ship it.** 0.116.0.
+9. **`decodeJwt` fixes.** Done, in their own PR, as D.8 insisted.
+10. **Stage 3 (D.7).** 0.117.0, one release after Stage 2 rather than "when
+    third-party OAuth clients justify it" — the connector UIs justified it
+    immediately.
 
-6. Backend addition (D.3): expose the authenticated principal on `/settings`,
-   and bind the recorded author to the authenticated principal on writes.
-7. Per-request auth threading in `ValOpsHttp` (Part A) + `verifyValPat` in
-   `@valbuild/server` (cached, hash-keyed), wired through `withMcpAuth` in the
-   template.
-8. Template wiring, README (including the PAT-blast-radius warning), changeset.
-   **Ships here — gated on step 1 being live.**
-9. `decodeJwt` fixes — separate PR (D.8). Independent of MCP; do it soon
-   regardless: it is the Studio's session-expiry enforcement, and it becomes a
-   hard prerequisite if anyone ever reconsiders D.5.
-10. Stage 3 (D.7), when third-party OAuth clients or scoped access justify it.
+Left:
 
----
+- **Port the three files to `template-nextjs-starter`** (Part E), so a new
+  project starts with MCP wired rather than with instructions for wiring it.
+- **A grant-management screen** on the authorization server, so a person can see
+  which applications hold access and withdraw one (D.7).
+- **Scheduled signing-key rotation** (D.7). Resource servers survive one already;
+  what is missing is the schedule.
+- **`search_content`** (Part B), which needs a server-side index lifecycle rather
+  than a new algorithm.
+- **Image tools over MCP** (Part B), which need an affordance MCP has and chat
+  does not — a local file path, or inline base64.
 
 ## Verification
+
+What was run, and what to re-run when any of this changes.
 
 ```bash
 # fast loop
@@ -779,17 +977,23 @@ Auth-specific checks, all of them:
   serves nothing (guard rail D.1.1). A request with a wrong `Host`/`Origin` is
   rejected (D.1.2).
 - **proxy mode**: no `Authorization` header → 401 with a `WWW-Authenticate`
-  challenge; a garbage PAT → 401; a valid PAT → tools run and the created
-  patch's author is the PAT owner's profile (checked in the Studio's patch
-  list), **even when the request body claims a different `authorId`** (D.3.2).
-- **Revocation**: revoke the PAT, then confirm calls
-  fail within the verify-cache TTL (≤60s).
+  challenge; a garbage PAT → refused by the backend rather than by the route
+  (D.2); a valid PAT → tools run and the created patch's author is the PAT
+  owner's profile (checked in the Studio's patch list), **even when the request
+  body claims a different `authorId`** (D.3.2).
+- **Revocation**: revoke the PAT, then confirm calls fail. On this path there is
+  no route-level cache to wait out — the backend re-checks every call.
 - **No leakage**: grep route/server logs from the above runs for the raw PAT —
   it must appear nowhere.
 
-For the OAuth path (Stage 3), verify the 401 challenge, the two metadata
-documents, and that a token minted for a _different_ resource is rejected by
-audience validation.
+For the OAuth path, all of this was verified end to end against the deployed
+authorization server before 0.117.0 shipped: the 401 challenge and its
+`WWW-Authenticate`, both metadata documents, a full register → authorize →
+consent → token exchange, and the resulting token accepted by the released
+verifier. Then the refusals, which are the half worth re-running whenever any of
+it changes — a token minted for a **different resource** refused on `aud`, one
+from a **different issuer** refused on `iss`, and one whose payload was edited
+after signing refused on the signature.
 
 Full CI before calling it done:
 
@@ -834,9 +1038,18 @@ are what the design above rests on.
    pass-through (D.2/D.6). What remains is binding writes to the authenticated
    identity (D.3) and eventually retiring asserted identity for the Studio (D.9).
 
+**Answered since, by building it.** 4 and 5 were right that Stage 3 was new
+build with no asymmetric-key infrastructure to stand on; it is ES256 with a
+published key set now (D.7). 6 landed where the plan hoped: `val:read` and
+`val:write` exist, are derived from the member's role, and are enforced both by
+the resource server before a tool runs and by the backend.
+
 **Still open:** the default PAT lifetime (90 days proposed), and whether an
 `editor`-role member should hold a PAT carrying full content-API power, given
-that role is not currently enforced (answer 6).
+that role is not enforced on that path (answer 6). Both are now specifically
+_PAT_ questions: an OAuth access token is scoped by role and bound to one
+resource, so the answer for agents is increasingly to use Stage 3 and hand out
+fewer PATs.
 
 ---
 
@@ -857,15 +1070,19 @@ that role is not currently enforced (answer 6).
    the first draft assumed. A PAT is accepted for any project its owner has
    access to, at any role, so one leaked PAT reaches everything that person can
    reach rather than just the deployment it was configured for. Stage 3's RFC
-   8707 `aud` plus scopes is the fix; until then the README warning (Part E) and
-   the D.4 lifecycle controls (expiry, revocation, hashing) are the mitigations.
-   Accept knowingly, and keep it in mind when deciding how widely PATs are
-   handed out.
-6. **Claude Desktop's connector UI is OAuth-oriented**, so a static bearer header
-   may not be configurable there — Stage 2 likely reaches it only via the
-   `mcp-remote` stdio bridge. Claude Code and Cursor take the header directly.
-   Test the three separately; they do not behave identically. If Claude Desktop
-   is a hard requirement, that alone argues for going straight to Stage 3.
+   8707 `aud` plus scopes **is the fix, and it shipped**: an access token is
+   bound to one endpoint and carries only what the person's role allows. The PAT
+   path stays, for local use and for clients that can only be given a header, so
+   the warning stands for it — prefer OAuth wherever the client supports it, and
+   keep the D.4 controls (revocation, hashing) as the mitigation for the rest.
+6. **Connector UIs are OAuth-oriented**, so a static bearer header may not be
+   configurable there at all — which is the risk that argued for going straight
+   to Stage 3, and did. **Resolved by shipping it:** a deployment with `oauth`
+   configured is exactly what such a UI wants, since it discovers the
+   authorization server from the protected-resource document and runs the flow
+   itself with nothing to configure. Clients that take a header directly still
+   work on the PAT path. The clients do not behave identically, so test them
+   separately.
 7. **Per-request auth threading in `ValOpsHttp` touches every proxy-mode call
    site.** The change is mechanical (Part A option 1) but wide; the mitigations
    are the existing `ValOpsHttp` tests plus the end-to-end auth checks in

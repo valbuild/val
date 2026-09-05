@@ -1,5 +1,182 @@
 # @valbuild/ui
 
+## 0.121.0
+
+### Minor Changes
+
+- [#464](https://github.com/valbuild/val/pull/464) [`2bcc6fd`](https://github.com/valbuild/val/commit/2bcc6fdff8d668123e07e3c5e81ac6fa1436e47b) Thanks [@freekh](https://github.com/freekh)! - Add staging and unstaging of pending changes, so one person can publish a small fix without shipping somebody else's unfinished work.
+
+  A **patch group** is the set of patches one user has chosen to publish. It is not a patch _set_: a patch set is computed from the schema and says which patches must move together, while a patch group is curated and says which ones you want live.
+
+  A group holds its owner's own work plus whatever the closure entangled with it — not everything pending. **So Publish changes meaning on a shared branch: it ships your changes and what they depend on, instead of everything anybody has pending.** That is the feature. Unstaging goes further: hold one of your own changes back and it leaves both your preview and your publish, while still existing for everyone else.
+
+  The rule relating the two is that for every group and every patch set, the group's members within that patch set must form a prefix in patch-chain order. Staging a change therefore pulls in whatever preceded it in the same patch set; unstaging drops whatever was built on top of it. The compare view names what a toggle moves, and whose it is, rather than quietly enlarging or shrinking a publish.
+
+  Editing inside a region you are holding back is allowed, and the patches you were holding are loaded back in rather than the edit being refused. An earlier design made such a region read-only until it was staged again, because an author picks an array index while looking at their own view — so re-staging patches afterwards can shift the content under the path they just chose, and their edit lands on the wrong element cleanly, with every invariant intact and only the content wrong. That guard is not what ships. It is a rare shape in practice, since two people's edits mostly land in different routes, and refusing an edit for a reason the author cannot see is a worse everyday experience than the case it prevents. Instead the real result is shown immediately: the widened set is what the editor renders and what the compare view lists.
+
+  Also fixes a pre-existing bug in patch set grouping: patch set paths were compared with a raw string prefix test, and nothing terminates a path segment, so `?foobar/title` matched `?foo`. Deleting record key `foo` and retitling record key `foobar` were treated as one inseparable change. Previously that over-grouped two unrelated edits in the review screen; with staging it would have meant publishing a deletion nobody asked for.
+
+  The `/patches` routes gain optional patch group fields and `/patch-groups/~/patches` is new. This needs a content API that has patch groups. Filesystem mode keeps the group in the client, since it has a single author and already sends an explicit patch id list when publishing.
+
+  When a save pulls other people's changes in, you are told: a toast names how many and whose. There is no undo, because your edit was written against the view those changes produce and now depends on them — the compare view shows the widened set.
+
+  Two other things keep a session honest about a shared branch. `/stat` now says which pending changes have already been published, so another author's publish stops looking pending in your Studio the moment it lands rather than when the site redeploys. And Publish refuses, without writing anything, if somebody published while you were reviewing — the review screen you acted on described a branch that has since moved.
+
+  Two things this does **not** do yet, both of which need the group annotation to refresh on its own rather than only inside a fetch for missing patch ids:
+
+  - a stage or unstage in one tab does not reach another tab;
+  - if persisting a stage fails, the local view keeps it until the page is reloaded.
+
+  `docs/independent-publish/DESIGN.md` describes the model and lists what is still a judgement call.
+
+- [#605](https://github.com/valbuild/val/pull/605) [`6794d29`](https://github.com/valbuild/val/commit/6794d2980bc81284ab7f2cc667f01cc21c9e3a79) Thanks [@freekh](https://github.com/freekh)! - `s.settings()`: the project's settings, as content.
+
+  A settings module is one per project, at the root of the content tree:
+
+  ```typescript
+  // settings.val.ts
+  export default c.define("/settings.val.ts", s.settings(), {});
+  ```
+
+  Register it in `val.modules.ts` like any other module, and it shows up in the
+  Studio under the cog at the foot of the left rail. Everything in it is content:
+  it is edited as a draft, it appears in the publish diff, and it is the same for
+  everyone working on the project.
+
+  Every key is optional, at every level, so `{}` is a complete settings module —
+  and stays one as sections are added. What it holds today is the assistant:
+
+  ```typescript
+  export default c.define("/settings.val.ts", s.settings(), {
+    assistant: {
+      enabled: true,
+      context: "A CMS for developers, run by a team of four in Oslo.",
+      tone: "Plain and direct. British English, sentence case in headings.",
+    },
+  });
+  ```
+
+  `context` is background the assistant would otherwise guess at; `tone` is how it
+  should write when it writes content. Both are sent with every message it makes.
+
+  `enabled` decides whether editors have an assistant, and it has **three** states
+  rather than two:
+
+  - `true` — they do.
+  - `false` — they do not, and every trace of it goes: no button in the top bar,
+    no row in the quick actions, no panel, nothing sent.
+  - unset — nobody has decided. The assistant is still **shown**, and asks to be
+    turned on before it is used. Hiding an assistant nobody has decided about
+    means nobody discovers it; quietly enabling one means a project starts sending
+    its content to a model because it did not know to say no.
+
+  A project with no settings module at all has an assistant, as before: there is
+  nowhere to record a decision, and nowhere for the prompt to write the answer.
+
+  **Breaking: `ai.chat` is gone from `val.config.ts`.** Whether the assistant is
+  available is a decision about the project's content, made by the people who edit
+  it, so it moved to settings — turning the chat on used to take a developer, a
+  deploy and a code review of a boolean. Remove the whole block:
+
+  ```diff
+   const { s, c, val, config } = initVal({
+  -  ai: {
+  -    chat: {
+  -      experimental: { enable: true },
+  -      suggestions: ["Summarize", "Fix typos at this page"],
+  -      title: "Ask me anything",
+  -      description: "Val can answer questions about the content.",
+  -    },
+  -  },
+   });
+  ```
+
+  `experimental.enable` becomes `assistant.enabled` in the settings module.
+  `suggestions`, `title` and `description` are removed with nothing replacing
+  them: the assistant now opens with its own copy. A project that had the chat
+  enabled and wants it to stay on for everyone should write
+  `assistant: { enabled: true }` — otherwise editors are offered it and asked.
+
+  `ai.commitMessages` stays in `val.config.ts`, and is unaffected.
+
+  Two settings modules, or one in a subdirectory, is a module error: the dev
+  server refuses to serve sources, `npx val validate` reports it against the file,
+  and the Studio says so rather than picking one.
+
+### Patch Changes
+
+- [#609](https://github.com/valbuild/val/pull/609) [`105479b`](https://github.com/valbuild/val/commit/105479b84a08846f1fe5971916f6a54275198d12) Thanks [@freekh](https://github.com/freekh)! - Studio: the focus ring on a dropdown's search field now runs the full width of the box.
+
+  A ring is a `box-shadow`, so it is drawn around whatever element carries it — and the search input is not the search field you see. It starts after the magnifier icon and stops short of the row's padding, so the ring was a rectangle floating inside the popover with a gap down each side. It is on the row now, edge to edge, with its top corners following the box's own radius.
+
+- [#595](https://github.com/valbuild/val/pull/595) [`55ec736`](https://github.com/valbuild/val/commit/55ec73651394908b6f440e360d181b95a91c0a93) Thanks [@freekh](https://github.com/freekh)! - Show your own name on the changes you have just made.
+
+  In a hosted project, a change made in the Studio showed up under "Unknown
+  author" as soon as it was made, next to earlier changes that were correctly
+  attributed. Reloading the page fixed it, which is what made it look arbitrary:
+  whether a change had an author depended on whether it had been fetched from the
+  server or made in the tab you were looking at.
+
+  A patch created in the browser carried no author at all. The server stamps one
+  from your session when the patch is saved, but the Studio never re-fetches a
+  patch it made itself, so nothing in the tab ever learned who wrote it — the
+  change history, the author avatars on a field and the review screen all grouped
+  it under an author they could not name.
+
+  Such a patch is now stamped with the current profile as it is created, which is
+  the same author the server records for it.
+
+- [#604](https://github.com/valbuild/val/pull/604) [`2db27d5`](https://github.com/valbuild/val/commit/2db27d555441bee2dd31817acc8c92b7b718ee55) Thanks [@freekh](https://github.com/freekh)! - Studio: duplicate a page, publish feedback on a phone, and a batch of visual fixes.
+
+  **Duplicate a page.** A page can be copied to a new URL from two places: the
+  Copy button beside its title, and a Copy button on its row in the Pages panel.
+  Both open the same route form the New page and Change URL controls use,
+  prefilled with the page's own URL, so the usual answer is one segment away — and
+  both go through one `copy` patch op, so the copy is the page rather than
+  somebody's second idea of what a page contains. Media comes along by reference:
+  duplicating a page with a gallery on it does not re-upload the gallery.
+
+  **Publishing from a phone says something.** The mobile bottom bar takes the row
+  the status bar would have had, so the deploy feed lived only inside the settings
+  sheet: the Publish button went back to "Publish" and that was the whole of the
+  feedback, with no way to tell a push that had landed from one that never went
+  out. The list now appears above the bottom bar when a publish goes out, and
+  closes itself once everything is live.
+
+  **Review is always in the quick actions.** It appeared only when something was
+  pending, which left "is anything of mine still unpublished?" unanswerable on a
+  phone — an empty row of quick actions looks the same as one that has not loaded.
+
+  **The compare view fits on a phone.** One long line used to scroll the whole
+  review sideways, and a long value pushed everything after it off the bottom.
+  Each compare box now scrolls its own content, and a read-only value in a dense
+  row is text rather than a disabled input — so a line longer than the box wraps
+  instead of being clipped at the right edge with no way to reach the rest.
+
+  **Author pictures show up everywhere they should.** The Studio had five ways to
+  draw a person, and the one in the top bar, the rail and the account panel drew
+  initials only — so the same author looked like two different people depending on
+  which surface you were on. There is one now, and it shows the profile picture
+  wherever there is one, falling back to initials.
+
+  Also:
+
+  - The AI chat keeps the caret in the composer when an answer completes. The
+    composer is made non-editable while the assistant is answering, which drops
+    the focus, and nothing put it back — so every follow-up question started with
+    a click.
+  - A long tool name in the AI chat's tools row no longer pushes the row off to
+    the right. Radix's scroll areas size their content as a table, which makes
+    `truncate` grow the row to the full untruncated width instead of clipping it.
+  - A focused combobox no longer draws its highlight outside itself. The focus
+    ring is painted outside the border box, so on a full-width trigger — and on
+    the search input inside the dropdown — it landed on the enclosing field and
+    was clipped or drawn over the box's own border.
+  - The deployments list no longer pops open for a publish that has been serving
+    the site for more than ten minutes. It opens for a commit it has not seen
+    before, which could not tell a publish that just happened from one that
+    finished before the tab existed.
+
 ## 0.120.4
 
 ### Patch Changes
