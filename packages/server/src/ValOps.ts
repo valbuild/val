@@ -56,6 +56,7 @@ import {
   ValCommit,
   ValDeployment,
   resolveSchemaSourceFixForError,
+  isSchemaSourceFixError,
   type SchemaSourceSnapshot,
 } from "@valbuild/shared/internal";
 
@@ -1078,7 +1079,8 @@ export abstract class ValOps {
     // (must include all modules, not just those being validated, since conflicts can come from any module)
     const galleryDirectoryToModules = new Map<string, ModuleFilePath[]>();
     // Build a schema/source snapshot so the shared resolver can cross-reference
-    // keyof:check-keys and router:check-route against every module's data.
+    // the marker fixes — a keyOf's key, a route, a locale tag, a record's
+    // declared keys — against every module's data. See `SCHEMA_SOURCE_FIXES`.
     const snapshot: SchemaSourceSnapshot = { schemas: {}, sources: {} };
     for (const [moduleFilePathS, schema] of entries) {
       const moduleFilePath = moduleFilePathS as ModuleFilePath;
@@ -1182,10 +1184,7 @@ export abstract class ValOps {
               validationError.fixes?.includes("file:check-remote")
             ) {
               remoteFiles[sourcePath] = validationError.value as MediaSource;
-            } else if (
-              validationError.fixes?.includes("keyof:check-keys") ||
-              validationError.fixes?.includes("router:check-route")
-            ) {
+            } else if (isSchemaSourceFixError(validationError)) {
               const resolved = resolveSchemaSourceFixForError(
                 validationError,
                 snapshot,

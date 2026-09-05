@@ -6,9 +6,11 @@ import {
   type Source,
   type SourcePath,
   type ValidationError,
+  type ValidationFix,
   type ValModule,
 } from "@valbuild/core";
 import {
+  isSchemaSourceFixError,
   resolveSchemaSourceFixes,
   resolveSchemaSourceFixForError,
 } from "./resolveSchemaSourceFixes";
@@ -602,5 +604,56 @@ describe("locale:check-locale", () => {
     expect(() =>
       resolveSchemaSourceFixes(unresolved("nb-NO"), project([1, null])),
     ).not.toThrow();
+  });
+});
+
+/**
+ * A marker error is one only the whole project can answer.
+ *
+ * Every caller that resolves any of them has to resolve all of them: what a
+ * caller that misses one shows the user is the marker's own placeholder text —
+ * "should typically be processed by Val internally … version mismatch" — which
+ * is alarming and says nothing. Two of these leaked through `ValOps` exactly
+ * that way, by being added here and not to a condition in the server.
+ */
+describe("isSchemaSourceFixError", () => {
+  const markers: ValidationFix[] = [
+    "keyof:check-keys",
+    "router:check-route",
+    "locale:check-locale",
+    "record:fill-keys",
+  ];
+
+  test("every fix the resolver answers for is recognised as one", () => {
+    for (const fix of markers) {
+      expect(isSchemaSourceFixError({ message: "…", fixes: [fix] })).toBe(true);
+    }
+  });
+
+  test("and it is the same set the resolver takes on", () => {
+    // Pinned from the other end: a new marker fix that `resolveSchemaSourceFixForError`
+    // answers for and this list does not is the leak, so the two are asserted
+    // to agree rather than merely both existing.
+    const snapshot = { schemas: {}, sources: {} };
+    for (const fix of markers) {
+      expect(
+        resolveSchemaSourceFixForError(
+          { message: "…", fixes: [fix] },
+          snapshot,
+        ),
+      ).not.toBe(null);
+    }
+  });
+
+  test("an ordinary validation error is not one", () => {
+    expect(isSchemaSourceFixError({ message: "Expected 'string'" })).toBe(
+      false,
+    );
+    expect(
+      isSchemaSourceFixError({
+        message: "…",
+        fixes: ["image:check-remote"],
+      }),
+    ).toBe(false);
   });
 });

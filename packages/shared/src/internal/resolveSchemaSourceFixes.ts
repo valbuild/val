@@ -10,6 +10,7 @@ import {
   type SerializedSchema,
   type SourcePath,
   type ValidationError,
+  type ValidationFix,
 } from "@valbuild/core";
 import {
   filterRoutesByPatterns,
@@ -300,10 +301,35 @@ export type ResolvedFix =
   | { status: "remaining"; error: ValidationError };
 
 /**
- * Resolves a single `keyof:check-keys` or `router:check-route` error against
- * the given schema/source snapshot. Returns:
+ * The fixes {@link resolveSchemaSourceFixForError} answers for.
+ *
+ * A marker error carrying one of these is NOT a message: it says "ask the whole
+ * project about this" and carries the value to ask with, because the schema
+ * that raised it can only see its own module. Left unresolved, what a user sees
+ * is the marker's own placeholder text — "should typically be processed by Val
+ * internally … version mismatch" — which is alarming and says nothing.
+ *
+ * A list rather than a check per call site: every caller that resolves some of
+ * these has to resolve all of them, and the two that leaked did so by adding a
+ * fix here and not to a condition somewhere else.
+ */
+const SCHEMA_SOURCE_FIXES: ValidationFix[] = [
+  "keyof:check-keys",
+  "router:check-route",
+  "locale:check-locale",
+  "record:fill-keys",
+];
+
+/** Whether an error is a marker only the whole project can answer. */
+export function isSchemaSourceFixError(error: ValidationError): boolean {
+  return (error.fixes ?? []).some((fix) => SCHEMA_SOURCE_FIXES.includes(fix));
+}
+
+/**
+ * Resolves a single marker error (see {@link SCHEMA_SOURCE_FIXES}) against the
+ * given schema/source snapshot. Returns:
  *   - null if the error is not one of these fixes (caller should pass through)
- *   - { status: "resolved" } if the referenced key/route is valid (drop error)
+ *   - { status: "resolved" } if the reference is valid (drop error)
  *   - { status: "remaining"; error } if invalid (rewritten error to surface)
  */
 export function resolveSchemaSourceFixForError(
@@ -594,10 +620,10 @@ function asRegExpPattern(value: unknown): SerializedRegExpPattern | undefined {
 /**
  * Apply schema/source fix resolution across a map of validation errors.
  *
- * Errors with `keyof:check-keys` or `router:check-route` are resolved against
- * the in-memory schema/source snapshot — valid references drop the error,
- * invalid ones are rewritten with a "did you mean…" message and have their
- * `fixes` cleared (so downstream code reports them as plain validation errors).
+ * Errors carrying one of {@link SCHEMA_SOURCE_FIXES} are resolved against the
+ * in-memory schema/source snapshot — valid references drop the error, invalid
+ * ones are rewritten with a "did you mean…" message and have their `fixes`
+ * cleared (so downstream code reports them as plain validation errors).
  * All other errors pass through untouched.
  *
  * Source paths with no remaining errors are removed from the result.
