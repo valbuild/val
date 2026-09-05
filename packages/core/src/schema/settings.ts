@@ -57,6 +57,39 @@ export type SerializedSettingsSchema = {
   readonly?: boolean;
   hidden?: boolean;
   description?: string;
+  /**
+   * Which of Val's sections this is, where it is one.
+   *
+   * The name rather than the rule itself, because the rule is a closure and a
+   * closure does not survive JSON. Val owns both ends — every section's rules
+   * are in {@link sectionValidators} in this file — so the name is enough for
+   * {@link deserializeSchema} to put the same rules back, and a Studio that
+   * does not recognise the name simply runs none (see `sectionValidate`).
+   *
+   * Absent on the settings module itself, which is a bag of sections and has no
+   * rules of its own.
+   */
+  section?: string;
+};
+
+/**
+ * A rule about a section that needs more than one of its keys.
+ *
+ * Paths are WITHIN the section, so an error lands on the key it is about.
+ */
+type SectionValidate = (
+  src: Record<string, unknown>,
+) => { path: (string | number)[]; message: string }[];
+
+/**
+ * Every section's rules, by the name that travels in the serialized schema.
+ *
+ * Typed with `| undefined` on the value rather than as a `Partial`: the whole
+ * point is that a lookup can miss, because the name comes off a serialized
+ * schema that may have been written by a newer Val than the one reading it.
+ */
+const sectionValidators: Record<string, SectionValidate | undefined> = {
+  locales: localesSectionErrors,
 };
 
 /**
@@ -80,24 +113,36 @@ export class SettingsSchema<
     private readonly isHidden: boolean = false,
     private readonly description?: string,
     /**
-     * Val's own rule about this section, across more than one of its keys.
+     * Which section this is, where Val has rules about it beyond its keys.
      *
      * Not the `validate` the class deliberately does not offer: that one is the
      * schema author's, and `s.settings()` takes no arguments to declare it
-     * with. This is Val stating a rule about a shape Val owns — `locales.default`
-     * having to be one of `locales.available` is true of every project, and
-     * there is nowhere else it can be said. A single field's rules stay on that
-     * field's own schema; this is only for the ones that need a sibling.
+     * with. This names a rule Val states about a shape Val owns —
+     * `locales.default` having to be one of `locales.available` is true of
+     * every project, and there is nowhere else it can be said. A single field's
+     * rules stay on that field's own schema; this is only for the ones that
+     * need a sibling.
      *
-     * Errors carry a path WITHIN the section, so `default` is reported on
-     * `default` and a bad tag on the entry that holds it, rather than all of
-     * them landing on the section — which is not where the editor is looking.
+     * A NAME rather than the function, so it survives serialization: the schema
+     * reaches the Studio's validation worker as JSON, and a closure would be
+     * dropped on the way — which is how these rules once went missing there.
      */
-    private readonly sectionValidate?: (
-      src: Record<string, unknown>,
-    ) => { path: (string | number)[]; message: string }[],
+    private readonly section?: string,
   ) {
     super();
+  }
+
+  /**
+   * This section's rules, or `undefined` where there are none to run.
+   *
+   * A name this Val does not know means a schema written by a newer one. Its
+   * per-key validation still runs; only the cross-key rule is missed, which is
+   * the mild half of the failure and better than refusing the schema.
+   */
+  private sectionValidate(): SectionValidate | undefined {
+    return this.section === undefined
+      ? undefined
+      : sectionValidators[this.section];
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
@@ -160,8 +205,9 @@ export class SettingsSchema<
         );
       }
     }
-    if (this.sectionValidate) {
-      for (const { path: keys, message } of this.sectionValidate(src)) {
+    const sectionValidate = this.sectionValidate();
+    if (sectionValidate) {
+      for (const { path: keys, message } of sectionValidate(src)) {
         let subPath: SourcePath | ModuleFilePath | undefined = path;
         for (const key of keys) {
           subPath = subPath && createValPathOfItem(subPath, key);
@@ -211,7 +257,7 @@ export class SettingsSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
-      this.sectionValidate,
+      this.section,
     );
   }
 
@@ -222,7 +268,7 @@ export class SettingsSchema<
       true,
       this.isHidden,
       this.description,
-      this.sectionValidate,
+      this.section,
     );
   }
 
@@ -233,7 +279,7 @@ export class SettingsSchema<
       this.isReadonly,
       true,
       this.description,
-      this.sectionValidate,
+      this.section,
     );
   }
 
@@ -257,6 +303,7 @@ export class SettingsSchema<
       readonly: this.isReadonly,
       hidden: this.isHidden,
       description: this.description,
+      section: this.section,
     };
   }
 
@@ -359,9 +406,13 @@ export function settings(): SettingsSchema<SettingsSource> {
     }),
     locales: new SettingsSchema<LocalesSettingsSource>(
       {
-        available: array(string()).describe(
-          "The languages this project publishes, as BCP 47 tags: en-US, nb-NO. The first is where the Studio starts.",
-        ),
+        // Nullable because the source type is, and because the Studio writes
+        // `null` for every sibling the first time a section is created.
+        available: array(string())
+          .nullable()
+          .describe(
+            "The languages this project publishes, as BCP 47 tags: en-US, nb-NO. The first is where the Studio starts.",
+          ),
         default: string()
           .nullable()
           .describe(
@@ -372,7 +423,7 @@ export function settings(): SettingsSchema<SettingsSource> {
       false,
       false,
       undefined,
-      localesSectionErrors,
+      "locales",
     ),
   });
 }

@@ -107,8 +107,12 @@ export type AssistantSettingsSource = {
    * English. Only the target language's note is sent, so a French rule does not
    * ride along in a Norwegian request.
    *
-   * Not every language needs one, so this record is deliberately partial — it
-   * is the one place a locale-keyed record is not expected to hold them all.
+   * Keyed by language, so it holds every one of them once it exists at all —
+   * `null` where a language needs no special instruction, which is most of them.
+   * That is the same rule every locale-keyed record follows (see
+   * `declaredKeys.ts`): a gap you can count and see in a diff, rather than a key
+   * that is simply not there. A project with no notes at all leaves the whole
+   * field unset and nothing is required.
    */
   translation?: Record<string, string | null> | null;
 };

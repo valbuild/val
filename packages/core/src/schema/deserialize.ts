@@ -119,6 +119,12 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        // Carried through, or the Studio's validation worker — which only ever
+        // sees the deserialized schema — would run every field's own rules and
+        // none of the cross-field ones, so a `locales.default` naming a
+        // language the project does not have would be reported by the CLI and
+        // silently accepted in the Studio.
+        serialized.section,
       );
     case "array":
       return new ArraySchema(

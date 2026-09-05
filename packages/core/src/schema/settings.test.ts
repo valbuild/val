@@ -327,6 +327,63 @@ describe("the locales section", () => {
     ).not.toThrow();
   });
 
+  test("the rules survive serialization, so the Studio runs them too", () => {
+    // The Studio's validation worker never sees `settings()` — it deserializes
+    // a schema that arrived as JSON. A closure cannot make that trip, which is
+    // why the section is named in the serialized schema and the rules are
+    // looked up again on the way back.
+    const serialized = settings()["executeSerialize"]();
+    expect(serialized).toMatchObject({
+      items: { locales: { section: "locales" } },
+    });
+    const errors = deserializeSchema(serialized)["executeValidate"](
+      "/settings.val.ts" as SourcePath,
+      { locales: { available: ["en-US", "nb-NO"], default: "fr-FR" } },
+    );
+    expect(
+      errors &&
+        errors['/settings.val.ts?p="locales"."default"' as SourcePath].map(
+          (error) => error.message,
+        ),
+    ).toEqual([
+      "'fr-FR' is not one of this project's languages: 'en-US', 'nb-NO'",
+    ]);
+  });
+
+  test("a section name this Val does not know leaves the rest of the schema working", () => {
+    // A schema written by a newer Val. Its rules cannot run — there is nothing
+    // here to run — but the shape still validates and a typo is still reported,
+    // which is better than refusing the schema outright.
+    const serialized = settings()["executeSerialize"]();
+    if (serialized.type !== "settings")
+      throw new Error("not a settings schema");
+    const locales = serialized.items["locales"];
+    if (locales?.type !== "settings") throw new Error("no locales section");
+    const schema = deserializeSchema({
+      ...serialized,
+      items: {
+        ...serialized.items,
+        locales: { ...locales, section: "locales-v2" },
+      },
+    });
+    expect(
+      schema["executeValidate"]("/settings.val.ts" as SourcePath, {
+        locales: { available: ["en-US"], default: "fr-FR" },
+      }),
+    ).toEqual(false);
+    const errors = schema["executeValidate"]("/settings.val.ts" as SourcePath, {
+      locales: { availabel: ["en-US"] },
+    });
+    expect(
+      errors &&
+        errors['/settings.val.ts?p="locales"' as SourcePath].map(
+          (error) => error.message,
+        ),
+    ).toEqual([
+      "Unknown settings key: 'availabel'. Expected one of: 'available', 'default'",
+    ]);
+  });
+
   test("s.settings() declares the section, so a project can be typed against it", () => {
     const module = c.define(
       "/settings.val.ts" as ModuleFilePath,
