@@ -133,11 +133,11 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
     );
   }
 
-  readonly(): BooleanSchema<Src> {
+  readonly(isReadonly: boolean = true): BooleanSchema<Src> {
     return new BooleanSchema<Src>(
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.renderInput,
@@ -145,12 +145,12 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
     );
   }
 
-  hidden(): BooleanSchema<Src> {
+  hidden(isHidden: boolean = true): BooleanSchema<Src> {
     return new BooleanSchema<Src>(
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.renderInput,
       this.previewInput,

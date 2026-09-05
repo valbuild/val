@@ -421,6 +421,15 @@ export function ValProvider({
     "data" in stat && stat.data ? stat.data.patches : undefined;
   const statMode = "data" in stat && stat.data ? stat.data.mode : undefined;
   /**
+   * Who the person at the keyboard is. `/stat` is the only thing that says.
+   *
+   * The same value `useCurrentAuthorId` reads out of context, kept as one
+   * expression here so the store system and the review UI cannot end up
+   * disagreeing about who you are.
+   */
+  const statProfileId =
+    "data" in stat && stat.data ? stat.data.profileId : null;
+  /**
    * Unpublished changes the server threw away because it could not read them.
    *
    * Cleared by the next stat, because the server drains the notice when it hands
@@ -504,6 +513,16 @@ export function ValProvider({
       system.setMode(statMode);
     }
   }, [system, statMode]);
+  /**
+   * Pushed in like the mode, and for the same reason — see `System.setAuthorId`.
+   *
+   * Without this a patch created here carried no author, and a locally created
+   * record is never re-fetched: every change made in the session showed as
+   * "Unknown author" next to the ones already on the server, until a reload.
+   */
+  useEffect(() => {
+    system.setAuthorId(statProfileId);
+  }, [system, statProfileId]);
 
   const [deployments, setDeployments] = useState<ValEnrichedDeployment[]>([]);
   const dismissedDeploymentsRef = useRef<Set<string>>(new Set());
@@ -728,7 +747,7 @@ export function ValProvider({
         client,
         publishSummaryState,
         setPublishSummaryState,
-        profileId: "data" in stat && stat.data ? stat.data.profileId : null,
+        profileId: statProfileId,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
         profileAuthError:
           profilesData.status === "auth-error" ? profilesData.error : null,

@@ -8,12 +8,15 @@ export function RenameRecordKeyForm({
   defaultValue,
   onCancel,
   onSubmit,
+  submitText = "Update",
 }: {
   parentPath: SourcePath | ModuleFilePath;
   defaultValue: string;
   existingKeys: string[];
   onSubmit: (key: string) => void;
   onCancel: () => void;
+  /** What the submit button says. It is not always a rename - see `DuplicateRecordPopover`. */
+  submitText?: string;
 }) {
   const [key, setKey] = useState(defaultValue);
   const alreadyExists = existingKeys.includes(key) && key !== defaultValue;
@@ -41,7 +44,7 @@ export function RenameRecordKeyForm({
       )}
       <div className="flex gap-2 items-center">
         <Button disabled={disabled} variant="outline" type="submit">
-          Update
+          {submitText}
         </Button>
         <Button
           variant={"ghost"}

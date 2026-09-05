@@ -227,6 +227,7 @@ export function toDeployments(
         ? profilesByAuthorId[deployment.creator]?.fullName
         : undefined,
       timestamp: formatRelativeTime(deployment.updatedAt, now),
+      updatedAt: deployment.updatedAt,
       isLive: observedCommitShas.has(deployment.commitSha),
     }),
   );
@@ -353,13 +354,6 @@ export function toAdminLinks(
     project: `${host}/~/${encodeURIComponent(org)}/${encodeURIComponent(project)}`,
     members: `${host}/manage-members/${encodeURIComponent(org)}`,
   };
-}
-
-export function initialsOf(fullName: string): string {
-  const parts = fullName.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 /**

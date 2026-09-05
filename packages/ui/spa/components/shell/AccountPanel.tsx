@@ -11,14 +11,14 @@ import {
 import { cn } from "../designSystem/cn";
 import { Checkbox } from "../designSystem/checkbox";
 import { FloatingPanel, PanelSectionLabel } from "./FloatingPanel";
-import { Avatar } from "./Avatar";
+import { Avatar } from "../Avatar";
 import { AccountErrorNotice, ShellAccountError } from "./AccountError";
 import { DeploymentRows } from "./Deployments";
 import { ShellAdminLinks, ShellBreakpoint, ShellDeployment } from "./types";
 
 export type AccountPanelProps = {
   breakpoint: ShellBreakpoint;
-  user?: { name: string; email?: string; initials: string };
+  user?: { name: string; email?: string; avatarUrl?: string };
   /**
    * Why there is no account, when there should be one.
    *
@@ -102,7 +102,7 @@ export function AccountPanel({
         {accountError && <AccountErrorNotice error={accountError} />}
         {user && (
           <div className="flex items-center gap-2.5 px-4 py-3">
-            <Avatar initials={user.initials} />
+            <Avatar name={user.name} imageUrl={user.avatarUrl} />
             <div className="min-w-0">
               <div className="text-xs font-medium truncate">{user.name}</div>
               {user.email && (

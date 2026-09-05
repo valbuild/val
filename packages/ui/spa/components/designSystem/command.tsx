@@ -57,9 +57,15 @@ const CommandInput = React.forwardRef<
     <CommandPrimitive.Input
       ref={ref}
       className={cn(
-        "flex h-11 w-full rounded-md py-3 text-sm",
+        "flex h-11 w-full rounded-sm py-3 text-sm",
         "placeholder:text-fg-secondary",
-        "bg-transparent rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50",
+        "bg-transparent focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
+        // `ring-inset`: the input fills its row edge to edge, so an outset ring
+        // has nowhere to go. In a popover (`p-0` + `overflow-hidden`) it was
+        // clipped away against the top edge, and in the inline search box
+        // (`overflow-visible`) it was drawn on top of the box's own border - the
+        // "outline beyond the box". Inset, the halo lands inside the input.
+        "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-border-focus",
         className,
       )}
       {...props}

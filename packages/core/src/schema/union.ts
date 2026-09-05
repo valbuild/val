@@ -521,13 +521,13 @@ export class UnionSchema<
     );
   }
 
-  readonly(): UnionSchema<Key, T, Src> {
+  readonly(isReadonly: boolean = true): UnionSchema<Key, T, Src> {
     return new UnionSchema(
       this.key,
       this.items,
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.renderInput,
@@ -535,14 +535,14 @@ export class UnionSchema<
     );
   }
 
-  hidden(): UnionSchema<Key, T, Src> {
+  hidden(isHidden: boolean = true): UnionSchema<Key, T, Src> {
     return new UnionSchema(
       this.key,
       this.items,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.renderInput,
       this.previewInput,
