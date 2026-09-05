@@ -23,6 +23,7 @@ import {
   createValServer,
   VAL_OPS,
   ValServer,
+  type ExternalRecords,
   type ItemOfModule,
 } from "@valbuild/server";
 import { VERSION } from "../version";
@@ -492,15 +493,22 @@ export const initFetchValKeyStega =
       })(selector, key);
       return entry as EntryContentOf<T> | undefined;
     }
+    // Past the branch above, the module is a `.jsonValues()` one — but TypeScript
+    // cannot say so: narrowing a value whose type is a TYPE PARAMETER adds to it
+    // in the true branch and subtracts nothing in the false one, so `selector`
+    // is still the whole union here. Naming what it now is keeps the rest of the
+    // function reading as it did before external records existed.
+    const jsonSelector = selector as ValModule<GenericSelector<SourceObject>>;
     let enabled = false;
     try {
       enabled = await isEnabled();
     } catch {
       // not in a server context where draftMode is readable — treat as disabled
     }
-    const source = selector && Internal.getSource(selector);
+    const source = jsonSelector && Internal.getSource(jsonSelector);
     const moduleFilePath =
-      selector && (Internal.getValPath(selector) as unknown as ModuleFilePath);
+      jsonSelector &&
+      (Internal.getValPath(jsonSelector) as unknown as ModuleFilePath);
     let draft: DraftJsonEntry = { status: "unavailable" };
     if (enabled && moduleFilePath) {
       SET_AUTO_TAG_JSX_ENABLED(true);
@@ -521,7 +529,7 @@ export const initFetchValKeyStega =
     }
     return stegaEncode(content, {
       disabled: !enabled,
-      root: getJsonEntryStegaRoot(selector, key),
+      root: getJsonEntryStegaRoot(jsonSelector, key),
     });
   };
 
@@ -577,7 +585,17 @@ type ValNextRscConfig = {
 };
 
 export function initValRsc(
-  config: ValConfig,
+  config: ValConfig & {
+    /**
+     * The project's external-record adapters, the same value passed to
+     * `initValServer`.
+     *
+     * Needed here too, and not only there: an external record's content is never
+     * bundled with the app, so a server component reading one has to reach the
+     * store — which means this side needs the adapters as well.
+     */
+    external?: ExternalRecords;
+  },
   valModules: ValModules,
   rscNextConfig: ValNextRscConfig,
 ): {

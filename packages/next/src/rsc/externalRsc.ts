@@ -34,14 +34,21 @@ export type ValKeysPage = {
   /** `null` means this was the last page. */
   cursor: string | null;
   /**
-   * How many entries there are, when the store will say.
+   * How many entries there are.
    *
-   * Absent means the adapter declined to count (`count: false`) — which is NOT
-   * zero, and a pager that renders it as zero is lying about an empty record.
-   * `exact: false` means Val counted as far as it was willing to walk, so the
-   * honest rendering is "10,000+".
+   * Three answers, and a pager has to tell them apart:
+   *
+   * - `{ count, exact: true }` — a real total.
+   * - `{ count, exact: false }` — Val counted as far as it was willing to walk.
+   *   The honest rendering is "10,000+", never a flat number.
+   * - `"unavailable"` — the adapter declined (`count: false`). NOT zero: a pager
+   *   that renders it as zero is lying about an empty record.
+   *
+   * `undefined` means it was not asked for on this call — see `total` in the
+   * arguments. That is a different thing from unavailable, and conflating them
+   * makes page 2 of a paged read claim the store cannot count.
    */
-  total?: { count: number; exact: boolean };
+  total?: { count: number; exact: boolean } | "unavailable";
 };
 
 /**
@@ -98,7 +105,19 @@ export const initFetchValKeys =
   (reader: Reader) =>
   async (
     module: ExternalModule,
-    args?: { cursor?: string | null; limit?: number },
+    args?: {
+      cursor?: string | null;
+      limit?: number;
+      /**
+       * Whether to ask how many entries there are.
+       *
+       * Defaults to the FIRST page only. A store with no `count` is counted by
+       * walking its keys, and repeating that for every page of a paged read
+       * turns a cheap read into a quadratic one — while a pager needs the total
+       * once.
+       */
+      total?: boolean;
+    },
   ): Promise<ValKeysPage> => {
     const ops = await opsOf(reader);
     const res = await ops.getExternalKeys(
@@ -109,21 +128,27 @@ export const initFetchValKeys =
     if (res.status !== "success") {
       throw new Error(`Val: could not read external keys: ${res.message}`);
     }
-    // Counted once, on the first page. A store with no `count` is counted by
-    // walking its keys, and doing that again for every page of a paged read
-    // would turn a cheap read into a quadratic one.
-    const counted =
-      (args?.cursor ?? null) === null
-        ? await ops.getExternalCount(pathOf(module), {
-            applyPatches: await enabled(reader),
-          })
-        : null;
+    const wantsTotal = args?.total ?? (args?.cursor ?? null) === null;
+    const counted = wantsTotal
+      ? await ops.getExternalCount(pathOf(module), {
+          applyPatches: await enabled(reader),
+        })
+      : null;
     return {
       keys: res.keys,
       cursor: res.cursor,
-      ...(counted?.status === "success" && counted.count.status === "counted"
-        ? { total: { count: counted.count.count, exact: counted.count.exact } }
-        : {}),
+      // Only ever set when it was asked for, so `undefined` keeps meaning "not
+      // asked" and never gets confused with "the store will not say".
+      ...(counted === null
+        ? {}
+        : counted.status === "success" && counted.count.status === "counted"
+          ? {
+              total: {
+                count: counted.count.count,
+                exact: counted.count.exact,
+              },
+            }
+          : { total: "unavailable" as const }),
     };
   };
 

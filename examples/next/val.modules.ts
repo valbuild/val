@@ -32,6 +32,11 @@ export default modules(config, [
   { def: () => import("./content/theme.val") },
   { def: () => import("./app/page.val") },
   { def: () => import("./app/external.val") },
+  // External records: entries in a SQLite database rather than in the module.
+  // The schemas are plain `.val.ts` files — the adapter lives in `val/external.ts`,
+  // which is `server-only` and is the only thing that knows there is a database.
+  { def: () => import("./content/products.val") },
+  { def: () => import("./content/documents.val") },
   // Fixtures for the .jsonValues() walkthrough (docs/plans/jsonValues-walkthrough.md)
   { def: () => import("./content/kb.val") },
   { def: () => import("./content/jsonEntryMedia.val") },
