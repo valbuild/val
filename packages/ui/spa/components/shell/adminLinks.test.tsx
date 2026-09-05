@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { render, screen } from "@testing-library/react";
-import { SettingsPanel } from "./SettingsPanel";
+import { AccountPanel } from "./AccountPanel";
 import { TopBar } from "./TopBar";
 import { ShellAdminLinks } from "./types";
 
@@ -41,7 +41,7 @@ function topBar(projectHref?: string) {
 
 function settingsPanel(links?: ShellAdminLinks) {
   return (
-    <SettingsPanel
+    <AccountPanel
       breakpoint="desktop"
       theme="dark"
       onThemeChange={() => undefined}

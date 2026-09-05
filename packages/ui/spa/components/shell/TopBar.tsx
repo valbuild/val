@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
-import { Avatar } from "./Avatar";
+import { Avatar } from "../Avatar";
 import { AccountErrorDot } from "./AccountError";
 import { ValLogo } from "./ValLogo";
 import { ShellBreakpoint, ShellPanel } from "./types";
@@ -42,7 +42,7 @@ export type TopBarProps = {
    */
   unreadNotifications?: number;
   /** Absent until a profile loads, and in modes that have none. */
-  user?: { name: string; initials: string };
+  user?: { name: string; avatarUrl?: string };
   onOpenSearch: () => void;
   onPreview: () => void;
   /**
@@ -241,11 +241,11 @@ export function TopBar({
                   : `Account: ${user?.name}`
               }
               title={accountError?.message}
-              onClick={() => onTogglePanel("settings")}
+              onClick={() => onTogglePanel("account")}
               className="relative shrink-0 rounded-full"
             >
               {user ? (
-                <Avatar initials={user.initials} size="sm" />
+                <Avatar name={user.name} imageUrl={user.avatarUrl} size="sm" />
               ) : (
                 <span className="grid h-6 w-6 place-items-center rounded-full text-fg-secondary">
                   <UserRound size={15} />

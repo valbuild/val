@@ -71,7 +71,7 @@ import {
 } from "./designSystem/tooltip";
 import { TooltipPortal } from "@radix-ui/react-tooltip";
 import { ValPath } from "./ValPath";
-import { getInitials } from "../utils/getInitials";
+import { Avatar } from "./Avatar";
 
 export function DraftChanges({ className }: { className?: string }) {
   const currentPatchIds = useCurrentPatchIds();
@@ -1004,48 +1004,24 @@ const PatchOrPatchSetCard = forwardRef<
           <span className="flex flex-shrink-0 gap-2">
             {authors !== undefined && authors.length > 0 && (
               <span className="flex gap-1 mr-2">
-                {authors.slice(0, 2).map((author, i) => {
-                  if (author.url) {
-                    return (
-                      <Tooltip key={author.url}>
-                        <TooltipTrigger className="flex-shrink-0 w-6 h-6">
-                          <img
-                            src={author.url}
-                            alt={author.fullName}
-                            className={classNames("rounded-full", {
-                              "-ml-3": authors.length > 2 && i > 0,
-                            })}
-                          />
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <div>{author.fullName}</div>
-                        </TooltipContent>
-                      </Tooltip>
-                    );
-                  }
-                  const initials = getInitials(author.fullName);
-                  return (
-                    <Tooltip key={author.fullName + author.url}>
-                      <TooltipTrigger
-                        className={classNames({
-                          "-ml-3": authors.length > 2 && i > 0,
-                        })}
-                      >
-                        <span
-                          className={classNames(
-                            "flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full bg-bg-primary text-fg-primary",
-                          )}
-                          aria-label={"Initials for: " + author.fullName}
-                        >
-                          {initials}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <div>{author.fullName}</div>
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
+                {authors.slice(0, 2).map((author, i) => (
+                  <Tooltip key={author.fullName + author.url}>
+                    <TooltipTrigger
+                      className={classNames("flex-shrink-0", {
+                        "-ml-3": authors.length > 2 && i > 0,
+                      })}
+                    >
+                      <Avatar
+                        name={author.fullName}
+                        imageUrl={author.url}
+                        size="xs"
+                      />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <div>{author.fullName}</div>
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
                 {authors.length > 2 && (
                   <Tooltip>
                     <TooltipTrigger
@@ -1061,17 +1037,11 @@ const PatchOrPatchSetCard = forwardRef<
                       {authors.slice(2).map((author) => {
                         return (
                           <Fragment key={author.fullName + author.url}>
-                            {author.url ? (
-                              <img
-                                key={author.url}
-                                src={author.url}
-                                alt={author.fullName}
-                                title={author.fullName}
-                                className={classNames("w-6 h-6 rounded-full")}
-                              />
-                            ) : (
-                              <div />
-                            )}
+                            <Avatar
+                              name={author.fullName}
+                              imageUrl={author.url}
+                              size="xs"
+                            />
                             <div>{author.fullName}</div>
                           </Fragment>
                         );

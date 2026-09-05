@@ -24,6 +24,8 @@ const remoteMedia =
   process.env.NEXT_PUBLIC_VAL_EXAMPLE_REMOTE_MEDIA === "true";
 
 export default modules(config, [
+  // The project's settings: one per project, at the root. See settings.val.ts.
+  { def: () => import("./settings.val") },
   { def: () => import("./content/authors.val") },
   { def: () => import("./app/blogs/[blog]/page.val") },
   { def: () => import("./app/support/[slug]/page.val") },

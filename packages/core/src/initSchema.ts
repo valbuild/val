@@ -19,6 +19,7 @@ import { color } from "./schema/color";
 import { route } from "./schema/route";
 import { router } from "./schema/router";
 import { images } from "./schema/images";
+import { settings } from "./schema/settings";
 // import { i18n, I18n } from "./schema/future/i18n";
 // import { oneOf } from "./schema/future/oneOf";
 
@@ -303,6 +304,31 @@ export type InitSchema = {
    * ```
    */
   readonly files: typeof files;
+  /**
+   * Define the project's settings.
+   *
+   * One per project, at the root of the content tree — a module file path with
+   * no directory segment, `/settings.val.ts` by convention. Every section is
+   * optional, so `{}` is a complete settings module and stays one as sections
+   * are added.
+   *
+   * @example
+   * ```typescript
+   * export default c.define("/settings.val.ts", s.settings(), {});
+   * ```
+   *
+   * @example
+   * ```typescript
+   * export default c.define("/settings.val.ts", s.settings(), {
+   *   assistant: {
+   *     enabled: true,
+   *     context: "A CMS for developers. British English throughout.",
+   *     tone: "Plain and direct. Sentence case in headings.",
+   *   },
+   * });
+   * ```
+   */
+  readonly settings: typeof settings;
 };
 // export type InitSchemaLocalized<Locales extends readonly string[]> = {
 //   readonly i18n: I18n<Locales>;
@@ -331,6 +357,7 @@ export function initSchema() {
     route,
     router,
     images,
+    settings,
     // i18n: i18n(locales),
   };
 }

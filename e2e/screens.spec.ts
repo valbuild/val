@@ -121,10 +121,16 @@ test("the shell", async ({ page }) => {
   await shot(page, "07-quick-actions");
   await page.keyboard.press("Escape");
 
-  // Settings, reachable from the rail's cog in dev mode.
+  // The project's settings, behind the cog at the foot of the rail.
   await studio.getByRole("button", { name: "Settings" }).first().click();
   await page.waitForTimeout(1200);
   await shot(page, "08-settings");
+  await page.keyboard.press("Escape");
+
+  // The account, below it: the theme, auto save, the branch, signing out.
+  await studio.getByRole("button", { name: "Account" }).first().click();
+  await page.waitForTimeout(1200);
+  await shot(page, "08b-account");
 });
 
 test("the canvas", async ({ page }) => {
@@ -212,15 +218,15 @@ test("light mode", async ({ page }) => {
   await openStudio(page);
   const studio = page.locator("#val-shadow-root");
   await page.waitForTimeout(2500);
-  await studio.getByRole("button", { name: "Settings" }).first().click();
+  await studio.getByRole("button", { name: "Account" }).first().click();
   await page.waitForTimeout(1000);
-  // The theme switch is a radio group in the settings panel.
+  // The theme switch is a radio group in the account panel.
   const light = studio.getByRole("radio", { name: "light" });
   await expect(light).toBeVisible();
   await light.click();
   await page.waitForTimeout(1500);
   await shot(page, "15-light-settings");
-  await closeNavPanel(studio, "Settings");
+  await closeNavPanel(studio, "Account");
   await page.waitForTimeout(1000);
   await shot(page, "16-light-shell");
 });

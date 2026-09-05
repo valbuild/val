@@ -1,4 +1,4 @@
-import { extractValModules } from "./extractValModules";
+import { computeValModuleShas, extractValModules } from "./extractValModules";
 import { initVal } from "./initVal";
 import { modules } from "./modules";
 import type { ValConfig } from "./initVal";
@@ -198,5 +198,62 @@ describe("extractValModules", () => {
     expect(() =>
       extracted.moduleErrors.find((e) => e.path === "/content/page.val.ts"),
     ).not.toThrow();
+  });
+
+  describe("settings modules", () => {
+    const settingsDef = (moduleFilePath: string) => ({
+      def: () =>
+        Promise.resolve({
+          default: c.define(moduleFilePath, s.settings(), {}),
+        }),
+    });
+
+    test("one settings module at the root is not an error", async () => {
+      const extracted = await extractValModules(
+        modules({}, [settingsDef("/settings.val.ts")]),
+      );
+      expect(extracted.moduleErrors).toEqual([]);
+    });
+
+    test("settings in a subdirectory is a module error", async () => {
+      const extracted = await extractValModules(
+        modules({}, [settingsDef("/content/settings.val.ts")]),
+      );
+      expect(extracted.moduleErrors).toHaveLength(1);
+      expect(extracted.moduleErrors[0].path).toBe("/content/settings.val.ts");
+      expect(extracted.moduleErrors[0].message).toContain("root");
+    });
+
+    test("two settings modules is a module error on each", async () => {
+      const extracted = await extractValModules(
+        modules({}, [
+          settingsDef("/settings.val.ts"),
+          settingsDef("/config.val.ts"),
+        ]),
+      );
+      expect(extracted.moduleErrors.map((error) => error.path)).toEqual([
+        "/config.val.ts",
+        "/settings.val.ts",
+      ]);
+    });
+
+    test("the SHAs stay a function of the modules, not of these errors", async () => {
+      // The errors are appended AFTER the fold, so the SHAs are what the same
+      // modules would hash to with no errors at all. That is the property the
+      // server's source promotion relies on: replaying the entries reproduces
+      // the SHAs. Extraction is what reports the rule; the SHAs are for change
+      // detection.
+      const config = {};
+      const extracted = await extractValModules(
+        modules(config, [settingsDef("/content/settings.val.ts")]),
+      );
+      expect(extracted.moduleErrors).toHaveLength(1);
+      expect(computeValModuleShas(config, extracted.shaEntries, [])).toEqual({
+        baseSha: extracted.baseSha,
+        schemaSha: extracted.schemaSha,
+        sourcesSha: extracted.sourcesSha,
+        configSha: extracted.configSha,
+      });
+    });
   });
 });

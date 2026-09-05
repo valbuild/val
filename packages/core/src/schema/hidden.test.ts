@@ -89,4 +89,47 @@ describe("Schema.hidden()", () => {
       plain["executeValidate"](path, "x"),
     );
   });
+
+  test("hidden(true) is the same as hidden()", () => {
+    expect(s.string().hidden(true)["executeSerialize"]().hidden).toBe(true);
+  });
+
+  test("hidden(false) leaves the field un-hidden", () => {
+    expect(s.string().hidden(false)["executeSerialize"]().hidden).toBe(false);
+  });
+
+  test("hidden(false) undoes a previous hidden()", () => {
+    expect(s.string().hidden().hidden(false)["executeSerialize"]().hidden).toBe(
+      false,
+    );
+  });
+
+  test("hidden takes the flag from a variable", () => {
+    const fields: { secret: boolean; visible: boolean } = {
+      secret: true,
+      visible: false,
+    };
+    expect(s.string().hidden(fields.secret)["executeSerialize"]().hidden).toBe(
+      true,
+    );
+    expect(s.string().hidden(fields.visible)["executeSerialize"]().hidden).toBe(
+      false,
+    );
+  });
+
+  test("hidden(false) serializes across schema types", () => {
+    expect(s.number().hidden().hidden(false)["executeSerialize"]().hidden).toBe(
+      false,
+    );
+    expect(
+      s.array(s.string()).hidden().hidden(false)["executeSerialize"]().hidden,
+    ).toBe(false);
+    expect(
+      s.object({ a: s.string() }).hidden().hidden(false)["executeSerialize"]()
+        .hidden,
+    ).toBe(false);
+    expect(
+      s.record(s.string()).hidden().hidden(false)["executeSerialize"]().hidden,
+    ).toBe(false);
+  });
 });

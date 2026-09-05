@@ -1349,6 +1349,8 @@ type ShallowSourceOf<SchemaType extends SerializedSchema["type"]> =
 type ShallowSource = {
   array: SourcePath[];
   object: Record<string, SourcePath>;
+  /** The sections a settings module HAS: every settings key is optional. */
+  settings: Record<string, SourcePath>;
   record: Record<string, SourcePath>;
   union: string | Record<string, SourcePath>;
   boolean: boolean;
@@ -1394,7 +1396,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     return { status: "success", data: null };
   }
   const type: SerializedSchema["type"] = schemaType;
-  if (type === "object" || type === "record") {
+  if (type === "object" || type === "record" || type === "settings") {
     if (typeof source !== "object") {
       return {
         status: "error",
@@ -1407,7 +1409,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
         error: `Expected object, got array`,
       };
     }
-    const data: ShallowSource["object" | "record"] = {};
+    const data: ShallowSource["object" | "record" | "settings"] = {};
     for (const key of Object.keys(source)) {
       data[key] = concatModulePath(moduleFilePath, modulePath, key);
     }

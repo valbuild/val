@@ -315,13 +315,13 @@ export class KeyOfSchema<
     );
   }
 
-  readonly(): KeyOfSchema<Sel, Src> {
+  readonly(isReadonly: boolean = true): KeyOfSchema<Sel, Src> {
     return new KeyOfSchema(
       this.schema,
       this.sourcePath,
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.renderInput,
@@ -329,14 +329,14 @@ export class KeyOfSchema<
     );
   }
 
-  hidden(): KeyOfSchema<Sel, Src> {
+  hidden(isHidden: boolean = true): KeyOfSchema<Sel, Src> {
     return new KeyOfSchema(
       this.schema,
       this.sourcePath,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.renderInput,
       this.previewInput,

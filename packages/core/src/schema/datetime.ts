@@ -252,12 +252,12 @@ export class DateTimeSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  readonly(): DateTimeSchema<Src> {
+  readonly(isReadonly: boolean = true): DateTimeSchema<Src> {
     return new DateTimeSchema<Src>(
       this.options,
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.renderInput,
@@ -265,13 +265,13 @@ export class DateTimeSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  hidden(): DateTimeSchema<Src> {
+  hidden(isHidden: boolean = true): DateTimeSchema<Src> {
     return new DateTimeSchema<Src>(
       this.options,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.renderInput,
       this.previewInput,

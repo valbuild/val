@@ -378,6 +378,20 @@ const pagesModule = c.define(
 const mockData = createMockData([pagesModule]);
 const serializedSchema = mockData.schemas[MODULE_FILE_PATH];
 
+const SETTINGS_MODULE_FILE_PATH = "/settings.val.ts" as ModuleFilePath;
+
+const settingsModule = c.define("/settings.val.ts", s.settings(), {
+  assistant: {
+    enabled: true,
+    context: "A CMS for developers, run by a team of four in Oslo.",
+    tone: "Plain and direct. Sentence case in headings.",
+  },
+});
+
+const settingsMockData = createMockData([settingsModule]);
+const settingsSerializedSchema =
+  settingsMockData.schemas[SETTINGS_MODULE_FILE_PATH];
+
 const ROUTER_MODULE_FILE_PATH = "/app/[slug]/page.val.ts" as ModuleFilePath;
 
 const routerPagesModule = c.define(
@@ -581,6 +595,51 @@ const deployLinePatches: TestPatch[] = [
  * itself now puts them — the strip used to be the surrounding screen's job, and
  * the shell never had anywhere to put it.
  */
+/**
+ * A change to the project's settings.
+ *
+ * Reviewed like any other content — it is content — but named the way the
+ * Settings panel names it: the card is "Settings" rather than the file, and the
+
+ * rows are "Assistant · Tone of voice" and "Assistant · Enabled" rather than
+ * "Assistant / Tone". Both link to the Settings panel rather than to the module
+ * in the editor, since that is where the fields are actually edited.
+ */
+export const SettingsUpdated: Story = {
+  render: () => (
+    <StorySetup
+      mockData={settingsMockData}
+      moduleFilePath={SETTINGS_MODULE_FILE_PATH}
+      serializedSchema={settingsSerializedSchema}
+      patches={[
+        {
+          patch: [
+            {
+              op: "replace",
+              path: ["assistant", "tone"],
+              value:
+                "Warm and plain. British English, sentence case in headings, and no exclamation marks.",
+            },
+          ],
+          createdAt: "2025-04-03T08:00:00Z",
+          author: "alice",
+        },
+        {
+          patch: [
+            {
+              op: "replace",
+              path: ["assistant", "enabled"],
+              value: false,
+            },
+          ],
+          createdAt: "2025-04-03T08:02:00Z",
+          author: "bob",
+        },
+      ]}
+    />
+  ),
+};
+
 export const WithSummaryStrip: Story = {
   render: () => (
     <StorySetup

@@ -31,8 +31,8 @@ import {
 import type { AISession } from "../hooks/useAIWebSocket";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
 import { safeHref } from "../utils/safeHref";
+import { useComposerFocusRestore } from "./useComposerFocusRestore";
 import type { AIModel, AIModelInfo } from "../hooks/useAIWebSocket";
-import { useValConfig } from "./ValFieldProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { urlOf } from "@valbuild/shared/internal";
 import { CopyableCodeBlock } from "./designSystem/CopyableCodeBlock";
@@ -566,11 +566,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     null,
   );
   const [renameValue, setRenameValue] = useState("");
-  const config = useValConfig();
   const portalContainer = useValPortal();
-  const effectiveSuggestions = config?.ai?.chat?.suggestions ?? suggestions;
-  const emptyTitle = config?.ai?.chat?.title;
-  const emptyDescription = config?.ai?.chat?.description;
 
   // Derive combined list for rendering
   const messages: ChatMessage[] = currentMessage
@@ -828,6 +824,17 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const isStreaming = currentMessage !== null;
   const isUploading = attachedFiles.some((f) => f.status === "uploading");
   const isEmpty = messages.length === 0;
+  const composerDisabled = authError || !isConnected || isStreaming;
+
+  const focusComposer = useCallback(() => {
+    editorRef.current?.focus();
+  }, [editorRef]);
+  // The caret goes back into the composer when the answer lands - see
+  // `useComposerFocusRestore` for why it is armed at send time.
+  const { armForSend } = useComposerFocusRestore(
+    composerDisabled,
+    focusComposer,
+  );
 
   // ---- Handlers ----
 
@@ -963,11 +970,14 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         );
       } else {
         setIsAwaitingAssistant(true);
+        // Streaming is about to disable the composer, which blurs it. Ask for
+        // the caret back once the answer lands.
+        armForSend();
       }
 
       requestAnimationFrame(() => editorRef.current?.focus());
     },
-    [isStreaming, attachedFiles, onSendMessage, editorRef],
+    [isStreaming, attachedFiles, onSendMessage, editorRef, armForSend],
   );
 
   const handleRetry = useCallback(
@@ -1192,9 +1202,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             </div>
           ) : isEmpty ? (
             <EmptyState
-              suggestions={effectiveSuggestions}
-              title={emptyTitle}
-              description={emptyDescription}
+              suggestions={suggestions}
               onSelect={(s) => handleSend(s)}
             />
           ) : (
@@ -1287,7 +1295,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             >
               <AIChatEditor
                 ref={editorRef}
-                disabled={authError || !isConnected || isStreaming}
+                disabled={composerDisabled}
                 placeholder={isConnected && !authError ? "Ask something…" : ""}
                 onSubmit={() => handleSend()}
                 onUploadAiImage={onUploadFile}
@@ -1456,13 +1464,9 @@ function AuthPrompt({ mode }: { mode: "http" | "fs" | "unknown" }) {
 
 function EmptyState({
   suggestions,
-  title,
-  description,
   onSelect,
 }: {
   suggestions: string[];
-  title?: string;
-  description?: string;
   onSelect: (text: string) => void;
 }) {
   return (
@@ -1472,10 +1476,10 @@ function EmptyState({
       </div>
       <div>
         <h2 className="text-lg font-semibold text-fg-primary">
-          {title ?? "How can I help?"}
+          How can I help?
         </h2>
         <p className="mt-1 text-sm text-fg-secondary">
-          {description ?? "Ask me anything or pick a suggestion below"}
+          Ask me anything or pick a suggestion below
         </p>
       </div>
       {suggestions.length > 0 && (
