@@ -335,10 +335,11 @@ function describeZodError(error: z.ZodError): string {
  * the safe direction: a tool that forgets the hint is treated as a write and
  * demands the wider scope, rather than a write slipping through as a read.
  *
- * Only the verified-token path is checked. A PAT carries no scopes here by
- * design — the backend resolves it and decides — so there is nothing to
- * enforce, and inventing a default would be this app claiming an authority it
- * does not have.
+ * The early return is local filesystem mode and nothing else. `auth` is null
+ * there because there was no credential to carry scopes, and a project that
+ * writes a developer's own working tree has no wider authority to withhold.
+ * Every other caller arrives as a verified profile, carrying the scopes its
+ * token was issued with.
  */
 function refuseInsufficientScope(
   tool: ValToolDefinition,

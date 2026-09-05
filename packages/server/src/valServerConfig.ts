@@ -148,7 +148,9 @@ export function createValOps(
     // No credential in fs mode: this reads and writes the developer's own
     // working tree, and there is no backend to authenticate to. A credential
     // that arrives for such a project is not ignored quietly — the caller is
-    // told, in createValTools.
+    // told, by `createValTools` when the project is configured for oauth and by
+    // `initValMcp` when it is not, since with no issuer there is no verified
+    // credential left for the registry to see.
     return new ValOpsFS(options.valContentUrl, options.cwd, valModules, {
       formatter: options.formatter,
       config: options.config,

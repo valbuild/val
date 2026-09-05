@@ -34,8 +34,10 @@ than serving the request.
 
 **If you run Val in local filesystem mode**, nothing changes. Local development
 still needs no `oauth` config and no authorization server: there is no backend
-to authenticate to, patches are written with no author, and a token presented
-to such a project is still refused rather than ignored.
+to authenticate to, and patches are written with no author. A token presented
+to such a project is still refused rather than ignored — the endpoint answers
+`400` and says to take the credential out of the client's configuration, since
+what it reached was a working tree with no permission check in front of it.
 
 Two API changes if you built your own host on `createValTools`:
 

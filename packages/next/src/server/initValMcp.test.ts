@@ -318,6 +318,30 @@ describe("credentials", () => {
     expect(res.status).toBe("refused");
   });
 
+  test("local filesystem mode refuses a token rather than ignoring it", async () => {
+    // The developer did nothing dangerous — they left a credential in a client
+    // config — but a token that reaches a working tree was checked by nothing,
+    // and silence is what would let them believe otherwise. There is no `oauth`
+    // config here, so this refusal has to happen at the endpoint: no verified
+    // credential reaches `createValTools` for it to refuse.
+    const res = await withNodeEnv("development", async () =>
+      mcp().valMcpAuthorize(
+        request({
+          host: "localhost:3000",
+          authorization: "Bearer pat-not-a-real-token",
+        }),
+      ),
+    );
+
+    if (res.status !== "refused") {
+      throw new Error("expected a refusal");
+    }
+    expect(res.response.status).toBe(400);
+    const body = await res.response.text();
+    expect(body).toContain("local filesystem mode");
+    expect(body).not.toContain("pat-not-a-real-token");
+  });
+
   test("local filesystem mode still needs no config at all", async () => {
     // The one case that is genuinely credential-free, and it has to stay a
     // one-liner: there is no authorization server to point local development

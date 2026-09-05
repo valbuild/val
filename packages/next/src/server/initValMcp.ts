@@ -8,7 +8,11 @@ import {
   type ValTools,
 } from "@valbuild/server";
 import { VERSION } from "../version";
-import { verifyValAccessToken, type ValOAuthConfig } from "./valAccessToken";
+import {
+  readBearerToken,
+  verifyValAccessToken,
+  type ValOAuthConfig,
+} from "./valAccessToken";
 import {
   createValMcpMetadata,
   wwwAuthenticate,
@@ -177,9 +181,25 @@ export function initValMcp(
             }),
           };
         }
+        if (readBearerToken(request) !== null) {
+          // Refused rather than ignored, which is the same rule
+          // `createValTools` applies to the configured-for-oauth case and has
+          // to be applied here too: with no `oauth` config there is no verified
+          // credential for it to see, so this is the last place the token
+          // exists. Dropping it silently would leave a developer whose client
+          // is configured with a token believing it was checked by something,
+          // when what it reached was a working tree with no permission check
+          // anywhere in front of it.
+          return {
+            status: "refused",
+            response: jsonResponse(400, {
+              error:
+                "Val: this project is running in local filesystem mode, where there is nothing to authenticate against — the tools read and write this working tree directly. Remove the credential from this MCP client's configuration: a token sent here is checked by nothing.",
+            }),
+          };
+        }
         // Local filesystem mode: no credential to hold, and patches are written
-        // with no author, exactly as the Studio does locally. A token presented
-        // to such a project is refused in `createValTools` rather than ignored.
+        // with no author, exactly as the Studio does locally.
         return {
           status: "ok",
           tools: setup.tools,
