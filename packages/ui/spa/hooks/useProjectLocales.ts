@@ -28,12 +28,31 @@ export function useProjectLocales(): string[] {
     ? sourcePathOfItem(sourcePathOfItem(moduleFilePath, "locales"), "available")
     : ("" as SourcePath);
   const source = useSourceAtPath(availablePath);
-  return useMemo(() => {
+  const tags = useMemo(() => {
     if (!("data" in source) || !Array.isArray(source.data)) {
-      return [];
+      return EMPTY;
     }
     return (source.data as Json[]).filter(
       (tag): tag is string => typeof tag === "string",
     );
   }, [source]);
+  /**
+   * The same array back until the languages themselves change.
+   *
+   * `useSourceAtPath` hands back a new object whenever anything it watches
+   * moves, so the memo above recomputes — and a fresh array here would be a new
+   * `locales` prop on the shell, and a new predicate for every filtered row, on
+   * every keystroke anywhere in the project. Reference stability is load-bearing
+   * in this codebase; see `architecture/stores.md`.
+   *
+   * Keyed on the content rather than the array, so the identity survives a
+   * recompute that produced the same languages.
+   */
+  const key = tags.join("\u0000");
+  // `tags` is deliberately not a dependency: when `key` is unchanged the
+  // languages are identical, and depending on the array would defeat the point.
+  return useMemo(() => tags, [key]);
 }
+
+/** One empty array, so "this project has no languages" is also stable. */
+const EMPTY: string[] = [];
