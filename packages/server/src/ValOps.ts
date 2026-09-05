@@ -37,6 +37,13 @@ import {
 } from "@valbuild/core/patch";
 import { TSOps, insertValJsonEntry, removeValJsonEntry } from "./patch/ts/ops";
 import { analyzeValModule } from "./patch/ts/valModule";
+import type { HistoryError } from "./history/HistoryError";
+import type {
+  AffectedFile,
+  CommitPage,
+  CommitPatch,
+  HistoricalCommit,
+} from "./history/types";
 import { analyzeJsonValuesEntries } from "./patch/ts/jsonValuesModule";
 import {
   applyJsonValuesEntryPatches,
@@ -2173,6 +2180,17 @@ export abstract class ValOps {
   protected abstract getSourceFile(
     path: string,
   ): Promise<WithGenericError<{ data: string }>>;
+  /**
+   * Save a patch's binary file from a `data:...;base64,...` URL.
+   *
+   * The wire form: `FileReader.readAsDataURL` is what the browser produces, and
+   * published `@valbuild/server` versions send it. Code that already HAS bytes
+   * should call {@link saveBinaryFileFromPatch} instead of wrapping them in a
+   * data URL just to have this unwrap them again.
+   *
+   * A `null` `data` records a DELETION, which is why this cannot simply be
+   * replaced by the byte-taking sibling: there is nothing to hand it.
+   */
   abstract saveBase64EncodedBinaryFileFromPatch(
     filePath: string,
     parentRef: ParentRef,
@@ -2181,6 +2199,32 @@ export abstract class ValOps {
     type: "file" | "image",
     metadata: MetadataOfType<"file" | "image"> | undefined,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>>;
+
+  /**
+   * The same, for a caller that already has the bytes.
+   *
+   * Default implementation wraps them back into a data URL so every backend
+   * gets this for free; a backend that can take bytes straight through should
+   * override it.
+   */
+  async saveBinaryFileFromPatch(
+    filePath: string,
+    parentRef: ParentRef,
+    patchId: PatchId,
+    bytes: Buffer,
+    mimeType: string,
+    type: "file" | "image",
+    metadata: MetadataOfType<"file" | "image"> | undefined,
+  ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
+    return this.saveBase64EncodedBinaryFileFromPatch(
+      filePath,
+      parentRef,
+      patchId,
+      `data:${mimeType};base64,${bytes.toString("base64")}`,
+      type,
+      metadata,
+    );
+  }
   abstract getBase64EncodedBinaryFileFromPatch(
     filePath: string,
     patchId: PatchId,
@@ -2207,6 +2251,57 @@ export abstract class ValOps {
       }
     | { error: GenericErrorMessage; errors?: undefined; deleted?: undefined }
   >;
+
+  // #region history
+  //
+  // Reading the past, as opposed to reading the present with pending patches
+  // applied. Every one of these is Result-typed against `HistoryError`, because
+  // the ways this can fail - an unreadable record, a source that no longer
+  // parses, an op that will not replay, a schema that has moved on - are the
+  // interesting part rather than an edge case, and a caller deciding whether to
+  // offer a RESTORE has to know which one it hit.
+  //
+  // Only implemented where there is a service holding the history:
+  // `ValOpsHttp`. `ValOpsFS` answers `not-supported-in-fs-mode`, because local
+  // dev has git for this and no commit records of its own.
+
+  /** One page of a branch's commits, newest first. See history/listCommits. */
+  abstract listCommits(
+    branch: string,
+    options?: { limit?: number; cursor?: string },
+  ): Promise<result.Result<CommitPage, HistoryError>>;
+
+  /** The patches that produced one commit, with their ops. */
+  abstract getCommitPatches(
+    commitSha: string,
+  ): Promise<
+    result.Result<
+      { commit: HistoricalCommit; patches: CommitPatch[] },
+      HistoryError
+    >
+  >;
+
+  /**
+   * How each `.val.ts` the commit changed looked BEFORE it, keyed by module
+   * file path. Empty for a commit made before this was recorded - which the
+   * caller reports as `source-unavailable` rather than as an empty module.
+   */
+  abstract getCommitPreviousSources(
+    commitSha: string,
+  ): Promise<result.Result<Record<string, string>, HistoryError>>;
+
+  /** Which files the commit touched, and how. Names them; does not fetch them. */
+  abstract getCommitAffectedFiles(
+    commitSha: string,
+  ): Promise<result.Result<AffectedFile[], HistoryError>>;
+
+  /** One file's bytes as they were at one commit. */
+  abstract getFileAtCommit(
+    commitSha: string,
+    filePath: string,
+    remote: boolean,
+  ): Promise<result.Result<Buffer, HistoryError>>;
+  // #endregion history
 }
 
 function isOnlyFileCheckValidationError(validationError: ValidationError) {
@@ -2550,22 +2645,6 @@ export function createMetadataFromBuffer<T extends BinaryFileType>(
     return { errors };
   }
   return { metadata } as OpsMetadata<T>;
-}
-
-const base64DataAttr = "data:";
-export function getMimeTypeFromBase64(content: string): string | null {
-  const dataIndex = content.indexOf(base64DataAttr);
-  const base64Index = content.indexOf(";base64,");
-  if (dataIndex > -1 || base64Index > -1) {
-    const mimeType = content.slice(
-      dataIndex + base64DataAttr.length,
-      base64Index,
-    );
-    const normalizedMimeType =
-      mimeType === "image/jpg" ? "image/jpeg" : mimeType;
-    return normalizedMimeType;
-  }
-  return null;
 }
 
 // https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types

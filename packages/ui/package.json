@@ -125,7 +125,6 @@
     "react-markdown": "^10.1.0",
     "react-remove-scroll": "^2.7.2",
     "react-resizable": "^4.0.2",
-    "rfc6902": "^5.3.0",
     "rollup": "^4.59.0",
     "rollup-plugin-dts": "^6.5.1",
     "rollup-plugin-peer-deps-external": "^2.2.4",
