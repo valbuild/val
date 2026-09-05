@@ -1,6 +1,7 @@
 import {
   Internal,
   acceptedLocaleValues,
+  missingDeclaredKeys,
   undeclaredAliasedLocales,
   resolveSettingsModule,
   type Json,
@@ -452,6 +453,70 @@ export function resolveSchemaSourceFixForError(
               `'${locale}' is not one of this field's locales: ${accepted
                 .map((each) => `'${each}'`)
                 .join(", ")}`,
+        fixes: undefined,
+      },
+    };
+  }
+
+  if (fixes.includes("record:fill-keys")) {
+    const value = error.value;
+    if (typeof value !== "object" || value === null) {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          message: `Expected record key validation error to have a 'value' object. Found: ${typeof value}. ${TYPE_ERROR_MESSAGE}`,
+          typeError: true,
+          fixes: undefined,
+        },
+      };
+    }
+    const { present, declared, aliases } = value as {
+      present?: unknown;
+      declared?: unknown;
+      aliases?: Record<string, string[]>;
+    };
+    if (!Array.isArray(present)) {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          message: `Expected record key validation error 'value' to have property 'present' of type 'array'. Found: ${typeof present}. ${TYPE_ERROR_MESSAGE}`,
+          typeError: true,
+          fixes: undefined,
+        },
+      };
+    }
+    const presentKeys = present.filter(
+      (key): key is string => typeof key === "string",
+    );
+    // A literal union brought its keys along; a locale record left them to be
+    // read out of the settings module, which is the whole reason this check is
+    // resolved here rather than in the schema.
+    const declaredKeys = Array.isArray(declared)
+      ? declared.filter((key): key is string => typeof key === "string")
+      : acceptedLocaleValues(declaredLocales(snapshot), aliases);
+    if (declaredKeys.length === 0) {
+      // A locale record on a project that has declared no languages. There is
+      // nothing to require, and the locale field's own check already says the
+      // project has not declared any — saying it twice on one record would not
+      // add anything.
+      return { status: "resolved" };
+    }
+    const missing = missingDeclaredKeys(declaredKeys, presentKeys);
+    if (missing.length === 0) {
+      return { status: "resolved" };
+    }
+    return {
+      status: "remaining",
+      error: {
+        ...error,
+        message: `Missing ${missing.length === 1 ? "key" : "keys"}: ${missing
+          .map((each) => `'${each}'`)
+          .join(
+            ", ",
+          )}. This record's keys are declared by its schema, so every one of them is an entry — an entry nobody has written yet is null, not absent.`,
+        value: { missing, declared: declaredKeys },
         fixes: undefined,
       },
     };

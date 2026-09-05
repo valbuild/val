@@ -56,9 +56,10 @@ import {
 } from "./designSystem/popover";
 import { cn } from "./designSystem/cn";
 import { DRAG_HANDLE_TOUCH, SORTABLE_ROW_TOUCH } from "./dragHandle";
-import { emptyOf } from "@valbuild/shared/internal";
+
 import { sourcePathOfItem } from "../utils/sourcePathOfItem";
 import { FieldValidationError } from "./FieldValidationError";
+import { useEmptyOf } from "../hooks/useEmptyOf";
 
 /**
  * A rebuilt sortable list for arrays, dense enough that a page-builder tree —
@@ -118,6 +119,7 @@ export function BlockList({
 }) {
   const type = "array";
   const { navigate } = useNavigation();
+  const emptyOf = useEmptyOf();
   const sourceAtPath = useSourceAtPath(path);
   const {
     source: shallowSourceAtPath,

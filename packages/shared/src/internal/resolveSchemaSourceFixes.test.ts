@@ -343,6 +343,120 @@ describe("resolveSchemaSourceFixForError", () => {
   });
 });
 
+describe("record:fill-keys", () => {
+  const at = "/content/page.val.ts" as SourcePath;
+
+  /** A project whose settings declare `available`. */
+  function project(available: string[]) {
+    const settings = c.define("/settings.val.ts", s.settings(), {
+      locales: { available, default: available[0] ?? null },
+    });
+    return getTestData([settings]);
+  }
+
+  /** The error a declared-key record raises, before it is resolved. */
+  function unresolved(value: {
+    present: string[];
+    declared: string[] | null;
+    aliases?: Record<string, string[]>;
+  }): Record<SourcePath, ValidationError[]> {
+    return {
+      [at]: [
+        {
+          message: "Did not validate record keys.",
+          fixes: ["record:fill-keys"],
+          value,
+        },
+      ],
+    };
+  }
+
+  test("a literal union brings its own keys, and a complete record resolves away", () => {
+    expect(
+      resolveSchemaSourceFixes(
+        unresolved({ present: ["a", "b"], declared: ["a", "b"] }),
+        project([]),
+      ),
+    ).toEqual({});
+  });
+
+  test("a missing key is named, and the null is explained", () => {
+    const result = resolveSchemaSourceFixes(
+      unresolved({ present: ["a"], declared: ["a", "b"] }),
+      project([]),
+    );
+    expect(result[at][0].message).toContain("Missing key: 'b'");
+    expect(result[at][0].message).toContain("null, not absent");
+    expect(result[at][0].fixes).toBeUndefined();
+    expect(result[at][0].value).toEqual({
+      missing: ["b"],
+      declared: ["a", "b"],
+    });
+  });
+
+  test("several missing keys read as a plural, in declaration order", () => {
+    const result = resolveSchemaSourceFixes(
+      unresolved({ present: ["b"], declared: ["a", "b", "c"] }),
+      project([]),
+    );
+    expect(result[at][0].message).toContain("Missing keys: 'a', 'c'");
+  });
+
+  test("a locale record takes its keys from the settings module", () => {
+    expect(
+      resolveSchemaSourceFixes(
+        unresolved({ present: ["en-US", "nb-NO"], declared: null }),
+        project(["en-US", "nb-NO"]),
+      ),
+    ).toEqual({});
+    const result = resolveSchemaSourceFixes(
+      unresolved({ present: ["en-US"], declared: null }),
+      project(["en-US", "nb-NO"]),
+    );
+    expect(result[at][0].message).toContain("Missing key: 'nb-NO'");
+  });
+
+  test("with aliases the required keys are the spellings, not the tags", () => {
+    const result = resolveSchemaSourceFixes(
+      unresolved({
+        present: ["en"],
+        declared: null,
+        aliases: { "en-US": ["en"], "nb-NO": ["no"] },
+      }),
+      project(["en-US", "nb-NO"]),
+    );
+    expect(result[at][0].message).toContain("Missing key: 'no'");
+  });
+
+  test("a project with no languages requires nothing of a locale record", () => {
+    // The locale field's own check already says the project has declared none.
+    // Demanding entries for a list that does not exist would be a second error
+    // about the same missing decision.
+    expect(
+      resolveSchemaSourceFixes(
+        unresolved({ present: [], declared: null }),
+        project([]),
+      ),
+    ).toEqual({});
+  });
+
+  test("a malformed error value is reported as a version mismatch, not a crash", () => {
+    const result = resolveSchemaSourceFixes(
+      {
+        [at]: [
+          {
+            message: "Did not validate record keys.",
+            fixes: ["record:fill-keys"],
+            value: { declared: ["a"] },
+          },
+        ],
+      },
+      project([]),
+    );
+    expect(result[at][0].typeError).toBe(true);
+  });
+});
+
 describe("locale:check-locale", () => {
   /** A project whose settings declare `available`, plus one locale field. */
   function project(available: unknown) {

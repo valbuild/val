@@ -44,6 +44,17 @@ export type SerializedLocaleSchema = {
  * characters.
  */
 export class LocaleSchema<Src extends string | null> extends Schema<Src> {
+  /**
+   * Type-only marker: as a record key, this schema DECLARES the key set.
+   *
+   * `declare` so it exists in the type and nowhere at runtime — reading it off
+   * an instance gives `undefined`, and nothing should. It is how `record()`
+   * knows to type entries as `Item | null`: a language nobody has translated
+   * into is a null entry, not an absent key. See `DeclaredKeySet` and
+   * `RecordSrcOf`.
+   */
+  declare readonly __declaresRecordKeys: true;
+
   constructor(
     private readonly aliasMap?: LocaleAliases,
     private readonly opt: boolean = false,

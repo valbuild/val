@@ -8,7 +8,7 @@ import {
 import * as React from "react";
 import { JSONValue } from "@valbuild/core/patch";
 import { Plus, Trash, Edit, Link, Copy } from "lucide-react";
-import { emptyOf } from "@valbuild/shared/internal";
+
 import { Button } from "./designSystem/button";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import {
@@ -45,6 +45,7 @@ import {
 import { ChangeRecordPopover } from "./ChangeRecordPopover";
 import { DuplicateRecordPopover } from "./DuplicateRecordPopover";
 import { ConnectedReferencesList } from "./ReferencesList";
+import { useEmptyOf } from "../hooks/useEmptyOf";
 
 type Variant = "module" | "field";
 export function ArrayAndRecordTools({
@@ -314,6 +315,7 @@ function AddArrayButton({
   const { addPatch, patchPath } = useAddPatch(path);
   const schemaAtPath = useSchemaAtPath(path);
   const shallowSourceAtPath = useShallowSourceAtPath(path, "array");
+  const emptyOf = useEmptyOf();
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   if (!("data" in shallowSourceAtPath) || !shallowSourceAtPath.data) {
     return null;

@@ -171,6 +171,11 @@ export {
 } from "./locale";
 export { type SerializedLocaleSchema, LocaleSchema } from "./schema/locale";
 export {
+  type DeclaredKeySet,
+  declaredKeySetOf,
+  missingDeclaredKeys,
+} from "./schema/declaredKeys";
+export {
   type SerializedColorSchema,
   type ColorOptions,
   ColorSchema,

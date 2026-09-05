@@ -85,6 +85,16 @@ export class UnionSchema<
   >[],
   Src extends SourceOf<Key, T> | null,
 > extends Schema<Src> {
+  /**
+   * Type-only marker: as a record key, this declares the key set.
+   *
+   * Only the string form (`s.union(s.literal("a"), s.literal("b"))`) can BE a
+   * record key — the object form discriminates objects and is not a
+   * `Schema<string>` — so the marker sitting on the one class is read only
+   * where it means something. See `LocaleSchema`.
+   */
+  declare readonly __declaresRecordKeys: true;
+
   describe(description: string | null): UnionSchema<Key, T, Src> {
     return new UnionSchema<Key, T, Src>(
       this.key,

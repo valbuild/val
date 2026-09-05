@@ -51,6 +51,8 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("files:upload-remote"),
   z.literal("keyof:check-keys"),
   z.literal("router:check-route"),
+  z.literal("locale:check-locale"),
+  z.literal("record:fill-keys"),
   z.literal("images:check-unique-folder"),
   z.literal("files:check-unique-folder"),
   z.literal("images:check-all-files"),
