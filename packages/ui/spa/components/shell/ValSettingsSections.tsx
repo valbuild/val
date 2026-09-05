@@ -115,15 +115,20 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
             <LocalesSettingsFields
               value={localesValue}
               onChange={(next) => {
-                // Only what changed. Removing the language that was the default
-                // changes both, and writing a field that did not move would put
-                // an identical value in the publish diff.
-                if (next.available !== localesValue.available) {
-                  writeLocalesSetting("available", next.available);
-                }
-                if (next.default !== localesValue.default) {
-                  writeLocalesSetting("default", next.default);
-                }
+                // Only what changed, and both in ONE call. Writing a field that
+                // did not move would put an identical value in the publish
+                // diff; writing the two that did as two calls would lose the
+                // first, since adding the first language creates the section
+                // and sets `default` in the same breath. See
+                // `useWriteSettingsSection`.
+                writeLocalesSetting({
+                  ...(next.available !== localesValue.available && {
+                    available: next.available,
+                  }),
+                  ...(next.default !== localesValue.default && {
+                    default: next.default,
+                  }),
+                });
               }}
               errors={localesErrors}
               readonly={readonly}

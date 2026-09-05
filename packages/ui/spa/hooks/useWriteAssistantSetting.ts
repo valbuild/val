@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { ModuleFilePath } from "@valbuild/core";
 import { useWriteSettingsSection } from "./useWriteSettingsSection";
 
@@ -18,5 +19,22 @@ export type AssistantField = (typeof ASSISTANT_FIELDS)[number];
 export function useWriteAssistantSetting(
   moduleFilePath: ModuleFilePath,
 ): (field: AssistantField, value: string | boolean | null) => void {
-  return useWriteSettingsSection(moduleFilePath, "assistant", ASSISTANT_FIELDS);
+  const write = useWriteSettingsSection(
+    moduleFilePath,
+    "assistant",
+    ASSISTANT_FIELDS,
+  );
+  // One field at a time is all the assistant's callers have ever written: the
+  // panel's fields are independent, and the prompt writes `enabled` alone. The
+  // shared hook takes a set because the locales section needs to write two
+  // together — see {@link useWriteSettingsSection}.
+  return useCallback(
+    (field: AssistantField, value: string | boolean | null) => {
+      const changes: Partial<Record<AssistantField, string | boolean | null>> =
+        {};
+      changes[field] = value;
+      write(changes);
+    },
+    [write],
+  );
 }
