@@ -31,6 +31,7 @@ import {
 import type { AISession } from "../hooks/useAIWebSocket";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
 import { safeHref } from "../utils/safeHref";
+import { useComposerFocusRestore } from "./useComposerFocusRestore";
 import type { AIModel, AIModelInfo } from "../hooks/useAIWebSocket";
 import { useValConfig } from "./ValFieldProvider";
 import { useValPortal } from "./ValPortalProvider";
@@ -828,6 +829,17 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const isStreaming = currentMessage !== null;
   const isUploading = attachedFiles.some((f) => f.status === "uploading");
   const isEmpty = messages.length === 0;
+  const composerDisabled = authError || !isConnected || isStreaming;
+
+  const focusComposer = useCallback(() => {
+    editorRef.current?.focus();
+  }, [editorRef]);
+  // The caret goes back into the composer when the answer lands - see
+  // `useComposerFocusRestore` for why it is armed at send time.
+  const { armForSend } = useComposerFocusRestore(
+    composerDisabled,
+    focusComposer,
+  );
 
   // ---- Handlers ----
 
@@ -963,11 +975,14 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         );
       } else {
         setIsAwaitingAssistant(true);
+        // Streaming is about to disable the composer, which blurs it. Ask for
+        // the caret back once the answer lands.
+        armForSend();
       }
 
       requestAnimationFrame(() => editorRef.current?.focus());
     },
-    [isStreaming, attachedFiles, onSendMessage, editorRef],
+    [isStreaming, attachedFiles, onSendMessage, editorRef, armForSend],
   );
 
   const handleRetry = useCallback(
@@ -1287,7 +1302,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             >
               <AIChatEditor
                 ref={editorRef}
-                disabled={authError || !isConnected || isStreaming}
+                disabled={composerDisabled}
                 placeholder={isConnected && !authError ? "Ask something…" : ""}
                 onSubmit={() => handleSend()}
                 onUploadAiImage={onUploadFile}

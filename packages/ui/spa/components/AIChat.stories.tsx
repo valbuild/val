@@ -788,6 +788,54 @@ export const ToolsCollapsed: Story = {
   },
 };
 
+/**
+ * A long tool name, in a panel as narrow as the shell's own.
+ *
+ * The shape that caught the overflow: Radix sizes a scroll area's content as a
+ * table, and a table is sized to its max-content — so `truncate`, which sets
+ * `white-space: nowrap`, grew the row to the full untruncated width and pushed
+ * it off to the right instead of clipping it. An unknown tool name is the
+ * longest label the row can be given (the client falls back to the raw name),
+ * and the assistant panel is the narrowest place it is drawn.
+ */
+export const ToolsWithALongName: Story = {
+  decorators: [
+    (Story) => (
+      <div className="h-[600px] w-[320px] border border-border-primary rounded-lg overflow-hidden">
+        <Story />
+      </div>
+    ),
+  ],
+  args: {
+    initialMessages: [
+      {
+        id: "long-tool-user-1",
+        role: "user",
+        content: "Rewrite the pricing page",
+        status: "complete",
+      },
+      {
+        id: "long-tool-assistant-1",
+        role: "assistant",
+        content: "",
+        status: "streaming",
+        toolActivities: [
+          {
+            toolCallId: "long-tc-1",
+            name: "get_current_context",
+            status: "complete",
+          },
+          {
+            toolCallId: "long-tc-2",
+            name: "resolve_route_references_for_module_and_validate",
+            status: "pending",
+          },
+        ],
+      },
+    ],
+  },
+};
+
 /** Mid-turn: the row names the tool in flight and shimmers while it runs. */
 export const ToolsRunning: Story = {
   args: {

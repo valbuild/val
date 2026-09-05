@@ -227,7 +227,12 @@ export type ShellData = {
   activity?: ShellActivityEntry[];
   validationErrors: ShellValidationError[];
   /** Absent until a profile has loaded, and in modes that have none. */
-  user?: { name: string; initials: string; email?: string };
+  user?: {
+    name: string;
+    email?: string;
+    /** Absent when the profile has no picture, or in modes with no profiles. */
+    avatarUrl?: string;
+  };
   /** Changes Publish would ship. */
   pendingChanges?: number;
   /**
@@ -272,6 +277,15 @@ export type ShellDeployment = {
   author?: string;
   /** Human-readable relative time, e.g. "2 minutes ago". */
   timestamp: string;
+  /**
+   * When the publish last changed, as an ISO string.
+   *
+   * `timestamp` is this same instant already formatted, and is what the rows
+   * render. The raw value is kept because the shell has to compare a publish's
+   * age against a threshold, which a phrase like "12 minutes ago" cannot
+   * answer.
+   */
+  updatedAt: string;
   /** True once Val has seen this commit serving the live site. */
   isLive: boolean;
 };

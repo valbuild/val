@@ -21,6 +21,7 @@ import {
 import { Module } from "../Module";
 import { useRequestUpload } from "../UploadRequest";
 import { useAddPage } from "../useAddPage";
+import { useDuplicatePage } from "../useDuplicatePage";
 import { PublishButton } from "../PublishButton";
 import { ValidationErrorsView } from "../ValidationErrors";
 import { ComparePatchSets, CompareLoading } from "../ComparePatchSets";
@@ -598,6 +599,14 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * cannot come to disagree about what an empty page is. See `useAddPage`.
    */
   const addPage = useAddPage();
+  /**
+   * Copy a page to another URL, and open the copy.
+   *
+   * The router module IS the record, so the two URLs are the two keys and the
+   * copy is one `copy` op - see `useDuplicateRecordEntry`, which the page's own
+   * toolbar goes through as well.
+   */
+  const duplicatePage = useDuplicatePage();
 
   const requestUpload = useRequestUpload();
   const uploadInto = useCallback(
@@ -920,6 +929,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       initialCanvasTransform={urlState.initial.canvasTransform}
       onViewStateChange={setViewState}
       onNewPage={addPage}
+      onDuplicatePage={duplicatePage}
       onUploadMedia={uploadInto}
       onPreview={openPreviewTab}
       // Also as an href, so the menu item is a link that can be copied. The URL
