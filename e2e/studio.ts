@@ -264,7 +264,7 @@ async function discardOnce(page: Page): Promise<void> {
  * the cog at the foot of the rail rather than from the strip of three — but it
  * is the same panel with the same close button, so the helpers take it too.
  */
-export type PanelName = "Pages" | "Media" | "Data" | "Settings";
+export type PanelName = "Pages" | "Media" | "Data" | "Settings" | "Account";
 
 export async function openNavPanel(
   page: Page,
