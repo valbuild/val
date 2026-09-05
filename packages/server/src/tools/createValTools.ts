@@ -335,11 +335,14 @@ function describeZodError(error: z.ZodError): string {
  * the safe direction: a tool that forgets the hint is treated as a write and
  * demands the wider scope, rather than a write slipping through as a read.
  *
- * The early return is local filesystem mode and nothing else. `auth` is null
- * there because there was no credential to carry scopes, and a project that
- * writes a developer's own working tree has no wider authority to withhold.
- * Every other caller arrives as a verified profile, carrying the scopes its
- * token was issued with.
+ * The early return is a call carrying no verified credential, and there is no
+ * scope to check because nothing granted one. In Val's own host that means
+ * local filesystem mode, where a project writing a developer's own working tree
+ * has no wider authority to withhold. A host assembling its own context can
+ * also reach it with an unauthenticated proxy-mode call — refused a few lines
+ * later, by `resolveOps`, for the credential rather than the scope. Every other
+ * caller arrives as a verified profile, carrying the scopes its token was
+ * issued with.
  */
 function refuseInsufficientScope(
   tool: ValToolDefinition,
