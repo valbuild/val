@@ -1,4 +1,4 @@
-import { ModuleFilePath, PatchId, initVal } from "@valbuild/core";
+import { Internal, ModuleFilePath, PatchId, initVal } from "@valbuild/core";
 import { Script } from "node:vm";
 import { transform } from "sucrase";
 import { ValOpsFS } from "./ValOpsFS";
@@ -473,6 +473,88 @@ describe("a row that no longer matches the schema", () => {
     if (res.status !== "success") return;
     expect(res.errors.map((e) => e.key)).toEqual(["b"]);
     expect(res.entries.map((e) => e.key)).toEqual(["a", "b"]);
+  });
+});
+
+describe("an external router validates its keys as it reads them", () => {
+  const ROUTER_PATH = "/app/[slug]/page.val.ts" as ModuleFilePath;
+  const ROUTER_CODE = `
+import { s, c, nextAppRouter } from "val.config";
+
+export default c.define(
+  "/app/[slug]/page.val.ts",
+  s.router(nextAppRouter, s.object({ title: s.string() })).external("pages"),
+  c.external()
+);
+`;
+
+  function routerSetup(rows: Record<string, { title: string }>) {
+    const { s, c, config } = initVal();
+    // `initVal()` in @valbuild/core does not hand back the routers — only
+    // @valbuild/next's does — so the router comes off Internal here.
+    const nextAppRouter = Internal.nextAppRouter;
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "val-external-rt"));
+    const evaluated = new Script(
+      transform(ROUTER_CODE, { transforms: ["imports"] }).code,
+    ).runInNewContext({
+      exports: {},
+      require: (p: string) => {
+        if (p === "val.config") return { s, c, config, nextAppRouter };
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        return require(p);
+      },
+      module: { exports: {} },
+    });
+    const moduleAbs = path.join(rootDir, ROUTER_PATH);
+    fs.mkdirSync(path.dirname(moduleAbs), { recursive: true });
+    fs.writeFileSync(moduleAbs, ROUTER_CODE);
+    const routerModule = c.define(
+      "/app/[slug]/page.val.ts",
+      s
+        .router(nextAppRouter, s.object({ title: s.string() }))
+        .external("pages"),
+      c.external(),
+    );
+    const { entry, modules } = defineExternal();
+    const records = modules({
+      pages: entry(routerModule, {
+        keys: async () => ok({ keys: Object.keys(rows), cursor: null }),
+        get: async (keys) => {
+          const out: Record<string, { title: string } | null> = {};
+          for (const key of keys) {
+            out[key] = rows[key] ?? null;
+          }
+          return ok(out);
+        },
+        put: async () => ok(undefined),
+        delete: async () => ok(undefined),
+      }),
+    });
+    return new ValOpsFS(
+      "http://localhost:4000",
+      rootDir,
+      { config, modules: [{ def: async () => ({ default: evaluated }) }] },
+      { config, external: records },
+    );
+  }
+
+  test("a key that does not match the route pattern is reported", async () => {
+    // The test that would pass vacuously without per-key validation: an external
+    // router's source is a marker, so "validate the whole key set" validates an
+    // empty set — and looking like a check is worse than not having one.
+    const ops = routerSetup({
+      "/hello": { title: "Hello" },
+      "/nope/deeper": { title: "Too deep for [slug]" },
+    });
+    const res = await ops.getExternalEntries(ROUTER_PATH, [
+      "/hello",
+      "/nope/deeper",
+    ]);
+    expect(res.status).toBe("success");
+    if (res.status !== "success") return;
+    expect(res.errors.map((e) => e.key)).toEqual(["/nope/deeper"]);
+    // Still returned: an editor has to see the entry in order to fix its key.
+    expect(res.entries.map((e) => e.key)).toEqual(["/hello", "/nope/deeper"]);
   });
 });
 

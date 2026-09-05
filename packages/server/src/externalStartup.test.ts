@@ -92,6 +92,65 @@ describe("checkExternalSetup", () => {
   });
 });
 
+describe("media needs a place to put the bytes", () => {
+  const gallerySchema = s
+    .images({ accept: "image/*", directory: "/public/val/g" })
+    .external("gallery")
+    ["executeSerialize"]();
+
+  function galleryRegistry(withFiles: boolean): ExternalRecords {
+    const galleryVal = c.define(
+      "/content/gallery.val.ts",
+      s
+        .images({ accept: "image/*", directory: "/public/val/g" })
+        .external("gallery"),
+      c.external(),
+    );
+    const { entry, modules } = defineExternal();
+    return modules({
+      gallery: entry(galleryVal, {
+        keys: async () => ok({ keys: [], cursor: null }),
+        get: async () => ok({}),
+        put: async () => ok(undefined),
+        delete: async () => ok(undefined),
+        ...(withFiles
+          ? {
+              putFile: async () => ok({}),
+              getFile: async () => ok(null),
+            }
+          : {}),
+      }),
+    });
+  }
+
+  const GALLERY = "/content/gallery.val.ts" as ModuleFilePath;
+
+  test("a gallery whose adapter cannot store files is reported", () => {
+    // A gallery has no image schema INSIDE it — the item is width/height/mimeType
+    // metadata and the file is named by the record's key — so this cannot be a
+    // check on the adapter type. It has to be a check on the schema.
+    const errors = checkExternalSetup(
+      { [GALLERY]: gallerySchema },
+      galleryRegistry(false),
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain("putFile");
+    expect(errors[0].message).toContain("getFile");
+  });
+
+  test("and is fine once it can", () => {
+    expect(
+      checkExternalSetup({ [GALLERY]: gallerySchema }, galleryRegistry(true)),
+    ).toEqual([]);
+  });
+
+  test("a record with no media needs neither", () => {
+    expect(checkExternalSetup({ [POSTS]: postsSchema }, registry())).toEqual(
+      [],
+    );
+  });
+});
+
 describe("findNestedExternalRecords", () => {
   test("a root external record is not nested", () => {
     expect(findNestedExternalRecords(postsSchema)).toEqual([]);

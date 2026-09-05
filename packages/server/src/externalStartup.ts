@@ -1,3 +1,4 @@
+import { hasMediaSchema } from "@valbuild/core";
 import type { ModuleFilePath, SerializedSchema } from "@valbuild/core";
 import type { ExternalRecords } from "./externalRecords";
 
@@ -118,6 +119,25 @@ export function checkExternalSetup(
       continue;
     }
     boundLabels.add(label);
+    // Media is required by the item SCHEMA, not by the adapter type — a gallery
+    // stores its files under keys the type system never sees, and an inline
+    // richtext image lives in a constructor argument. So the pair is checked
+    // here, where both halves are in hand.
+    if (hasMediaSchema(schema)) {
+      const missing: string[] = [];
+      if (typeof binding.adapter.putFile !== "function") {
+        missing.push("putFile");
+      }
+      if (typeof binding.adapter.getFile !== "function") {
+        missing.push("getFile");
+      }
+      if (missing.length > 0) {
+        errors.push({
+          path: moduleFilePath,
+          message: `${moduleFilePath} stores images or files, but the adapter for '${label}' has no ${missing.join(" and no ")}. An external record whose items hold media must be able to store and serve the bytes: without ${missing.length === 2 ? "them" : "it"} an upload would be written nowhere and the reference would point at nothing.`,
+        });
+      }
+    }
     if (binding.moduleFilePath !== moduleFilePath) {
       // The label is a type-level check at the `modules({ ... })` call, so this
       // is for the caller TypeScript did not see: a JavaScript project, or one

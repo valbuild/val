@@ -230,6 +230,16 @@ export function resolveExternalEntries(args: {
       missing.push(key);
       continue;
     }
+    if (validate) {
+      // The KEY is checked too, not only the content. An external router's keys
+      // arrive a page at a time from the store, so a check over "the whole key
+      // set" would check nothing — and looking like a check is worse than not
+      // having one.
+      const keyMessage = validateExternalKey(schema, moduleFilePath, key);
+      if (keyMessage !== null) {
+        errors.push({ key, message: keyMessage });
+      }
+    }
     if (validate && content !== null) {
       const message = validateExternalEntry(
         schema,
@@ -247,6 +257,42 @@ export function resolveExternalEntries(args: {
     entries.push({ key, content });
   }
   return { entries, missing, errors };
+}
+
+/**
+ * Check one entry KEY against the record's router, if it has one.
+ *
+ * A record with no router has nothing to say about its keys, so this is `null`
+ * for everything but an `s.router()`.
+ */
+export function validateExternalKey(
+  schema: Schema<SelectorSource> | undefined,
+  moduleFilePath: ModuleFilePath,
+  key: string,
+): string | null {
+  if (!(schema instanceof RecordSchema)) {
+    return null;
+  }
+  let errors: Record<SourcePath, ValidationError[]> | false;
+  try {
+    errors = schema.validateRecordKeys(moduleFilePath as string as SourcePath, [
+      key,
+    ]);
+  } catch (e) {
+    return `Could not validate key '${key}': ${
+      e instanceof Error ? e.message : String(e)
+    }`;
+  }
+  if (errors === false) {
+    return null;
+  }
+  const messages = Object.values(errors).flatMap((errs) =>
+    errs.map((err) => err.message),
+  );
+  if (messages.length === 0) {
+    return null;
+  }
+  return messages.join("; ");
 }
 
 /**
