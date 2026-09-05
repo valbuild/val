@@ -29,7 +29,7 @@ import {
 import { splitRemoteRef } from "../remote/splitRemoteRef";
 import { mimeTypeMatchesAccept } from "../mimeType";
 import type { ImageEncodeOption } from "./image";
-import { declaredKeySetOf } from "./declaredKeys";
+import { declaredKeySetOf, type DeclaredKeySet } from "./declaredKeys";
 
 type MediaOptions = {
   type: "files" | "images";
@@ -244,9 +244,7 @@ export class RecordSchema<
     // and an entry nobody has written yet is `null` rather than absent — so
     // `null` is a value here, not a value of the wrong type, and the item
     // schema is not asked about it.
-    const hasDeclaredKeys =
-      this.keySchema !== null &&
-      declaredKeySetOf(this.keySchema["executeSerialize"]()) !== null;
+    const hasDeclaredKeys = this.declaredKeySet() !== null;
     Object.entries(src).forEach(([key, elem]) => {
       if (this.keySchema) {
         const keyPath = createValPathOfItem(path, key);
@@ -344,7 +342,7 @@ export class RecordSchema<
     if (this.keySchema === null) {
       return false;
     }
-    const declared = declaredKeySetOf(this.keySchema["executeSerialize"]());
+    const declared = this.declaredKeySet();
     if (declared === null) {
       return false;
     }
@@ -361,6 +359,27 @@ export class RecordSchema<
         },
       ],
     };
+  }
+
+  /**
+   * The key set this record's schema declares, computed once.
+   *
+   * `declaredKeySetOf` reads a SERIALIZED schema, and serializing the key
+   * schema walks it — twice per validate, and once per record instance, for an
+   * answer that is a property of the schema and cannot move between them. A
+   * schema is built once and validated against many times, so the walk happens
+   * on the first question and not on any after it.
+   */
+  private declaredKeys: DeclaredKeySet | null | undefined;
+
+  private declaredKeySet(): DeclaredKeySet | null {
+    if (this.declaredKeys === undefined) {
+      this.declaredKeys =
+        this.keySchema === null
+          ? null
+          : declaredKeySetOf(this.keySchema["executeSerialize"]());
+    }
+    return this.declaredKeys;
   }
 
   protected override opensLocaleScope(): "field" | "key" | null {

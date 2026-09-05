@@ -223,6 +223,30 @@ export abstract class Schema<Src extends SelectorSource> {
    * pages. See the design notes on the locales PR.
    */
   protected localeScopeErrors(): ValidationError[] {
+    if (this.localeScopeErrorsMemo === undefined) {
+      this.localeScopeErrorsMemo = this.computeLocaleScopeErrors();
+    }
+    return this.localeScopeErrorsMemo;
+  }
+
+  /**
+   * The answer, computed once per schema.
+   *
+   * Memoised because the question is asked from `executeValidate`, which runs
+   * once per SOURCE instance: an array of five hundred blocks asks the item
+   * schema five hundred times, and each answer walks the schema below it
+   * looking for a nested scope. The answer cannot differ between two instances
+   * of the same schema — nothing here reads the source — so the walk is done
+   * once and the result handed back after that.
+   *
+   * The error is still reported at every instance's path. Val's validation
+   * errors are keyed by source path and that is where the Studio draws them, so
+   * a schema error on a row is a schema error on every row; reporting it on one
+   * arbitrary row would put it somewhere nobody was looking.
+   */
+  private localeScopeErrorsMemo?: ValidationError[];
+
+  private computeLocaleScopeErrors(): ValidationError[] {
     const errors: ValidationError[] = [];
     const localeFields = this.localeFieldNames();
     if (localeFields.length > 1) {
