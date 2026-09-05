@@ -107,6 +107,14 @@ reorganises itself is how this rots.
 
 New: `packages/server/src/tools/`.
 
+> **Landed as `packages/mcp` instead.** The registry and the endpoint were built
+> here first and then moved to their own package, `@valbuild/mcp`, when the
+> image tool arrived: that tool needs an image library the host installs, and a
+> package whose optional dependency is a compiled binary should not be the one
+> every Val project already depends on. Read `packages/server/src/tools` below
+> as `packages/mcp/src/tools`, and `@valbuild/next`'s `initValMcp` as a
+> ten-line binding over `@valbuild/mcp`'s.
+
 ```ts
 export type ValToolDefinition = {
   name: string;
@@ -751,7 +759,7 @@ The registry is plain TypeScript over `ValOps` with zod schemas, so:
 
 ```bash
 # fast loop
-pnpm test packages/server/src/tools
+pnpm test packages/mcp
 pnpm run -r typecheck
 ```
 

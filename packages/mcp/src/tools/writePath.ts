@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { Internal } from "@valbuild/core";
 import type {
   ModuleFilePath,
   PatchId,
@@ -17,9 +18,9 @@ import {
 } from "@valbuild/core/patch";
 import { result } from "@valbuild/core/fp";
 import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
-import type { Sources, ValOps } from "../ValOps";
+import type { PatchAnalysis, Sources, ValOps } from "@valbuild/server";
 import type { ValToolDeps, ValToolState } from "./defineTool";
-import type { ValToolResult } from "./types";
+import type { ValToolError } from "./types";
 
 /**
  * Everything the Studio does client-side before a patch can be saved, done
@@ -85,12 +86,14 @@ export async function validateSpeculatively(
   state: ValToolState,
   moduleFilePath: ModuleFilePath,
   patch: Patch,
+  /** Bytes already staged for the patch this validates — see {@link PendingFiles}. */
+  pendingFiles: PendingFiles = {},
 ): Promise<
   | { status: "valid" }
   /** Applicable, but the result would not be publishable. */
   | { status: "invalid"; errors: string }
   /** The patch does not fit the content at all, so there is nothing to judge. */
-  | { status: "unapplicable"; result: ValToolResult }
+  | { status: "unapplicable"; result: ValToolError }
 > {
   const current = state.sources[moduleFilePath];
   if (current === undefined) {
@@ -107,7 +110,11 @@ export async function validateSpeculatively(
   const applied = applyPatch(
     deepClone(current as ReadonlyJSONValue) as JSONValue,
     jsonOps,
-    patch as Operation[],
+    // Without `file` ops: `JSONOps` refuses one outright ("Cannot apply a file
+    // patch here"), and rightly — a file op carries bytes, not a change to the
+    // document. The change those bytes belong to is the `replace` or `add`
+    // beside them, which is in this list and is what there is to validate.
+    patch.filter(Internal.notFileOp) as Operation[],
   );
   if (result.isErr(applied)) {
     return {
@@ -129,6 +136,7 @@ export async function validateSpeculatively(
     state,
     speculativeSources,
     moduleFilePath,
+    pendingFiles,
   );
   if (after.length === 0) {
     return { status: "valid" };
@@ -145,6 +153,7 @@ export async function validateSpeculatively(
     state,
     state.sources,
     moduleFilePath,
+    pendingFiles,
   );
   const existing = new Set(before.map(identify));
   const introduced = after.filter((error) => !existing.has(identify(error)));
@@ -173,6 +182,7 @@ async function blockingErrorsIn(
   state: ValToolState,
   sources: Sources,
   moduleFilePath: ModuleFilePath,
+  pendingFiles: PendingFiles,
 ): Promise<LocatedError[]> {
   const validation = await ops.validateSources(
     state.schemas,
@@ -192,7 +202,9 @@ async function blockingErrorsIn(
     state.schemas,
     sources,
     validation.files,
-    state.analysis.fileLastUpdatedByPatchId,
+    // The pending upload wins over the analysis, and has to: it is the newer
+    // answer to "where are this path's bytes", and the analysis predates it.
+    { ...state.analysis.fileLastUpdatedByPatchId, ...pendingFiles },
   );
 
   // Merged rather than overwritten: a path can pick up an error from validation
@@ -250,21 +262,106 @@ function describeErrors(errors: LocatedError[]): string {
 export type OnInvalid = "reject" | "report";
 
 /**
- * Validate, then save — and retry once if someone else got there first.
+ * Put the bytes a `file` op refers to where the patch can find them.
+ *
+ * Called with the ids the patch is about to be written under, because that is
+ * the whole reason this is a hook rather than something the caller does first:
+ * an upload is keyed by the patch id, and the patch id is minted here — once
+ * per attempt, so a conflict retry uploads under the id that actually lands
+ * rather than orphaning the bytes under the one that did not.
+ *
+ * Uploads run BEFORE `createPatch`, which is the order the Studio uses and the
+ * only one that works: a `file` op carries a hash, not data, so a patch stored
+ * before its bytes points at nothing, and a reader that arrives in between sees
+ * a broken image rather than a missing one.
+ */
+export type UploadPatchFiles = (input: {
+  patchId: PatchId;
+  parentRef: ParentRef;
+}) => Promise<
+  | {
+      status: "ok";
+      /**
+       * Which files this upload put where, keyed by the path the source refers
+       * to — the same shape `PatchAnalysis.fileLastUpdatedByPatchId` has.
+       *
+       * Handed back rather than assumed, because speculative validation reads
+       * exactly this to decide where a file's bytes are. Without it the check
+       * looks for the new image on disk, does not find it, and rejects the very
+       * write that was about to put it there.
+       */
+      files: PendingFiles;
+    }
+  | { status: "error"; result: ValToolError }
+>;
+
+/**
+ * Files uploaded for a patch that does not exist yet.
+ *
+ * Deliberately the analysis's own type rather than a lookalike: the whole point
+ * is that these merge over `fileLastUpdatedByPatchId`, and a second shape that
+ * happens to fit today would drift the first time a field is added there.
+ */
+export type PendingFiles = PatchAnalysis["fileLastUpdatedByPatchId"];
+
+export type SavePatchOptions = {
+  onInvalid?: OnInvalid;
+  uploadFiles?: UploadPatchFiles;
+};
+
+/**
+ * What a successful write reports back.
+ *
+ * Named, rather than left as the `Json` that `ValToolResult` widens it to, so
+ * that a tool building on `savePatch` — the image tool adds its own fields to
+ * this — can spread it without re-narrowing `Json` and without an assertion.
+ */
+export type SavePatchData = {
+  patchId: PatchId;
+  moduleFilePath: ModuleFilePath;
+  createdAt: string;
+  /**
+   * Always present, so a caller does not have to tell "absent" from "nothing
+   * left to do" to know whether the content is publishable.
+   */
+  unresolvedValidationErrors: string | null;
+};
+
+export type SavePatchResult =
+  | { status: "ok"; data: SavePatchData }
+  | ValToolError;
+
+/**
+ * Upload, validate, then save — and retry once if someone else got there first.
  *
  * The retry exists because the parent ref is derived from a read that happened
  * before the write. A conflict means the chain moved underneath us, and
  * re-deriving is usually enough. Once only: a loop here would be an agent
  * fighting a human editor in the Studio, and losing slowly is worse than
  * failing clearly.
+ *
+ * The order of the first two is the part that is easy to get backwards. A
+ * patch's `file` op carries a hash, not bytes, so validation asks the store
+ * where those bytes are — and if they are not there yet, the check that was
+ * supposed to say "this image is fine" says "this image is missing" and rejects
+ * the write that would have uploaded it. So the bytes go up first, and the
+ * upload says where it put them.
+ *
+ * The cost is that a REJECTED write leaves an upload no patch refers to. That
+ * is a state the patch store already expects and already collects — see
+ * `dropStaleUploads` in `patchStore.ts`, which exists because a browser can
+ * abandon an upload the same way — so it is bounded rather than untidy, and it
+ * is the cheaper of the two failures by a distance: the other one is a write
+ * that cannot succeed at all.
  */
 export async function savePatch(
   deps: ValToolDeps,
   moduleFilePath: ModuleFilePath,
   patch: Patch,
-  onInvalid: OnInvalid = "reject",
-): Promise<ValToolResult> {
+  options: SavePatchOptions = {},
+): Promise<SavePatchResult> {
   const { ops, ctx, state } = deps;
+  const onInvalid = options.onInvalid ?? "reject";
 
   const unapplied = state.unappliedPatches[moduleFilePath];
   if (unapplied && unapplied.length > 0) {
@@ -285,11 +382,31 @@ export async function savePatch(
     };
   }
 
+  // Minted once for the whole call, not once per attempt: an id is not
+  // registered anywhere until a patch carries it, so a conflicted attempt has
+  // not spent it — and reusing it keeps the upload below valid instead of
+  // orphaning it under an id nothing will ever refer to.
+  const patchId = mintPatchId();
+  let parentRef = await deriveParentRef(ops, state.patches);
+
+  let pendingFiles: PendingFiles = {};
+  if (options.uploadFiles) {
+    const uploaded = await options.uploadFiles({ patchId, parentRef });
+    if (uploaded.status === "error") {
+      // Not retried: a failed upload is not a lost race, and the patch that
+      // would refer to those bytes is never written, so nothing is left
+      // pointing at a file that is not there.
+      return uploaded.result;
+    }
+    pendingFiles = uploaded.files;
+  }
+
   const speculative = await validateSpeculatively(
     ops,
     state,
     moduleFilePath,
     patch,
+    pendingFiles,
   );
   if (speculative.status === "unapplicable") {
     // Never negotiable: the patch does not fit the content, so there is nothing
@@ -328,14 +445,14 @@ export async function savePatch(
   const authorId =
     ctx.auth?.type === "verified-profile" ? ctx.auth.profileId : null;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const patchId = mintPatchId();
-    // Re-derived on the retry rather than reused: reusing the ref that just
-    // conflicted would conflict again by definition.
-    const patches =
-      attempt === 0
-        ? state.patches
-        : await ops.fetchPatches({ excludePatchOps: true });
-    const parentRef = await deriveParentRef(ops, patches);
+    if (attempt > 0) {
+      // Re-derived on the retry rather than reused: reusing the ref that just
+      // conflicted would conflict again by definition.
+      parentRef = await deriveParentRef(
+        ops,
+        await ops.fetchPatches({ excludePatchOps: true }),
+      );
+    }
 
     const saved = await ops.createPatch(
       moduleFilePath,
@@ -352,8 +469,6 @@ export async function savePatch(
           patchId: saved.value.patchId,
           moduleFilePath,
           createdAt: saved.value.createdAt,
-          // Always present, so a caller does not have to tell "absent" from
-          // "nothing left to do" to know whether the content is publishable.
           unresolvedValidationErrors: unresolved,
         },
       };

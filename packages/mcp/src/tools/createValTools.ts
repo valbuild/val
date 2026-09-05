@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import type { ValModules } from "@valbuild/core";
 import { z } from "zod";
-import type { ValServerConfig } from "../ValServer";
-import { createValOps } from "../valServerConfig";
-import type { ValOps } from "../ValOps";
+import {
+  createValOps,
+  type ValOps,
+  type ValServerConfig,
+} from "@valbuild/server";
 import type { ValToolDeps, ValToolImpl, ValToolState } from "./defineTool";
 import { readTools } from "./readTools";
 import { writeTools } from "./writeTools";
@@ -14,6 +16,7 @@ import {
   type ValToolContext,
   type ValToolDefinition,
   type ValToolDefinitionJson,
+  type ValToolError,
   type ValToolResult,
   type ValTools,
 } from "./types";
@@ -46,12 +49,31 @@ const MAX_CACHED_OPS = 8;
 export function createValTools(
   valModules: ValModules,
   options: ValToolsOptions,
+  /**
+   * Tools the host built itself, served alongside the built-in ones.
+   *
+   * The image tool arrives this way: it needs an image library the host has to
+   * install, so it cannot be constructed here. See `createValImageTools`.
+   */
+  extraTools: ValToolImpl[] = [],
 ): ValTools {
   const resolveOps = createOpsResolver(valModules, options);
-  const tools = [...readTools(), ...writeTools()];
-  const byName = new Map<string, ValToolImpl>(
-    tools.map((tool) => [tool.name, tool]),
-  );
+  const tools = [...readTools(), ...writeTools(), ...extraTools];
+  const byName = new Map<string, ValToolImpl>();
+  for (const tool of tools) {
+    if (byName.has(tool.name)) {
+      // Refused rather than resolved either way. A host that shadows
+      // `get_source` with something else would be a genuinely confusing
+      // afternoon for whoever debugs the agent afterwards, and "last one wins"
+      // is not a rule anybody can see from the call site.
+      throw new Error(
+        `Val: two tools are registered as ${JSON.stringify(
+          tool.name,
+        )}. Extra tools must not reuse a built-in tool's name.`,
+      );
+    }
+    byName.set(tool.name, tool);
+  }
 
   return {
     list(): ValToolDefinition[] {
@@ -276,7 +298,7 @@ export async function loadState(
   ops: ValOps,
 ): Promise<
   | { status: "ok"; state: ValToolState }
-  | { status: "error"; result: ValToolResult }
+  | { status: "error"; result: ValToolError }
 > {
   const patches = await ops.fetchPatches({ excludePatchOps: false });
   // fetchPatches resolves with its failures on the result rather than rejecting,

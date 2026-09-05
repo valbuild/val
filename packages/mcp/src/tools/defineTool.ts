@@ -11,10 +11,11 @@ import type {
   PatchAnalysis,
   Schemas,
   Sources,
-} from "../ValOps";
+} from "@valbuild/server";
 import type {
   ValToolContext,
   ValToolDefinition,
+  ValToolError,
   ValToolErrorCode,
   ValToolResult,
 } from "./types";
@@ -94,6 +95,6 @@ export function ok(data: Json): ValToolResult {
   return { status: "ok", data };
 }
 
-export function err(code: ValToolErrorCode, message: string): ValToolResult {
+export function err(code: ValToolErrorCode, message: string): ValToolError {
   return { status: "error", code, message };
 }

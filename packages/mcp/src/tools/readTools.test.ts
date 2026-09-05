@@ -1,6 +1,9 @@
 import {
   CTX,
+  ENCODED_GALLERY_PATH,
+  GALLERY_PATH,
   ITEMS_PATH,
+  MEDIA_PATH,
   PAGES_PATH,
   callErr,
   callOk,
@@ -89,7 +92,10 @@ describe("get_all_schema", () => {
     const data = await callOk(tools, "get_all_schema", {});
 
     expect(Object.keys(data as Record<string, unknown>).sort()).toEqual([
+      ENCODED_GALLERY_PATH,
+      GALLERY_PATH,
       ITEMS_PATH,
+      MEDIA_PATH,
       PAGES_PATH,
     ]);
     expect(data).toMatchObject({

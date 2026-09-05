@@ -1,0 +1,4 @@
+{
+  "main": "dist/valbuild-mcp-sharp.cjs.js",
+  "module": "dist/valbuild-mcp-sharp.esm.js"
+}

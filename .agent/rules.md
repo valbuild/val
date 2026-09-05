@@ -227,6 +227,47 @@ darkMode: ["class", '[data-mode="dark"]'];
 
 Custom color tokens map to CSS variables (e.g., `bg-background` → `var(--background)`).
 
+## MCP
+
+`@valbuild/mcp` (`packages/mcp`) is Val's content tools for MCP hosts: the tool
+registry, the write path behind it, and the request guards and access-token
+verification that decide whether a call reaches a tool at all. **Nothing in it
+imports an MCP SDK** — the app owns the transport, and the SDK has reorganised
+itself once already. `@valbuild/next/server`'s `initValMcp` is a thin binding
+that supplies the Next version; `examples/next/app/api/mcp/route.ts` is the
+whole of what an app writes.
+
+`upload_image` is the one tool a host has to construct itself:
+
+```ts
+initValMcp(valModules, config, {
+  extraTools: createValImageTools(sharpImageProcessor(sharp)),
+});
+```
+
+`sharp` is passed in, never imported — it ships a compiled binary per platform,
+and a CMS should not put one in every project that installs it. The processor
+is typed structurally (`SharpLike`), so this package typechecks in a project
+that has never heard of sharp; `sharpImageProcessor.test.ts` assigns the real
+library to that type, which is what stops it drifting.
+
+The tool refuses remote images (`s.image({ remote: true })`): uploading one goes
+through a presigned nonce and a PAT, which is the boundary `docs/plans/mcp.md`
+D.1 draws.
+
+Two orderings in there are load-bearing and both were got wrong first:
+
+1. **Bytes go up before the patch is validated.** A `file` op carries a hash,
+   so validation asks the store where the bytes are — and rejects the write
+   that was about to put them there. `savePatch`'s `uploadFiles` hook returns
+   where it put them, and that merges over `fileLastUpdatedByPatchId`.
+2. **A gallery-backed field's gallery entry is written first.** `s.image(gallery)`
+   validates that the gallery HAS the path, so the field cannot go first. It
+   still reports one unresolved error afterwards, because the schema's copy of
+   the gallery is snapshotted at module evaluation and shows the _published_
+   gallery — that resolves when both patches publish, so it is reported rather
+   than refused.
+
 ## Testing
 
 Run tests from root dir with:
@@ -326,20 +367,27 @@ these bytes served from" and "what does the gallery know about this path".
 ### Re-encoding uploads (`encode`)
 
 `s.image({ encode: { type: "webp" } })` and `s.images({ encode })` convert an
-upload to WebP in the browser before it is uploaded. **Off by default.**
+upload to WebP before it is uploaded. **Off by default.**
 `quality` defaults to 0.8, `maxWidth`/`maxHeight` to 2560, and `encode: false`
 turns it off where a gallery turned it on.
 
-The implementation is `packages/ui/spa/utils/encodeImage.ts`, called from
-`readImageFromFile`. That is the only correct place for it: `createFilename`
-derives the extension from the data URL's mime type, so swapping the bytes
-before the hash makes the filename, `mimeType`, dimensions and remote validation
-hash all follow — and swapping them after makes every one of those describe a
-file that was never uploaded.
+There are two encoders and one set of decisions. The decisions —
+`resolveEncodeSettings`, `fitWithin`, `isSkippedSource`, `chooseEncoded` — are
+in `packages/shared/src/internal/media/encodeImageDecisions.ts`. The Studio's
+encoder is `packages/ui/spa/utils/encodeImage.ts` (a `<canvas>`, called from
+`readImageFromFile`); the MCP image tool's is `sharpImageProcessor` in
+`@valbuild/mcp/sharp`. Change what `encode` MEANS in the shared file, or the
+two drift.
+
+Either encoder runs before the hash, and that is the only correct place for it:
+`createFilename` derives the extension from the data URL's mime type, so
+swapping the bytes before the hash makes the filename, `mimeType`, dimensions
+and remote validation hash all follow — and swapping them after makes every one
+of those describe a file that was never uploaded.
 
 Things that will bite: `accept` beats `encode` (validation checks the stored
 mimeType against `accept`); a bigger WebP loses to the original unless the image
-was downscaled; SVG/GIF/AVIF are never converted; and `blob.type` must be
+was downscaled; SVG/GIF/AVIF are never converted; and the produced type must be
 checked because `canvas.toBlob` silently falls back to PNG. `encode` is stripped
 in `getValidationBasis` so it cannot re-validate published remote refs. See
 [architecture/media.md](../architecture/media.md).

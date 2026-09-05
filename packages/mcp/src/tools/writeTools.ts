@@ -135,7 +135,9 @@ export function writeTools(): ValToolImpl[] {
         // "report", not "reject": an empty entry is invalid by construction on
         // any schema with a required non-empty field, which is most of them.
         // See OnInvalid in writePath.ts.
-        return savePatch(deps, modulePath, built.patch, "report");
+        return savePatch(deps, modulePath, built.patch, {
+          onInvalid: "report",
+        });
       },
     ),
 

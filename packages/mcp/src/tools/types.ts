@@ -1,4 +1,4 @@
-import type { AuthorId } from "../ValOps";
+import type { AuthorId } from "@valbuild/server";
 import type { Json } from "@valbuild/core";
 import type { z } from "zod";
 
@@ -170,9 +170,21 @@ export const VAL_SCOPE_WRITE = "val:write";
 
 export type ValScope = typeof VAL_SCOPE_READ | typeof VAL_SCOPE_WRITE;
 
-export type ValToolResult =
-  | { status: "ok"; data: Json }
-  | { status: "error"; code: ValToolErrorCode; message: string };
+export type ValToolResult = { status: "ok"; data: Json } | ValToolError;
+
+/**
+ * The failure half of {@link ValToolResult}, on its own.
+ *
+ * Named because several internal steps can only fail — speculative validation
+ * rejecting a patch, an upload that did not land — and typing those as the
+ * whole union means the compiler cannot see that an early return is in fact an
+ * error return.
+ */
+export type ValToolError = {
+  status: "error";
+  code: ValToolErrorCode;
+  message: string;
+};
 
 export type ValTools = {
   list(): ValToolDefinition[];

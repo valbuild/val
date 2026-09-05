@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    // es2022 for the `new Error(message, { cause })` overload, matching
+    // @valbuild/server — this package moved out of it and shares its idioms.
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "types": ["node", "jest"],
+    "strict": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    // `bundler`, not `node`: TypeScript 6 deprecates the node10 resolver and
+    // TypeScript 7 removes it. `bundler` reads `exports` maps and, unlike
+    // node16/nodenext, does not require extensions on relative imports.
+    "moduleResolution": "bundler",
+    "skipLibCheck": true
+  }
+}
