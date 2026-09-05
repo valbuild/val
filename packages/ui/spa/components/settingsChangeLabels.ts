@@ -1,4 +1,4 @@
-import { Internal } from "@valbuild/core";
+import { Internal, ModulePath } from "@valbuild/core";
 
 /**
  * What a settings module is called where a module name is shown.
@@ -23,14 +23,11 @@ export const SETTINGS_MODULE_TITLE = "Settings";
  * section added by a newer Val than the Studio looking at it: the caller falls
  * back to the generic label rather than inventing one.
  */
-export function settingsFieldLabel(modulePath: string): string | null {
+export function settingsFieldLabel(modulePath: ModulePath): string | null {
   if (!modulePath) {
     return SETTINGS_MODULE_TITLE;
   }
-  const segments = Internal.splitModulePath(
-    modulePath as Parameters<typeof Internal.splitModulePath>[0],
-  );
-  const label = LABELS[segments.join(".")];
+  const label = LABELS[Internal.splitModulePath(modulePath).join(".")];
   return label ?? null;
 }
 

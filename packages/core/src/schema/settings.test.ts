@@ -115,6 +115,20 @@ describe("SettingsSchema", () => {
     expect(deserialized["executeSerialize"]()).toEqual(serialized);
   });
 
+  test("readonly and hidden survive a round trip", () => {
+    // Through `deserializeSchema`, not `deserializeSchemaImpl`: the flags are
+    // applied by the wrapper for every schema type, which is why the settings
+    // case passes `false, false` to the constructor exactly as the object case
+    // does.
+    const serialized = settings().readonly()["executeSerialize"]();
+    expect(serialized.readonly).toBe(true);
+    expect(deserializeSchema(serialized)["executeSerialize"]().readonly).toBe(
+      true,
+    );
+    const hidden = settings().hidden()["executeSerialize"]();
+    expect(deserializeSchema(hidden)["executeSerialize"]().hidden).toBe(true);
+  });
+
   test("a settings module can be defined with an empty source", () => {
     const settingsVal = c.define("/settings.val.ts", s.settings(), {});
     expect(settingsVal).toBeDefined();

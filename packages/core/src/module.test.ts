@@ -1,5 +1,6 @@
 import {
   resolvePath as resolveAtPath,
+  safeResolvePath as safeResolveAtPath,
   define,
   getSourceAtPath,
   isValModule,
@@ -267,6 +268,28 @@ describe("module", () => {
     );
     expect(resolved).toBeInstanceOf(StringSchema);
     expect(source).toBe(undefined);
+  });
+
+  test("safeResolvePath: an UNSET settings key resolves rather than erroring", () => {
+    /**
+     * The Studio's own resolver, and the one that matters here: every field
+     * reads its schema through `useSchemaAtPathInternal`, which calls this. An
+     * empty `{}` settings module — the normal state of a fresh one — has no
+     * `assistant` section, so both parts of this path arrive with an undefined
+     * source. Erroring on that took the panel's fields and the publish diff's
+     * "before" side with it.
+     */
+    const schema = settings();
+    const res = safeResolveAtPath(
+      '"assistant"."tone"' as ModulePath,
+      {},
+      schema,
+    );
+    expect(res.status).toBe("ok");
+    if (res.status === "ok") {
+      expect(res.schema).toBeInstanceOf(StringSchema);
+      expect(res.source).toBe(undefined);
+    }
   });
 
   test("isValModule tells a module apart from what else a .val.ts might export", () => {
