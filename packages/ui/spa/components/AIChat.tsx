@@ -31,7 +31,7 @@ import {
 import type { AISession } from "../hooks/useAIWebSocket";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
 import { safeHref } from "../utils/safeHref";
-import { isTextEntryFocused } from "../utils/deepActiveElement";
+import { useComposerFocusRestore } from "./useComposerFocusRestore";
 import type { AIModel, AIModelInfo } from "../hooks/useAIWebSocket";
 import { useValConfig } from "./ValFieldProvider";
 import { useValPortal } from "./ValPortalProvider";
@@ -831,29 +831,15 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const isEmpty = messages.length === 0;
   const composerDisabled = authError || !isConnected || isStreaming;
 
-  // The composer is made non-editable while the assistant answers, and
-  // ProseMirror drops the DOM selection when it does. Nothing put it back, so
-  // the caret was gone every time a message completed and the next question had
-  // to start with a click. The flag is set where the message is sent (see
-  // `handleSend`) rather than read off the DOM here: by the time this effect
-  // runs the editor's own effect has already made the view non-editable and
-  // taken the focus with it, so there is nothing left to observe.
-  const restoreComposerFocusRef = useRef(false);
-  useEffect(() => {
-    if (composerDisabled || !restoreComposerFocusRef.current) {
-      return;
-    }
-    restoreComposerFocusRef.current = false;
-    // Don't steal the caret from a field the user moved to while waiting for
-    // the answer.
-    if (isTextEntryFocused()) {
-      return;
-    }
-    // After paint: `editable` is re-applied in an effect of the editor's own,
-    // and focusing a still-non-editable view does nothing.
-    const raf = requestAnimationFrame(() => editorRef.current?.focus());
-    return () => cancelAnimationFrame(raf);
-  }, [composerDisabled, editorRef]);
+  const focusComposer = useCallback(() => {
+    editorRef.current?.focus();
+  }, [editorRef]);
+  // The caret goes back into the composer when the answer lands - see
+  // `useComposerFocusRestore` for why it is armed at send time.
+  const { armForSend } = useComposerFocusRestore(
+    composerDisabled,
+    focusComposer,
+  );
 
   // ---- Handlers ----
 
@@ -989,14 +975,14 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         );
       } else {
         setIsAwaitingAssistant(true);
+        // Streaming is about to disable the composer, which blurs it. Ask for
+        // the caret back once the answer lands.
+        armForSend();
       }
 
-      // Streaming is about to disable the composer, which blurs it. Ask for the
-      // caret back once the answer lands.
-      restoreComposerFocusRef.current = true;
       requestAnimationFrame(() => editorRef.current?.focus());
     },
-    [isStreaming, attachedFiles, onSendMessage, editorRef],
+    [isStreaming, attachedFiles, onSendMessage, editorRef, armForSend],
   );
 
   const handleRetry = useCallback(
