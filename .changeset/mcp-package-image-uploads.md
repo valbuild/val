@@ -27,9 +27,22 @@ rather than `@valbuild/server`; the tool types moved with it.
 
 An agent can now add an image, with a new `upload_image` tool. It takes a path
 to a file on the machine your app runs on, or the image inline as base64, and
-puts it in an `s.image()` field or an `s.images()` gallery — re-encoding it
-first when the schema asks (`s.image({ encode: { type: "webp" } })`), exactly as
-the Studio does in the browser.
+puts it in an `s.image()` field or an `s.images()` gallery.
+
+Uploads are converted **only where the Studio would convert them**: `encode` is
+off unless the schema asks for it (`s.image({ encode: { type: "webp" } })`), and
+when it does, which images are converted, how far they are scaled and when the
+original wins are the same decisions the browser makes — the same code, now
+shared. An upload to a schema without `encode` is stored exactly as it arrived,
+whatever its size.
+
+One thing the tool does that the Studio does not: it refuses an image the
+schema's `accept` does not cover, checked on the bytes that would actually be
+stored. The Studio does not need to — its file picker carries `accept` — and
+validation reports a mismatch as server-repairable, so nothing downstream would
+stop it. An agent has no picker. Note the ordering:
+`s.image({ accept: "image/webp", encode: { type: "webp" } })` still takes a PNG,
+because the conversion happens first and it is the result that is checked.
 
 It is the one tool you construct yourself, because it needs an image library
 and `sharp` ships a compiled binary per platform. Val does not put one in every

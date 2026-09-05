@@ -128,6 +128,13 @@ export function createValImageTools(
           return target.result;
         }
 
+        if (target.altRequired && args.alt === undefined) {
+          return err(
+            "invalid-args",
+            "This gallery requires alt text for every image, so pass `alt` — a short description of what the image shows, for people using a screen reader.",
+          );
+        }
+
         const read = await readInputImage(args);
         if (read.status === "error") {
           return read.result;
@@ -228,6 +235,7 @@ type ImageTarget =
       directory: string;
       accept: string | undefined;
       encode: EncodeSettings | null;
+      altRequired: boolean;
     }
   | {
       status: "ok";
@@ -237,6 +245,7 @@ type ImageTarget =
       directory: string;
       accept: string | undefined;
       encode: EncodeSettings | null;
+      altRequired: boolean;
     }
   | { status: "error"; result: ValToolResult };
 
@@ -268,6 +277,7 @@ function resolveTarget(
       directory: moduleSchema.directory ?? DEFAULT_DIRECTORY,
       accept: moduleSchema.accept,
       encode: resolveEncodeSettings(undefined, moduleSchema.encode),
+      altRequired: altIsRequired(moduleSchema),
     };
   }
 
@@ -334,7 +344,27 @@ function resolveTarget(
       schema.options?.encode,
       galleryRecord?.encode,
     ),
+    // Only a gallery has an alt schema to satisfy. A plain `s.image()` field
+    // stores `alt` if it is given and is fine without it.
+    altRequired: galleryRecord ? altIsRequired(galleryRecord) : false,
   };
+}
+
+/**
+ * Does this gallery insist on alt text?
+ *
+ * `s.images()` gives `alt` a nullable string by default, and an entry written
+ * without one stores `null`. A gallery that passed its own — `s.images({ alt:
+ * s.string().minLength(4) })`, which the example app does — has made it
+ * required, and an upload with no `alt` cannot satisfy it however it is
+ * written. Asked here so the caller is told what to pass, rather than shown a
+ * validation error about a null it never chose.
+ */
+function altIsRequired(gallerySchema: SerializedSchema): boolean {
+  if (gallerySchema.type !== "record") {
+    return false;
+  }
+  return gallerySchema.alt !== undefined && !gallerySchema.alt.opt;
 }
 
 function refuseRemote(): ValToolResult {
@@ -479,16 +509,6 @@ async function prepareImage(
       ),
     };
   }
-  if (!isMimeTypeAccepted(original.mimeType, accept)) {
-    return {
-      status: "error",
-      result: err(
-        "validation-failed",
-        `This field accepts ${accept}, and that image is ${original.mimeType}.`,
-      ),
-    };
-  }
-
   const asIs: PreparedImage = {
     status: "ok",
     bytes,
@@ -499,14 +519,14 @@ async function prepareImage(
     reEncoded: false,
   };
   if (settings === null) {
-    return asIs;
+    return refuseUnaccepted(asIs, accept);
   }
   const targetMimeType = ENCODE_MIME_TYPE_OF[settings.type];
   if (!isMimeTypeAccepted(targetMimeType, accept)) {
     // `accept` wins: it is what validation checks the STORED mimeType against,
     // so converting to a type it forbids would upload a file the schema
     // reports as invalid the moment it lands.
-    return asIs;
+    return refuseUnaccepted(asIs, accept);
   }
   const resizeTo = fitWithin(
     original.width,
@@ -515,7 +535,7 @@ async function prepareImage(
     settings.maxHeight,
   );
   if (isSkippedSource(original.mimeType, targetMimeType, resizeTo !== null)) {
-    return asIs;
+    return refuseUnaccepted(asIs, accept);
   }
 
   let encoded: Awaited<ReturnType<ValImageProcessor["encode"]>>;
@@ -527,41 +547,84 @@ async function prepareImage(
     });
   } catch {
     // A failed optimisation must never become a failed upload.
-    return asIs;
+    return refuseUnaccepted(asIs, accept);
   }
-  if (
-    !encoded ||
-    !chooseEncoded({
-      originalSize: bytes.length,
-      encodedSize: encoded.bytes.length,
-      encodedType: encoded.mimeType,
-      targetMimeType,
-      needsDownscale: resizeTo !== null,
-    })
-  ) {
-    return asIs;
+  if (!encoded) {
+    return refuseUnaccepted(asIs, accept);
   }
-  // Re-read rather than trusting `resizeTo`: the encoder is the authority on
-  // what it actually produced, and a stored width that is one pixel off what
-  // is in the file is exactly the kind of thing that is never noticed until a
-  // layout depends on it.
+  // Read back before deciding, so the comparison is against what the encoder
+  // ACTUALLY produced rather than what it said it would: `canvas.toBlob`
+  // answers an unsupported type with a PNG rather than with null, and the same
+  // trust gap is worth closing on this side. It is also the honest source for
+  // the stored dimensions — a width one pixel off what is in the file is the
+  // kind of thing nobody notices until a layout depends on it.
   let converted: Awaited<ReturnType<ValImageProcessor["read"]>>;
   try {
     converted = await processor.read(encoded.bytes);
   } catch {
-    return asIs;
+    return refuseUnaccepted(asIs, accept);
   }
-  if (!converted) {
-    return asIs;
+  if (
+    !converted ||
+    !chooseEncoded({
+      originalSize: bytes.length,
+      encodedSize: encoded.bytes.length,
+      encodedType: converted.mimeType,
+      targetMimeType,
+      needsDownscale: resizeTo !== null,
+    })
+  ) {
+    return refuseUnaccepted(asIs, accept);
+  }
+  return refuseUnaccepted(
+    {
+      status: "ok",
+      bytes: encoded.bytes,
+      width: converted.width,
+      height: converted.height,
+      mimeType: converted.mimeType,
+      filename:
+        filename === null ? null : withExtension(filename, settings.type),
+      reEncoded: true,
+    },
+    accept,
+  );
+}
+
+/**
+ * Refuse an image the schema says it does not store — checked on the FINAL
+ * bytes, never on the ones that arrived.
+ *
+ * The order is the whole point, and getting it backwards breaks the one
+ * combination `accept` and `encode` exist to serve together:
+ * `s.image({ accept: "image/webp", encode: { type: "webp" } })` means "I store
+ * webp, and I will convert what you give me". Checking the SOURCE against
+ * `accept` refuses the PNG that the conversion was there to turn into a webp —
+ * so the check belongs after the conversion, on what is actually stored.
+ *
+ * That the check happens at all is the one thing here the Studio does not do,
+ * and it is not a difference of opinion about `accept`. `ImageSchema` reports a
+ * mismatch with `fixes: ["image:check-metadata"]`, which
+ * `partitionValidationErrors` treats as server-repairable and therefore
+ * non-blocking — so nothing downstream would refuse this. The Studio does not
+ * need it to: its file picker carries `accept`, so a person cannot choose one.
+ * An agent has no picker, and this is it.
+ */
+function refuseUnaccepted(
+  prepared: Extract<PreparedImage, { status: "ok" }>,
+  accept: string | undefined,
+): PreparedImage {
+  if (isMimeTypeAccepted(prepared.mimeType, accept)) {
+    return prepared;
   }
   return {
-    status: "ok",
-    bytes: encoded.bytes,
-    width: converted.width,
-    height: converted.height,
-    mimeType: converted.mimeType,
-    filename: filename === null ? null : withExtension(filename, settings.type),
-    reEncoded: true,
+    status: "error",
+    result: err(
+      "validation-failed",
+      `This field only accepts ${accept}, and the image ${
+        prepared.reEncoded ? "converts to" : "is"
+      } ${prepared.mimeType}. Convert it yourself first, or add \`encode\` to the schema so Val converts uploads for you.`,
+    ),
   };
 }
 

@@ -2,11 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 import {
+  ALT_GALLERY_PATH,
+  CONVERTING_GALLERY_PATH,
   ENCODED_GALLERY_PATH,
   GALLERY_PATH,
   ITEMS_PATH,
   MEDIA_PATH,
   PAGES_PATH,
+  STRICT_GALLERY_PATH,
   callErr,
   callOk,
   setup,
@@ -51,6 +54,20 @@ function png(width: number, height: number): Promise<Buffer> {
 
 async function pngBase64(width: number, height: number): Promise<string> {
   return `data:image/png;base64,${(await png(width, height)).toString("base64")}`;
+}
+
+async function webpBase64(width: number, height: number): Promise<string> {
+  const bytes = await sharp({
+    create: {
+      width,
+      height,
+      channels: 3,
+      background: { r: 200, g: 40, b: 90 },
+    },
+  })
+    .webp()
+    .toBuffer();
+  return `data:image/webp;base64,${bytes.toString("base64")}`;
 }
 
 /** What a source or gallery entry looks like once read back. */
@@ -242,6 +259,129 @@ describe("upload_image", () => {
       await callOk(tools, "validate_content", {
         moduleFilePath: ENCODED_GALLERY_PATH,
       }),
+    ).toMatchObject({ valid: true });
+  });
+
+  test("does not convert anything unless the schema asked", async () => {
+    // `encode` is off by default, and the plain gallery does not ask. The bytes
+    // that were handed over are the bytes that get stored — same as the Studio,
+    // where an upload is only ever converted by a schema that says so.
+    const { tools } = toolsWith();
+
+    const result = (await callOk(tools, "upload_image", {
+      moduleFilePath: GALLERY_PATH,
+      imageBase64: await pngBase64(4000, 4000),
+      filename: "huge.png",
+    })) as Record<string, unknown>;
+
+    // Well past the 2560 default bound, and still untouched: the default is
+    // off, not "downscale anything large".
+    expect(result).toMatchObject({
+      width: 4000,
+      height: 4000,
+      mimeType: "image/png",
+      reEncoded: false,
+    });
+    expect(result.filePath).toMatch(/\.png$/);
+  });
+
+  test("converts a source `accept` would refuse, when the schema offers to", async () => {
+    // The combination `accept` and `encode` exist to serve together: this
+    // gallery stores only webp AND says it will convert. A PNG is therefore an
+    // upload, not a refusal — checking the source against `accept` would
+    // refuse the very image the conversion was there to handle.
+    const { tools } = toolsWith();
+
+    const result = (await callOk(tools, "upload_image", {
+      moduleFilePath: CONVERTING_GALLERY_PATH,
+      imageBase64: await pngBase64(20, 10),
+      filename: "shot.png",
+    })) as Record<string, unknown>;
+
+    expect(result).toMatchObject({
+      mimeType: "image/webp",
+      reEncoded: true,
+    });
+    expect(result.filePath).toMatch(
+      /^\/public\/val\/converting\/shot_[0-9a-f]{5}\.webp$/,
+    );
+    expect(
+      await callOk(tools, "validate_content", {
+        moduleFilePath: CONVERTING_GALLERY_PATH,
+      }),
+    ).toMatchObject({ valid: true });
+  });
+
+  test("refuses a source `accept` would refuse when nothing converts it", async () => {
+    // Same `accept`, no `encode`. Refused on what WOULD BE STORED, and refused
+    // here rather than by validation: `ImageSchema` reports a mime-type
+    // mismatch as server-repairable, so nothing downstream would stop it.
+    const { tools } = toolsWith();
+
+    const err = await callErr(tools, "upload_image", {
+      moduleFilePath: STRICT_GALLERY_PATH,
+      imageBase64: await webpBase64(20, 10),
+      filename: "shot.webp",
+    });
+
+    expect(err.code).toBe("validation-failed");
+    expect(err.message).toMatch(/only accepts image\/png/);
+    expect(err.message).toMatch(/encode/);
+    expect(await sourceOf(tools, STRICT_GALLERY_PATH)).toEqual({});
+  });
+
+  test("asks for alt text when the gallery requires it", async () => {
+    // Found against the example app, whose gallery declares
+    // `alt: s.string().minLength(4)`. Without this the upload got as far as
+    // saving and came back with a validation error about a `null` the caller
+    // never chose — true, and no help at all in working out what to do.
+    const { tools } = toolsWith();
+
+    const err = await callErr(tools, "upload_image", {
+      moduleFilePath: ALT_GALLERY_PATH,
+      imageBase64: await pngBase64(6, 6),
+      filename: "described.png",
+    });
+
+    expect(err.code).toBe("invalid-args");
+    expect(err.message).toMatch(/requires alt text/);
+    expect(await sourceOf(tools, ALT_GALLERY_PATH)).toEqual({});
+  });
+
+  test("takes the image once the alt text is there", async () => {
+    const { tools } = toolsWith();
+
+    const result = (await callOk(tools, "upload_image", {
+      moduleFilePath: ALT_GALLERY_PATH,
+      imageBase64: await pngBase64(6, 6),
+      filename: "described.png",
+      alt: "a small blue square",
+    })) as Record<string, unknown>;
+
+    const gallery = await sourceOf(tools, ALT_GALLERY_PATH);
+    expect(gallery[result.filePath as string]).toMatchObject({
+      alt: "a small blue square",
+    });
+    expect(
+      await callOk(tools, "validate_content", {
+        moduleFilePath: ALT_GALLERY_PATH,
+      }),
+    ).toMatchObject({ valid: true });
+  });
+
+  test("does not ask for alt text when the gallery does not", async () => {
+    // The default alt schema is a nullable string, so `null` is a real answer
+    // and an upload without alt is not a mistake.
+    const { tools } = toolsWith();
+
+    await callOk(tools, "upload_image", {
+      moduleFilePath: GALLERY_PATH,
+      imageBase64: await pngBase64(6, 6),
+      filename: "undescribed.png",
+    });
+
+    expect(
+      await callOk(tools, "validate_content", { moduleFilePath: GALLERY_PATH }),
     ).toMatchObject({ valid: true });
   });
 

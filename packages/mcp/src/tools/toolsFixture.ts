@@ -35,6 +35,11 @@ export const ITEMS_PATH = "/test/items.val.ts" as ModuleFilePath;
 export const GALLERY_PATH = "/test/gallery.val.ts" as ModuleFilePath;
 export const ENCODED_GALLERY_PATH =
   "/test/encodedGallery.val.ts" as ModuleFilePath;
+export const CONVERTING_GALLERY_PATH =
+  "/test/convertingGallery.val.ts" as ModuleFilePath;
+export const STRICT_GALLERY_PATH =
+  "/test/strictGallery.val.ts" as ModuleFilePath;
+export const ALT_GALLERY_PATH = "/test/altGallery.val.ts" as ModuleFilePath;
 export const MEDIA_PATH = "/test/media.val.ts" as ModuleFilePath;
 
 /** Local fs mode: there is no credential to hold and no session to group by. */
@@ -102,6 +107,62 @@ export default c.define(
   s.images({
     directory: "/public/val/encoded",
     encode: { type: "webp", maxWidth: 8, maxHeight: 8 },
+  }),
+  {}
+);
+`;
+
+/**
+ * The two ways `accept` and `encode` meet.
+ *
+ * `convertingGallery` is the combination they exist to serve together: it
+ * stores only webp, and converts what it is given so that a PNG is not a
+ * refusal. `strictGallery` is the same `accept` with no conversion offered, so
+ * anything else genuinely cannot be stored. The pair is here because the
+ * difference between them is one line of ordering in `prepareImage`, and
+ * getting it backwards makes the first behave like the second.
+ */
+const CONVERTING_GALLERY_CODE = `
+import { s, c } from "val.config";
+
+export default c.define(
+  "${CONVERTING_GALLERY_PATH}",
+  s.images({
+    directory: "/public/val/converting",
+    accept: "image/webp",
+    encode: { type: "webp" },
+  }),
+  {}
+);
+`;
+
+const STRICT_GALLERY_CODE = `
+import { s, c } from "val.config";
+
+export default c.define(
+  "${STRICT_GALLERY_PATH}",
+  s.images({ directory: "/public/val/strict", accept: "image/png" }),
+  {}
+);
+`;
+
+/**
+ * A gallery that insists on alt text.
+ *
+ * `s.images()` defaults `alt` to a nullable string, so an entry with none
+ * stores `null` and is valid. Passing an alt schema of your own — as the
+ * example app does — makes it required, and an upload with no `alt` cannot
+ * satisfy it however the entry is written. Here because that is a difference
+ * between two galleries that otherwise look identical.
+ */
+const ALT_GALLERY_CODE = `
+import { s, c } from "val.config";
+
+export default c.define(
+  "${ALT_GALLERY_PATH}",
+  s.images({
+    directory: "/public/val/described",
+    alt: s.string().minLength(4),
   }),
   {}
 );
@@ -216,6 +277,9 @@ export function setup(options?: {
     [ITEMS_PATH]: ITEMS_CODE,
     [GALLERY_PATH]: GALLERY_CODE,
     [ENCODED_GALLERY_PATH]: ENCODED_GALLERY_CODE,
+    [CONVERTING_GALLERY_PATH]: CONVERTING_GALLERY_CODE,
+    [STRICT_GALLERY_PATH]: STRICT_GALLERY_CODE,
+    [ALT_GALLERY_PATH]: ALT_GALLERY_CODE,
     [MEDIA_PATH]: MEDIA_CODE,
   };
   // ValOps reads the .val.ts files off disk to derive the base sha and to write

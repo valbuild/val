@@ -255,7 +255,12 @@ The tool refuses remote images (`s.image({ remote: true })`): uploading one goes
 through a presigned nonce and a PAT, which is the boundary `docs/plans/mcp.md`
 D.1 draws.
 
-Two orderings in there are load-bearing and both were got wrong first:
+Encoding is the Studio's decision table and nothing else: `encode` is off
+unless the schema asks, and when it asks, which images are converted, how far
+they are scaled and when the original wins are all in
+`encodeImageDecisions.ts`. The tool adds no rule of its own.
+
+Three orderings in there are load-bearing and all three were got wrong first:
 
 1. **Bytes go up before the patch is validated.** A `file` op carries a hash,
    so validation asks the store where the bytes are — and rejects the write
@@ -267,6 +272,14 @@ Two orderings in there are load-bearing and both were got wrong first:
    the gallery is snapshotted at module evaluation and shows the _published_
    gallery — that resolves when both patches publish, so it is reported rather
    than refused.
+3. **`accept` is checked after the conversion, never before it.**
+   `s.image({ accept: "image/webp", encode: { type: "webp" } })` means "I store
+   webp and I will convert what you give me", so checking the SOURCE against
+   `accept` refuses the PNG the conversion existed to handle. The tool checks
+   it at all — which the Studio does not — because `ImageSchema` reports a
+   mismatch as `image:check-metadata`, and `partitionValidationErrors` treats
+   that as server-repairable and therefore non-blocking. The Studio does not
+   need the check: its file picker carries `accept`. An agent has no picker.
 
 ## Testing
 
