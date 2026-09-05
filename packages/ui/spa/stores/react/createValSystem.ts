@@ -1,4 +1,4 @@
-import type { ModuleFilePath, PatchId } from "@valbuild/core";
+import type { Json, ModuleFilePath, PatchId } from "@valbuild/core";
 import { Internal } from "@valbuild/core";
 import type { ValClient } from "@valbuild/shared/internal";
 import { createSystem, type System } from "../createSystem";
@@ -260,6 +260,62 @@ export function createValSystem(
       };
     },
 
+    fetchExternalKeys: async (moduleFilePath, { cursor, limit }) => {
+      const res = await client("/external/keys", "GET", {
+        query: {
+          path: moduleFilePath,
+          cursor: cursor ?? undefined,
+          limit,
+          // The Studio owns its in-flight patches and applies them itself, so the
+          // server must not replay them too — the same contract as `/json`.
+          apply_patches: false,
+        },
+      });
+      if (res.status !== 200) {
+        return {
+          status: "error",
+          message:
+            "json" in res && res.json && "message" in res.json
+              ? res.json.message
+              : `Could not load external keys (${res.status})`,
+        };
+      }
+      return {
+        status: "ok",
+        keys: res.json.keys,
+        cursor: res.json.cursor,
+        total: res.json.total,
+      };
+    },
+    fetchExternalEntries: async (moduleFilePath, keys) => {
+      const res = await client("/external/entries", "GET", {
+        query: { path: moduleFilePath, keys, apply_patches: false },
+      });
+      if (res.status !== 200) {
+        return {
+          status: "error",
+          message:
+            "json" in res && res.json && "message" in res.json
+              ? res.json.message
+              : `Could not load external entries (${res.status})`,
+        };
+      }
+      const entries: Record<string, Json> = {};
+      for (const entry of res.json.entries) {
+        entries[entry.key] = entry.content ?? null;
+      }
+      const errors: Record<string, string> = {};
+      for (const error of res.json.errors) {
+        errors[error.key] = error.message;
+      }
+      for (const key of res.json.missing) {
+        // Missing is an ANSWER — the store does not have this key — not a failure
+        // to read it. `null` renders as an empty entry; an error would offer a
+        // retry that could never succeed.
+        entries[key] = null;
+      }
+      return { status: "ok", entries, errors };
+    },
     fetchJsonEntry: async (moduleFilePath, key) => {
       const res = await client("/json", "GET", {
         query: {

@@ -87,6 +87,12 @@ export type ShellMediaGallery = {
   itemCount: number;
   mediaType: "images" | "files";
   /**
+   * Whether files can be uploaded into it — see `MediaModule.canUpload`. A
+   * gallery that cannot take an upload is still listed and still opens; it is
+   * only kept out of the "Upload" destination menu.
+   */
+  canUpload: boolean;
+  /**
    * The files in the gallery.
    *
    * A gallery is a record keyed by file path, so its keys *are* its contents —

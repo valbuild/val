@@ -144,6 +144,22 @@ const onlyOneIntQueryParam = onlyOneStringQueryParam
  * this. Shared so client and server agree on the limit.
  */
 export const JSON_ENTRIES_BATCH_MAX = 100;
+/**
+ * The most keys one `/external/keys` page may ask for, and the most entries one
+ * `/external/entries` call may carry.
+ *
+ * A ceiling on the REQUEST, not on the store: an adapter's own `maxPageSize` is
+ * a chunking hint the server honours behind this, so a page of 100 against a
+ * store that lists 10 at a time is ten calls in one transaction.
+ */
+export const EXTERNAL_KEYS_PAGE_MAX = 500;
+export const EXTERNAL_ENTRIES_BATCH_MAX = 100;
+
+/** A non-fatal thing an adapter wanted to say, as it crosses the wire. */
+const ExternalIssue = z.object({
+  message: z.string(),
+  key: z.string().optional(),
+});
 
 export const Api = {
   "/draft/enable": {
@@ -1145,6 +1161,168 @@ export const Api = {
       ]),
     },
   },
+  // #region external
+  //
+  // Reading a record whose entries live behind an adapter — a database, an HTTP
+  // API, a bucket — instead of in the module.
+  //
+  // Deliberately shaped like `/json` above, entry for entry: `entries`,
+  // `missing` and `errors` mean the same things, and per-entry problems stay per
+  // entry. A reader must not be able to tell how a record is stored, and the
+  // cheapest way to guarantee that is to give both storage modes the same
+  // response.
+  //
+  // What is NOT like `/json`: paging is by CURSOR, not offset. An external store
+  // has its own ordering and its own idea of where a page stopped, and an offset
+  // into it would mean counting rows the store has already forgotten about.
+  // `cursor: null` asks for the first page; a `null` cursor in the response means
+  // that was the last one.
+  //
+  // `limit` is what the CALLER wants. A store that will only list ten keys at a
+  // time says so with `maxPageSize`, and the server makes as many calls as that
+  // takes — inside one transaction. Page size belongs to the Studio, which must
+  // not be able to tell how a record is stored.
+  "/external/keys": {
+    GET: {
+      req: {
+        query: {
+          path: onlyOneStringQueryParam,
+          cursor: onlyOneStringQueryParam.optional(),
+          limit: onlyOneIntQueryParam
+            .refine(
+              (arg) => arg > 0 && arg <= EXTERNAL_KEYS_PAGE_MAX,
+              `limit must be between 1 and ${EXTERNAL_KEYS_PAGE_MAX}`,
+            )
+            .optional(),
+          apply_patches: onlyOneBooleanQueryParam.optional(),
+        },
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            path: ModuleFilePath,
+            keys: z.array(z.string()),
+            /** `null` means this was the last page. */
+            cursor: z.string().nullable(),
+            /**
+             * How many entries the record has, when that is knowable.
+             *
+             * Three answers, and they are not the same answer: a number the
+             * store gave, a number Val counted by paging keys (`exact: false`
+             * once the walk hit its bound, so a pager can say "200,000+"), and
+             * absent, which is what `count: false` means. Absent is NOT zero.
+             */
+            total: z
+              .object({ count: z.number(), exact: z.boolean() })
+              .optional(),
+            /** Non-fatal things the adapter wanted to say. */
+            warnings: z.array(ExternalIssue).optional(),
+          }),
+        }),
+        z.object({ status: z.literal(400), json: GenericError }),
+        z.object({ status: z.literal(500), json: GenericError }),
+      ]),
+    },
+  },
+  "/external/entries": {
+    GET: {
+      req: {
+        query: {
+          path: onlyOneStringQueryParam,
+          keys: z.array(z.string()).max(EXTERNAL_ENTRIES_BATCH_MAX),
+          apply_patches: onlyOneBooleanQueryParam.optional(),
+        },
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            path: ModuleFilePath,
+            entries: z.array(z.object({ key: z.string(), content: z.any() })),
+            /** Requested keys that exist nowhere: not in the store, not inline. */
+            missing: z.array(z.string()),
+            /**
+             * Per-entry problems, which include a row that no longer matches the
+             * schema. Such a row is reported here AND returned in `entries`: an
+             * editor has to see it to fix it, and dropping it would leave a hole
+             * in the page.
+             */
+            errors: z.array(z.object({ key: z.string(), message: z.string() })),
+            warnings: z.array(ExternalIssue).optional(),
+          }),
+        }),
+        z.object({ status: z.literal(400), json: GenericError }),
+        z.object({ status: z.literal(500), json: GenericError }),
+      ]),
+    },
+  },
+  "/external/search": {
+    GET: {
+      req: {
+        query: {
+          path: onlyOneStringQueryParam,
+          query: onlyOneStringQueryParam,
+          cursor: onlyOneStringQueryParam.optional(),
+          limit: onlyOneIntQueryParam
+            .refine(
+              (arg) => arg > 0 && arg <= EXTERNAL_KEYS_PAGE_MAX,
+              `limit must be between 1 and ${EXTERNAL_KEYS_PAGE_MAX}`,
+            )
+            .optional(),
+          apply_patches: onlyOneBooleanQueryParam.optional(),
+        },
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            path: ModuleFilePath,
+            /**
+             * How the answer was arrived at, which the editor is shown rather
+             * than left to infer:
+             *
+             * - `delegated` — the store searched. Authoritative.
+             * - `partial` — Val answered from the entries it has already seen.
+             *   It does not fetch a whole store on an editor's behalf, so this
+             *   is a real answer over an incomplete corpus, and saying so is the
+             *   point.
+             * - `unavailable` — the adapter set `search: false`. The editor gets
+             *   a disabled search box with a reason, never a box that silently
+             *   returns nothing.
+             */
+            mode: z.union([
+              z.literal("delegated"),
+              z.literal("partial"),
+              z.literal("unavailable"),
+            ]),
+            hits: z.array(
+              z.object({
+                key: z.string(),
+                /** Where it matched, relative to the item, when known. */
+                path: z.array(z.string()).optional(),
+                content: z.any().optional(),
+              }),
+            ),
+            cursor: z.string().nullable(),
+            warnings: z.array(ExternalIssue).optional(),
+          }),
+        }),
+        z.object({ status: z.literal(400), json: GenericError }),
+        z.object({ status: z.literal(500), json: GenericError }),
+      ]),
+    },
+  },
+  // #endregion external
   "/ai/initialize": {
     POST: {
       req: {

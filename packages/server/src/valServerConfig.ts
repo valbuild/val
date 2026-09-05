@@ -98,6 +98,7 @@ export async function initHandlerOptions(
       valContentUrl,
       valBuildUrl,
       config,
+      external: opts.external,
     };
   } else {
     const cwd = process.cwd();
@@ -115,6 +116,7 @@ export async function initHandlerOptions(
       valSecret: maybeValSecret,
       project: maybeValProject,
       config,
+      external: opts.external,
     };
   }
 }
@@ -147,6 +149,7 @@ export function createValOps(
     return new ValOpsFS(options.valContentUrl, options.cwd, valModules, {
       formatter: options.formatter,
       config: options.config,
+      external: options.external,
     });
   }
   if (options.mode === "http") {
@@ -161,6 +164,7 @@ export function createValOps(
         formatter: options.formatter,
         root: options.root,
         config: options.config,
+        external: options.external,
       },
     );
   }

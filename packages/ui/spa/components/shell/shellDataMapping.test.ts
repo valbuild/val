@@ -336,6 +336,7 @@ describe("availableDestinations", () => {
     moduleFilePath: "/content/media.val.ts",
     itemCount: 0,
     mediaType: "images",
+    canUpload: true,
   };
   const dataModule: ShellDataModule = {
     id: "/content/settings.val.ts",

@@ -26,8 +26,10 @@ import fs from "fs";
  *
  * It doubles as the type-level assertion suite: the negative cases below (an
  * adapter missing `put`, a `.readonly()` record that supplies one, a binding key
- * that disagrees with the schema's label) cannot be written as ordinary tests
- * without `@ts-expect-error`, which this codebase does not allow.
+ * that disagrees with the schema's label, a `files` strategy with a write path
+ * and no read path, or one mixing methods from two strategies) cannot be written
+ * as ordinary tests without `@ts-expect-error`, which this codebase does not
+ * allow.
  */
 
 const fixtureDir = path.join(__dirname, "../test/external-nav-fixture");
@@ -195,6 +197,63 @@ const reads = {
     // The type is named so the compiler prints the reason: a bare `never` would
     // report only "not assignable to type 'undefined'".
     expect(messages.join("\n")).toContain("ReadonlyRecordHasNoWrites");
+  });
+
+  const writable = `    ...reads,
+    put: async () => ok(undefined),
+    delete: async () => ok(undefined),`;
+
+  test("files: a well-formed strategy compiles", () => {
+    // The control for the two below: if the union is ever tightened past what a
+    // real adapter can satisfy, this is what goes red first.
+    const messages = diagnosticsFor(
+      header +
+        `export default modules({
+  posts: entry(postsVal, {
+${writable}
+    files: { type: "bytes", put: async () => ({}), get: async () => null },
+  }),
+});`,
+    );
+    expect(messages).toEqual([]);
+  });
+
+  test("files: a write path without its read path does not compile", () => {
+    // The reason media is a union and not four optional siblings. As separate
+    // optional methods this was a runtime check that could only fire once
+    // someone had already uploaded something.
+    const messages = diagnosticsFor(
+      header +
+        `export default modules({
+  posts: entry(postsVal, {
+${writable}
+    files: { type: "bytes", put: async () => ({}) },
+  }),
+});`,
+    );
+    expect(messages.join("\n")).toContain("Property 'get' is missing in type");
+  });
+
+  test("files: methods from two different strategies do not compile", () => {
+    // The other half of the same guarantee: a `bytes` adapter cannot quietly
+    // grow a `signUpload` that nothing will ever call.
+    const messages = diagnosticsFor(
+      header +
+        `export default modules({
+  posts: entry(postsVal, {
+${writable}
+    files: {
+      type: "bytes",
+      put: async () => ({}),
+      get: async () => null,
+      signUpload: async () => ({ url: "https://s3/put" }),
+    },
+  }),
+});`,
+    );
+    expect(messages.join("\n")).toContain(
+      "'signUpload' does not exist in type",
+    );
   });
 
   test("the binding key must match the schema's label", () => {

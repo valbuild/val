@@ -15,7 +15,7 @@ import { ReferenceStore } from "./ReferenceStore";
 import { RecordingActivity } from "./activity";
 import type { CreatePatchResult } from "./PatchStore";
 import type { SaveResult } from "./PatchSync";
-import type { SourcePeek } from "./SourceStore";
+import type { ExternalKeysState, SourcePeek } from "./SourceStore";
 import type {
   FieldEvent,
   Head,
@@ -294,6 +294,21 @@ export type TestSourceStore = {
   /** Status at a path with no side effects — notably, no entry fetch. */
   peek(path: string): SourcePeek;
   /**
+   * Load the next page of an EXTERNAL record's keys.
+   *
+   * The one thing an external record needs that no other storage mode does: its
+   * source is a marker, so unlike a `.jsonValues()` record it cannot say what
+   * its own keys are.
+   */
+  loadExternalKeys(
+    moduleFilePath: string,
+    opts?: { limit?: number; reset?: boolean },
+  ): Promise<void>;
+  /** What is known of an external record's keys right now. */
+  externalKeysState(moduleFilePath: string): ExternalKeysState;
+  /** Why a row failed to load, if it did. */
+  entryError(moduleFilePath: string, key: string): string | undefined;
+  /**
    * The same, in the BASE realm: what the server has, before local patches.
    *
    * What a compare view reads. Exposed because the two realms answering
@@ -440,6 +455,31 @@ export type TestJsonEntries = {
   requests(): string[];
   /** Make fetches of this entry fail until cleared. */
   failFor(moduleFilePath: string, key: string, message?: string): void;
+  clearFailures(): void;
+};
+
+/**
+ * A stand-in for a database behind an `.external()` record.
+ *
+ * The rows are seeded directly rather than derived from the module, because for
+ * an external record the module says NOTHING about its entries — that is the
+ * whole difference from `.jsonValues()`, whose keys are in its own source.
+ *
+ * `pageSize` is what makes it a useful fake: a real store serves what it feels
+ * like serving, and a rig that always returned everything asked for would never
+ * exercise the paging that exists for exactly that reason.
+ */
+export type TestExternalStore = {
+  seed(
+    moduleFilePath: ModuleFilePath,
+    rows: Record<string, Json>,
+    opts?: { pageSize?: number },
+  ): void;
+  /** Every key page asked for, in order. */
+  keyRequests(): { path: string; cursor: string | null }[];
+  /** Every entry batch asked for, in order — one entry per row means a bug. */
+  entryRequests(): { path: string; keys: string[] }[];
+  failFor(moduleFilePath: ModuleFilePath, message?: string): void;
   clearFailures(): void;
 };
 
@@ -598,6 +638,8 @@ export type TestSystem = {
   referenceStore: System["referenceStore"];
   files: TestFiles;
   jsonEntries: TestJsonEntries;
+  /** A stand-in for a store behind an `.external()` record. */
+  external: TestExternalStore;
   /** The write path: what reached the server, and how to make it fail. */
   server: TestServer;
   /** The write-back loop, so a test can await a save and read its state. */
@@ -734,6 +776,18 @@ export function initTestSystem(
   const receivedModules = new Map<ModuleFilePath, ValModule<SelectorSource>>();
   const jsonEntryRequests: string[] = [];
   const jsonEntryFailures = new Map<string, string>();
+  /**
+   * A stand-in for a store behind an external record.
+   *
+   * Rows by key, plus the page size the "store" will serve — because the
+   * interesting behaviour is what happens when the store hands over less than
+   * was asked for, which is the ordinary case for a real one.
+   */
+  const externalRows = new Map<ModuleFilePath, Map<string, Json>>();
+  const externalPageSize = new Map<ModuleFilePath, number>();
+  const externalKeyRequests: { path: string; cursor: string | null }[] = [];
+  const externalEntryRequests: { path: string; keys: string[] }[] = [];
+  const externalFailure = new Map<ModuleFilePath, string>();
   const entryKey = (moduleFilePath: string, key: string) =>
     `${moduleFilePath}\0${key}`;
 
@@ -920,6 +974,50 @@ export function initTestSystem(
     // what needs testing is that a retry HAPPENS, and a rig that waited the real
     // 500 ms would make every retry test slow enough that nobody runs it.
     saveBackoffMs: () => 0,
+    fetchExternalKeys: async (moduleFilePath, { cursor, limit }) => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      externalKeyRequests.push({ path: moduleFilePath, cursor });
+      const failure = externalFailure.get(moduleFilePath);
+      if (failure !== undefined) {
+        return { status: "error", message: failure };
+      }
+      const rows = externalRows.get(moduleFilePath);
+      if (rows === undefined) {
+        return { status: "error", message: `No store for ${moduleFilePath}` };
+      }
+      const all = [...rows.keys()];
+      const from = cursor === null ? 0 : all.indexOf(cursor) + 1;
+      const want = Math.min(
+        limit,
+        externalPageSize.get(moduleFilePath) ?? limit,
+      );
+      const page = all.slice(from, from + want);
+      const next = from + page.length;
+      return {
+        status: "ok",
+        keys: page,
+        cursor: next >= all.length ? null : page[page.length - 1],
+        total: { count: all.length, exact: true },
+      };
+    },
+    fetchExternalEntries: async (moduleFilePath, keys) => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      externalEntryRequests.push({ path: moduleFilePath, keys: [...keys] });
+      const failure = externalFailure.get(moduleFilePath);
+      if (failure !== undefined) {
+        return { status: "error", message: failure };
+      }
+      const rows = externalRows.get(moduleFilePath);
+      if (rows === undefined) {
+        return { status: "error", message: `No store for ${moduleFilePath}` };
+      }
+      const entries: Record<string, Json> = {};
+      for (const key of keys) {
+        const row = rows.get(key);
+        entries[key] = row === undefined ? null : row;
+      }
+      return { status: "ok", entries, errors: {} };
+    },
     fetchJsonEntry: async (moduleFilePath, key) => {
       // Genuinely async, like every other seam in this rig: against a real
       // `GET /json` it never resolves synchronously, so nothing may come to
@@ -1077,6 +1175,23 @@ export function initTestSystem(
     },
   };
 
+  const external: TestExternalStore = {
+    seed: (moduleFilePath, rows, opts) => {
+      externalRows.set(moduleFilePath, new Map(Object.entries(rows)));
+      if (opts?.pageSize !== undefined) {
+        externalPageSize.set(moduleFilePath, opts.pageSize);
+      }
+    },
+    keyRequests: () => [...externalKeyRequests],
+    entryRequests: () => externalEntryRequests.map((r) => ({ ...r })),
+    failFor: (moduleFilePath, message) => {
+      externalFailure.set(moduleFilePath, message ?? "The store is down");
+    },
+    clearFailures: () => {
+      externalFailure.clear();
+    },
+  };
+
   const jsonEntries: TestJsonEntries = {
     requests: () => [...jsonEntryRequests],
     failFor: (moduleFilePath, key, message) => {
@@ -1092,6 +1207,7 @@ export function initTestSystem(
 
   return {
     files,
+    external,
     jsonEntries,
     ledger,
     activity,
@@ -1140,6 +1256,15 @@ export function initTestSystem(
         system.sourceStore.loadEntries(moduleFilePath as ModuleFilePath, keys),
       retryEntry: (moduleFilePath, key) =>
         system.sourceStore.retryEntry(moduleFilePath as ModuleFilePath, key),
+      loadExternalKeys: (moduleFilePath, opts) =>
+        system.sourceStore.loadExternalKeys(
+          moduleFilePath as ModuleFilePath,
+          opts,
+        ),
+      externalKeysState: (moduleFilePath) =>
+        system.sourceStore.externalKeysState(moduleFilePath as ModuleFilePath),
+      entryError: (moduleFilePath, key) =>
+        system.sourceStore.entryError(moduleFilePath as ModuleFilePath, key),
     },
     patchStore: {
       getHead: () => system.patchStore.getHead(),

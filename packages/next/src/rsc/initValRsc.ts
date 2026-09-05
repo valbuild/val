@@ -15,11 +15,26 @@ import {
   ValModule,
   SourceObject,
   JsonSource,
+  type ExternalRecordSrc,
 } from "@valbuild/core";
 import { cookies, draftMode, headers } from "next/headers";
 import { VAL_SESSION_COOKIE } from "@valbuild/shared/internal";
-import { createValServer, ValServer } from "@valbuild/server";
+import {
+  createValServer,
+  VAL_OPS,
+  ValServer,
+  type ExternalRecords,
+  type ItemOfModule,
+} from "@valbuild/server";
 import { VERSION } from "../version";
+import {
+  initFetchValAll,
+  initFetchValEntries,
+  initFetchValKey,
+  initFetchValKeys,
+  isExternalValModule,
+  type ExternalModule,
+} from "./externalRsc";
 import {
   getJsonEntryStegaRoot,
   getValRouteUrlFromVal,
@@ -49,6 +64,30 @@ const initFetchValStega =
     const exec = async (): Promise<
       SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never
     > => {
+      // An external record has nothing to read locally: its entries are in the
+      // store, so `fetchVal` pages them out rather than resolving a source that
+      // holds only a marker. Slow on a big store and offered anyway — an editor
+      // who wants every entry is allowed to ask for every entry — and it fails
+      // on a TIMEOUT rather than a size, because "too big" is not something Val
+      // can judge.
+      if (isExternalValModule(selector)) {
+        // Built here rather than passed in, so `fetchVal` stays ONE function:
+        // which storage mode a module uses must not change which reader an app
+        // calls, and every caller of this already has what the reader needs.
+        const fetchExternalAll = initFetchValAll({
+          valServerPromise,
+          isEnabled,
+        });
+        // The one assertion here: `StegaOfSource<ExternalRecordSrc<Item>>` IS
+        // `Record<string, StegaOfSource<Item>>` by the definition in
+        // `stegaEncode.ts`, but proving that inside a function generic over
+        // every SelectorSource is not something the compiler can be walked
+        // through.
+        const entries: unknown = await fetchExternalAll(selector);
+        return entries as SelectorOf<T> extends GenericSelector<infer S>
+          ? StegaOfSource<S>
+          : never;
+      }
       let enabled = false;
       try {
         enabled = await isEnabled();
@@ -314,7 +353,12 @@ async function loadJsonEntryContent(
  * drive these readers with a one-route fake instead of casting a partial object
  * to the whole server type.
  */
-export type JsonEntryValServer = Pick<ValServer, "/json">;
+export type JsonEntryValServer = Pick<ValServer, "/json"> &
+  // The in-process ops handle, optional so a test can still drive the jsonValues
+  // readers with a one-route fake. An EXTERNAL module needs it — its content is
+  // never bundled, so there is nothing else to read — and `opsOf` says so by
+  // name when it is missing.
+  Partial<Pick<ValServer, typeof VAL_OPS>>;
 
 export type DraftJsonEntry =
   | { status: "content"; content: unknown }
@@ -392,6 +436,20 @@ async function loadDraftJsonEntry(
   return { status: "unavailable" };
 }
 
+/**
+ * The content type one entry resolves to, whichever storage mode holds it.
+ *
+ * The external arm comes first because an external module IS a
+ * `GenericSelector`, and the jsonValues arm would otherwise try to read a
+ * `JsonSource` out of the marker's phantom slots and land on `never`.
+ */
+type EntryContentOf<T> =
+  T extends ValModule<ExternalRecordSrc>
+    ? ItemOfModule<T>
+    : T extends ValModule<GenericSelector<SourceObject>>
+      ? JsonEntryContentOf<T>
+      : never;
+
 // The (loosened) content type a single `.jsonValues()` entry resolves to.
 type JsonEntryContentOf<T extends ValModule<GenericSelector<SourceObject>>> =
   T extends ValModule<infer S>
@@ -421,19 +479,36 @@ export const initFetchValKeyStega =
       get(name: string): { name: string; value: string } | undefined;
     }>,
   ) =>
-  async <T extends ValModule<GenericSelector<SourceObject>>>(
+  async <T extends ValModule<GenericSelector<SourceObject>> | ExternalModule>(
     selector: T,
     key: string,
-  ): Promise<JsonEntryContentOf<T> | undefined> => {
+  ): Promise<EntryContentOf<T> | undefined> => {
+    // ONE function for both storage modes, which is the whole requirement: an
+    // app reading `fetchValKey(postsVal, key)` must not have to know, or change,
+    // when its content moves into a store.
+    if (isExternalValModule(selector)) {
+      const entry: unknown = await initFetchValKey({
+        valServerPromise,
+        isEnabled,
+      })(selector, key);
+      return entry as EntryContentOf<T> | undefined;
+    }
+    // Past the branch above, the module is a `.jsonValues()` one — but TypeScript
+    // cannot say so: narrowing a value whose type is a TYPE PARAMETER adds to it
+    // in the true branch and subtracts nothing in the false one, so `selector`
+    // is still the whole union here. Naming what it now is keeps the rest of the
+    // function reading as it did before external records existed.
+    const jsonSelector = selector as ValModule<GenericSelector<SourceObject>>;
     let enabled = false;
     try {
       enabled = await isEnabled();
     } catch {
       // not in a server context where draftMode is readable — treat as disabled
     }
-    const source = selector && Internal.getSource(selector);
+    const source = jsonSelector && Internal.getSource(jsonSelector);
     const moduleFilePath =
-      selector && (Internal.getValPath(selector) as unknown as ModuleFilePath);
+      jsonSelector &&
+      (Internal.getValPath(jsonSelector) as unknown as ModuleFilePath);
     let draft: DraftJsonEntry = { status: "unavailable" };
     if (enabled && moduleFilePath) {
       SET_AUTO_TAG_JSX_ENABLED(true);
@@ -454,7 +529,7 @@ export const initFetchValKeyStega =
     }
     return stegaEncode(content, {
       disabled: !enabled,
-      root: getJsonEntryStegaRoot(selector, key),
+      root: getJsonEntryStegaRoot(jsonSelector, key),
     });
   };
 
@@ -510,7 +585,17 @@ type ValNextRscConfig = {
 };
 
 export function initValRsc(
-  config: ValConfig,
+  config: ValConfig & {
+    /**
+     * The project's external-record adapters, the same value passed to
+     * `initValServer`.
+     *
+     * Needed here too, and not only there: an external record's content is never
+     * bundled with the app, so a server component reading one has to reach the
+     * store — which means this side needs the adapters as well.
+     */
+    external?: ExternalRecords;
+  },
   valModules: ValModules,
   rscNextConfig: ValNextRscConfig,
 ): {
@@ -518,6 +603,17 @@ export function initValRsc(
   fetchValKeyStega: ReturnType<typeof initFetchValKeyStega>;
   fetchValRouteStega: ReturnType<typeof initFetchValRouteStega>;
   fetchValRouteUrl: ReturnType<typeof initFetchValRouteUrl>;
+  /**
+   * A page of an external record's keys.
+   *
+   * The reader that has no counterpart for other storage modes, because no other
+   * storage mode has anything to page: a `.jsonValues()` record's keys are in
+   * the module. Everything else — `fetchVal`, `fetchValKey` — is the SAME
+   * function whichever mode holds the content.
+   */
+  fetchValKeys: ReturnType<typeof initFetchValKeys>;
+  /** Many external entries in one round trip, and one transaction. */
+  fetchValEntries: ReturnType<typeof initFetchValEntries>;
 } {
   const coreVersion = Internal.VERSION.core;
   if (!coreVersion) {
@@ -551,7 +647,19 @@ export function initValRsc(
       },
     },
   );
+  /**
+   * External records read through the in-process ValOps, not the HTTP handlers.
+   * Their content is never bundled with the app, so the store has to be reached
+   * on every render — draft mode or not — and the handlers correctly refuse an
+   * unauthenticated caller. See `externalRsc.ts`.
+   */
+  const externalReader = {
+    valServerPromise,
+    isEnabled: async () => (await rscNextConfig.draftMode()).isEnabled,
+  };
   return {
+    fetchValKeys: initFetchValKeys(externalReader),
+    fetchValEntries: initFetchValEntries(externalReader),
     fetchValStega: initFetchValStega(
       config,
       valApiEndpoints, // TODO: get from config

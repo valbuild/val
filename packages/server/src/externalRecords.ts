@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import type {
   ExternalItemOf,
   ExternalLabelOf,
@@ -13,9 +14,10 @@ import type {
 /**
  * The type surface of an external record's adapter.
  *
- * Nothing here runs: phase 0 is the contract, and the registry that executes it
- * arrives with the read endpoints. What the contract has to get right now is the
- * shape, because every adapter written against it is a compatibility promise.
+ * This file is the contract plus the registry `defineExternal` builds from it.
+ * Calling adapters — retry, transaction scope, chunking — lives in
+ * `ExternalStore.ts`, so that what an adapter author has to read stays readable
+ * as one file.
  *
  * Four kinds of method, and each is required or not for one reason:
  *
@@ -26,8 +28,11 @@ import type {
  * - **Derived** — `count`, `search`. Computable from the read methods, so
  *   omitting one costs performance, never capability. `false` declines the
  *   fallback; that is the only thing `false` ever means here.
- * - **Media** — `putFile`, `getFile`. A pair, and required by the item SCHEMA
- *   rather than by this type (see `hasMediaSchema`).
+ * - **Media** — one `files` field holding a tagged union, required by the item
+ *   SCHEMA rather than by this type (see `hasMediaSchema`). A union rather than
+ *   a bag of optional methods so that a write path without its read path is
+ *   unrepresentable, and so the discriminant can be read at startup without
+ *   calling anything.
  */
 
 // #region result
@@ -224,9 +229,113 @@ export type ExternalFile = {
   bytes: Uint8Array;
   filename: string;
   mimeType: string;
-  /** Content address. Make `putFile` idempotent on it, so a retry re-uses. */
+  /** Content address. Make the write idempotent on it, so a retry re-uses. */
   sha256: string;
 };
+
+/**
+ * What Val knows about a file it is about to have uploaded, when it will not be
+ * carrying the bytes itself.
+ *
+ * The same fields as `ExternalFile` minus `bytes`, plus `size` — because the
+ * signature is the only place a limit can be enforced once Val is out of the
+ * path, and a signer that cannot see the bytes still needs to be able to refuse
+ * a 4 GB one.
+ */
+export type ExternalUploadRequest = Omit<ExternalFile, "bytes"> & {
+  size: number;
+};
+
+/**
+ * Permission to write one file, in the shape the object stores actually want.
+ *
+ * S3 and R2 presigned PUTs need a URL and headers; an S3 POST policy needs form
+ * fields sent before the file; GCS signed URLs are a PUT; Azure wants a SAS URL
+ * plus `x-ms-blob-type`; Cloudinary and Uploadcare are POSTs with a signature in
+ * the fields. One shape covers all of them, and an adapter needing none of the
+ * optional parts returns a URL.
+ */
+export type ExternalUploadAuthorization = {
+  url: string;
+  /** Default `"PUT"`. */
+  method?: "PUT" | "POST";
+  headers?: Record<string, string>;
+  /** A POST policy's form fields, sent before the file. */
+  fields?: Record<string, string>;
+  /** Where the bytes go in a POST. Default `"file"`. */
+  fileField?: string;
+  /** Val will not reuse the signature past this. */
+  expiresAt?: string;
+  /** → `ctx.uploads[path].data` on the `put` that follows. */
+  data?: Json;
+};
+
+/**
+ * How this record's media is stored, as a tagged union.
+ *
+ * The choice is driven by one question — **does the host cap request bodies?**
+ * Vercel, Netlify, Lambda and Cloudflare Pages do; a VPS, Docker, Fly and a
+ * self-hosted Node server do not. `checkExternalSetup` reads `type` at startup
+ * and says so, to the people it concerns and nobody else.
+ *
+ * A union rather than four optional sibling methods because it makes the two
+ * mistakes unrepresentable: a write path without a read path, and a pair drawn
+ * from different strategies.
+ */
+export type ExternalFiles<Tx> =
+  | {
+      /**
+       * Val hands the adapter the bytes and asks for them back.
+       *
+       * Right for local development (always), a self-hosted server, a blob
+       * column, and a store on a private network the browser cannot reach.
+       * Every byte passes through `/api/val/…`, so on a host that caps request
+       * bodies this fails for a large file — in both directions.
+       */
+      type: "bytes";
+      /** Stores bytes at the path Val chose. Idempotent on `sha256`. */
+      put(
+        file: ExternalFile,
+        ctx: ExternalCtx<Tx>,
+      ): Promise<Returns<{ data?: Json }>>;
+      /** Reads them back. If an adapter can store bytes it must return them. */
+      get(
+        path: string,
+        ctx: ExternalCtx<Tx>,
+      ): Promise<Returns<Uint8Array | null>>;
+    }
+  | {
+      /**
+       * Val never holds the bytes: the adapter authorises an upload, and
+       * resolves a URL to read one back.
+       *
+       * No size ceiling in either direction, and a published read never touches
+       * the app server. The right answer for S3, R2, GCS, Azure, Cloudinary and
+       * anything with a CDN in front of it.
+       */
+      type: "presigned";
+      signUpload(
+        request: ExternalUploadRequest,
+        ctx: ExternalCtx<Tx>,
+      ): Promise<Returns<ExternalUploadAuthorization>>;
+      /**
+       * Where a published file is served from — a public CDN URL, or a signed
+       * GET. `null` means this path holds nothing.
+       */
+      url(
+        path: string,
+        ctx: ExternalCtx<Tx>,
+      ): Promise<Returns<{ url: string; expiresAt?: string } | null>>;
+      /**
+       * Bytes through the server anyway, for the callers that need them rather
+       * than a URL — `val validate` reading a file to check it, for one.
+       * Optional because a store the app itself cannot read is legitimate.
+       */
+      get?(
+        path: string,
+        ctx: ExternalCtx<Tx>,
+      ): Promise<Returns<Uint8Array | null>>;
+    };
 
 // #endregion
 
@@ -259,7 +368,8 @@ type WriteMethods<Item, Tx> = {
     entries: Record<string, Item>,
     ctx: ExternalCtx<Tx> & {
       /**
-       * What `putFile` returned, keyed by the path it was given.
+       * What the media write returned — `files.put`, or `files.signUpload` —
+       * keyed by the path it was given.
        *
        * Path rather than sha256 because the entry references its file by path
        * and carries no hash — keying by hash would need a second map. The sha is
@@ -330,17 +440,12 @@ type OptionalMethods<Item, Tx> = {
    */
   version?(ctx: ExternalCtx<Tx>): Promise<Returns<string>>;
 
-  /** Stores bytes at the path Val chose. Paired with `getFile`. */
-  putFile?(
-    file: ExternalFile,
-    ctx: ExternalCtx<Tx>,
-  ): Promise<Returns<{ data?: Json }>>;
-
-  /** Reads them back. If an adapter can store bytes it must return them. */
-  getFile?(
-    path: string,
-    ctx: ExternalCtx<Tx>,
-  ): Promise<Returns<Uint8Array | null>>;
+  /**
+   * How this record's media is stored. Required when the item schema holds an
+   * image or a file, which is checked against the SCHEMA at startup rather than
+   * here — a gallery stores files under keys this type never sees.
+   */
+  files?: ExternalFiles<Tx>;
 };
 
 /** The item type an external module's entries hold, loosened as JSON allows. */
@@ -366,13 +471,61 @@ export type AdapterFor<M extends AnyExternalModule, Tx> = ReadMethods<
       }
     : WriteMethods<ItemOfModule<M>, Tx>);
 
+/**
+ * The adapter as the SERVER calls it: the same methods with `Item` and `Tx`
+ * erased.
+ *
+ * The precise types are for the person writing the adapter — they are what make
+ * a wrong row shape a compile error at the right token. The server, which holds
+ * a registry of adapters for many different modules, cannot name those types and
+ * does not need to: it validates what comes back against the serialized schema,
+ * which is the only check that still holds once a value has crossed a wire.
+ */
+export type ErasedExternalAdapter = ReadMethods<Json, unknown> &
+  OptionalMethods<Json, unknown> &
+  Partial<WriteMethods<Json, unknown>>;
+
+/** One binding, as the registry holds it. */
+export type ExternalBinding = {
+  /** The label it was registered under — the key in `modules({ ... })`. */
+  label: string;
+  /** Which module it adapts, for the startup check and for error messages. */
+  moduleFilePath: ModuleFilePath;
+  adapter: ErasedExternalAdapter;
+};
+
 declare const BoundTag: unique symbol;
-/** What `entry()` returns: a module and its adapter, checked against each other. */
-export type BoundExternalRecord<M> = { readonly [BoundTag]: M };
+/**
+ * What `entry()` returns: a module and its adapter, checked against each other.
+ *
+ * The runtime fields are real and readable — only the module phantom is
+ * type-level — so `modules()` can collect the bindings without an assertion.
+ */
+export type BoundExternalRecord<M> = Omit<ExternalBinding, "label"> & {
+  readonly [BoundTag]: M;
+};
 
 export type ExternalRecords = {
   readonly __brand: "ExternalRecords";
+  /**
+   * The bindings, by label. The label is the key `modules()` was given, which
+   * the type system has already checked against each schema's own
+   * `.external(label)`; the server re-checks it at startup, for the callers
+   * TypeScript did not see.
+   */
+  readonly bindings: Readonly<Record<string, ExternalBinding>>;
+  /** `around`, `retry` and the rest, with `Tx` erased. */
+  readonly definition: ExternalDefinition<unknown>;
 };
+
+export function isExternalRecords(value: unknown): value is ExternalRecords {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "__brand" in value &&
+    value.__brand === "ExternalRecords"
+  );
+}
 
 export type ExternalBuilder<Tx> = {
   /**
@@ -470,8 +623,57 @@ export type ExternalDefinition<Tx> = {
 export function defineExternal<Tx = never>(
   definition?: ExternalDefinition<Tx>,
 ): ExternalBuilder<Tx> {
-  void definition;
-  throw new Error(
-    "defineExternal is not implemented yet: phase 0 lands the contract, the registry that executes it arrives with the read endpoints.",
-  );
+  return {
+    entry: (module, adapter) => {
+      const moduleFilePath = Internal.getValPath(module);
+      if (moduleFilePath === undefined) {
+        throw new Error(
+          "entry() was given something that is not a Val module: it has no path. Pass the module's default export, e.g. entry(postsVal, { ... }).",
+        );
+      }
+      return {
+        moduleFilePath: moduleFilePath as unknown as ModuleFilePath,
+        // The one assertion in this file, and it is the boundary the whole
+        // design is built around: `AdapterFor<M, Tx>` names the module's item
+        // type and the project's transaction type, and neither can be named
+        // again by a registry that holds many modules at once. The types have
+        // done their work by the time we get here — what comes back from the
+        // store is checked against the serialized schema instead.
+        adapter: adapter as unknown as ErasedExternalAdapter,
+      } as BoundExternalRecord<typeof module>;
+    },
+    modules: (entries) => {
+      const bindings: Record<string, ExternalBinding> = {};
+      const byModule: Record<string, string> = {};
+      for (const [label, bound] of Object.entries(entries)) {
+        if (label in bindings) {
+          throw new Error(`Duplicate external record label: '${label}'`);
+        }
+        const existing = byModule[bound.moduleFilePath];
+        if (existing !== undefined) {
+          // Two adapters for one module: whichever won would be arbitrary, and
+          // the loser's queries would simply never run.
+          throw new Error(
+            `Module '${bound.moduleFilePath}' is bound twice, as '${existing}' and '${label}'. A module has exactly one adapter.`,
+          );
+        }
+        byModule[bound.moduleFilePath] = label;
+        bindings[label] = {
+          label,
+          moduleFilePath: bound.moduleFilePath,
+          adapter: bound.adapter,
+        };
+      }
+      return {
+        __brand: "ExternalRecords",
+        bindings,
+        // `Tx` is the project's, and the registry serves every project the same
+        // way: the executor passes whatever `around` hands it straight back to
+        // the adapter that asked for it, so nothing here needs to know it.
+        // `{}` rather than `undefined` for the store with no transaction seam
+        // and no retry override — every field of a definition is optional.
+        definition: definition ?? {},
+      };
+    },
+  };
 }

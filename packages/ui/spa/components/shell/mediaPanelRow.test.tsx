@@ -19,6 +19,7 @@ const GALLERY: ShellMediaGallery = {
   moduleFilePath: "/content/media.val.ts",
   itemCount: 1,
   mediaType: "images",
+  canUpload: true,
   files: [
     {
       ref: "/public/val/images/a.png",
