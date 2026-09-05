@@ -41,7 +41,8 @@ export type SettingsPanelProps = {
  *
  * Each section gets a UI built for it rather than the generic field renderer.
  * That is the whole reason settings is a destination instead of a module under
- * Data: `ai.context` is a paragraph about the project, not a string field, and
+ * Data: `assistant.context` is a paragraph about the project, not a string
+ * field, and
  * what follows it — locales, skills, permissions — will each want their own
  * shape too.
  */
@@ -154,69 +155,82 @@ export function SettingsSection({
   );
 }
 
-export type AiSettingsValue = {
-  /** `null` is unset, which means ON — see `isAiEnabled`. */
+export type AssistantSettingsValue = {
+  /**
+   * Three states, not two — see `assistantAvailability`.
+   *
+   * `null` is "nobody has decided": the assistant is offered to editors and
+   * asks before it is used. It is NOT the same as `false`, which hides it.
+   */
   enabled: boolean | null;
   context: string | null;
   tone: string | null;
 };
 
-export type AiSettingsFieldsProps = {
-  value: AiSettingsValue;
+export type AssistantSettingsFieldsProps = {
+  value: AssistantSettingsValue;
   /**
    * One field changed.
    *
    * Per field rather than per section: the panel does not know whether the
-   * project has an `ai` section yet, and whoever writes the patch does — see
-   * `ValSettingsSections`.
+   * project has an `assistant` section yet, and whoever writes the patch does —
+   * see `ValSettingsSections`.
    */
   onChange: (
-    field: keyof AiSettingsValue,
+    field: keyof AssistantSettingsValue,
     value: string | boolean | null,
   ) => void;
   /** The cap each field is validated against, from the schema. */
   maxLength: number;
   /** Validation messages, keyed by field, as the Studio has them. */
-  errors?: Partial<Record<keyof AiSettingsValue, string>>;
+  errors?: Partial<Record<keyof AssistantSettingsValue, string>>;
   readonly?: boolean;
 };
 
 /**
- * The AI section: what the assistant is told about this project.
+ * The assistant: whether editors have one, and what it is told about the
+ * project.
  *
  * Two paragraphs, sent with every message the chat makes. `context` is
  * background it would otherwise guess at; `tone` is how it should write when it
  * writes content.
  */
-export function AiSettingsFields({
+export function AssistantSettingsFields({
   value,
   onChange,
   maxLength,
   errors,
   readonly,
-}: AiSettingsFieldsProps) {
+}: AssistantSettingsFieldsProps) {
   /**
-   * Unset reads as ON, so the switch is `!== false` rather than `!!`.
+   * A two-position switch for a three-state setting, and the third state is
+   * carried by the words under it rather than by the switch.
    *
-   * A project that wrote a settings module did not do so to turn the assistant
-   * off, and the difference shows the first time someone opens this panel: a
-   * `!!` would draw the switch off and the two paragraphs below it as pointless.
+   * Unset draws as off, which is the safe way round: it is not on, and nothing
+   * is sent until someone says so. What it is NOT is `false` — the assistant is
+   * still offered to editors, who are asked before it is used — so the line
+   * below says which of the two "off"s this is. Flicking the switch decides,
+   * and there is no way back to undecided from here, which is right: the state
+   * exists because nobody had answered, and now somebody has.
    */
-  const enabled = value.enabled !== false;
+  const isOn = value.enabled === true;
+  const isUndecided = value.enabled === null || value.enabled === undefined;
   return (
     <SettingsSection description="Told to the assistant with every message it sends.">
       <div className="flex items-center justify-between gap-3">
-        <label htmlFor="val-ai-enabled" className="text-xs font-medium">
-          Assistant
+        <label htmlFor="val-assistant-enabled" className="text-xs font-medium">
+          Enabled
           <span className="block mt-0.5 text-[0.6875rem] font-normal text-fg-secondary-alt">
-            {enabled
-              ? "Available to editors in this project."
-              : "Off. Nothing below is sent, and the chat is hidden."}
+            {isOn
+              ? "Editors have an assistant in this project."
+              : isUndecided
+                ? "Not decided yet. Editors are offered the assistant and asked to turn it on before it is used."
+                : "Off. The assistant is hidden everywhere, and nothing is sent."}
           </span>
         </label>
         <Switch
-          id="val-ai-enabled"
-          checked={enabled}
+          id="val-assistant-enabled"
+          checked={isOn}
           disabled={readonly}
           onCheckedChange={(next) => onChange("enabled", next)}
         />
@@ -229,7 +243,7 @@ export function AiSettingsFields({
         onChange={(next) => onChange("context", next)}
         maxLength={maxLength}
         error={errors?.context}
-        readonly={readonly || !enabled}
+        readonly={readonly || value.enabled === false}
       />
       <SettingsTextField
         label="Tone of voice"
@@ -239,7 +253,7 @@ export function AiSettingsFields({
         onChange={(next) => onChange("tone", next)}
         maxLength={maxLength}
         error={errors?.tone}
-        readonly={readonly || !enabled}
+        readonly={readonly || value.enabled === false}
       />
     </SettingsSection>
   );

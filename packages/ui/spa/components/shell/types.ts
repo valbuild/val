@@ -1,3 +1,4 @@
+import { ModuleFilePath } from "@valbuild/core";
 import { AvailableRoute } from "../NavMenu/NewPageForm";
 
 /**
@@ -58,7 +59,14 @@ export type ShellExternalPage = {
 
 /** The project's settings module (an `s.settings()` module). */
 export type ShellSettings = {
-  moduleFilePath: string;
+  /**
+   * Branded, unlike the other rows here.
+   *
+   * It comes from `resolveSettingsModule` as a `ModuleFilePath` and is handed
+   * straight back to a hook that needs one, so widening it to `string` bought
+   * nothing but an assertion at the other end.
+   */
+  moduleFilePath: ModuleFilePath;
   /** Validation errors in the settings module (not descendants of others). */
   errorCount?: number;
   /** Whether settings have unpublished changes. */

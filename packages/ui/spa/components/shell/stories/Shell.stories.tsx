@@ -14,12 +14,12 @@ import { ShellDeployment } from "../types";
 import { CanvasView } from "../canvas/PageWorkspace";
 import { mockCanvasPage } from "../canvas/mockCanvasPage";
 import {
-  AiSettingsFields,
-  AiSettingsValue,
+  AssistantSettingsFields,
+  AssistantSettingsValue,
   SettingsTabs,
 } from "../SettingsPanel";
 import { Sparkles } from "lucide-react";
-import { AI_SETTINGS_MAX_LENGTH } from "@valbuild/core";
+import { ASSISTANT_SETTINGS_MAX_LENGTH } from "@valbuild/core";
 
 /**
  * The whole shell in one story.
@@ -211,7 +211,7 @@ function deploymentsFor(
  * state, which is not what the panel normally looks like.
  */
 function MockSettingsSections() {
-  const [value, setValue] = useState<AiSettingsValue>({
+  const [value, setValue] = useState<AssistantSettingsValue>({
     enabled: true,
     context:
       "A CMS for developers, run by a team of four in Oslo. The product is Val, never VAL.",
@@ -221,16 +221,16 @@ function MockSettingsSections() {
     <SettingsTabs
       tabs={[
         {
-          id: "ai",
-          label: "AI",
+          id: "assistant",
+          label: "Assistant",
           icon: Sparkles,
           content: (
-            <AiSettingsFields
+            <AssistantSettingsFields
               value={value}
               onChange={(field, next) =>
                 setValue((current) => ({ ...current, [field]: next }))
               }
-              maxLength={AI_SETTINGS_MAX_LENGTH}
+              maxLength={ASSISTANT_SETTINGS_MAX_LENGTH}
             />
           ),
         },
@@ -463,11 +463,11 @@ export const AccountOpen: Story = {
 };
 
 /**
- * The project's settings, behind the cog under Media.
+ * The project's settings, behind the cog at the foot of the rail.
  *
- * The sections come from the app (`renderSettings`), so in the shell's own
- * story the panel is empty chrome — see `Shell/SettingsPanel` for the sections
- * themselves.
+ * The sections come from the app (`renderSettings`), and this story supplies
+ * the same components with local state — see `Shell/SettingsPanel` for the
+ * states they can be in.
  */
 export const SettingsOpen: Story = {
   args: {
@@ -662,7 +662,7 @@ export const DeploymentsOnMobile: Story = {
 };
 
 /** The same feed on a phone, looked up in Account rather than announced. */
-export const DeploymentsInMobileAccount: Story = {
+export const DeploymentsInMobileSettings: Story = {
   args: {
     ...Default.args,
     openPanel: "account",

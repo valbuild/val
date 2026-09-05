@@ -9,11 +9,11 @@
  * ```
  *
  * and `{}` has to keep validating as sections are added to it. A project that
- * never touched the AI settings should not have to edit its settings file the
- * day `locales` or `permissions` land.
+ * never touched the assistant's settings should not have to edit its settings
+ * file the day `locales` or `permissions` land.
  *
  * That is why settings is not sugar over `s.object()`: an object schema errors
- * with `Expected key 'ai' not found in object` for any absent key (see
+ * with `Expected key 'assistant' not found in object` for any absent key (see
  * `ObjectSchema.executeAssert`), and `.nullable()` permits `null`, not absence.
  * `SettingsSchema` gives absent keys the meaning "unset" instead.
  *
@@ -21,24 +21,25 @@
  * written without removing the key.
  */
 export type SettingsSource = {
-  ai?: AiSettingsSource;
+  assistant?: AssistantSettingsSource;
 };
 
 /**
- * What the AI assistant is told about this project, on every message.
+ * The assistant: whether editors have one, and what it is told about the
+ * project on every message.
  *
- * Both fields are prose the model reads, not instructions Val interprets, and
- * both are capped (see {@link AI_SETTINGS_MAX_LENGTH}): they are prepended to
- * every request the chat makes, so an unbounded field here is an unbounded cost
- * on every turn.
+ * `context` and `tone` are prose the model reads, not instructions Val
+ * interprets, and both are capped (see {@link ASSISTANT_SETTINGS_MAX_LENGTH}):
+ * they are prepended to every request the chat makes, so an unbounded field
+ * here is an unbounded cost on every turn.
  */
-export type AiSettingsSource = {
+export type AssistantSettingsSource = {
   /**
-   * Whether the assistant is available in this project at all.
+   * Whether editors have an assistant in this project.
    *
-   * Unset means ON: a project that has bothered to write a settings module and
-   * filled in its AI section did not do so to leave the assistant off, and
-   * `false` is there to say otherwise.
+   * Three states, not two — see {@link assistantAvailability}, which is the one
+   * place that reads them. Unset is NOT "on": it is "nobody has decided", and
+   * the Studio treats that as an offer rather than as an answer.
    */
   enabled?: boolean | null;
   /**
@@ -51,35 +52,60 @@ export type AiSettingsSource = {
    * British or American, sentence case in headings, no exclamation marks.
    *
    * Named `tone` rather than `toneOfVoice` so it reads as one hint among
-   * several inside `ai`, leaving room for siblings (`audience`, `glossary`)
-   * rather than a field that looks like it should absorb them.
+   * several inside `assistant`, leaving room for siblings (`audience`,
+   * `glossary`) rather than a field that looks like it should absorb them.
    */
   tone?: string | null;
 };
 
 /**
- * The cap on each AI settings field, in characters.
+ * The cap on each of the assistant's prose fields, in characters.
  *
  * Roughly a thousand tokens each. Generous enough for a paragraph of
  * background and a house style, small enough that the two of them together do
  * not dominate the system prompt they are appended to.
  */
-export const AI_SETTINGS_MAX_LENGTH = 4000;
+export const ASSISTANT_SETTINGS_MAX_LENGTH = 4000;
 
 /**
- * Whether the assistant is on, from the settings module's source.
+ * Whether a project has an assistant — and the answer is not a boolean.
  *
- * Unset is ON — see {@link AiSettingsSource.enabled} — so this is not
- * `!!settings?.ai?.enabled`, which is the mistake it exists to prevent. A
- * project with NO settings module has nothing to say either way and is left to
- * whatever decided that before settings existed.
+ * - `"on"`: use it.
+ * - `"off"`: every trace of it goes. No button in the top bar, no row in the
+ *   quick actions, no panel, nothing sent. A project that says `false` has
+ *   decided, and the Studio does not keep offering.
+ * - `"unconfigured"`: nobody has said. The affordances are SHOWN, and asking to
+ *   use the assistant asks to turn it on first. That is the difference between
+ *   this and `"off"`, and the reason `enabled` is a tri-state: hiding an
+ *   unconfigured assistant means nobody discovers it, and quietly enabling one
+ *   means a project starts sending its content to a model because it did not
+ *   know to say no.
  *
- * This is the only answer to "is the assistant on": `config.ai.chat` is gone,
- * and with it the chat's title, description and suggestions, which nothing
- * replaces. The AI commit-message summariser is deliberately not part of this —
- * `config.ai.commitMessages` stays where it is, and gets settings of its own
- * later.
+ * A project with NO settings module is `"on"`. There is nowhere to record a
+ * decision, so there is nothing to prompt for and nothing to prompt INTO — the
+ * prompt writes to a settings module, and that project has none.
+ *
+ * This is the only answer to "does this project have an assistant":
+ * `config.ai.chat` is gone, and with it the chat's title, description and
+ * suggestions, which nothing replaces. The AI commit-message summariser is
+ * deliberately not part of this — `config.ai.commitMessages` stays where it is,
+ * and gets settings of its own later.
  */
-export function isAiEnabled(settings: SettingsSource | undefined): boolean {
-  return settings?.ai?.enabled !== false;
+export type AssistantAvailability = "on" | "off" | "unconfigured";
+
+export function assistantAvailability(
+  /** The settings module's source, or `undefined` where the project has none. */
+  settings: SettingsSource | undefined,
+): AssistantAvailability {
+  if (settings === undefined) {
+    return "on";
+  }
+  const enabled = settings.assistant?.enabled;
+  if (enabled === true) {
+    return "on";
+  }
+  if (enabled === false) {
+    return "off";
+  }
+  return "unconfigured";
 }

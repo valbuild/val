@@ -31,7 +31,8 @@ export type ValConfig = {
      * Still config, and deliberately: it is about how the repository is
      * written to rather than about the content, and it is getting settings of
      * its own. The ASSISTANT is not here — it is `s.settings()`, under
-     * `ai.enabled`, because whether editors have a chat is a decision about the
+     * `assistant.enabled`, because whether editors have a chat is a decision
+     * about the
      * project's content, made by the people who edit it, and published like any
      * other content change.
      */

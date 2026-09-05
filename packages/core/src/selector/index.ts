@@ -34,7 +34,8 @@ export type Selector<T extends Source> = Source extends T
               // it never matched `SourceObject` and fell through to `never`.
               //
               // The arm has to sit BELOW `SourceObject`: every object type that
-              // does not conflict on `ai` structurally satisfies `SettingsSource`,
+              // does not conflict on `assistant` structurally satisfies
+              // `SettingsSource`,
               // so an arm above would swallow ordinary objects. A
               // `GenericSelector` rather than an `ObjectSelector` because a
               // settings module is read by the Studio and the assistant, not

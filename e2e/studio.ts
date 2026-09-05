@@ -45,8 +45,8 @@ export async function openStudio(
   /**
    * Next's dev-tools badge, out of the way.
    *
-   * `<nextjs-portal>` floats bottom-left — exactly over the Settings cog at the
-   * foot of the rail — and intercepts pointer events even though nothing in the
+   * `<nextjs-portal>` floats bottom-left — exactly over the buttons at the foot
+   * of the rail — and intercepts pointer events even though nothing in the
    * Studio put it there. A click that lands on it retries for the length of the
    * test's timeout and fails reporting a missing feature, which is what made
    * `account.spec.ts` and `screens.spec.ts` look broken. `display: none` on the
@@ -260,9 +260,14 @@ async function discardOnce(page: Page): Promise<void> {
 /**
  * A floating panel, by the title in its header.
  *
- * Settings is one of them: it is not a content destination — it is reached from
- * the cog at the foot of the rail rather than from the strip of three — but it
- * is the same panel with the same close button, so the helpers take it too.
+ * Settings and Account are two of them: neither is one of the three content
+ * destinations in the strip — Settings is the cog at the foot of the rail, and
+ * Account is the button below it — but they are the same panel with the same
+ * close button, so the helpers take them too.
+ *
+ * They are different panels, and were not always: the project's settings
+ * (`s.settings()`) took the name, and what used to be called Settings — the
+ * theme, auto save, the branch, signing out — is Account.
  */
 export type PanelName = "Pages" | "Media" | "Data" | "Settings" | "Account";
 

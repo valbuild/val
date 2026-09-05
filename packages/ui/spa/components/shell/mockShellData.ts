@@ -544,7 +544,7 @@ export const mockShellData: ShellData = {
   newPage: mockNewPageRoutes,
   externalPages: mockExternalPages,
   media: mockMedia,
-  settings: { moduleFilePath: "/settings.val.ts" },
+  settings: { moduleFilePath: "/settings.val.ts" as ModuleFilePath },
   data: mockDataModules,
   notifications: mockNotifications,
   activity: mockActivity,

@@ -126,7 +126,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   /**
    * Whether there is an assistant at all.
    *
-   * `ai.enabled` in the project's settings module — see `useIsAiEnabled`. Not
+   * `assistant.enabled` in the project's settings module, resolved by
+   * `useAssistantAvailability` and carried here by `AIChatActionsProvider`. Not
    * the connection: an assistant that is currently offline still gets its
    * panel, which is where `aiConnectionError` and its retry are shown.
    */
@@ -376,11 +377,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    */
   const renderSettings = useCallback(
     () => (
-      <ValSettingsSections
-        moduleFilePath={
-          data.settings?.moduleFilePath as ModuleFilePath | undefined
-        }
-      />
+      <ValSettingsSections moduleFilePath={data.settings?.moduleFilePath} />
     ),
     [data.settings?.moduleFilePath],
   );

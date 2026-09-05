@@ -320,7 +320,8 @@ export type InitSchema = {
    * @example
    * ```typescript
    * export default c.define("/settings.val.ts", s.settings(), {
-   *   ai: {
+   *   assistant: {
+   *     enabled: true,
    *     context: "A CMS for developers. British English throughout.",
    *     tone: "Plain and direct. Sentence case in headings.",
    *   },

@@ -60,6 +60,7 @@ import { ValOverlayEmitter } from "../stores/react/ValOverlayEmitter";
 import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
 import { AIChatActionsProvider } from "./AIChatActionsContext";
+import { useAssistantAvailabilityOf } from "../hooks/useAssistantAvailability";
 import {
   useAIWebSocket,
   type AIMessageHandler,
@@ -270,7 +271,8 @@ export function ValProvider({
    *
    * It used to ask the config whether either AI feature was wanted. It cannot
    * ask that any more, and should not: whether the ASSISTANT is on is now the
-   * project's own content (`s.settings()`, `ai.enabled`), which lives in the
+   * project's own content (`s.settings()`, `assistant.enabled`), which lives in
+   * the
    * store this component builds below — and the old question had a false
    * negative in it anyway, since a project that had disabled commit summaries
    * and enabled the chat got no socket at all.
@@ -508,6 +510,16 @@ export function ValProvider({
       }),
     [client, getDirectFileUploadSettings],
   );
+
+  /**
+   * Whether this project has an assistant, from its settings module.
+   *
+   * Read off the stores directly rather than through `useAssistantAvailability`,
+   * because this component BUILDS the system and mounts the provider that
+   * carries the answer ABOVE the one that puts the system in context. The
+   * subscriptions are the same ones every other reader gets.
+   */
+  const assistant = useAssistantAvailabilityOf(system);
   useEffect(() => {
     if (statMode === "fs" || statMode === "http") {
       system.setMode(statMode);
@@ -790,8 +802,19 @@ export function ValProvider({
           anything yet.
         */}
         <AIChatActionsProvider
-          isAIChatEnabled={wsEnabled}
-          isAIChatOnline={wsEnabled && isWsConnected}
+          /*
+           * Shown unless the project has turned it off. An assistant nobody has
+           * decided about is still offered: the panel is where the offer is
+           * made, so hiding it would leave no way to accept.
+           */
+          isAIChatEnabled={wsEnabled && assistant !== "off"}
+          /*
+           * "Online" is stricter, and deliberately: it is what decides whether
+           * an affordance that needs a LIVE conversation is offered (mentioning
+           * a field, chiefly), and an unconfigured assistant cannot take a
+           * message until someone has said yes.
+           */
+          isAIChatOnline={wsEnabled && isWsConnected && assistant === "on"}
         >
           {theme !== undefined && setTheme ? (
             <ValThemeProvider

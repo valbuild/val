@@ -1,4 +1,4 @@
-import { Internal } from "@valbuild/core";
+import { Internal, ModulePath } from "@valbuild/core";
 
 /**
  * What a settings module is called where a module name is shown.
@@ -15,22 +15,19 @@ export const SETTINGS_MODULE_TITLE = "Settings";
  *
  * The publish diff and the panel have to agree: someone who changed "Tone of
  * voice" and then opened Review should see "Tone of voice", not "Ai / Tone".
- * The generic prettifier cannot do this — it has no idea that `ai` is an
- * acronym, that `enabled` is drawn as a switch called Assistant, or that `tone`
- * is labelled with the longer name the panel gives it.
+ * The generic prettifier cannot do this — it has no idea that `tone` is
+ * labelled with the longer name the panel gives it, or that a section's rows
+ * are read with the section's name in front of them.
  *
  * `null` for a path this does not know, which is the honest answer for a
  * section added by a newer Val than the Studio looking at it: the caller falls
  * back to the generic label rather than inventing one.
  */
-export function settingsFieldLabel(modulePath: string): string | null {
+export function settingsFieldLabel(modulePath: ModulePath): string | null {
   if (!modulePath) {
     return SETTINGS_MODULE_TITLE;
   }
-  const segments = Internal.splitModulePath(
-    modulePath as Parameters<typeof Internal.splitModulePath>[0],
-  );
-  const label = LABELS[segments.join(".")];
+  const label = LABELS[Internal.splitModulePath(modulePath).join(".")];
   return label ?? null;
 }
 
@@ -40,8 +37,8 @@ export function settingsFieldLabel(modulePath: string): string | null {
  * change to them belongs.
  */
 const LABELS: Record<string, string> = {
-  ai: "AI",
-  "ai.enabled": "AI · Assistant",
-  "ai.context": "AI · Context",
-  "ai.tone": "AI · Tone of voice",
+  assistant: "Assistant",
+  "assistant.enabled": "Assistant · Enabled",
+  "assistant.context": "Assistant · Context",
+  "assistant.tone": "Assistant · Tone of voice",
 };

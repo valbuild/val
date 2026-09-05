@@ -343,7 +343,7 @@ const serializedSchema = mockData.schemas[MODULE_FILE_PATH];
 const SETTINGS_MODULE_FILE_PATH = "/settings.val.ts" as ModuleFilePath;
 
 const settingsModule = c.define("/settings.val.ts", s.settings(), {
-  ai: {
+  assistant: {
     enabled: true,
     context: "A CMS for developers, run by a team of four in Oslo.",
     tone: "Plain and direct. Sentence case in headings.",
@@ -562,8 +562,9 @@ const deployLinePatches: TestPatch[] = [
  *
  * Reviewed like any other content — it is content — but named the way the
  * Settings panel names it: the card is "Settings" rather than the file, and the
- * rows are "AI · Tone of voice" and "AI · Assistant" rather than "Ai / Tone"
- * and "Ai / Enabled". Both link to the Settings panel rather than to the module
+
+ * rows are "Assistant · Tone of voice" and "Assistant · Enabled" rather than
+ * "Assistant / Tone". Both link to the Settings panel rather than to the module
  * in the editor, since that is where the fields are actually edited.
  */
 export const SettingsUpdated: Story = {
@@ -577,7 +578,7 @@ export const SettingsUpdated: Story = {
           patch: [
             {
               op: "replace",
-              path: ["ai", "tone"],
+              path: ["assistant", "tone"],
               value:
                 "Warm and plain. British English, sentence case in headings, and no exclamation marks.",
             },
@@ -589,7 +590,7 @@ export const SettingsUpdated: Story = {
           patch: [
             {
               op: "replace",
-              path: ["ai", "enabled"],
+              path: ["assistant", "enabled"],
               value: false,
             },
           ],

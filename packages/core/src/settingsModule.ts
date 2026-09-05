@@ -88,7 +88,7 @@ export function resolveSettingsModule(
   for (const moduleFilePath of nestedModules) {
     errors.push({
       path: moduleFilePath,
-      message: `Settings must be defined at the root of the content tree, but s.settings() was found in '${moduleFilePath}'. Move it to '${SETTINGS_MODULE_CONVENTION}'.`,
+      message: `Settings must be defined at the root of the content tree, but s.settings() was found in '${moduleFilePath}'. Move it to a module file path with no directory in it, e.g. '${SETTINGS_MODULE_CONVENTION}'.`,
     });
   }
   if (rootModules.length > 1) {

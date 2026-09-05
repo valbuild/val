@@ -400,7 +400,9 @@ describe("availableDestinations", () => {
     // not its contents — is what the cog hangs off.
     expect(
       availableDestinations(
-        project({ settings: { moduleFilePath: "/settings.val.ts" } }),
+        project({
+          settings: { moduleFilePath: "/settings.val.ts" as ModuleFilePath },
+        }),
         false,
       ),
     ).toEqual(["settings"]);
@@ -412,7 +414,7 @@ describe("availableDestinations", () => {
         project({
           hasRouters: true,
           media: [gallery],
-          settings: { moduleFilePath: "/settings.val.ts" },
+          settings: { moduleFilePath: "/settings.val.ts" as ModuleFilePath },
           data: [
             {
               id: "/content/a.val.ts",
@@ -447,7 +449,9 @@ describe("availableDestinations", () => {
     // shows it at all.
     expect(
       availableDestinations(
-        project({ settings: { moduleFilePath: "/settings.val.ts" } }),
+        project({
+          settings: { moduleFilePath: "/settings.val.ts" as ModuleFilePath },
+        }),
         true,
       ),
     ).not.toContain("settings");

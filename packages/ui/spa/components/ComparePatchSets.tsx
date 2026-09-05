@@ -1,6 +1,7 @@
 import {
   Internal,
   ModuleFilePath,
+  ModulePath,
   PatchId,
   SerializedSchema,
   SourcePath,
@@ -1608,7 +1609,7 @@ function ChangeRowHeader({
   sourcePath: SourcePath;
   changeType: ChangeType;
   segment: string;
-  modulePath: string;
+  modulePath: ModulePath;
   moduleFilePath: ModuleFilePath;
   isRouterPageKey: boolean;
   patchesByAuthorIds: Record<string, AuthorPatchInfo[]>;
@@ -1678,7 +1679,7 @@ function ChangeTargetLabel({
 }: {
   sourcePath: SourcePath;
   segment: string;
-  modulePath: string;
+  modulePath: ModulePath;
   moduleFilePath: ModuleFilePath;
   isRouterPageKey: boolean;
   parentMediaType?: "images" | "files";

@@ -92,7 +92,7 @@ export function AccountPanel({
     <FloatingPanel
       side="left"
       width={300}
-      title="Settings"
+      title="Account"
       mobileVariant="sheet"
       breakpoint={breakpoint}
       onClose={onClose}

@@ -6,7 +6,8 @@ import { UtilityPanel } from "./UtilityPanel";
 /**
  * The ways into the assistant, in a project that has no assistant.
  *
- * A project can turn the assistant off (`s.settings()`, `ai.enabled`) and one
+ * A project can turn the assistant off (`s.settings()`, `assistant.enabled`)
+ * and one
  * with no reachable model has none either way — and both controls used to be
  * rendered unconditionally: a Sparkles button in the top bar and an "Ask the
  * assistant" row in the quick actions, each of which opened a panel that could

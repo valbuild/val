@@ -45,7 +45,8 @@ import {
 } from "./ValProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useSchemaAtPath, useValConfig, useSchemas } from "./ValFieldProvider";
-import { useIsAiEnabled } from "../hooks/useIsAiEnabled";
+import { useAssistantAvailability } from "../hooks/useAssistantAvailability";
+import { EnableAssistantPrompt } from "./EnableAssistantPrompt";
 import { useTheme } from "./ValThemeProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { FieldLoading } from "./FieldLoading";
@@ -917,6 +918,7 @@ function ChatWindow({
   onClose: () => void;
   onOpen: () => void;
 }) {
+  const assistant = useAssistantAvailability();
   const chatRef = useRef<AIChatHandle | null>(null);
   const { chatEditorRef, setOpenAIChatImpl } = useAIChatActions();
   useEffect(() => {
@@ -1112,24 +1114,33 @@ function ChatWindow({
           </div>
         </div>
         <div className="flex-1 overflow-hidden">
-          <AIChat
-            ref={chatRef}
-            chatEditorRef={chatEditorRef}
-            onSendMessage={sendMessage}
-            onUploadFile={uploadAiImage}
-            onNewSession={newSession}
-            isConnected={isConnected}
-            authError={authError}
-            mode={mode}
-            sessions={sessions}
-            currentSessionId={currentSessionId}
-            onLoadSession={loadSession}
-            onFetchSessions={getSessions}
-            onSetSessionName={setSessionName}
-            isLoadingSession={isLoadingSession}
-            onAnswerToolQuestions={answerToolQuestions}
-            onCancelToolQuestion={cancelToolQuestion}
-          />
+          {/*
+            The same offer the Studio's panel makes, for the same reason: this
+            window is reachable while nobody has said whether the project has an
+            assistant, and it must ask rather than open a chat that cannot send.
+          */}
+          {assistant === "unconfigured" ? (
+            <EnableAssistantPrompt />
+          ) : (
+            <AIChat
+              ref={chatRef}
+              chatEditorRef={chatEditorRef}
+              onSendMessage={sendMessage}
+              onUploadFile={uploadAiImage}
+              onNewSession={newSession}
+              isConnected={isConnected}
+              authError={authError}
+              mode={mode}
+              sessions={sessions}
+              currentSessionId={currentSessionId}
+              onLoadSession={loadSession}
+              onFetchSessions={getSessions}
+              onSetSessionName={setSessionName}
+              isLoadingSession={isLoadingSession}
+              onAnswerToolQuestions={answerToolQuestions}
+              onCancelToolQuestion={cancelToolQuestion}
+            />
+          )}
         </div>
         {!isMobile && (
           <>
@@ -1371,7 +1382,9 @@ function ValMenu({
   const validationErrors = useAllValidationErrors() || {};
   const validationErrorCount = Object.keys(validationErrors).length;
   const valMode = useValMode();
-  const isChatEnabled = useIsAiEnabled();
+  // Shown unless the project has turned it off: an assistant nobody has decided
+  // about is offered here, and the panel asks before it is used.
+  const isChatEnabled = useAssistantAvailability() !== "off";
   const sourcePathResult = useValRouterSourcePathFromCurrentPathname();
   const publishPopoverSide =
     dropZone === "val-menu-center-bottom"

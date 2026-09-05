@@ -26,7 +26,7 @@ and stays one as sections are added. What it holds today is the assistant:
 
 ```typescript
 export default c.define("/settings.val.ts", s.settings(), {
-  ai: {
+  assistant: {
     enabled: true,
     context: "A CMS for developers, run by a team of four in Oslo.",
     tone: "Plain and direct. British English, sentence case in headings.",
@@ -36,8 +36,20 @@ export default c.define("/settings.val.ts", s.settings(), {
 
 `context` is background the assistant would otherwise guess at; `tone` is how it
 should write when it writes content. Both are sent with every message it makes.
-`enabled` decides whether editors have an assistant at all — and unset means on,
-so a project that fills in its AI section does not have to say so.
+
+`enabled` decides whether editors have an assistant, and it has **three** states
+rather than two:
+
+- `true` — they do.
+- `false` — they do not, and every trace of it goes: no button in the top bar,
+  no row in the quick actions, no panel, nothing sent.
+- unset — nobody has decided. The assistant is still **shown**, and asks to be
+  turned on before it is used. Hiding an assistant nobody has decided about
+  means nobody discovers it; quietly enabling one means a project starts sending
+  its content to a model because it did not know to say no.
+
+A project with no settings module at all has an assistant, as before: there is
+nowhere to record a decision, and nowhere for the prompt to write the answer.
 
 **Breaking: `ai.chat` is gone from `val.config.ts`.** Whether the assistant is
 available is a decision about the project's content, made by the people who edit
@@ -57,12 +69,11 @@ deploy and a code review of a boolean. Remove the whole block:
  });
 ```
 
-`experimental.enable` becomes `ai.enabled` in the settings module. `suggestions`,
-`title` and `description` are removed with nothing replacing them: the assistant
-now opens with its own copy. Note that the assistant is **on by default** for a
-project that has a settings module and does not say otherwise, and for one that
-has no settings module at all — a project with no reachable model still gets no
-assistant, as before.
+`experimental.enable` becomes `assistant.enabled` in the settings module.
+`suggestions`, `title` and `description` are removed with nothing replacing
+them: the assistant now opens with its own copy. A project that had the chat
+enabled and wants it to stay on for everyone should write
+`assistant: { enabled: true }` — otherwise editors are offered it and asked.
 
 `ai.commitMessages` stays in `val.config.ts`, and is unaffected.
 

@@ -591,13 +591,20 @@ export function safeResolvePath<
         };
       }
     } else if (isSettingsSchema(resolvedSchema)) {
-      if (resolvedSource !== null && typeof resolvedSource !== "object") {
+      if (
+        resolvedSource !== null &&
+        resolvedSource !== undefined &&
+        typeof resolvedSource !== "object"
+      ) {
         return {
           status: "error",
           message: `Schema type error: expected source to be type of object, but got ${typeof resolvedSource}`,
         };
       }
-      // Absent is a value here — see the note in `resolvePath`.
+      // Absent is a value here — see the note in `resolvePath`. `undefined` has
+      // to be let through as well as `null`: descending into a section the
+      // project has not set produces one, and the NEXT part then arrives with
+      // an undefined source that is not an error either.
       resolvedSource =
         resolvedSource === null || resolvedSource === undefined
           ? resolvedSource
