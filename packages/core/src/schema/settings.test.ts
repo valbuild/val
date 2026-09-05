@@ -1,5 +1,8 @@
 import { initVal } from "../initVal";
-import { AI_SETTINGS_MAX_LENGTH, isAiEnabled } from "../source/settings";
+import {
+  assistantAvailability,
+  ASSISTANT_SETTINGS_MAX_LENGTH,
+} from "../source/settings";
 import { ModuleFilePath, SourcePath } from "../val";
 import { deserializeSchema } from "./deserialize";
 import { resolveSettingsModule } from "../settingsModule";
@@ -52,7 +55,7 @@ describe("SettingsSchema", () => {
     // absent, not missing.
     expect(
       settings()["executeValidate"]("path" as SourcePath, {
-        ai: { context: "A CMS for developers." },
+        assistant: { context: "A CMS for developers." },
       }),
     ).toEqual(false);
   });
@@ -60,17 +63,17 @@ describe("SettingsSchema", () => {
   test("null means unset, the same as absent", () => {
     expect(
       settings()["executeValidate"]("path" as SourcePath, {
-        ai: { context: null, tone: null },
+        assistant: { context: null, tone: null },
       }),
     ).toEqual(false);
   });
 
   test("validates the fields inside a section that IS set", () => {
     const res = settings()["executeValidate"]("path" as SourcePath, {
-      ai: { tone: "x".repeat(AI_SETTINGS_MAX_LENGTH + 1) },
+      assistant: { tone: "x".repeat(ASSISTANT_SETTINGS_MAX_LENGTH + 1) },
     });
     expect(res).not.toEqual(false);
-    expect(Object.keys(res || {})).toEqual(['path?p="ai"."tone"']);
+    expect(Object.keys(res || {})).toEqual(['path?p="assistant"."tone"']);
   });
 
   test("an unknown key is an error, so a typo does not go unnoticed", () => {
@@ -94,7 +97,7 @@ describe("SettingsSchema", () => {
     expect(serialized).toMatchObject({
       type: "settings",
       items: {
-        ai: {
+        assistant: {
           type: "settings",
           items: {
             context: { type: "string", multiline: true },
@@ -119,7 +122,7 @@ describe("SettingsSchema", () => {
 
   test("a settings module can be defined with ai context and tone", () => {
     const settingsVal = c.define("/settings.val.ts", s.settings(), {
-      ai: {
+      assistant: {
         context: "A CMS for developers.",
         tone: "Plain and direct.",
       },
@@ -128,20 +131,29 @@ describe("SettingsSchema", () => {
   });
 });
 
-describe("isAiEnabled", () => {
-  test("unset means on", () => {
-    // The rule the whole tri-state exists for: a project that wrote a settings
-    // module did not do so to leave the assistant off, and a project with no
-    // settings module has said nothing at all.
-    expect(isAiEnabled(undefined)).toBe(true);
-    expect(isAiEnabled({})).toBe(true);
-    expect(isAiEnabled({ ai: {} })).toBe(true);
-    expect(isAiEnabled({ ai: { enabled: null } })).toBe(true);
+describe("assistantAvailability", () => {
+  test("a project with no settings module has one", () => {
+    // Nowhere to record a decision, so there is nothing to prompt for — and
+    // nothing to prompt INTO, since the prompt writes to a settings module.
+    expect(assistantAvailability(undefined)).toBe("on");
   });
 
-  test("off only when it says off", () => {
-    expect(isAiEnabled({ ai: { enabled: false } })).toBe(false);
-    expect(isAiEnabled({ ai: { enabled: true } })).toBe(true);
+  test("a settings module that has not decided is offered, not assumed", () => {
+    // The distinction the tri-state exists for. Hiding it means nobody
+    // discovers the assistant; assuming it means a project starts sending its
+    // content to a model because it did not know to say no.
+    expect(assistantAvailability({})).toBe("unconfigured");
+    expect(assistantAvailability({ assistant: {} })).toBe("unconfigured");
+    expect(assistantAvailability({ assistant: { enabled: null } })).toBe(
+      "unconfigured",
+    );
+  });
+
+  test("said either way, it is that", () => {
+    expect(assistantAvailability({ assistant: { enabled: true } })).toBe("on");
+    expect(assistantAvailability({ assistant: { enabled: false } })).toBe(
+      "off",
+    );
   });
 });
 

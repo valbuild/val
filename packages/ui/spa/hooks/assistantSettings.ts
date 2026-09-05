@@ -9,14 +9,14 @@ import { isJsonArray } from "../utils/isJsonArray";
  * checked rather than asserted: a settings module is a file someone edits, and
  * a hand-written one can hold anything the schema has not yet rejected.
  */
-export type AiProjectSettings = {
-  /** Unset (`null`) means on — see `isAiEnabled`. */
+export type AssistantSettings = {
+  /** Three states, not two — see `assistantAvailability`. */
   enabled: boolean | null;
   context: string | null;
   tone: string | null;
 };
 
-export const NO_AI_PROJECT_SETTINGS: AiProjectSettings = {
+export const NO_ASSISTANT_SETTINGS: AssistantSettings = {
   enabled: null,
   context: null,
   tone: null,
@@ -28,19 +28,24 @@ function stringOrNull(value: Json | undefined): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
 }
 
-/** Reads the `ai` section out of a settings module's source. */
-export function readAiProjectSettings(source: Json | undefined) {
+/** Reads the `assistant` section out of a settings module's source. */
+export function readAssistantSettings(source: Json | undefined) {
   if (typeof source !== "object" || source === null || isJsonArray(source)) {
-    return NO_AI_PROJECT_SETTINGS;
+    return NO_ASSISTANT_SETTINGS;
   }
-  const ai = source["ai"];
-  if (typeof ai !== "object" || ai === null || isJsonArray(ai)) {
-    return NO_AI_PROJECT_SETTINGS;
+  const assistant = source["assistant"];
+  if (
+    typeof assistant !== "object" ||
+    assistant === null ||
+    isJsonArray(assistant)
+  ) {
+    return NO_ASSISTANT_SETTINGS;
   }
   return {
-    enabled: typeof ai["enabled"] === "boolean" ? ai["enabled"] : null,
-    context: stringOrNull(ai["context"]),
-    tone: stringOrNull(ai["tone"]),
+    enabled:
+      typeof assistant["enabled"] === "boolean" ? assistant["enabled"] : null,
+    context: stringOrNull(assistant["context"]),
+    tone: stringOrNull(assistant["tone"]),
   };
 }
 
@@ -69,8 +74,8 @@ export function settingsModuleFilePath(
  * with each prompt anyway, and a long conversation that had been told the tone
  * once would drift off it.
  */
-export function aiProjectSettingsPromptSection(
-  settings: AiProjectSettings,
+export function assistantSettingsPromptSection(
+  settings: AssistantSettings,
 ): string {
   const parts: string[] = [];
   if (settings.context) {

@@ -9,6 +9,8 @@ import {
   useValMode,
 } from "./ValProvider";
 import { useSessionParam } from "./ValRouter";
+import { useAssistantAvailability } from "../hooks/useAssistantAvailability";
+import { EnableAssistantPrompt } from "./EnableAssistantPrompt";
 
 /**
  * The assistant, wired.
@@ -36,6 +38,24 @@ import { useSessionParam } from "./ValRouter";
  * URL, which is how the two hand a conversation back and forth.
  */
 export function AIChatSurface({ className }: { className?: string }) {
+  /**
+   * Nobody has said whether this project has an assistant, so ask before there
+   * is a conversation at all — see `EnableAssistantPrompt`. Before the hooks
+   * below, because a chat that cannot be used should not be opening sockets and
+   * loading sessions behind the offer.
+   */
+  const assistant = useAssistantAvailability();
+  if (assistant === "unconfigured") {
+    return (
+      <div className={className}>
+        <EnableAssistantPrompt />
+      </div>
+    );
+  }
+  return <ConnectedChat className={className} />;
+}
+
+function ConnectedChat({ className }: { className?: string }) {
   const chatRef = useRef<AIChatHandle | null>(null);
   const mode = useValMode();
   /**

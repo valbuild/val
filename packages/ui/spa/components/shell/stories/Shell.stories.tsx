@@ -14,12 +14,12 @@ import { ShellDeployment } from "../types";
 import { CanvasView } from "../canvas/PageWorkspace";
 import { mockCanvasPage } from "../canvas/mockCanvasPage";
 import {
-  AiSettingsFields,
-  AiSettingsValue,
+  AssistantSettingsFields,
+  AssistantSettingsValue,
   SettingsTabs,
 } from "../SettingsPanel";
 import { Sparkles } from "lucide-react";
-import { AI_SETTINGS_MAX_LENGTH } from "@valbuild/core";
+import { ASSISTANT_SETTINGS_MAX_LENGTH } from "@valbuild/core";
 
 /**
  * The whole shell in one story.
@@ -204,7 +204,7 @@ function deploymentsFor(
  * state, which is not what the panel normally looks like.
  */
 function MockSettingsSections() {
-  const [value, setValue] = useState<AiSettingsValue>({
+  const [value, setValue] = useState<AssistantSettingsValue>({
     enabled: true,
     context:
       "A CMS for developers, run by a team of four in Oslo. The product is Val, never VAL.",
@@ -214,16 +214,16 @@ function MockSettingsSections() {
     <SettingsTabs
       tabs={[
         {
-          id: "ai",
-          label: "AI",
+          id: "assistant",
+          label: "Assistant",
           icon: Sparkles,
           content: (
-            <AiSettingsFields
+            <AssistantSettingsFields
               value={value}
               onChange={(field, next) =>
                 setValue((current) => ({ ...current, [field]: next }))
               }
-              maxLength={AI_SETTINGS_MAX_LENGTH}
+              maxLength={ASSISTANT_SETTINGS_MAX_LENGTH}
             />
           ),
         },

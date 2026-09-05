@@ -1,19 +1,14 @@
-import { useCallback } from "react";
 import {
-  AI_SETTINGS_MAX_LENGTH,
+  ASSISTANT_SETTINGS_MAX_LENGTH,
   ModuleFilePath,
   SourcePath,
 } from "@valbuild/core";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
-import {
-  useAddPatch,
-  useSchemaAtPath,
-  useShallowSourceAtPath,
-} from "../ValFieldProvider";
+import { useSchemaAtPath, useShallowSourceAtPath } from "../ValFieldProvider";
+import { useWriteAssistantSetting } from "../../hooks/useWriteAssistantSetting";
 import { useValidationErrors } from "../ValErrorProvider";
 import {
-  AiSettingsFields,
-  AiSettingsValue,
+  AssistantSettingsFields,
   NoSettingsModule,
   SettingsTabs,
 } from "./SettingsPanel";
@@ -45,52 +40,24 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
   const settings = useShallowSourceAtPath(moduleFilePath, "settings");
   const schema = useSchemaAtPath(moduleFilePath);
   /**
-   * The `ai` section's path, whether or not the section exists yet.
+   * The assistant section's path, whether or not the section exists yet.
    *
    * Built rather than read out of the shallow source: the shallow source only
    * has the keys that are PRESENT, and the whole point of a settings module is
    * that a section may not be. The path is where the section WOULD be, which is
    * what a patch and a validation lookup both need.
    */
-  const aiPath = sourcePathOfItem(moduleFilePath, "ai");
-  const aiSource = useShallowSourceAtPath(aiPath, "settings");
-  const contextPath = sourcePathOfItem(aiPath, "context");
-  const tonePath = sourcePathOfItem(aiPath, "tone");
-  const enabledValue = useAiEnabledField(sourcePathOfItem(aiPath, "enabled"));
-  const contextValue = useAiField(contextPath);
-  const toneValue = useAiField(tonePath);
+  const assistantPath = sourcePathOfItem(moduleFilePath, "assistant");
+  const contextPath = sourcePathOfItem(assistantPath, "context");
+  const tonePath = sourcePathOfItem(assistantPath, "tone");
+  const enabledValue = useAssistantEnabledField(
+    sourcePathOfItem(assistantPath, "enabled"),
+  );
+  const contextValue = useAssistantField(contextPath);
+  const toneValue = useAssistantField(tonePath);
   const contextErrors = useValidationErrors(contextPath);
   const toneErrors = useValidationErrors(tonePath);
-  const { addPatch } = useAddPatch(moduleFilePath);
-  const hasAiSection =
-    "data" in aiSource && !!aiSource.data && aiSource.status === "success";
-
-  const onAiChange = useCallback(
-    (field: keyof AiSettingsValue, value: string | boolean | null) => {
-      if (hasAiSection) {
-        addPatch([{ op: "add", path: ["ai", field], value }], "settings");
-        return;
-      }
-      /**
-       * No `ai` section yet, so the section is what gets written.
-       *
-       * A `replace` at `["ai", field]` would fail: there is nothing at `ai` to
-       * replace a key inside. The other field is written as `null` — unset, and
-       * explicitly so, which is what the schema means by an absent key too.
-       */
-      const others: Record<string, null> = {};
-      for (const key of AI_FIELDS) {
-        if (key !== field) {
-          others[key] = null;
-        }
-      }
-      addPatch(
-        [{ op: "add", path: ["ai"], value: { ...others, [field]: value } }],
-        "settings",
-      );
-    },
-    [addPatch, hasAiSection],
-  );
+  const writeAssistantSetting = useWriteAssistantSetting(moduleFilePath);
 
   if (settings.status === "loading" || schema.status === "loading") {
     return <PanelSkeleton rows={4} />;
@@ -101,18 +68,18 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
     <SettingsTabs
       tabs={[
         {
-          id: "ai",
-          label: "AI",
+          id: "assistant",
+          label: "Assistant",
           icon: Sparkles,
           content: (
-            <AiSettingsFields
+            <AssistantSettingsFields
               value={{
                 enabled: enabledValue,
                 context: contextValue,
                 tone: toneValue,
               }}
-              onChange={onAiChange}
-              maxLength={AI_SETTINGS_MAX_LENGTH}
+              onChange={writeAssistantSetting}
+              maxLength={ASSISTANT_SETTINGS_MAX_LENGTH}
               errors={{
                 context: contextErrors[0]?.message,
                 tone: toneErrors[0]?.message,
@@ -133,16 +100,14 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
  * `useValField`: "no value" is a normal state for a settings field, and the
  * panel draws it as an empty box rather than as a missing field.
  */
-/** The AI section's fields, in the order a new section is written with. */
-const AI_FIELDS: (keyof AiSettingsValue)[] = ["enabled", "context", "tone"];
 
 /**
- * `ai.enabled`, where `null` means unset — which means ON.
+ * `assistant.enabled`, where `null` means "nobody has decided".
  *
- * Unset is not the same as `false`, so this returns the tri-state rather than a
- * boolean: only the UI's `!== false` turns it into one, and only in one place.
+ * Returns the tri-state rather than a boolean: unset is not `false`, and the
+ * difference is what the whole setting is for — see `assistantAvailability`.
  */
-function useAiEnabledField(path: SourcePath): boolean | null {
+function useAssistantEnabledField(path: SourcePath): boolean | null {
   const source = useShallowSourceAtPath(path, "boolean");
   if ("data" in source && typeof source.data === "boolean") {
     return source.data;
@@ -150,7 +115,7 @@ function useAiEnabledField(path: SourcePath): boolean | null {
   return null;
 }
 
-function useAiField(path: SourcePath): string | null {
+function useAssistantField(path: SourcePath): string | null {
   const source = useShallowSourceAtPath(path, "string");
   if ("data" in source && typeof source.data === "string") {
     return source.data;

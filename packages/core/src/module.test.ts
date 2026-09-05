@@ -246,8 +246,8 @@ describe("module", () => {
   test("resolvePath: into a settings section", () => {
     const schema = settings();
     const { schema: resolved, source } = resolveAtPath(
-      '"ai"."tone"' as ModulePath,
-      { ai: { tone: "Plain and direct." } },
+      '"assistant"."tone"' as ModulePath,
+      { assistant: { tone: "Plain and direct." } },
       schema,
     );
     expect(resolved).toBeInstanceOf(StringSchema);
@@ -261,7 +261,7 @@ describe("module", () => {
     // unresolvable at every path inside it.
     const schema = settings();
     const { schema: resolved, source } = resolveAtPath(
-      '"ai"."tone"' as ModulePath,
+      '"assistant"."tone"' as ModulePath,
       {},
       schema,
     );

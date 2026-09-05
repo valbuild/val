@@ -148,9 +148,10 @@ export {
 } from "./schema/settings";
 export {
   type SettingsSource,
-  type AiSettingsSource,
-  AI_SETTINGS_MAX_LENGTH,
-  isAiEnabled,
+  type AssistantSettingsSource,
+  type AssistantAvailability,
+  ASSISTANT_SETTINGS_MAX_LENGTH,
+  assistantAvailability,
 } from "./source/settings";
 export {
   type ResolvedSettingsModule,

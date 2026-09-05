@@ -45,14 +45,14 @@ import type {
   AIPromptMessage,
 } from "./useAIWebSocket";
 import {
-  AiProjectSettings,
-  aiProjectSettingsPromptSection,
-  NO_AI_PROJECT_SETTINGS,
-  readAiProjectSettings,
+  AssistantSettings,
+  assistantSettingsPromptSection,
+  NO_ASSISTANT_SETTINGS,
+  readAssistantSettings,
   settingsModuleFilePath,
-} from "./aiProjectSettings";
+} from "./assistantSettings";
 import { useAISearch } from "./useAISearch";
-import { useIsAiEnabled } from "./useIsAiEnabled";
+import { useAssistantAvailability } from "./useAssistantAvailability";
 import { useAIValidation } from "./useAIValidation";
 import type {
   ImageMetadata,
@@ -653,14 +653,14 @@ export function useAI(
        * the tone of voice and sends a message expects the next message to use
        * it, not the next time the Studio is reloaded.
        */
-      getAiProjectSettings(): AiProjectSettings {
+      getAssistantSettings(): AssistantSettings {
         const moduleFilePath = settingsModuleFilePath(
           system?.schemaStore.all() ?? {},
         );
         if (moduleFilePath === null) {
-          return NO_AI_PROJECT_SETTINGS;
+          return NO_ASSISTANT_SETTINGS;
         }
-        return readAiProjectSettings(
+        return readAssistantSettings(
           system?.sourceStore.moduleSource(moduleFilePath),
         );
       },
@@ -852,7 +852,15 @@ export function useAI(
   const currentProfile = useCurrentProfile();
   const profiles = useProfilesByAuthorId();
   const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
-  const isChatEnabled = useIsAiEnabled();
+  const assistant = useAssistantAvailability();
+  /**
+   * Can the assistant be USED, as opposed to offered?
+   *
+   * `"unconfigured"` is not usable: the panel asks to turn it on first, and
+   * nothing is sent to a model until someone accepts. See
+   * `useAssistantAvailability`.
+   */
+  const isChatEnabled = assistant === "on";
   // The editor's pick where they have made one, and the best available model
   // until they do. `useAvailableAIModel` is the floor: it still answers when
   // the content server reports providers but no models, which is what an older
@@ -2474,8 +2482,8 @@ Do not describe what you will do unless you do it for clarification — just do 
 - Be concise and friendly.
 - This is a CMS, it is not a chat. The intention of user is to find and edit content. If user asks existential questions, interpret them as a technical question. If for example they ask "who they are", they probably mean "what is my profile". If they ask "what can you do?", they probably want to know what kind of content changes you can make or what information you can provide about their content. Always interpret vague questions in a way that assumes the user wants to understand or change their content, rather than asking about the assistant itself.
 - Confirm changes in plain language after every successful update.
-- If something goes wrong, explain what happened and what to do next.${aiProjectSettingsPromptSection(
-              valReads.getAiProjectSettings(),
+- If something goes wrong, explain what happened and what to do next.${assistantSettingsPromptSection(
+              valReads.getAssistantSettings(),
             )}`,
             tools: ALL_TOOLS,
           },

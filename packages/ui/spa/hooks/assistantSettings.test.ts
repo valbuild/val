@@ -1,22 +1,25 @@
 import { initVal, ModuleFilePath } from "@valbuild/core";
 import {
-  aiProjectSettingsPromptSection,
-  NO_AI_PROJECT_SETTINGS,
-  readAiProjectSettings,
+  assistantSettingsPromptSection,
+  NO_ASSISTANT_SETTINGS,
+  readAssistantSettings,
   settingsModuleFilePath,
-} from "./aiProjectSettings";
+} from "./assistantSettings";
 
 const { s } = initVal();
 
-describe("readAiProjectSettings", () => {
+describe("readAssistantSettings", () => {
   test("an empty settings module says nothing", () => {
-    expect(readAiProjectSettings({})).toEqual(NO_AI_PROJECT_SETTINGS);
+    expect(readAssistantSettings({})).toEqual(NO_ASSISTANT_SETTINGS);
   });
 
   test("reads context and tone", () => {
     expect(
-      readAiProjectSettings({
-        ai: { context: "A CMS for developers.", tone: "Plain and direct." },
+      readAssistantSettings({
+        assistant: {
+          context: "A CMS for developers.",
+          tone: "Plain and direct.",
+        },
       }),
     ).toEqual({
       enabled: null,
@@ -28,25 +31,27 @@ describe("readAiProjectSettings", () => {
   test("an empty string is unset", () => {
     // Otherwise the model is handed an instruction with nothing in it, which is
     // worse than no instruction: it has to decide what the blank meant.
-    expect(readAiProjectSettings({ ai: { context: "   ", tone: "" } })).toEqual(
-      NO_AI_PROJECT_SETTINGS,
-    );
+    expect(
+      readAssistantSettings({ assistant: { context: "   ", tone: "" } }),
+    ).toEqual(NO_ASSISTANT_SETTINGS);
   });
 
   test("enabled is a tri-state: unset is not false", () => {
-    expect(readAiProjectSettings({ ai: {} }).enabled).toBe(null);
-    expect(readAiProjectSettings({ ai: { enabled: false } }).enabled).toBe(
-      false,
-    );
-    expect(readAiProjectSettings({ ai: { enabled: true } }).enabled).toBe(true);
+    expect(readAssistantSettings({ assistant: {} }).enabled).toBe(null);
+    expect(
+      readAssistantSettings({ assistant: { enabled: false } }).enabled,
+    ).toBe(false);
+    expect(
+      readAssistantSettings({ assistant: { enabled: true } }).enabled,
+    ).toBe(true);
   });
 
   test("a source that is not a settings object says nothing", () => {
-    expect(readAiProjectSettings(undefined)).toEqual(NO_AI_PROJECT_SETTINGS);
-    expect(readAiProjectSettings("nonsense")).toEqual(NO_AI_PROJECT_SETTINGS);
-    expect(readAiProjectSettings([])).toEqual(NO_AI_PROJECT_SETTINGS);
-    expect(readAiProjectSettings({ ai: "nonsense" })).toEqual(
-      NO_AI_PROJECT_SETTINGS,
+    expect(readAssistantSettings(undefined)).toEqual(NO_ASSISTANT_SETTINGS);
+    expect(readAssistantSettings("nonsense")).toEqual(NO_ASSISTANT_SETTINGS);
+    expect(readAssistantSettings([])).toEqual(NO_ASSISTANT_SETTINGS);
+    expect(readAssistantSettings({ assistant: "nonsense" })).toEqual(
+      NO_ASSISTANT_SETTINGS,
     );
   });
 });
@@ -82,11 +87,11 @@ describe("settingsModuleFilePath", () => {
   });
 });
 
-describe("aiProjectSettingsPromptSection", () => {
+describe("assistantSettingsPromptSection", () => {
   test("nothing set, nothing added to the prompt", () => {
-    expect(aiProjectSettingsPromptSection(NO_AI_PROJECT_SETTINGS)).toBe("");
+    expect(assistantSettingsPromptSection(NO_ASSISTANT_SETTINGS)).toBe("");
     expect(
-      aiProjectSettingsPromptSection({
+      assistantSettingsPromptSection({
         enabled: true,
         context: null,
         tone: null,
@@ -95,7 +100,7 @@ describe("aiProjectSettingsPromptSection", () => {
   });
 
   test("context alone", () => {
-    const section = aiProjectSettingsPromptSection({
+    const section = assistantSettingsPromptSection({
       enabled: null,
       context: "A CMS for developers.",
       tone: null,
@@ -108,7 +113,7 @@ describe("aiProjectSettingsPromptSection", () => {
   test("tone says where it applies", () => {
     // The tone is for content, not for the chat: an editor asking a question
     // should get a plain answer, not one in the brand's voice.
-    const section = aiProjectSettingsPromptSection({
+    const section = assistantSettingsPromptSection({
       enabled: null,
       context: null,
       tone: "Playful, with short sentences.",

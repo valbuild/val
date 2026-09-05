@@ -7,8 +7,8 @@ import {
   unsafeCreateSourcePath,
 } from "../selector/SelectorProxy";
 import {
-  AI_SETTINGS_MAX_LENGTH,
-  AiSettingsSource,
+  ASSISTANT_SETTINGS_MAX_LENGTH,
+  AssistantSettingsSource,
   SettingsSource,
 } from "../source/settings";
 import { ModuleFilePath, SourcePath } from "../val";
@@ -266,15 +266,16 @@ export class SettingsSchema<
  *
  * ```typescript
  * export default c.define("/settings.val.ts", s.settings(), {
- *   ai: {
+ *   assistant: {
+ *     enabled: true,
  *     context: "Val is a CMS for developers. British English, and 'Val' is never 'VAL'.",
  *     tone: "Plain and direct. No exclamation marks, sentence case in headings.",
  *   },
  * });
  * ```
  *
- * The Studio edits it under the cog in the left rail, and the assistant is told
- * `ai.context` and `ai.tone` on every message.
+ * The Studio edits it under the cog at the foot of the left rail, and the
+ * assistant is told `assistant.context` and `assistant.tone` on every message.
  *
  * `s.settings()` takes no arguments: the shape is Val's, which is what lets the
  * Studio render a UI built for each field rather than a generic form. A
@@ -283,22 +284,22 @@ export class SettingsSchema<
  */
 export function settings(): SettingsSchema<SettingsSource> {
   return new SettingsSchema<SettingsSource>({
-    ai: new SettingsSchema<AiSettingsSource>({
+    assistant: new SettingsSchema<AssistantSettingsSource>({
       enabled: boolean()
         .nullable()
         .describe(
-          "Whether the assistant is available in this project. On unless this is off.",
+          "Whether editors have an assistant in this project. Unset means nobody has decided: it is offered, and turned on when someone accepts.",
         ),
       context: string()
         .multiline()
-        .maxLength(AI_SETTINGS_MAX_LENGTH)
+        .maxLength(ASSISTANT_SETTINGS_MAX_LENGTH)
         .nullable()
         .describe(
           "Background the assistant would otherwise have to guess: what this site is, who runs it, names and spellings that matter.",
         ),
       tone: string()
         .multiline()
-        .maxLength(AI_SETTINGS_MAX_LENGTH)
+        .maxLength(ASSISTANT_SETTINGS_MAX_LENGTH)
         .nullable()
         .describe(
           "How the assistant should write when it writes content: formal or playful, British or American, how headings are cased.",
