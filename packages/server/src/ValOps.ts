@@ -48,7 +48,19 @@ import {
 } from "./patch/jsonValuesPatch";
 import { validateJsonValuesEntries } from "./validateJsonValues";
 import { checkExternalSetup } from "./externalStartup";
-import type { ExternalRecords } from "./externalRecords";
+import { ExternalStore } from "./ExternalStore";
+import {
+  draftKeyChanges,
+  mergeExternalKeys,
+  readExternalSource,
+  resolveExternalEntries,
+} from "./externalReads";
+import type {
+  ExternalAuthor,
+  ExternalIssue,
+  ExternalRecords,
+  ExternalSort,
+} from "./externalRecords";
 import ts from "typescript";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
@@ -739,6 +751,246 @@ export abstract class ValOps {
       ...(isWindow ? { offset: selector.offset, limit: selector.limit } : {}),
     };
   }
+  // #region external
+
+  /**
+   * The registry, wrapped so it can be called. `null` for a project that
+   * registered none — which is not an error, only the absence of the feature.
+   */
+  private externalStore: ExternalStore | null | undefined = undefined;
+
+  getExternalStore(): ExternalStore | null {
+    if (this.externalStore === undefined) {
+      const records = this.options?.external;
+      this.externalStore = records ? new ExternalStore(records) : null;
+    }
+    return this.externalStore;
+  }
+
+  /**
+   * What every external read needs before it can start: the module, its schema,
+   * the pending patches for it, and a store to ask.
+   *
+   * Hoisted out of the read methods for the same reason `getJsonEntries` hoists
+   * `initSources` and `fetchPatches` out of its per-entry loop — these are the
+   * expensive parts, and a per-key call would pay for them per key.
+   */
+  private async externalContext(
+    moduleFilePath: ModuleFilePath,
+    applyPatches: boolean,
+  ): Promise<
+    | {
+        status: "success";
+        store: ExternalStore;
+        schema: Schema<SelectorSource> | undefined;
+        serializedSchema: SerializedSchema | undefined;
+        source: Source | undefined;
+        patches: { patchId: PatchId; patch: Patch }[];
+      }
+    | { status: "not-found"; message: string }
+    | { status: "error"; message: string }
+  > {
+    const store = this.getExternalStore();
+    if (store === null || !store.has(moduleFilePath)) {
+      return {
+        status: "not-found",
+        message: `No external adapter is bound for '${moduleFilePath}'`,
+      };
+    }
+    const { sources, schemas } = await this.initSources();
+    const schema = schemas[moduleFilePath];
+    let serializedSchema: SerializedSchema | undefined = undefined;
+    try {
+      serializedSchema = schema?.["executeSerialize"]();
+    } catch {
+      // Serialization errors are reported elsewhere; treat as "no schema", which
+      // costs validation and patch routing but does not fail the read.
+    }
+    let patches: { patchId: PatchId; patch: Patch }[] = [];
+    if (applyPatches) {
+      const patchOps = await this.fetchPatches({ excludePatchOps: false });
+      if (patchOps.error) {
+        return { status: "error", message: patchOps.error.message };
+      }
+      patches = patchOps.patches
+        .filter((p) => p.path === moduleFilePath && !p.appliedAt)
+        .map((p) => ({ patchId: p.patchId, patch: p.patch }));
+    }
+    return {
+      status: "success",
+      store,
+      schema,
+      serializedSchema,
+      source: sources[moduleFilePath],
+      patches,
+    };
+  }
+
+  /**
+   * A page of an external record's keys.
+   *
+   * `limit` is what the caller wants, not what the store will serve — the store
+   * chunks behind {@link ExternalStore.keys}. Inline and draft-added keys are
+   * spliced onto the first page, because the store's cursors cannot position a
+   * key it has never heard of.
+   */
+  async getExternalKeys(
+    moduleFilePath: ModuleFilePath,
+    args: { cursor: string | null; limit: number; sort?: ExternalSort },
+    opts?: { applyPatches?: boolean; author?: ExternalAuthor },
+  ): Promise<
+    | {
+        status: "success";
+        keys: string[];
+        cursor: string | null;
+        warnings: ExternalIssue[];
+      }
+    | { status: "not-found"; message: string }
+    | { status: "error"; message: string }
+  > {
+    const applyPatches = opts?.applyPatches !== false;
+    const ctx = await this.externalContext(moduleFilePath, applyPatches);
+    if (ctx.status !== "success") {
+      return ctx;
+    }
+    const res = await ctx.store.keys(moduleFilePath, args, {
+      author: opts?.author,
+    });
+    if (res.status === "error") {
+      return { status: "error", message: res.error.message };
+    }
+    const shape = readExternalSource(ctx.source);
+    const merged = mergeExternalKeys({
+      fromStore: res.value.keys,
+      storeCursor: res.value.cursor,
+      inline: shape.kind === "inline" ? Object.keys(shape.entries) : [],
+      draft: applyPatches
+        ? draftKeyChanges(ctx.serializedSchema, ctx.patches)
+        : { added: [], removed: new Set() },
+      isFirstPage: args.cursor === null,
+    });
+    return {
+      status: "success",
+      keys: merged.keys,
+      cursor: merged.cursor,
+      warnings: res.warnings,
+    };
+  }
+
+  /**
+   * The content of the given keys of an external record.
+   *
+   * The same shape as {@link getJsonEntries}, deliberately: a reader must not be
+   * able to tell how a record is stored.
+   */
+  async getExternalEntries(
+    moduleFilePath: ModuleFilePath,
+    keys: string[],
+    opts?: {
+      applyPatches?: boolean;
+      validate?: boolean;
+      author?: ExternalAuthor;
+    },
+  ): Promise<
+    | {
+        status: "success";
+        entries: { key: string; content: Json | null }[];
+        missing: string[];
+        errors: { key: string; message: string }[];
+        warnings: ExternalIssue[];
+      }
+    | { status: "not-found"; message: string }
+    | { status: "error"; message: string }
+  > {
+    const applyPatches = opts?.applyPatches !== false;
+    const ctx = await this.externalContext(moduleFilePath, applyPatches);
+    if (ctx.status !== "success") {
+      return ctx;
+    }
+    const shape = readExternalSource(ctx.source);
+    // Only ask the store for what it could possibly answer: a key written inline
+    // is shadowed anyway, and a key a draft ADDED does not exist there at all.
+    const inlineKeys = shape.kind === "inline" ? shape.entries : {};
+    const wanted = keys.filter((key) => !(key in inlineKeys));
+    const fromStore = await ctx.store.get(moduleFilePath, wanted, {
+      author: opts?.author,
+    });
+    if (fromStore.status === "error") {
+      return { status: "error", message: fromStore.error.message };
+    }
+    const resolved = resolveExternalEntries({
+      moduleFilePath,
+      schema: ctx.schema,
+      serializedSchema: ctx.serializedSchema,
+      source: ctx.source,
+      keys,
+      fromStore: fromStore.value,
+      patches: ctx.patches,
+      applyPatches,
+      validate: opts?.validate,
+    });
+    return {
+      status: "success",
+      entries: resolved.entries,
+      missing: resolved.missing,
+      errors: resolved.errors,
+      warnings: fromStore.warnings,
+    };
+  }
+
+  /**
+   * How many entries an external record has.
+   *
+   * Three answers, and a caller has to tell them apart — see
+   * {@link ExternalStore.count}. Draft additions and removals are folded in, so
+   * a pager agrees with the keys it is paging.
+   */
+  async getExternalCount(
+    moduleFilePath: ModuleFilePath,
+    opts?: { applyPatches?: boolean; author?: ExternalAuthor },
+  ): Promise<
+    | {
+        status: "success";
+        count:
+          | { status: "counted"; count: number; exact: boolean }
+          | { status: "declined" };
+      }
+    | { status: "not-found"; message: string }
+    | { status: "error"; message: string }
+  > {
+    const applyPatches = opts?.applyPatches !== false;
+    const ctx = await this.externalContext(moduleFilePath, applyPatches);
+    if (ctx.status !== "success") {
+      return ctx;
+    }
+    const res = await ctx.store.count(moduleFilePath, { author: opts?.author });
+    if (res.status === "error") {
+      return { status: "error", message: res.error.message };
+    }
+    if (res.value.status === "declined") {
+      return { status: "success", count: res.value };
+    }
+    const shape = readExternalSource(ctx.source);
+    const inline = shape.kind === "inline" ? Object.keys(shape.entries) : [];
+    const draft = applyPatches
+      ? draftKeyChanges(ctx.serializedSchema, ctx.patches)
+      : { added: [], removed: new Set<string>() };
+    // Inline and draft-added keys are not in the store's count, and draft
+    // removals still are. An exact count that disagrees with the key list is
+    // worse than no count at all.
+    const extra = new Set([...inline, ...draft.added]);
+    return {
+      status: "success",
+      count: {
+        status: "counted",
+        count: Math.max(0, res.value.count + extra.size - draft.removed.size),
+        exact: res.value.exact,
+      },
+    };
+  }
+
+  // #endregion external
+
   async getSchemas(): Promise<Schemas> {
     return this.initSources().then((result) => result.schemas);
   }

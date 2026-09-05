@@ -46,13 +46,44 @@ export function classifyJsonValuesOp(
   schema: SerializedSchema,
   opPath: string[],
 ): JsonValuesOpClass {
+  return classifyEntryOp(schema, opPath, "jsonValues");
+}
+
+/**
+ * Which kind of record keeps its entries somewhere other than the `.val.ts`.
+ *
+ * Two storage modes, one shape of patch: an op into a `.jsonValues()` entry and
+ * an op into an `.external()` entry are both `[entryKey, ...insideTheEntry]` at
+ * a root record, so the walk that splits them is the same walk. What differs is
+ * where the resulting content is READ from and WRITTEN to, and that is the
+ * caller's business, not this function's.
+ */
+export type EntryRecordKind = "jsonValues" | "external";
+
+function isEntryRecord(
+  schema: SerializedSchema,
+  kind: EntryRecordKind,
+): boolean {
+  if (schema.type !== "record") {
+    return false;
+  }
+  return kind === "external"
+    ? schema.external !== undefined
+    : schema.jsonValues === true;
+}
+
+export function classifyEntryOp(
+  schema: SerializedSchema,
+  opPath: string[],
+  kind: EntryRecordKind,
+): JsonValuesOpClass {
   let current: SerializedSchema | undefined = schema;
   const recordPath: string[] = [];
   for (let i = 0; i < opPath.length; i++) {
     if (!current) {
       return { kind: "normal" };
     }
-    if (current.type === "record" && current.jsonValues) {
+    if (isEntryRecord(current, kind)) {
       return {
         kind: "entry",
         recordPath: recordPath.slice(),
@@ -258,8 +289,17 @@ export function applyJsonValuesEntryPatches(args: {
   baseContent: JSONValue | undefined;
   /** Ordered, already filtered to the entry's module. */
   patches: { patchId: PatchId; patch: Patch }[];
+  /**
+   * Which storage mode the record uses. The replay is the same either way — an
+   * entry's draft content is its committed content plus the ops that target it —
+   * so the only thing this changes is which records are treated as entry-bearing
+   * and how the entry is named in an error message.
+   */
+  kind?: EntryRecordKind;
 }): JsonEntryResolution {
   const { serializedSchema, entryKey, baseContent, patches } = args;
+  const kind = args.kind ?? "jsonValues";
+  const noun = kind === "external" ? "external" : "jsonValues";
   let content: JSONValue | undefined = baseContent;
   let deleted = false;
   const appliedPatchIds: PatchId[] = [];
@@ -267,7 +307,7 @@ export function applyJsonValuesEntryPatches(args: {
     let touched = false;
     for (const op of patch) {
       const cls = serializedSchema
-        ? classifyJsonValuesOp(serializedSchema, op.path)
+        ? classifyEntryOp(serializedSchema, op.path, kind)
         : ({ kind: "normal" } as const);
       if (
         cls.kind !== "entry" ||
@@ -321,7 +361,7 @@ export function applyJsonValuesEntryPatches(args: {
           // which the caller must resolve (it is a different `*.val.json`).
           return {
             kind: "error",
-            message: `Cannot resolve '${op.op}' of jsonValues entry '${entryKey}' from its own content`,
+            message: `Cannot resolve '${op.op}' of ${noun} entry '${entryKey}' from its own content`,
             patchId,
           };
         }
@@ -330,7 +370,7 @@ export function applyJsonValuesEntryPatches(args: {
       if (content === undefined) {
         return {
           kind: "error",
-          message: `Cannot edit jsonValues entry '${entryKey}': it does not exist`,
+          message: `Cannot edit ${noun} entry '${entryKey}': it does not exist`,
           patchId,
         };
       }
