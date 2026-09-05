@@ -36,7 +36,10 @@ The aliases **replace** the tag rather than adding to it: with the first of
 those, `nb-NO` is no longer a value that field accepts. If both were accepted one
 page could exist at `/no/foo` and at `/nb-NO/foo` — two keys for one language,
 and duplicate content nobody would notice. A partial map is a subset, so a map
-that says nothing about `fr-FR` is how a field says it has no French.
+that says nothing about `fr-FR` is how a field says it has no French — and it
+cannot be a superset: aliasing a language the project has not declared is
+reported against the schema, naming the tag, rather than silently making
+`/de/…` a German page on a site with no German.
 
 A locale is **never stega encoded**: it ends up in `<html lang>`, in `hreflang`
 and in `Intl` constructors, none of which survive invisible characters.

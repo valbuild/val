@@ -1,5 +1,10 @@
 import { initVal } from "../initVal";
-import { acceptedLocaleValues, localeOfValue, spellingsOf } from "../locale";
+import {
+  acceptedLocaleValues,
+  localeOfValue,
+  spellingsOf,
+  undeclaredAliasedLocales,
+} from "../locale";
 import { SourcePath } from "../val";
 import { deserializeSchema } from "./deserialize";
 import { locale } from "./locale";
@@ -133,6 +138,28 @@ describe("alias resolution", () => {
     expect(acceptedLocaleValues(["en-US", "fr-FR"], { "en-US": "en" })).toEqual(
       ["en"],
     );
+  });
+
+  test("a map cannot be a superset: an undeclared language lends nothing", () => {
+    // The map names German; the project has none. '/de/…' is not a key this
+    // field accepts, so the mistake cannot become content while it is unfixed.
+    expect(
+      acceptedLocaleValues(["en-US"], { "en-US": "en", "de-DE": "de" }),
+    ).toEqual(["en"]);
+    expect(
+      localeOfValue("de", ["en-US"], { "en-US": "en", "de-DE": "de" }),
+    ).toBe(null);
+  });
+
+  test("the undeclared aliases are named, so the schema's mistake can be reported", () => {
+    expect(
+      undeclaredAliasedLocales(["en-US", "nb-NO"], {
+        "en-US": "en",
+        "de-DE": "de",
+      }),
+    ).toEqual(["de-DE"]);
+    expect(undeclaredAliasedLocales(["en-US"], { "en-US": "en" })).toEqual([]);
+    expect(undeclaredAliasedLocales(["en-US"], undefined)).toEqual([]);
   });
 
   test("a stored value resolves back to the language it means", () => {

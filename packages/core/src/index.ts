@@ -166,6 +166,7 @@ export {
   localeTagError,
   spellingsOf,
   acceptedLocaleValues,
+  undeclaredAliasedLocales,
   localeOfValue,
 } from "./locale";
 export { type SerializedLocaleSchema, LocaleSchema } from "./schema/locale";

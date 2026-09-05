@@ -442,6 +442,44 @@ describe("locale:check-locale", () => {
     );
   });
 
+  test("an alias for a language the project does not have names the schema's mistake", () => {
+    // The value stored here is fine — 'en' is a spelling this field accepts. It
+    // is the map that is wrong, and saying so is the whole point: the previous
+    // behaviour accepted '/de/…' as German on a site with no German.
+    const rejected = resolveSchemaSourceFixes(
+      unresolved("en", { "en-US": ["en"], "de-DE": ["de"] }),
+      project(["en-US", "nb-NO"]),
+    );
+    expect(rejected[at][0].message).toBe(
+      ".aliases() names 'de-DE', which is not one of this project's languages: " +
+        "'en-US', 'nb-NO'. Add it under 'locales.available' in the settings " +
+        "module, or drop it from the alias map.",
+    );
+    expect(rejected[at][0].fixes).toBeUndefined();
+  });
+
+  test("several undeclared aliases are named together, and read as a plural", () => {
+    const rejected = resolveSchemaSourceFixes(
+      unresolved("en", { "en-US": ["en"], "de-DE": ["de"], "sv-SE": ["sv"] }),
+      project(["en-US"]),
+    );
+    expect(rejected[at][0].message).toBe(
+      ".aliases() names 'de-DE', 'sv-SE', which are not among this project's " +
+        "languages: 'en-US'. Add them under 'locales.available' in the settings " +
+        "module, or drop them from the alias map.",
+    );
+  });
+
+  test("an undeclared alias does not lend its spellings to the field", () => {
+    // The same map, with the German spelling stored. Without the narrowing in
+    // `acceptedLocaleValues` this resolved, and '/de/…' became a German page.
+    const rejected = resolveSchemaSourceFixes(
+      unresolved("de", { "en-US": ["en"], "de-DE": ["de"] }),
+      project(["en-US"]),
+    );
+    expect(rejected[at][0].message).toContain(".aliases() names 'de-DE'");
+  });
+
   test("a settings module of the wrong shape reads as no languages", () => {
     // Hand-edited, mid-keystroke: the resolver must not throw on its way past.
     expect(() =>

@@ -1,6 +1,7 @@
 import {
   Internal,
   acceptedLocaleValues,
+  undeclaredAliasedLocales,
   resolveSettingsModule,
   type Json,
   type LocaleAliases,
@@ -404,6 +405,31 @@ export function resolveSchemaSourceFixForError(
           // The project has not said it is translated, so the value is not
           // wrong so much as premature — and the fix is in another file.
           message: `This project has no languages. Declare them under 'locales.available' in the settings module before using s.locale().`,
+          fixes: undefined,
+        },
+      };
+    }
+    const undeclared = undeclaredAliasedLocales(available, aliases);
+    if (undeclared.length > 0) {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          // Reported before the value is looked at, and reported even when the
+          // value happens to be fine: the mistake is in the schema, so a field
+          // that only ever stores 'en' would otherwise never mention that the
+          // German it also aliases does not exist.
+          message: `.aliases() names ${undeclared
+            .map((each) => `'${each}'`)
+            .join(", ")}, which ${
+            undeclared.length === 1 ? "is not one of" : "are not among"
+          } this project's languages: ${available
+            .map((each) => `'${each}'`)
+            .join(", ")}. Add ${
+            undeclared.length === 1 ? "it" : "them"
+          } under 'locales.available' in the settings module, or drop ${
+            undeclared.length === 1 ? "it" : "them"
+          } from the alias map.`,
           fixes: undefined,
         },
       };
