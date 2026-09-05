@@ -47,6 +47,8 @@ import {
   resolveExistingJsonPath,
 } from "./patch/jsonValuesPatch";
 import { validateJsonValuesEntries } from "./validateJsonValues";
+import { checkExternalSetup } from "./externalStartup";
+import type { ExternalRecords } from "./externalRecords";
 import ts from "typescript";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
@@ -117,7 +119,44 @@ function findNestedJsonValuesModuleErrors(schemas: Schemas): ModulesError[] {
   return errors;
 }
 
+/**
+ * The startup half of external records: is every `.external()` module actually
+ * bound, and is every binding actually used?
+ *
+ * Reported the same way as a nested `.jsonValues()`, and for the same reason: an
+ * unbound external record reads as EMPTY, and empty is a legitimate state for a
+ * store, so nothing downstream can tell the difference.
+ */
+function findExternalModuleErrors(
+  schemas: Schemas,
+  external: ExternalRecords | undefined,
+): ModulesError[] {
+  const serialized: Record<ModuleFilePath, SerializedSchema> = {};
+  for (const moduleFilePathS of Object.keys(schemas)) {
+    const moduleFilePath = moduleFilePathS as ModuleFilePath;
+    const schema = schemas[moduleFilePath];
+    if (!schema) {
+      continue;
+    }
+    try {
+      serialized[moduleFilePath] = schema["executeSerialize"]();
+    } catch {
+      // Serialization errors are reported elsewhere (e.g. by extractValModules).
+      continue;
+    }
+  }
+  // `external` being undefined is not short-circuited: a project that declares
+  // .external() modules and registers nothing is precisely the case worth
+  // reporting, and checkExternalSetup says nothing about a project with none.
+  return checkExternalSetup(serialized, external);
+}
+
 export type ValOpsOptions = {
+  /**
+   * The project's external-record adapters. Absent for a project that has none,
+   * and for the CLI, which validates schemas without ever calling a store.
+   */
+  external?: ExternalRecords;
   formatter?: (code: string, filePath: string) => string | Promise<string>;
   statPollingInterval?: number;
   statFilePollingInterval?: number;
@@ -271,9 +310,11 @@ export abstract class ValOps {
       this.modulesErrors === null
     ) {
       const extracted = await extractValModules(this.valModules);
-      const moduleErrors = extracted.moduleErrors.concat(
-        findNestedJsonValuesModuleErrors(extracted.schemas),
-      );
+      const moduleErrors = extracted.moduleErrors
+        .concat(findNestedJsonValuesModuleErrors(extracted.schemas))
+        .concat(
+          findExternalModuleErrors(extracted.schemas, this.options?.external),
+        );
       this.sources = extracted.sources;
       this.schemas = extracted.schemas;
       this.baseSha = extracted.baseSha as BaseSha;

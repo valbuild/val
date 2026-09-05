@@ -58,6 +58,7 @@ import {
 } from "./personalAccessTokens";
 import path from "path";
 import { getErrorMessageFromUnknownJson } from "@valbuild/shared/internal";
+import type { ExternalRecords } from "./externalRecords";
 
 export type ValServerOptions = {
   route: string;
@@ -70,6 +71,16 @@ export type ValServerOptions = {
   apiKey?: string;
   project?: string;
   config: ValConfig;
+  /**
+   * The project's external-record adapters, from `defineExternal`.
+   *
+   * Passed in rather than imported because it is the one part of a Val project
+   * that must NOT be reachable from a `.val.ts`: an adapter pulls in a database
+   * driver, and a `.val.ts` is evaluated by the CLI in a `node:vm` sandbox and
+   * bundled into the client. The app registers it from its own `server-only`
+   * file instead.
+   */
+  external?: ExternalRecords;
 };
 
 export type ValServerConfig = ValServerOptions &

@@ -36,6 +36,7 @@ import {
   type JsonValuesOpClass,
 } from "./patch/jsonValuesPatch";
 import { validateJsonValuesEntries } from "./validateJsonValues";
+import { findNestedExternalRecords } from "./externalStartup";
 import { findJsonEntryFilePath } from "./jsonEntryLocation";
 import { getSyntheticContainingPath } from "./getSyntheticContainingPath";
 
@@ -201,6 +202,19 @@ export class Service {
     // downstream (the `val validate --fix` handlers, chiefly) tries.
     let resolvedFromSource = source;
     if (opts.validate) {
+      // The binding half of the external checks is deliberately NOT run here:
+      // the CLI never imports the project's adapters (they pull in a database
+      // driver, and this module is evaluated in a `node:vm` sandbox), so it has
+      // no registry to check against and would report every external record as
+      // unbound. The server, which does hold the registry, reports that half.
+      const nestedExternal = findNestedExternalRecords(serializedSchema);
+      if (nestedExternal.length > 0) {
+        jsonValuesModuleError = `Nested .external() records are not supported: ${nestedExternal
+          .map((nestedPath) => `'${nestedPath.join(".")}'`)
+          .join(
+            ", ",
+          )} in ${moduleFilePath}. Use .external() only on a module's root record/router.`;
+      }
       const nested = findNestedJsonValuesRecords(serializedSchema);
       if (nested.length > 0) {
         // Root-only is a hard contract (see findNestedJsonValuesRecords): a

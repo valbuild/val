@@ -1,17 +1,20 @@
 export { createService, Service } from "./Service";
-// The external-record adapter contract. Types plus the `ok`/`err` helpers; the
-// registry that executes them arrives with the read endpoints.
+// External records: the adapter contract an adapter author writes against, the
+// registry `defineExternal` builds from it, and the executor that calls it.
 export {
   defineExternal,
   ok,
   err,
   isExternalResult,
+  isExternalRecords,
   EXTERNAL_RESULT,
 } from "./externalRecords";
 export type {
   AdapterFor,
   BoundExternalRecord,
+  ErasedExternalAdapter,
   ExternalAuthor,
+  ExternalBinding,
   ExternalBuilder,
   ExternalCtx,
   ExternalDefinition,
@@ -27,6 +30,14 @@ export type {
   ReadonlyRecordHasNoWrites,
   Returns,
 } from "./externalRecords";
+export { ExternalStore } from "./ExternalStore";
+export type { ExternalOpResult, ExternalCallOpts } from "./ExternalStore";
+export {
+  checkExternalSetup,
+  findNestedExternalRecords,
+  rootExternalLabel,
+} from "./externalStartup";
+export type { ExternalSetupError } from "./externalStartup";
 export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
 // Val's tools, over ValOps rather than the Studio's browser stores — so an MCP
 // server, a stdio transport or anything else can drive Val content without a
