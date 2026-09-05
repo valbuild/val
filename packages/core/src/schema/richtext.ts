@@ -34,7 +34,7 @@ export type SerializedRichTextSchema = {
   /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
   preview?: true;
   opt: boolean;
-  options?: SerializedRichTextOptions & ValidationOptions;
+  options?: SerializedRichTextOptions;
   customValidate?: boolean;
   readonly?: boolean;
   hidden?: boolean;
@@ -260,45 +260,41 @@ export class RichTextSchema<
             true,
           );
         }
-        if (node.tag === "h1" && !this.options.block?.h1) {
-          addError(path, `'h' block is not valid`, false);
+        if (node.tag === "h1" && !this.options.h1) {
+          addError(path, `'h1' block is not valid`, false);
         }
-        if (node.tag === "h2" && !this.options.block?.h2) {
+        if (node.tag === "h2" && !this.options.h2) {
           addError(path, `'h2' block is not valid`, false);
         }
-        if (node.tag === "h3" && !this.options.block?.h3) {
+        if (node.tag === "h3" && !this.options.h3) {
           addError(path, `'h3' block is not valid`, false);
         }
-        if (node.tag === "h4" && !this.options.block?.h4) {
+        if (node.tag === "h4" && !this.options.h4) {
           addError(path, `'h4' block is not valid`, false);
         }
-        if (node.tag === "h5" && !this.options.block?.h5) {
+        if (node.tag === "h5" && !this.options.h5) {
           addError(path, `'h5' block is not valid`, false);
         }
-        if (node.tag === "h6" && !this.options.block?.h6) {
+        if (node.tag === "h6" && !this.options.h6) {
           addError(path, `'h6' block is not valid`, false);
         }
-        if (node.tag === "ol" && !this.options.block?.ol) {
+        if (node.tag === "ol" && !this.options.ol) {
           addError(path, `'ol' block is not valid`, false);
         }
-        if (node.tag === "ul" && !this.options.block?.ul) {
+        if (node.tag === "ul" && !this.options.ul) {
           addError(path, `'ul' block is not valid`, false);
         }
-        if (
-          node.tag === "li" &&
-          !this.options.block?.ul &&
-          !this.options.block?.ol
-        ) {
+        if (node.tag === "li" && !this.options.ul && !this.options.ol) {
           addError(
             path,
-            `'li' tag is invalid since neither 'ul' nor 'ol' block is not valid`,
+            `'li' tag is invalid since neither 'ul' nor 'ol' block is valid`,
             false,
           );
         }
         if (node.tag === "a") {
-          if (!this.options.inline?.a) {
+          if (!this.options.a) {
             addError(path, `'a' inline is not valid`, false);
-          } else if (this.options.inline?.a) {
+          } else if (this.options.a) {
             if (!("href" in node)) {
               return {
                 [path]: [
@@ -311,9 +307,9 @@ export class RichTextSchema<
             }
             const hrefPath = unsafeCreateSourcePath(path, "href");
             const hrefSchema =
-              typeof this.options.inline?.a === "boolean"
+              typeof this.options.a === "boolean"
                 ? new RouteSchema()
-                : this.options.inline.a;
+                : this.options.a;
 
             const executeValidate = () => {
               if (hrefSchema instanceof RouteSchema) {
@@ -351,9 +347,9 @@ export class RichTextSchema<
         }
 
         if (node.tag === "img") {
-          if (!this.options.inline?.img) {
+          if (!this.options.img) {
             addError(path, `'img' inline is not valid`, false);
-          } else if (this.options.inline?.img) {
+          } else if (this.options.img) {
             if (!("src" in node)) {
               return {
                 [path]: [
@@ -365,7 +361,7 @@ export class RichTextSchema<
               };
             }
             const srcPath = unsafeCreateSourcePath(path, "src");
-            const imgSchema = this.options.inline?.img;
+            const imgSchema = this.options.img;
             const imageValidationErrors =
               typeof imgSchema === "object"
                 ? (imgSchema as ImageSchema<ImageSource>)["executeValidate"](
@@ -425,13 +421,13 @@ export class RichTextSchema<
                 ],
               };
             }
-            if (style === "bold" && !this.options.style?.bold) {
+            if (style === "bold" && !this.options.bold) {
               addError(currentStylePath, `Style 'bold' is not valid`, false);
             }
-            if (style === "italic" && !this.options.style?.italic) {
+            if (style === "italic" && !this.options.italic) {
               addError(currentStylePath, `Style 'italic' is not valid`, false);
             }
-            if (style === "lineThrough" && !this.options.style?.lineThrough) {
+            if (style === "lineThrough" && !this.options.lineThrough) {
               addError(
                 currentStylePath,
                 `Style 'lineThrough' is not valid`,
@@ -673,12 +669,12 @@ export class RichTextSchema<
     );
   }
 
-  readonly(): RichTextSchema<O, Src> {
+  readonly(isReadonly: boolean = true): RichTextSchema<O, Src> {
     return new RichTextSchema(
       this.options,
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.renderInput,
@@ -686,13 +682,13 @@ export class RichTextSchema<
     );
   }
 
-  hidden(): RichTextSchema<O, Src> {
+  hidden(isHidden: boolean = true): RichTextSchema<O, Src> {
     return new RichTextSchema(
       this.options,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.renderInput,
       this.previewInput,
@@ -767,32 +763,33 @@ export class RichTextSchema<
       | SerializedStringSchema
       | boolean
       | undefined => {
-      if (this.options.inline?.a instanceof RouteSchema) {
-        return this.options.inline?.a[
-          "executeSerialize"
-        ]() as SerializedRouteSchema;
-      } else if (this.options.inline?.a instanceof StringSchema) {
-        return this.options.inline?.a[
-          "executeSerialize"
-        ]() as SerializedStringSchema;
+      if (this.options.a instanceof RouteSchema) {
+        return this.options.a["executeSerialize"]() as SerializedRouteSchema;
+      } else if (this.options.a instanceof StringSchema) {
+        return this.options.a["executeSerialize"]() as SerializedStringSchema;
       } else {
-        return this.options.inline?.a;
+        return this.options.a;
       }
     };
-    const serializedOptions: SerializedRichTextOptions & ValidationOptions = {
+    const serializedOptions: SerializedRichTextOptions = {
       maxLength: this.options.maxLength,
       minLength: this.options.minLength,
-      style: this.options.style,
-      block: this.options.block,
-      inline: this.options.inline && {
-        a: serializeAnchorSchema(),
-        img:
-          this.options.inline.img && typeof this.options.inline.img === "object"
-            ? (this.options.inline.img[
-                "executeSerialize"
-              ]() as SerializedImageSchema)
-            : this.options.inline.img,
-      },
+      bold: this.options.bold,
+      italic: this.options.italic,
+      lineThrough: this.options.lineThrough,
+      h1: this.options.h1,
+      h2: this.options.h2,
+      h3: this.options.h3,
+      h4: this.options.h4,
+      h5: this.options.h5,
+      h6: this.options.h6,
+      ul: this.options.ul,
+      ol: this.options.ol,
+      a: serializeAnchorSchema(),
+      img:
+        this.options.img && typeof this.options.img === "object"
+          ? (this.options.img["executeSerialize"]() as SerializedImageSchema)
+          : this.options.img,
     };
     return {
       type: "richtext",

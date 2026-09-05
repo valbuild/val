@@ -561,7 +561,7 @@ describe("media is resolved from the schema, not from the value", () => {
     // would look like a plain object unless the inline image schema is passed
     // to it explicitly.
     const schema = s.object({
-      text: s.richtext({ inline: { img: true } }),
+      text: s.richtext({ img: true }),
     });
     const valModule = c.define("/richtext.val.ts", schema, {
       text: [

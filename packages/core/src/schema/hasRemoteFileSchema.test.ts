@@ -64,7 +64,7 @@ describe("hasRemoteFileSchema", () => {
       type: "richtext",
       opt: false,
       options: {
-        inline: { img: { type: "image", opt: false, remote: false } },
+        img: { type: "image", opt: false, remote: false },
       },
     };
     expect(hasRemoteFileSchema(schema)).toBe(false);
@@ -83,7 +83,7 @@ describe("hasRemoteFileSchema", () => {
     const schema: SerializedSchema = {
       type: "richtext",
       opt: false,
-      options: { inline: { img: { type: "image", opt: false, remote: true } } },
+      options: { img: { type: "image", opt: false, remote: true } },
     };
     expect(hasRemoteFileSchema(schema)).toBe(true);
   });

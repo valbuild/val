@@ -505,11 +505,10 @@ function permitsInlineLinks(richtext: object): boolean {
   if (!("options" in richtext)) {
     return false;
   }
-  const options = (richtext as { options?: { inline?: { a?: unknown } } })
-    .options;
-  // `inline.a` is either `true` or the schema the href must satisfy; both mean
-  // links are allowed.
-  return Boolean(options?.inline?.a);
+  const options = (richtext as { options?: { a?: unknown } }).options;
+  // `a` is either `true` or the schema the href must satisfy; both mean links
+  // are allowed.
+  return Boolean(options?.a);
 }
 
 /** Schema at a module path, or undefined when it cannot be resolved. */

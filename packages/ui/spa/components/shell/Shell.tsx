@@ -9,6 +9,7 @@ import {
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { AIChatPanel } from "./AIChatPanel";
 import { DataPanel } from "./DataPanel";
+import { ShellPanelProvider } from "./shellPanelLink";
 import { EmptyEditorState, PageEditor } from "./EditorCanvas";
 import {
   CanvasView,
@@ -50,9 +51,11 @@ const noProgress = (): ChainProgress => ({
 });
 import { NotificationsPanel } from "./NotificationsPanel";
 import { PagesPanel } from "./PagesPanel";
-import { SettingsPanel } from "./SettingsPanel";
+import { AccountPanel } from "./AccountPanel";
+import { NoSettingsModule, SettingsPanel } from "./SettingsPanel";
 import { ShellAccountError } from "./AccountError";
 import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
+import { isDeploymentNews, MobileDeployments } from "./Deployments";
 import { PublishState, TopBar } from "./TopBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { availableDestinations } from "./shellDataMapping";
@@ -222,6 +225,14 @@ export type ShellProps = {
    */
   renderEditor?: (selection: ShellSelection) => ReactNode;
   /**
+   * The settings panel's sections, connected to the store.
+   *
+   * A slot for the same reason `renderEditor` is one: a section edits content,
+   * and the shell is presentational. Absent — in Storybook, or in a project
+   * with no settings module — and the panel explains how to add one.
+   */
+  renderSettings?: () => ReactNode;
+  /**
    * Something to show in the editor column instead of the selection's editor.
    *
    * The compare and errors views are not items: they take the whole column and
@@ -305,6 +316,12 @@ export type ShellProps = {
   onSelectActivity?: (entry: ShellActivityEntry) => void;
   /** Create a page under a route. See `PagesPanelProps`. */
   onNewPage?: (moduleFilePath: ModuleFilePath, urlPath: string) => void;
+  /** Copy a page to another URL under the same route. See `PagesPanelProps`. */
+  onDuplicatePage?: (
+    moduleFilePath: ModuleFilePath,
+    fromUrlPath: string,
+    toUrlPath: string,
+  ) => void;
   onUploadMedia?: (gallery: ShellMediaGallery) => void;
   /** Open the review view. Offered from the top bar and the quick actions. */
   onCompare?: () => void;
@@ -372,6 +389,7 @@ export function Shell({
   selectionId,
   onSelectionChange,
   renderEditor,
+  renderSettings,
   editorOverride,
   onPublish,
   publishSlot,
@@ -388,6 +406,7 @@ export function Shell({
   onSelectValidationError,
   onSelectActivity,
   onNewPage,
+  onDuplicatePage,
   onUploadMedia,
   onCompare,
   onDiscardAll,
@@ -495,7 +514,8 @@ export function Shell({
   // A publish is the one thing here that finishes somewhere else, so the list
   // opens itself when a commit Val has not seen before shows up. The first
   // feed after mount is history rather than news: opening on it would pop a
-  // panel at someone who has not published anything.
+  // panel at someone who has not published anything. So is a commit that has
+  // been serving the site for a while - see `isDeploymentNews`.
   const seenCommits = useRef<ReadonlySet<string> | null>(null);
   useEffect(() => {
     if (data.deployments === undefined) {
@@ -507,7 +527,12 @@ export function Shell({
     if (seen === null) {
       return;
     }
-    if (data.deployments.some((d) => !seen.has(d.commitSha))) {
+    const now = Date.now();
+    if (
+      data.deployments.some(
+        (d) => !seen.has(d.commitSha) && isDeploymentNews(d, now),
+      )
+    ) {
       setDeploymentsOpen(true);
       setDeploymentsAutoOpened(true);
     }
@@ -541,6 +566,14 @@ export function Shell({
     () => availableDestinations(data, isLoading),
     [isLoading, data],
   );
+  /**
+   * Opening a panel from deep inside the shell — a row in the publish diff
+   * linking to Settings, say. The URL is read once on mount, so an in-app link
+   * cannot go through it; see `shellPanelLink`.
+   */
+  const openPanelFromLink = useCallback((panel: ShellPanel) => {
+    setOpenPanel(panel);
+  }, []);
   // A panel for a destination this project does not have cannot be opened, and
   // a link that asks for one lands on the editor rather than on an empty panel.
   useEffect(() => {
@@ -548,6 +581,7 @@ export function Shell({
       openPanel !== null &&
       (openPanel === "pages" ||
         openPanel === "media" ||
+        openPanel === "settings" ||
         openPanel === "data") &&
       !destinations.includes(openPanel)
     ) {
@@ -734,335 +768,370 @@ export function Shell({
     ) : undefined;
 
   return (
-    <div
-      data-mode={theme}
-      className="relative w-full overflow-hidden bg-bg-canvas text-fg-primary font-sans"
-      style={{ height: "100svh" }}
-    >
-      <PageWorkspace
-        breakpoint={breakpoint}
-        page={canCanvas ? canvasPage : undefined}
-        renderCanvas={canCanvas ? renderCanvas : undefined}
-        canvasPaths={canCanvas ? canvasPaths : undefined}
-        onSelectCanvasPath={onSelectCanvasPath}
-        selectedCanvasPath={selectedCanvasPath}
-        canvasRoute={canCanvas ? canvasRoute : undefined}
-        onCanvasRouteChange={onCanvasRouteChange}
-        canvasRoutes={canvasRoutes}
-        initialTransform={initialCanvasTransform}
-        onTransformChange={setCanvasTransform}
-        isCanvasOpen={isCanvasOpen && canCanvas}
-        onCloseCanvas={closeCanvas}
-        view={canvasView}
-        onViewChange={setCanvasView}
-        pane={workspacePane}
-        onPaneChange={setWorkspacePane}
-        isDevMode={isDevMode}
-        onAttachToChat={aiEnabled ? attachToChat : undefined}
-        skipTransition={skipTransition}
+    <ShellPanelProvider openPanel={openPanelFromLink}>
+      <div
+        data-mode={theme}
+        className="relative w-full overflow-hidden bg-bg-canvas text-fg-primary font-sans"
+        style={{ height: "100svh" }}
       >
-        {editorOverride ? (
-          editorOverride
-        ) : selection === null ? (
-          <EmptyEditorState />
-        ) : (
-          /*
-           * Held until the server's pending changes have landed — see
-           * `PendingChangesGate`. Around the fields only: the compare and errors
-           * views above are their own thing, and neither offers a field to type
-           * the wrong value into.
-           */
-          <PendingChangesGate
-            ready={pendingChangesLoaded}
-            progress={pendingChangesProgress ?? noProgress}
-            fetchError={pendingChangesError}
-          >
-            {renderEditor ? (
-              renderEditor(selection)
-            ) : (
-              <PageEditor
-                title={selection.title}
-                urlPath={selection.urlPath}
-                sourcePath={selection.sourcePath}
-                isDevMode={isDevMode}
-                hasDraft={selection.hasDraft}
-              />
-            )}
-          </PendingChangesGate>
+        <PageWorkspace
+          breakpoint={breakpoint}
+          page={canCanvas ? canvasPage : undefined}
+          renderCanvas={canCanvas ? renderCanvas : undefined}
+          canvasPaths={canCanvas ? canvasPaths : undefined}
+          onSelectCanvasPath={onSelectCanvasPath}
+          selectedCanvasPath={selectedCanvasPath}
+          canvasRoute={canCanvas ? canvasRoute : undefined}
+          onCanvasRouteChange={onCanvasRouteChange}
+          canvasRoutes={canvasRoutes}
+          initialTransform={initialCanvasTransform}
+          onTransformChange={setCanvasTransform}
+          isCanvasOpen={isCanvasOpen && canCanvas}
+          onCloseCanvas={closeCanvas}
+          view={canvasView}
+          onViewChange={setCanvasView}
+          pane={workspacePane}
+          onPaneChange={setWorkspacePane}
+          isDevMode={isDevMode}
+          onAttachToChat={aiEnabled ? attachToChat : undefined}
+          skipTransition={skipTransition}
+        >
+          {editorOverride ? (
+            editorOverride
+          ) : selection === null ? (
+            <EmptyEditorState />
+          ) : (
+            /*
+             * Held until the server's pending changes have landed — see
+             * `PendingChangesGate`. Around the fields only: the compare and errors
+             * views above are their own thing, and neither offers a field to type
+             * the wrong value into.
+             */
+            <PendingChangesGate
+              ready={pendingChangesLoaded}
+              progress={pendingChangesProgress ?? noProgress}
+              fetchError={pendingChangesError}
+            >
+              {renderEditor ? (
+                renderEditor(selection)
+              ) : (
+                <PageEditor
+                  title={selection.title}
+                  urlPath={selection.urlPath}
+                  sourcePath={selection.sourcePath}
+                  isDevMode={isDevMode}
+                  hasDraft={selection.hasDraft}
+                />
+              )}
+            </PendingChangesGate>
+          )}
+        </PageWorkspace>
+
+        {breakpoint === "desktop" && (
+          <LeftRail
+            openPanel={openPanel}
+            onSelect={togglePanel}
+            destinations={destinations}
+            user={data.user}
+            hasDraftChanges={pendingChanges > 0}
+            accountError={accountError}
+            isLoading={isLoading}
+          />
         )}
-      </PageWorkspace>
 
-      {breakpoint === "desktop" && (
-        <LeftRail
+        <TopBar
+          breakpoint={breakpoint}
+          projectName={data.projectName}
+          projectHref={data.admin?.project}
           openPanel={openPanel}
-          onSelect={togglePanel}
-          destinations={destinations}
-          user={data.user}
-          hasDraftChanges={pendingChanges > 0}
-          accountError={accountError}
+          onTogglePanel={togglePanel}
+          // The menu button opens the first destination this project has, which
+          // is Pages wherever there is one — but a project with no routes has to
+          // land somewhere that exists.
+          onOpenMenu={() => setOpenPanel(destinations[0] ?? "account")}
+          onOpenSearch={openSearch}
+          unreadNotifications={
+            data.notifications === undefined ? undefined : unreadNotifications
+          }
+          // The rail owns the account wherever it is shown. Passing the user
+          // here too would put the same avatar in two corners of one screen.
+          user={breakpoint === "desktop" ? undefined : data.user}
+          // The rail carries the mark on desktop; below that the top bar owns the
+          // account, so it owns the mark — and has to put a button there at all,
+          // since a failed load means there is no avatar to hang it on.
+          accountError={breakpoint === "desktop" ? undefined : accountError}
           isLoading={isLoading}
-        />
-      )}
-
-      <TopBar
-        breakpoint={breakpoint}
-        projectName={data.projectName}
-        projectHref={data.admin?.project}
-        openPanel={openPanel}
-        onTogglePanel={togglePanel}
-        // The menu button opens the first destination this project has, which
-        // is Pages wherever there is one — but a project with no routes has to
-        // land somewhere that exists.
-        onOpenMenu={() => setOpenPanel(destinations[0] ?? "settings")}
-        onOpenSearch={openSearch}
-        unreadNotifications={
-          data.notifications === undefined ? undefined : unreadNotifications
-        }
-        // The rail owns the account wherever it is shown. Passing the user
-        // here too would put the same avatar in two corners of one screen.
-        user={breakpoint === "desktop" ? undefined : data.user}
-        // The rail carries the mark on desktop; below that the top bar owns the
-        // account, so it owns the mark — and has to put a button there at all,
-        // since a failed load means there is no avatar to hang it on.
-        accountError={breakpoint === "desktop" ? undefined : accountError}
-        isLoading={isLoading}
-        aiEnabled={aiEnabled}
-        onPreview={onPreview ?? (() => undefined)}
-        previewHref={previewHref}
-        onToggleCanvas={canCanvas ? togglePreview : undefined}
-        isCanvasOpen={isCanvasOpen}
-        onPublish={onPublish ?? (() => undefined)}
-        publishSlot={publishSlot}
-        pendingChanges={pendingChanges}
-        onCompare={onCompare}
-        reviewCount={reviewCount ?? pendingChanges}
-        publishState={
-          publishState === "idle" && validationErrorCount > 0
-            ? "blocked"
-            : publishState
-        }
-      />
-
-      {breakpoint === "mobile" ? (
-        <MobileBottomBar
-          pendingChanges={pendingChanges}
+          aiEnabled={aiEnabled}
           onPreview={onPreview ?? (() => undefined)}
           previewHref={previewHref}
           onToggleCanvas={canCanvas ? togglePreview : undefined}
           isCanvasOpen={isCanvasOpen}
-          /*
-           * What the button does NEXT, said plainly, because on a phone it is
-           * three different acts depending on where you are — see
-           * `togglePreview`. A control that swaps has to say which way.
-           */
-          canvasActionLabel={
-            !isCanvasOpen
-              ? "Open the canvas"
-              : workspacePane === "canvas"
-                ? "Back to the editor"
-                : "Back to the preview"
-          }
-          // The main half no longer closes the canvas on a phone, so the way
-          // out has to be somewhere the menu can offer it too.
-          onExitCanvas={isCanvasOpen ? closeCanvas : undefined}
           onPublish={onPublish ?? (() => undefined)}
           publishSlot={publishSlot}
-          onOpenStatus={() => setOpenPanel("settings")}
-          onOpenQuickActions={() => setOpenPanel("utility")}
-        />
-      ) : (
-        <StatusBar
-          breakpoint={breakpoint}
-          saveState={saveState}
-          mode={mode}
-          autoSave={autoSave}
-          onAutoSaveChange={onAutoSaveChange}
-          branch={data.branch}
-          deployments={deployments}
-          deploymentsOpen={deploymentsOpen}
-          onDeploymentsOpenChange={setDeploymentsOpenByUser}
-          deploymentsAutoOpened={deploymentsAutoOpened}
-          onDismissDeployment={dismissDeployment}
-        />
-      )}
-
-      {openPanel === "pages" && (
-        <PagesPanel
-          breakpoint={breakpoint}
-          pages={data.pages}
-          externalPages={data.externalPages}
-          selectedId={selection?.id ?? null}
-          // A row with no source path is a path segment rather than a page —
-          // `/blog` existing because `/blog/why-val` does. Clicking it expands
-          // it; there is nothing to open.
-          onSelectPage={(page) => {
-            const next = toPageSelection(page);
-            if (next) select(next);
-          }}
-          onSelectExternalPage={(page) => {
-            const next = toExternalSelection(page);
-            if (next) select(next);
-          }}
-          onNewPage={onNewPage ?? (() => undefined)}
-          // Only where a route accepts one. A project of static routes has no
-          // key to invent, so there is nothing for a New page button to do.
-          newPage={onNewPage ? data.newPage : undefined}
-          onClose={closePanel}
-          navSwitcher={navSwitcher}
-          isLoading={isLoading}
-          loadError={loadError}
-        />
-      )}
-
-      {openPanel === "media" && (
-        <MediaPanel
-          breakpoint={breakpoint}
-          media={data.media}
-          selectedId={selection?.id ?? null}
-          onSelect={(gallery) => select(toMediaSelection(gallery))}
-          onSelectFile={(gallery, file) =>
-            select({
-              kind: "media",
-              // The file's own entry, so the editor opens that one rather than
-              // the whole gallery.
-              id: file.sourcePath,
-              title: file.ref.split("/").pop() ?? file.ref,
-              urlPath: servedPath(gallery.directory),
-              sourcePath: file.sourcePath,
-            })
-          }
-          getFileUrl={getMediaFileUrl}
-          // The panel asks which gallery; it used to guess from the selection,
-          // so the button did nothing at all unless a gallery happened to be
-          // open — which is most of the time.
-          onUpload={onUploadMedia}
-          onClose={closePanel}
-          navSwitcher={navSwitcher}
-          isLoading={isLoading}
-          loadError={loadError}
-        />
-      )}
-
-      {openPanel === "data" && (
-        <DataPanel
-          breakpoint={breakpoint}
-          data={data.data}
-          selectedId={selection?.id ?? null}
-          onSelect={(module) => select(toDataSelection(module))}
-          onClose={closePanel}
-          navSwitcher={navSwitcher}
-          isLoading={isLoading}
-          loadError={loadError}
-        />
-      )}
-
-      {openPanel === "settings" && (
-        <SettingsPanel
-          breakpoint={breakpoint}
-          mode={mode}
-          user={data.user}
-          accountError={accountError}
-          theme={theme}
-          onThemeChange={onThemeChange}
-          admin={data.admin}
-          autoSave={autoSave}
-          onAutoSaveChange={onAutoSaveChange}
-          branch={data.branch}
-          /**
-           * No deploy feed in dev.
-           *
-           * Running against the working copy on disk there is nothing to
-           * publish to, so the section could only ever say "nothing published
-           * yet" — a heading and an explanation for something that will never
-           * happen here. The status bar already applies this rule to its own
-           * feed (`mode === "http"`); the panel was missed.
-           */
-          deployments={mode === "fs" ? undefined : deployments}
-          onDismissDeployment={dismissDeployment}
-          // Passed through as-is: absent means there is no session to end, and
-          // the panel then shows no Sign out button rather than a dead one.
-          onSignOut={onSignOut}
-          onClose={closePanel}
-          navSwitcher={navSwitcher}
-        />
-      )}
-
-      {openPanel === "utility" && (
-        <UtilityPanel
-          breakpoint={breakpoint}
-          activity={data.activity}
-          validationErrors={data.validationErrors}
-          onSelectValidationError={onSelectValidationError ?? (() => undefined)}
-          // Both quick actions are shortcuts to the panel that owns the flow:
-          // the route picker and the gallery picker live there, and a second
-          // copy of either would be a second set of rules for what a URL or a
-          // directory may be.
-          onNewPage={() => setOpenPanel("pages")}
-          onUploadMedia={() => setOpenPanel("media")}
-          destinations={destinations}
-          onOpenAI={aiEnabled ? () => setOpenPanel("ai") : undefined}
+          pendingChanges={pendingChanges}
           onCompare={onCompare}
           reviewCount={reviewCount ?? pendingChanges}
-          onDiscardAll={onDiscardAll}
-          discardAllDescription={discardAllDescription}
-          portalContainer={portalContainer}
-          pendingChanges={pendingChanges}
-          onSelectActivity={onSelectActivity ?? (() => undefined)}
-          onClose={closePanel}
-        />
-      )}
-
-      {/*
-       * Mounted for as long as the studio is, and merely hidden when dismissed.
-       * Everything else here comes and goes with `openPanel`; the assistant
-       * cannot, because closing it would drop a turn in flight — see `hidden`
-       * on `FloatingPanel`.
-       */}
-      {aiEnabled && (
-        <AIChatPanel
-          breakpoint={breakpoint}
-          hidden={openPanel !== "ai"}
-          onClose={closePanel}
-        >
-          {aiSlot ?? <NoAssistantConfigured />}
-        </AIChatPanel>
-      )}
-
-      {openPanel === "notifications" && (
-        <NotificationsPanel
-          breakpoint={breakpoint}
-          notifications={notifications}
-          onSelect={(notification) =>
-            setNotifications((current) =>
-              current.map((n) =>
-                n.id === notification.id ? { ...n, unread: false } : n,
-              ),
-            )
+          publishState={
+            publishState === "idle" && validationErrorCount > 0
+              ? "blocked"
+              : publishState
           }
-          onMarkAllRead={() =>
-            setNotifications((current) =>
-              current.map((n) => ({ ...n, unread: false })),
-            )
-          }
-          onClose={closePanel}
         />
-      )}
 
-      {isSearchOpen && (
-        <GlobalSearch
-          results={searchResults}
-          contentResults={searchContentResults}
-          recentResults={recentSearchResults}
-          isSearchingContent={isSearchingContent}
-          onQueryChange={onSearchQueryChange}
-          onSelect={(result) => {
-            setIsSearchOpen(false);
-            selectSearchResult(result);
-          }}
-          onClose={() => setIsSearchOpen(false)}
-        />
-      )}
-    </div>
+        {breakpoint === "mobile" ? (
+          <>
+            {/*
+             * The phone's answer to "did that publish go out?". The bottom bar
+             * takes the row the status bar would have had, so the list is
+             * anchored above it and behaves as the announcement it is - see
+             * `MobileDeployments`. Same `mode === "http"` gate as the status
+             * bar: there is nothing to deploy to in dev.
+             */}
+            {mode === "http" && deployments !== undefined && (
+              <MobileDeployments
+                deployments={deployments}
+                open={deploymentsOpen}
+                onOpenChange={setDeploymentsOpenByUser}
+                onDismiss={dismissDeployment}
+                autoClose={deploymentsAutoOpened}
+              />
+            )}
+            <MobileBottomBar
+              pendingChanges={pendingChanges}
+              onPreview={onPreview ?? (() => undefined)}
+              previewHref={previewHref}
+              onToggleCanvas={canCanvas ? togglePreview : undefined}
+              isCanvasOpen={isCanvasOpen}
+              /*
+               * What the button does NEXT, said plainly, because on a phone it is
+               * three different acts depending on where you are — see
+               * `togglePreview`. A control that swaps has to say which way.
+               */
+              canvasActionLabel={
+                !isCanvasOpen
+                  ? "Open the canvas"
+                  : workspacePane === "canvas"
+                    ? "Back to the editor"
+                    : "Back to the preview"
+              }
+              // The main half no longer closes the canvas on a phone, so the way
+              // out has to be somewhere the menu can offer it too.
+              onExitCanvas={isCanvasOpen ? closeCanvas : undefined}
+              onPublish={onPublish ?? (() => undefined)}
+              publishSlot={publishSlot}
+              onOpenStatus={() => setOpenPanel("account")}
+              onOpenQuickActions={() => setOpenPanel("utility")}
+            />
+          </>
+        ) : (
+          <StatusBar
+            breakpoint={breakpoint}
+            saveState={saveState}
+            mode={mode}
+            autoSave={autoSave}
+            onAutoSaveChange={onAutoSaveChange}
+            branch={data.branch}
+            deployments={deployments}
+            deploymentsOpen={deploymentsOpen}
+            onDeploymentsOpenChange={setDeploymentsOpenByUser}
+            deploymentsAutoOpened={deploymentsAutoOpened}
+            onDismissDeployment={dismissDeployment}
+          />
+        )}
+
+        {openPanel === "pages" && (
+          <PagesPanel
+            breakpoint={breakpoint}
+            pages={data.pages}
+            externalPages={data.externalPages}
+            selectedId={selection?.id ?? null}
+            // A row with no source path is a path segment rather than a page —
+            // `/blog` existing because `/blog/why-val` does. Clicking it expands
+            // it; there is nothing to open.
+            onSelectPage={(page) => {
+              const next = toPageSelection(page);
+              if (next) select(next);
+            }}
+            onSelectExternalPage={(page) => {
+              const next = toExternalSelection(page);
+              if (next) select(next);
+            }}
+            onNewPage={onNewPage ?? (() => undefined)}
+            onDuplicatePage={onDuplicatePage}
+            // Only where a route accepts one. A project of static routes has no
+            // key to invent, so there is nothing for a New page button to do.
+            newPage={onNewPage ? data.newPage : undefined}
+            onClose={closePanel}
+            navSwitcher={navSwitcher}
+            isLoading={isLoading}
+            loadError={loadError}
+          />
+        )}
+
+        {openPanel === "media" && (
+          <MediaPanel
+            breakpoint={breakpoint}
+            media={data.media}
+            selectedId={selection?.id ?? null}
+            onSelect={(gallery) => select(toMediaSelection(gallery))}
+            onSelectFile={(gallery, file) =>
+              select({
+                kind: "media",
+                // The file's own entry, so the editor opens that one rather than
+                // the whole gallery.
+                id: file.sourcePath,
+                title: file.ref.split("/").pop() ?? file.ref,
+                urlPath: servedPath(gallery.directory),
+                sourcePath: file.sourcePath,
+              })
+            }
+            getFileUrl={getMediaFileUrl}
+            // The panel asks which gallery; it used to guess from the selection,
+            // so the button did nothing at all unless a gallery happened to be
+            // open — which is most of the time.
+            onUpload={onUploadMedia}
+            onClose={closePanel}
+            navSwitcher={navSwitcher}
+            isLoading={isLoading}
+            loadError={loadError}
+          />
+        )}
+
+        {openPanel === "data" && (
+          <DataPanel
+            breakpoint={breakpoint}
+            data={data.data}
+            selectedId={selection?.id ?? null}
+            onSelect={(module) => select(toDataSelection(module))}
+            onClose={closePanel}
+            navSwitcher={navSwitcher}
+            isLoading={isLoading}
+            loadError={loadError}
+          />
+        )}
+
+        {openPanel === "settings" && (
+          <SettingsPanel
+            breakpoint={breakpoint}
+            onClose={closePanel}
+            navSwitcher={navSwitcher}
+            isLoading={isLoading}
+            loadError={loadError}
+          >
+            {renderSettings ? renderSettings() : <NoSettingsModule />}
+          </SettingsPanel>
+        )}
+
+        {openPanel === "account" && (
+          <AccountPanel
+            breakpoint={breakpoint}
+            mode={mode}
+            user={data.user}
+            accountError={accountError}
+            theme={theme}
+            onThemeChange={onThemeChange}
+            admin={data.admin}
+            autoSave={autoSave}
+            onAutoSaveChange={onAutoSaveChange}
+            branch={data.branch}
+            /**
+             * No deploy feed in dev.
+             *
+             * Running against the working copy on disk there is nothing to
+             * publish to, so the section could only ever say "nothing published
+             * yet" — a heading and an explanation for something that will never
+             * happen here. The status bar already applies this rule to its own
+             * feed (`mode === "http"`); the panel was missed.
+             */
+            deployments={mode === "fs" ? undefined : deployments}
+            onDismissDeployment={dismissDeployment}
+            // Passed through as-is: absent means there is no session to end, and
+            // the panel then shows no Sign out button rather than a dead one.
+            onSignOut={onSignOut}
+            onClose={closePanel}
+            navSwitcher={navSwitcher}
+          />
+        )}
+
+        {openPanel === "utility" && (
+          <UtilityPanel
+            breakpoint={breakpoint}
+            activity={data.activity}
+            validationErrors={data.validationErrors}
+            onSelectValidationError={
+              onSelectValidationError ?? (() => undefined)
+            }
+            // Both quick actions are shortcuts to the panel that owns the flow:
+            // the route picker and the gallery picker live there, and a second
+            // copy of either would be a second set of rules for what a URL or a
+            // directory may be.
+            onNewPage={() => setOpenPanel("pages")}
+            onUploadMedia={() => setOpenPanel("media")}
+            destinations={destinations}
+            onOpenAI={aiEnabled ? () => setOpenPanel("ai") : undefined}
+            onCompare={onCompare}
+            reviewCount={reviewCount ?? pendingChanges}
+            onDiscardAll={onDiscardAll}
+            discardAllDescription={discardAllDescription}
+            portalContainer={portalContainer}
+            pendingChanges={pendingChanges}
+            onSelectActivity={onSelectActivity ?? (() => undefined)}
+            onClose={closePanel}
+          />
+        )}
+
+        {/*
+         * Mounted for as long as the studio is, and merely hidden when dismissed.
+         * Everything else here comes and goes with `openPanel`; the assistant
+         * cannot, because closing it would drop a turn in flight — see `hidden`
+         * on `FloatingPanel`.
+         */}
+        {aiEnabled && (
+          <AIChatPanel
+            breakpoint={breakpoint}
+            hidden={openPanel !== "ai"}
+            onClose={closePanel}
+          >
+            {aiSlot ?? <NoAssistantConfigured />}
+          </AIChatPanel>
+        )}
+
+        {openPanel === "notifications" && (
+          <NotificationsPanel
+            breakpoint={breakpoint}
+            notifications={notifications}
+            onSelect={(notification) =>
+              setNotifications((current) =>
+                current.map((n) =>
+                  n.id === notification.id ? { ...n, unread: false } : n,
+                ),
+              )
+            }
+            onMarkAllRead={() =>
+              setNotifications((current) =>
+                current.map((n) => ({ ...n, unread: false })),
+              )
+            }
+            onClose={closePanel}
+          />
+        )}
+
+        {isSearchOpen && (
+          <GlobalSearch
+            results={searchResults}
+            contentResults={searchContentResults}
+            recentResults={recentSearchResults}
+            isSearchingContent={isSearchingContent}
+            onQueryChange={onSearchQueryChange}
+            onSelect={(result) => {
+              setIsSearchOpen(false);
+              selectSearchResult(result);
+            }}
+            onClose={() => setIsSearchOpen(false)}
+          />
+        )}
+      </div>
+    </ShellPanelProvider>
   );
 }
 

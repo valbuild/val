@@ -37,17 +37,22 @@ import {
   useProfilesByAuthorId,
   useAIContext,
 } from "../components/ValProvider";
-import {
-  useGetDirectFileUploadSettings,
-  useValConfig,
-} from "../components/ValFieldProvider";
+import { useGetDirectFileUploadSettings } from "../components/ValFieldProvider";
 import type {
   AISession,
   AIServerMessage,
   AIMessageContentBlock,
   AIPromptMessage,
 } from "./useAIWebSocket";
+import {
+  AssistantSettings,
+  assistantSettingsPromptSection,
+  NO_ASSISTANT_SETTINGS,
+  readAssistantSettings,
+  settingsModuleFilePath,
+} from "./assistantSettings";
 import { useAISearch } from "./useAISearch";
+import { useAssistantAvailability } from "./useAssistantAvailability";
 import { useAIValidation } from "./useAIValidation";
 import type {
   ImageMetadata,
@@ -164,7 +169,7 @@ const CREATE_PATCH_TOOL: AITool = {
     File field example:
     {"patch":[{"op":"replace","path":["brochure"],"value":{"key":"abc","filePath":"/public/val/files/brochure.pdf","_type":"ai_session_file","_tag":"file"}}]}
 
-    Richtext inline image example (richtext schema must have options.inline.img enabled):
+    Richtext inline image example (richtext schema must have options.img enabled):
     {"patch":[{"op":"add","path":["body","0","children","2"],"value":{"tag":"img","src":{"key":"abc","filePath":"/public/val/images/inline.png","_type":"ai_session_file","_tag":"image"}}}]}
 
     Multiple session keys can appear in a single patch.
@@ -641,6 +646,24 @@ export function useAI(
       getAllSourcesSnapshot(): Record<ModuleFilePath, Json> {
         return system?.sourceStore.allSources() ?? {};
       },
+      /**
+       * The project's own settings for the assistant.
+       *
+       * Read when the prompt is built rather than held: an editor who changes
+       * the tone of voice and sends a message expects the next message to use
+       * it, not the next time the Studio is reloaded.
+       */
+      getAssistantSettings(): AssistantSettings {
+        const moduleFilePath = settingsModuleFilePath(
+          system?.schemaStore.all() ?? {},
+        );
+        if (moduleFilePath === null) {
+          return NO_ASSISTANT_SETTINGS;
+        }
+        return readAssistantSettings(
+          system?.sourceStore.moduleSource(moduleFilePath),
+        );
+      },
       getSourceSnapshot(
         moduleFilePath: ModuleFilePath,
       ): { status: "success"; data: Json } | { status: "not-found" } {
@@ -829,8 +852,15 @@ export function useAI(
   const currentProfile = useCurrentProfile();
   const profiles = useProfilesByAuthorId();
   const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
-  const config = useValConfig();
-  const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
+  const assistant = useAssistantAvailability();
+  /**
+   * Can the assistant be USED, as opposed to offered?
+   *
+   * `"unconfigured"` is not usable: the panel asks to turn it on first, and
+   * nothing is sent to a model until someone accepts. See
+   * `useAssistantAvailability`.
+   */
+  const isChatEnabled = assistant === "on";
   // The editor's pick where they have made one, and the best available model
   // until they do. `useAvailableAIModel` is the floor: it still answers when
   // the content server reports providers but no models, which is what an older
@@ -2431,7 +2461,7 @@ Never tell the user to navigate manually — offer to navigate for them instead.
     - img: {tag:"img", src:{...}} — cannot be added via assistant (no file system access)
     - br: {tag:"br"}
   - example: [{tag:"p",children:["Hello ",{tag:"span",styles:["bold"],children:["World"]}]}]
-  - richtext schema has options, which tells you which type of tags you can use. Example: if options do not have block.ul: true, then ul is not allowed. The schema.options type is like this: style: Partial<{bold: boolean;italic: boolean;lineThrough: boolean;}>;block: Partial<{h1: boolean;h2: boolean;h3: boolean;h4: boolean;h5: boolean;h6: boolean;ul: boolean;ol: boolean;}>;inline: Partial<{a: boolean | SerializedRouteSchema | SerializedStringSchema;img: boolean | SerializedImageSchema;}>;
+  - richtext schema has options, which tells you which type of tags you can use. Example: if options do not have ul: true, then ul is not allowed. The schema.options type is like this: Partial<{bold: boolean;italic: boolean;lineThrough: boolean;h1: boolean;h2: boolean;h3: boolean;h4: boolean;h5: boolean;h6: boolean;ul: boolean;ol: boolean;a: boolean | SerializedRouteSchema | SerializedStringSchema;img: boolean | SerializedImageSchema;}>;
 - image / file: cannot be changed through this assistant (no file system access). If the user needs to add one, navigate to the matching media gallery.
 - union: a value that must match exactly one of several allowed shapes. Two kinds:
   - string union: key is a literal schema, all items are literals. The value is one fixed string chosen from a set (e.g. "draft", "published", "archived"). Patch by replacing the string with one of the allowed values.
@@ -2452,7 +2482,9 @@ Do not describe what you will do unless you do it for clarification — just do 
 - Be concise and friendly.
 - This is a CMS, it is not a chat. The intention of user is to find and edit content. If user asks existential questions, interpret them as a technical question. If for example they ask "who they are", they probably mean "what is my profile". If they ask "what can you do?", they probably want to know what kind of content changes you can make or what information you can provide about their content. Always interpret vague questions in a way that assumes the user wants to understand or change their content, rather than asking about the assistant itself.
 - Confirm changes in plain language after every successful update.
-- If something goes wrong, explain what happened and what to do next.`,
+- If something goes wrong, explain what happened and what to do next.${assistantSettingsPromptSection(
+              valReads.getAssistantSettings(),
+            )}`,
             tools: ALL_TOOLS,
           },
         ],

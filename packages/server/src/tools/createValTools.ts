@@ -162,13 +162,22 @@ function createOpsResolver(
         // credential should not silently get local filesystem access instead —
         // and the difference matters, because fs mode writes straight to disk
         // with no backend permission check at all.
+        //
+        // The two credentials get different messages because they arrive here
+        // for different reasons. A PAT is something the caller chose to send. A
+        // verified access token is not: it only exists because this app
+        // advertised an authorization server, so the developer seeing this did
+        // not do anything wrong — a config file did, and naming it is the
+        // difference between a two-minute fix and an afternoon.
         return {
           status: "error",
           result: {
             status: "error",
             code: "unsupported",
             message:
-              "This Val project is running in local filesystem mode, where there is nothing to authenticate against. Do not send a credential.",
+              ctx.auth.type === "verified-profile"
+                ? "This Val project is running in local filesystem mode, so there is nothing to authenticate against, but it is configured with an `oauth` issuer and is therefore asking clients for an access token it cannot use. Remove the `oauth` config (or `VAL_OAUTH_ISSUER` from your local `.env`) for local development."
+                : "This Val project is running in local filesystem mode, where there is nothing to authenticate against. Do not send a credential.",
           },
         };
       }
@@ -258,8 +267,12 @@ type OpsResolution =
  * sha within the same process, so a cached view would go stale silently — and
  * the cost of being wrong here is an agent writing a patch against content that
  * has already moved.
+ *
+ * Exported for `toolsFixture`, not for consumers: `tools/index.ts` re-exports by
+ * name, so this stays inside the package. A test that assembled its own state
+ * would be asserting against a view no real call ever sees.
  */
-async function loadState(
+export async function loadState(
   ops: ValOps,
 ): Promise<
   | { status: "ok"; state: ValToolState }

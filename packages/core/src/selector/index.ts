@@ -13,6 +13,7 @@ import { AllRichTextOptions, RichTextSource } from "../source/richtext";
 import { RichTextSelector } from "./richtext";
 import { JsonSource } from "../source/json";
 import { ExternalRecordSrc } from "../source/external";
+import { SettingsSource } from "../source/settings";
 
 export type Selector<T extends Source> = Source extends T
   ? GenericSelector<T>
@@ -26,7 +27,10 @@ export type Selector<T extends Source> = Source extends T
       ? GenericSelector<JsonSource>
       : // An external record's entries are not reachable through a selector —
         // they are fetched by key. The arm exists so the marker does not fall
-        // through to `SourceObject` and then to `never`.
+        // through to `SourceObject` and then to `never`, and it sits ABOVE
+        // `SourceObject` for the same reason the settings arm sits below it:
+        // the marker is structurally an object, so an arm any lower would never
+        // be reached.
         //
         // `GenericSelector<T>`, NOT `GenericSelector<ExternalRecordSrc>`: the
         // marker's phantom parameters carry the item type, the label and the
@@ -40,15 +44,27 @@ export type Selector<T extends Source> = Source extends T
             ? ObjectSelector<T>
             : T extends SourceArray
               ? ArraySelector<T>
-              : T extends string
-                ? StringSelector<T>
-                : T extends number
-                  ? NumberSelector<T>
-                  : T extends boolean
-                    ? BooleanSelector<T>
-                    : T extends null
-                      ? PrimitiveSelector<null>
-                      : never;
+              : // Settings, like media, is an object whose keys are OPTIONAL, so
+                // it never matched `SourceObject` and fell through to `never`.
+                //
+                // The arm has to sit BELOW `SourceObject`: every object type that
+                // does not conflict on `assistant` structurally satisfies
+                // `SettingsSource`,
+                // so an arm above would swallow ordinary objects. A
+                // `GenericSelector` rather than an `ObjectSelector` because a
+                // settings module is read by the Studio and the assistant, not
+                // traversed with selectors.
+                T extends SettingsSource
+                ? GenericSelector<T>
+                : T extends string
+                  ? StringSelector<T>
+                  : T extends number
+                    ? NumberSelector<T>
+                    : T extends boolean
+                      ? BooleanSelector<T>
+                      : T extends null
+                        ? PrimitiveSelector<null>
+                        : never;
 
 export type SelectorSource =
   | SourcePrimitive
@@ -60,6 +76,7 @@ export type SelectorSource =
   | MediaSource
   | JsonSource
   | ExternalRecordSrc
+  | SettingsSource
   | RichTextSource<AllRichTextOptions>
   | GenericSelector<Source>;
 

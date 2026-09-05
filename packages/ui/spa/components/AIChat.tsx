@@ -27,24 +27,17 @@ import {
   Paperclip,
   X,
   AlertTriangle,
-  ChevronDown,
-  Check,
 } from "lucide-react";
 import type { AISession } from "../hooks/useAIWebSocket";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
 import { safeHref } from "../utils/safeHref";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "./designSystem/dropdown-menu";
+import { useComposerFocusRestore } from "./useComposerFocusRestore";
 import type { AIModel, AIModelInfo } from "../hooks/useAIWebSocket";
-import { useValConfig } from "./ValFieldProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { urlOf } from "@valbuild/shared/internal";
 import { CopyableCodeBlock } from "./designSystem/CopyableCodeBlock";
 import { AIChatEditor } from "./AIChatEditor";
+import { AIChatModelPicker } from "./AIChatModelPicker";
 import type {
   ChatBlockNode,
   ChatDocument,
@@ -573,11 +566,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     null,
   );
   const [renameValue, setRenameValue] = useState("");
-  const config = useValConfig();
   const portalContainer = useValPortal();
-  const effectiveSuggestions = config?.ai?.chat?.suggestions ?? suggestions;
-  const emptyTitle = config?.ai?.chat?.title;
-  const emptyDescription = config?.ai?.chat?.description;
 
   // Derive combined list for rendering
   const messages: ChatMessage[] = currentMessage
@@ -835,6 +824,17 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const isStreaming = currentMessage !== null;
   const isUploading = attachedFiles.some((f) => f.status === "uploading");
   const isEmpty = messages.length === 0;
+  const composerDisabled = authError || !isConnected || isStreaming;
+
+  const focusComposer = useCallback(() => {
+    editorRef.current?.focus();
+  }, [editorRef]);
+  // The caret goes back into the composer when the answer lands - see
+  // `useComposerFocusRestore` for why it is armed at send time.
+  const { armForSend } = useComposerFocusRestore(
+    composerDisabled,
+    focusComposer,
+  );
 
   // ---- Handlers ----
 
@@ -970,11 +970,14 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         );
       } else {
         setIsAwaitingAssistant(true);
+        // Streaming is about to disable the composer, which blurs it. Ask for
+        // the caret back once the answer lands.
+        armForSend();
       }
 
       requestAnimationFrame(() => editorRef.current?.focus());
     },
-    [isStreaming, attachedFiles, onSendMessage, editorRef],
+    [isStreaming, attachedFiles, onSendMessage, editorRef, armForSend],
   );
 
   const handleRetry = useCallback(
@@ -1199,9 +1202,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             </div>
           ) : isEmpty ? (
             <EmptyState
-              suggestions={effectiveSuggestions}
-              title={emptyTitle}
-              description={emptyDescription}
+              suggestions={suggestions}
               onSelect={(s) => handleSend(s)}
             />
           ) : (
@@ -1294,7 +1295,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             >
               <AIChatEditor
                 ref={editorRef}
-                disabled={authError || !isConnected || isStreaming}
+                disabled={composerDisabled}
                 placeholder={isConnected && !authError ? "Ask something…" : ""}
                 onSubmit={() => handleSend()}
                 onUploadAiImage={onUploadFile}
@@ -1332,56 +1333,16 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                   Beside the composer rather than in a settings panel: which
                   model answers is a per-message decision — a cheap one for a
                   quick edit, a strong one for a hard question — so it belongs
-                  where the message is written. Hidden when there is nothing to
-                  choose between.
+                  where the message is written.
                 */}
-                {models && models.length > 1 && onSelectModel && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={isStreaming}
-                        className="h-7 px-2 text-xs text-fg-secondary gap-1"
-                        aria-label={
-                          // Not "Model: <label>": with nothing selected the
-                          // label is itself "Model", and a screen reader would
-                          // read "Model: Model".
-                          selectedLabel(models, selectedModel) === MODEL_UNSET
-                            ? "Choose a model"
-                            : `Change model, currently ${selectedLabel(models, selectedModel)}`
-                        }
-                      >
-                        {selectedLabel(models, selectedModel)}
-                        <ChevronDown className="h-3 w-3" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      align="start"
-                      className="max-h-72 overflow-y-auto"
-                    >
-                      {models.map((info) => {
-                        const isSelected =
-                          selectedModel?.provider === info.ref.provider &&
-                          selectedModel?.model === info.ref.model;
-                        return (
-                          <DropdownMenuItem
-                            key={`${info.ref.provider}:${info.ref.model}`}
-                            onSelect={() => onSelectModel(info.ref)}
-                            className="text-xs"
-                          >
-                            <Check
-                              className={cn(
-                                "h-3 w-3 mr-2",
-                                isSelected ? "opacity-100" : "opacity-0",
-                              )}
-                            />
-                            {info.label}
-                          </DropdownMenuItem>
-                        );
-                      })}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                {models && onSelectModel && (
+                  <AIChatModelPicker
+                    models={models}
+                    selectedModel={selectedModel}
+                    onSelectModel={onSelectModel}
+                    disabled={isStreaming}
+                    portalContainer={portalContainer}
+                  />
                 )}
                 {isStreaming && onCancel ? (
                   <Button
@@ -1503,13 +1464,9 @@ function AuthPrompt({ mode }: { mode: "http" | "fs" | "unknown" }) {
 
 function EmptyState({
   suggestions,
-  title,
-  description,
   onSelect,
 }: {
   suggestions: string[];
-  title?: string;
-  description?: string;
   onSelect: (text: string) => void;
 }) {
   return (
@@ -1519,10 +1476,10 @@ function EmptyState({
       </div>
       <div>
         <h2 className="text-lg font-semibold text-fg-primary">
-          {title ?? "How can I help?"}
+          How can I help?
         </h2>
         <p className="mt-1 text-sm text-fg-secondary">
-          {description ?? "Ask me anything or pick a suggestion below"}
+          Ask me anything or pick a suggestion below
         </p>
       </div>
       {suggestions.length > 0 && (
@@ -1729,23 +1686,6 @@ function MessageBubble({
       )}
     </div>
   );
-}
-
-/** What the picker button says: the chosen model's label, or a prompt. */
-const MODEL_UNSET = "Model";
-
-function selectedLabel(
-  models: AIModelInfo[],
-  selected: AIModel | null | undefined,
-): string {
-  const match = selected
-    ? models.find(
-        (info) =>
-          info.ref.provider === selected.provider &&
-          info.ref.model === selected.model,
-      )
-    : undefined;
-  return match?.label ?? MODEL_UNSET;
 }
 
 function StreamingCursor() {

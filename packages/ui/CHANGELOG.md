@@ -1,5 +1,115 @@
 # @valbuild/ui
 
+## 0.120.4
+
+### Patch Changes
+
+- [#599](https://github.com/valbuild/val/pull/599) [`6df3cae`](https://github.com/valbuild/val/commit/6df3caec1cc043a07b532d3174583b8218d4871d) Thanks [@freekh](https://github.com/freekh)! - Add a referenced entry from a `s.keyOf()` field
+
+  A `keyOf` field can now create the entry it is about to point at. Where the
+  author you want is not in the authors record yet, name them here: the entry is
+  added to the referenced record, the field points at it, and you are taken to the
+  new entry to fill it in — instead of leaving the page you were editing to create
+  it and coming back to link it.
+
+  - Two ways in, as reference fields normally have: **New entry** at the foot of
+    the dropdown, and a **+** beside it for when you have not opened the dropdown.
+  - The key you searched for is what the new entry is named, and the option stays
+    offered when the search matches nothing — which is how you got there.
+  - The key box says what a key is here, from the record's `key` description (or
+    the field's own).
+  - A key that already exists is refused rather than overwriting that entry.
+  - Where the field renders the entry inline, it stays put: the new entry's fields
+    are already on screen.
+  - Only for a record — an object's keys are its schema. A router record asks for
+    the new key per route segment, the same form the sitemap's "Add page" uses.
+
+## 0.120.3
+
+### Patch Changes
+
+- [#596](https://github.com/valbuild/val/pull/596) [`9b96184`](https://github.com/valbuild/val/commit/9b96184cf6ad6d52a714867fb1527eeec6c776f4) Thanks [@freekh](https://github.com/freekh)! - The AI model picker opens again, and shows even with one model on offer.
+
+  Its menu was portalled to `document.body` — outside the shadow root the Studio
+  renders in, where none of Val's styles reach it and nothing lifts it above the
+  overlay. The menu did open; it was invisible behind the Studio, which reads as a
+  trigger that does nothing. It now portals into the Studio's own container, like
+  every other popup there.
+
+  The picker also used to hide itself unless there were at least two models, so an
+  account with one reachable model had nothing telling it which model was
+  answering. It now renders whenever there is a model at all, and only disappears
+  when there are none — which means AI is off, not that there is no choice.
+
+  `DropdownMenuContent` now renders inline instead of portalling when it is given
+  no container — the posture `TooltipContent` already took — so this cannot
+  silently happen again: a clipped menu can be recovered from, an invisible one
+  cannot.
+
+- [#600](https://github.com/valbuild/val/pull/600) [`1a2484a`](https://github.com/valbuild/val/commit/1a2484a309679bd5e963d626466c2828f74d49f8) Thanks [@freekh](https://github.com/freekh)! - Fix dragging a list row on a phone, which picked the row up well below the
+  finger and dropped it about three rows too far down.
+
+  The card that follows your finger is positioned against the viewport, and on a
+  phone the editor and the page ride on a track that was transformed even while it
+  was standing still. A transformed box becomes the reference point for everything
+  positioned that way inside it, so with the preview open the card was placed
+  against a box already pushed down by the strip of switches — 132px of it. The
+  same offset decided where the row landed, which is why the drop missed by
+  roughly three positions.
+
+  The track is now only transformed while it is actually moving between the
+  editor and the page.
+
+  Drag handles also declare `touch-action: none`, as dnd-kit asks them to. Without
+  it a phone can decide mid-drag that your finger meant to scroll, and from that
+  moment the drag and the list move at the same time. The rule had been written as
+  an HTML attribute rather than as CSS, so it had never taken effect.
+
+- [#601](https://github.com/valbuild/val/pull/601) [`71becc7`](https://github.com/valbuild/val/commit/71becc7e543432e4a57e36d54aaf803e9a447ffd) Thanks [@freekh](https://github.com/freekh)! - Fix the page going unclickable behind a stale selection box in the overlay's select mode.
+
+  In select mode the overlay draws a box over whatever Val content the pointer is on, and that box is what turns a click into "edit this" — it sits above the page and stops the event. The box was only ever written when the pointer found tagged content, never cleared when it left, so it stayed parked over the last thing the pointer crossed. Everything under that rectangle stopped responding for as long as select mode was on: most visibly, a link there could not be followed.
+
+## 0.120.0
+
+### Minor Changes
+
+- [#589](https://github.com/valbuild/val/pull/589) [`c2d3c0e`](https://github.com/valbuild/val/commit/c2d3c0e6c2010c0a94c725d9dbaa618998773e8a) Thanks [@freekh](https://github.com/freekh)! - **Breaking:** `s.richtext()` options are flat.
+
+  The `style`, `block` and `inline` groups are gone — every option is a key of its
+  own. The names are unchanged, so updating a schema is only a matter of removing
+  the wrappers:
+
+  ```ts
+  // before
+  s.richtext({
+    style: { bold: true, italic: true },
+    block: { h1: true, ul: true },
+    inline: { a: true, img: s.image() },
+  });
+
+  // after
+  s.richtext({
+    bold: true,
+    italic: true,
+    h1: true,
+    ul: true,
+    a: true,
+    img: s.image(),
+  });
+  ```
+
+  The groups never carried any meaning the option names did not already have, and
+  they cost something real: an option name and its `ValRichText` theme key were
+  spelled differently (`block.h1` vs `theme.h1`), so the type that keeps a theme
+  exhaustive had to restate all thirteen options by hand. It is now a mapped type
+  over the options themselves — which also fixes an inconsistency in it: enabling
+  links with a schema (`a: s.route()`) rather than `a: true` now requires an `a`
+  key in the theme, the way `img` always has.
+
+  `ValRichText` themes were already flat and are unchanged. The serialized schema
+  that the server sends the Studio is flat too, so a project must not mix
+  `@valbuild/*` versions across this release.
+
 ## 0.119.0
 
 ### Minor Changes

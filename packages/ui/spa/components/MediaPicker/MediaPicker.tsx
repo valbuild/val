@@ -5,7 +5,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../designSystem/popover";
-import { Button } from "../designSystem/button";
+import { Button, insetFocusRing } from "../designSystem/button";
 import { cn } from "../designSystem/cn";
 import {
   Check,
@@ -397,7 +397,7 @@ export function MediaPicker({
             variant="outline"
             role="combobox"
             aria-expanded={open}
-            className="w-full justify-between"
+            className={cn("w-full justify-between", insetFocusRing)}
             disabled={disabled}
           >
             <span className="truncate">

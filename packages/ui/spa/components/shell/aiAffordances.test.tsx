@@ -6,13 +6,15 @@ import { UtilityPanel } from "./UtilityPanel";
 /**
  * The ways into the assistant, in a project that has no assistant.
  *
- * `ai.chat` is opt-in, so most projects have nothing behind these — and both
- * controls used to be rendered unconditionally: a Sparkles button in the top
- * bar and an "Ask the assistant" row in the quick actions, each of which opened
- * a panel that could only say there was nothing there. The panel is hidden by
- * `Shell` (see `aiEnabled`), which is not unit-testable here — it pulls in the
- * canvas and with it the whole shared bundle — so what is pinned is the two
- * controls that lead to it.
+ * A project can turn the assistant off (`s.settings()`, `assistant.enabled`)
+ * and one
+ * with no reachable model has none either way — and both controls used to be
+ * rendered unconditionally: a Sparkles button in the top bar and an "Ask the
+ * assistant" row in the quick actions, each of which opened a panel that could
+ * only say there was nothing there. The panel is hidden by `Shell` (see
+ * `aiEnabled`), which is not unit-testable here — it pulls in the canvas and
+ * with it the whole shared bundle — so what is pinned is the two controls that
+ * lead to it.
  */
 function topBar(aiEnabled: boolean) {
   return (

@@ -34,7 +34,7 @@ test.describe("the account", () => {
     });
 
     await openStudio(page);
-    const studio = await openNavPanel(page, "Settings");
+    const studio = await openNavPanel(page, "Account");
 
     // The server's own words, not the wrapper it came in: "Project not found"
     // is something an editor can do something about.
@@ -80,7 +80,7 @@ test.describe("the account", () => {
    */
   test("offers no sign out where there is no session", async ({ page }) => {
     await openStudio(page);
-    const studio = await openNavPanel(page, "Settings");
+    const studio = await openNavPanel(page, "Account");
     await expect(studio.getByText("Appearance")).toBeVisible();
     await expect(
       studio.getByRole("button", { name: "Sign out" }),

@@ -243,6 +243,17 @@ export type System = HostRealm &
      * keeps running, and any patch created in that window goes with it.
      */
     setMode(mode: "fs" | "http"): void;
+    /**
+     * Tell the system who is editing, so a patch made here is stamped with it.
+     *
+     * A setter for the same reason {@link System.setMode} is one: the answer
+     * comes from `/stat`, which lands after the Studio has mounted and taken the
+     * project in, and rebuilding the system when it arrives discards the first
+     * one along with any patch created in that window.
+     *
+     * `null` means nobody is known — the default, and where `fs` mode stays.
+     */
+    setAuthorId(authorId: string | null): void;
     dispose(): void;
   };
 
@@ -495,6 +506,15 @@ export function createSystem(options: SystemOptions): System {
   // See `PatchStore.publishInFlight`: a stat landing mid-publish would otherwise
   // reconcile away the patches `/save` has just deleted server-side.
   patchStore.setPublishInFlight(() => publishing);
+  /**
+   * Who is editing, as `/stat` last said. See {@link System.setAuthorId}.
+   *
+   * Held here and read through a closure rather than pushed into the store, so
+   * that a patch created before the first stat and one created after it each get
+   * the answer that was true when they were made.
+   */
+  let authorId: string | null = null;
+  patchStore.setAuthorSource(() => authorId);
 
   /**
    * How many times each patch has been through {@link discardUnapplicable}.
@@ -1412,6 +1432,9 @@ export function createSystem(options: SystemOptions): System {
     },
     setMode(next) {
       mode = next;
+    },
+    setAuthorId(next) {
+      authorId = next;
     },
     dispose() {
       for (const off of unsubscribe) off();

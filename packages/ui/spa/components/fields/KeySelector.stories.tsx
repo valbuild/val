@@ -128,3 +128,34 @@ function InteractiveStory() {
 export const Interactive: Story = {
   render: () => <InteractiveStory />,
 };
+
+/**
+ * Referencing something that does not exist yet: the dropdown can add the entry
+ * to the referenced record, which only a record can take - an object's keys are
+ * its schema. Search for a key that is not there, and the create option is
+ * still offered, with what was searched for as the new key.
+ */
+function CreatableStory() {
+  const [keys, setKeys] = useState(recordKeys);
+  const [value, setValue] = useState<string | null>(null);
+  return (
+    <KeySelector
+      keys={keys}
+      previews={recordPreviews}
+      value={value}
+      onChange={(key) => setValue(key)}
+      keyDescription="A short, unique id for the page"
+      // In the Studio this also writes the entry to the referenced module and
+      // navigates to it - `onCreate` owns the whole outcome, so a story that
+      // only has a list to add to does both of the parts it has.
+      onCreate={(key) => {
+        setKeys((prev) => [...prev, key]);
+        setValue(key);
+      }}
+    />
+  );
+}
+
+export const Creatable: Story = {
+  render: () => <CreatableStory />,
+};

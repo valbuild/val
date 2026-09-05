@@ -101,7 +101,7 @@ describe("planSessionKeyExpansion", () => {
         "/content/article.val.ts",
         s.object({
           body: s.richtext({
-            inline: { img: true },
+            img: true,
           }),
         }),
         { body: [] },

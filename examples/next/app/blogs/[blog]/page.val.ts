@@ -5,12 +5,8 @@ import { linkSchema } from "../../../components/link.val";
 const blogSchema = s.object({
   title: s.string(),
   content: s.richtext({
-    style: {
-      bold: true,
-    },
-    inline: {
-      a: s.route(),
-    },
+    bold: true,
+    a: s.route(),
   }),
   author: s.keyOf(authorsVal),
   link: linkSchema,

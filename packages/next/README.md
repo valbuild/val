@@ -48,6 +48,7 @@
   - [Number](#number)
   - [Boolean](#boolean)
   - [Nullable](#nullable)
+  - [Read-only and hidden fields](#read-only-and-hidden-fields)
   - [Array](#array)
   - [Record](#record)
   - [Router](#router)
@@ -384,6 +385,24 @@ import { s } from "./val.config";
 s.string().nullable(); // <- Schema<string | null>
 ```
 
+## Read-only and hidden fields
+
+`.readonly()` renders a field disabled in the Val editor, and `.hidden()` leaves
+it out of the editor entirely. Both are UI-only: the value is still stored,
+validated and serialized as normal.
+
+Both take an optional flag which defaults to `true`, so `.readonly()` and
+`.readonly(true)` are the same thing. Pass it when the decision comes from a
+variable rather than being written out:
+
+```ts
+import { s } from "./val.config";
+
+s.string().readonly(); // same as .readonly(true)
+s.string().readonly(!canEdit);
+s.image().hidden(hideMedia);
+```
+
 ## Description
 
 All schema types can be given a human-readable description with `.describe(text)`. Descriptions are shown in the Val editor UI as muted helper text under the field label, helping editors understand what a field is for without leaving the page.
@@ -662,27 +681,21 @@ import { s, c } from "./val.config";
 
 export const schema = s.richtext({
   // styling
-  style: {
-    bold: true, // enables bold
-    italic: true, // enables italic text
-    lineThrough: true, // enables line/strike-through
-  },
+  bold: true, // enables bold
+  italic: true, // enables italic text
+  lineThrough: true, // enables line/strike-through
   // tags:
-  block: {
-    //ul: true, // enables unordered lists
-    //ol: true, // enables ordered lists
-    // headings:
-    h1: true,
-    h2: true,
-    // h3: true,
-    // h4: true,
-    // h5: true,
-    // h6: true
-  },
-  inline: {
-    //a: true, // enables links
-    //img: true, // enables images
-  },
+  //ul: true, // enables unordered lists
+  //ol: true, // enables ordered lists
+  // headings:
+  h1: true,
+  h2: true,
+  // h3: true,
+  // h4: true,
+  // h5: true,
+  // h6: true,
+  //a: true, // enables links
+  //img: true, // enables images
 });
 
 export default c.define("/src/app/content", schema, [
@@ -713,9 +726,7 @@ export default function Page() {
     <main>
       <ValRichText
         theme={{
-          style: {
-            bold: "font-bold", // <- maps bold to a class. NOTE: tailwind classes are supported
-          },
+          bold: "font-bold", // <- maps bold to a class. NOTE: tailwind classes are supported
           //
         }}
         content={content}
@@ -739,7 +750,7 @@ To add classes to `ValRichText` you can use the theme property:
 />
 ```
 
-**NOTE**: if a theme is defined, you must define a mapping for every tag that the you get. What tags you have is decided based on the `options` defined on the `s.richtext()` schema. For example: `s.richtext({ style: { bold: true } })` requires that you add a `bold` theme.
+**NOTE**: if a theme is defined, you must define a mapping for every tag you can get. What tags you have is decided based on the `options` defined on the `s.richtext()` schema. For example: `s.richtext({ bold: true })` requires that you add a `bold` theme.
 
 ```tsx
 <ValRichText

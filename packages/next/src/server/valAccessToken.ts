@@ -37,6 +37,10 @@ import {
  * - **Nothing is read from the payload before the signature verifies.** Claims
  *   from an unverified token are attacker input.
  * - **Keys come only from the configured issuer's JWKS**, never from the token.
+ *   The key set is cached, but a token naming a `kid` the cache does not hold
+ *   provokes one rate-limited refetch rather than a refusal — see
+ *   {@link UNKNOWN_KID_REFETCH_INTERVAL_MS}. Without that, this server's own
+ *   cache turns any key rotation into an outage lasting the rest of the TTL.
  * - **ECDSA JWS signatures are raw `r||s`** (RFC 7518), not DER, which is what
  *   `dsaEncoding: "ieee-p1363"` below is for. Omit it and every valid signature
  *   is rejected — or worse, a future change makes it accept the wrong thing.
@@ -92,6 +96,21 @@ const JWKS_TTL_MS = 5 * 60 * 1000;
  * it.
  */
 const JWKS_ERROR_TTL_MS = 30 * 1000;
+/**
+ * The floor between two refetches provoked by an unknown `kid`.
+ *
+ * A token naming a key this process has not seen is the one case where the TTL
+ * is the wrong answer: the issuer may have just rotated, and refusing for the
+ * rest of the five minutes turns a rotation into an outage. So an unknown `kid`
+ * bypasses the TTL — but only this often, because the `kid` comes from the
+ * token and the token comes from whoever is calling. Without a floor, a stream
+ * of random `kid`s would be a way to make this server hammer its own issuer.
+ *
+ * Note what the floor costs when it bites: a refusal, for a token that would
+ * have verified, for at most this long. That is the same failure the TTL used
+ * to guarantee for five minutes, so the trade only ever improves.
+ */
+const UNKNOWN_KID_REFETCH_INTERVAL_MS = 30 * 1000;
 
 type Jwk = {
   kty?: unknown;
@@ -114,11 +133,21 @@ type JwksCacheEntry =
 const jwksCache = new Map<string, JwksCacheEntry>();
 /** Concurrent misses share one fetch rather than starting several. */
 const inFlight = new Map<string, Promise<JwksCacheEntry>>();
+/**
+ * When an unknown `kid` last made us go back to the issuer, per issuer.
+ *
+ * Separate from the cache because it is a rate limit rather than a cache: it
+ * records an *attempt*, so a refetch that found nothing new still spends the
+ * window. Keyed by issuer, not by `kid`, or an attacker would simply use a new
+ * one each time.
+ */
+const unknownKidRefetchAtMs = new Map<string, number>();
 
 /** Test seam: a fresh process would have an empty cache anyway. */
 export function clearValAccessTokenCache(): void {
   jwksCache.clear();
   inFlight.clear();
+  unknownKidRefetchAtMs.clear();
 }
 
 function jwksUrl(issuer: string): string {
@@ -129,10 +158,22 @@ function jwksUrl(issuer: string): string {
   return new URL("/.well-known/jwks.json", issuer).toString();
 }
 
+type JwksLoad = {
+  entry: JwksCacheEntry;
+  /**
+   * Whether this came from the cache rather than the network.
+   *
+   * Only the unknown-`kid` path cares: going straight back to the issuer for a
+   * key set that was fetched a millisecond ago cannot find anything the first
+   * fetch missed.
+   */
+  fromCache: boolean;
+};
+
 async function loadJwks(
   config: ValOAuthConfig,
   nowMs: number,
-): Promise<JwksCacheEntry> {
+): Promise<JwksLoad> {
   const url = jwksUrl(config.issuer);
   const cached = jwksCache.get(url);
   if (cached) {
@@ -142,9 +183,86 @@ async function loadJwks(
         : nowMs - cached.failedAtMs;
     const ttl = cached.status === "keys" ? JWKS_TTL_MS : JWKS_ERROR_TTL_MS;
     if (age < ttl) {
-      return cached;
+      return { entry: cached, fromCache: true };
     }
   }
+  return { entry: await fetchJwks(config, nowMs), fromCache: false };
+}
+
+/**
+ * Go back to the issuer because the token named a key we do not have.
+ *
+ * Rate-limited, and the limit is the whole reason this is not just a call to
+ * {@link fetchJwks}: the `kid` that triggers it is attacker-controlled. Returns
+ * `null` when the window has not elapsed, which the caller reads as "nothing
+ * new to try" rather than as a failure.
+ *
+ * The limit is on *starting* a fetch, not on benefiting from one. A fetch
+ * already in flight is joined whatever the window says, because joining it
+ * costs the issuer nothing — and the case that matters is precisely a burst:
+ * at a rotation, many requests arrive at once carrying the same new `kid`, and
+ * refusing all but the first would be the outage this whole path exists to
+ * prevent, merely shortened from five minutes to thirty seconds.
+ *
+ * Only ever called with a successfully-fetched key set in hand. An error entry
+ * has its own, shorter TTL and its own recovery, and letting an unknown `kid`
+ * shortcut it would hand an unreachable issuer a retry storm.
+ */
+async function refetchForUnknownKid(
+  config: ValOAuthConfig,
+  nowMs: number,
+): Promise<JwksCacheEntry | null> {
+  const url = jwksUrl(config.issuer);
+  const existing = inFlight.get(url);
+  if (existing) {
+    // Somebody is already asking. Waiting for their answer adds no request to
+    // the issuer, so the rate limit has nothing to protect against here.
+    return existing;
+  }
+  const lastAttemptMs = unknownKidRefetchAtMs.get(url);
+  if (
+    lastAttemptMs !== undefined &&
+    nowMs - lastAttemptMs < UNKNOWN_KID_REFETCH_INTERVAL_MS
+  ) {
+    return null;
+  }
+  // Recorded before the await, so that once this fetch has finished the window
+  // is already closed against the next unknown `kid`.
+  unknownKidRefetchAtMs.set(url, nowMs);
+  return fetchJwks(config, nowMs, { keepCacheOnError: true });
+}
+
+/**
+ * Fetch the key set, ignoring whatever is cached, and cache the result.
+ *
+ * Shares {@link inFlight} with every other caller, so a forced refetch that
+ * lands during an ordinary miss joins it rather than opening a second request.
+ * Only the caller that *starts* a fetch writes the cache — a joiner returns the
+ * shared promise above — so `keepCacheOnError` is a property of the fetch, not a
+ * race between callers.
+ */
+async function fetchJwks(
+  config: ValOAuthConfig,
+  nowMs: number,
+  {
+    /**
+     * Leave a good cached key set alone if this fetch fails.
+     *
+     * For the unknown-`kid` path, where the cache being replaced is *live* —
+     * fetched inside its TTL and able to verify every token signed by a key it
+     * already holds. Overwriting that with an error entry on a transient 500
+     * would refuse those tokens too, for the length of the error TTL, and the
+     * `kid` that triggered the fetch comes from whoever is calling: one token
+     * naming a key that does not exist would be enough to do it.
+     *
+     * Deliberately off for the ordinary TTL-expiry fetch. There the cached set
+     * is stale by policy, and "we could not reach the issuer" is the honest
+     * answer rather than a set we have decided to stop trusting.
+     */
+    keepCacheOnError = false,
+  }: { keepCacheOnError?: boolean } = {},
+): Promise<JwksCacheEntry> {
+  const url = jwksUrl(config.issuer);
   const existing = inFlight.get(url);
   if (existing) {
     return existing;
@@ -171,6 +289,18 @@ async function loadJwks(
   inFlight.set(url, pending);
   try {
     const entry = await pending;
+    const cached = jwksCache.get(url);
+    if (
+      entry.status === "error" &&
+      keepCacheOnError &&
+      cached?.status === "keys"
+    ) {
+      // Keep the good set, and keep its original `fetchedAtMs` so it still
+      // expires on schedule: this preserves a cache, it does not extend one.
+      // The failure is still reported to the caller, which is what lets the
+      // refusal say "could not be fetched" rather than "not published".
+      return entry;
+    }
     jwksCache.set(url, entry);
     return entry;
   } finally {
@@ -246,8 +376,8 @@ export async function verifyValAccessToken(
   const kid = typeof header.kid === "string" ? header.kid : null;
 
   const nowMs = Date.now();
-  const jwks = await loadJwks(config, nowMs);
-  if (jwks.status === "error") {
+  const loaded = await loadJwks(config, nowMs);
+  if (loaded.entry.status === "error") {
     // Refusing is right — an unverifiable token is not a valid one — but the
     // message says it may pass, because retrying is the correct client
     // behaviour here and re-authorizing is not.
@@ -256,7 +386,37 @@ export async function verifyValAccessToken(
     );
   }
 
-  const candidates = jwks.keys.filter((key) => isVerifyingP256Key(key, kid));
+  let candidates = loaded.entry.keys.filter((key) =>
+    isVerifyingP256Key(key, kid),
+  );
+  if (candidates.length === 0 && kid !== null && loaded.fromCache) {
+    /**
+     * A named key we have never seen, out of a key set we did not just fetch.
+     *
+     * The likeliest cause is a rotation the issuer has already published and
+     * this process has not looked at yet, and refusing until the TTL elapses
+     * would make every warm instance reject valid tokens for up to five
+     * minutes — an outage produced entirely by our own caching.
+     *
+     * So: go and look, once per issuer per window. If the key set has genuinely
+     * not changed, the refusal below is the same refusal as before, only later.
+     */
+    const refetched = await refetchForUnknownKid(config, nowMs);
+    if (refetched !== null) {
+      if (refetched.status === "error") {
+        // The one request that could have told us about this key did not
+        // arrive, so "the issuer does not publish that key" is not something
+        // we know — it is a guess, and the wrong one sends the client off to
+        // re-authorize when it should simply retry. The cache still holds the
+        // keys it had, so this refusal is confined to tokens naming a `kid` we
+        // have not seen.
+        return invalidToken(
+          "The access token could not be verified because the Val authorization server's keys could not be fetched. This may be temporary.",
+        );
+      }
+      candidates = refetched.keys.filter((key) => isVerifyingP256Key(key, kid));
+    }
+  }
   if (candidates.length === 0) {
     return invalidToken(
       "The access token was signed with a key the Val authorization server does not publish.",
@@ -270,7 +430,8 @@ export async function verifyValAccessToken(
   const signedData = Buffer.from(`${encodedHeader}.${encodedPayload}`, "ascii");
   // Every published key is tried when the token names no `kid`, so a rotation
   // that has not yet propagated to clients still verifies. With a `kid` the
-  // filter above leaves one.
+  // filter above leaves one — or, if this process had not yet seen that key,
+  // the one the refetch just found.
   const verified = candidates.some((key) =>
     verifyWithJwk(key, signedData, signature),
   );

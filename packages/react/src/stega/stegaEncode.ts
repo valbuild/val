@@ -313,7 +313,7 @@ function resolveLiteralUnionSchema(
 /**
  * The image schema of a richtext's inline images.
  *
- * `inline.img` serializes as `true` when the author did not pass a schema, so
+ * `img` serializes as `true` when the author did not pass a schema, so
  * there is nothing to hand down; a bare `{type: "image"}` is enough, since all
  * the media branch needs is to know that it is looking at media.
  */
@@ -323,7 +323,7 @@ function inlineImageSchemaOf(
   if (schema?.type !== "richtext") {
     return undefined;
   }
-  const img = schema.options?.inline?.img;
+  const img = schema.options?.img;
   if (!img) {
     return undefined;
   }

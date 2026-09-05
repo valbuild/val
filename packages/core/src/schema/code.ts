@@ -192,12 +192,12 @@ export class CodeSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  readonly(): CodeSchema<Src> {
+  readonly(isReadonly: boolean = true): CodeSchema<Src> {
     return new CodeSchema<Src>(
       this.options,
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.renderInput,
@@ -205,13 +205,13 @@ export class CodeSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  hidden(): CodeSchema<Src> {
+  hidden(isHidden: boolean = true): CodeSchema<Src> {
     return new CodeSchema<Src>(
       this.options,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.renderInput,
       this.previewInput,

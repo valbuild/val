@@ -311,6 +311,19 @@ export class PatchStore {
    */
   private parentRefSource: () => ParentRef | null = () => null;
 
+  /**
+   * Who the person at the keyboard is, as an author id.
+   *
+   * A source rather than a value for the same reason {@link parentRefSource} is
+   * one: it arrives from `/stat`, which lands after the system is built, and a
+   * system rebuilt when it does would take its patches with it.
+   *
+   * `null` — no session, so nobody — is the honest default and is what `fs` mode
+   * stays on: there the review UI reads a missing author as "Local changes",
+   * which is true, rather than as a person it cannot name.
+   */
+  private authorSource: () => string | null = () => null;
+
   /** See {@link parentRefSource}. */
   /** See {@link publishInFlight}. */
   setPublishInFlight(isPublishing: () => boolean): void {
@@ -319,6 +332,11 @@ export class PatchStore {
 
   setParentRefSource(source: () => ParentRef | null): void {
     this.parentRefSource = source;
+  }
+
+  /** See {@link authorSource}. */
+  setAuthorSource(source: () => string | null): void {
+    this.authorSource = source;
   }
 
   constructor(
@@ -893,6 +911,17 @@ export class PatchStore {
       patch: patchOps,
       meta,
       createdAt: new Date().toISOString(),
+      // Stamped for the same reason `createdAt` is, and with the same value the
+      // server is about to record: `PUT /patches` takes the author from the
+      // session cookie this client is authenticated with, so the two agree.
+      //
+      // Without it a patch made here had no author until the page was reloaded,
+      // and a locally created record is never re-fetched — `onStatPatchIds` asks
+      // only for ids it has no data for. So in `http` mode every change the user
+      // had just made showed as "Unknown author" beside the ones they made
+      // before, which is the one reading of the review screen that is never
+      // true.
+      authorId: this.authorSource(),
     };
     this.dataById.set(patchId, record);
     this.originById.set(patchId, "internal");

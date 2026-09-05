@@ -30,6 +30,25 @@ paths; it moves _content between fixed paths_. Two consequences:
   permutation plus the patch's permutation cancel out, and the drag silently does
   nothing. Measured. `SortableList.tsx` carries the note.
 
+**A transformed ancestor moves the drag overlay, and moves the drop with it.**
+dnd-kit's `DragOverlay` — the card that follows the cursor — is `position:
+fixed` at the dragged row's client rect, and it renders inside the list rather
+than in a portal. A transformed ancestor is the containing block for every fixed
+descendant, so anything between the row and the viewport that carries a
+`transform` re-bases it. `translateX(0%)` counts: it moves nothing and still
+creates the containing block. The phone's preview put the two panes on such a
+track, and with the preview open the overlay's `top` was resolved against a box
+already pushed down by the strip of switches — the row floated 132px below the
+finger.
+
+The visible offset is the smaller half. dnd-kit collides the OVERLAY's measured
+rect against the rows to pick the drop, so the same 132px landed the row about
+three positions past where it was being aimed, which is how it was reported. If a
+drag is off by a constant, look for a `transform` above the list before looking
+at the sensors. `e2e/mobile-canvas.spec.ts` measures the gap between the finger
+and the overlay; use `isolation: isolate` where a stacking context is what the
+transform was really there for.
+
 ## Media
 
 The `/public` URL rule and the `appliedAt` gate — see [media.md](./media.md). The
@@ -119,6 +138,18 @@ which is the path the event actually travelled — `useDismissOnOutsidePointer`
 does. This cost the Preview menu's "Open in a new tab" and every suggestion in
 the canvas address bar.
 
+**A Radix popup with no `container` opens OUTSIDE the shadow root, and that also
+reads as a dead button.** The default portal target is `document.body`, where
+none of Val's styles reach the menu and nothing gives it a stacking context
+above the overlay — so it opens, correctly positioned, invisible behind the
+Studio. Nothing is logged and the trigger's `data-state` flips to `open`, so the
+only symptom is a click that appears to do nothing. Every Studio popup therefore
+passes `container={useValPortal()}`; `DropdownMenuContent` and `TooltipContent`
+now render INLINE rather than portalling when they are not given one, because
+clipped is recoverable and invisible is not. This cost the AI chat's model
+picker, which was read as "the model switcher does not work", and the confirm in
+`UtilityPanel` before it.
+
 **A ref mutated during render survives a discarded render; the `setState` beside
 it does not.** So the "adjust state when a prop changes" pattern must hold the
 previous prop in **state**, never a ref:
@@ -174,6 +205,16 @@ workspace was half the editor and half the page, and stayed there. `overflow:
 clip` creates no scroll port at all, so there is no offset to write to; that,
 and the panes being a `transform` rather than a scroll position, is what
 `PageWorkspace` relies on now.
+
+**cmdk hides a GROUP whose items do not match the search, and a separator while
+there is any search at all.** So an item that has to stay — "New page" in
+`RouteSelector`, "New entry" in `KeySelector` — needs more than its own
+`forceMount`: inside a group that cmdk has hidden it is still invisible, and the
+option is gone exactly when the editor has just established that the thing they
+are searching for does not exist. Put `forceMount` on the `CommandGroup` (it
+reaches the items through cmdk's context) and `alwaysRender` on the
+`CommandSeparator`. jsdom does not compute visibility, so a jest test clicks a
+hidden item quite happily; `e2e/keyof-create.spec.ts` is what caught it.
 
 ## Remote files and proxy mode
 

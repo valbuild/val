@@ -1,5 +1,123 @@
 # @valbuild/next
 
+## 0.120.4
+
+### Patch Changes
+
+- Updated dependencies [[`6df3cae`](https://github.com/valbuild/val/commit/6df3caec1cc043a07b532d3174583b8218d4871d)]:
+  - @valbuild/ui@0.120.4
+  - @valbuild/react@0.120.4
+  - @valbuild/server@0.120.4
+  - @valbuild/language-server@0.120.4
+
+## 0.120.3
+
+### Patch Changes
+
+- Updated dependencies [[`9b96184`](https://github.com/valbuild/val/commit/9b96184cf6ad6d52a714867fb1527eeec6c776f4), [`1a2484a`](https://github.com/valbuild/val/commit/1a2484a309679bd5e963d626466c2828f74d49f8), [`71becc7`](https://github.com/valbuild/val/commit/71becc7e543432e4a57e36d54aaf803e9a447ffd)]:
+  - @valbuild/ui@0.120.3
+  - @valbuild/react@0.120.3
+  - @valbuild/server@0.120.3
+  - @valbuild/language-server@0.120.3
+
+## 0.120.2
+
+### Patch Changes
+
+- [#593](https://github.com/valbuild/val/pull/593) [`095ee0d`](https://github.com/valbuild/val/commit/095ee0dd011b069c30bc99ae58356e28796e106b) Thanks [@freekh](https://github.com/freekh)! - Publish the packages that 0.120.1 did not reach.
+
+  `@valbuild/server@0.120.1` made it to npm, but `@valbuild/cli`,
+  `@valbuild/language-server` and `@valbuild/next` did not — the release job
+  failed part-way through, and the version numbers it had already claimed could
+  not be reused. This release carries the same contents for those three packages:
+  they pick up the MCP signing-key rotation fix from `@valbuild/server@0.120.1`,
+  and there is nothing else in it.
+
+  If you are on 0.120.0, upgrade straight to this version. There is no 0.120.1 of
+  these three packages, and there will not be one.
+
+- Updated dependencies [[`095ee0d`](https://github.com/valbuild/val/commit/095ee0dd011b069c30bc99ae58356e28796e106b)]:
+  - @valbuild/language-server@0.120.2
+
+## 0.120.1
+
+### Patch Changes
+
+- [#590](https://github.com/valbuild/val/pull/590) [`6f318d4`](https://github.com/valbuild/val/commit/6f318d406295b772e721bf463283f47e2822e996) Thanks [@freekh](https://github.com/freekh)! - MCP: survive a signing-key rotation, and say what a refused local token means.
+
+  `@valbuild/next` caches the authorization server's JWKS for five minutes. Until
+  now a token signed with a key that arrived inside that window was refused
+  outright, so every warm instance rejected valid tokens until the cache expired —
+  a rotation on the issuer's side showed up as an outage on yours.
+
+  A token naming a key the cache does not hold now provokes one refetch of the key
+  set, at most once per issuer every 30 seconds. The rate limit matters because the
+  key id comes from the token: without it, unknown key ids would be a way to make
+  your app call its issuer once per request. It limits how often a fetch is
+  _started_, so requests that arrive while one is already running join it — which
+  is the normal shape of a rotation, where many requests meet the new key at once.
+
+  Separately, an MCP call that presents an access token to a project running in
+  local filesystem mode is still refused — there is nothing to authenticate against
+  — but the message now names the cause, which is that the project has an `oauth`
+  issuer configured (often `VAL_OAUTH_ISSUER` in a local `.env`) and should not
+  have one for local development.
+
+- Updated dependencies [[`6f318d4`](https://github.com/valbuild/val/commit/6f318d406295b772e721bf463283f47e2822e996)]:
+  - @valbuild/server@0.120.1
+  - @valbuild/language-server@0.120.1
+
+## 0.120.0
+
+### Minor Changes
+
+- [#589](https://github.com/valbuild/val/pull/589) [`c2d3c0e`](https://github.com/valbuild/val/commit/c2d3c0e6c2010c0a94c725d9dbaa618998773e8a) Thanks [@freekh](https://github.com/freekh)! - **Breaking:** `s.richtext()` options are flat.
+
+  The `style`, `block` and `inline` groups are gone — every option is a key of its
+  own. The names are unchanged, so updating a schema is only a matter of removing
+  the wrappers:
+
+  ```ts
+  // before
+  s.richtext({
+    style: { bold: true, italic: true },
+    block: { h1: true, ul: true },
+    inline: { a: true, img: s.image() },
+  });
+
+  // after
+  s.richtext({
+    bold: true,
+    italic: true,
+    h1: true,
+    ul: true,
+    a: true,
+    img: s.image(),
+  });
+  ```
+
+  The groups never carried any meaning the option names did not already have, and
+  they cost something real: an option name and its `ValRichText` theme key were
+  spelled differently (`block.h1` vs `theme.h1`), so the type that keeps a theme
+  exhaustive had to restate all thirteen options by hand. It is now a mapped type
+  over the options themselves — which also fixes an inconsistency in it: enabling
+  links with a schema (`a: s.route()`) rather than `a: true` now requires an `a`
+  key in the theme, the way `img` always has.
+
+  `ValRichText` themes were already flat and are unchanged. The serialized schema
+  that the server sends the Studio is flat too, so a project must not mix
+  `@valbuild/*` versions across this release.
+
+### Patch Changes
+
+- Updated dependencies [[`c2d3c0e`](https://github.com/valbuild/val/commit/c2d3c0e6c2010c0a94c725d9dbaa618998773e8a)]:
+  - @valbuild/core@0.120.0
+  - @valbuild/react@0.120.0
+  - @valbuild/shared@0.120.0
+  - @valbuild/ui@0.120.0
+  - @valbuild/language-server@0.120.0
+  - @valbuild/server@0.120.0
+
 ## 0.119.0
 
 ### Patch Changes

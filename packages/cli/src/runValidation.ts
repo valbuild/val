@@ -134,6 +134,30 @@ export async function* runValidation({
       return;
     }
     const start = Date.now();
+    // How this module is DECLARED, before what is in it: a module error is not
+    // something content can fix (a misplaced settings module is otherwise
+    // perfectly valid content), and validating on top of it would report the
+    // consequences instead of the cause.
+    const moduleErrors = service
+      .getModuleErrors()
+      .filter((moduleError) => moduleError.path === moduleFilePath);
+    if (moduleErrors.length > 0) {
+      for (const moduleError of moduleErrors) {
+        errors += 1;
+        yield {
+          type: "fatal-error",
+          file: moduleFilePath,
+          message: moduleError.message,
+        };
+      }
+      yield {
+        type: "file-error-count",
+        file: moduleFilePath,
+        errorCount: moduleErrors.length,
+        durationMs: Date.now() - start,
+      };
+      return;
+    }
     const valModule = await service.get(moduleFilePath, "" as ModulePath, {
       validate: true,
     });

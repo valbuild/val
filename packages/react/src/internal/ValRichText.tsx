@@ -9,11 +9,23 @@ import {
 import React, { CSSProperties, type JSX, ReactNode } from "react";
 import { attrs, raw, RichText, StegaOfRichTextSource } from "../stega";
 
+/**
+ * The tags that are in every richtext, whatever the options say: no option
+ * turns them on, so a theme never has to mention them.
+ */
 type DefaultThemes = Partial<{
   br: string | null;
   p: string | null;
   span: string | null;
 }>;
+/**
+ * The class name of every tag or style that an option turns on. The keys are
+ * the option names themselves, which is what makes a theme exhaustive by
+ * construction: enable `italic` in the schema and `italic` becomes a required
+ * key here.
+ *
+ * `li` is the one key without an option of its own - it comes with `ul`/`ol`.
+ */
 type OptionalFields = {
   h1: string | null;
   h2: string | null;
@@ -31,28 +43,36 @@ type OptionalFields = {
   italic: string | null;
 };
 type AllThemes = DefaultThemes & OptionalFields;
-type ThemeOptions<O extends RichTextOptions = AllRichTextOptions> =
-  DefaultThemes &
-    Pick<
-      OptionalFields,
-      | (NonNullable<O["inline"]>["img"] extends true | Schema<SelectorSource>
-          ? "img"
-          : never)
-      | (NonNullable<O["inline"]>["a"] extends true ? "a" : never)
-      | (NonNullable<O["block"]>["ul"] extends true ? "ul" | "li" : never)
-      | (NonNullable<O["block"]>["ol"] extends true ? "ol" | "li" : never)
-      | (NonNullable<O["style"]>["lineThrough"] extends true
-          ? "lineThrough"
-          : never)
-      | (NonNullable<O["style"]>["bold"] extends true ? "bold" : never)
-      | (NonNullable<O["style"]>["italic"] extends true ? "italic" : never)
-      | (NonNullable<O["block"]>["h1"] extends true ? "h1" : never)
-      | (NonNullable<O["block"]>["h2"] extends true ? "h2" : never)
-      | (NonNullable<O["block"]>["h3"] extends true ? "h3" : never)
-      | (NonNullable<O["block"]>["h4"] extends true ? "h4" : never)
-      | (NonNullable<O["block"]>["h5"] extends true ? "h5" : never)
-      | (NonNullable<O["block"]>["h6"] extends true ? "h6" : never)
-    >;
+
+/** `a` and `img` are on when they carry a schema, not only when they are `true`. */
+type IsEnabled<T> = T extends true
+  ? true
+  : T extends Schema<SelectorSource>
+    ? true
+    : false;
+
+/** Every option name `O` turns on, plus `li` when it has a list. */
+type EnabledThemeKeys<O extends RichTextOptions> =
+  | {
+      [K in keyof OptionalFields & keyof RichTextOptions]: IsEnabled<
+        O[K]
+      > extends true
+        ? K
+        : never;
+    }[keyof OptionalFields & keyof RichTextOptions]
+  | (IsEnabled<O["ul"]> extends true
+      ? "li"
+      : IsEnabled<O["ol"]> extends true
+        ? "li"
+        : never);
+
+/**
+ * The `theme` a `ValRichText` accepts for a given set of richtext options: a
+ * class name for every tag or style those options turn on, and nothing more.
+ * Every key is required, so forgetting one is a type error naming it.
+ */
+export type ThemeOptions<O extends RichTextOptions = AllRichTextOptions> =
+  DefaultThemes & Pick<OptionalFields, EnabledThemeKeys<O>>;
 
 type RichTextNode = StegaOfRichTextSource<
   RichTextSourceNode<AllRichTextOptions>
@@ -83,12 +103,8 @@ type RichTextNode = StegaOfRichTextSource<
  *   <ValRichText
  *     content={content.myRichText}
  *     theme={{
- *        block: {
- *          h1: 'text-4xl font-bold',
- *        },
- *        inline: {
- *          img: 'rounded',
- *        }
+ *        h1: 'text-4xl font-bold',
+ *        img: 'rounded',
  *     }}
  *     transform={(node, className) => {
  *        if (node.tag === 'img') {

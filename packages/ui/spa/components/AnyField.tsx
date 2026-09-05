@@ -6,6 +6,7 @@ import { KeyOfField } from "./fields/KeyOfField";
 import { NumberField } from "./fields/NumberField";
 import { ObjectFields } from "./fields/ObjectFields";
 import { RecordFields } from "./fields/RecordFields";
+import { SettingsFields } from "./fields/SettingsFields";
 import { RichTextField } from "./fields/RichTextField";
 import { RouteField } from "./fields/RouteField";
 import { StringField } from "./fields/StringField";
@@ -96,6 +97,17 @@ export function AnyField({
   } else if (schema.type === "array") {
     return (
       <ArrayFields
+        key={path}
+        path={path}
+        readonly={effectiveReadonly}
+        compact={compact}
+        inline={inline}
+        errorDisplay={errorDisplay}
+      />
+    );
+  } else if (schema.type === "settings") {
+    return (
+      <SettingsFields
         key={path}
         path={path}
         readonly={effectiveReadonly}

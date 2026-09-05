@@ -556,6 +556,57 @@ until someone bumps it. So, once the new version is on npm:
    shows up here first, and this is the last place to catch it before it is what
    every new project starts from.
 
+### The Release job fails with `E401 … Failed to generate Web Auth URLs`
+
+Symptom: `changeset publish` publishes some packages and then fails on one:
+
+```
+@valbuild/language-server@0.120.1
+└ E401: 401 Unauthorized - PUT https://registry.npmjs.org/@valbuild%2flanguage-server - Failed to generate Web Auth URLs due to error: BadRequestError: token is invalid
+```
+
+Re-running the job does not help; the same package now fails with
+
+```
+└ E409: 409 Conflict - PUT https://registry.npmjs.org/@valbuild%2flanguage-server - Cannot publish over previously staged version "0.120.1".
+```
+
+and the packages that depend on it (`cli`, `next`) are never attempted.
+
+→ Nothing is wrong with the token or the workflow. The Release workflow publishes
+with npm trusted publishing (OIDC — note the `id-token: write` permission and the
+absence of an `NPM_TOKEN`), and every `@valbuild/*` package has a trusted
+publisher configuration on npmjs.com pointing at `valbuild/val` +
+`release.yml`. Since May 2026 that configuration carries an **Allowed actions**
+choice: `npm stage publish` is always allowed, and `npm publish` (direct
+publishing) is a separate checkbox. Configurations created before that date
+were grandfathered to allow `npm publish`; newer ones are not unless the box was
+ticked. When the workflow runs `npm publish` against a package whose
+configuration only allows staging, the registry **stages** the version and then
+tries to complete the publish with a web-auth 2FA prompt, which an OIDC token
+cannot answer — hence the 401. The tarball stays in the staging area, so every
+re-run gets the 409.
+
+Fix, in this order:
+
+1. On npmjs.com, open the **Staged Packages** tab and either **Approve** the
+   staged version (2FA; this publishes it with the provenance from the original
+   run, which is what happened for `language-server@0.120.0`) or **Reject** it
+   so the version number is free again. `npm stage approve <stage-id>` from a
+   laptop with 2FA does the same; OIDC tokens cannot approve.
+2. Fix the configuration so it does not happen next release: npmjs.com →
+   the package → Settings → Trusted publishing. Connections cannot be edited,
+   so delete the GitHub Actions one and add it back (organization `valbuild`,
+   repository `val`, workflow filename `release.yml`, no environment) with
+   **`npm publish` ticked under Allowed actions**. Configurations created after
+   2026-09-03 default to stage-only, so the box has to be ticked explicitly.
+3. Re-run the failed Release job. `changeset publish` skips versions already on
+   the registry, so it picks up exactly the packages that are still missing.
+
+A newly added package is the usual trigger: its trusted publisher gets created
+long after everyone else's, with the newer default. Tick the `npm publish` box
+when you set it up, and expect this failure on the first release if you forget.
+
 ## Common Fixes
 
 ### `prettier --check` fails on a file `prettier --write` just wrote

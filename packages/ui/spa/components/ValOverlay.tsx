@@ -45,6 +45,8 @@ import {
 } from "./ValProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useSchemaAtPath, useValConfig, useSchemas } from "./ValFieldProvider";
+import { useAssistantAvailability } from "../hooks/useAssistantAvailability";
+import { EnableAssistantPrompt } from "./EnableAssistantPrompt";
 import { useTheme } from "./ValThemeProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { FieldLoading } from "./FieldLoading";
@@ -251,9 +253,20 @@ export function ValOverlay(props: ValOverlayProps) {
             }
           }
         }
-        if (boundingBox) {
-          setBoundingBox(boundingBox);
-        }
+        /**
+         * Set unconditionally, `null` included.
+         *
+         * `null` is the answer whenever the pointer is over nothing Val
+         * tracks, and it has to be written: this used to set only when it
+         * found something, so the box stayed parked over the last piece of
+         * content the pointer crossed for as long as select mode was on. That
+         * box is the thing that turns a click into "edit this" — it sits above
+         * the page and stops the event — so whatever the page had at those
+         * coordinates stopped responding, and a link under it could not be
+         * followed. The stale outline looked like a rendering quirk; the dead
+         * link underneath was the real cost.
+         */
+        setBoundingBox(boundingBox);
       };
       const touchListener = (ev: TouchEvent) => {
         listener(ev.touches[0].clientX, ev.touches[0].clientY);
@@ -905,6 +918,7 @@ function ChatWindow({
   onClose: () => void;
   onOpen: () => void;
 }) {
+  const assistant = useAssistantAvailability();
   const chatRef = useRef<AIChatHandle | null>(null);
   const { chatEditorRef, setOpenAIChatImpl } = useAIChatActions();
   useEffect(() => {
@@ -1100,24 +1114,33 @@ function ChatWindow({
           </div>
         </div>
         <div className="flex-1 overflow-hidden">
-          <AIChat
-            ref={chatRef}
-            chatEditorRef={chatEditorRef}
-            onSendMessage={sendMessage}
-            onUploadFile={uploadAiImage}
-            onNewSession={newSession}
-            isConnected={isConnected}
-            authError={authError}
-            mode={mode}
-            sessions={sessions}
-            currentSessionId={currentSessionId}
-            onLoadSession={loadSession}
-            onFetchSessions={getSessions}
-            onSetSessionName={setSessionName}
-            isLoadingSession={isLoadingSession}
-            onAnswerToolQuestions={answerToolQuestions}
-            onCancelToolQuestion={cancelToolQuestion}
-          />
+          {/*
+            The same offer the Studio's panel makes, for the same reason: this
+            window is reachable while nobody has said whether the project has an
+            assistant, and it must ask rather than open a chat that cannot send.
+          */}
+          {assistant === "unconfigured" ? (
+            <EnableAssistantPrompt />
+          ) : (
+            <AIChat
+              ref={chatRef}
+              chatEditorRef={chatEditorRef}
+              onSendMessage={sendMessage}
+              onUploadFile={uploadAiImage}
+              onNewSession={newSession}
+              isConnected={isConnected}
+              authError={authError}
+              mode={mode}
+              sessions={sessions}
+              currentSessionId={currentSessionId}
+              onLoadSession={loadSession}
+              onFetchSessions={getSessions}
+              onSetSessionName={setSessionName}
+              isLoadingSession={isLoadingSession}
+              onAnswerToolQuestions={answerToolQuestions}
+              onCancelToolQuestion={cancelToolQuestion}
+            />
+          )}
         </div>
         {!isMobile && (
           <>
@@ -1359,8 +1382,9 @@ function ValMenu({
   const validationErrors = useAllValidationErrors() || {};
   const validationErrorCount = Object.keys(validationErrors).length;
   const valMode = useValMode();
-  const config = useValConfig();
-  const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
+  // Shown unless the project has turned it off: an assistant nobody has decided
+  // about is offered here, and the panel asks before it is used.
+  const isChatEnabled = useAssistantAvailability() !== "off";
   const sourcePathResult = useValRouterSourcePathFromCurrentPathname();
   const publishPopoverSide =
     dropZone === "val-menu-center-bottom"

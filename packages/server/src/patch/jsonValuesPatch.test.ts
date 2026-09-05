@@ -391,7 +391,7 @@ describe("applyJsonValuesEntryPatches", () => {
 
     test("richtext inline media is marked at its nestedFilePath", () => {
       const richtextSchema: SerializedSchema = s
-        .record(s.object({ body: s.richtext({ inline: { img: true } }) }))
+        .record(s.object({ body: s.richtext({ img: true }) }))
         .jsonValues()
         ["executeSerialize"]();
       const res = applyJsonValuesEntryPatches({

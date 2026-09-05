@@ -40,8 +40,8 @@ export function hasRemoteFileSchema(schema: SerializedSchema): boolean {
   if (schema.type === "file" || schema.type === "image") {
     return !!schema.remote;
   } else if (schema.type === "richtext") {
-    if (typeof schema.options?.inline?.img === "object") {
-      return hasRemoteFileSchema(schema.options.inline.img);
+    if (typeof schema.options?.img === "object") {
+      return hasRemoteFileSchema(schema.options.img);
     }
     return false;
   } else if (schema.type === "array") {
@@ -60,7 +60,10 @@ export function hasRemoteFileSchema(schema: SerializedSchema): boolean {
       return true;
     }
     return hasRemoteFileSchema(schema.item);
-  } else if (schema.type === "object") {
+  } else if (schema.type === "object" || schema.type === "settings") {
+    // Settings holds its sections the way an object holds its keys, so looking
+    // inside is the same walk. Nothing in settings takes a file today, but the
+    // answer should stay right when something does.
     for (const key in schema.items) {
       const hasRemoteFile = hasRemoteFileSchema(schema.items[key]);
       if (hasRemoteFile) {
@@ -134,7 +137,7 @@ export function hasMediaSchema(schema: SerializedSchema): boolean {
     // spelled-out one. `hasRemoteFileSchema` tests only for an object because a
     // default image is not remote — a different question with a different
     // answer, which is why these two walks are separate functions.
-    if (schema.options?.inline?.img) {
+    if (schema.options?.img) {
       return true;
     }
     return false;
@@ -178,7 +181,10 @@ export function hasMediaSchema(schema: SerializedSchema): boolean {
     schema.type === "color" ||
     schema.type === "code" ||
     schema.type === "keyOf" ||
-    schema.type === "route"
+    schema.type === "route" ||
+    // A settings module holds the assistant's configuration, not content, and
+    // nothing in it is media.
+    schema.type === "settings"
   ) {
     return false;
   } else {
