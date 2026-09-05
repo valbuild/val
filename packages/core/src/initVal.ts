@@ -2,12 +2,14 @@ import { define } from "./module";
 import { InitSchema, initSchema } from "./initSchema";
 import { getValPath as getPath } from "./val";
 import { json } from "./source/json";
+import { external } from "./source/external";
 // import { i18n, I18n } from "./source/future/i18n";
 // import { remote } from "./source/future/remote";
 
 export type ContentConstructor = {
   define: typeof define;
   json: typeof json;
+  external: typeof external;
 };
 export type ValConstructor = {
   unstable_getPath: typeof getPath;
@@ -92,6 +94,7 @@ InitVal => {
     c: {
       define,
       json,
+      external,
     },
     s,
     config,
