@@ -127,12 +127,38 @@ export type ValServerConfig = ValServerOptions &
       }
   );
 
-export type ValServer = ServerOf<Api>;
+/**
+ * A handle on the server's own `ValOps`, for callers that are INSIDE the process
+ * rather than on the other end of a request.
+ *
+ * A symbol, and therefore not routable: `createValApiRouter` dispatches by
+ * looking up `Api`'s string keys on this object, so nothing reachable over HTTP
+ * can ever arrive here.
+ *
+ * It exists for one case, and the case is external records. Every other kind of
+ * Val content is bundled with the app, so rendering a page in production needs
+ * no server at all — the module IS the content. An external record's content is
+ * only ever in the store, so the render path has to read it even with Val
+ * disabled and no session in sight. Routing that through the HTTP handlers would
+ * have meant either failing in production or opening published reads to anonymous
+ * callers, and enumerating someone's product table is not a capability to hand
+ * out by accident.
+ */
+export const VAL_OPS = Symbol.for("@valbuild/server/ValOps");
+
+export type ValServer = ServerOf<Api> & {
+  readonly [VAL_OPS]: ValOpsFS | ValOpsHttp;
+};
+
+/** The in-process `ValOps` of a server, for a caller that holds the server. */
+export function getValOps(valServer: ValServer): ValOpsFS | ValOpsHttp {
+  return valServer[VAL_OPS];
+}
 export const ValServer = (
   valModules: ValModules,
   options: ValServerConfig,
   callbacks: ValServerCallbacks,
-): ServerOf<Api> => {
+): ValServer => {
   const AIContentBlock = z.union([
     z.object({
       type: z.literal("text"),
@@ -439,6 +465,7 @@ export const ValServer = (
   };
 
   return {
+    [VAL_OPS]: serverOps,
     "/draft/enable": {
       GET: async (req) => {
         const cookies = req.cookies;

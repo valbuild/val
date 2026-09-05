@@ -39,6 +39,7 @@ export {
 } from "./externalStartup";
 export type { ExternalSetupError } from "./externalStartup";
 export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
+export { getValOps, VAL_OPS } from "./ValServer";
 // Val's tools, over ValOps rather than the Studio's browser stores — so an MCP
 // server, a stdio transport or anything else can drive Val content without a
 // browser. Nothing under `tools/` imports an MCP SDK, and the host that does

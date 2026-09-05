@@ -23,6 +23,7 @@ import { FileSource, Source, SourceObject } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core";
 import { SourceArray } from "@valbuild/core";
 import { RawString } from "@valbuild/core";
+import type { ExternalRecordSrc } from "@valbuild/core";
 
 declare const brand: unique symbol;
 
@@ -223,25 +224,33 @@ export type RichText<O extends RichTextOptions> = StegaOfRichTextSource<
 
 export type StegaOfSource<T extends Source> = Json extends T
   ? Json
-  : T extends RichTextSource<infer O>
-    ? RichText<O>
-    : T extends ImageSource
-      ? Image
-      : T extends FileSource
-        ? File
-        : T extends SourceObject
-          ? {
-              [key in keyof T]: StegaOfSource<T[key]>;
-            }
-          : T extends SourceArray
-            ? StegaOfSource<T[number]>[]
-            : T extends RawString
-              ? string
-              : string extends T
-                ? ValEncodedString
-                : T extends JsonPrimitive
-                  ? T
-                  : never;
+  : // An external record resolves to what a record always resolves to: its
+    // entries. The marker is not a value anyone reads — it says the entries are
+    // elsewhere — so resolving it must produce the same shape as the record it
+    // stands in for, or reading content would depend on where it is stored.
+    // Placed FIRST because the marker is structurally an object, and the
+    // SourceObject arm below would otherwise map over its phantom slots.
+    T extends ExternalRecordSrc<infer Item, string, boolean>
+    ? Record<string, Item extends Source ? StegaOfSource<Item> : Item>
+    : T extends RichTextSource<infer O>
+      ? RichText<O>
+      : T extends ImageSource
+        ? Image
+        : T extends FileSource
+          ? File
+          : T extends SourceObject
+            ? {
+                [key in keyof T]: StegaOfSource<T[key]>;
+              }
+            : T extends SourceArray
+              ? StegaOfSource<T[number]>[]
+              : T extends RawString
+                ? string
+                : string extends T
+                  ? ValEncodedString
+                  : T extends JsonPrimitive
+                    ? T
+                    : never;
 
 /**
  * Resolves the matching sub-schema for a tagged union based on the discriminator key.
