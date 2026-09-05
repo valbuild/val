@@ -1305,6 +1305,22 @@ export const Api = {
               message: z.string(),
               headMoved: z.literal(true),
             }),
+            /**
+             * The group this commit named has already been published.
+             *
+             * A third thing sharing 409, and flagged for the same reason
+             * `headMoved` is: read as a plain not-fast-forward it looks
+             * retryable, and it is the opposite — the id will never be writable
+             * again, so retrying reproduces it forever.
+             *
+             * It means this author published from somewhere else. The client
+             * forgets the id and falls back to the annotation, which is the
+             * same recovery a 409 on stage or unstage triggers.
+             */
+            z.object({
+              message: z.string(),
+              patchGroupPublished: z.literal(true),
+            }),
           ]),
         }),
         z.object({

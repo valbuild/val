@@ -2072,8 +2072,28 @@ export function createSystem(options: SystemOptions): System {
         const groupScoped =
           patchGroupIds === null
             ? chainNow
-            : ((ids) => chainNow.filter((patchId) => ids.has(patchId)))(
-                new Set(patchGroupIds),
+            : /*
+               * The group, minus whatever has already SHIPPED.
+               *
+               * A group's ids stay in the scope after they are applied — by
+               * this author publishing from another tab, or by somebody else's
+               * publish whose closure carried them — and `/stat`'s applied set
+               * marks the records without touching the scope. Sending them
+               * anyway asks the server to re-apply an applied patch and names a
+               * group it has already closed, so a tab whose whole group went
+               * out elsewhere answered `failed: "Patch group is already
+               * published"` where the honest answer was `nothing-to-publish`.
+               *
+               * Through `pendingAmong`, which is the store's single answer to
+               * "has this shipped" and what `emptiesOwnPatchGroup` already asks.
+               * Writing the predicate out again here is how the close decision
+               * and the annotation drifted apart two rounds ago.
+               *
+               * Unscoped (`null`) is untouched: `fs` mode has no applied set to
+               * consult and the whole chain is the answer, exactly as before.
+               */
+              ((ids) => chainNow.filter((patchId) => ids.has(patchId)))(
+                patchStore.pendingAmong(patchGroupIds),
               );
         const toPublish = exact
           ? takeNamedPrefix(
@@ -2233,6 +2253,26 @@ export function createSystem(options: SystemOptions): System {
             status: "failed",
             message: outcome.message,
             patchErrors: outcome.errors,
+            retryable: false,
+          };
+        }
+        if (outcome.status === "group-published") {
+          /*
+           * This author's group went out from somewhere else — another tab.
+           *
+           * Forgotten here for the same reason `sendPatchGroupChange` forgets
+           * it: a published group is immutable, so a client that keeps naming
+           * it answers every publish and every stage with the same 409, and
+           * nothing else would correct it on a quiet branch. The next write
+           * creates the next group and the save response names it.
+           *
+           * Not retryable, unlike the `not-fast-forward` below: catching up
+           * changes nothing, because this id will never be writable again.
+           */
+          patchStore.forgetOwnPatchGroup();
+          return {
+            status: "failed",
+            message: outcome.message,
             retryable: false,
           };
         }

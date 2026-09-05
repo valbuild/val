@@ -394,11 +394,15 @@ export function createValSystem(
         };
       }
       if (res.status === 409) {
-        // Two different refusals share the status. `headMoved` is the server
-        // saying somebody published while this was being decided; the other is
-        // git refusing the commit itself.
+        // Three different refusals share the status. `headMoved` is the server
+        // saying somebody published while this was being decided;
+        // `patchGroupPublished` is this author's own group having gone out from
+        // somewhere else; the bare one is git refusing the commit itself.
         if ("headMoved" in res.json) {
           return { status: "head-moved", message: res.json.message };
+        }
+        if ("patchGroupPublished" in res.json) {
+          return { status: "group-published", message: res.json.message };
         }
         return { status: "not-fast-forward", message: res.json.message };
       }

@@ -86,6 +86,16 @@ export type PublishOutcome =
    * a commit is attempted, on a head the client named.
    */
   | { status: "head-moved"; message: string }
+  /**
+   * The group this publish named has already shipped.
+   *
+   * This author publishing from somewhere else — a group belongs to one person.
+   * Its own outcome rather than a `not-fast-forward`, because the two want
+   * opposite handling: that one is retryable once this client catches up, and
+   * this one never is. The id is dead, so the client forgets it and falls back
+   * to the annotation, the same recovery a 409 on stage or unstage triggers.
+   */
+  | { status: "group-published"; message: string }
   | {
       status: "patch-errors";
       message: string;

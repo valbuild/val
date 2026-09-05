@@ -41,6 +41,8 @@ const GROUP: PatchGroupT = {
 function makeSystem(options?: {
   /** What the fake server says its save landed in. */
   savedInGroup?: string;
+  /** The server's 409: this author's group went out from another tab. */
+  groupAlreadyPublished?: boolean;
   /** Successive answers to `fetchPatches`, one per call. */
   fetchAnswers?: {
     patches: never[];
@@ -49,8 +51,11 @@ function makeSystem(options?: {
   }[];
 }) {
   const answers = [...(options?.fetchAnswers ?? [])];
-  /** What each publish told the server it was closing. */
-  const publishes: { closesPatchGroupId: string | undefined }[] = [];
+  /** What each publish told the server it was closing, and what it sent. */
+  const publishes: {
+    closesPatchGroupId: string | undefined;
+    patchIds: PatchId[];
+  }[] = [];
   const system = createSystem({
     fetchPatches: async (patchIds) => {
       const next = answers.shift();
@@ -81,7 +86,16 @@ function makeSystem(options?: {
         : {}),
     }),
     publishPatches: async (request) => {
-      publishes.push({ closesPatchGroupId: request.closesPatchGroupId });
+      publishes.push({
+        closesPatchGroupId: request.closesPatchGroupId,
+        patchIds: [...request.patchIds],
+      });
+      if (options?.groupAlreadyPublished) {
+        return {
+          status: "group-published",
+          message: "Patch group is already published",
+        };
+      }
       return { status: "published" };
     },
   });
@@ -495,5 +509,64 @@ test("a publish that closes the group DOES forget it", async () => {
   expect((await system.publish([], "ship all of it")).status).toBe("published");
 
   expect(system.publishes[0].closesPatchGroupId).toBe("g1");
+  expect(system.patchStore.ownGroupId()).toBe(undefined);
+});
+
+test("a group whose every patch has shipped elsewhere publishes NOTHING, rather than asking", async () => {
+  /*
+   * The same author, two tabs, and the group going out from the other one.
+   *
+   * A group's ids stay in the scope after they are applied — `/stat`'s applied
+   * set marks the RECORDS and never touches the scope — so this tab went on
+   * offering the whole group. Sending it asks the server to re-apply an applied
+   * patch and names a group it has already closed, so the answer was `failed:
+   * "Patch group is already published"` where the honest answer is that there
+   * is nothing left to publish.
+   *
+   * Asserted on what reached the seam, not only on the status: the point is
+   * that no request goes out at all.
+   */
+  const system = makeSystem({ savedInGroup: "g1" });
+  await edit(system, "edited");
+  system.setOwnPatchGroupId("g1");
+  system.setPatchGroup(["p1" as PatchId]);
+
+  // The other tab published it; this one learns through `/stat`.
+  system.stat.receiveStat({
+    patches: ["p1" as PatchId],
+    baseSha: "sha",
+    appliedPatches: ["p1" as PatchId],
+  });
+
+  expect(await system.publish([], "ship it")).toEqual({
+    status: "nothing-to-publish",
+  });
+  expect(system.publishes).toHaveLength(0);
+});
+
+test("a publish refused because the group already shipped forgets the dead id", async () => {
+  /*
+   * The recovery, for the case the filter above cannot see — the other tab's
+   * publish closed the group but this tab has not been told the patches are
+   * applied yet, so it sends them and the server refuses.
+   *
+   * `group-published` is its own outcome rather than a `not-fast-forward`
+   * because the two want opposite handling: that one is retryable once this
+   * client catches up, and this one never is — the id will never be writable
+   * again, so a retry reproduces it forever. Forgetting hands the question back
+   * to the annotation and the deferred queue, exactly as a 409 on stage does.
+   */
+  const system = makeSystem({
+    savedInGroup: "g1",
+    groupAlreadyPublished: true,
+  });
+  await edit(system, "edited");
+  system.setOwnPatchGroupId("g1");
+  system.setPatchGroup(["p1" as PatchId]);
+  expect(system.patchStore.ownGroupId()).toBe("g1");
+
+  const res = await system.publish([], "ship it");
+
+  expect(res).toMatchObject({ status: "failed", retryable: false });
   expect(system.patchStore.ownGroupId()).toBe(undefined);
 });

@@ -2409,7 +2409,20 @@ export const ValServer = (
               if (refusal !== null) {
                 return {
                   status: refusal.status,
-                  json: { message: refusal.message },
+                  json: {
+                    message: refusal.message,
+                    /*
+                     * Flagged, because a bare 409 here reads as git refusing
+                     * the commit — which is retryable, and this is the
+                     * opposite. `refuseUnlessOwn` answers 409 for one reason
+                     * only: the group has already been published, so its id
+                     * will never be writable again and retrying reproduces
+                     * this forever. The client forgets the id instead.
+                     */
+                    ...(refusal.status === 409
+                      ? { patchGroupPublished: true as const }
+                      : {}),
+                  },
                 };
               }
             }
