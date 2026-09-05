@@ -8,6 +8,7 @@ import { ObjectFields } from "./fields/ObjectFields";
 import { RecordFields } from "./fields/RecordFields";
 import { SettingsFields } from "./fields/SettingsFields";
 import { RichTextField } from "./fields/RichTextField";
+import { LocaleField } from "./fields/LocaleField";
 import { RouteField } from "./fields/RouteField";
 import { StringField } from "./fields/StringField";
 import { UnionField } from "./fields/UnionField";
@@ -142,6 +143,8 @@ export function AnyField({
     leaf = <KeyOfField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "route") {
     leaf = <RouteField key={path} path={path} {...leafProps} />;
+  } else if (schema.type === "locale") {
+    leaf = <LocaleField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "richtext") {
     leaf = (
       <RichTextField

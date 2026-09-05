@@ -99,6 +99,18 @@ export type AssistantSettingsSource = {
    * `glossary`) rather than a field that looks like it should absorb them.
    */
   tone?: string | null;
+  /**
+   * How to translate into each language, keyed by language.
+   *
+   * Per language rather than one field, because translation rules are per
+   * language: bokmål or nynorsk, `du` or `De`, which product names stay in
+   * English. Only the target language's note is sent, so a French rule does not
+   * ride along in a Norwegian request.
+   *
+   * Not every language needs one, so this record is deliberately partial — it
+   * is the one place a locale-keyed record is not expected to hold them all.
+   */
+  translation?: Record<string, string | null> | null;
 };
 
 /**

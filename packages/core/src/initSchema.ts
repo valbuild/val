@@ -16,6 +16,7 @@ import { date } from "./schema/date";
 import { datetime } from "./schema/datetime";
 import { code } from "./schema/code";
 import { color } from "./schema/color";
+import { locale } from "./schema/locale";
 import { route } from "./schema/route";
 import { router } from "./schema/router";
 import { images } from "./schema/images";
@@ -240,6 +241,23 @@ export type InitSchema = {
    * export default c.define("/example.val.ts", schema, "/a-page-slug");
    * ```
    */
+  /**
+   * Define one of the project's languages.
+   *
+   * The languages themselves are declared in the settings module, under
+   * `locales.available` — this says only that a value is one of them, which is
+   * checked against that list.
+   *
+   * @example // a field: everything under this object is in this language
+   * const schema = s.object({ locale: s.locale(), title: s.string() });
+   *
+   * @example // a key: one entry per language
+   * const schema = s.record(s.locale(), s.object({ title: s.string() }));
+   *
+   * @example // stored as a short URL segment rather than the tag
+   * const schema = s.locale().aliases({ "en-US": "en", "nb-NO": "no" });
+   */
+  readonly locale: typeof locale;
   readonly route: typeof route;
   /**
    * Create a page router.
@@ -354,6 +372,7 @@ export function initSchema() {
     datetime,
     color,
     code,
+    locale,
     route,
     router,
     images,

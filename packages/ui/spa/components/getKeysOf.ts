@@ -62,7 +62,8 @@ export function getKeysOf(
       schema.type === "image" ||
       schema.type === "file" ||
       schema.type === "richtext" ||
-      schema.type === "route"
+      schema.type === "route" ||
+      schema.type === "locale"
     ) {
       // ignore these
     } else {

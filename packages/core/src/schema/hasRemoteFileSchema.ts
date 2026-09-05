@@ -103,7 +103,8 @@ export function hasRemoteFileSchema(schema: SerializedSchema): boolean {
     schema.type === "color" ||
     schema.type === "code" ||
     schema.type === "keyOf" ||
-    schema.type === "route"
+    schema.type === "route" ||
+    schema.type === "locale"
   ) {
     return false;
   } else {

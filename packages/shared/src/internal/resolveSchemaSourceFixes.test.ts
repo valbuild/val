@@ -342,3 +342,113 @@ describe("resolveSchemaSourceFixForError", () => {
     ).toBeNull();
   });
 });
+
+describe("locale:check-locale", () => {
+  /** A project whose settings declare `available`, plus one locale field. */
+  function project(available: unknown) {
+    const settings = c.define("/settings.val.ts", s.settings(), {
+      locales: { available: available as string[] },
+    });
+    const page = c.define(
+      "/content/page.val.ts",
+      s.object({ locale: s.locale() }),
+      { locale: "nb-NO" },
+    );
+    return getTestData([settings, page]);
+  }
+
+  /** The error a locale field raises, before it is resolved. */
+  function unresolved(
+    locale: string,
+    aliases?: Record<string, string[]>,
+  ): Record<SourcePath, ValidationError[]> {
+    return {
+      ['/content/page.val.ts?p="locale"' as SourcePath]: [
+        {
+          message: "Did not validate locale.",
+          fixes: ["locale:check-locale"],
+          value: {
+            locale,
+            sourcePath: '/content/page.val.ts?p="locale"',
+            aliases,
+          },
+        },
+      ],
+    };
+  }
+
+  const at = '/content/page.val.ts?p="locale"' as SourcePath;
+
+  test("a declared language resolves away", () => {
+    const result = resolveSchemaSourceFixes(
+      unresolved("nb-NO"),
+      project(["en-US", "nb-NO"]),
+    );
+    expect(result).toEqual({});
+  });
+
+  test("an undeclared language names the ones the project has", () => {
+    const result = resolveSchemaSourceFixes(
+      unresolved("sv-SE"),
+      project(["en-US", "nb-NO"]),
+    );
+    expect(result[at][0].message).toBe(
+      "'sv-SE' is not one of this project's languages: 'en-US', 'nb-NO'",
+    );
+    // Resolved: no fix code is left for anything downstream to try to apply.
+    expect(result[at][0].fixes).toBeUndefined();
+  });
+
+  test("a project with no languages is told to declare them, not that the value is wrong", () => {
+    const result = resolveSchemaSourceFixes(unresolved("nb-NO"), project([]));
+    expect(result[at][0].message).toContain(
+      "Declare them under 'locales.available'",
+    );
+  });
+
+  test("a project with no settings module at all says the same", () => {
+    const result = resolveSchemaSourceFixes(unresolved("nb-NO"), {
+      schemas: {},
+      sources: {},
+    });
+    expect(result[at][0].message).toContain(
+      "Declare them under 'locales.available'",
+    );
+  });
+
+  test("with aliases, a spelling resolves and the tag does not", () => {
+    const snapshot = project(["en-US", "nb-NO"]);
+    expect(
+      resolveSchemaSourceFixes(unresolved("no", { "nb-NO": ["no"] }), snapshot),
+    ).toEqual({});
+    // The tag itself is no longer a value of this field — that is what makes
+    // one page one URL.
+    const rejected = resolveSchemaSourceFixes(
+      unresolved("nb-NO", { "nb-NO": ["no"] }),
+      snapshot,
+    );
+    expect(rejected[at][0].message).toBe(
+      "'nb-NO' is not one of this field's locales: 'no'",
+    );
+  });
+
+  test("a partial alias map is a subset of the project's languages", () => {
+    const rejected = resolveSchemaSourceFixes(
+      unresolved("fr", { "en-US": ["en"] }),
+      project(["en-US", "fr-FR"]),
+    );
+    expect(rejected[at][0].message).toBe(
+      "'fr' is not one of this field's locales: 'en'",
+    );
+  });
+
+  test("a settings module of the wrong shape reads as no languages", () => {
+    // Hand-edited, mid-keystroke: the resolver must not throw on its way past.
+    expect(() =>
+      resolveSchemaSourceFixes(unresolved("nb-NO"), project("en-US")),
+    ).not.toThrow();
+    expect(() =>
+      resolveSchemaSourceFixes(unresolved("nb-NO"), project([1, null])),
+    ).not.toThrow();
+  });
+});

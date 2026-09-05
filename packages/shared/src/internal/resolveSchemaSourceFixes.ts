@@ -1,6 +1,9 @@
 import {
   Internal,
+  acceptedLocaleValues,
+  resolveSettingsModule,
   type Json,
+  type LocaleAliases,
   type ModuleFilePath,
   type SerializedSchema,
   type SourcePath,
@@ -259,6 +262,37 @@ function checkRouteIsValid(
   return { error: false };
 }
 
+/**
+ * The languages the project declares, from its settings module.
+ *
+ * Empty where there is no settings module, no `locales` section, or nothing in
+ * it — all of which mean the same thing: this project has not said it is
+ * translated.
+ */
+function declaredLocales(snapshot: SchemaSourceSnapshot): string[] {
+  const { moduleFilePath } = resolveSettingsModule(snapshot.schemas);
+  if (moduleFilePath === null) {
+    return [];
+  }
+  const source = snapshot.sources[moduleFilePath];
+  if (typeof source !== "object" || source === null || Array.isArray(source)) {
+    return [];
+  }
+  const locales = (source as Record<string, Json>)["locales"];
+  if (
+    typeof locales !== "object" ||
+    locales === null ||
+    Array.isArray(locales)
+  ) {
+    return [];
+  }
+  const available = (locales as Record<string, Json>)["available"];
+  if (!Array.isArray(available)) {
+    return [];
+  }
+  return available.filter((tag): tag is string => typeof tag === "string");
+}
+
 export type ResolvedFix =
   | { status: "resolved" }
   | { status: "remaining"; error: ValidationError };
@@ -331,6 +365,70 @@ export function resolveSchemaSourceFixForError(
       };
     }
     return { status: "resolved" };
+  }
+
+  if (fixes.includes("locale:check-locale")) {
+    const value = error.value;
+    if (typeof value !== "object" || value === null) {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          message: `Expected locale validation error to have a 'value' object. Found: ${typeof value}. ${TYPE_ERROR_MESSAGE}`,
+          typeError: true,
+          fixes: undefined,
+        },
+      };
+    }
+    const { locale, aliases } = value as {
+      locale?: unknown;
+      aliases?: LocaleAliases;
+    };
+    if (typeof locale !== "string") {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          message: `Expected locale validation error 'value' to have property 'locale' of type 'string'. Found: ${typeof locale}. ${TYPE_ERROR_MESSAGE}`,
+          typeError: true,
+          fixes: undefined,
+        },
+      };
+    }
+    const available = declaredLocales(snapshot);
+    if (available.length === 0) {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          // The project has not said it is translated, so the value is not
+          // wrong so much as premature — and the fix is in another file.
+          message: `This project has no languages. Declare them under 'locales.available' in the settings module before using s.locale().`,
+          fixes: undefined,
+        },
+      };
+    }
+    const accepted = acceptedLocaleValues(available, aliases);
+    if (accepted.includes(locale)) {
+      return { status: "resolved" };
+    }
+    return {
+      status: "remaining",
+      error: {
+        ...error,
+        message:
+          aliases === undefined
+            ? `'${locale}' is not one of this project's languages: ${accepted
+                .map((each) => `'${each}'`)
+                .join(", ")}`
+            : // With aliases the tag itself is NOT a value, so naming the
+              // languages would be naming things this field does not accept.
+              `'${locale}' is not one of this field's locales: ${accepted
+                .map((each) => `'${each}'`)
+                .join(", ")}`,
+        fixes: undefined,
+      },
+    };
   }
 
   if (fixes.includes("router:check-route")) {

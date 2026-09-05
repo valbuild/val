@@ -9,6 +9,7 @@ import { ObjectPreview } from "./fields/ObjectFields";
 import { ImagePreview } from "./fields/ImageField";
 import { KeyOfPreview } from "./fields/KeyOfField";
 import { RoutePreview } from "./fields/RouteField";
+import { LocalePreview } from "./fields/LocaleField";
 import { DatePreview } from "./fields/DateField";
 import { DateTimePreview } from "./fields/DateTimeField";
 import { CodePreview } from "./fields/CodeField";
@@ -61,6 +62,8 @@ export function Preview({
     return <KeyOfPreview path={path} />;
   } else if (type === "route") {
     return <RoutePreview path={path} />;
+  } else if (type === "locale") {
+    return <LocalePreview path={path} />;
   } else if (type === "date") {
     return <DatePreview path={path} />;
   } else if (type === "dateTime") {

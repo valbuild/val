@@ -17,6 +17,7 @@ import { SerializedCodeSchema } from "./code";
 import { SerializedColorSchema } from "./color";
 import { SerializedDateSchema } from "./date";
 import { SerializedDateTimeSchema } from "./datetime";
+import { SerializedLocaleSchema } from "./locale";
 import { SerializedRouteSchema } from "./route";
 import { SerializedSettingsSchema } from "./settings";
 import {
@@ -48,6 +49,7 @@ export type SerializedSchema =
   | SerializedColorSchema
   | SerializedCodeSchema
   | SerializedRouteSchema
+  | SerializedLocaleSchema
   | SerializedSettingsSchema
   | SerializedImageSchema;
 

@@ -17,6 +17,7 @@ import { NumberSchema } from "./number";
 import { ObjectSchema } from "./object";
 import { RecordSchema } from "./record";
 import { RichTextSchema } from "./richtext";
+import { LocaleSchema } from "./locale";
 import { RouteSchema } from "./route";
 import { SettingsSchema } from "./settings";
 import { StringSchema } from "./string";
@@ -214,6 +215,17 @@ function deserializeSchemaImpl(
         serialized.description,
         serialized.render ?? null,
       );
+    case "locale": {
+      return new LocaleSchema(
+        serialized.aliases,
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+        serialized.render ?? null,
+      );
+    }
     case "route": {
       const routeOptions = serialized.options
         ? {

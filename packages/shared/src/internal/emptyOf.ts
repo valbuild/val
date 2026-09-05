@@ -83,6 +83,13 @@ export function emptyOf(schema: SerializedSchema): Json {
     }
   } else if (schema.type === "route") {
     return ""; // Empty string as default route value
+  } else if (schema.type === "locale") {
+    // Which languages exist is in the settings module, which `emptyOf` has no
+    // access to — it works from a serialized schema alone. The empty string is
+    // not one of them, so validation reports it, which is the honest outcome:
+    // the Studio's add paths choose a real language, and a caller that has not
+    // been given one has not been given one.
+    return "";
   } else if (schema.type === "file" || schema.type === "image") {
     return null; // returning null is the only thing we can do, however, it means that the patches cannot be applied yet since that might fail
   } else if (schema.type === "literal") {

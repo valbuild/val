@@ -133,8 +133,8 @@ export function traverseSchemaSource(
     return;
   }
 
-  // Handle route
-  if (schema.type === "route") {
+  // Handle route and locale: both are plain strings at a leaf
+  if (schema.type === "route" || schema.type === "locale") {
     if (typeof source === "string") {
       callback({ source, schema, path });
     }

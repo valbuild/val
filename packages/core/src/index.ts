@@ -160,7 +160,15 @@ export {
   isRootModuleFilePath,
   resolveSettingsModule,
 } from "./settingsModule";
-export { localeTagError } from "./locale";
+export {
+  type Locale,
+  type LocaleAliases,
+  localeTagError,
+  spellingsOf,
+  acceptedLocaleValues,
+  localeOfValue,
+} from "./locale";
+export { type SerializedLocaleSchema, LocaleSchema } from "./schema/locale";
 export {
   type SerializedColorSchema,
   type ColorOptions,

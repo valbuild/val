@@ -52,7 +52,8 @@ export function getDependentModuleFiles(
       schemaNode.type === "file" ||
       schemaNode.type === "image" ||
       schemaNode.type === "number" ||
-      schemaNode.type === "route"
+      schemaNode.type === "route" ||
+      schemaNode.type === "locale"
     ) {
       // ignore
     } else {

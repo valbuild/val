@@ -123,6 +123,10 @@ function containsReferrer(
       return query.kind === "file" && schema.referencedModule === query.module;
     case "route":
       return query.kind === "route";
+    // A locale is a value, not a reference: it points at the settings module,
+    // which is never a `.jsonValues()` record.
+    case "locale":
+      return false;
     case "object":
     case "settings":
       return Object.values(schema.items).some((item) =>

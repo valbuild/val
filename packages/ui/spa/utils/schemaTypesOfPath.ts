@@ -60,6 +60,7 @@ export function schemaTypesOfPath(
       current.type === "image" ||
       current.type === "keyOf" ||
       current.type === "route" ||
+      current.type === "locale" ||
       current.type === "literal"
     ) {
       if (current.type === "image" || current.type === "file") {

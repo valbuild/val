@@ -14,6 +14,8 @@ import {
 } from "../source/settings";
 import { ModuleFilePath, SourcePath } from "../val";
 import { array } from "./array";
+import { record } from "./record";
+import { locale } from "./locale";
 import { boolean } from "./boolean";
 import { string } from "./string";
 import { localeTagError } from "../locale";
@@ -342,6 +344,17 @@ export function settings(): SettingsSchema<SettingsSource> {
         .nullable()
         .describe(
           "How the assistant should write when it writes content: formal or playful, British or American, how headings are cased.",
+        ),
+      translation: record(
+        locale(),
+        string()
+          .multiline()
+          .maxLength(ASSISTANT_SETTINGS_MAX_LENGTH)
+          .nullable(),
+      )
+        .nullable()
+        .describe(
+          "How to translate into each language: dialect, formality, and the words that stay untranslated.",
         ),
     }),
     locales: new SettingsSchema<LocalesSettingsSource>(

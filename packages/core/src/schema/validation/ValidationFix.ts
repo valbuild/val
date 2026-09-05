@@ -15,6 +15,7 @@ export const ValidationFix = [
   "files:upload-remote",
   "keyof:check-keys",
   "router:check-route",
+  "locale:check-locale",
   "images:check-unique-folder",
   "files:check-unique-folder",
   "images:check-all-files",
