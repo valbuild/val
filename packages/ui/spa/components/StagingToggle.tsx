@@ -1,7 +1,7 @@
-import { PatchId } from "@valbuild/core";
+import type { PatchId } from "@valbuild/core";
 import classNames from "classnames";
 import { Check, EyeOff, Minus } from "lucide-react";
-import { Profile } from "./ValProvider";
+import type { Profile } from "./ValProvider";
 import { usePatchStaging } from "./PatchStagingProvider";
 import {
   Tooltip,

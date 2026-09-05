@@ -1,16 +1,16 @@
-import { PatchId } from "@valbuild/core";
+import type { PatchId } from "@valbuild/core";
 import {
   createContext,
-  ReactNode,
+  type ReactNode,
   useCallback,
   useContext,
   useMemo,
 } from "react";
-import { SerializedPatchSet } from "../utils/PatchSets";
+import type { SerializedPatchSet } from "../utils/PatchSets";
 import {
   heldPatchSets,
   inChainOrder,
-  PatchGroup,
+  type PatchGroup,
   stageClosure,
   unstageClosure,
 } from "../utils/patchGroups";
