@@ -1,6 +1,11 @@
 import { Patch } from "@valbuild/core/patch";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
-import { ValClient, ValCommit, ValDeployment } from "@valbuild/shared/internal";
+import {
+  newestCommitSha,
+  ValClient,
+  ValCommit,
+  ValDeployment,
+} from "@valbuild/shared/internal";
 import React, {
   useState,
   useEffect,
@@ -114,6 +119,25 @@ export const StatData = z.object({
   schemaSha: z.string(),
   baseSha: z.string(),
   patches: z.array(PatchId),
+  /**
+   * Of `patches`, the ones that have already SHIPPED.
+   *
+   * `http` only: a published patch stays in the chain with `appliedAt` set
+   * until the deploy lands, and a client never re-fetches a record it already
+   * holds — so without this it never learns that somebody else's publish
+   * committed one of the patches it is holding. `fs` forgets published patches
+   * outright and does not send it.
+   *
+   * Absent is NOT "none of them": see `PatchStore.receiveApplied`.
+   */
+  appliedPatches: z.array(PatchId).optional(),
+  /**
+   * The newest commit, which is the PUBLISH head.
+   *
+   * Carried to `/save` so a publish decided against a world somebody else has
+   * since changed is refused rather than shipped. See `newestCommitSha`.
+   */
+  headCommitSha: z.string().optional(),
   commits: z.array(ValCommit).optional(),
   deployments: z.array(ValDeployment).optional(),
   mode: z.union([z.literal("fs"), z.literal("http")]),
@@ -466,14 +490,29 @@ async function execStat(
                 console.debug("Commit", message.commit);
                 setStat((prev) => {
                   if ("data" in prev && prev.data) {
+                    const commits = (prev.data.commits || []).concat(
+                      message.commit,
+                    );
                     // we don't want to set the wait time to 0 here, because we want to keep the polling
                     return {
                       status: "ws-message-received",
                       data: {
                         ...prev.data,
-                        commits: (prev.data.commits || []).concat(
-                          message.commit,
-                        ),
+                        commits,
+                        /*
+                         * The publish head moves HERE too, not only on a poll.
+                         *
+                         * This message is how another author's publish reaches
+                         * this client, and `headCommitSha` was only ever set by
+                         * a `/stat` response — so between the two, a publish
+                         * from this tab carried a head the server had already
+                         * moved past and came back 409. Derived with the same
+                         * `newestCommitSha` the server compares with, rather
+                         * than assuming the message is the newest: commits
+                         * arrive in whatever order the socket delivers them.
+                         */
+                        headCommitSha:
+                          newestCommitSha(commits) ?? prev.data.headCommitSha,
                       },
                       waitStart:
                         "waitStart" in prev ? prev.waitStart : Date.now(),

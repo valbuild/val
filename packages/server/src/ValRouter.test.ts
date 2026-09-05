@@ -5,6 +5,7 @@ import { initVal, modules } from "@valbuild/core";
 import type { SelectorSource, ValModule } from "@valbuild/core";
 import { createValApiRouter, createValServer } from "./ValRouter";
 import { encodeJwt } from "./jwt";
+import { fakeRequest } from "./fakeRequest";
 
 describe("ValRouter", () => {
   const route = "/api/val";
@@ -324,6 +325,50 @@ describe("ValRouter", () => {
     });
   });
 
+  describe("a route with an OPTIONAL body", () => {
+    /*
+     * `DELETE /patches` grew an optional body (`unstagePatchIds`) and every
+     * caller that sent none started getting `400 Could not parse request body`.
+     * The router called `req.json()` for any route that DECLARES a body, and a
+     * real `Request` throws on an empty one — so the schema being `.optional()`
+     * never came into it, because the throw happens before zod is consulted.
+     *
+     * Six e2e tests went red on a helper doing exactly what the route still
+     * permits. Nothing below the browser could see it: the route definition was
+     * right, the handler was right, and the request never reached either.
+     */
+    const deleteRequest = (json?: unknown) =>
+      onRoute(
+        fakeRequest({
+          method: "DELETE",
+          url: new URL(
+            "http://localhost:3000/api/val/patches?id=ba48c0ee-b0e0-4d31-a0e2-a5f7c17a1f3a",
+          ),
+          ...(json !== undefined ? { json } : {}),
+          headers: new Headers({
+            Cookie: `val_session=${encodeJwt({}, "")}`,
+          }),
+        }),
+      );
+
+    test("is not a 400 when no body is sent", async () => {
+      expect((await deleteRequest()).status).not.toBe(400);
+    });
+
+    test("is not a 400 when the body is sent", async () => {
+      expect((await deleteRequest({ unstagePatchIds: [] })).status).not.toBe(
+        400,
+      );
+    });
+
+    test("is still a 400 when the body is present and wrong", async () => {
+      // Absent and malformed stay different answers: this one names the field.
+      expect(
+        (await deleteRequest({ unstagePatchIds: "not-an-array" })).status,
+      ).toBe(400);
+    });
+  });
+
   test("smoke test invalid route", async () => {
     const serverRes = await onRoute(
       fakeRequest({
@@ -342,22 +387,3 @@ describe("ValRouter", () => {
     expect("json" in serverRes && serverRes.json).toBeTruthy();
   });
 });
-
-function fakeRequest({
-  url,
-  method,
-  headers,
-  json,
-}: {
-  method: string;
-  url: URL;
-  headers?: Headers;
-  json?: unknown;
-}): Request {
-  return {
-    method,
-    url,
-    headers,
-    json: async () => json,
-  } as unknown as Request;
-}

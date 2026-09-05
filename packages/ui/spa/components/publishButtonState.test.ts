@@ -23,6 +23,7 @@ function input(over: Partial<PublishButtonInput> = {}): PublishButtonInput {
     pendingServerSidePatchCount: 1,
     pendingClientSidePatchCount: 0,
     netChangesEmpty: false,
+    heldChangeCount: 0,
     ...over,
   };
 }
@@ -192,5 +193,52 @@ describe("describePublishButton", () => {
       );
       expect(state.reason).toBe("Nothing to send.");
     });
+  });
+});
+
+/**
+ * Reverted and HELD BACK look identical to every comparison against base — a
+ * held patch is not applied, so the scoped source equals base exactly as an
+ * undone edit does. The button is off either way, and only the wording tells
+ * the reader which of the two they are in.
+ *
+ * Getting it backwards is the expensive direction: "Every change has been
+ * reverted... Discard them to clear" tells someone who deliberately held a
+ * change back that their work is gone, and points them at the one control that
+ * would actually destroy it.
+ */
+describe("nothing to publish: reverted against held back", () => {
+  const nothingToPublish = {
+    netChangesEmpty: true,
+    pendingServerSidePatchCount: 1,
+  };
+
+  test("an undone edit says reverted, and points at Discard", () => {
+    const state = describePublishButton(input(nothingToPublish));
+    expect(state.kind).toBe("idle");
+    expect(state.reason).toBe(
+      "Every change has been reverted, so there is nothing to publish. Discard them to clear.",
+    );
+  });
+
+  test("a held change says held back, and points at Review", () => {
+    const state = describePublishButton(
+      input({ ...nothingToPublish, heldChangeCount: 1 }),
+    );
+    expect(state.kind).toBe("idle");
+    expect(state.reason).toBe(
+      "1 change is held back, so there is nothing to publish. Stage it in Review to publish.",
+    );
+    // Never Discard: the change is pending on purpose.
+    expect(state.reason).not.toContain("Discard");
+  });
+
+  test("more than one held change reads as plural", () => {
+    expect(
+      describePublishButton(input({ ...nothingToPublish, heldChangeCount: 3 }))
+        .reason,
+    ).toBe(
+      "3 changes are held back, so there is nothing to publish. Stage them in Review to publish.",
+    );
   });
 });

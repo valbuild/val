@@ -475,7 +475,8 @@ export abstract class ValOps {
   async getJsonEntry(
     moduleFilePath: ModuleFilePath,
     entryKey: string,
-    opts?: { applyPatches?: boolean },
+    /** Passed straight through — see {@link getJsonEntries}. */
+    opts?: { applyPatches?: boolean; patchIds?: PatchId[] },
   ): Promise<
     | { status: "success"; content: JSONValue | null }
     | { status: "not-found"; message: string }
@@ -525,7 +526,18 @@ export abstract class ValOps {
   async getJsonEntries(
     moduleFilePath: ModuleFilePath,
     selector: { keys: string[] } | { offset: number; limit: number },
-    opts?: { applyPatches?: boolean },
+    opts?: {
+      applyPatches?: boolean;
+      /**
+       * Only these pending patches, or every one when `undefined`.
+       *
+       * A draft render is scoped to the caller's own groups, and a page renders
+       * `jsonValues` entries beside module content — so without this the two
+       * halves of one page disagreed about whose unpublished work they showed.
+       * `undefined` is what every other caller passes and must keep getting.
+       */
+      patchIds?: PatchId[];
+    },
   ): Promise<
     | {
         status: "success";
@@ -583,9 +595,11 @@ export abstract class ValOps {
           message: `Could not fetch patches: ${JSON.stringify(patchOps.errors)}`,
         };
       }
-      modulePatches = patchOps.patches
-        .filter((p) => p.path === moduleFilePath && !p.appliedAt)
-        .map((p) => ({ patchId: p.patchId, patch: p.patch }));
+      modulePatches = scopedModulePatches(
+        patchOps.patches,
+        moduleFilePath,
+        opts?.patchIds,
+      ).map((p) => ({ patchId: p.patchId, patch: p.patch }));
       try {
         serializedSchema = schemas[moduleFilePath]?.["executeSerialize"]();
       } catch {
@@ -2084,12 +2098,27 @@ export abstract class ValOps {
     parentRef: ParentRef,
     sessionId: string | null,
     authorId: AuthorId | null,
+    /**
+     * Which patch group this patch joins, recorded in the SAME request.
+     *
+     * Atomic on purpose. The content API runs every refusal before its insert,
+     * so an invalid closure is a 400 with nothing written. Recording membership
+     * in a second call would let a patch exist outside its author's group if
+     * that call failed — and a patch outside your own group is one you cannot
+     * publish until a repair puts it back.
+     *
+     * Optional: `fs` mode has no groups, and a client that predates them sends
+     * nothing.
+     */
+    patchGroup?: PatchGroupMembership,
   ): Promise<
     result.Result<
       {
         error?: undefined;
         patchId: PatchId;
         createdAt: string;
+        /** See {@link SaveSourceFilePatchResult} — absent where there are no groups. */
+        patchGroupId?: string;
       },
       | { errorType: "other"; error: GenericErrorMessage }
       | { errorType: "patch-head-conflict" }
@@ -2102,6 +2131,7 @@ export abstract class ValOps {
       parentRef,
       authorId,
       sessionId,
+      patchGroup,
     );
     if (result.isErr(saveRes)) {
       console.error(
@@ -2115,6 +2145,11 @@ export abstract class ValOps {
     return result.ok({
       patchId,
       createdAt: new Date().toISOString(),
+      // Spread rather than assigned: absent has to stay distinguishable from a
+      // group whose id is undefined, all the way to the client.
+      ...(saveRes.value.patchGroupId !== undefined
+        ? { patchGroupId: saveRes.value.patchGroupId }
+        : {}),
     });
   }
 
@@ -2133,6 +2168,7 @@ export abstract class ValOps {
     parentRef: ParentRef | null,
     authorId: AuthorId | null,
     sessionId: string | null,
+    patchGroup?: PatchGroupMembership,
   ): Promise<SaveSourceFilePatchResult>;
   protected abstract getSourceFile(
     path: string,
@@ -2212,8 +2248,40 @@ export type GenericErrorMessage = {
   details?: unknown;
 };
 
+/**
+ * The patch group a newly created patch joins.
+ *
+ * `withPatchIds` is the CLOSURE the client computed — the patches that share
+ * a patch set with this one and must move with it. It is not derived here and
+ * must not be: the closure needs the content schema, and the service that
+ * stores groups does not have it. One implementation of that rule, on the side
+ * that can actually compute it.
+ *
+ * Membership rows are stamped with `coreVersion` on the content side, the same
+ * stamp the patch row itself carries, so which client wrote a row stays legible
+ * after the fact.
+ */
+export type PatchGroupMembership = {
+  /**
+   * Absent means "the author's open group, created if absent" — the content API
+   * resolves it. The client does not hold an id across publishes, because a
+   * published group is refused and the stale id would lose the write.
+   */
+  patchGroupId?: string;
+  withPatchIds: PatchId[];
+};
+
 export type SaveSourceFilePatchResult = result.Result<
-  { patchId: PatchId },
+  {
+    patchId: PatchId;
+    /**
+     * The group the patch ended up in, where the store has groups at all.
+     *
+     * Absent in `fs` mode and against a content API that predates groups. The
+     * client uses it to learn the id of the group its own first write created.
+     */
+    patchGroupId?: string;
+  },
   | ({ errorType: "other" } & GenericErrorMessage)
   | { errorType: "patch-head-conflict" }
 >;
@@ -2347,6 +2415,49 @@ export type PatchReadError =
       parentPatchId: ParentPatchId;
       message: string;
     };
+
+/**
+ * The patches a json entry render should apply, out of the whole chain.
+ *
+ * Three rules, and the second is the one that was missing. A draft page renders
+ * `jsonValues` entries beside module content, and only the modules were scoped
+ * — so one screen showed the caller's own view for its modules and base plus
+ * EVERY pending patch on the branch for the entries beside them, including
+ * another author's half-finished edit rendered as though it were live.
+ *
+ * 1. this module's, since the chain is branch-wide;
+ * 2. this caller's, when they asked to be scoped. `undefined` is "everything",
+ *    which is what every unscoped caller gets and must keep getting;
+ * 3. not already applied — a fact about this path rather than about scoping,
+ *    and true with or without a scope.
+ *
+ * Filtered here rather than by asking `fetchPatches` for a list, and that is
+ * load-bearing: both implementations read an empty `patchIds` as "no filter"
+ * and return the whole chain. That is the right default for a caller that
+ * cannot mean "none", and the most dangerous possible reading of a group that
+ * is genuinely empty — it would render every unpublished patch on the branch
+ * instead of base. It costs no round trip either: the whole chain is what the
+ * unscoped path fetches anyway.
+ */
+export function scopedModulePatches<
+  T extends {
+    path: ModuleFilePath;
+    patchId: PatchId;
+    appliedAt: { commitSha: CommitSha } | null;
+  },
+>(
+  patches: T[],
+  moduleFilePath: ModuleFilePath,
+  patchIds: PatchId[] | undefined,
+): T[] {
+  const scope = patchIds && new Set(patchIds);
+  return patches.filter(
+    (patch) =>
+      patch.path === moduleFilePath &&
+      !patch.appliedAt &&
+      (scope === undefined || scope.has(patch.patchId)),
+  );
+}
 
 export type OrderedPatches = {
   patches: {

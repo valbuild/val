@@ -22,6 +22,7 @@ import {
   createMetadataFromBuffer,
   getFieldsForType,
   SaveSourceFilePatchResult,
+  type PatchGroupMembership,
   SchemaSha,
   CommitSha,
   OrderedPatches,
@@ -805,6 +806,16 @@ export class ValOpsFS extends ValOps {
     _parentRef: ParentRef,
     authorId: AuthorId | null,
     sessionId: string | null,
+    /*
+     * Named and ignored, rather than omitted from the signature.
+     *
+     * `fs` mode has no shared store and exactly one author, so there is nothing
+     * for a group to separate — every pending patch is already this person's.
+     * Declaring it makes that a decision a reader can see: TypeScript lets an
+     * implementation take fewer parameters than the abstract, so leaving it off
+     * would drop group membership silently and look identical to handling it.
+     */
+    _patchGroup?: PatchGroupMembership,
   ): Promise<SaveSourceFilePatchResult> {
     const patchesDir = this.getPatchesDir();
     const record: FSPatchRecord = {
