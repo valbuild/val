@@ -125,6 +125,21 @@ export class Service {
     return Object.keys(this.extracted.sources) as ModuleFilePath[];
   }
 
+  /**
+   * Everything that is wrong with how the project's modules are DECLARED, as
+   * opposed to what is in them.
+   *
+   * A module that failed to load is here, and so is a rule that spans the whole
+   * set — "one settings module, at the root" cannot be checked while looking at
+   * a single module, so `extractValModules` appends it with the offending path.
+   * `get` only surfaces these when the module is missing entirely, which a
+   * misplaced settings module is not: `val validate` reads them from here and
+   * reports them against the file.
+   */
+  getModuleErrors(): { message: string; path?: ModuleFilePath }[] {
+    return this.extracted.moduleErrors;
+  }
+
   private serializedSchemaOf(
     moduleFilePath: ModuleFilePath,
   ): SerializedSchema | undefined {

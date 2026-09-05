@@ -108,6 +108,28 @@ export function toDataModules(
   return modules;
 }
 
+/**
+ * How many validation errors are in one module.
+ *
+ * Counted from the error map's keys rather than from the navigation tree,
+ * because a destination that is NOT in that tree — settings has its own panel,
+ * so it is taken out of the module tree — has no row to read a count off.
+ */
+export function countErrorsIn(
+  errors: Record<SourcePath, unknown[]> | undefined,
+  moduleFilePath: string,
+): number | undefined {
+  if (!errors) return undefined;
+  let count = 0;
+  for (const sourcePath of Object.keys(errors)) {
+    // A source path is `<module file path>?<module path>`.
+    if (sourcePath.split("?")[0] === moduleFilePath) {
+      count += errors[sourcePath as SourcePath].length;
+    }
+  }
+  return count;
+}
+
 /** Validation errors, grouped by the module they belong to. */
 export function toValidationErrors(
   errors: Record<SourcePath, unknown[]> | undefined,
@@ -352,26 +374,34 @@ export function initialsOf(fullName: string): string {
  * Pages hangs off `hasRouters` rather than off `pages` being non-empty, because
  * a router with no entries yet is a site map to add the first page to.
  *
- * Media and Data hang off their lists, which are already exactly the right
- * question. `media` is the `s.images()`/`s.files()` modules, and an empty
- * gallery still lists as a gallery — so an empty `media` means no gallery
- * module exists. `data` is what is left after the routers and the galleries
- * have been taken out of the module tree, so "every module is a router or a
- * gallery" and "`data` is empty" are the same statement.
+ * Media, Data and Settings hang off their own data, which is already exactly
+ * the right question. `media` is the `s.images()`/`s.files()` modules, and an
+ * empty gallery still lists as a gallery — so an empty `media` means no gallery
+ * module exists. `settings` is the project's `s.settings()` module, and an empty
+ * settings module (`{}`, which is the normal starting point) still resolves —
+ * so its absence means the project has no settings module, or none it can use.
+ * `data` is what is left after the routers, the galleries and settings have been
+ * taken out of the module tree, so "every module is a router, a gallery or
+ * settings" and "`data` is empty" are the same statement.
  *
  * Everything is on offer while the navigation is still loading: the panels have
  * loading states of their own, and a rail that grows icons as data arrives is
  * worse than one that starts full.
  */
 export function availableDestinations(
-  data: Pick<ShellData, "hasRouters" | "media" | "data">,
+  data: Pick<ShellData, "hasRouters" | "media" | "settings" | "data">,
   isLoading: boolean,
 ): ShellDestination[] {
+  // Settings is NOT offered while loading, unlike the other three: it is the
+  // only one whose icon sits on its own at the foot of the rail, so a cog that
+  // appears and then goes reads as something that broke rather than as data
+  // arriving. A project without `s.settings()` never shows it at all.
   if (isLoading) return ["pages", "media", "data"];
   const available: ShellDestination[] = [];
   if (data.hasRouters) available.push("pages");
   if (data.media.length > 0) available.push("media");
   if (data.data.length > 0) available.push("data");
+  if (data.settings) available.push("settings");
   return available;
 }
 

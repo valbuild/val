@@ -144,6 +144,7 @@ function declaresPreview(
     case "record":
       return declaresPreview(schema.item, seen);
     case "object":
+    case "settings":
       return Object.values(schema.items).some((item) =>
         declaresPreview(item, seen),
       );

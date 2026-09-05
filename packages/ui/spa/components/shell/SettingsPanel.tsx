@@ -1,268 +1,344 @@
-import { ReactNode } from "react";
-import {
-  ExternalLink,
-  LogOut,
-  LucideIcon,
-  Moon,
-  Settings2,
-  Sun,
-  Users,
-} from "lucide-react";
+import { ReactNode, useEffect, useState } from "react";
+import { LucideIcon } from "lucide-react";
+import { FloatingPanel, PanelEmptyState } from "./FloatingPanel";
+import { PanelErrorState, PanelSkeleton } from "./PanelPrimitives";
+import { Switch } from "../designSystem/switch";
 import { cn } from "../designSystem/cn";
-import { Checkbox } from "../designSystem/checkbox";
-import { FloatingPanel, PanelSectionLabel } from "./FloatingPanel";
-import { Avatar } from "./Avatar";
-import { AccountErrorNotice, ShellAccountError } from "./AccountError";
-import { DeploymentRows } from "./Deployments";
-import { ShellAdminLinks, ShellBreakpoint, ShellDeployment } from "./types";
+import { ShellBreakpoint } from "./types";
+import {
+  DebouncedFieldWrite,
+  useDebouncedFieldWrite,
+} from "../fields/useDebouncedFieldWrite";
 
 export type SettingsPanelProps = {
   breakpoint: ShellBreakpoint;
-  user?: { name: string; email?: string; initials: string };
-  /**
-   * Why there is no account, when there should be one.
-   *
-   * Shown where the account would have been, because that is the question it
-   * answers — and with the retry, since everything that produces this is
-   * something an editor may have just fixed elsewhere.
-   */
-  accountError?: ShellAccountError;
-  theme: "dark" | "light";
-  onThemeChange: (theme: "dark" | "light") => void;
-  /**
-   * The project's pages in Val Build.
-   *
-   * Absent for a project that is not connected to Val Build: there is no
-   * project to administer and no organisation to have members, so the section
-   * goes rather than showing two links to a sign-in page.
-   */
-  admin?: ShellAdminLinks;
-  /** How Val is running. Auto save is a dev-server setting; see `StatusBar`. */
-  mode?: "fs" | "http" | "unknown";
-  autoSave: boolean;
-  onAutoSaveChange: (autoSave: boolean) => void;
-  branch?: string;
-  /** Publishes in flight or recently finished. Absent when there is no feed. */
-  deployments?: ShellDeployment[];
-  onDismissDeployment?: (commitSha: string) => void;
-  /**
-   * Ends the session. Absent where there is not one.
-   *
-   * Optional rather than a no-op default: running against the working copy on
-   * disk there is nothing to sign out of, and the button was still rendered —
-   * wired to a function that did nothing.
-   */
-  onSignOut?: () => void;
   onClose: () => void;
   /** Mobile destination switcher, rendered below the panel header. */
   navSwitcher?: ReactNode;
+  /**
+   * The sections, connected to the store by the app.
+   *
+   * A slot rather than props, for the same reason the editor is a slot: a
+   * section edits content, and the panel is presentational. Storybook passes
+   * the same section components with local state — see the stories.
+   */
+  children?: ReactNode;
+  /** Show placeholder rows instead of content while data loads. */
+  isLoading?: boolean;
+  /** Message to show instead of content when the data could not be loaded. */
+  loadError?: string;
+  onRetryLoad?: () => void;
 };
 
 /**
- * Account and workspace settings.
+ * The project's settings: the `s.settings()` module, one section at a time.
  *
- * Also where Auto save, Dev mode and the deployment feed live on mobile,
- * since the status bar is not shown there.
+ * Not the account panel ({@link AccountPanel}, at the foot of the rail), and the
+ * difference is not cosmetic: everything here is CONTENT. It is edited as a
+ * draft, it shows up in the publish diff, and it is the same for everyone
+ * working on the project — where the theme and auto save are one person's, on
+ * one machine.
+ *
+ * Each section gets a UI built for it rather than the generic field renderer.
+ * That is the whole reason settings is a destination instead of a module under
+ * Data: `ai.context` is a paragraph about the project, not a string field, and
+ * what follows it — locales, skills, permissions — will each want their own
+ * shape too.
  */
 export function SettingsPanel({
   breakpoint,
-  user,
-  accountError,
-  theme,
-  onThemeChange,
-  admin,
-  mode,
-  autoSave,
-  onAutoSaveChange,
-  branch,
-  deployments,
-  onDismissDeployment,
-  onSignOut,
   onClose,
   navSwitcher,
+  children,
+  isLoading,
+  loadError,
+  onRetryLoad,
 }: SettingsPanelProps) {
   return (
     <FloatingPanel
       side="left"
-      width={300}
+      width={360}
       title="Settings"
       mobileVariant="sheet"
       breakpoint={breakpoint}
       onClose={onClose}
       subheader={navSwitcher}
     >
-      <div className="pb-4">
-        {accountError && <AccountErrorNotice error={accountError} />}
-        {user && (
-          <div className="flex items-center gap-2.5 px-4 py-3">
-            <Avatar initials={user.initials} />
-            <div className="min-w-0">
-              <div className="text-xs font-medium truncate">{user.name}</div>
-              {user.email && (
-                <div className="text-[0.6875rem] text-fg-secondary-alt truncate">
-                  {user.email}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        <PanelSectionLabel>Appearance</PanelSectionLabel>
-        <div className="px-4 pt-1">
-          <div
-            role="radiogroup"
-            aria-label="Theme"
-            className="flex p-0.5 rounded-md bg-bg-float-raised"
-          >
-            {(["dark", "light"] as const).map((option) => (
-              <button
-                key={option}
-                type="button"
-                role="radio"
-                aria-checked={theme === option}
-                onClick={() => onThemeChange(option)}
-                className={cn(
-                  "flex-1 inline-flex items-center justify-center gap-1.5 h-7 rounded text-xs capitalize",
-                  theme === option
-                    ? "bg-bg-float text-fg-primary shadow-sm"
-                    : "text-fg-secondary hover:text-fg-primary",
-                )}
-              >
-                {option === "dark" ? <Moon size={13} /> : <Sun size={13} />}
-                {option}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {admin && (
-          <>
-            <PanelSectionLabel divided>Project</PanelSectionLabel>
-            <div className="px-4 pt-1 space-y-1.5">
-              <AdminLink
-                href={admin.project}
-                icon={Settings2}
-                label="Administer project"
-                description="Settings, API keys and versions in Val Build."
-              />
-              <AdminLink
-                href={admin.members}
-                icon={Users}
-                label="Manage members"
-                description="Who can edit this project's content."
-              />
-            </div>
-          </>
-        )}
-
-        <PanelSectionLabel divided>Workspace</PanelSectionLabel>
-        <div className="px-4 pt-1 space-y-2.5">
-          {/* `fs` only, for the reason given in `StatusBar`. */}
-          {mode === "fs" && (
-            <SettingsToggle
-              label="Auto save"
-              description="Write changes to the working tree on a pause in typing."
-              checked={autoSave}
-              onChange={onAutoSaveChange}
-            />
-          )}
-          {branch && (
-            <div className="flex items-baseline justify-between text-xs">
-              <span className="text-fg-secondary">Branch</span>
-              <span className="font-mono text-fg-primary">{branch}</span>
-            </div>
-          )}
-        </div>
-
-        {deployments !== undefined && (
-          <>
-            <PanelSectionLabel divided>Deployments</PanelSectionLabel>
-            <div className="pt-1">
-              <DeploymentRows
-                deployments={deployments}
-                onDismiss={onDismissDeployment ?? (() => undefined)}
-              />
-            </div>
-          </>
-        )}
-
-        {onSignOut && (
-          <div className="px-4 pt-4">
-            <button
-              type="button"
-              onClick={onSignOut}
-              className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-xs text-fg-secondary border border-border-float hover:bg-bg-float-raised hover:text-fg-primary"
-            >
-              <LogOut size={13} />
-              Sign out
-            </button>
-          </div>
-        )}
-      </div>
+      {isLoading ? (
+        <PanelSkeleton rows={4} />
+      ) : loadError ? (
+        <PanelErrorState message={loadError} onRetry={onRetryLoad} />
+      ) : (
+        children
+      )}
     </FloatingPanel>
   );
 }
 
-/**
- * A way out to Val Build, in a new tab.
- *
- * A new tab rather than a navigation: leaving the Studio means leaving
- * whatever is being edited in it, and unsaved work lives in the page.
- */
-function AdminLink({
-  href,
-  icon: Icon,
-  label,
-  description,
-}: {
-  href: string;
-  icon: LucideIcon;
+export type SettingsTab = {
+  id: string;
   label: string;
-  description: string;
-}) {
+  icon: LucideIcon;
+  content: ReactNode;
+};
+
+/**
+ * The settings panel's tabs.
+ *
+ * One tab today — AI — and the strip is drawn anyway. Settings is a place with
+ * sections coming to it (locales, skills, a permissions model), and a panel
+ * that grows a tab strip later would move everything an editor had learned the
+ * position of. A single tab also says what this panel is: not "the AI panel",
+ * but the project's settings, of which AI is one.
+ *
+ * Presentational, and the selected tab is its own state: which tab you were on
+ * is not worth a URL parameter, and reopening the panel on the first one is the
+ * behaviour every other panel in the shell has.
+ */
+export function SettingsTabs({ tabs }: { tabs: SettingsTab[] }) {
+  const [active, setActive] = useState(tabs[0]?.id);
+  const current = tabs.find((tab) => tab.id === active) ?? tabs[0];
+  if (!current) {
+    return null;
+  }
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-start gap-2 -mx-2 px-2 py-1.5 rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
-    >
-      <Icon size={13} className="mt-0.5 shrink-0" />
-      <span className="min-w-0 flex-1">
-        <span className="block text-xs text-fg-primary">{label}</span>
-        <span className="block text-[0.6875rem] text-fg-secondary-alt">
-          {description}
-        </span>
-      </span>
-      <ExternalLink size={11} className="mt-0.5 shrink-0" />
-    </a>
+    <div className="flex flex-col">
+      <div
+        role="tablist"
+        aria-label="Settings sections"
+        // Left-aligned and natural width, not `flex-1`: with one tab, stretching
+        // it to the panel drew a full-width button rather than a tab, and a strip
+        // that re-flows every tab as sections are added is one that moves the tab
+        // an editor had learned the position of.
+        className="flex gap-0.5 m-3 p-0.5 rounded-md bg-bg-float-raised self-start w-fit"
+      >
+        {tabs.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={current.id === id}
+            onClick={() => setActive(id)}
+            className={cn(
+              "inline-flex items-center justify-center gap-1.5 h-7 px-3 rounded text-[0.6875rem]",
+              current.id === id
+                ? "bg-bg-float text-fg-primary shadow-sm font-medium"
+                : "text-fg-secondary hover:text-fg-primary",
+            )}
+          >
+            <Icon size={13} />
+            {label}
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel">{current.content}</div>
+    </div>
   );
 }
 
-function SettingsToggle({
+/** One settings section: a lead paragraph and the fields under it. */
+export function SettingsSection({
+  description,
+  children,
+}: {
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="px-4 pb-4">
+      <p className="text-xs text-fg-secondary-alt leading-relaxed">
+        {description}
+      </p>
+      <div className="mt-3 flex flex-col gap-4">{children}</div>
+    </section>
+  );
+}
+
+export type AiSettingsValue = {
+  /** `null` is unset, which means ON — see `isAiEnabled`. */
+  enabled: boolean | null;
+  context: string | null;
+  tone: string | null;
+};
+
+export type AiSettingsFieldsProps = {
+  value: AiSettingsValue;
+  /**
+   * One field changed.
+   *
+   * Per field rather than per section: the panel does not know whether the
+   * project has an `ai` section yet, and whoever writes the patch does — see
+   * `ValSettingsSections`.
+   */
+  onChange: (
+    field: keyof AiSettingsValue,
+    value: string | boolean | null,
+  ) => void;
+  /** The cap each field is validated against, from the schema. */
+  maxLength: number;
+  /** Validation messages, keyed by field, as the Studio has them. */
+  errors?: Partial<Record<keyof AiSettingsValue, string>>;
+  readonly?: boolean;
+};
+
+/**
+ * The AI section: what the assistant is told about this project.
+ *
+ * Two paragraphs, sent with every message the chat makes. `context` is
+ * background it would otherwise guess at; `tone` is how it should write when it
+ * writes content.
+ */
+export function AiSettingsFields({
+  value,
+  onChange,
+  maxLength,
+  errors,
+  readonly,
+}: AiSettingsFieldsProps) {
+  /**
+   * Unset reads as ON, so the switch is `!== false` rather than `!!`.
+   *
+   * A project that wrote a settings module did not do so to turn the assistant
+   * off, and the difference shows the first time someone opens this panel: a
+   * `!!` would draw the switch off and the two paragraphs below it as pointless.
+   */
+  const enabled = value.enabled !== false;
+  return (
+    <SettingsSection description="Told to the assistant with every message it sends.">
+      <div className="flex items-center justify-between gap-3">
+        <label htmlFor="val-ai-enabled" className="text-xs font-medium">
+          Assistant
+          <span className="block mt-0.5 text-[0.6875rem] font-normal text-fg-secondary-alt">
+            {enabled
+              ? "Available to editors in this project."
+              : "Off. Nothing below is sent, and the chat is hidden."}
+          </span>
+        </label>
+        <Switch
+          id="val-ai-enabled"
+          checked={enabled}
+          disabled={readonly}
+          onCheckedChange={(next) => onChange("enabled", next)}
+        />
+      </div>
+      <SettingsTextField
+        label="Context"
+        description="What this site is, who runs it, names and spellings that matter."
+        placeholder="A CMS for developers, run by a team of four…"
+        value={value.context}
+        onChange={(next) => onChange("context", next)}
+        maxLength={maxLength}
+        error={errors?.context}
+        readonly={readonly || !enabled}
+      />
+      <SettingsTextField
+        label="Tone of voice"
+        description="How it should write: formal or playful, British or American, how headings are cased."
+        placeholder="Plain and direct. Sentence case in headings, no exclamation marks…"
+        value={value.tone}
+        onChange={(next) => onChange("tone", next)}
+        maxLength={maxLength}
+        error={errors?.tone}
+        readonly={readonly || !enabled}
+      />
+    </SettingsSection>
+  );
+}
+
+/**
+ * A multiline settings field with a character count.
+ *
+ * The input never waits for the write — the typed value is local state, and the
+ * patch happens on a pause, the way every other text field in the Studio does
+ * it (see `useDebouncedFieldWrite`). Empty is written as `null`, not as `""`:
+ * unset is a real state in a settings module, and an empty string is a value
+ * that would be handed to the model as one.
+ */
+export function SettingsTextField({
   label,
   description,
-  checked,
+  placeholder,
+  value,
   onChange,
+  maxLength,
+  error,
+  readonly,
 }: {
   label: string;
   description: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
+  placeholder?: string;
+  value: string | null;
+  onChange: (value: string | null) => void;
+  maxLength: number;
+  error?: string;
+  readonly?: boolean;
 }) {
+  const [current, setCurrent] = useState(value ?? "");
+  const write: DebouncedFieldWrite<string> = useDebouncedFieldWrite<string>(
+    (next) => onChange(next === "" ? null : next),
+  );
+  useEffect(() => {
+    // Not while a keystroke is still unwritten: between a keystroke and its
+    // patch the source still holds the pre-edit value, and taking it would put
+    // back the character just typed. The same guard `StringField` needs.
+    if (write.hasPending()) {
+      return;
+    }
+    setCurrent(value ?? "");
+  }, [value, write]);
+  const overBy = current.length - maxLength;
   return (
-    <label className="flex gap-2.5 cursor-pointer">
-      <Checkbox
-        checked={checked}
-        onCheckedChange={(next) => onChange(next === true)}
-        className="mt-0.5 w-3.5 h-3.5 shrink-0"
+    <label className="block">
+      <span className="text-xs font-medium">{label}</span>
+      <span className="block mt-0.5 text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
+        {description}
+      </span>
+      {/*
+       * A box with a ceiling, not an auto-growing one.
+       *
+       * `AutoGrowingTextarea` takes exactly as much height as its content, and
+       * these fields are capped at thousands of characters: a value near the cap
+       * grew the box past the panel and pushed the counter and the validation
+       * message — the two things that explain what is wrong — out of sight. It
+       * scrolls instead, and can be dragged taller.
+       */}
+      <textarea
+        rows={4}
+        className="mt-1.5 w-full resize-y max-h-56 rounded-md border border-border-primary bg-bg-primary px-3 py-2 text-xs leading-relaxed placeholder:text-fg-secondary-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
+        placeholder={placeholder}
+        value={current}
+        disabled={readonly}
+        onChange={(event) => {
+          setCurrent(event.currentTarget.value);
+          write.push(event.currentTarget.value);
+        }}
+        onBlur={() => write.flush()}
       />
-      <span className="min-w-0">
-        <span className="block text-xs text-fg-primary">{label}</span>
-        <span className="block text-[0.6875rem] text-fg-secondary-alt">
-          {description}
+      <span className="mt-1 flex items-start justify-between gap-2">
+        <span className="text-[0.6875rem] text-fg-error-on-surface leading-relaxed">
+          {error}
+        </span>
+        <span
+          className={cn(
+            "shrink-0 text-[0.6875rem] tabular-nums",
+            overBy > 0 ? "text-fg-error-on-surface" : "text-fg-secondary-alt",
+          )}
+        >
+          {overBy > 0 ? `${overBy} over` : `${current.length} / ${maxLength}`}
         </span>
       </span>
     </label>
+  );
+}
+
+/** Shown in the panel when the project has no settings module. */
+export function NoSettingsModule() {
+  return (
+    <PanelEmptyState>
+      This project has no settings module. Add one at the root of the content
+      tree — <code>/settings.val.ts</code> — with{" "}
+      <code>c.define(&quot;/settings.val.ts&quot;, s.settings(), {"{}"})</code>,
+      and register it in <code>val.modules.ts</code>.
+    </PanelEmptyState>
   );
 }

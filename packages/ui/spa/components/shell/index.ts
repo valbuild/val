@@ -35,7 +35,7 @@ export type { SearchResult } from "./GlobalSearch";
 export { PagesPanel } from "./PagesPanel";
 export { MediaPanel } from "./MediaPanel";
 export { DataPanel } from "./DataPanel";
-export { SettingsPanel } from "./SettingsPanel";
+export { AccountPanel } from "./AccountPanel";
 export { UtilityPanel } from "./UtilityPanel";
 export { AIChatPanel } from "./AIChatPanel";
 export { NotificationsPanel } from "./NotificationsPanel";

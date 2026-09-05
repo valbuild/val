@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import {
   Internal,
   ModuleFilePath,
+  resolveSettingsModule,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
@@ -191,8 +192,23 @@ export function useNavMenuData(): Remote<NavMenuData> {
     if (media.length > 0) {
       data.media = media;
     }
-    const mediaPaths: ReadonlySet<string> = new Set(
-      media.map((m) => m.moduleFilePath as string),
+    // The settings module, if the project has exactly one usable one. A second
+    // one, or one in a subdirectory, resolves to nothing — the module errors
+    // say why, and offering a destination that cannot say WHICH settings it is
+    // showing would hide the question rather than raise it.
+    const settingsModule =
+      schemas.status === "success"
+        ? resolveSettingsModule(schemas.data).moduleFilePath
+        : null;
+    if (settingsModule) {
+      data.settings = { moduleFilePath: settingsModule };
+    }
+    // Galleries and settings have destinations of their own, so they are taken
+    // out of the module tree: Data is what is LEFT.
+    const excludedPaths: ReadonlySet<string> = new Set(
+      media
+        .map((m) => m.moduleFilePath as string)
+        .concat(settingsModule ? [settingsModule as string] : []),
     );
 
     // Transform explorer tree if available
@@ -200,7 +216,7 @@ export function useNavMenuData(): Remote<NavMenuData> {
       const explorer = transformPathNode(
         trees.data.root,
         navErrors,
-        mediaPaths,
+        excludedPaths,
       );
       // A tree that held nothing but galleries is now empty, so drop the
       // section rather than render an empty Explorer.

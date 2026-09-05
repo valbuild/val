@@ -327,7 +327,6 @@ function dataModule(
  * that do organise their content that the tree exists for.
  */
 export const mockDataModules: ShellDataModule[] = [
-  dataModule("/content/settings.val.ts"),
   dataModule("/content/navigation.val.ts", { hasDraft: true }),
   dataModule("/content/footer.val.ts"),
   dataModule("/content/shop/products.val.ts", { errorCount: 3 }),
@@ -533,6 +532,7 @@ export const mockShellData: ShellData = {
   newPage: mockNewPageRoutes,
   externalPages: mockExternalPages,
   media: mockMedia,
+  settings: { moduleFilePath: "/settings.val.ts" },
   data: mockDataModules,
   notifications: mockNotifications,
   activity: mockActivity,
@@ -576,6 +576,7 @@ export const emptyShellData: ShellData = {
   pages: [],
   externalPages: [],
   media: [],
+  settings: undefined,
   data: [],
   notifications: [],
   activity: [],

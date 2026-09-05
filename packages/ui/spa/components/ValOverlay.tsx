@@ -45,6 +45,7 @@ import {
 } from "./ValProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useSchemaAtPath, useValConfig, useSchemas } from "./ValFieldProvider";
+import { useIsAiEnabled } from "../hooks/useIsAiEnabled";
 import { useTheme } from "./ValThemeProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { FieldLoading } from "./FieldLoading";
@@ -1370,8 +1371,7 @@ function ValMenu({
   const validationErrors = useAllValidationErrors() || {};
   const validationErrorCount = Object.keys(validationErrors).length;
   const valMode = useValMode();
-  const config = useValConfig();
-  const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
+  const isChatEnabled = useIsAiEnabled();
   const sourcePathResult = useValRouterSourcePathFromCurrentPathname();
   const publishPopoverSide =
     dropZone === "val-menu-center-bottom"
