@@ -105,6 +105,11 @@ export function initValMcp(
     );
     return {
       mode: options.mode,
+      // The project Val is configured for, which is what a token's
+      // `val_project` claim is checked against. Read from Val's own config
+      // rather than from the `oauth` block, so an app cannot state it twice and
+      // get it wrong the second time.
+      project: options.project,
       tools: createValTools(valModules, {
         ...options,
         formatter: opts?.formatter,
@@ -207,7 +212,19 @@ export function initValMcp(
         };
       }
 
-      const verified = await verifyValAccessToken(request, oauth);
+      /**
+       * The audience the app was configured with, plus the project Val is
+       * configured for.
+       *
+       * Built here rather than at `initValMcp` time because the project comes
+       * out of `initHandlerOptions`, which is resolved asynchronously. The
+       * app's own `oauth.project`, if it set one, is deliberately overridden:
+       * `val.config.ts` is the authority on which project this is.
+       */
+      const verified = await verifyValAccessToken(request, {
+        ...oauth,
+        ...(setup.project === undefined ? {} : { project: setup.project }),
+      });
       if (verified.status === "refused") {
         // 401 for a missing or bad token, 403 once the token is good but does
         // not carry the scope: RFC 6750 section 3.1, and the distinction is

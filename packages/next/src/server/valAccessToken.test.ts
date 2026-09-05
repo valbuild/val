@@ -133,8 +133,18 @@ function serveJwks(keys: Record<string, unknown>[]): {
   };
 }
 
+const PROJECT = "acme/site";
+
 function oauth(fetchImpl: typeof fetch): ValOAuthConfig {
   return { issuer: ISSUER, resource: RESOURCE, fetchImpl };
+}
+
+/** The same config as an app that knows which project it serves. */
+function oauthForProject(
+  fetchImpl: typeof fetch,
+  project: string = PROJECT,
+): ValOAuthConfig {
+  return { issuer: ISSUER, resource: RESOURCE, project, fetchImpl };
 }
 
 function request(token?: string): Request {
@@ -256,6 +266,87 @@ describe("verifyValAccessToken", () => {
     if (res.status === "refused") {
       expect(res.description).toContain("aud");
     }
+  });
+
+  test("refuses a token approved for another project at this address", async () => {
+    const keys = makeKeys();
+    const jwks = serveJwks([keys.publicJwk]);
+    // Everything an audience check looks at is correct: this is the address the
+    // token was minted for, signed by a key the issuer publishes, unexpired.
+    const token = signToken(keys, {
+      scope: "val:read",
+      val_project: "someone-else/site",
+    });
+
+    const res = await verifyValAccessToken(
+      request(token),
+      oauthForProject(jwks.fetchImpl),
+    );
+
+    /**
+     * The case `aud` cannot catch, because the address *is* the audience.
+     *
+     * The address is bound to a project by a registration at the authorization
+     * server, which this server cannot see. If that binding is ever wrong, a
+     * member of another organization approving a token for this address would
+     * produce exactly the token above — and without this check it would be
+     * honoured, under this app's own API key, against this project's content.
+     */
+    expect(res).toMatchObject({ status: "refused", error: "invalid_token" });
+    if (res.status === "refused") {
+      expect(res.description).toContain("val_project");
+    }
+  });
+
+  test("refuses a token that does not say which project it is for", async () => {
+    const keys = makeKeys();
+    const jwks = serveJwks([keys.publicJwk]);
+    const token = signToken(keys, { scope: "val:read" });
+
+    const res = await verifyValAccessToken(
+      request(token),
+      oauthForProject(jwks.fetchImpl),
+    );
+
+    // Refused rather than accepted for compatibility: "accept it if absent" is
+    // a downgrade, and anything that could strip the claim would turn the check
+    // off.
+    expect(res).toMatchObject({ status: "refused", error: "invalid_token" });
+  });
+
+  test("accepts a token approved for the project this server serves", async () => {
+    const keys = makeKeys();
+    const jwks = serveJwks([keys.publicJwk]);
+    const token = signToken(keys, {
+      scope: "val:read",
+      val_project: PROJECT,
+    });
+
+    const res = await verifyValAccessToken(
+      request(token),
+      oauthForProject(jwks.fetchImpl),
+    );
+
+    expect(res).toMatchObject({ status: "ok" });
+  });
+
+  test("skips the project check where there is no project to check against", async () => {
+    const keys = makeKeys();
+    const jwks = serveJwks([keys.publicJwk]);
+    const token = signToken(keys, {
+      scope: "val:read",
+      val_project: "someone-else/site",
+    });
+
+    // Local filesystem mode, where `project` is optional: there is no backend
+    // and no other tenant, so there is nothing for the claim to protect and
+    // nothing to compare it against.
+    const res = await verifyValAccessToken(
+      request(token),
+      oauth(jwks.fetchImpl),
+    );
+
+    expect(res).toMatchObject({ status: "ok" });
   });
 
   test("accepts an audience array that includes this resource", async () => {

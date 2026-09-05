@@ -411,6 +411,9 @@ function oauthHarness(): {
           sub: "profile-123",
           exp: nowSeconds + 600,
           scope: "val:read val:write",
+          // The project the harness's env (`VAL_PROJECT`) configures, since
+          // `initValMcp` checks the claim against Val's own config.
+          val_project: "test/project",
           ...claims,
         }),
       )}`;
@@ -480,6 +483,46 @@ describe("oauth mode", () => {
       profileId: "profile-123",
       scopes: ["val:read", "val:write"],
     });
+  });
+
+  test("a token approved for another project is refused, even at this address", async () => {
+    const harness = oauthHarness();
+    const res = await withEnv(httpModeEnv(), () =>
+      initValMcp({ config, modules: [] }, config, {
+        oauth: harness,
+      }).valMcpAuthorize(
+        request({
+          authorization: `Bearer ${harness.signToken({
+            val_project: "someone-else/site",
+          })}`,
+        }),
+      ),
+    );
+
+    // Signed by the right issuer, minted for this exact address, unexpired —
+    // and for somebody else's content. `aud` cannot see the difference, because
+    // the address is the audience.
+    expect(res.status).toBe("refused");
+    if (res.status !== "refused") {
+      return;
+    }
+    expect(res.response.status).toBe(401);
+  });
+
+  test("the project checked is Val's own config, not what the app passed", async () => {
+    const harness = oauthHarness();
+    const res = await withEnv(httpModeEnv(), () =>
+      initValMcp({ config, modules: [] }, config, {
+        // An app naming a project in its `oauth` block does not get to decide
+        // which project this server serves: `val.config.ts` (here, VAL_PROJECT)
+        // is the authority, and it says `test/project`.
+        oauth: { ...harness, project: "someone-else/site" },
+      }).valMcpAuthorize(
+        request({ authorization: `Bearer ${harness.signToken()}` }),
+      ),
+    );
+
+    expect(res.status).toBe("ok");
   });
 
   test("a forged token is refused with invalid_token", async () => {
