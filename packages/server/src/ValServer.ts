@@ -1431,7 +1431,26 @@ export const ValServer = (
           query.include_patch_groups === true &&
           serverOps instanceof ValOpsHttp
         ) {
-          const groupsRes = await serverOps.getPatchGroups();
+          /*
+           * FRESH, because this answer makes a CLOSING decision.
+           *
+           * The client adopts this annotation as its group membership and
+           * `emptiesOwnPatchGroup` then decides from it whether a publish may
+           * name the group — and the content API closes what it is named
+           * without checking. A one-second-old list is enough to get that
+           * wrong: the same author writing in a second tab joins the open
+           * group, the websocket pushes the chain immediately, so this tab's
+           * fetch for the missing patch lands well inside the cache window and
+           * reads a membership that is one patch short. It then publishes,
+           * names the group, and closes it with the other tab's work still in
+           * it — which leaves that tab wedged on 409 until a reload.
+           *
+           * `resolveOwnPatchScope` keeps the cache deliberately: that read
+           * decides what a draft render SHOWS, it is repeated once per
+           * `fetchVal` in a single render, and being a second stale there costs
+           * a patch appearing late rather than a group closing early.
+           */
+          const groupsRes = await serverOps.getPatchGroups({ fresh: true });
           if (groupsRes.status === "ok" && groupsRes.patchGroups.length > 0) {
             patchGroups = groupsRes.patchGroups;
           } else if (groupsRes.status === "error") {

@@ -507,6 +507,15 @@ export function createValSystem(
                   res.status !== null && "message" in res.json
                     ? res.json.message
                     : `Could not stage: ${res.status ?? "network error"}`,
+                /*
+                 * 409 is the content API saying the group has already shipped,
+                 * and it is the only refusal here the client can do something
+                 * about: the id is dead, so the store forgets it rather than
+                 * asking again with the same one. See `sendPatchGroupChange`.
+                 */
+                ...(res.status === 409
+                  ? { reason: "group-published" as const }
+                  : {}),
               };
             }
             return { status: "ok" };
@@ -522,6 +531,15 @@ export function createValSystem(
                   res.status !== null && "message" in res.json
                     ? res.json.message
                     : `Could not unstage: ${res.status ?? "network error"}`,
+                /*
+                 * 409 is the content API saying the group has already shipped,
+                 * and it is the only refusal here the client can do something
+                 * about: the id is dead, so the store forgets it rather than
+                 * asking again with the same one. See `sendPatchGroupChange`.
+                 */
+                ...(res.status === 409
+                  ? { reason: "group-published" as const }
+                  : {}),
               };
             }
             return { status: "ok" };

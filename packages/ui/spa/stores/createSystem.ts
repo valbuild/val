@@ -402,7 +402,23 @@ export type StagePatches = (request: {
    * read backwards.
    */
   withPatchIds: PatchId[];
-}) => Promise<{ status: "ok" } | { status: "error"; message: string }>;
+}) => Promise<
+  | { status: "ok" }
+  | {
+      status: "error";
+      message: string;
+      /**
+       * The group has already SHIPPED — the content API's 409.
+       *
+       * Carried apart from the message because it is the one refusal the client
+       * can act on rather than only report: the id this tab is holding will
+       * never be writable again, so continuing to hold it turns every later
+       * stage into the same 409. Every other failure leaves the group usable
+       * and the id worth keeping.
+       */
+      reason?: "group-published";
+    }
+>;
 
 /**
  * One move of this author's group, as it goes on the wire.
@@ -845,6 +861,24 @@ export function createSystem(options: SystemOptions): System {
       withPatchIds: change.withPatchIds,
     });
     if (res.status === "error") {
+      if (res.reason === "group-published") {
+        /*
+         * Somebody CLOSED this group — this same author publishing from another
+         * tab, since a group is one person's.
+         *
+         * Forgotten rather than retried: a published group is immutable, so a
+         * tab that keeps naming it answers every stage and unstage with the
+         * same 409, silently, for the rest of the session. Nothing else would
+         * correct it — the annotation refreshes only inside a fetch for MISSING
+         * patch ids, and there are none to fetch on a quiet branch.
+         *
+         * Forgetting hands the question back to `useCurrentPatchGroup`, which
+         * falls through to the annotation and then to the deferred queue, so
+         * the next write creates the next group and the click is replayed into
+         * it. Exactly the window the queue exists for.
+         */
+        patchStore.forgetOwnPatchGroup();
+      }
       /*
        * KNOWN GAP: nothing puts the local scope back.
        *

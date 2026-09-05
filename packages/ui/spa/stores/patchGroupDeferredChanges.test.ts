@@ -40,7 +40,11 @@ type Sent = {
   withPatchIds: PatchId[];
 };
 
-function makeSystem(options?: { stageFails?: boolean }) {
+function makeSystem(options?: {
+  stageFails?: boolean;
+  /** The content API's 409: this group has already shipped. */
+  stageSaysPublished?: boolean;
+}) {
   const sent: Sent[] = [];
   const system = createSystem({
     fetchPatches: async (patchIds) => ({
@@ -61,6 +65,13 @@ function makeSystem(options?: { stageFails?: boolean }) {
     publishPatches: async () => ({ status: "published" }),
     stagePatches: async ({ patchGroupId, patchIds, withPatchIds }) => {
       sent.push({ patchGroupId, type: "stage", patchIds, withPatchIds });
+      if (options?.stageSaysPublished) {
+        return {
+          status: "error",
+          message: "Patch group is already published",
+          reason: "group-published",
+        };
+      }
       return options?.stageFails
         ? { status: "error", message: "nope" }
         : { status: "ok" };
@@ -322,4 +333,48 @@ test("the studio still reads normally around all of this", async () => {
     status: "ready",
     data: "base",
   });
+});
+
+test("a 409 on stage makes this tab stop naming the group it just lost", async () => {
+  /*
+   * The same author, two tabs, and the wedge that follows a publish in one of
+   * them.
+   *
+   * A group belongs to a person, so the other tab is the only thing that can
+   * close it — and once it has, the id this tab is holding will never be
+   * writable again. Keeping it turned every later stage and unstage into the
+   * same 409, logged and nothing else, for the rest of the session: the
+   * annotation refreshes only inside a fetch for MISSING patch ids, and on a
+   * quiet branch there are none to fetch, so nothing would ever correct it.
+   *
+   * Forgetting hands the question back to `useCurrentPatchGroup`, which falls
+   * through to the annotation and then to the deferred queue — so the next
+   * write creates the next group and the click is replayed into it, which is
+   * exactly the window the queue exists for.
+   */
+  const { system } = makeSystem({ stageSaysPublished: true });
+  system.patchStore.recordOwnPatchGroup("g1");
+  expect(system.patchStore.ownGroupId()).toBe("g1");
+
+  system.persistPatchGroupChange("g1", stage(["a" as PatchId]));
+  await settle();
+
+  expect(system.patchStore.ownGroupId()).toBe(undefined);
+});
+
+test("an ordinary failure keeps the group, because the id is still good", async () => {
+  /*
+   * The control, and the reason the reason is carried apart from the message: a
+   * network blip or a 500 says nothing about whether the group is still this
+   * author's to write to. Forgetting the id there would send every subsequent
+   * click down the deferred path for no reason, and drop the write resolver
+   * with it until the next save answered.
+   */
+  const { system } = makeSystem({ stageFails: true });
+  system.patchStore.recordOwnPatchGroup("g1");
+
+  system.persistPatchGroupChange("g1", stage(["a" as PatchId]));
+  await settle();
+
+  expect(system.patchStore.ownGroupId()).toBe("g1");
 });

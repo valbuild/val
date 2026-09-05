@@ -1731,6 +1731,26 @@ export class ValOpsHttp extends ValOps {
         method: "POST",
         headers: {
           ...this.authHeaders,
+          /*
+           * WHO is publishing — the same `x-val-profile-id` stage and unstage
+           * send, and for the same reason: `this.authHeaders` is the app's API
+           * key, which names the PROJECT and not the person.
+           *
+           * Closing a group is an ownership decision, so the content API
+           * refuses a commit that names a `patchGroupId` it cannot attribute:
+           * without this header `profileId` is `undefined` there and every
+           * group-closing publish is 403 "Cannot resolve the caller's profile".
+           * That is the NORMAL full publish, not an edge — `publish` names the
+           * group whenever the commit empties it.
+           *
+           * Sent on every commit rather than only when a group is named. The
+           * committer is a person either way, `committer` in the body already
+           * says so, and a header that appears only on some commits is one more
+           * conditional for a reader of either repo to reconstruct. It changes
+           * nothing else: the content API reads it as an identity claim beside
+           * the app's key and derives no scope from it.
+           */
+          "x-val-profile-id": committer,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({

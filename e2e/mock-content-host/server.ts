@@ -817,53 +817,70 @@ const getPatchGroups: Handler = (req, res, url) => {
  * already closed over its patch sets; deriving that closure needs the content
  * schema, which the content API does not have, so it does not second-guess it.
  */
-const mutatePatchGroup: Handler = async (req, res, url) => {
-  if (!state.patchGroupsEnabled) {
-    json(res, 404, { message: "Patch groups are not enabled on this mock" });
-    return;
-  }
-  const patchGroupId = decodeURIComponent(url.pathname.split("/").at(-2) ?? "");
-  /*
-   * The content API's OWN ownership check, in `home`'s order.
-   *
-   * `resolveOwnOpenGroup` refuses in this sequence: no profile → 403, unknown
-   * group → 404, someone else's → 403, already published → 409. The order is
-   * observable — a published group belonging to somebody else is 403 there and
-   * would be 409 if the published check came first — and the point of this mock
-   * is to answer what the thing it stands in for answers.
-   *
-   * The app's API key names the PROJECT, not the person, so the caller's
-   * identity arrives as `x-val-profile-id` — a claim the app makes alongside
-   * its key. Without it there is no profile to compare against `group.authorId`
-   * and the real content API answers 403 rather than trusting the key.
-   *
-   * Modelling the refusal matters as much as modelling the success: this mock
-   * had no auth on these routes at all, so `ValOpsHttp` not sending the header
-   * looked like it worked here while failing every stage in production.
-   */
+/**
+ * `home`'s `resolveOwnOpenGroup`: the group named, if it is the caller's and
+ * still open. Answers on `res` and returns `null` when it refuses.
+ *
+ * `home` refuses in this sequence: no profile → 403, unknown group → 404,
+ * someone else's → 403, already published → 409. The order is observable — a
+ * published group belonging to somebody else is 403 there and would be 409 if
+ * the published check came first — and the point of this mock is to answer what
+ * the thing it stands in for answers.
+ *
+ * The app's API key names the PROJECT, not the person, so the caller's identity
+ * arrives as `x-val-profile-id` — a claim the app makes alongside its key.
+ * Without it there is no profile to compare against `group.authorId` and the
+ * real content API answers 403 rather than trusting the key.
+ *
+ * ONE implementation, shared by stage, unstage and commit, because `home` has
+ * one: all three call `resolveOwnOpenGroup`. Modelling the refusal matters as
+ * much as modelling the success — this mock had no auth on these routes at all,
+ * so `ValOpsHttp` not sending the header looked like it worked here while
+ * failing every stage in production, and then the same omission on `commit`
+ * went unnoticed a second time because this handler trusted whatever it was
+ * named.
+ */
+function resolveOwnOpenGroup(
+  req: IncomingMessage,
+  res: ServerResponse,
+  patchGroupId: string,
+): MockPatchGroup | null {
   const profileId = req.headers["x-val-profile-id"];
   if (typeof profileId !== "string" || profileId.length === 0) {
     res.writeHead(403, { "Content-Type": "text/plain", ...corsHeaders(res) });
     res.end(
       "Cannot resolve the caller's profile, so patch group ownership cannot be checked",
     );
-    return;
+    return null;
   }
   const group = state.patchGroups.get(patchGroupId);
   if (!group) {
     json(res, 404, { message: "Patch group not found" });
-    return;
+    return null;
   }
   if (group.authorId === null || group.authorId !== profileId) {
     res.writeHead(403, { "Content-Type": "text/plain", ...corsHeaders(res) });
     res.end("Patch group belongs to another user");
-    return;
+    return null;
   }
   if (group.publishedAt !== null) {
     // 409 rather than 500, because the client distinguishes it: the group has
     // shipped and this id will never be writable again.
     res.writeHead(409, { "Content-Type": "text/plain", ...corsHeaders(res) });
     res.end("Patch group is already published");
+    return null;
+  }
+  return group;
+}
+
+const mutatePatchGroup: Handler = async (req, res, url) => {
+  if (!state.patchGroupsEnabled) {
+    json(res, 404, { message: "Patch groups are not enabled on this mock" });
+    return;
+  }
+  const patchGroupId = decodeURIComponent(url.pathname.split("/").at(-2) ?? "");
+  const group = resolveOwnOpenGroup(req, res, patchGroupId);
+  if (group === null) {
     return;
   }
   const body = await readJsonBody<{
@@ -1116,6 +1133,32 @@ const commit: Handler = async (req, res) => {
   if (!body) {
     json(res, 400, { message: "Invalid commit body" });
     return;
+  }
+  /*
+   * The group this commit CLOSES has to be the caller's — refused BEFORE
+   * anything is written, exactly as `home`'s `postCommit` does it.
+   *
+   * `markPublished` matches on project and id with no author clause, so this
+   * route used to close whatever the body named. It is the most damaging of the
+   * three group mutations: someone else's pending patches end up in a closed
+   * group and in no open one, so their scoped draft renders base and their next
+   * stage is 409'd. Group ids are not secret — the annotation hands every
+   * editor on the branch the id and author of every group.
+   *
+   * Here rather than beside the close further down for the reason `home` gives:
+   * by then the commit exists, and on the real server it has been pushed to
+   * GitHub, outside the transaction's reach. A refusal has to happen while
+   * there is still nothing to undo.
+   *
+   * This is also what makes the e2e suite able to catch a missing
+   * `x-val-profile-id` on `ValOpsHttp.commit`, which it could not before: with
+   * no check here, a client that never says who it is publishes happily against
+   * the mock and is refused 403 by the content API in production.
+   */
+  if (state.patchGroupsEnabled && typeof body.patchGroupId === "string") {
+    if (resolveOwnOpenGroup(req, res, body.patchGroupId) === null) {
+      return;
+    }
   }
   const parentCommitSha = state.headCommitSha;
   const commitSha = sha(

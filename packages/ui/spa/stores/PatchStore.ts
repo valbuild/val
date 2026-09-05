@@ -1605,6 +1605,28 @@ export class PatchStore {
   }
 
   /**
+   * This group is gone — stop naming it.
+   *
+   * Its own method rather than `recordOwnPatchGroup(undefined)`, because the
+   * two say different things: that one relays what the server just answered,
+   * this one says the id we were holding has stopped being usable. The caller
+   * is a 409 "already published" on a stage or unstage, which is this same
+   * author having published from another tab; holding the id after that answers
+   * every later stage with the same 409, silently.
+   *
+   * {@link patchGroupsSeen} is deliberately left alone — the deployment still
+   * has groups, this author simply has none right now, and confusing the two is
+   * what turned staging off after every publish.
+   */
+  forgetOwnPatchGroup(): void {
+    if (this.ownPatchGroupId === undefined) {
+      return;
+    }
+    this.ownPatchGroupId = undefined;
+    this.bumpGroups();
+  }
+
+  /**
    * Whether this deployment has patch groups. See {@link patchGroupsSeen}.
    *
    * Never goes back to false, so a publish — which closes the group and clears
