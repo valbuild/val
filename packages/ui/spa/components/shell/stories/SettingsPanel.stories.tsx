@@ -52,7 +52,7 @@ export default meta;
 
 type HarnessProps = {
   breakpoint: ShellBreakpoint;
-  /** The settings module's `ai` section, as source. */
+  /** The settings module's `assistant` section, as source. */
   initial?: AssistantSettingsValue;
   /** No settings module in the project at all. */
   missing?: boolean;

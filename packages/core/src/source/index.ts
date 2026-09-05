@@ -11,7 +11,8 @@ export type Source =
   | JsonSource
   // Last, and deliberately: `SourceObject` cannot express an optional key, so a
   // settings source (`{}` is valid, and so is `{ ai: { tone: "…" } }`) is not
-  // one. Any object type that does not conflict on `ai` satisfies this member,
+  // one. Any object type that does not conflict on `assistant` satisfies this
+  // member,
   // which is why every arm that dispatches on `Source` must reach `SourceObject`
   // first — see the `Selector` mapping.
   | SettingsSource

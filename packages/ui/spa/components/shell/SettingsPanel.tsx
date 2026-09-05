@@ -41,7 +41,8 @@ export type SettingsPanelProps = {
  *
  * Each section gets a UI built for it rather than the generic field renderer.
  * That is the whole reason settings is a destination instead of a module under
- * Data: `ai.context` is a paragraph about the project, not a string field, and
+ * Data: `assistant.context` is a paragraph about the project, not a string
+ * field, and
  * what follows it — locales, skills, permissions — will each want their own
  * shape too.
  */

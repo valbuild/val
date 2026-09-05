@@ -271,7 +271,8 @@ export function ValProvider({
    *
    * It used to ask the config whether either AI feature was wanted. It cannot
    * ask that any more, and should not: whether the ASSISTANT is on is now the
-   * project's own content (`s.settings()`, `ai.enabled`), which lives in the
+   * project's own content (`s.settings()`, `assistant.enabled`), which lives in
+   * the
    * store this component builds below — and the old question had a false
    * negative in it anyway, since a project that had disabled commit summaries
    * and enabled the chat got no socket at all.
