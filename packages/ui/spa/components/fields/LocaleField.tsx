@@ -92,46 +92,99 @@ export function LocaleField({
       />
     );
   }
-  const aliases = schemaAtPath.data.aliases;
-  const options = acceptedLocaleValues(projectLocales, aliases);
-  const current = sourceAtPath.data ?? "";
   const content = (
     <div id={path}>
-      {options.length === 0 ? (
-        // Not an error on this field: the project has not declared its
-        // languages, and the place to do that is Settings, not here.
-        <p className="text-xs text-fg-secondary-alt leading-relaxed">
-          This project has no languages yet. Add them under Settings → Locales.
-        </p>
-      ) : (
-        <Select
-          value={current === "" ? undefined : current}
-          disabled={readonly}
-          onValueChange={(next) => {
-            addPatch([{ op: "replace", path: patchPath, value: next }], type);
-          }}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="Pick a language" />
-          </SelectTrigger>
-          <SelectContent container={portalContainer}>
-            {options.map((option) => (
-              <SelectItem key={option} value={option}>
-                <LocaleOptionLabel
-                  value={option}
-                  locale={localeOfValue(option, projectLocales, aliases)}
-                />
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
+      <LocalePicker
+        options={localeOptionsOf(projectLocales, schemaAtPath.data.aliases)}
+        value={sourceAtPath.data ?? null}
+        readonly={readonly}
+        portalContainer={portalContainer}
+        onChange={(next) => {
+          addPatch([{ op: "replace", path: patchPath, value: next }], type);
+        }}
+      />
     </div>
   );
   if (readonly) {
     return <ReadonlyGuard>{content}</ReadonlyGuard>;
   }
   return content;
+}
+
+/**
+ * One choice the picker offers: what is stored, and the language it means.
+ *
+ * `locale` is `null` only where the stored value resolves to no language, which
+ * an option built by `localeOptionsOf` never is — it is in the type so the
+ * label can be reused for a value read back out of content, which can be.
+ */
+export type LocaleOption = { value: string; locale: string | null };
+
+/**
+ * The project's languages as choices, spelled the way this field stores them.
+ *
+ * Without aliases the value and the language are the same tag. With them the
+ * value is the field's own spelling, and the language is what it means — which
+ * is why both travel together rather than the picker being handed bare strings.
+ */
+export function localeOptionsOf(
+  projectLocales: string[],
+  aliases: Record<string, string[]> | undefined,
+): LocaleOption[] {
+  return acceptedLocaleValues(projectLocales, aliases).map((value) => ({
+    value,
+    locale: localeOfValue(value, projectLocales, aliases),
+  }));
+}
+
+/**
+ * The picker itself, with nothing behind it.
+ *
+ * Split from `LocaleField` so the design can be seen without a store: this is
+ * the part with states worth looking at — a project that has declared no
+ * languages, a field that has not been set, aliases that make the value and the
+ * language differ. See `LocaleField.stories.tsx`.
+ */
+export function LocalePicker({
+  options,
+  value,
+  readonly,
+  onChange,
+  portalContainer,
+}: {
+  options: LocaleOption[];
+  value: string | null;
+  readonly?: boolean;
+  onChange: (next: string) => void;
+  portalContainer?: HTMLElement | null;
+}) {
+  if (options.length === 0) {
+    return (
+      // Not an error on this field: the project has not declared its
+      // languages, and the place to do that is Settings, not here.
+      <p className="text-xs text-fg-secondary-alt leading-relaxed">
+        This project has no languages yet. Add them under Settings → Locales.
+      </p>
+    );
+  }
+  return (
+    <Select
+      value={value === null || value === "" ? undefined : value}
+      disabled={readonly}
+      onValueChange={onChange}
+    >
+      <SelectTrigger className="w-full">
+        <SelectValue placeholder="Pick a language" />
+      </SelectTrigger>
+      <SelectContent container={portalContainer}>
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            <LocaleOptionLabel value={option.value} locale={option.locale} />
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
 /**
