@@ -117,6 +117,36 @@ export function draftKeyChanges(
   return { added, removed };
 }
 
+/**
+ * Every key an unpublished edit mentions at all, added and removed included.
+ *
+ * Broader than {@link draftKeyChanges} on purpose: an edit INSIDE an entry
+ * changes no keys, but it is exactly the change a delegated search cannot see —
+ * the store answered from published content, and the words the editor just typed
+ * are not in it.
+ */
+export function draftTouchedKeys(
+  serializedSchema: SerializedSchema | undefined,
+  patches: { patchId: PatchId; patch: Patch }[],
+): string[] {
+  const keys: string[] = [];
+  if (serializedSchema === undefined) {
+    return keys;
+  }
+  for (const { patch } of patches) {
+    for (const op of patch) {
+      const cls = classifyEntryOp(serializedSchema, op.path, "external");
+      if (cls.kind !== "entry" || cls.recordPath.length > 0) {
+        continue;
+      }
+      if (!keys.includes(cls.entryKey)) {
+        keys.push(cls.entryKey);
+      }
+    }
+  }
+  return keys;
+}
+
 export type ExternalEntry = { key: string; content: Json | null };
 
 export type ExternalEntriesResolution = {

@@ -51,10 +51,17 @@ import { checkExternalSetup } from "./externalStartup";
 import { ExternalStore } from "./ExternalStore";
 import {
   draftKeyChanges,
+  draftTouchedKeys,
   mergeExternalKeys,
   readExternalSource,
   resolveExternalEntries,
 } from "./externalReads";
+import {
+  ExternalSearchIndex,
+  overlayDraftOnSearch,
+  searchEntries,
+  type ExternalHit,
+} from "./externalSearch";
 import type {
   ExternalAuthor,
   ExternalIssue,
@@ -759,6 +766,13 @@ export abstract class ValOps {
    */
   private externalStore: ExternalStore | null | undefined = undefined;
 
+  /**
+   * What Val has seen of each external record, so a store with no `search` can
+   * still be searched. Opportunistic: it is filled by reads that were happening
+   * anyway and never fetches on its own behalf.
+   */
+  private readonly externalSearchIndex = new ExternalSearchIndex();
+
   getExternalStore(): ExternalStore | null {
     if (this.externalStore === undefined) {
       const records = this.options?.external;
@@ -929,6 +943,10 @@ export abstract class ValOps {
       applyPatches,
       validate: opts?.validate,
     });
+    // Opportunistic: these entries were fetched because someone asked for them,
+    // and remembering them is what lets a store with no `search` be searched at
+    // all. Nothing is ever fetched FOR the index.
+    this.externalSearchIndex.record(moduleFilePath, resolved.entries);
     return {
       status: "success",
       entries: resolved.entries,
@@ -986,6 +1004,176 @@ export abstract class ValOps {
         count: Math.max(0, res.value.count + extra.size - draft.removed.size),
         exact: res.value.exact,
       },
+    };
+  }
+
+  /**
+   * Search an external record.
+   *
+   * Three ways this is answered, and the caller is TOLD which — an editor
+   * shown "no matches" by a search that never ran has been misled:
+   *
+   * - `delegated` — the adapter searched, and the answer is then corrected for
+   *   unpublished edits it could not see.
+   * - `partial` — the adapter has no `search`, so Val answers from the entries
+   *   it has already fetched for other reasons. It fetches nothing of its own:
+   *   searching a 100,000-entry store must not quietly become downloading it.
+   * - `unavailable` — the adapter said `search: false`.
+   */
+  async getExternalSearch(
+    moduleFilePath: ModuleFilePath,
+    query: { text: string; cursor: string | null; limit: number },
+    opts?: { applyPatches?: boolean; author?: ExternalAuthor },
+  ): Promise<
+    | {
+        status: "success";
+        mode: "delegated" | "partial" | "unavailable";
+        hits: ExternalHit[];
+        cursor: string | null;
+        warnings: ExternalIssue[];
+      }
+    | { status: "not-found"; message: string }
+    | { status: "error"; message: string }
+  > {
+    const applyPatches = opts?.applyPatches !== false;
+    const ctx = await this.externalContext(moduleFilePath, applyPatches);
+    if (ctx.status !== "success") {
+      return ctx;
+    }
+    const res = await ctx.store.search(moduleFilePath, query, {
+      author: opts?.author,
+    });
+    if (res.status === "error") {
+      return { status: "error", message: res.error.message };
+    }
+    if (res.value.status === "declined") {
+      return {
+        status: "success",
+        mode: "unavailable",
+        hits: [],
+        cursor: null,
+        warnings: res.warnings,
+      };
+    }
+
+    /**
+     * The draft content of every entry a pending patch touches.
+     *
+     * Resolved through the same path a read takes, so a draft-added entry, a
+     * draft edit and a draft deletion are all seen exactly as the editor left
+     * them.
+     */
+    const patchedOf = async (
+      keys: string[],
+    ): Promise<Record<string, Json | null>> => {
+      if (!applyPatches || keys.length === 0) {
+        return {};
+      }
+      const resolved = await this.getExternalEntries(moduleFilePath, keys, {
+        applyPatches: true,
+        validate: false,
+        author: opts?.author,
+      });
+      if (resolved.status !== "success") {
+        return {};
+      }
+      const out: Record<string, Json | null> = {};
+      for (const key of resolved.missing) {
+        out[key] = null;
+      }
+      for (const { key, content } of resolved.entries) {
+        out[key] = content;
+      }
+      return out;
+    };
+
+    if (res.value.status === "delegated") {
+      const hits: ExternalHit[] = res.value.page.hits.map((hit) => ({
+        key: hit.key,
+        ...(hit.path !== undefined ? { path: hit.path } : {}),
+        ...(hit.value !== undefined ? { content: hit.value } : {}),
+      }));
+      const draft = draftKeyChanges(ctx.serializedSchema, ctx.patches);
+      const touched = new Set<string>([
+        ...draft.added,
+        ...draft.removed,
+        // Every key a patch mentions at all, not only added/removed ones: an
+        // edit INSIDE an entry is exactly the case a store cannot see.
+        ...draftTouchedKeys(ctx.serializedSchema, ctx.patches),
+        ...hits.map((hit) => hit.key),
+      ]);
+      const patched = await patchedOf([...touched]);
+      // Only entries a draft actually changed may correct the store's answer.
+      const drafted: Record<string, Json | null> = {};
+      const changed = new Set([
+        ...draft.added,
+        ...draft.removed,
+        ...draftTouchedKeys(ctx.serializedSchema, ctx.patches),
+      ]);
+      for (const key of changed) {
+        drafted[key] = patched[key] ?? null;
+      }
+      const corrected = overlayDraftOnSearch({
+        hits,
+        text: query.text,
+        patched: drafted,
+      });
+      this.externalSearchIndex.record(
+        moduleFilePath,
+        corrected
+          .filter((hit) => hit.content !== undefined)
+          .map((hit) => ({ key: hit.key, content: hit.content as Json })),
+      );
+      return {
+        status: "success",
+        mode: "delegated",
+        hits: corrected,
+        cursor: res.value.page.cursor,
+        warnings: res.warnings,
+      };
+    }
+
+    // Derived. The corpus is what Val has already seen, plus whatever a draft
+    // touched — which is cheap, and is the half an editor notices missing.
+    const known = this.externalSearchIndex.entries(moduleFilePath);
+    const touched = draftTouchedKeys(ctx.serializedSchema, ctx.patches);
+    const draftChanges = draftKeyChanges(ctx.serializedSchema, ctx.patches);
+    const patched = await patchedOf([
+      ...new Set([...touched, ...draftChanges.added]),
+    ]);
+    const corpus = new Map<string, Json>();
+    for (const { key, content } of known) {
+      corpus.set(key, content);
+    }
+    const shape = readExternalSource(ctx.source);
+    if (shape.kind === "inline") {
+      // Inline entries are in the module, not the store, so they are always
+      // searchable — and always shadow it.
+      for (const [key, content] of Object.entries(shape.entries)) {
+        corpus.set(key, content);
+      }
+    }
+    for (const [key, content] of Object.entries(patched)) {
+      if (content === null) {
+        corpus.delete(key);
+      } else {
+        corpus.set(key, content);
+      }
+    }
+    for (const key of draftChanges.removed) {
+      corpus.delete(key);
+    }
+    const found = searchEntries(
+      [...corpus.entries()].map(([key, content]) => ({ key, content })),
+      query.text,
+      { cursor: query.cursor, limit: query.limit },
+    );
+    return {
+      status: "success",
+      mode: "partial",
+      hits: found.hits,
+      cursor: found.cursor,
+      warnings: res.warnings,
     };
   }
 

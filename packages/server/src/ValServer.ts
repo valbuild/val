@@ -58,7 +58,33 @@ import {
 } from "./personalAccessTokens";
 import path from "path";
 import { getErrorMessageFromUnknownJson } from "@valbuild/shared/internal";
-import type { ExternalRecords } from "./externalRecords";
+import type {
+  ExternalAuthor,
+  ExternalIssue,
+  ExternalRecords,
+} from "./externalRecords";
+
+/**
+ * What a page is when the caller did not say.
+ *
+ * Fifty, matching the Studio's own default: the number is the UI's to choose,
+ * and this is only the fallback for a caller that expressed no preference.
+ */
+const DEFAULT_EXTERNAL_PAGE_SIZE = 50;
+
+/**
+ * An adapter's warning, as it crosses the wire.
+ *
+ * `retryable` and `cause` are dropped: the first is a decision Val has already
+ * acted on by the time anything is returned, and the second is an arbitrary
+ * value that may not survive JSON — a thrown `Error`, a driver's socket object.
+ */
+function toWireIssue(issue: ExternalIssue): { message: string; key?: string } {
+  return {
+    message: issue.message,
+    ...(issue.key !== undefined ? { key: issue.key } : {}),
+  };
+}
 
 export type ValServerOptions = {
   route: string;
@@ -220,6 +246,26 @@ export const ValServer = (
         console.debug("Failed to get user from code: ", err);
         return null;
       });
+  };
+
+  /**
+   * Who is editing, as an adapter sees it.
+   *
+   * The session's subject and nothing more. Anything richer — a name, a role,
+   * the row in the app's own users table — is the adapter's to resolve from this
+   * id, because only the adapter knows what its store keys on.
+   *
+   * `undefined` in fs mode, where there is no session at all: locally the editor
+   * is the developer, and Val does not know who that is. An adapter that needs an
+   * author must handle its absence rather than assume one.
+   */
+  const externalAuthor = (
+    auth: ReturnType<typeof getAuth>,
+  ): ExternalAuthor | undefined => {
+    if ("id" in auth && typeof auth.id === "string") {
+      return { id: auth.id };
+    }
+    return undefined;
   };
 
   const getAuth = (
@@ -1454,6 +1500,155 @@ export const ValServer = (
             ...(res.offset !== undefined ? { offset: res.offset } : {}),
             ...(res.limit !== undefined ? { limit: res.limit } : {}),
             total: res.total,
+          },
+        };
+      },
+    },
+
+    // #region external
+    //
+    // Reading a record whose entries live behind an adapter. Shaped like `/json`
+    // above, entry for entry, because a reader must not be able to tell how a
+    // record is stored — and the cheapest way to guarantee that is to give both
+    // storage modes the same response.
+    //
+    // Paging is by cursor rather than offset: an external store has its own
+    // ordering and its own idea of where a page stopped, and an offset into it
+    // would mean counting rows the store has already forgotten.
+    "/external/keys": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+          return { status: 401, json: { message: "Unauthorized" } };
+        }
+        const moduleFilePath = req.query.path as ModuleFilePath;
+        const applyPatches = req.query.apply_patches !== false;
+        const res = await serverOps.getExternalKeys(
+          moduleFilePath,
+          {
+            cursor: req.query.cursor ?? null,
+            limit: req.query.limit ?? DEFAULT_EXTERNAL_PAGE_SIZE,
+          },
+          { applyPatches, author: externalAuthor(auth) },
+        );
+        if (res.status === "not-found") {
+          return { status: 404, json: { message: res.message } };
+        }
+        if (res.status === "error") {
+          return { status: 500, json: { message: res.message } };
+        }
+        // Asked for alongside the page rather than on its own request: a pager
+        // that renders after a second round trip flickers, and the count is
+        // cheap or declined, never slow.
+        const counted = await serverOps.getExternalCount(moduleFilePath, {
+          applyPatches,
+          author: externalAuthor(auth),
+        });
+        return {
+          status: 200,
+          json: {
+            path: moduleFilePath,
+            keys: res.keys,
+            cursor: res.cursor,
+            ...(counted.status === "success" &&
+            counted.count.status === "counted"
+              ? {
+                  total: {
+                    count: counted.count.count,
+                    exact: counted.count.exact,
+                  },
+                }
+              : {}),
+            ...(res.warnings.length > 0
+              ? { warnings: res.warnings.map(toWireIssue) }
+              : {}),
+          },
+        };
+      },
+    },
+    "/external/entries": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+          return { status: 401, json: { message: "Unauthorized" } };
+        }
+        const moduleFilePath = req.query.path as ModuleFilePath;
+        const res = await serverOps.getExternalEntries(
+          moduleFilePath,
+          req.query.keys,
+          {
+            applyPatches: req.query.apply_patches !== false,
+            author: externalAuthor(auth),
+          },
+        );
+        if (res.status === "not-found") {
+          return { status: 404, json: { message: res.message } };
+        }
+        if (res.status === "error") {
+          return { status: 500, json: { message: res.message } };
+        }
+        return {
+          status: 200,
+          json: {
+            path: moduleFilePath,
+            entries: res.entries,
+            missing: res.missing,
+            errors: res.errors,
+            ...(res.warnings.length > 0
+              ? { warnings: res.warnings.map(toWireIssue) }
+              : {}),
+          },
+        };
+      },
+    },
+    "/external/search": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+          return { status: 401, json: { message: "Unauthorized" } };
+        }
+        const moduleFilePath = req.query.path as ModuleFilePath;
+        const res = await serverOps.getExternalSearch(
+          moduleFilePath,
+          {
+            text: req.query.query,
+            cursor: req.query.cursor ?? null,
+            limit: req.query.limit ?? DEFAULT_EXTERNAL_PAGE_SIZE,
+          },
+          {
+            applyPatches: req.query.apply_patches !== false,
+            author: externalAuthor(auth),
+          },
+        );
+        if (res.status === "not-found") {
+          return { status: 404, json: { message: res.message } };
+        }
+        if (res.status === "error") {
+          return { status: 500, json: { message: res.message } };
+        }
+        return {
+          status: 200,
+          json: {
+            path: moduleFilePath,
+            mode: res.mode,
+            hits: res.hits.map((hit) => ({
+              key: hit.key,
+              ...(hit.path !== undefined ? { path: hit.path } : {}),
+              ...(hit.content !== undefined ? { content: hit.content } : {}),
+            })),
+            cursor: res.cursor,
+            ...(res.warnings.length > 0
+              ? { warnings: res.warnings.map(toWireIssue) }
+              : {}),
           },
         };
       },
