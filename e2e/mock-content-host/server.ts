@@ -1081,9 +1081,9 @@ const getPatchFileMetadata: Handler = (req, res, url) => {
  * `PUT /v1/{project}/files` — read files, from the repo or from a patch.
  *
  * PUT with a body because the request is a list of files; that is the real
- * protocol, oddity included. Note the two encodings the caller expects: a repo
- * file comes back as plain base64 and a patch file as the base64 data URL it was
- * uploaded as.
+ * protocol, oddity included. ONE encoding: plain base64, for a repo file and a
+ * patch file alike. It used to be base64 here and a data URL there, so the
+ * field's meaning depended on a branch the caller could not see.
  */
 const getFiles: Handler = async (req, res) => {
   const body = await readJsonBody<{

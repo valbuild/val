@@ -1965,7 +1965,22 @@ export class ValOpsHttp extends ValOps {
         message,
       });
     }
-    const parsed = schema.safeParse(await res.json());
+    // A 200 is not a promise of JSON: a proxy or gateway in front of the
+    // service answers HTML, and an unguarded `.json()` would reject straight
+    // out of this Result-typed API and 500 the route.
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch (err) {
+      return result.err({
+        kind: "archive-unreadable",
+        commitSha: commitShaForErrors,
+        message: `response was not JSON: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      });
+    }
+    const parsed = schema.safeParse(body);
     if (!parsed.success) {
       return result.err({
         kind: "archive-unreadable",

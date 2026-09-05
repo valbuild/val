@@ -5,11 +5,11 @@ import { diffToOps } from "./diffToOps";
 /**
  * One thing a user can choose to put back.
  *
- * A patch rather than a bare op because that is what the grouping wants: each
- * unit carries its OWN patch id, and `PatchSets.insert` keys everything by
- * patch id. Handing it one patch with N ops silently drops N-1 of them - it
- * returns early for the second and later ops of an id it has already seen - so
- * "one op, one id" is not a stylistic choice, it is the contract.
+ * One op per unit, each under its OWN patch id, because a unit is the smallest
+ * thing a user can choose to restore and `PatchSets` groups by patch id: ops
+ * sharing an id are one indivisible patch, and could not be offered separately.
+ * `PatchSets.insert` takes a whole patch and de-duplicates per patch id, so a
+ * repeat id is dropped entirely - which is the other reason the ids differ.
  */
 export type RestoreUnit = {
   /**

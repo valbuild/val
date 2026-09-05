@@ -3272,7 +3272,12 @@ export const ValServer = (
           // A reconstructed commit says nothing about the current source or
           // schema, so it cannot change for this sha. Immutable is what makes
           // comparing many commits cheap.
-          headers: { "Cache-Control": "public, max-age=31536000, immutable" },
+          //
+          // `private`, not `public`: this route is behind the session cookie,
+          // and a shared cache holding it would hand one project's module
+          // sources to whoever asked next. The browser's own cache is where
+          // the reuse was wanted anyway.
+          headers: { "Cache-Control": "private, max-age=31536000, immutable" },
         };
       },
     },
