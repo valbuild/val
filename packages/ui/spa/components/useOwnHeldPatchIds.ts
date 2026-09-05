@@ -1,6 +1,11 @@
 import { useMemo } from "react";
 import type { PatchId } from "@valbuild/core";
-import { useCurrentAuthorId, useHeldPatchIds } from "./ValProvider";
+import {
+  useChainVersion,
+  useCurrentAuthorId,
+  useGroupsVersion,
+  useHeldPatchIds,
+} from "./ValProvider";
 import { useValSystem } from "../stores/react/SystemContext";
 
 /**
@@ -26,7 +31,24 @@ export function useOwnHeldPatchIds(): ReadonlySet<PatchId> {
   const val = useValSystem();
   const held = useHeldPatchIds();
   const authorId = useCurrentAuthorId();
+  /*
+   * Keyed on the VERSIONS, not only on `held`'s identity.
+   *
+   * `PatchStore.heldPatchIds()` hands out `this.heldIds` itself — one Set,
+   * mutated in place. `useHeldPatchIds` now copies it so its own result changes
+   * identity when the content does, but this hook should not depend on a
+   * caller-side invariant it cannot enforce: keyed on `held` alone it computed
+   * once and never again, and Publish went on offering to stage a change the
+   * user had already staged.
+   *
+   * These are the same versions `useHeldPatchIds` keys on, so this recomputes
+   * exactly when the held set can have moved — not on every render.
+   */
+  const chainVersion = useChainVersion();
+  const groupsVersion = useGroupsVersion();
   return useMemo(() => {
+    void chainVersion;
+    void groupsVersion;
     if (val === null || authorId === null || held.size === 0) {
       return new Set<PatchId>();
     }
@@ -37,5 +59,5 @@ export function useOwnHeldPatchIds(): ReadonlySet<PatchId> {
       }
     }
     return mine;
-  }, [val, held, authorId]);
+  }, [val, held, authorId, chainVersion, groupsVersion]);
 }

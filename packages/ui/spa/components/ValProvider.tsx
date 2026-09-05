@@ -1251,7 +1251,7 @@ export function useChainOrder(): PatchId[] {
  * keystroke batch without the groups moving at all, so keying on it also meant
  * re-reading them constantly for nothing.
  */
-function useGroupsVersion(): number {
+export function useGroupsVersion(): number {
   const val = useValSystem();
   const subscribe = useCallback(
     (onChange: () => void) => {
@@ -1386,7 +1386,7 @@ export function usePatchSets():
 }
 
 /** Moved by every change to the patch chain. See `PatchStore`'s `bump`. */
-function useChainVersion(): number {
+export function useChainVersion(): number {
   const val = useValSystem();
   const subscribe = useCallback(
     (onChange: () => void) => {
@@ -1837,7 +1837,20 @@ export function useHeldPatchIds(): ReadonlySet<PatchId> {
     if (val === null) return new Set<PatchId>();
     void chainVersion;
     void groupsVersion;
-    return val.system.patchStore.heldPatchIds();
+    /*
+     * COPIED, so identity tracks content.
+     *
+     * `PatchStore.heldPatchIds()` returns `this.heldIds` itself — one Set,
+     * mutated in place — so handing that reference out made this memo's result
+     * referentially identical forever, however much the held set changed. Any
+     * consumer keying its own memo on it then computed once and never again,
+     * which is what made Publish keep offering to stage a change the user had
+     * already staged.
+     *
+     * The copy is made inside this memo, so it is rebuilt only when the chain
+     * or the groups actually move — a new identity per CHANGE, not per render.
+     */
+    return new Set(val.system.patchStore.heldPatchIds());
   }, [val, chainVersion, groupsVersion]);
 }
 

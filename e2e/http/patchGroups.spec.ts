@@ -553,15 +553,37 @@ test.describe("the server routes", () => {
     });
     expect(stage.status()).toBe(403);
 
+    /*
+     * And the third route that takes a group id: PUBLISHING closes the group it
+     * names, and closing somebody else's is worse than either of the above.
+     * Bob's pending patches land in a closed group and in no open one, so a
+     * scoped draft render of his shows base for them, his own tab still
+     * believes the group is open, and his next stage is refused with 409.
+     *
+     * Stage and unstage were guarded from the start; `/save` was not, and the
+     * content API marks the group published on id alone with no author clause —
+     * so the id was trusted twice and checked nowhere.
+     */
+    const publish = await page.request.fetch("/api/val/save", {
+      method: "POST",
+      data: {
+        patchIds: [alicePatch],
+        message: "Alice publishes, naming Bob's group",
+        patchGroupId: bobGroup?.patchGroupId,
+      },
+    });
+    expect(publish.status()).toBe(403);
+
     // Refused is not enough — the group has to be untouched. Emptying Bob's
     // group would make his next publish ship nothing; adding to it would make
-    // it ship Alice's change under his name.
+    // it ship Alice's change under his name; closing it would strand his work
+    // where he can neither publish nor see it.
     const after = await mock.state();
-    expect(
-      after.patchGroups.find(
-        (group) => group.patchGroupId === bobGroup?.patchGroupId,
-      )?.patchIds,
-    ).toEqual([bobPatch]);
+    const bobAfter = after.patchGroups.find(
+      (group) => group.patchGroupId === bobGroup?.patchGroupId,
+    );
+    expect(bobAfter?.patchIds).toEqual([bobPatch]);
+    expect(bobAfter?.publishedAt, "Bob's group was closed by Alice").toBeNull();
 
     await bobContext.close();
   });

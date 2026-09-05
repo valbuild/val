@@ -1263,9 +1263,30 @@ export const Api = {
               .optional(),
           }),
         }),
+        /*
+         * The named patch group is not this caller's, or the lookup that would
+         * say so failed.
+         *
+         * Publishing may CLOSE a group, and closing somebody else's leaves
+         * their pending work in a closed group and in no open one. So `/save`
+         * runs the same ownership check stage and unstage do, and refuses the
+         * same way — see `refuseUnlessOwn`.
+         */
+        z.object({
+          status: z.literal(403),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
         z.object({
           status: z.literal(409),
           json: z.union([
+            /** A group that has already shipped. See the 403 above. */
+            z.object({
+              message: z.string(),
+            }),
             z.object({
               message: z.string(),
               isNotFastForward: z.literal(true),

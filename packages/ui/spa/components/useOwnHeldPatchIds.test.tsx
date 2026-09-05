@@ -15,33 +15,61 @@ jest.mock("../stores/react/createValSystem", () => ({
 }));
 
 // `mock`-prefixed so jest allows the factories below to close over them.
-let mockHeld: PatchId[] = [];
+/*
+ * ONE Set instance, mutated in place — which is what the real store hands out.
+ *
+ * The first version of this mock built `new Set(mockHeld)` on every render, so
+ * the hook under test saw a fresh reference each time and its memo recomputed
+ * whether or not it was keyed correctly. That made the suite unable to fail for
+ * the bug it was written next to: `PatchStore.heldPatchIds()` returns
+ * `this.heldIds` itself, so a memo keyed on that reference never recomputes.
+ */
+const mockHeld = new Set<PatchId>();
 let mockAuthorId: string | null = "alice";
 let mockRecords: { patchId: PatchId; authorId: string | null }[] = [];
 
+/*
+ * The versions the store bumps when the chain or the groups move. Staging
+ * changes both the held Set and one of these, so a hook that keys on them
+ * recomputes even though the Set it was handed is the same object.
+ */
+const mockChainVersion = 1;
+let mockGroupsVersion = 1;
+
 jest.mock("./ValProvider", () => ({
   __esModule: true,
-  useHeldPatchIds: () => new Set(mockHeld),
+  useHeldPatchIds: () => mockHeld,
   useCurrentAuthorId: () => mockAuthorId,
+  useChainVersion: () => mockChainVersion,
+  useGroupsVersion: () => mockGroupsVersion,
 }));
+/*
+ * ONE system object, as the real `useValSystem` context read returns.
+ *
+ * Rebuilding it per render was the second thing hiding the staleness: a memo
+ * keyed on `[val, held, authorId]` recomputes every render if `val` changes
+ * identity every render, so the suite passed no matter how the memo was keyed.
+ */
+const mockSystem = {
+  system: {
+    patchStore: {
+      // `recordsFor` answers in chain order for the ids it KNOWS. An id it
+      // does not know is simply absent, which is the store's own contract.
+      recordsFor: (patchIds: PatchId[]) =>
+        mockRecords
+          .filter((record) => patchIds.includes(record.patchId))
+          .map((record) => ({
+            ...record,
+            moduleFilePath: "/content/page.val.ts" as ModuleFilePath,
+            patch: [],
+          })),
+    },
+  },
+};
+
 jest.mock("../stores/react/SystemContext", () => ({
   __esModule: true,
-  useValSystem: () => ({
-    system: {
-      patchStore: {
-        // `recordsFor` answers in chain order for the ids it KNOWS. An id it
-        // does not know is simply absent, which is the store's own contract.
-        recordsFor: (patchIds: PatchId[]) =>
-          mockRecords
-            .filter((record) => patchIds.includes(record.patchId))
-            .map((record) => ({
-              ...record,
-              moduleFilePath: "/content/page.val.ts" as ModuleFilePath,
-              patch: [],
-            })),
-      },
-    },
-  }),
+  useValSystem: () => mockSystem,
 }));
 
 import { useOwnHeldPatchIds } from "./useOwnHeldPatchIds";
@@ -66,7 +94,8 @@ function ownHeld(options: {
   records: { patchId: PatchId; authorId: string | null }[];
   authorId?: string | null;
 }): PatchId[] {
-  mockHeld = options.held;
+  mockHeld.clear();
+  for (const patchId of options.held) mockHeld.add(patchId);
   mockRecords = options.records;
   mockAuthorId = options.authorId === undefined ? "alice" : options.authorId;
   return [...renderHook(() => useOwnHeldPatchIds()).result.current];
@@ -128,4 +157,35 @@ test("with no identified user, nothing is offered", () => {
       authorId: null,
     }),
   ).toEqual([]);
+});
+
+test("staging a held change updates the count on the NEXT render", () => {
+  /*
+   * The bug a fresh mount cannot show.
+   *
+   * `PatchStore.heldPatchIds()` returns `this.heldIds` — one Set, mutated in
+   * place — and `useHeldPatchIds` memoises that reference, so it is identical
+   * across every change. A memo here keyed on that reference alone therefore
+   * computes once and never again: Publish went on saying "1 change is held
+   * back — stage it in Review" after the user had staged it, and in the other
+   * direction never showed the message after an unstage.
+   *
+   * Re-rendering the SAME hook instance is what makes it visible; every test
+   * above mounts afresh, so the memo is new and the staleness cannot appear.
+   */
+  mockHeld.clear();
+  mockHeld.add(MINE);
+  mockRecords = [{ patchId: MINE, authorId: "alice" }];
+  mockAuthorId = "alice";
+
+  const { result, rerender } = renderHook(() => useOwnHeldPatchIds());
+  expect([...result.current]).toEqual([MINE]);
+
+  // The user stages it: the store empties the Set it already handed out, and
+  // bumps the groups version — which is the only signal that anything moved.
+  mockHeld.clear();
+  mockGroupsVersion += 1;
+  rerender();
+
+  expect([...result.current]).toEqual([]);
 });

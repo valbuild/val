@@ -823,21 +823,14 @@ const mutatePatchGroup: Handler = async (req, res, url) => {
     return;
   }
   const patchGroupId = decodeURIComponent(url.pathname.split("/").at(-2) ?? "");
-  const group = state.patchGroups.get(patchGroupId);
-  if (!group) {
-    json(res, 404, { message: "Patch group not found" });
-    return;
-  }
-  if (group.publishedAt !== null) {
-    // 409 rather than 500, because the client distinguishes it: the group has
-    // shipped and this id will never be writable again.
-    res.writeHead(409, { "Content-Type": "text/plain", ...corsHeaders(res) });
-    res.end("Patch group is already published");
-    return;
-  }
   /*
-   * The content API's OWN ownership check, modelled on `home`'s
-   * `resolveOwnOpenGroup`.
+   * The content API's OWN ownership check, in `home`'s order.
+   *
+   * `resolveOwnOpenGroup` refuses in this sequence: no profile → 403, unknown
+   * group → 404, someone else's → 403, already published → 409. The order is
+   * observable — a published group belonging to somebody else is 403 there and
+   * would be 409 if the published check came first — and the point of this mock
+   * is to answer what the thing it stands in for answers.
    *
    * The app's API key names the PROJECT, not the person, so the caller's
    * identity arrives as `x-val-profile-id` — a claim the app makes alongside
@@ -856,9 +849,21 @@ const mutatePatchGroup: Handler = async (req, res, url) => {
     );
     return;
   }
+  const group = state.patchGroups.get(patchGroupId);
+  if (!group) {
+    json(res, 404, { message: "Patch group not found" });
+    return;
+  }
   if (group.authorId === null || group.authorId !== profileId) {
     res.writeHead(403, { "Content-Type": "text/plain", ...corsHeaders(res) });
     res.end("Patch group belongs to another user");
+    return;
+  }
+  if (group.publishedAt !== null) {
+    // 409 rather than 500, because the client distinguishes it: the group has
+    // shipped and this id will never be writable again.
+    res.writeHead(409, { "Content-Type": "text/plain", ...corsHeaders(res) });
+    res.end("Patch group is already published");
     return;
   }
   const body = await readJsonBody<{

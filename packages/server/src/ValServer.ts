@@ -2365,6 +2365,35 @@ export const ValServer = (
           };
         } else if (serverOps instanceof ValOpsHttp) {
           if (auth.error === undefined && auth.id) {
+            /*
+             * The group this commit CLOSES has to be the caller's.
+             *
+             * Stage and unstage go through `refuseUnlessOwn`; this route did
+             * not, and the content API's `postCommit` marks the group published
+             * on id alone with no author clause — so the id was trusted twice
+             * and checked nowhere. Any logged-in editor could name a colleague's
+             * open group and close it: their pending patches land in a closed
+             * group and in no open one, so a scoped draft render shows base for
+             * them, and their own tab still believes the group is open, so their
+             * next stage is refused with 409.
+             *
+             * Same hole as the stage/unstage one this branch already closed, one
+             * route over. The content API needs the same guard — this one is the
+             * convenience, that one is what actually holds.
+             */
+            if (body.patchGroupId !== undefined && body.patchGroupId !== null) {
+              const refusal = await refuseUnlessOwn(
+                serverOps,
+                body.patchGroupId,
+                auth.id,
+              );
+              if (refusal !== null) {
+                return {
+                  status: refusal.status,
+                  json: { message: refusal.message },
+                };
+              }
+            }
             const message =
               body.message ||
               "Val CMS update (" +
