@@ -1,8 +1,11 @@
 import "server-only";
 import { initValMcp } from "@valbuild/next/server";
+import { createValImageTools } from "@valbuild/mcp";
+import { sharpImageProcessor } from "@valbuild/mcp/sharp";
 import { config } from "../val.config";
 import valModules from "../val.modules";
 import prettier from "prettier";
+import sharp from "sharp";
 
 /**
  * Val's tools, ready to mount on an MCP transport.
@@ -17,6 +20,15 @@ const { valMcpAuthorize, valMcpTools, valMcpMetadata } = initValMcp(
   valModules,
   config,
   {
+    /**
+     * The image tool, which this app opts into by installing `sharp`.
+     *
+     * Passed in rather than bundled, because `sharp` is a native dependency and
+     * a CMS should not put a compiled binary in every project that installs it.
+     * Leave this out and the agent can still read, validate and edit content —
+     * it just cannot add an image.
+     */
+    extraTools: createValImageTools(sharpImageProcessor(sharp)),
     formatter: (code, filePath) => {
       return prettier.format(code, {
         filepath: filePath,

@@ -1,0 +1,65 @@
+{
+  "name": "@valbuild/mcp",
+  "private": false,
+  "description": "Val - content tools for MCP hosts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/valbuild/val.git"
+  },
+  "main": "dist/valbuild-mcp.cjs.js",
+  "module": "dist/valbuild-mcp.esm.js",
+  "exports": {
+    ".": {
+      "module": "./dist/valbuild-mcp.esm.js",
+      "default": "./dist/valbuild-mcp.cjs.js"
+    },
+    "./sharp": {
+      "module": "./sharp/dist/valbuild-mcp-sharp.esm.js",
+      "default": "./sharp/dist/valbuild-mcp-sharp.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "dist/valbuild-mcp.cjs.d.ts",
+  "version": "0.120.4",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "test:watch": "jest --watch"
+  },
+  "preconstruct": {
+    "entrypoints": [
+      "./index.ts",
+      "./sharp/index.ts"
+    ],
+    "exports": true
+  },
+  "dependencies": {
+    "@valbuild/core": "workspace:*",
+    "@valbuild/server": "workspace:*",
+    "@valbuild/shared": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@prettier/sync": "^0.6.1",
+    "@types/jest": "^30.0.0",
+    "prettier": "~3.8.5",
+    "sharp": "^0.35.4",
+    "sucrase": "^3.35.1",
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22"
+  },
+  "keywords": [
+    "CMS",
+    "mcp",
+    "val",
+    "valbuild"
+  ],
+  "files": [
+    "CHANGELOG.md",
+    "dist",
+    "sharp/dist",
+    "sharp/package.json"
+  ]
+}

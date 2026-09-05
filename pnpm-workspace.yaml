@@ -4,6 +4,7 @@ packages:
   - packages/shared
   - packages/server
   - packages/language-server
+  - packages/mcp
   - packages/next
   - packages/react
   - packages/cli

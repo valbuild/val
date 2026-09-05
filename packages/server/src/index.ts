@@ -1,29 +1,5 @@
 export { createService, Service } from "./Service";
 export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
-// Val's tools, over ValOps rather than the Studio's browser stores — so an MCP
-// server, a stdio transport or anything else can drive Val content without a
-// browser. Nothing under `tools/` imports an MCP SDK, and the host that does
-// adapts `ValToolResult` at its own edge.
-export { createValTools } from "./tools";
-// The scope names and the one legitimate way to brand a verified subject: a
-// host that verifies an access token itself needs both, and neither should be
-// re-spelled at the edge where getting it wrong is a silent authorization bug.
-export {
-  VAL_SCOPE_READ,
-  VAL_SCOPE_WRITE,
-  authorIdFromVerifiedSubject,
-} from "./tools";
-export type {
-  ValScope,
-  ValToolAuth,
-  ValToolContext,
-  ValToolDefinition,
-  ValToolDefinitionJson,
-  ValToolErrorCode,
-  ValToolResult,
-  ValTools,
-  ValToolsOptions,
-} from "./tools";
 // Exported for a host that has to build the same config the API router builds:
 // two copies of this decision drift, and a registry that thinks it is in fs mode
 // while the Studio thinks it is in proxy mode reads different content from the
@@ -148,6 +124,20 @@ export type {
   PatchSourceError,
   PreparedCommit,
 } from "./ValOps";
+// The data layer itself, and the shapes it hands back. Exported for
+// `@valbuild/mcp`, whose tool registry runs against `ValOps` rather than the
+// Studio's browser stores: the tools moved out of this package, but the layer
+// they are written against did not, and re-declaring these there would be a
+// second description of one contract.
+export type { ValOps } from "./ValOps";
+export type {
+  AuthorId,
+  BinaryFileType,
+  MetadataOfType,
+  Schemas,
+  Sources,
+} from "./ValOps";
+export type { ValServerConfig } from "./ValServer";
 
 /**
  * The local-dev patch store, exported so the CLI's debug tooling can read a

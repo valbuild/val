@@ -5,7 +5,7 @@ import {
   isMimeTypeAccepted,
   isSkippedSource,
   resolveEncodeSettings,
-} from "./encodeImage";
+} from "./encodeImageDecisions";
 
 /**
  * The decisions, not the canvas.

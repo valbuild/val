@@ -1,7 +1,13 @@
 import {
+  ALT_GALLERY_PATH,
+  CONVERTING_GALLERY_PATH,
   CTX,
+  ENCODED_GALLERY_PATH,
+  GALLERY_PATH,
   ITEMS_PATH,
+  MEDIA_PATH,
   PAGES_PATH,
+  STRICT_GALLERY_PATH,
   callErr,
   callOk,
   setup,
@@ -89,8 +95,14 @@ describe("get_all_schema", () => {
     const data = await callOk(tools, "get_all_schema", {});
 
     expect(Object.keys(data as Record<string, unknown>).sort()).toEqual([
+      ALT_GALLERY_PATH,
+      CONVERTING_GALLERY_PATH,
+      ENCODED_GALLERY_PATH,
+      GALLERY_PATH,
       ITEMS_PATH,
+      MEDIA_PATH,
       PAGES_PATH,
+      STRICT_GALLERY_PATH,
     ]);
     expect(data).toMatchObject({
       [PAGES_PATH]: { type: "record" },

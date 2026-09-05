@@ -125,6 +125,9 @@ importers:
       '@valbuild/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@valbuild/mcp':
+        specifier: workspace:*
+        version: link:../../packages/mcp
       '@valbuild/next':
         specifier: workspace:*
         version: link:../../packages/next
@@ -143,6 +146,9 @@ importers:
       react-dom:
         specifier: ^19.2.8
         version: 19.2.8(react@19.2.8)
+      sharp:
+        specifier: ^0.35.4
+        version: 0.35.4(@types/node@26.4.0)
       styled-jsx:
         specifier: ^5.1.2
         version: 5.1.7(@babel/core@7.29.7)(babel-plugin-macros@3.1.0)(react@19.2.8)
@@ -349,6 +355,40 @@ importers:
         specifier: ^9.0.2
         version: 9.0.2
 
+  packages/mcp:
+    dependencies:
+      '@valbuild/core':
+        specifier: workspace:*
+        version: link:../core
+      '@valbuild/server':
+        specifier: workspace:*
+        version: link:../server
+      '@valbuild/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@prettier/sync':
+        specifier: ^0.6.1
+        version: 0.6.1(prettier@3.8.5)
+      '@types/jest':
+        specifier: ^30.0.0
+        version: 30.0.0
+      prettier:
+        specifier: ~3.8.5
+        version: 3.8.5
+      sharp:
+        specifier: ^0.35.4
+        version: 0.35.4(@types/node@26.4.0)
+      sucrase:
+        specifier: ^3.35.1
+        version: 3.35.1
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
   packages/next:
     dependencies:
       '@valbuild/core':
@@ -357,6 +397,9 @@ importers:
       '@valbuild/language-server':
         specifier: workspace:*
         version: link:../language-server
+      '@valbuild/mcp':
+        specifier: workspace:*
+        version: link:../mcp
       '@valbuild/react':
         specifier: workspace:*
         version: link:../react
@@ -10964,8 +11007,7 @@ snapshots:
 
   '@humanwhocodes/retry@0.4.3': {}
 
-  '@img/colour@1.1.0':
-    optional: true
+  '@img/colour@1.1.0': {}
 
   '@img/sharp-darwin-arm64@0.35.4':
     optionalDependencies:
@@ -11576,7 +11618,7 @@ snapshots:
   '@manypkg/tools@2.1.2':
     dependencies:
       jju: 1.4.0
-      tinyglobby: 0.2.15
+      tinyglobby: 0.2.17
       yaml: 2.9.0
 
   '@marijn/find-cluster-break@1.0.2': {}
@@ -11602,7 +11644,7 @@ snapshots:
   '@napi-rs/wasm-runtime@0.2.12':
     dependencies:
       '@emnapi/core': 1.8.1
-      '@emnapi/runtime': 1.11.0
+      '@emnapi/runtime': 1.11.3
       '@tybys/wasm-util': 0.10.1
     optional: true
 
@@ -11921,6 +11963,11 @@ snapshots:
       - supports-color
 
   '@preconstruct/next@4.0.0': {}
+
+  '@prettier/sync@0.6.1(prettier@3.8.5)':
+    dependencies:
+      make-synchronized: 0.8.0
+      prettier: 3.8.5
 
   '@prettier/sync@0.6.1(prettier@3.9.6)':
     dependencies:
@@ -14649,7 +14696,7 @@ snapshots:
       get-tsconfig: 4.13.0
       is-bun-module: 2.0.0
       stable-hash: 0.0.5
-      tinyglobby: 0.2.15
+      tinyglobby: 0.2.17
       unrs-resolver: 1.11.1
     optionalDependencies:
       eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.68.0(eslint@10.9.1(jiti@2.7.0))(typescript@6.0.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.68.0(eslint@10.9.1(jiti@2.7.0))(typescript@6.0.3))(eslint@10.9.1(jiti@2.7.0)))(eslint@10.9.1(jiti@2.7.0)))(eslint@10.9.1(jiti@2.7.0))
@@ -17734,7 +17781,6 @@ snapshots:
       '@img/sharp-win32-ia32': 0.35.4
       '@img/sharp-win32-x64': 0.35.4
       '@types/node': 26.4.0
-    optional: true
 
   shebang-command@2.0.0:
     dependencies:
@@ -18013,7 +18059,7 @@ snapshots:
       lines-and-columns: 1.2.4
       mz: 2.7.0
       pirates: 4.0.7
-      tinyglobby: 0.2.15
+      tinyglobby: 0.2.17
       ts-interface-checker: 0.1.13
 
   supports-color@10.2.2: {}
