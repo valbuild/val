@@ -612,10 +612,69 @@ export type TestSystem = {
    */
   activity: RecordingActivity;
   listeners: Listeners;
+  /**
+   * The deferred validation pass, under the test's control.
+   *
+   * Only armed with `manualPendingValidation: true` — see `InitTestSystemOptions`.
+   */
+  pendingValidation: TestPendingValidation;
   dispose(): void;
 };
 
-export function initTestSystem(): TestSystem {
+/**
+ * The pending-validation pass, driven by hand instead of by a 300ms timer.
+ *
+ * `armed` is the property the burst tests are actually about: one pass for a
+ * burst of forty patches, not forty passes. Asserting it directly replaces
+ * inferring it from an absence ("nothing has validated yet"), which was only
+ * true while the burst won a race against the real debounce.
+ */
+export type TestPendingValidation = {
+  /** How many passes have been armed since the system was created. */
+  readonly armed: number;
+  /** Run every pass that is currently armed. Returns how many ran. */
+  fire(): number;
+};
+
+export type InitTestSystemOptions = {
+  /**
+   * Defer the pending-validation pass until `pendingValidation.fire()`.
+   *
+   * Off by default, so every test that does not care keeps the real debounce
+   * and nothing about them changes.
+   */
+  manualPendingValidation?: boolean;
+};
+
+export function initTestSystem(
+  options: InitTestSystemOptions = {},
+): TestSystem {
+  /**
+   * Armed passes, in arming order, when the test is driving.
+   *
+   * A list rather than a single slot because a `fire()` can arm the next pass
+   * (validating marks nothing stale today, but a future pass that did would
+   * silently lose its follow-up), and because the cancel a system hands back on
+   * dispose has to find its own entry rather than clearing whatever is there.
+   */
+  const armedPasses: (() => void)[] = [];
+  let armedCount = 0;
+  const pendingValidation: TestPendingValidation = {
+    get armed() {
+      return armedCount;
+    },
+    fire() {
+      if (options.manualPendingValidation !== true) {
+        throw new Error(
+          "pendingValidation.fire() needs initTestSystem({ manualPendingValidation: true }) " +
+            "- without it the pass is on the real debounce and firing would do nothing.",
+        );
+      }
+      const running = armedPasses.splice(0, armedPasses.length);
+      for (const run of running) run();
+      return running.length;
+    },
+  };
   // One clock for both channels, so the merged timeline is causally ordered.
   let seq = 0;
   const nextSeq = () => ++seq;
@@ -688,6 +747,18 @@ export function initTestSystem(): TestSystem {
   const workerReferences = new ReferenceStore(activity);
 
   const system = createSystem({
+    ...(options.manualPendingValidation === true
+      ? {
+          deferPendingValidation: (run: () => void) => {
+            armedCount++;
+            armedPasses.push(run);
+            return () => {
+              const at = armedPasses.indexOf(run);
+              if (at !== -1) armedPasses.splice(at, 1);
+            };
+          },
+        }
+      : {}),
     workerRealm: {
       search: workerSearch,
       patchSets: workerPatchSets,
@@ -1025,6 +1096,7 @@ export function initTestSystem(): TestSystem {
     ledger,
     activity,
     listeners,
+    pendingValidation,
     host: system.host,
     status: system.status,
     previewStore: system.previewStore,

@@ -185,9 +185,12 @@ describe("resolvePatchPath", () => {
       s.record(
         s.object({
           text: s.richtext({
-            style: { bold: true, italic: true, lineThrough: true },
-            block: { h2: true, ul: true },
-            inline: { a: true },
+            bold: true,
+            italic: true,
+            lineThrough: true,
+            h2: true,
+            ul: true,
+            a: true,
           }),
         }),
       ),

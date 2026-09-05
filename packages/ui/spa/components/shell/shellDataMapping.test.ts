@@ -2,8 +2,8 @@ import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import {
   availableDestinations,
   hostLabel,
-  initialsOf,
   toActivity,
+  toAdminLinks,
   toDataModules,
   toExternalPages,
   toShellPages,
@@ -309,21 +309,6 @@ describe("toActivity", () => {
   });
 });
 
-describe("initialsOf", () => {
-  test.each([
-    ["Fredrik Ekholdt", "FE"],
-    ["Ada", "AD"],
-    ["Ada Byron King Lovelace", "AL"],
-    ["  spaced   out  ", "SO"],
-  ])("%s -> %s", (name, expected) => {
-    expect(initialsOf(name)).toBe(expected);
-  });
-
-  test("does not crash on an empty name", () => {
-    expect(initialsOf("")).toBe("?");
-  });
-});
-
 /**
  * Which destinations a project offers.
  *
@@ -334,9 +319,11 @@ describe("initialsOf", () => {
  * that is present and empty.
  */
 describe("availableDestinations", () => {
-  const project = (
-    over: Partial<Pick<ShellData, "hasRouters" | "media" | "data">>,
-  ): Pick<ShellData, "hasRouters" | "media" | "data"> => ({
+  type Destinations = Pick<
+    ShellData,
+    "hasRouters" | "media" | "settings" | "data"
+  >;
+  const project = (over: Partial<Destinations>): Destinations => ({
     hasRouters: false,
     media: [],
     data: [],
@@ -402,6 +389,45 @@ describe("availableDestinations", () => {
     ).toEqual(["pages", "media"]);
   });
 
+  test("no settings module means no Settings", () => {
+    expect(
+      availableDestinations(project({ hasRouters: true }), false),
+    ).not.toContain("settings");
+  });
+
+  test("an empty settings module is still a settings module", () => {
+    // `{}` is the normal starting point for `s.settings()`, so its presence —
+    // not its contents — is what the cog hangs off.
+    expect(
+      availableDestinations(
+        project({
+          settings: { moduleFilePath: "/settings.val.ts" as ModuleFilePath },
+        }),
+        false,
+      ),
+    ).toEqual(["settings"]);
+  });
+
+  test("Settings is last, since it sits at the foot of the rail", () => {
+    expect(
+      availableDestinations(
+        project({
+          hasRouters: true,
+          media: [gallery],
+          settings: { moduleFilePath: "/settings.val.ts" as ModuleFilePath },
+          data: [
+            {
+              id: "/content/a.val.ts",
+              name: "a",
+              moduleFilePath: "/content/a.val.ts",
+            },
+          ],
+        }),
+        false,
+      ),
+    ).toEqual(["pages", "media", "data", "settings"]);
+  });
+
   test("a project using none of it offers nothing", () => {
     expect(availableDestinations(project({}), false)).toEqual([]);
   });
@@ -414,5 +440,59 @@ describe("availableDestinations", () => {
       "media",
       "data",
     ]);
+  });
+
+  test("Settings is NOT offered while loading", () => {
+    // Unlike the other three: its icon stands on its own at the foot of the
+    // rail, so a cog that appears and then goes reads as something breaking
+    // rather than as data arriving. A project without `s.settings()` never
+    // shows it at all.
+    expect(
+      availableDestinations(
+        project({
+          settings: { moduleFilePath: "/settings.val.ts" as ModuleFilePath },
+        }),
+        true,
+      ),
+    ).not.toContain("settings");
+  });
+});
+
+describe("toAdminLinks", () => {
+  const appHost = "https://admin.val.build";
+
+  test("splits config.project into the org's and the project's pages", () => {
+    expect(toAdminLinks({ project: "acme/marketing-site", appHost })).toEqual({
+      project: "https://admin.val.build/~/acme/marketing-site",
+      members: "https://admin.val.build/manage-members/acme",
+    });
+  });
+
+  test("a project that is not connected has nowhere to go", () => {
+    expect(toAdminLinks({ appHost })).toBeUndefined();
+    expect(toAdminLinks(undefined)).toBeUndefined();
+  });
+
+  test("a project that is not <org>/<project> has nowhere to go", () => {
+    // Rather than a link to a 404: `val connect` rejects these too.
+    expect(
+      toAdminLinks({ project: "marketing-site", appHost }),
+    ).toBeUndefined();
+    expect(
+      toAdminLinks({ project: "acme/marketing/site", appHost }),
+    ).toBeUndefined();
+    expect(toAdminLinks({ project: "acme/", appHost })).toBeUndefined();
+    expect(
+      toAdminLinks({ project: "/marketing-site", appHost }),
+    ).toBeUndefined();
+  });
+
+  test("a trailing slash on the host does not double up", () => {
+    expect(
+      toAdminLinks({ project: "acme/marketing-site", appHost: appHost + "/" }),
+    ).toEqual({
+      project: "https://admin.val.build/~/acme/marketing-site",
+      members: "https://admin.val.build/manage-members/acme",
+    });
   });
 });

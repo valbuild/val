@@ -13,10 +13,12 @@ import { SerializedRecordSchema } from "./record";
 import { SerializedRichTextSchema } from "./richtext";
 import { RawString, SerializedStringSchema } from "./string";
 import { SerializedUnionSchema } from "./union";
+import { SerializedCodeSchema } from "./code";
 import { SerializedColorSchema } from "./color";
 import { SerializedDateSchema } from "./date";
 import { SerializedDateTimeSchema } from "./datetime";
 import { SerializedRouteSchema } from "./route";
+import { SerializedSettingsSchema } from "./settings";
 import {
   ValidationError,
   ValidationErrors,
@@ -44,7 +46,9 @@ export type SerializedSchema =
   | SerializedDateSchema
   | SerializedDateTimeSchema
   | SerializedColorSchema
+  | SerializedCodeSchema
   | SerializedRouteSchema
+  | SerializedSettingsSchema
   | SerializedImageSchema;
 
 type Primitives = number | string | boolean | null | FileSource;
@@ -162,15 +166,23 @@ export abstract class Schema<Src extends SelectorSource> {
    *
    * This is a UI-only flag: the field is rendered disabled in the editor, but
    * the value is not otherwise validated or enforced differently.
+   *
+   * The flag defaults to `true`, so `.readonly()` and `.readonly(true)` are the
+   * same thing. `.readonly(false)` leaves the field editable, which is what a
+   * schema is anyway - pass it when the decision comes from a variable.
    */
-  abstract readonly(): Schema<Src>;
+  abstract readonly(isReadonly?: boolean): Schema<Src>;
   /**
    * Hide this field from the Val editor.
    *
    * This is a UI-only flag: the field is not rendered in the editor, but the
    * value is still stored, validated and serialized as normal.
+   *
+   * The flag defaults to `true`, so `.hidden()` and `.hidden(true)` are the
+   * same thing. `.hidden(false)` leaves the field visible, which is what a
+   * schema is anyway - pass it when the decision comes from a variable.
    */
-  abstract hidden(): Schema<Src>;
+  abstract hidden(isHidden?: boolean): Schema<Src>;
   protected abstract executeSerialize(): SerializedSchema;
   /**
    * @param scope Which paths the caller needs a preview for. Absent means the

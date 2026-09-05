@@ -43,6 +43,42 @@ export function summarizeDeployments(
 }
 
 /**
+ * How recently a publish must have gone live to be worth popping the list for.
+ */
+export const DEPLOYMENT_NEWS_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * Whether a publish showing up in the feed is news, or history.
+ *
+ * The list opens itself for a commit it has not seen before, which is right
+ * for a publish that just happened and wrong for one that finished long ago -
+ * and the two are indistinguishable from "not in the previous feed". A commit
+ * arrives that way whenever the feed is first fetched in a new tab, when a
+ * colleague published while this tab was closed, or when the deploy feed
+ * simply comes back in a different order.
+ *
+ * A publish still on its way out is always news: it is going to change again,
+ * and its result is what the list exists to show. One already serving the site
+ * is news only while it is fresh - past that, someone opening Val is not
+ * looking at their own publish, so the list stays shut and the status bar says
+ * "Deployed" like it would for anything else.
+ */
+export function isDeploymentNews(
+  deployment: ShellDeployment,
+  now: number,
+): boolean {
+  if (!deployment.isLive) {
+    return true;
+  }
+  const updatedAt = new Date(deployment.updatedAt).getTime();
+  if (Number.isNaN(updatedAt)) {
+    // An unreadable timestamp is not grounds for hiding a publish.
+    return true;
+  }
+  return now - updatedAt <= DEPLOYMENT_NEWS_WINDOW_MS;
+}
+
+/**
  * Whether a publish is still on its way out.
  *
  * `isLive` — Val has seen the site answer with this commit — settles it on its
@@ -92,19 +128,25 @@ export type DeploymentsStatusProps = {
 export const DEPLOYMENTS_AUTO_CLOSE_MS = 5000;
 
 /**
- * The status bar's deploy item: a summary you can click to open the list.
+ * The open/close behaviour the deploy list has wherever it is shown: it closes
+ * itself once everything has landed, it closes on a click outside or on
+ * Escape, and it holds off while the pointer is on it.
  *
- * The list is anchored to the item rather than portalled, so it rides the
- * floating status bar and cannot end up behind it.
+ * A hook rather than part of the status bar item, because the phone has no
+ * status bar to hang it on and needs the same list with the same behaviour -
+ * see `MobileDeployments`.
  */
-export function DeploymentsStatus({
+function useDeploymentsList({
   deployments,
   open,
   onOpenChange,
-  onDismiss,
-  autoClose = false,
-}: DeploymentsStatusProps) {
-  const summary = summarizeDeployments(deployments);
+  autoClose,
+}: {
+  deployments: ShellDeployment[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  autoClose: boolean;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isReading, setIsReading] = useState(false);
 
@@ -112,7 +154,10 @@ export function DeploymentsStatus({
   // gets out of the way — unless the pointer is on it, which is the one
   // signal we have that someone is still reading.
   const shouldAutoClose =
-    open && autoClose && !isReading && summary.state === "live";
+    open &&
+    autoClose &&
+    !isReading &&
+    summarizeDeployments(deployments).state === "live";
   useEffect(() => {
     if (!shouldAutoClose) {
       return;
@@ -163,6 +208,30 @@ export function DeploymentsStatus({
     };
   }, [open, onOpenChange]);
 
+  return { containerRef, setIsReading };
+}
+
+/**
+ * The status bar's deploy item: a summary you can click to open the list.
+ *
+ * The list is anchored to the item rather than portalled, so it rides the
+ * floating status bar and cannot end up behind it.
+ */
+export function DeploymentsStatus({
+  deployments,
+  open,
+  onOpenChange,
+  onDismiss,
+  autoClose = false,
+}: DeploymentsStatusProps) {
+  const summary = summarizeDeployments(deployments);
+  const { containerRef, setIsReading } = useDeploymentsList({
+    deployments,
+    open,
+    onOpenChange,
+    autoClose,
+  });
+
   return (
     <div ref={containerRef} className="relative">
       <button
@@ -191,6 +260,7 @@ export function DeploymentsStatus({
           onDismiss={onDismiss}
           onClose={() => onOpenChange(false)}
           onReadingChange={setIsReading}
+          className="absolute bottom-full right-0 mb-2 w-80"
         />
       )}
     </div>
@@ -226,6 +296,52 @@ function SummaryIcon({ summary }: { summary: DeploymentSummary }) {
 }
 
 /**
+ * The deploy feed on a phone, above the bottom bar.
+ *
+ * The phone has no status bar - `MobileBottomBar` takes that row - so the
+ * deploy feed lived only inside the settings sheet, behind the Info button.
+ * Publishing from a phone therefore said nothing at all: the button went back
+ * to "Publish" and that was the whole of the feedback, with no way to tell a
+ * push that had landed from one that had never gone out.
+ *
+ * So the list itself comes to the phone. It is the same list, with the same
+ * rows and the same auto-close, sitting where a toast would - which is what it
+ * is being used as here. The copy in the settings sheet stays: that is where
+ * you go to look something up, this is what tells you it happened.
+ */
+export function MobileDeployments({
+  deployments,
+  open,
+  onOpenChange,
+  onDismiss,
+  autoClose = false,
+}: DeploymentsStatusProps) {
+  const { containerRef, setIsReading } = useDeploymentsList({
+    deployments,
+    open,
+    onOpenChange,
+    autoClose,
+  });
+  if (!open) {
+    return null;
+  }
+  return (
+    <div
+      ref={containerRef}
+      // Clear of the bottom bar, which is `py-2.5` around a 36px row.
+      className="absolute z-full inset-x-3 bottom-[3.75rem]"
+    >
+      <DeploymentsList
+        deployments={deployments}
+        onDismiss={onDismiss}
+        onClose={() => onOpenChange(false)}
+        onReadingChange={setIsReading}
+      />
+    </div>
+  );
+}
+
+/**
  * The publish feed, newest first.
  *
  * Rows are dismissable one at a time so a finished publish can be cleared
@@ -236,12 +352,14 @@ export function DeploymentsList({
   onDismiss,
   onClose,
   onReadingChange,
+  className,
 }: {
   deployments: ShellDeployment[];
   onDismiss: (commitSha: string) => void;
   onClose: () => void;
   /** True while the pointer is on the list, which holds off auto-close. */
   onReadingChange?: (isReading: boolean) => void;
+  className?: string;
 }) {
   return (
     <div
@@ -250,8 +368,9 @@ export function DeploymentsList({
       onPointerEnter={() => onReadingChange?.(true)}
       onPointerLeave={() => onReadingChange?.(false)}
       className={cn(
-        "absolute bottom-full right-0 mb-2 w-80 rounded-lg overflow-hidden",
+        "rounded-lg overflow-hidden",
         "bg-bg-float border border-border-float shadow-xl",
+        className,
       )}
     >
       <div className="flex items-center justify-between px-3 h-9 border-b border-border-float">
@@ -271,8 +390,8 @@ export function DeploymentsList({
 }
 
 /**
- * The rows on their own, so the same feed can sit in the status bar's list and
- * inline in the settings sheet, which is where it lives on mobile.
+ * The rows on their own, so the same feed can sit in the status bar's list,
+ * above the phone's bottom bar, and inline in the settings sheet.
  */
 export function DeploymentRows({
   deployments,

@@ -79,6 +79,19 @@ const buttonVariants = cva(
   },
 );
 
+/**
+ * Focus ring for a control that fills its container edge to edge - a full-width
+ * combobox trigger, most of the time.
+ *
+ * The default ring is a `box-shadow` spread, so it is painted 2px OUTSIDE the
+ * border box. On a `w-full` control there is nothing outside the border box: the
+ * halo lands on whatever encloses the field and gets clipped by the first
+ * ancestor with `overflow-hidden`, which is how a focused combobox ended up
+ * with an outline that looked like it belonged to something else. Inset, the
+ * ring is painted inside the control and always shows in full.
+ */
+export const insetFocusRing = "focus-visible:ring-inset";
+
 export interface ButtonProps
   extends
     React.ButtonHTMLAttributes<HTMLButtonElement>,

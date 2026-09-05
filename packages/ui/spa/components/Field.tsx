@@ -6,7 +6,7 @@ import { ChevronDown, ChevronsDown, Plus, Sparkles } from "lucide-react";
 import { Checkbox } from "./designSystem/checkbox";
 import { JSONValue } from "@valbuild/core/patch";
 import { ArrayAndRecordTools } from "./ArrayAndRecordTools";
-import { emptyOf } from "./fields/emptyOf";
+import { emptyOf } from "@valbuild/shared/internal";
 import { EmbeddedBooleanField } from "./fields/BooleanField";
 import {
   Accordion,

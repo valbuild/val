@@ -186,19 +186,17 @@ export function UtilityPanel({
            * for a screen reader it is genuinely ambiguous, and for everyone
            * else it is a second place to look for something already in view.
            * The top bar hides Review on mobile, which is what this is for.
+           *
+           * Shown whether or not anything is pending. It used to appear only
+           * with changes queued, which made "is there anything of mine still
+           * unpublished?" unanswerable on a phone: an empty row of quick
+           * actions is the same picture as a row that has not loaded yet. The
+           * label carries the count, so the answer is in the panel either way.
            */}
-          {onCompare && pendingChanges > 0 && breakpoint === "mobile" && (
+          {onCompare && breakpoint === "mobile" && (
             <QuickAction
               icon={GitCompare}
-              label={
-                reviewCount === undefined || reviewCount > 0
-                  ? `Review ${reviewCount ?? pendingChanges} ${
-                      (reviewCount ?? pendingChanges) === 1
-                        ? "change"
-                        : "changes"
-                    }`
-                  : "Review changes"
-              }
+              label={reviewChangesLabel(pendingChanges, reviewCount)}
               onClick={onCompare}
             />
           )}
@@ -347,6 +345,26 @@ function DiscardAllQuickAction({
       </PopoverContent>
     </Popover>
   );
+}
+
+/**
+ * What the Review quick action is called.
+ *
+ * `reviewCount` is the count Review would actually show, which is zero when
+ * the pending patches cancel each other out - so it can disagree with
+ * `pendingChanges`, and it is the one to say out loud. Naming the zero case
+ * rather than saying "Review 0 changes" is the point of showing the row at
+ * all: it is the answer to "is anything of mine still unpublished?".
+ */
+export function reviewChangesLabel(
+  pendingChanges: number,
+  reviewCount: number | undefined,
+): string {
+  const count = reviewCount ?? pendingChanges;
+  if (count === 0) {
+    return "Review changes · none pending";
+  }
+  return `Review ${count} ${count === 1 ? "change" : "changes"}`;
 }
 
 function QuickAction({

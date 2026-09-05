@@ -103,20 +103,24 @@ export class PatchSetStore {
         record.patchId,
         record.patch.length,
       );
+      // The WHOLE patch in one call. `PatchSets` de-duplicates per patch, so a
+      // per-op loop here meant every call after the first returned early and only
+      // a patch's FIRST op ever reached a patch set — a `move`, or a `file` op
+      // sitting ahead of its source op, was silently mis-grouped.
+      this.patchSets.insert(
+        record.moduleFilePath,
+        schema,
+        record.patch,
+        record.patchId,
+        // `PatchSets` orders by this and the review list shows newest first,
+        // so a missing timestamp buries a real edit at the bottom.
+        // `PatchStore.createPatch` now stamps every local patch and the server
+        // stamps every remote one, so this fallback is for a record that has
+        // neither — where the epoch is at least honest about knowing nothing.
+        record.createdAt ?? new Date(0).toISOString(),
+        record.authorId ?? null,
+      );
       for (const op of record.patch) {
-        this.patchSets.insert(
-          record.moduleFilePath,
-          schema,
-          op,
-          record.patchId,
-          // `PatchSets` orders by this and the review list shows newest first,
-          // so a missing timestamp buries a real edit at the bottom.
-          // `PatchStore.createPatch` now stamps every local patch and the server
-          // stamps every remote one, so this fallback is for a record that has
-          // neither — where the epoch is at least honest about knowing nothing.
-          record.createdAt ?? new Date(0).toISOString(),
-          record.authorId ?? null,
-        );
         if (op.op !== "file" && op.op !== "test") {
           touchedPatchSetPaths.add(
             `${record.moduleFilePath}?${op.path.join("/")}`,

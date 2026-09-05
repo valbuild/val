@@ -71,3 +71,23 @@ export function concatModulePath(
     key,
   );
 }
+
+/**
+ * Whether `path` is `id` or something inside it.
+ *
+ * A prefix test alone is not enough: `/content/authors.val.ts` is a textual
+ * prefix of `/content/authorsExtra.val.ts`, and a page id ending in a quoted
+ * route key is a prefix of a longer key that merely starts the same way
+ * (`?p="/blog"` and `?p="/blogs"`). The next character therefore has to be one
+ * that actually starts a new segment.
+ *
+ * Two callers need this rule and neither can own it: the shell asks which row a
+ * route belongs to, and `useNoOpSourcePaths` asks whether a held patch covers a
+ * path. A second copy of the boundary check is a second chance to get it wrong.
+ */
+export function isPathWithin(path: string, id: string): boolean {
+  if (path === id) return true;
+  if (!path.startsWith(id)) return false;
+  const next = path[id.length];
+  return next === "?" || next === ".";
+}

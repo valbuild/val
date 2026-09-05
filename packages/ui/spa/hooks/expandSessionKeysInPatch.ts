@@ -6,13 +6,13 @@ import {
   type Source,
 } from "@valbuild/core";
 import { ParentRef, Patch } from "@valbuild/shared/internal";
-import type { ToolName } from "../utils/toolNames";
+import type { ToolName } from "@valbuild/shared/internal";
 import {
   buildFileRefValue,
   getInlineImgInfo,
   isRemoteSchema,
   resolveSerializedSchemaAtPath,
-} from "./aiImageToolPatches";
+} from "@valbuild/shared/internal";
 
 /**
  * Sentinel value an LLM can place in a `create_patch` payload anywhere it
@@ -351,7 +351,7 @@ export function planSessionKeyExpansion(args: {
     if (foundSiteCount > 0 && inlineImg.kind === "not-allowed") {
       return {
         kind: "error",
-        message: `Patch op #${opIndex} inserts an inline image into a richtext that does not allow inline images (options.inline.img is not enabled).`,
+        message: `Patch op #${opIndex} inserts an inline image into a richtext that does not allow inline images (options.img is not enabled).`,
       };
     }
   }

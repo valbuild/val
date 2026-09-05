@@ -176,6 +176,141 @@ function AutoStartStreamingDemo() {
   );
 }
 
+/**
+ * Streaming with a stop control. The send button becomes a stop button for as
+ * long as the assistant is talking — the two are never both available, and one
+ * of them is always the thing you want.
+ */
+export const StreamingCancellable: Story = {
+  render: () => <CancellableStreamingDemo />,
+};
+
+function CancellableStreamingDemo() {
+  const chatRef = useRef<AIChatHandle>(null);
+  // A ref, not state: making this a dependency re-ran the effect on stop, which
+  // started a second assistant message and left an empty bubble streaming
+  // forever — the opposite of what the story is meant to show.
+  const stoppedRef = useRef(false);
+
+  useEffect(() => {
+    if (!chatRef.current) return;
+    const assistantId = "cancellable-1";
+    chatRef.current.startAssistantMessage(assistantId);
+    let idx = 0;
+    const interval = setInterval(() => {
+      if (!chatRef.current || stoppedRef.current) return;
+      const chunk = STREAMING_TEXT.slice(idx, idx + 3);
+      if (chunk) {
+        chatRef.current.appendAssistantChunk(assistantId, chunk);
+        idx += 3;
+      } else {
+        chatRef.current.completeAssistantMessage(assistantId);
+        clearInterval(interval);
+      }
+    }, 60);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <AIChat
+      ref={chatRef}
+      isConnected={true}
+      authError={false}
+      mode="http"
+      onCancel={() => {
+        stoppedRef.current = true;
+        // What arriving `ai_cancelled` does: settle as complete, keeping the
+        // partial text — a stop is not a failure.
+        chatRef.current?.completeAssistantMessage("cancellable-1");
+      }}
+      initialMessages={[
+        {
+          id: "cancellable-user-1",
+          role: "user",
+          content: "Rewrite every page in a friendlier tone",
+          status: "complete",
+        },
+      ]}
+    />
+  );
+}
+
+/**
+ * An error the user can act on. The link comes from the server, which is the
+ * only side that knows the admin URL for this org and project — so a new reason
+ * to send someone to admin needs no Studio release.
+ */
+export const ErrorWithAction: Story = {
+  args: {
+    isConnected: true,
+    authError: false,
+    mode: "http",
+    initialMessages: [
+      {
+        id: "action-user-1",
+        role: "user",
+        content: "Rewrite the hero heading",
+        status: "complete",
+      },
+      {
+        id: "action-assistant-1",
+        role: "assistant",
+        content: "",
+        status: "error",
+        error:
+          "Claude Opus 5 is not available: no Anthropic key is set up. Add one in admin to use it — AI runs on your own key.",
+        errorCode: "provider_not_configured",
+        errorAction: {
+          label: "Set up your own API key",
+          url: "https://admin.val.build/~/acme/marketing-site?tab=ai#ai-keys",
+        },
+      },
+    ],
+  },
+};
+
+/**
+ * The condition people hit most, with the details a developer needs to act on
+ * it. Out of credit arrives as a 400 from Anthropic, so the message has to say
+ * what it is — "waiting will not clear it" is the part that saves someone
+ * refreshing for ten minutes.
+ */
+export const ErrorWithDetails: Story = {
+  args: {
+    isConnected: true,
+    authError: false,
+    mode: "http",
+    initialMessages: [
+      {
+        id: "details-user-1",
+        role: "user",
+        content: "Summarise the changes",
+        status: "complete",
+      },
+      {
+        id: "details-assistant-1",
+        role: "assistant",
+        content: "",
+        status: "error",
+        error:
+          'Your key for this project "Created by Fredrik Ekholdt at 1 Sep 2026": The Anthropic account behind this key is out of credit or over its quota. Top it up or raise the limit at Anthropic — waiting will not clear it.',
+        errorCode: "byok_no_credit",
+        errorAction: {
+          label: "Set up your own API key",
+          url: "https://admin.val.build/~/acme/marketing-site?tab=ai#ai-keys",
+        },
+        errorDetails: [
+          "provider: anthropic",
+          "status: 400",
+          "type: invalid_request_error",
+          "request id: req_011CecwMR1kih9QyaJ7ip8ji",
+          "message: Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.",
+        ].join("\n"),
+      },
+    ],
+  },
+};
+
 // ---------------------------------------------------------------------------
 // 4. Error — assistant message failed, with retry button
 // ---------------------------------------------------------------------------
@@ -606,6 +741,332 @@ export const AskQuestionCancelled: Story = {
               },
             ],
           },
+        ],
+      },
+    ],
+  },
+};
+
+// ---------------------------------------------------------------------------
+// 8. Tool calls — a row of their own, above the answer
+// ---------------------------------------------------------------------------
+
+const TOOL_RUN: ChatMessage["toolActivities"] = [
+  {
+    toolCallId: "tools-tc-1",
+    name: "get_current_context",
+    status: "complete",
+  },
+  { toolCallId: "tools-tc-2", name: "get_all_schema", status: "complete" },
+  { toolCallId: "tools-tc-3", name: "search_content", status: "complete" },
+  { toolCallId: "tools-tc-4", name: "get_source", status: "complete" },
+  { toolCallId: "tools-tc-5", name: "create_patch", status: "complete" },
+];
+
+/** The turn is over: the row collapses to a count, openable if you care. */
+export const ToolsCollapsed: Story = {
+  args: {
+    initialMessages: [
+      {
+        id: "tools-user-1",
+        role: "user",
+        content: "Change the hero title on the front page to something shorter",
+        status: "complete",
+      },
+      {
+        id: "tools-assistant-1",
+        role: "assistant",
+        content:
+          "Done — the hero title on `/content/frontpage.val.ts` is now " +
+          "**Build faster**, down from *Build your content faster than ever " +
+          "before*.\n\nThe change is a draft; publish it when you are happy " +
+          "with it.",
+        status: "complete",
+        toolActivities: TOOL_RUN,
+      },
+    ],
+  },
+};
+
+/**
+ * A long tool name, in a panel as narrow as the shell's own.
+ *
+ * The shape that caught the overflow: Radix sizes a scroll area's content as a
+ * table, and a table is sized to its max-content — so `truncate`, which sets
+ * `white-space: nowrap`, grew the row to the full untruncated width and pushed
+ * it off to the right instead of clipping it. An unknown tool name is the
+ * longest label the row can be given (the client falls back to the raw name),
+ * and the assistant panel is the narrowest place it is drawn.
+ */
+export const ToolsWithALongName: Story = {
+  decorators: [
+    (Story) => (
+      <div className="h-[600px] w-[320px] border border-border-primary rounded-lg overflow-hidden">
+        <Story />
+      </div>
+    ),
+  ],
+  args: {
+    initialMessages: [
+      {
+        id: "long-tool-user-1",
+        role: "user",
+        content: "Rewrite the pricing page",
+        status: "complete",
+      },
+      {
+        id: "long-tool-assistant-1",
+        role: "assistant",
+        content: "",
+        status: "streaming",
+        toolActivities: [
+          {
+            toolCallId: "long-tc-1",
+            name: "get_current_context",
+            status: "complete",
+          },
+          {
+            toolCallId: "long-tc-2",
+            name: "resolve_route_references_for_module_and_validate",
+            status: "pending",
+          },
+        ],
+      },
+    ],
+  },
+};
+
+/** Mid-turn: the row names the tool in flight and shimmers while it runs. */
+export const ToolsRunning: Story = {
+  args: {
+    initialMessages: [
+      {
+        id: "running-user-1",
+        role: "user",
+        content: "Change the hero title on the front page to something shorter",
+        status: "complete",
+      },
+      {
+        id: "running-assistant-1",
+        role: "assistant",
+        content: "",
+        status: "streaming",
+        toolActivities: [
+          ...(TOOL_RUN ?? []).slice(0, 3),
+          {
+            toolCallId: "running-tc-4",
+            name: "get_source",
+            status: "pending",
+          },
+        ],
+      },
+    ],
+  },
+};
+
+/** Text has started arriving while a later tool call is still running. */
+export const ToolsRunningWithText: Story = {
+  args: {
+    initialMessages: [
+      {
+        id: "running-text-user-1",
+        role: "user",
+        content: "Fix the validation errors on the blog posts",
+        status: "complete",
+      },
+      {
+        id: "running-text-assistant-1",
+        role: "assistant",
+        content:
+          "I found three posts missing an `author`. Filling them in from the " +
+          "editor list now",
+        status: "streaming",
+        toolActivities: [
+          { toolCallId: "rt-tc-1", name: "search_content", status: "complete" },
+          { toolCallId: "rt-tc-2", name: "get_source", status: "complete" },
+          { toolCallId: "rt-tc-3", name: "create_patch", status: "pending" },
+        ],
+      },
+    ],
+  },
+};
+
+/** One call failed: the row says so without being opened. */
+export const ToolsWithError: Story = {
+  args: {
+    initialMessages: [
+      {
+        id: "tool-error-user-1",
+        role: "user",
+        content: "Add an author to every blog post",
+        status: "complete",
+      },
+      {
+        id: "tool-error-assistant-1",
+        role: "assistant",
+        content:
+          "I could not write the change: `/content/posts.val.ts` has no " +
+          "`author` field in its schema yet. Add one and I will fill it in.",
+        status: "complete",
+        toolActivities: [
+          { toolCallId: "te-tc-1", name: "get_all_schema", status: "complete" },
+          { toolCallId: "te-tc-2", name: "get_source", status: "complete" },
+          { toolCallId: "te-tc-3", name: "create_patch", status: "error" },
+        ],
+      },
+    ],
+  },
+};
+
+/** Several turns, each with its own tool row, as a session looks scrolled back. */
+export const ToolsAcrossTurns: Story = {
+  args: {
+    initialMessages: [
+      {
+        id: "across-1",
+        role: "user",
+        content: "What is on the front page right now?",
+        status: "complete",
+      },
+      {
+        id: "across-2",
+        role: "assistant",
+        content:
+          "The front page has a hero, a three-column feature grid and a " +
+          "newsletter sign-up.",
+        status: "complete",
+        toolActivities: [
+          { toolCallId: "a-tc-1", name: "get_all_schema", status: "complete" },
+          { toolCallId: "a-tc-2", name: "get_source", status: "complete" },
+        ],
+      },
+      {
+        id: "across-3",
+        role: "user",
+        content: "Shorten the hero title",
+        status: "complete",
+      },
+      {
+        id: "across-4",
+        role: "assistant",
+        content: "Done — it now reads **Build faster**.",
+        status: "complete",
+        toolActivities: TOOL_RUN,
+      },
+    ],
+  },
+};
+
+/**
+ * A turn driven the way the real session drives it: tool calls arrive one at a
+ * time, then the answer streams in under them.
+ */
+function ToolStreamDemo() {
+  const chatRef = useRef<AIChatHandle>(null);
+
+  useEffect(() => {
+    const chat = chatRef.current;
+    if (!chat) return;
+    const messageId = "tool-stream-msg";
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const calls = [
+      "get_current_context",
+      "get_all_schema",
+      "search_content",
+      "get_source",
+      "create_patch",
+    ];
+    chat.startAssistantMessage(messageId);
+    calls.forEach((name, i) => {
+      const toolCallId = `stream-tc-${i}`;
+      timers.push(
+        setTimeout(() => {
+          chat.addToolCall(messageId, toolCallId, name);
+        }, i * 1200),
+      );
+      timers.push(
+        setTimeout(
+          () => {
+            chat.completeToolCall(messageId, toolCallId);
+          },
+          i * 1200 + 1100,
+        ),
+      );
+    });
+    const answer = [
+      "Done — the hero title is now ",
+      "**Build faster**",
+      ", down from the previous six-word version.",
+    ];
+    const afterTools = calls.length * 1200;
+    answer.forEach((chunk, i) => {
+      timers.push(
+        setTimeout(
+          () => {
+            chat.appendAssistantChunk(messageId, chunk);
+          },
+          afterTools + i * 500,
+        ),
+      );
+    });
+    timers.push(
+      setTimeout(
+        () => {
+          chat.completeAssistantMessage(messageId);
+        },
+        afterTools + answer.length * 500,
+      ),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  return (
+    <AIChat
+      ref={chatRef}
+      isConnected={true}
+      authError={false}
+      mode="http"
+      initialMessages={[
+        {
+          id: "tool-stream-user",
+          role: "user",
+          content:
+            "Change the hero title on the front page to something shorter",
+          status: "complete",
+        },
+      ]}
+    />
+  );
+}
+
+export const ToolsStreaming: Story = {
+  render: () => <ToolStreamDemo />,
+};
+
+/**
+ * The turn ran its tools and then said nothing.
+ *
+ * The tool row must NOT be the whole answer here: "Empty response" is the
+ * message. Hiding the bubble for a finished turn made an empty model reply
+ * look like a tidy row of ticks.
+ */
+export const ToolsThenEmptyResponse: Story = {
+  args: {
+    initialMessages: [
+      {
+        id: "empty-user-1",
+        role: "user",
+        content: "Shorten the hero title",
+        status: "complete",
+      },
+      {
+        id: "empty-assistant-1",
+        role: "assistant",
+        content: "",
+        status: "complete",
+        toolActivities: [
+          { toolCallId: "em-tc-1", name: "get_source", status: "complete" },
+          { toolCallId: "em-tc-2", name: "create_patch", status: "complete" },
         ],
       },
     ],

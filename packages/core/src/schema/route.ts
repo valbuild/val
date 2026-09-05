@@ -205,12 +205,12 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
     ) as unknown as RouteSchema<Src | null>;
   }
 
-  readonly(): RouteSchema<Src> {
+  readonly(isReadonly: boolean = true): RouteSchema<Src> {
     return new RouteSchema<Src>(
       this.options,
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.renderInput,
@@ -218,13 +218,13 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  hidden(): RouteSchema<Src> {
+  hidden(isHidden: boolean = true): RouteSchema<Src> {
     return new RouteSchema<Src>(
       this.options,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.renderInput,
       this.previewInput,

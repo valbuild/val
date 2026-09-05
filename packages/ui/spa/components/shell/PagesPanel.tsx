@@ -10,6 +10,7 @@ import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import {
   ChevronDown,
   ChevronRight,
+  Copy,
   ExternalLink,
   File,
   Plus,
@@ -31,12 +32,25 @@ import {
   ShellNewPageRoutes,
   ShellPage,
 } from "./types";
-import { AvailableRoute, NewPageForm } from "../NavMenu/NewPageForm";
+import {
+  AvailableRoute,
+  NewPageForm,
+  patternMatchesPath,
+} from "../NavMenu/NewPageForm";
+import { RouteForm } from "../RouteForm";
 import { cn } from "../designSystem/cn";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 
-/** The header's form, as an id, so one state can hold either. */
+/**
+ * The header's form, as an id, so one state can hold either it or a row's.
+ *
+ * One piece of state for every form in the panel, because only one of them may
+ * be open: a New page popover and a row's Duplicate popover on screen together
+ * are two forms asking the same question about two different pages.
+ */
 const HEADER_FORM = "\u0000header";
+/** A row's Duplicate form, keyed by page id, in the same state. */
+const duplicateForm = (pageId: string): string => `\u0000duplicate:${pageId}`;
 
 /**
  * The New page button, and the form it opens.
@@ -95,6 +109,100 @@ function NewPageButton({
   );
 }
 
+/**
+ * Duplicate this page, to a URL you pick.
+ *
+ * Beside the row rather than in a menu behind it: the site map is where an
+ * editor is already looking at the page they want a copy of, and the copy's URL
+ * is a segment of the one on screen. `RouteForm` is the same form the page's
+ * own toolbar opens for this, prefilled with the source URL - so the usual
+ * answer is one edit away, and the rules about what a URL may look like have
+ * one implementation.
+ */
+function DuplicatePageButton({
+  page,
+  route,
+  isOpen,
+  onOpenChange,
+  onSubmit,
+}: {
+  page: ShellPage;
+  route: AvailableRoute;
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (toUrlPath: string) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => onOpenChange(false), [onOpenChange]);
+  useDismissOnOutsidePointer(containerRef, isOpen, close);
+  return (
+    <div ref={containerRef} className="relative shrink-0">
+      <button
+        type="button"
+        aria-label={`Duplicate ${page.urlPath}`}
+        aria-expanded={isOpen}
+        onClick={() => onOpenChange(!isOpen)}
+        className={cn(
+          "grid place-items-center w-6 h-6 rounded text-fg-secondary-alt",
+          "hover:bg-bg-float-raised hover:text-fg-primary",
+          // Out of the way until the row is pointed at or the control is
+          // focused, so a long site map is a list of pages rather than a list
+          // of buttons. `focus-visible` so it is reachable by keyboard.
+          isOpen
+            ? "bg-bg-float-raised text-fg-primary"
+            : "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100",
+        )}
+      >
+        <Copy size={12} />
+      </button>
+      {isOpen && (
+        <div className="absolute right-0 top-full z-window mt-1 w-[17rem] rounded-md border border-border-float bg-bg-float p-3 shadow-lg">
+          <div className="pb-2 text-sm font-medium text-fg-primary">
+            Duplicate page
+          </div>
+          <RouteForm
+            routePattern={route.routePattern}
+            existingKeys={route.existingKeys}
+            defaultValue={page.urlPath}
+            submitText="Duplicate"
+            keyDescription={route.keyDescription}
+            onSubmit={onSubmit}
+            onCancel={close}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The route a page was created under, or null when that cannot be told.
+ *
+ * Both halves have to agree - the module the page lives in AND a pattern its
+ * URL fits - because either alone can name the wrong route: one router module
+ * can define several patterns, and two routers can accept the same URL shape.
+ * A near miss is worse than nothing here: the form would prefill a page's URL
+ * into the segments of a pattern it does not belong to.
+ */
+export function routeOfPage(
+  routes: AvailableRoute[],
+  page: ShellPage,
+): AvailableRoute | null {
+  if (!page.sourcePath) {
+    return null;
+  }
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
+    page.sourcePath as SourcePath,
+  );
+  return (
+    routes.find(
+      (route) =>
+        route.moduleFilePath === moduleFilePath &&
+        patternMatchesPath(route.routePattern, page.urlPath),
+    ) ?? null
+  );
+}
+
 export type PagesPanelProps = {
   breakpoint: ShellBreakpoint;
   pages: ShellPage[];
@@ -111,9 +219,25 @@ export type PagesPanelProps = {
    */
   onNewPage: (moduleFilePath: ModuleFilePath, urlPath: string) => void;
   /**
+   * Copy a page to another URL under the same route.
+   *
+   * The panel does not know what is on the page - that is the whole point of
+   * duplicating it rather than making one - so it hands back the two URLs and
+   * the app copies the entry. Absent in modes that cannot write, and then rows
+   * carry no Duplicate control.
+   */
+  onDuplicatePage?: (
+    moduleFilePath: ModuleFilePath,
+    fromUrlPath: string,
+    toUrlPath: string,
+  ) => void;
+  /**
    * Where a new page can go. Absent when nothing in the project accepts one, and
    * then there is no New button at all: a form whose only answer is "no routes
    * accept new pages" is worse than no button.
+   *
+   * Duplicate needs it too, for the route pattern the copy's URL has to fit -
+   * and a router that accepts no new page accepts no copy of one either.
    */
   newPage?: ShellNewPageRoutes;
   onClose: () => void;
@@ -227,6 +351,7 @@ export function PagesPanel({
   onSelectPage,
   onSelectExternalPage,
   onNewPage,
+  onDuplicatePage,
   newPage,
   onClose,
   navSwitcher,
@@ -310,6 +435,13 @@ export function PagesPanel({
     },
     [onNewPage],
   );
+  const submitDuplicatePage = useCallback(
+    (route: AvailableRoute, page: ShellPage, toUrlPath: string) => {
+      setOpenForm(null);
+      onDuplicatePage?.(route.moduleFilePath, page.urlPath, toUrlPath);
+    },
+    [onDuplicatePage],
+  );
 
   const renderPage = (page: ShellPage, depth: number): React.ReactNode => {
     const children = page.children ?? [];
@@ -319,6 +451,11 @@ export function PagesPanel({
       : expanded.has(page.id);
     const errorCount = isOpen ? page.errorCount : subtreeErrorCount(page);
     const hasDraft = isOpen ? page.hasDraft : subtreeHasDraft(page);
+    // Only a real page under a route Val can name: a row that is only a path
+    // segment has nothing to copy, and a route this panel cannot place the
+    // copy under has no URL to offer for it. See `routeOfPage`.
+    const duplicateRoute =
+      onDuplicatePage && newPage ? routeOfPage(newPage.routes, page) : null;
     return (
       <div key={page.id}>
         <PanelRow
@@ -354,6 +491,21 @@ export function PagesPanel({
           label={page.name}
           errorCount={errorCount}
           hasDraft={hasDraft}
+          action={
+            duplicateRoute ? (
+              <DuplicatePageButton
+                page={page}
+                route={duplicateRoute}
+                isOpen={openForm === duplicateForm(page.id)}
+                onOpenChange={(open) =>
+                  setOpenForm(open ? duplicateForm(page.id) : null)
+                }
+                onSubmit={(toUrlPath) =>
+                  submitDuplicatePage(duplicateRoute, page, toUrlPath)
+                }
+              />
+            ) : undefined
+          }
         />
         {isOpen &&
           hasChildren &&

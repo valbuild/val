@@ -11,8 +11,6 @@ import {
   Minus,
   Pencil,
   Plus,
-  Save,
-  User,
 } from "lucide-react";
 import { PendingPatch, Profile, useValMode } from "./ValProvider";
 import { useNavigation } from "./ValRouter";
@@ -23,7 +21,7 @@ import {
 } from "./designSystem/popover";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { Button } from "./designSystem/button";
-import { getInitials } from "../utils/getInitials";
+import { ProfileAvatar } from "./Avatar";
 import { relativeLocalDate } from "../utils/relativeLocalDate";
 
 function OpIcon({ op }: { op: string }) {
@@ -35,55 +33,6 @@ function OpIcon({ op }: { op: string }) {
   if (op === "copy") return <Copy size={size} />;
   if (op === "file") return <File size={size} />;
   return <Pencil size={size} />;
-}
-
-function AuthorAvatar({
-  profile,
-  isFirst,
-  stacked,
-  mode,
-}: {
-  profile: Profile | null;
-  isFirst: boolean;
-  stacked: boolean;
-  mode: "fs" | "http" | "unknown";
-}) {
-  const baseClass = classNames(
-    "flex-shrink-0 w-6 h-6 rounded-full inline-flex items-center justify-center text-xs font-semibold overflow-hidden",
-    { "-ml-2": stacked && !isFirst },
-  );
-
-  if (!profile) {
-    return (
-      <span
-        className={classNames(baseClass, "bg-bg-secondary text-fg-disabled")}
-      >
-        {mode === "fs" ? <Save size={12} /> : <User size={12} />}
-      </span>
-    );
-  }
-
-  if (profile.avatar?.url) {
-    return (
-      <img
-        src={profile.avatar.url}
-        alt={profile.fullName}
-        className={classNames(baseClass, "object-cover")}
-      />
-    );
-  }
-
-  const initials = getInitials(profile.fullName);
-  return (
-    <span
-      className={classNames(
-        baseClass,
-        "bg-bg-brand-primary text-fg-brand-primary",
-      )}
-    >
-      {initials}
-    </span>
-  );
 }
 
 export type AuthorPatchInfo = {
@@ -142,12 +91,11 @@ export function PatchAuthorsSummary({
       </span>
       <span className="flex items-center rounded-full">
         {visibleAuthorIds.map((authorId, i) => (
-          <AuthorAvatar
+          <ProfileAvatar
             key={authorId}
             profile={profilesByAuthorIds[authorId] ?? null}
-            isFirst={i === 0}
-            stacked={authorIds.length > 1}
             mode={mode}
+            className={classNames({ "-ml-2": authorIds.length > 1 && i > 0 })}
           />
         ))}
         {overflowCount > 0 && (
@@ -213,12 +161,7 @@ export function FieldPatchAuthorsPure({
               return (
                 <div key={authorId} className="flex flex-col gap-1">
                   <div className="flex items-center gap-2 font-semibold text-xs text-fg-secondary">
-                    <AuthorAvatar
-                      profile={profile}
-                      isFirst={true}
-                      stacked={false}
-                      mode={mode}
-                    />
+                    <ProfileAvatar profile={profile} mode={mode} />
                     <span>{authorName}</span>
                   </div>
                   <div className="flex flex-col gap-0 pl-8">

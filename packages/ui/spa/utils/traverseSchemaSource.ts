@@ -111,6 +111,14 @@ export function traverseSchemaSource(
     return;
   }
 
+  // Handle code
+  if (schema.type === "code") {
+    if (typeof source === "string") {
+      callback({ source, schema, path });
+    }
+    return;
+  }
+
   // Handle keyOf
   if (schema.type === "keyOf") {
     if (typeof source === "string" || typeof source === "number") {
@@ -150,8 +158,14 @@ export function traverseSchemaSource(
     return;
   }
 
-  // Handle object and record
-  if (schema.type === "object" || schema.type === "record") {
+  // Handle object, record and settings
+  if (
+    schema.type === "object" ||
+    schema.type === "record" ||
+    // Settings walks like an object, and starting from the SOURCE is what makes
+    // its optional keys work: an absent section has nothing to traverse.
+    schema.type === "settings"
+  ) {
     if (
       typeof source !== "object" ||
       source === null ||
@@ -161,7 +175,7 @@ export function traverseSchemaSource(
     }
     for (const key in source) {
       const subSchema =
-        schema.type === "object" ? schema.items?.[key] : schema.item;
+        schema.type === "record" ? schema.item : schema.items?.[key];
       if (!subSchema) {
         continue;
       }

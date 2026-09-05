@@ -106,6 +106,7 @@ import {
   getMimeType,
   mimeTypeToFileExt,
   filenameToMimeType,
+  mimeTypeMatchesAccept,
   EXT_TO_MIME_TYPES,
   MIME_TYPES_TO_EXT,
 } from "./mimeType";
@@ -142,10 +143,34 @@ export { type SerializedImageSchema, ImageSchema } from "./schema/image";
 export { type SerializedFileSchema, FileSchema } from "./schema/file";
 export { type SerializedDateSchema, DateSchema } from "./schema/date";
 export {
+  type SerializedSettingsSchema,
+  SettingsSchema,
+} from "./schema/settings";
+export {
+  type SettingsSource,
+  type AssistantSettingsSource,
+  type AssistantAvailability,
+  ASSISTANT_SETTINGS_MAX_LENGTH,
+  assistantAvailability,
+} from "./source/settings";
+export {
+  type ResolvedSettingsModule,
+  SETTINGS_MODULE_CONVENTION,
+  isRootModuleFilePath,
+  resolveSettingsModule,
+} from "./settingsModule";
+export {
   type SerializedColorSchema,
   type ColorOptions,
   ColorSchema,
 } from "./schema/color";
+export {
+  type SerializedCodeSchema,
+  type CodeOptions,
+  type CodeLanguage,
+  CodeSchema,
+  CODE_LANGUAGES,
+} from "./schema/code";
 export {
   type ColorFormat,
   type ParsedColor,
@@ -179,14 +204,7 @@ export {
   type PreviewScope,
   previewScope,
 } from "./preview";
-export {
-  type CodeLanguage,
-  type StringRender,
-  type InlineRender,
-  type FieldRender,
-  CODE_LANGUAGES,
-  isInlineRender,
-} from "./render";
+export { type InlineRender, type FieldRender, isInlineRender } from "./render";
 export type { ValRouter, RouteValidationError } from "./router";
 export { getSourcePathFromRoute } from "./getSourcePathFromRoute";
 import { nextAppRouter, externalPageRouter } from "./router";
@@ -264,6 +282,7 @@ const Internal = {
   getMimeType,
   mimeTypeToFileExt,
   filenameToMimeType,
+  mimeTypeMatchesAccept,
   EXT_TO_MIME_TYPES,
   MIME_TYPES_TO_EXT,
   ModuleFilePathSep,

@@ -15,14 +15,15 @@ import { useValConfig } from "../ValFieldProvider";
 import { ShellData, ShellMediaGallery } from "./types";
 import {
   toActivity,
+  toAdminLinks,
   toDataModules,
   toDeployments,
   toExternalPages,
   toShellPages,
   toValidationErrors,
-  initialsOf,
   directoryName,
   countKeys,
+  countErrorsIn,
   toMediaFiles,
   collectNewPageRoutes,
 } from "./shellDataMapping";
@@ -111,6 +112,7 @@ export function useShellData(): ShellDataState {
       status: "success",
       data: {
         projectName: config?.project ?? "Val",
+        admin: toAdminLinks(config),
         branch: config?.gitBranch,
         hasRouters: navData?.hasRouters ?? false,
         pages: navData?.sitemap
@@ -132,6 +134,16 @@ export function useShellData(): ShellDataState {
             files: toMediaFiles(mediaRecords[index]),
           }),
         ),
+        settings: navData?.settings
+          ? {
+              moduleFilePath: navData.settings.moduleFilePath,
+              errorCount: countErrorsIn(
+                validationErrors,
+                navData.settings.moduleFilePath,
+              ),
+              hasDraft: modulesWithDrafts.has(navData.settings.moduleFilePath),
+            }
+          : undefined,
         data: navData?.explorer
           ? toDataModules(navData.explorer, modulesWithDrafts)
           : [],
@@ -146,7 +158,7 @@ export function useShellData(): ShellDataState {
           ? {
               name: profile.fullName,
               email: profile.email,
-              initials: initialsOf(profile.fullName),
+              ...(profile.avatar?.url ? { avatarUrl: profile.avatar.url } : {}),
             }
           : undefined,
       },

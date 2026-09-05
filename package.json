@@ -19,6 +19,7 @@
     "version-packages": "changeset version && pnpm install --no-frozen-lockfile",
     "release": "pnpm run build && changeset publish",
     "dev:example-next": "concurrently -k \"cd  packages/ui; pnpm run dev\" \"cd examples/next; pnpm run dev\"",
+    "dev:storybook:": "cd packages/ui; pnpm run storybook",
     "debug:replay": "tsx scripts/debugReplay.ts"
   },
   "devDependencies": {
@@ -27,6 +28,7 @@
     "@babel/preset-env": "^7.28.6",
     "@babel/preset-react": "^7.28.5",
     "@babel/preset-typescript": "^7.28.5",
+    "@changesets/changelog-github": "^1.0.0",
     "@changesets/cli": "^3.0.1",
     "@eslint/eslintrc": "^3.3.6",
     "@eslint/js": "^10.0.1",

@@ -55,7 +55,8 @@ import {
   PopoverTrigger,
 } from "./designSystem/popover";
 import { cn } from "./designSystem/cn";
-import { emptyOf } from "./fields/emptyOf";
+import { DRAG_HANDLE_TOUCH, SORTABLE_ROW_TOUCH } from "./dragHandle";
+import { emptyOf } from "@valbuild/shared/internal";
 import { sourcePathOfItem } from "../utils/sourcePathOfItem";
 import { FieldValidationError } from "./FieldValidationError";
 
@@ -337,9 +338,12 @@ function BlockRow({
     <button
       {...attributes}
       {...listeners}
-      className={cn("cursor-grab text-fg-quaternary hover:text-fg-primary", {
-        "opacity-30": readonly,
-      })}
+      className={cn(
+        "cursor-grab text-fg-quaternary hover:text-fg-primary",
+        // See `DRAG_HANDLE_TOUCH`.
+        DRAG_HANDLE_TOUCH,
+        { "opacity-30": readonly },
+      )}
       disabled={readonly}
     >
       <GripVertical size={14} />
@@ -354,7 +358,6 @@ function BlockRow({
 
   return (
     <div
-      touch-action="manipulation"
       /* The row is the anchor for its own path: nothing inside an inline row
          goes through `Field`, so without this a navigation to a path in this
          list has nothing to scroll to (see `scrollToStudioPath`). */
@@ -363,6 +366,8 @@ function BlockRow({
       style={style}
       className={cn(
         "border bg-bg-primary",
+        // See `SORTABLE_ROW_TOUCH`.
+        SORTABLE_ROW_TOUCH,
         // A nested row shares its parent row's LEFT border instead of drawing
         // its own: the parent's body has no left padding, so the child sits
         // flush against that edge — one border line, and the horizontal room

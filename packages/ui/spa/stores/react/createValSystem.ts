@@ -1,6 +1,6 @@
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import { Internal } from "@valbuild/core";
-import type { ValClient } from "@valbuild/shared/internal";
+import type { ValClient, PatchGroupT } from "@valbuild/shared/internal";
 import { createSystem, type System } from "../createSystem";
 import type { SchemaValidationBridge } from "../bridges";
 import { createSchemaValidationBridge } from "../../validation/schemaValidationBridge";
@@ -196,6 +196,7 @@ export function createValSystem(
     fetchPatches: async (patchIds) => {
       const patches: PatchRecord[] = [];
       const errors: Record<PatchId, string> = {};
+      let patchGroups: PatchGroupT[] | undefined;
       // In batches whose query strings fit. All the ids on one URL is ~19KB at
       // 410 pending changes, which a Node server rejects before the handler runs.
       //
@@ -205,11 +206,35 @@ export function createValSystem(
       let requestError: string | undefined;
       let chunks = 0;
       let failedChunks = 0;
+      /*
+       * Has any chunk come back 200 yet?
+       *
+       * Not the same question as "do we have groups". A branch where no group
+       * holds anything is answered with the key OMITTED — `ValServer` guards on
+       * `length > 0` — so keying on `patchGroups === undefined` alone made every
+       * chunk ask, and every chunk cost one content API lookup, which is the N
+       * lookups this is meant to avoid. A successful chunk has given its answer,
+       * whether or not that answer had groups in it.
+       */
+      let answered = false;
       for (const chunk of chunkPatchIds(patchIds, "patch_id")) {
         chunks++;
         const res = await client("/patches", "GET", {
           query: {
             exclude_patch_ops: false,
+            /*
+             * Once per fetch, not once per chunk. The groups are a property of
+             * the branch and identical in every chunk, so asking on each one is
+             * N identical lookups against the content API.
+             *
+             * Keyed on no chunk having ANSWERED yet rather than on being the
+             * first chunk: a chunk that fails is skipped (`failedChunks++;
+             * continue`), so asking only on chunk 1 meant one transient failure
+             * lost the annotation for the whole fetch even though every other
+             * chunk succeeded — and the stale groups then survived until some
+             * later fetch happened to have missing ids.
+             */
+            include_patch_groups: !answered,
             // The ids we actually want, not the whole table. The engine asks for
             // everything because it keeps a whole-project map; this store is asked
             // for specific ids by `StatStore` and can say so.
@@ -229,6 +254,17 @@ export function createValSystem(
           requestError = message;
           failedChunks++;
           continue;
+        }
+        answered = true;
+        /*
+         * The FIRST chunk that carries them wins, which is also the only one
+         * that asks — see `include_patch_groups` above. The groups are a
+         * property of the branch, not of the ids asked for, so any chunk's
+         * answer is the whole answer. Recorded outside the patch loop because a
+         * chunk can legitimately return no patches and still carry them.
+         */
+        if ("patchGroups" in res.json && res.json.patchGroups !== undefined) {
+          patchGroups = res.json.patchGroups;
         }
         for (const patch of res.json.patches) {
           if (patch.patch === undefined) {
@@ -251,6 +287,10 @@ export function createValSystem(
       return {
         patches,
         errors,
+        // Spread, so "the server reported no groups" stays `undefined` rather
+        // than becoming an empty array. The two are different claims and the
+        // store branches on which one it got.
+        ...(patchGroups !== undefined ? { patchGroups } : {}),
         // `error` is what reaches the user, through `patch:fetch-failed`. Set it
         // only when NO chunk came back: a partial failure already has an entry
         // per id, and `patch:announced-not-delivered` describes it precisely.
@@ -272,6 +312,8 @@ export function createValSystem(
           // server apply them too would double-apply — the same reason the engine
           // passes false here.
           apply_patches: false,
+          // The Studio applies patches itself, so there is nothing to scope.
+          own_patch_groups_only: undefined,
         },
       });
       if (res.status !== 200 || !("entries" in res.json)) {
@@ -313,9 +355,28 @@ export function createValSystem(
      * the only way a TS-AST-only failure ever reaches an editor: the client
      * applies patches to evaluated JSON and cannot see those at all.
      */
-    publishPatches: async ({ patchIds, message }) => {
+    publishPatches: async ({
+      patchIds,
+      message,
+      closesPatchGroupId,
+      expectedHeadCommitSha,
+    }) => {
       const res = await client("/save", "POST", {
-        body: { message, patchIds },
+        body: {
+          message,
+          patchIds,
+          // The world this publish was decided against. A 409 comes back when
+          // somebody else has published since.
+          ...(expectedHeadCommitSha !== undefined
+            ? { expectedHeadCommitSha }
+            : {}),
+          // Present only when this commit accounts for everything the group
+          // still holds — the content API closes what it is named without
+          // checking. See `emptiesOwnPatchGroup`.
+          ...(closesPatchGroupId !== undefined
+            ? { patchGroupId: closesPatchGroupId }
+            : {}),
+        },
       });
       if (res.status === null) {
         return {
@@ -326,9 +387,23 @@ export function createValSystem(
       if (res.status === 200) {
         // `removed` is what the save threw away to be able to write anything at
         // all — fs mode only, and empty on the happy path.
-        return { status: "published", removed: res.json.removed };
+        return {
+          status: "published",
+          commitSha: res.json.commitSha,
+          removed: res.json.removed,
+        };
       }
       if (res.status === 409) {
+        // Three different refusals share the status. `headMoved` is the server
+        // saying somebody published while this was being decided;
+        // `patchGroupPublished` is this author's own group having gone out from
+        // somewhere else; the bare one is git refusing the commit itself.
+        if ("headMoved" in res.json) {
+          return { status: "head-moved", message: res.json.message };
+        }
+        if ("patchGroupPublished" in res.json) {
+          return { status: "group-published", message: res.json.message };
+        }
         return { status: "not-fast-forward", message: res.json.message };
       }
       if (res.status === 400) {
@@ -377,7 +452,7 @@ export function createValSystem(
       };
     },
 
-    discardPatches: async (patchIds) => {
+    discardPatches: async (patchIds, unstagePatchIds) => {
       /*
        * One request per chunk the URL can carry: "discard all" on a long chain
        * otherwise built a query string the server refuses before the handler
@@ -393,6 +468,19 @@ export function createValSystem(
       for (const chunk of chunkPatchIds(patchIds, "id")) {
         const res = await client("/patches", "DELETE", {
           query: { id: chunk },
+          /*
+           * Sent with EVERY chunk, and that is deliberate.
+           *
+           * Dropping a membership is idempotent, so repeating it costs a little
+           * work and nothing else — whereas sending it with only the first
+           * chunk would lose it entirely if that chunk is the one that fails,
+           * and the closure is about the whole discard rather than about this
+           * slice of it.
+           */
+          body:
+            unstagePatchIds !== undefined && unstagePatchIds.length > 0
+              ? { unstagePatchIds }
+              : undefined,
         });
         if (res.status !== 200) {
           return {
@@ -412,9 +500,81 @@ export function createValSystem(
 
     ...(options?.writes === true
       ? {
-          savePatches: async ({ patches, parentRef, sessionId }) => {
+          stagePatches: async (request) => {
+            const res = await client("/patch-groups/~/patches", "PUT", {
+              body: request,
+            });
+            if (res.status !== 200) {
+              return {
+                status: "error",
+                message:
+                  res.status !== null && "message" in res.json
+                    ? res.json.message
+                    : `Could not stage: ${res.status ?? "network error"}`,
+                /*
+                 * 409 is the content API saying the group has already shipped,
+                 * and it is the only refusal here the client can do something
+                 * about: the id is dead, so the store forgets it rather than
+                 * asking again with the same one. See `sendPatchGroupChange`.
+                 */
+                ...(res.status === 409
+                  ? { reason: "group-published" as const }
+                  : {}),
+              };
+            }
+            return { status: "ok" };
+          },
+          unstagePatches: async (request) => {
+            const res = await client("/patch-groups/~/patches", "DELETE", {
+              body: request,
+            });
+            if (res.status !== 200) {
+              return {
+                status: "error",
+                message:
+                  res.status !== null && "message" in res.json
+                    ? res.json.message
+                    : `Could not unstage: ${res.status ?? "network error"}`,
+                /*
+                 * 409 is the content API saying the group has already shipped,
+                 * and it is the only refusal here the client can do something
+                 * about: the id is dead, so the store forgets it rather than
+                 * asking again with the same one. See `sendPatchGroupChange`.
+                 */
+                ...(res.status === 409
+                  ? { reason: "group-published" as const }
+                  : {}),
+              };
+            }
+            return { status: "ok" };
+          },
+          savePatches: async ({
+            patches,
+            parentRef,
+            sessionId,
+            patchGroup,
+          }) => {
             const res = await client("/patches", "PUT", {
-              body: { patches, parentRef, sessionId },
+              body: {
+                patches,
+                parentRef,
+                sessionId,
+                /*
+                 * Membership travels with the patch, in this same request. The
+                 * server records it before it inserts, so an invalid closure is
+                 * a 400 with nothing written — rather than a patch that exists
+                 * outside its author's group and cannot be published.
+                 *
+                 * Spread, so a client with no group omits the fields entirely
+                 * rather than sending nulls.
+                 */
+                ...(patchGroup
+                  ? {
+                      patchGroupId: patchGroup.patchGroupId,
+                      withPatchIds: patchGroup.withPatchIds,
+                    }
+                  : {}),
+              },
             });
             if (res.status === null) {
               /*
@@ -474,6 +634,12 @@ export function createValSystem(
               status: "saved",
               newPatchIds: res.json.newPatchIds,
               parentRef: res.json.parentRef,
+              // Spread, so absent stays absent: `fs` mode and a content API
+              // without groups answer without one, and the client reads that as
+              // "there is no group to stage into here".
+              ...(res.json.patchGroupId !== undefined
+                ? { patchGroupId: res.json.patchGroupId }
+                : {}),
             };
           },
         }
@@ -510,6 +676,8 @@ export function createValSystem(
             built?.stat.receiveStat({
               baseSha: res.json.baseSha,
               patches: res.json.patches,
+              appliedPatches: res.json.appliedPatches,
+              headCommitSha: res.json.headCommitSha,
             });
           },
         }

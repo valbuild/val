@@ -29,18 +29,18 @@ export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
   );
 
   const isRouteLink =
-    options?.inline?.a === true ||
-    (typeof options?.inline?.a === "object" &&
-      "type" in options.inline.a &&
-      options.inline.a.type === "route");
+    options?.a === true ||
+    (typeof options?.a === "object" &&
+      "type" in options.a &&
+      options.a.type === "route");
 
   const routeSchema =
     isRouteLink &&
-    options?.inline?.a &&
-    typeof options.inline.a === "object" &&
-    "type" in options.inline.a &&
-    options.inline.a.type === "route"
-      ? options.inline.a
+    options?.a &&
+    typeof options.a === "object" &&
+    "type" in options.a &&
+    options.a.type === "route"
+      ? options.a
       : undefined;
 
   const includePattern = useMemo(
@@ -143,7 +143,7 @@ export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
   ]);
 
   const imageModulePath = useMemo((): ModuleFilePath | undefined => {
-    const img = options?.inline?.img;
+    const img = options?.img;
     if (
       img &&
       typeof img === "object" &&
@@ -158,7 +158,7 @@ export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
   }, [options]);
 
   const imageSchema = useMemo((): SerializedImageSchema | undefined => {
-    const img = options?.inline?.img;
+    const img = options?.img;
     if (
       img &&
       typeof img === "object" &&

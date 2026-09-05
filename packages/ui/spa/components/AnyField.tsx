@@ -6,12 +6,14 @@ import { KeyOfField } from "./fields/KeyOfField";
 import { NumberField } from "./fields/NumberField";
 import { ObjectFields } from "./fields/ObjectFields";
 import { RecordFields } from "./fields/RecordFields";
+import { SettingsFields } from "./fields/SettingsFields";
 import { RichTextField } from "./fields/RichTextField";
 import { RouteField } from "./fields/RouteField";
 import { StringField } from "./fields/StringField";
 import { UnionField } from "./fields/UnionField";
 import { DateField } from "./fields/DateField";
 import { DateTimeField } from "./fields/DateTimeField";
+import { CodeField } from "./fields/CodeField";
 import { ColorField } from "./fields/ColorField";
 import { FieldSchemaError } from "./FieldSchemaError";
 import { FileField } from "./fields/FileField";
@@ -103,6 +105,17 @@ export function AnyField({
         errorDisplay={errorDisplay}
       />
     );
+  } else if (schema.type === "settings") {
+    return (
+      <SettingsFields
+        key={path}
+        path={path}
+        readonly={effectiveReadonly}
+        compact={compact}
+        inline={inline}
+        errorDisplay={errorDisplay}
+      />
+    );
   } else if (schema.type === "record") {
     return (
       <RecordFields
@@ -144,6 +157,8 @@ export function AnyField({
     leaf = <DateTimeField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "color") {
     leaf = <ColorField key={path} path={path} {...leafProps} />;
+  } else if (schema.type === "code") {
+    leaf = <CodeField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "file") {
     leaf = <FileField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "literal") {

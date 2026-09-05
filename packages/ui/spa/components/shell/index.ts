@@ -7,10 +7,12 @@ export { StatusBar } from "./StatusBar";
 export {
   DeploymentsStatus,
   DeploymentsList,
+  MobileDeployments,
   DeploymentRows,
   summarizeDeployments,
 } from "./Deployments";
 export type { DeploymentSummary } from "./Deployments";
+export { isDeploymentNews, DEPLOYMENT_NEWS_WINDOW_MS } from "./Deployments";
 export { FloatingPanel } from "./FloatingPanel";
 export {
   OverlayMenuLauncher,
@@ -35,7 +37,7 @@ export type { SearchResult } from "./GlobalSearch";
 export { PagesPanel } from "./PagesPanel";
 export { MediaPanel } from "./MediaPanel";
 export { DataPanel } from "./DataPanel";
-export { SettingsPanel } from "./SettingsPanel";
+export { AccountPanel } from "./AccountPanel";
 export { UtilityPanel } from "./UtilityPanel";
 export { AIChatPanel } from "./AIChatPanel";
 export { NotificationsPanel } from "./NotificationsPanel";

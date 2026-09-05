@@ -9,8 +9,8 @@ import { FIELD_WRITE_DEBOUNCE_MS } from "./useDebouncedFieldWrite";
 /**
  * A string field's LAYOUT comes off the serialized schema, synchronously.
  *
- * That is the point of the preview/render split: a `render` is static config, so
- * there is nothing to wait for and no flash of a single-line input before the
+ * That is the point of `.multiline()` being static config on the schema: there
+ * is nothing to wait for and no flash of a single-line input before the
  * textarea. What is pinned here is the consequence that bit.
  *
  * The textarea used to be UNCONTROLLED (`defaultValue`), and it worked only
@@ -63,26 +63,16 @@ jest.mock("../../components/Preview", () => ({
   PreviewNull: () => <div data-testid="preview-null" />,
 }));
 
-jest.mock("../CodeEditor", () => ({
-  __esModule: true,
-  CodeEditor: ({ language, value }: { language: string; value: string }) => (
-    <div data-testid="code-editor" data-language={language}>
-      {value}
-    </div>
-  ),
-}));
-
 import { StringField } from "./StringField";
 
 const PATH = '/content/page.val.ts?p="body"' as SourcePath;
 
-function mount(render: unknown, source: string) {
+function mount(multiline: boolean | undefined, source: string) {
   mockSchema.mockReturnValue({
     status: "success",
-    data: { type: "string", opt: false, raw: false, render },
+    data: { type: "string", opt: false, raw: false, multiline },
   });
   mockSource.mockReturnValue({ status: "success", data: source });
-  return render;
 }
 
 describe("StringField", () => {
@@ -95,8 +85,8 @@ describe("StringField", () => {
     expect(input!.value).toBe("Hello");
   });
 
-  test("render textarea: a textarea, on the first frame, with its value in it", () => {
-    mount({ as: "textarea" }, "Multiline\ntext");
+  test("multiline: a textarea, on the first frame, with its value in it", () => {
+    mount(true, "Multiline\ntext");
     const { container } = render(<StringField path={PATH} />);
     const textarea = container.querySelector("textarea");
     expect(textarea).not.toBeNull();
@@ -105,20 +95,12 @@ describe("StringField", () => {
   });
 
   /** The regression guard — see the note at the top of this file. */
-  test("render textarea: the auto-grow ghost is sized for the value", () => {
-    mount({ as: "textarea" }, "Multiline\ntext");
+  test("multiline: the auto-grow ghost is sized for the value", () => {
+    mount(true, "Multiline\ntext");
     render(<StringField path={PATH} />);
     expect(
       screen.getByTestId("auto-growing-textarea-ghost").textContent,
     ).toContain("Multiline\ntext");
-  });
-
-  test("render code: the code editor, with the language the schema names", () => {
-    mount({ as: "code", language: "typescript" }, "const a = 1;");
-    render(<StringField path={PATH} />);
-    const editor = screen.getByTestId("code-editor");
-    expect(editor.getAttribute("data-language")).toBe("typescript");
-    expect(editor.textContent).toBe("const a = 1;");
   });
 
   /**

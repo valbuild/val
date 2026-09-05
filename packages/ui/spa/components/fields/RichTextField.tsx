@@ -139,7 +139,7 @@ export function RichTextField({
   const { features, linkCatalog, imageModulePath, imageSchema } =
     useRichTextEditorConfig(schemaOptions);
 
-  const hasImageEnabled = !!schemaOptions?.inline?.img;
+  const hasImageEnabled = !!schemaOptions?.img;
 
   const imageReferencedModule = imageSchema?.referencedModule as
     | ModuleFilePath

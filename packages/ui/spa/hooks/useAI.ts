@@ -31,21 +31,28 @@ import {
 import {
   type AITool,
   SessionImageToPatchError,
+  useAIModelSelection,
+  useAvailableAIModel,
   useCurrentProfile,
   useProfilesByAuthorId,
   useAIContext,
 } from "../components/ValProvider";
-import {
-  useGetDirectFileUploadSettings,
-  useValConfig,
-} from "../components/ValFieldProvider";
+import { useGetDirectFileUploadSettings } from "../components/ValFieldProvider";
 import type {
   AISession,
   AIServerMessage,
   AIMessageContentBlock,
   AIPromptMessage,
 } from "./useAIWebSocket";
+import {
+  AssistantSettings,
+  assistantSettingsPromptSection,
+  NO_ASSISTANT_SETTINGS,
+  readAssistantSettings,
+  settingsModuleFilePath,
+} from "./assistantSettings";
 import { useAISearch } from "./useAISearch";
+import { useAssistantAvailability } from "./useAssistantAvailability";
 import { useAIValidation } from "./useAIValidation";
 import type {
   ImageMetadata,
@@ -58,7 +65,7 @@ import { getSourcePathFromRoute } from "@valbuild/core";
 import { Patch } from "@valbuild/shared/internal";
 import { useNavigation } from "../components/ValRouter";
 import { getNavPathFromAll } from "../components/getNavPath";
-import { filterBlockingValidationErrors } from "../validation/blockingValidationErrors";
+import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
 import { readImageFromFile } from "../utils/readImage";
 import { z } from "zod";
 import {
@@ -66,12 +73,12 @@ import {
   buildRemoveImageGalleryEntryPatch,
   isRemoteSchema,
   type BuildResult,
-} from "./aiImageToolPatches";
+} from "@valbuild/shared/internal";
 import {
   buildDuplicatePatch,
   buildEmptyAtPathPatch,
   describeContainerAtPath,
-} from "./aiSourceToolPatches";
+} from "@valbuild/shared/internal";
 import {
   expandSessionKeysInPatch,
   type ExpandResult,
@@ -162,7 +169,7 @@ const CREATE_PATCH_TOOL: AITool = {
     File field example:
     {"patch":[{"op":"replace","path":["brochure"],"value":{"key":"abc","filePath":"/public/val/files/brochure.pdf","_type":"ai_session_file","_tag":"file"}}]}
 
-    Richtext inline image example (richtext schema must have options.inline.img enabled):
+    Richtext inline image example (richtext schema must have options.img enabled):
     {"patch":[{"op":"add","path":["body","0","children","2"],"value":{"tag":"img","src":{"key":"abc","filePath":"/public/val/images/inline.png","_type":"ai_session_file","_tag":"image"}}}]}
 
     Multiple session keys can appear in a single patch.
@@ -639,6 +646,24 @@ export function useAI(
       getAllSourcesSnapshot(): Record<ModuleFilePath, Json> {
         return system?.sourceStore.allSources() ?? {};
       },
+      /**
+       * The project's own settings for the assistant.
+       *
+       * Read when the prompt is built rather than held: an editor who changes
+       * the tone of voice and sends a message expects the next message to use
+       * it, not the next time the Studio is reloaded.
+       */
+      getAssistantSettings(): AssistantSettings {
+        const moduleFilePath = settingsModuleFilePath(
+          system?.schemaStore.all() ?? {},
+        );
+        if (moduleFilePath === null) {
+          return NO_ASSISTANT_SETTINGS;
+        }
+        return readAssistantSettings(
+          system?.sourceStore.moduleSource(moduleFilePath),
+        );
+      },
       getSourceSnapshot(
         moduleFilePath: ModuleFilePath,
       ): { status: "success"; data: Json } | { status: "not-found" } {
@@ -827,8 +852,22 @@ export function useAI(
   const currentProfile = useCurrentProfile();
   const profiles = useProfilesByAuthorId();
   const getDirectFileUploadSettings = useGetDirectFileUploadSettings();
-  const config = useValConfig();
-  const isChatEnabled = config?.ai?.chat?.experimental?.enable === true;
+  const assistant = useAssistantAvailability();
+  /**
+   * Can the assistant be USED, as opposed to offered?
+   *
+   * `"unconfigured"` is not usable: the panel asks to turn it on first, and
+   * nothing is sent to a model until someone accepts. See
+   * `useAssistantAvailability`.
+   */
+  const isChatEnabled = assistant === "on";
+  // The editor's pick where they have made one, and the best available model
+  // until they do. `useAvailableAIModel` is the floor: it still answers when
+  // the content server reports providers but no models, which is what an older
+  // server does.
+  const { selected: selectedModel } = useAIModelSelection();
+  const defaultModel = useAvailableAIModel();
+  const chatModel = selectedModel ?? defaultModel;
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingSession, setIsLoadingSession] = useState(false);
   const [sessions, setSessions] = useState<AISession[]>([]);
@@ -844,6 +883,20 @@ export function useAI(
   // Track active streaming ID — startAssistantMessage always appends a new
   // message (NOT idempotent), so we must only call it once per message ID.
   const activeIdRef = useRef<string | null>(null);
+  // The prompt currently running on the server, so it can be cancelled. Set on
+  // a successful send and cleared by whichever of response/error/cancelled
+  // settles it.
+  const inFlightPromptIdRef = useRef<string | null>(null);
+  /**
+   * The prompts this chat started.
+   *
+   * Every session shares one socket, and the publish flow now runs its own
+   * hidden prompt over it. Without this the chat treated that prompt's stream
+   * as a turn of its own: the commit message appeared as an assistant bubble in
+   * whatever conversation was open, and cancelling it appended a "Stopped."
+   * bubble to a chat that had asked for nothing.
+   */
+  const ownedPromptIdsRef = useRef<Set<string>>(new Set());
   // Pending ask_user_question tool calls, as toolCallId -> the id of the
   // assistant message that opened the card. Needed to reject them on session
   // change, and to fail that specific turn if the result cannot be delivered.
@@ -851,6 +904,12 @@ export function useAI(
 
   useEffect(() => {
     const handler = (message: AIServerMessage) => {
+      // Not ours: another part of the Studio is driving its own prompt on this
+      // socket. `ai_session_unhidden` carries a request id rather than a prompt
+      // id and is nobody's turn, so it is filtered the same way.
+      if ("id" in message && !ownedPromptIdsRef.current.has(message.id)) {
+        return;
+      }
       if (message.type === "ai_streaming") {
         if (!chatRef.current) return;
         if (activeIdRef.current !== message.id) {
@@ -867,6 +926,10 @@ export function useAI(
         }
         chatRef.current.completeAssistantMessage(message.id);
         activeIdRef.current = null;
+        if (inFlightPromptIdRef.current === message.id) {
+          inFlightPromptIdRef.current = null;
+        }
+        ownedPromptIdsRef.current.delete(message.id);
         setIsStreaming(false);
       } else if (message.type === "ai_tool_call") {
         // ask_user_question renders a question card instead of the plain tool
@@ -1786,13 +1849,16 @@ export function useAI(
               chatRef.current?.errorToolCall(messageId, toolCallId);
               return;
             }
+            // Both builders need the source: it is what tells them the
+            // destination key is already taken, and writing over an existing
+            // record entry destroys it.
+            const sourceSnap = valReads.getSourceSnapshot(moduleFilePath);
+            const sourceData =
+              sourceSnap.status === "success"
+                ? (sourceSnap.data as Source | undefined)
+                : undefined;
             let buildResult: BuildResult;
             if (toolName === "duplicate_source") {
-              const sourceSnap = valReads.getSourceSnapshot(moduleFilePath);
-              const sourceData =
-                sourceSnap.status === "success"
-                  ? (sourceSnap.data as Source | undefined)
-                  : undefined;
               buildResult = buildDuplicatePatch(
                 {
                   sourcePath: args.source_path as string[],
@@ -1805,6 +1871,7 @@ export function useAI(
               buildResult = buildEmptyAtPathPatch(
                 { destinationPath: args.destination_path },
                 moduleSchema,
+                sourceData,
               );
             }
             if (buildResult.kind === "wrong-tool") {
@@ -2098,9 +2165,66 @@ export function useAI(
           message.id,
           message.message,
           message.code,
+          message.action,
+          message.details,
         );
         activeIdRef.current = null;
+        if (inFlightPromptIdRef.current === message.id) {
+          inFlightPromptIdRef.current = null;
+        }
+        ownedPromptIdsRef.current.delete(message.id);
         setIsStreaming(false);
+      } else if (message.type === "ai_cancelled") {
+        // The user asked for this, so it settles rather than fails: whatever
+        // arrived before the stop stays in the transcript, and a stop before
+        // any text says so instead of leaving an empty bubble behind.
+        if (!chatRef.current) return;
+        // Text already on screen counts, even if the server sent no partial:
+        // keying only off `partialResponse` turned a streamed answer into a red
+        // error, which is the opposite of settling it.
+        const wasStreaming = activeIdRef.current === message.id;
+        if (!wasStreaming) {
+          chatRef.current.startAssistantMessage(message.id);
+          if (message.partialResponse) {
+            chatRef.current.appendAssistantChunk(
+              message.id,
+              message.partialResponse,
+            );
+          }
+        }
+        // Settled as complete, never as an error: the user asked for this, and
+        // an error status paints the turn red and offers a Retry for something
+        // that did not fail. With nothing to keep, "Stopped." is the body.
+        if (!wasStreaming && !message.partialResponse) {
+          chatRef.current.appendAssistantChunk(message.id, "Stopped.");
+        }
+        chatRef.current.completeAssistantMessage(message.id);
+        // A question card left pending keeps the turn open: it stays
+        // clickable, and it disables the chat's own turn timeout, so a stop
+        // would wedge the composer with no way out but a reload. The server has
+        // already abandoned these waits, so there is nothing to answer — just
+        // stop tracking them.
+        for (const [toolCallId, questionMessageId] of Array.from(
+          pendingQuestionsRef.current.entries(),
+        )) {
+          if (questionMessageId === message.id) {
+            pendingQuestionsRef.current.delete(toolCallId);
+          }
+        }
+        if (activeIdRef.current === message.id) {
+          activeIdRef.current = null;
+        }
+        // A late settle for an abandoned turn must not clear the tracking of a
+        // newer one, or its streamed text is orphaned and Stop goes inert.
+        if (inFlightPromptIdRef.current === message.id) {
+          inFlightPromptIdRef.current = null;
+          setIsStreaming(false);
+        }
+        ownedPromptIdsRef.current.delete(message.id);
+      } else if (message.type === "ai_session_unhidden") {
+        // Answered by whoever asked — the publish flow — and nothing for the
+        // chat to do. Named rather than left to the exhaustive check so adding
+        // a message type still fails the build here.
       } else if (message.type === "ai_agent_handoff") {
         // TODO: show this in the UI in some way to indicate that the AI has handed off to a human agent:
         console.log(
@@ -2194,6 +2318,22 @@ export function useAI(
       content: string | ChatDocument,
       attachments?: ChatMessageAttachment[],
     ): boolean => {
+      // No reachable provider means no key is configured for any of them. Refuse
+      // here rather than send a prompt the server will refuse: this way the chat
+      // says why, instead of the turn appearing to start and then failing.
+      if (chatModel === null) {
+        // Started before it is errored: `errorAssistantMessage` retires a
+        // message that already exists, so erroring an id nothing has created is
+        // silently a no-op — which left only the composer's generic failure.
+        const noticeId = crypto.randomUUID();
+        chatRef.current?.startAssistantMessage(noticeId);
+        chatRef.current?.errorAssistantMessage(
+          noticeId,
+          "No AI key is set up for this project. Add one in admin to use the assistant.",
+          "provider_not_configured",
+        );
+        return false;
+      }
       // Lazily mint the session id on the first send so unborn sessions don't
       // appear in the URL or on the server until the user actually says something.
       let sid = sessionIdRef.current;
@@ -2254,7 +2394,12 @@ export function useAI(
         agents: [
           {
             id: "default",
-            model: "openai-gpt-5.1",
+            // Picked from what the server says is reachable rather than
+            // hardcoded: with bring-your-own-key an org may have a key for one
+            // provider and not another, and asking for the wrong one is
+            // refused. Null means AI is off, which is checked before we get
+            // here.
+            model: chatModel,
             systemPrompt: `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
 
 ## Who you are talking to
@@ -2316,7 +2461,7 @@ Never tell the user to navigate manually — offer to navigate for them instead.
     - img: {tag:"img", src:{...}} — cannot be added via assistant (no file system access)
     - br: {tag:"br"}
   - example: [{tag:"p",children:["Hello ",{tag:"span",styles:["bold"],children:["World"]}]}]
-  - richtext schema has options, which tells you which type of tags you can use. Example: if options do not have block.ul: true, then ul is not allowed. The schema.options type is like this: style: Partial<{bold: boolean;italic: boolean;lineThrough: boolean;}>;block: Partial<{h1: boolean;h2: boolean;h3: boolean;h4: boolean;h5: boolean;h6: boolean;ul: boolean;ol: boolean;}>;inline: Partial<{a: boolean | SerializedRouteSchema | SerializedStringSchema;img: boolean | SerializedImageSchema;}>;
+  - richtext schema has options, which tells you which type of tags you can use. Example: if options do not have ul: true, then ul is not allowed. The schema.options type is like this: Partial<{bold: boolean;italic: boolean;lineThrough: boolean;h1: boolean;h2: boolean;h3: boolean;h4: boolean;h5: boolean;h6: boolean;ul: boolean;ol: boolean;a: boolean | SerializedRouteSchema | SerializedStringSchema;img: boolean | SerializedImageSchema;}>;
 - image / file: cannot be changed through this assistant (no file system access). If the user needs to add one, navigate to the matching media gallery.
 - union: a value that must match exactly one of several allowed shapes. Two kinds:
   - string union: key is a literal schema, all items are literals. The value is one fixed string chosen from a set (e.g. "draft", "published", "archived"). Patch by replacing the string with one of the allowed values.
@@ -2337,12 +2482,18 @@ Do not describe what you will do unless you do it for clarification — just do 
 - Be concise and friendly.
 - This is a CMS, it is not a chat. The intention of user is to find and edit content. If user asks existential questions, interpret them as a technical question. If for example they ask "who they are", they probably mean "what is my profile". If they ask "what can you do?", they probably want to know what kind of content changes you can make or what information you can provide about their content. Always interpret vague questions in a way that assumes the user wants to understand or change their content, rather than asking about the assistant itself.
 - Confirm changes in plain language after every successful update.
-- If something goes wrong, explain what happened and what to do next.`,
+- If something goes wrong, explain what happened and what to do next.${assistantSettingsPromptSection(
+              valReads.getAssistantSettings(),
+            )}`,
             tools: ALL_TOOLS,
           },
         ],
       };
       const sent = sendWsMessage(message);
+      if (sent) {
+        inFlightPromptIdRef.current = message.id;
+        ownedPromptIdsRef.current.add(message.id);
+      }
       // Notify the session was "born" only after a successful send so a failed
       // first send doesn't leak an empty session id into the URL.
       if (sent && wasUnborn) {
@@ -2350,7 +2501,7 @@ Do not describe what you will do unless you do it for clarification — just do 
       }
       return sent;
     },
-    [sendWsMessage],
+    [chatModel, chatRef, sendWsMessage],
   );
 
   // A question card keeps the turn open (and the composer disabled) until a
@@ -2371,6 +2522,43 @@ Do not describe what you will do unless you do it for clarification — just do 
     },
     [chatRef],
   );
+
+  /**
+   * Stop the prompt that is running.
+   *
+   * The server settles this with `ai_cancelled`, which is what clears the UI —
+   * doing it optimistically here would race a response already on its way.
+   * Only when there is no socket to ask do we stop locally, so a dropped
+   * connection cannot leave the chat wedged mid-turn with no way out.
+   */
+  const cancel = useCallback((): boolean => {
+    const id = inFlightPromptIdRef.current;
+    // Nothing is running as far as we know, but the composer is showing a stop
+    // button, so something is out of step. Settle locally rather than leaving
+    // the user pressing a button that does nothing.
+    if (id === null) {
+      const streamingId = activeIdRef.current;
+      if (streamingId !== null) {
+        chatRef.current?.completeAssistantMessage(streamingId);
+        activeIdRef.current = null;
+      }
+      setIsStreaming(false);
+      return false;
+    }
+    const sent = sendWsMessage({ type: "ai_cancel", id });
+    if (!sent) {
+      // Same reasoning as the `ai_cancelled` branch: settle it, do not fail it.
+      if (activeIdRef.current !== id) {
+        chatRef.current?.startAssistantMessage(id);
+        chatRef.current?.appendAssistantChunk(id, "Stopped.");
+      }
+      chatRef.current?.completeAssistantMessage(id);
+      inFlightPromptIdRef.current = null;
+      activeIdRef.current = null;
+      setIsStreaming(false);
+    }
+    return true;
+  }, [sendWsMessage, chatRef]);
 
   const answerToolQuestions = useCallback(
     (toolCallId: string, answers: AskUserQuestionAnswer[]) => {
@@ -2504,6 +2692,8 @@ Do not describe what you will do unless you do it for clarification — just do 
     sendMessage,
     uploadAiImage,
     isStreaming,
+    /** Stop the running prompt. False when there is nothing running. */
+    cancel,
     isLoadingSession,
     isConnected: isWsConnected,
     authError: aiAuthError,

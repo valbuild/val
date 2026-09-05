@@ -15,7 +15,7 @@ const genericPageSchema = s.object({
       s
         .object({
           type: s.literal("code"),
-          code: s.string().render({ as: "code", language: "typescript" }),
+          code: s.code({ language: "typescript" }),
         })
         .render({ as: "inline" })
         // Both, on purpose: the render decides that the block is EDITED in the

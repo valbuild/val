@@ -1,6 +1,7 @@
 import { Internal, type ModuleFilePath, type PatchId } from "@valbuild/core";
 import type { Json } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
+import type { PatchGroupT } from "@valbuild/shared/internal";
 import { StoreBus } from "./StoreBus";
 import type {
   Head,
@@ -25,6 +26,20 @@ import type { ParentRef } from "@valbuild/shared/internal";
  */
 export type FetchPatches = (patchIds: PatchId[]) => Promise<{
   patches: PatchRecord[];
+  /**
+   * The patch groups on this branch, as the server reported them.
+   *
+   * `undefined` means this deployment has no groups — `fs` mode, a content API
+   * that predates them, or a lookup that failed — and staging stays off, which
+   * is what every project does today. An empty ARRAY would be a different
+   * claim: groups exist and hold nothing, which would turn staging on with
+   * everything held. The two must not be folded together.
+   *
+   * Carried on the patch fetch rather than fetched separately because it is
+   * read from the same response: `GET /patches` annotates the chain, and a
+   * second round trip could only disagree with it.
+   */
+  patchGroups?: PatchGroupT[];
   /**
    * Per patch: why THIS patch could not be read.
    *
@@ -168,6 +183,34 @@ export type CreatePatchResult =
  * patch exists, the source store knows whether it landed, and the head is where
  * those two facts meet.
  */
+/**
+ * Whether two group annotations say the same thing.
+ *
+ * Serialised rather than walked, the same way `usePatchSets` compares its
+ * grouping: both sides come from a zod parse of a JSON body, so key order
+ * follows the schema and is stable. The point is to keep the identity of an
+ * unchanged annotation — most fetches carry one — because a fresh array is what
+ * makes everything downstream treat it as news and repaint the review screen.
+ */
+function sameGroups(
+  a: PatchGroupT[] | undefined,
+  b: PatchGroupT[] | undefined,
+): boolean {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return false;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * Stands in for the commit sha of a patch somebody else published.
+ *
+ * `/stat` says WHICH patches have shipped, not what they shipped in — the sha
+ * is the server's to state and no reader here wants it. What every reader does
+ * want is `appliedAt` being set, which is the one test for "has this shipped",
+ * so a marker goes there rather than a second set living beside it.
+ */
+export const APPLIED_ELSEWHERE_SHA = "applied-elsewhere";
+
 export class PatchStore {
   readonly events = new StoreBus<SystemEvent>();
 
@@ -176,7 +219,75 @@ export class PatchStore {
   private dataById = new Map<PatchId, PatchRecord>();
   private originById = new Map<PatchId, PatchOrigin>();
   /** Learned from `source:patch-apply` — the source store is the authority. */
+  /**
+   * The patch groups the server last reported, or `undefined` if it reported
+   * none.
+   *
+   * `undefined` and `[]` are different answers — see {@link FetchPatches} — so
+   * this is deliberately not initialised to an empty array.
+   */
+  private patchGroups: PatchGroupT[] | undefined;
+  /**
+   * Moved by every change to {@link patchGroups} or {@link ownPatchGroupId},
+   * and by nothing else. See the `patch:groups` event in `types.ts`.
+   */
+  private groupsVersionCounter = 0;
+  /**
+   * The group this client's own writes are landing in, as the server named it.
+   *
+   * Learned from the SAVE response, because there is nowhere else to learn it.
+   * A write names no group — the content API resolves this author's open one
+   * and creates it if absent — so on a fresh branch the group comes into
+   * existence during a save. The chain annotation only refreshes when a fetch
+   * has missing ids to ask for, and a patch this client made is never missing,
+   * so the tab that bootstrapped the group would otherwise never see its id and
+   * every stage would silently do nothing.
+   *
+   * Not merged into {@link patchGroups}: that is the SERVER's answer, membership
+   * included, and this is one id with no membership attached. Kept apart so a
+   * reader can tell a real group from a bare id.
+   */
+  private ownPatchGroupId: string | undefined;
+  /**
+   * Has this deployment got patch groups AT ALL?
+   *
+   * A fact about the deployment, so it is latched: once the server has answered
+   * with a group annotation, or named the group one of our own saves joined,
+   * groups exist here and cannot stop existing.
+   *
+   * It has to be its own flag because neither of the two things that reveal it
+   * stays true. The annotation is ABSENT rather than empty where no group holds
+   * anything, and {@link ownPatchGroupId} is deliberately forgotten on publish
+   * — so straight after a publish, on a branch whose only group was the one
+   * just closed, both were unset and the client concluded the deployment had no
+   * groups. Staging vanished from the review screen and, far worse,
+   * `usePatchGroupWrites` dropped the resolver, so the next write joined no
+   * group and could not be published as part of one.
+   */
+  private patchGroupsSeen = false;
   private appliedIds = new Set<PatchId>();
+  /**
+   * Ids `/stat` has said are committed, whether or not their record is here yet.
+   *
+   * Latched rather than applied once, because the stat that carries the news
+   * routinely arrives before the record it is about — the ids are announced,
+   * the fetch follows. Applied again on every delivery; see
+   * {@link applyServerApplied}.
+   */
+  private serverAppliedIds = new Set<PatchId>();
+  /** Told when a record becomes applied, so the chain it holds keeps up. */
+  private appliedSource: {
+    markApplied(patchIds: readonly PatchId[]): void;
+  } | null = null;
+  /**
+   * Patches the source store reported as HELD — outside the reader's patch
+   * group, so deliberately not applied.
+   *
+   * Separate from `appliedIds` because they answer different questions: applied
+   * is "the effect is in the value", held is "we are done deciding about it".
+   * {@link chainSettled} needs the second; every value reader needs the first.
+   */
+  private heldIds = new Set<PatchId>();
   private failedById = new Map<PatchId, string>();
   /** Ids announced by stat whose fetch is in flight, so we do not re-fetch. */
   private fetching = new Set<PatchId>();
@@ -311,6 +422,19 @@ export class PatchStore {
    */
   private parentRefSource: () => ParentRef | null = () => null;
 
+  /**
+   * Who the person at the keyboard is, as an author id.
+   *
+   * A source rather than a value for the same reason {@link parentRefSource} is
+   * one: it arrives from `/stat`, which lands after the system is built, and a
+   * system rebuilt when it does would take its patches with it.
+   *
+   * `null` — no session, so nobody — is the honest default and is what `fs` mode
+   * stays on: there the review UI reads a missing author as "Local changes",
+   * which is true, rather than as a person it cannot name.
+   */
+  private authorSource: () => string | null = () => null;
+
   /** See {@link parentRefSource}. */
   /** See {@link publishInFlight}. */
   setPublishInFlight(isPublishing: () => boolean): void {
@@ -319,6 +443,11 @@ export class PatchStore {
 
   setParentRefSource(source: () => ParentRef | null): void {
     this.parentRefSource = source;
+  }
+
+  /** See {@link authorSource}. */
+  setAuthorSource(source: () => string | null): void {
+    this.authorSource = source;
   }
 
   constructor(
@@ -339,6 +468,7 @@ export class PatchStore {
    * "what does this store react to" is answerable by reading this one method.
    */
   listenTo(stat: StatStore, source: SourceStore): () => void {
+    this.appliedSource = source;
     const offStat = stat.events.on("stat:receive", (event) => {
       const baseSha = stat.currentBaseSha();
       const baseMoved =
@@ -348,6 +478,7 @@ export class PatchStore {
       if (baseSha !== null) {
         this.lastBaseSha = baseSha;
       }
+      this.receiveApplied(event.appliedPatches);
       void this.onStatPatchIds(event.patches, baseMoved);
     });
     const offApply = source.events.on("source:patch-apply", (event) => {
@@ -358,6 +489,30 @@ export class PatchStore {
       for (const failure of event.failed) {
         this.failedById.set(failure.patchId, failure.message);
         this.appliedIds.delete(failure.patchId);
+      }
+      /*
+       * Held: decided, and deliberately not in source.
+       *
+       * Tracked so {@link chainSettled} can tell "we are still working on this"
+       * from "we are finished with it and it is not in the view". Without it a
+       * patch outside the reader's group is never accounted for, the chain
+       * never settles, and the editor holds every field inert for the life of
+       * the tab.
+       *
+       * It is NOT applied, so it does not join `appliedIds` — a reader asking
+       * "is this patch's effect in the value" must still be told no.
+       */
+      for (const patchId of event.held) {
+        this.heldIds.add(patchId);
+        this.failedById.delete(patchId);
+        this.appliedIds.delete(patchId);
+      }
+      for (const patchId of [
+        ...event.success,
+        ...event.failed.map((f) => f.patchId),
+      ]) {
+        // Re-staged, or now applying: it is no longer held.
+        this.heldIds.delete(patchId);
       }
       this.events.emit({ type: "patch:head", head: this.currentHead() });
     });
@@ -517,6 +672,23 @@ export class PatchStore {
         message: res.error,
       });
     }
+    if (
+      res.patchGroups !== undefined &&
+      !sameGroups(this.patchGroups, res.patchGroups)
+    ) {
+      /*
+       * Bumped here, not left to the record loop below.
+       *
+       * The loop bumps once per DELIVERED record, so a response that carries
+       * groups and no usable records — every id errored, or answered with
+       * silence — moved the groups and told nobody. Compared before storing so
+       * an unchanged annotation, which is what most fetches carry, does not
+       * repaint the review screen.
+       */
+      this.patchGroups = res.patchGroups;
+      this.patchGroupsSeen = true;
+      this.bumpGroups();
+    }
     const received: PatchId[] = [];
     for (const record of res.patches) {
       this.fetching.delete(record.patchId);
@@ -525,6 +697,14 @@ export class PatchStore {
       received.push(record.patchId);
       this.bump();
     }
+    /*
+     * A record that arrived AFTER the stat which said it had shipped.
+     *
+     * The routine order, not a corner: the stat announces ids and the fetch
+     * follows, so the pass that ran on the stat had nothing to mark for exactly
+     * the patch it was told about.
+     */
+    this.applyServerApplied();
     for (const [patchId, message] of Object.entries(res.errors ?? {})) {
       this.fetching.delete(patchId as PatchId);
       // An error is a definite answer, so the wait-and-confirm round that a
@@ -893,6 +1073,17 @@ export class PatchStore {
       patch: patchOps,
       meta,
       createdAt: new Date().toISOString(),
+      // Stamped for the same reason `createdAt` is, and with the same value the
+      // server is about to record: `PUT /patches` takes the author from the
+      // session cookie this client is authenticated with, so the two agree.
+      //
+      // Without it a patch made here had no author until the page was reloaded,
+      // and a locally created record is never re-fetched — `onStatPatchIds` asks
+      // only for ids it has no data for. So in `http` mode every change the user
+      // had just made showed as "Unknown author" beside the ones they made
+      // before, which is the one reading of the review screen that is never
+      // true.
+      authorId: this.authorSource(),
     };
     this.dataById.set(patchId, record);
     this.originById.set(patchId, "internal");
@@ -991,7 +1182,10 @@ export class PatchStore {
    * forgotten immediately afterwards and this is redundant, in `http` they stay
    * in the chain and this is the only thing that knows.
    */
-  markPublished(patchIds: readonly PatchId[]): void {
+  markPublished(
+    patchIds: readonly PatchId[],
+    options?: { closedOwnPatchGroup?: boolean },
+  ): void {
     let changed = false;
     for (const patchId of patchIds) {
       if (this.publishedIds.has(patchId)) continue;
@@ -999,6 +1193,153 @@ export class PatchStore {
       changed = true;
     }
     if (changed) this.bump();
+    let groupsMoved = false;
+    if (
+      this.ownPatchGroupId !== undefined &&
+      options?.closedOwnPatchGroup !== false
+    ) {
+      /*
+       * A publish that NAMED the group closes it, and the content API refuses a
+       * write or a stage into a closed one. So the remembered id is not merely
+       * stale after that, it is actively wrong: keeping it would answer every
+       * stage with a 409 until something re-fetched the annotation.
+       *
+       * Forgotten rather than replaced, because there is nothing to replace it
+       * with yet — the next write creates the next group and the save response
+       * names it, exactly as the first one did.
+       *
+       * Only when it was named, which is what `closedOwnPatchGroup` says. A
+       * PARTIAL publish leaves the group open on the server with the rest of
+       * its work still in it, and forgetting the id then was the mirror of the
+       * annotation bug below: `useCurrentPatchGroup` had nothing to resolve, so
+       * every stage and unstage in the review screen went to the deferred queue
+       * as though this author had no group — on a single-author branch, where
+       * no annotation is ever fetched to fall back to, until the next save
+       * happened to name the id again.
+       *
+       * Absent means forget, so `fs` mode and any caller that does not publish
+       * through the group path keep the behaviour they had.
+       */
+      this.ownPatchGroupId = undefined;
+      groupsMoved = true;
+    }
+    /*
+     * And the ANNOTATION, which nothing else will correct.
+     *
+     * Forgetting the id alone was half a fix. The annotation still listed the
+     * group as open, and nothing refetches it: `forgetPublished` drops the
+     * published ids from `dataById`, so when `/stat` re-lists them — they stay
+     * in the chain until the deploy lands — `onStatPatchIds` files them under
+     * stale and asks the server for nothing.
+     *
+     * So `useCurrentPatchGroup` went on resolving the closed group, every stage
+     * and unstage in the review screen was sent to it and refused with 409, and
+     * the deferred queue never engaged because there appeared to be a group.
+     * On reload an unstaged change came back staged and the next publish
+     * shipped it. Exactly the window the queue exists for, on every branch
+     * whose annotation has ever been fetched.
+     *
+     * ALL of a group's ids, not any: a partial publish leaves the group open on
+     * the server with only some of its patches applied, and closing it here
+     * would hide a group its owner can still add to.
+     *
+     * "Nothing of it is still pending" rather than "all of it is in
+     * `publishedIds`", and via the same {@link pendingAmong} the publish path
+     * uses to decide whether to close the group on the SERVER. Those two were
+     * written out separately and disagreed as soon as a member could be applied
+     * by somebody else's publish: the server closed the group and this left the
+     * annotation saying it was open.
+     *
+     * The timestamp is ours rather than the server's. What is being recorded is
+     * the FACT that the group is closed, which we know because we closed it;
+     * the exact instant is the server's to state and nothing reads it.
+     */
+    let annotationMoved = false;
+    if (this.patchGroups !== undefined) {
+      const closedNow = new Date().toISOString();
+      const next = this.patchGroups.map((group) => {
+        if (group.publishedAt !== null) return group;
+        if (group.patchIds.length === 0) return group;
+        if (this.pendingAmong(group.patchIds).size > 0) return group;
+        annotationMoved = true;
+        return { ...group, publishedAt: closedNow };
+      });
+      /*
+       * Tracked apart from `groupsMoved`, which is also set by forgetting
+       * `ownPatchGroupId`. On a partial publish that one is true and this one is
+       * not, and sharing the flag replaced the annotation with an element-wise
+       * identical copy — a new array identity, so every `usePatchGroups`
+       * consumer repaints for no news at all.
+       */
+      if (annotationMoved) this.patchGroups = next;
+    }
+    if (groupsMoved || annotationMoved) this.bumpGroups();
+  }
+
+  /**
+   * Mark records the server says have SHIPPED.
+   *
+   * A record is fetched once and then held, so a client never re-reads one it
+   * already has — which meant it never learned that somebody else's publish had
+   * committed a patch sitting in its chain. That patch stayed pending in the
+   * scope, `prefixViolations` read a hole in front of it, and Publish refused
+   * with a reason that had stopped being true before the user read it.
+   *
+   * `appliedAt` is what everything downstream keys on, so the fact is written
+   * there rather than kept in a set beside it. The sha is the server's to
+   * state; what is known here is only that it shipped, so a marker sha is used
+   * and nothing reads it.
+   *
+   * ABSENT is not "none of them" — a server that does not send the list (`fs`
+   * mode, or one that predates it) is saying nothing, not saying no.
+   *
+   * The mark is ONE-WAY, which is what makes that safe rather than merely
+   * intended: nothing here ever clears `appliedAt`. A patch stops being applied
+   * only by leaving the chain, when the deploy moves the base and
+   * `forgetPublished` drops it.
+   */
+  private receiveApplied(appliedPatches: readonly PatchId[] | undefined): void {
+    if (appliedPatches === undefined) {
+      return;
+    }
+    for (const patchId of appliedPatches) {
+      this.serverAppliedIds.add(patchId);
+    }
+    this.applyServerApplied();
+  }
+
+  /**
+   * Write {@link serverAppliedIds} onto whatever records are here now.
+   *
+   * Run again after a fetch, not only on the stat that carried the news: the
+   * stat announces the ids and the records arrive later, so the first pass has
+   * nothing to mark for exactly the patch it was told about. Remembering the
+   * set and re-applying is what makes the two orders the same.
+   */
+  private applyServerApplied(): void {
+    if (this.serverAppliedIds.size === 0) return;
+    const marked: PatchId[] = [];
+    for (const patchId of this.serverAppliedIds) {
+      const record = this.dataById.get(patchId);
+      if (record === undefined) continue;
+      if (record.appliedAt) continue;
+      this.dataById.set(patchId, {
+        ...record,
+        appliedAt: { commitSha: APPLIED_ELSEWHERE_SHA },
+      });
+      this.appliedIds.add(patchId);
+      marked.push(patchId);
+    }
+    if (marked.length === 0) return;
+    this.bump();
+    /*
+     * And the SOURCE store, which holds its own reference to each record.
+     *
+     * Marking it here alone would be invisible on screen: the chain entry still
+     * points at the record it was given, so a held patch that has now shipped
+     * would go on being held until the deploy moved the base.
+     */
+    this.appliedSource?.markApplied(marked);
   }
 
   /**
@@ -1069,12 +1410,20 @@ export class PatchStore {
       this.originById.delete(patchId);
       this.pendingIds.delete(patchId);
       this.appliedIds.delete(patchId);
+      // Pruned with the rest, and NOT an afterthought: `heldIds` was left out
+      // of these loops once and went on naming patches that no longer existed.
+      this.serverAppliedIds.delete(patchId);
       this.failedById.delete(patchId);
       this.creatorByPatchId.delete(patchId);
       this.sessionByPatchId.delete(patchId);
       this.fetching.delete(patchId);
       this.notDeliveredOnce.delete(patchId);
       this.publishErrorById.delete(patchId);
+      // Held is a fact about a patch that EXISTS. Left behind, `heldPatchIds()`
+      // keeps naming an id nothing can find, and Publish tells the reader "1
+      // change is held back — stage it in Review" about a patch that is not
+      // there to stage.
+      this.heldIds.delete(patchId);
       forgotten.push(patchId);
     }
     if (forgotten.length === 0) return;
@@ -1110,12 +1459,20 @@ export class PatchStore {
       this.originById.delete(patchId);
       this.pendingIds.delete(patchId);
       this.appliedIds.delete(patchId);
+      // Pruned with the rest, and NOT an afterthought: `heldIds` was left out
+      // of these loops once and went on naming patches that no longer existed.
+      this.serverAppliedIds.delete(patchId);
       this.failedById.delete(patchId);
       this.creatorByPatchId.delete(patchId);
       this.sessionByPatchId.delete(patchId);
       this.fetching.delete(patchId);
       this.notDeliveredOnce.delete(patchId);
       this.publishErrorById.delete(patchId);
+      // Held is a fact about a patch that EXISTS. Left behind, `heldPatchIds()`
+      // keeps naming an id nothing can find, and Publish tells the reader "1
+      // change is held back — stage it in Review" about a patch that is not
+      // there to stage.
+      this.heldIds.delete(patchId);
       this.publishedIds.delete(patchId);
       dropped.push(patchId);
     }
@@ -1144,6 +1501,50 @@ export class PatchStore {
     return this.currentHead();
   }
 
+  /**
+   * Which of these are still waiting to ship.
+   *
+   * ONE predicate, because there were two and they drifted. "Has this shipped"
+   * was written out at each call site — `publishedIds` in one, `publishedIds`
+   * plus `appliedAt` in the other — and the moment applied-set sync landed the
+   * two disagreed: a member another author's publish had applied counted as
+   * shipped when deciding to close the group on the server, and as pending when
+   * closing the annotation's copy of it. The group closed there and stayed open
+   * here, `useCurrentPatchGroup` went on naming it, and every stage 409'd. That
+   * is the failure the previous round fixed, reached through a different door.
+   *
+   * Three states collapse to two, and the third is the one that was missing:
+   *
+   * - shipped — `publishedIds` (this session's own publish, which no record's
+   *   `appliedAt` will ever show) or a record with `appliedAt` set;
+   * - GONE — not in the chain at all, because it was discarded or the deploy
+   *   moved the base and `forgetPublished` dropped it. Not pending. Reading a
+   *   missing record as pending meant one discard of your own staged patch left
+   *   the group unclosable for the rest of the session, and its id reused for
+   *   every later publish — the degradation `patchGroupId` on commit exists to
+   *   avoid;
+   * - pending — in the chain, and nothing says it shipped. A record not fetched
+   *   yet is pending: absent data is not evidence of a commit.
+   *
+   * `appliedAt` is truthy only for a commit sha. `null` is
+   * server-known-uncommitted and `undefined` is created locally, and BOTH mean
+   * pending — the trap this codebase has already fallen into once.
+   *
+   * One pass over the chain rather than a lookup per id, so a long chain does
+   * not cost a scan per group member.
+   */
+  pendingAmong(patchIds: Iterable<PatchId>): Set<PatchId> {
+    const wanted = new Set(patchIds);
+    const pending = new Set<PatchId>();
+    for (const patchId of this.ordered) {
+      if (!wanted.has(patchId)) continue;
+      if (this.publishedIds.has(patchId)) continue;
+      if (this.dataById.get(patchId)?.appliedAt) continue;
+      pending.add(patchId);
+    }
+    return pending;
+  }
+
   /** In chain order, only those whose data is known. */
   recordsFor(patchIds: readonly PatchId[]): PatchRecord[] {
     const wanted = new Set(patchIds);
@@ -1164,6 +1565,110 @@ export class PatchStore {
    * order and already holds every record, so a second incremental copy of that
    * fact was bookkeeping nobody had asked for.
    */
+  /**
+   * The patch groups on this branch, or `undefined` where there are none.
+   *
+   * The distinction is the whole contract: `undefined` means this deployment
+   * has no groups and staging must stay off; an empty array means groups exist
+   * and this branch's hold nothing. Reading the second as the first turns
+   * staging off where it should be on; the reverse turns it on with everything
+   * held.
+   */
+  groups(): PatchGroupT[] | undefined {
+    return this.patchGroups;
+  }
+
+  /**
+   * The id of the group this client's own writes join, where one is known.
+   *
+   * See {@link ownPatchGroupId}. Reported separately from {@link groups} because
+   * it carries no membership — it says which group to stage INTO, not what is
+   * in it.
+   */
+  ownGroupId(): string | undefined {
+    return this.ownPatchGroupId;
+  }
+
+  /**
+   * The server put our writes in this group. Called from the save path.
+   *
+   * Idempotent: the same id arrives with every save, and re-announcing it must
+   * not repaint anything.
+   */
+  recordOwnPatchGroup(patchGroupId: string): void {
+    if (this.ownPatchGroupId === patchGroupId) {
+      return;
+    }
+    this.ownPatchGroupId = patchGroupId;
+    this.patchGroupsSeen = true;
+    this.bumpGroups();
+  }
+
+  /**
+   * This group is gone — stop naming it.
+   *
+   * Its own method rather than `recordOwnPatchGroup(undefined)`, because the
+   * two say different things: that one relays what the server just answered,
+   * this one says the id we were holding has stopped being usable. The caller
+   * is a 409 "already published" on a stage or unstage, which is this same
+   * author having published from another tab; holding the id after that answers
+   * every later stage with the same 409, silently.
+   *
+   * {@link patchGroupsSeen} is deliberately left alone — the deployment still
+   * has groups, this author simply has none right now, and confusing the two is
+   * what turned staging off after every publish.
+   */
+  forgetOwnPatchGroup(): void {
+    if (this.ownPatchGroupId === undefined) {
+      return;
+    }
+    this.ownPatchGroupId = undefined;
+    this.bumpGroups();
+  }
+
+  /**
+   * Whether this deployment has patch groups. See {@link patchGroupsSeen}.
+   *
+   * Never goes back to false, so a publish — which closes the group and clears
+   * the remembered id — does not turn staging off.
+   */
+  patchGroupsSupported(): boolean {
+    return this.patchGroupsSeen;
+  }
+
+  /**
+   * Patches the source store is deliberately NOT applying, because they are
+   * outside this reader's group.
+   *
+   * Reported because held is invisible in the value and yet is not absence. A
+   * reader that only compares the displayed source against base sees a module
+   * whose one pending patch is held as IDENTICAL to one whose pending patch was
+   * undone — and calling a held change "reverted" tells its author their work
+   * is gone and offers to discard it.
+   */
+  heldPatchIds(): ReadonlySet<PatchId> {
+    return this.heldIds;
+  }
+
+  /**
+   * Something about groups that this store does not hold has changed.
+   *
+   * The local SCOPE — which patches this client is showing and will publish —
+   * lives in `createSystem`, deliberately: two stores need the same answer and
+   * neither owns it. But it is group state, and a reader watching
+   * `patch:groups` for "has anything about groups moved" has to be woken by it
+   * too, or a stage moves the scope and every count derived from it stays
+   * where it was.
+   */
+  notifyGroupsChanged(): void {
+    this.bumpGroups();
+  }
+
+  /** Changes whenever the groups do. See the `patch:groups` event. */
+  groupsVersion(): number {
+    return this.groupsVersionCounter;
+  }
+
   allRecords(): PatchRecord[] {
     return this.recordsFor(this.ordered);
   }
@@ -1261,6 +1766,18 @@ export class PatchStore {
     this.events.emit({ type: "patch:chain", version: this.version });
   }
 
+  /**
+   * The groups changed. The single place `groupsVersionCounter` moves, and the
+   * only place `patch:groups` is emitted.
+   */
+  private bumpGroups(): void {
+    this.groupsVersionCounter++;
+    this.events.emit({
+      type: "patch:groups",
+      version: this.groupsVersionCounter,
+    });
+  }
+
   originOf(patchId: PatchId): PatchOrigin {
     return this.originById.get(patchId) ?? "external";
   }
@@ -1288,7 +1805,12 @@ export class PatchStore {
     for (const patchId of this.ordered) {
       if (this.failedById.has(patchId)) continue;
       if (!this.dataById.has(patchId)) return false;
-      if (!this.appliedIds.has(patchId) && !this.pendingIds.has(patchId)) {
+      if (
+        !this.appliedIds.has(patchId) &&
+        !this.pendingIds.has(patchId) &&
+        // Held is an answer, not a wait. See `heldIds`.
+        !this.heldIds.has(patchId)
+      ) {
         return false;
       }
     }

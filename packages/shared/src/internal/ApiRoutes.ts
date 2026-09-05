@@ -79,6 +79,22 @@ const notFoundResponse = z.object({
 });
 const GenericError = z.object({ message: z.string() });
 
+/**
+ * A patch group: the set of patches one user has chosen to publish.
+ *
+ * Not a patch *set* — a patch set is computed from the schema and says which
+ * patches must move together; a patch group is curated and says which ones this
+ * user wants live. See `docs/independent-publish/PLAN.md`.
+ */
+export const PatchGroup = z.object({
+  patchGroupId: z.string(),
+  authorId: z.string().nullable(),
+  createdAt: z.string(),
+  publishedAt: z.string().nullable(),
+  patchIds: z.array(PatchId),
+});
+export type PatchGroupT = z.infer<typeof PatchGroup>;
+
 const GenericPatchError = z.union([
   z.object({
     patchId: PatchId,
@@ -589,6 +605,30 @@ export const Api = {
               sourcesSha: z.string(),
               patches: z.array(PatchId),
               /**
+               * Of `patches`, the ones that have already SHIPPED.
+               *
+               * A published patch stays in the chain with `appliedAt` set until
+               * the next deployment moves the base, so the id list alone cannot
+               * say which is which — and a client never re-fetches a record it
+               * already holds, so it never finds out on its own. Another
+               * author's publish then left that patch pending in your scope,
+               * your prefix gate read a hole in front of it, and Publish
+               * refused for a reason that had stopped being true.
+               *
+               * Optional: `fs` mode forgets published patches outright, and a
+               * client that ignores this behaves exactly as it did before.
+               */
+              appliedPatches: z.array(PatchId).optional(),
+              /**
+               * The newest commit, which is the PUBLISH head.
+               *
+               * Not `commitSha`: that is the commit this deployment serves and
+               * moves only when a new build lands. This moves the instant
+               * somebody publishes, which is what makes it the thing a client
+               * carries back to `/save` to say which world it decided against.
+               */
+              headCommitSha: z.string().optional(),
+              /**
                * Unpublished changes the store threw away because it could not
                * read them.
                *
@@ -616,6 +656,30 @@ export const Api = {
               sourcesSha: z.string(),
               commitSha: z.string(),
               patches: z.array(PatchId),
+              /**
+               * Of `patches`, the ones that have already SHIPPED.
+               *
+               * A published patch stays in the chain with `appliedAt` set until
+               * the next deployment moves the base, so the id list alone cannot
+               * say which is which — and a client never re-fetches a record it
+               * already holds, so it never finds out on its own. Another
+               * author's publish then left that patch pending in your scope,
+               * your prefix gate read a hole in front of it, and Publish
+               * refused for a reason that had stopped being true.
+               *
+               * Optional: `fs` mode forgets published patches outright, and a
+               * client that ignores this behaves exactly as it did before.
+               */
+              appliedPatches: z.array(PatchId).optional(),
+              /**
+               * The newest commit, which is the PUBLISH head.
+               *
+               * Not `commitSha`: that is the commit this deployment serves and
+               * moves only when a new build lands. This moves the instant
+               * somebody publishes, which is what makes it the thing a client
+               * carries back to `/save` to say which world it decided against.
+               */
+              headCommitSha: z.string().optional(),
               commits: z.array(ValCommit),
               config: ValConfig,
               profileId: z.string().nullable(),
@@ -693,6 +757,28 @@ export const Api = {
         query: {
           id: z.array(PatchId).min(1, "At least one patch id is required"),
         },
+        body: z
+          .object({
+            /*
+             * Patches that are NOT being deleted but must lose their patch
+             * group membership because these are.
+             *
+             * Deleting a patch out of the middle of a patch set leaves every
+             * group holding the rest with a non-prefix intersection, and a
+             * prefix is the one invariant a group has. Which patches those are
+             * needs the content schema, so the client computes the forward
+             * closure and sends it; the content API drops the memberships
+             * without touching the patches.
+             *
+             * In the BODY while the ids to delete are in the query, because
+             * this list is unbounded in the same way and the query string is
+             * already chunked to fit. Optional throughout: `fs` mode has no
+             * groups, and a client that predates this is deleting correctly,
+             * just not repairing.
+             */
+            unstagePatchIds: z.array(PatchId).optional(),
+          })
+          .optional(),
         cookies: {
           val_session: z.string().optional(),
         },
@@ -724,6 +810,15 @@ export const Api = {
               patch: z.any(), // TODO: this should be Patch instead - we got a weird validation error: although input looks good, it still does not accept objects as values... Which it should do via the z.record(JSONValue) type
             }),
           ),
+          // Patch group membership. Sent with the patch itself, in one request, so
+          // there is no window in which a patch exists but belongs to no group.
+          // Absent means "the caller does not know about groups" - the server then
+          // behaves exactly as before.
+          patchGroupId: z.string().nullish(),
+          // What has to come with the patch: other patch ids that must join the
+          // same group for it to stay applicable. Computed on the client, which
+          // is the only side that has the schema needed to derive patch sets.
+          withPatchIds: z.array(PatchId).optional(),
         }),
         cookies: {
           val_session: z.string().optional(),
@@ -758,6 +853,7 @@ export const Api = {
           json: z.object({
             newPatchIds: z.array(PatchId),
             parentRef: ParentRef,
+            patchGroupId: z.string().optional(),
           }),
         }),
       ]),
@@ -767,6 +863,15 @@ export const Api = {
         query: {
           patch_id: z.array(PatchId).optional(),
           exclude_patch_ops: onlyOneBooleanQueryParam.optional(),
+          /**
+           * Include the patch group annotation in the answer.
+           *
+           * Off by default because the client CHUNKS this request — a long
+           * chain is several round trips — and the groups are a property of the
+           * branch, identical in every chunk. Asking on each one is N identical
+           * lookups against the content API to learn the same thing.
+           */
+          include_patch_groups: onlyOneBooleanQueryParam.optional(),
         },
         cookies: {
           val_session: z.string().optional(),
@@ -799,11 +904,117 @@ export const Api = {
                 createdAt: z.string(),
                 authorId: z.string().nullable(),
                 appliedAt: z.object({ commitSha: z.string() }).nullable(),
+                // Which patch groups hold this patch. Optional so that FS mode, and
+                // any server that predates patch groups, can leave it out.
+                patchGroupIds: z.array(z.string()).optional(),
               }),
             ),
+            patchGroups: z.array(PatchGroup).optional(),
             baseSha: z.string(),
             error: GenericError.optional(),
             errors: z.record(PatchId, GenericError).optional(),
+          }),
+        }),
+      ]),
+    },
+  },
+  // Patch group membership. Both are idempotent set operations, and both take an
+  // already-closed set: the client computes the prefix closure (staging) or the
+  // forward closure (unstaging) because only the client has the schema needed to
+  // derive patch sets. See `docs/independent-publish/PLAN.md`.
+  "/patch-groups/~/patches": {
+    PUT: {
+      req: {
+        body: z
+          .object({
+            patchGroupId: z.string(),
+            /** What the user asked to stage. */
+            patchIds: z.array(PatchId),
+            /*
+             * What has to come with it, because the staged patches are written on
+             * top of it.
+             *
+             * The content API records membership as `explicit` or `dependency`
+             * and reads what it is not told about as a dependency — so folding
+             * the two halves into `patchIds` files the patch someone clicked as
+             * something the closure dragged in.
+             */
+            withPatchIds: z.array(PatchId).optional(),
+          })
+          .refine(
+            (body) =>
+              body.patchIds.length > 0 || (body.withPatchIds?.length ?? 0) > 0,
+            // Either half alone is a real request: a stage of only what came with
+            // it happens when the deferred queue's scope filter drops everything
+            // the user originally clicked.
+            "At least one patch id is required",
+          ),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(403),
+          json: GenericError,
+        }),
+        z.object({
+          // The group has already been published, so its membership is frozen.
+          status: z.literal(409),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            patchGroupId: z.string(),
+            patchIds: z.array(PatchId),
+          }),
+        }),
+      ]),
+    },
+    DELETE: {
+      req: {
+        body: z
+          .object({
+            patchGroupId: z.string(),
+            /** What the user asked to unstage. */
+            patchIds: z.array(PatchId),
+            /** What has to go with it: everything built on top of it. */
+            withPatchIds: z.array(PatchId).optional(),
+          })
+          .refine(
+            (body) =>
+              body.patchIds.length > 0 || (body.withPatchIds?.length ?? 0) > 0,
+            "At least one patch id is required",
+          ),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(403),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(409),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            patchGroupId: z.string(),
+            patchIds: z.array(PatchId),
           }),
         }),
       ]),
@@ -851,6 +1062,33 @@ export const Api = {
           validate_binary_files: onlyOneBooleanQueryParam.optional(),
           exclude_patches: onlyOneBooleanQueryParam.optional(),
           apply_patches: onlyOneBooleanQueryParam.optional(),
+          /**
+           * Apply ONLY these patches, rather than everything pending.
+           *
+           * This is what makes a draft-mode render match the caller's staged
+           * view. Without it `/sources/~` replays every pending patch on the
+           * branch, so a server-rendered preview shows other people's
+           * unpublished work — the one thing independent publish is for.
+           *
+           * Omitted means everything pending, which is the behaviour every
+           * existing caller has and must keep. An EMPTY array is a different
+           * answer and is honoured as one: a group holding nothing renders
+           * base.
+           */
+          patch_id: z.array(PatchId).optional(),
+          /**
+           * Apply only the patches in the CALLER'S OWN patch groups.
+           *
+           * The server resolves them from the session, so a draft render does
+           * not have to know its own group ids — which it cannot, since it has
+           * no client state. This is what makes `fetchVal` in draft mode show
+           * the person their own staged work rather than everybody's.
+           *
+           * Ignored when `patch_id` is given: an explicit list is a caller that
+           * already knows what it wants, and silently intersecting the two
+           * would make the narrower one invisible.
+           */
+          own_patch_groups_only: onlyOneBooleanQueryParam.optional(),
         },
         cookies: {
           val_session: z.string().optional(),
@@ -943,41 +1181,40 @@ export const Api = {
       ]),
     },
   },
-  "/commit-summary": {
-    GET: {
-      req: {
-        query: {
-          patch_id: z.array(PatchId),
-        },
-        cookies: {
-          val_session: z.string().optional(),
-        },
-      },
-      res: z.union([
-        unauthorizedResponse,
-        z.object({
-          status: z.literal(400),
-          json: z.object({
-            message: z.string(),
-          }),
-        }),
-        z.object({
-          status: z.literal(200),
-          json: z.object({
-            patchIds: z.array(PatchId),
-            baseSha: z.string(),
-            commitSummary: z.string().nullable(),
-          }),
-        }),
-      ]),
-    },
-  },
   "/save": {
     POST: {
       req: {
         body: z.object({
           message: z.string().optional(),
           patchIds: z.array(PatchId),
+          /*
+           * The patch group this commit EMPTIES, if it empties one.
+           *
+           * Forwarded to the content API, which closes the group it names —
+           * and closes it unconditionally, without checking that the commit
+           * shipped all of it. So the client sends it only when the publish
+           * accounts for every patch the group still holds; a partial publish
+           * omits it and the group stays open with the rest in it.
+           *
+           * Optional, and absent in `fs` mode, which has no groups.
+           */
+          patchGroupId: z.string().optional(),
+          /*
+           * The newest commit this client knew about when it decided.
+           *
+           * Answered with 409 when the server sees a newer one, because then
+           * somebody else published between the review screen being read and
+           * Save being clicked, and what is about to ship was decided against a
+           * world that no longer exists.
+           *
+           * Git's own not-fast-forward guard does not cover this: `ValServer`
+           * fetches the chain and commits fresh at publish time, so the parent
+           * commit it sends is always the server's current one.
+           *
+           * Optional, so a client that does not track it publishes exactly as
+           * it did before.
+           */
+          expectedHeadCommitSha: z.string().optional(),
         }),
         cookies: {
           val_session: z.string().optional(),
@@ -988,6 +1225,24 @@ export const Api = {
         z.object({
           status: z.literal(200),
           json: z.object({
+            /**
+             * The commit this publish just made, which becomes the new publish
+             * head.
+             *
+             * Sent back because nothing else tells this client about its own
+             * commit in time. `headCommitSha` moves on a `/stat` response, and
+             * until the next poll lands the client still believes the
+             * PRE-publish head — so a second publish inside that window carried
+             * a stale `expectedHeadCommitSha`, the server compared it against
+             * the commit this same client had just made, and answered 409
+             * "someone else published". With auto-publish, which publishes on
+             * every pause in typing, that window is hit routinely and the
+             * message blames a colleague for the user's own commit.
+             *
+             * Optional: `fs` mode has no publish head, and neither does a
+             * server that predates this.
+             */
+            commitSha: z.string().optional(),
             /**
              * Unpublished changes the save threw away because they could not be
              * applied.
@@ -1009,12 +1264,65 @@ export const Api = {
               .optional(),
           }),
         }),
+        /*
+         * The named patch group is not this caller's, or the lookup that would
+         * say so failed.
+         *
+         * Publishing may CLOSE a group, and closing somebody else's leaves
+         * their pending work in a closed group and in no open one. So `/save`
+         * runs the same ownership check stage and unstage do, and refuses the
+         * same way — see `refuseUnlessOwn`.
+         */
+        z.object({
+          status: z.literal(403),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
         z.object({
           status: z.literal(409),
-          json: z.object({
-            message: z.string(),
-            isNotFastForward: z.literal(true),
-          }),
+          json: z.union([
+            /** A group that has already shipped. See the 403 above. */
+            z.object({
+              message: z.string(),
+            }),
+            z.object({
+              message: z.string(),
+              isNotFastForward: z.literal(true),
+            }),
+            /*
+             * Somebody else published between this being decided and Save.
+             *
+             * Its own shape rather than another `isNotFastForward`, because
+             * they happen at different moments and mean different things to the
+             * user: that one is git refusing a commit, this one is refused
+             * BEFORE a commit is attempted, on a head the client named. Nothing
+             * was written either way, but only this one is answered by looking
+             * at the review screen again.
+             */
+            z.object({
+              message: z.string(),
+              headMoved: z.literal(true),
+            }),
+            /**
+             * The group this commit named has already been published.
+             *
+             * A third thing sharing 409, and flagged for the same reason
+             * `headMoved` is: read as a plain not-fast-forward it looks
+             * retryable, and it is the opposite — the id will never be writable
+             * again, so retrying reproduces it forever.
+             *
+             * It means this author published from somewhere else. The client
+             * forgets the id and falls back to the annotation, which is the
+             * same recovery a 409 on stage or unstage triggers.
+             */
+            z.object({
+              message: z.string(),
+              patchGroupPublished: z.literal(true),
+            }),
+          ]),
         }),
         z.object({
           status: z.literal(400),
@@ -1218,6 +1526,15 @@ export const Api = {
             )
             .optional(),
           apply_patches: onlyOneBooleanQueryParam.optional(),
+          /**
+           * The caller's own staged work, and nobody else's.
+           *
+           * The same flag `/sources/~` takes, and for the same reason — a draft
+           * page renders both, so a scoped module beside an unscoped
+           * `jsonValues` entry showed one person's view and everybody's pending
+           * work on the same screen.
+           */
+          own_patch_groups_only: onlyOneBooleanQueryParam.optional(),
         },
         cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
       },
@@ -1279,6 +1596,45 @@ export const Api = {
           json: z.object({
             nonce: z.string(),
             wsUrl: z.string(),
+            /**
+             * The AI providers this project can actually reach.
+             *
+             * AI runs on a key the org or the user brought, so an org with only
+             * an Anthropic key cannot use a GPT model — asking for one gets a
+             * refusal. The client owns the model catalog and picks a model whose
+             * provider is in here.
+             *
+             * `string[]` and not an enum on purpose: the content server may add
+             * a provider before the Studio knows of it, and a strict enum would
+             * reject the whole response over a name this version has not heard
+             * of. Unknown entries are simply ignored.
+             */
+            providers: z.array(z.string()).optional(),
+            /**
+             * The models those keys can actually use, as the providers report
+             * them.
+             *
+             * Which models *exist* is something only the provider knows: it
+             * depends on the account, its tier, and what has shipped since this
+             * Studio was built. So the server asks and passes the answer on,
+             * and the picker offers exactly this.
+             *
+             * Optional and loosely typed for the same reason as `providers`: a
+             * content server that does not report them, or reports a provider
+             * this version has not heard of, must not invalidate the whole
+             * response. Absent or empty means fall back to the built-in
+             * catalog.
+             */
+            models: z
+              .array(
+                z.object({
+                  provider: z.string(),
+                  model: z.string(),
+                  label: z.string(),
+                  contextWindow: z.number().nullable().optional(),
+                }),
+              )
+              .optional(),
           }),
         }),
         z.object({

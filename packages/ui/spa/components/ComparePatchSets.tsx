@@ -1,13 +1,14 @@
 import {
   Internal,
   ModuleFilePath,
+  ModulePath,
   PatchId,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
 import { HotspotMarker } from "./fields/HotspotMarker";
 import { deepEqual, ReadonlyJSONValue } from "@valbuild/core/patch";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { usePatchSetsWorker } from "../patchsets/usePatchSetsWorker";
 import classNames from "classnames";
 import {
@@ -22,9 +23,7 @@ import {
   Minus,
   Pencil,
   Plus,
-  Save,
   Undo2,
-  User,
   Loader2,
 } from "lucide-react";
 import { SerializedPatchSet } from "../utils/PatchSets";
@@ -67,12 +66,20 @@ import {
   PopoverTrigger,
 } from "./designSystem/popover";
 import { Skeleton } from "./designSystem/skeleton";
-import { getInitials } from "../utils/getInitials";
+import { ProfileAvatar } from "./Avatar";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { prettifyModulePath } from "../utils/prettifyText";
 import { FieldPathLink } from "./FieldPathLink";
+import {
+  SETTINGS_MODULE_TITLE,
+  settingsFieldLabel,
+} from "./settingsChangeLabels";
+import { useShellPanelLink } from "./shell/shellPanelLink";
 import { useNavLink } from "./navLink";
 import { refToUrl } from "./MediaPicker/refToUrl";
+import { StagingBulkActions, StagingToggle } from "./StagingToggle";
+import { splitTreesByStaging } from "../utils/splitTreesByStaging";
+import { usePatchStaging } from "./PatchStagingProvider";
 
 /**
  * ComparePatchSets renders a "review changes" view over a `SerializedPatchSet`.
@@ -311,17 +318,20 @@ export function ComparePatchSets({
           portalContainer={portalContainer}
         />
       )}
-      {changing.map((tree) => (
-        <ModuleGroup
-          key={`pending-${tree.sourcePath}`}
-          tree={tree}
-          profilesByAuthorIds={profilesByAuthorIds}
-          portalContainer={portalContainer}
-          mode={mode}
-          schemas={schemasData}
-          canDiscard={canDiscard}
-        />
-      ))}
+      {/*
+       * Only `changing` is split into Staged / Unstaged. A committed tree has
+       * already shipped and a reverted one has no net change to publish, so
+       * neither is something a person can stage or unstage — offering the
+       * choice there would be offering a control that cannot do anything.
+       */}
+      <StagedSections
+        trees={changing}
+        profilesByAuthorIds={profilesByAuthorIds}
+        portalContainer={portalContainer}
+        mode={mode}
+        schemas={schemasData}
+        canDiscard={canDiscard}
+      />
       {reverted.length > 0 && (
         <RevertedHistory count={revertedPatchIds.length}>
           {reverted.map((tree) => (
@@ -356,6 +366,143 @@ export function ComparePatchSets({
       ))}
     </div>
   );
+}
+
+type SectionProps = {
+  /** The trees with a real pending change — not committed, not reverted. */
+  trees: ChangeTreeNode[];
+  profilesByAuthorIds: Record<string, Profile>;
+  portalContainer: HTMLElement | null;
+  mode: "fs" | "http" | "unknown";
+  schemas: Record<ModuleFilePath, SerializedSchema> | undefined;
+  canDiscard: boolean;
+};
+
+/**
+ * The module list, split into what will publish and what is held back.
+ *
+ * Two sections only when staging is on. With it off — FS mode, or a content API
+ * without patch groups — this renders exactly the flat list it always did, which
+ * is the point: the section headers describe a choice that cannot be made there,
+ * and chrome for an absent feature is worse than no chrome.
+ *
+ * Staged first. It is what Publish will ship, so it is what a person opening this
+ * screen is deciding about; the held section is the exception below it.
+ *
+ * The deploy divider lives in the staged section. A committed patch has shipped,
+ * so it is not held by anyone and could not be — there is nothing to unstage.
+ */
+function StagedSections({
+  trees,
+  profilesByAuthorIds,
+  portalContainer,
+  mode,
+  schemas,
+  canDiscard,
+}: SectionProps) {
+  const staging = usePatchStaging();
+  const { staged, held } = useMemo(
+    () =>
+      staging.enabled
+        ? splitTreesByStaging(trees, staging.stateOf)
+        : { staged: trees, held: [] },
+    [trees, staging.enabled, staging.stateOf],
+  );
+
+  const renderTrees = (list: ChangeTreeNode[], side: "staged" | "held") =>
+    list.map((tree) => (
+      <ModuleGroup
+        key={`${side}-${tree.sourcePath}`}
+        tree={tree}
+        profilesByAuthorIds={profilesByAuthorIds}
+        portalContainer={portalContainer}
+        mode={mode}
+        schemas={schemas}
+        canDiscard={canDiscard}
+      />
+    ));
+
+  if (!staging.enabled) {
+    return <>{renderTrees(staged, "staged")}</>;
+  }
+
+  return (
+    <>
+      <SectionHeading
+        title="Staged"
+        detail="Publish ships these."
+        count={countRows(staged)}
+        actions={
+          <StagingBulkActions
+            patchIds={collectPatchIds(staged.flatMap(flattenChanges))}
+            profilesByAuthorIds={profilesByAuthorIds}
+            side="staged"
+          />
+        }
+      />
+      {staged.length === 0 ? (
+        <EmptySection>
+          Nothing is staged, so Publish has nothing to ship. Stage a change
+          below to publish it.
+        </EmptySection>
+      ) : (
+        renderTrees(staged, "staged")
+      )}
+      <SectionHeading
+        title="Unstaged"
+        detail="Held back. These stay pending and can be staged again — or published by someone else."
+        count={countRows(held)}
+        actions={
+          <StagingBulkActions
+            patchIds={collectPatchIds(held.flatMap(flattenChanges))}
+            profilesByAuthorIds={profilesByAuthorIds}
+            side="held"
+          />
+        }
+      />
+      {held.length === 0 ? (
+        <EmptySection>Nothing is held back.</EmptySection>
+      ) : (
+        renderTrees(held, "held")
+      )}
+    </>
+  );
+}
+
+function countRows(trees: ChangeTreeNode[]): number {
+  return trees.flatMap(flattenChanges).length;
+}
+
+function SectionHeading({
+  title,
+  detail,
+  count,
+  actions,
+}: {
+  title: string;
+  detail: string;
+  count: number;
+  /** Bulk stage/unstage for this section. Renders nothing when it is empty. */
+  actions?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 border-b border-border-primary pb-2">
+      <span className="text-sm font-medium text-fg-primary">{title}</span>
+      <span className="text-sm text-fg-tertiary tabular-nums">{count}</span>
+      <span className="text-xs text-fg-tertiary truncate">{detail}</span>
+      {/*
+       * `ml-auto` on the actions rather than a spacer, and `flex-wrap` above, so a
+       * narrow screen drops the buttons to their own line instead of squeezing the
+       * heading — the buttons are the widest thing here once there are per-author
+       * ones.
+       */}
+      <span className="ml-auto">{actions}</span>
+    </div>
+  );
+}
+
+function EmptySection({ children }: { children: ReactNode }) {
+  return <div className="text-xs text-fg-tertiary px-1">{children}</div>;
 }
 
 /**
@@ -558,7 +705,10 @@ function collectAuthorIds(rows: ChangeTreeNode[]): string[] {
 export function CompareLoading() {
   return (
     <div
-      className="mx-auto max-w-7xl flex flex-col gap-8 min-w-[380px]"
+      // `min-w-0`, for the reason the loaded view is: a 380px floor is wider
+      // than the content box of a 360px phone, so the placeholder scrolled
+      // sideways and then handed over to a view that does not.
+      className="mx-auto max-w-7xl flex flex-col gap-8 min-w-0"
       aria-busy="true"
       aria-live="polite"
       aria-label="Loading changes"
@@ -979,6 +1129,7 @@ function ModuleGroup({
   const moduleSchema = schemas?.[moduleFilePath];
   const isRouterModule =
     moduleSchema?.type === "record" && !!moduleSchema.router;
+  const isSettingsModule = moduleSchema?.type === "settings";
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { deletePatches } = useDeletePatches();
   const [now] = useState(() => new Date());
@@ -1048,7 +1199,10 @@ function ModuleGroup({
             : "border-border-primary",
         )}
       >
-        <ModulePathLabel moduleFilePath={moduleFilePath} />
+        <ModulePathLabel
+          moduleFilePath={moduleFilePath}
+          isSettingsModule={isSettingsModule}
+        />
         <div className="ml-auto flex items-center gap-2 shrink-0">
           {tree.isCommitted && (
             /*
@@ -1308,11 +1462,34 @@ function ChangeCluster({
 
 function ModulePathLabel({
   moduleFilePath,
+  isSettingsModule,
 }: {
   moduleFilePath: ModuleFilePath;
+  /**
+   * The project's settings, which is named and linked differently.
+   *
+   * Its file path is fixed by Val rather than chosen by the project, so
+   * "settings" as a breadcrumb tells the reader nothing — and the place to go
+   * from here is the Settings panel, not the module in the editor.
+   */
+  isSettingsModule: boolean;
 }) {
   const parts = Internal.splitModuleFilePath(moduleFilePath);
   const moduleLink = useNavLink(moduleFilePath);
+  const settingsLink = useShellPanelLink("settings");
+  if (isSettingsModule) {
+    return (
+      <h2 className="text-sm font-medium text-fg-primary truncate min-w-0">
+        <a
+          {...settingsLink}
+          title={moduleFilePath}
+          className="flex items-center gap-1.5 min-w-0 rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+        >
+          {SETTINGS_MODULE_TITLE}
+        </a>
+      </h2>
+    );
+  }
   return (
     <h2 className="text-sm font-medium text-fg-primary truncate min-w-0">
       {/*
@@ -1427,6 +1604,8 @@ function ListChangeRow({
         isRouterPageKey={isRouterPageKey}
         patchesByAuthorIds={patchesByAuthorIds}
         profilesByAuthorIds={profilesByAuthorIds}
+        patchIds={patchIds}
+        segmentLabel={lastSegment || modulePath || moduleFilePath}
         portalContainer={portalContainer}
         mode={mode}
         now={now}
@@ -1468,6 +1647,7 @@ function ChangeRow({
   parentMediaType?: "images" | "files";
 }) {
   const { deletePatches } = useDeletePatches();
+  const staging = usePatchStaging();
   const [now] = useState(() => new Date());
   const change = row.change;
   const [isExpanded, setIsExpanded] = useState(
@@ -1507,13 +1687,22 @@ function ChangeRow({
 
   const onDiscard = () => deletePatches(change.patchIds);
 
+  // A held row still has to be legible and re-stageable — if unstaging hid the
+  // change, unstaging would be a one-way trapdoor.
+  const stagingState = staging.stateOf(change.patchIds);
+  const isHeld = staging.enabled && stagingState === "held";
+
   return (
     <article
       data-val-studio-path={row.sourcePath}
+      data-val-staging={staging.enabled ? stagingState : undefined}
       className={classNames("px-5 py-5", {
         "opacity-60": isEqual,
         "bg-bg-error-secondary/30": change.changeType === "removed",
         "bg-bg-brand-primary/5": change.changeType === "added",
+        // Held: desaturated and struck through the rail, so it reads as "present
+        // but not going out" rather than as an error.
+        "opacity-50 grayscale": isHeld,
       })}
     >
       <ChangeRowHeader
@@ -1535,6 +1724,8 @@ function ChangeRow({
         canDiscard={canDiscard}
         hideExpand={isCommitted}
         parentMediaType={parentMediaType}
+        patchIds={change.patchIds}
+        segmentLabel={lastSegment || modulePath || moduleFilePath}
       />
       {/* No diff below the deploy line — see `RowProps.isCommitted`. */}
       {!isCommitted && (
@@ -1561,6 +1752,8 @@ function ChangeRowHeader({
   isRouterPageKey,
   patchesByAuthorIds,
   profilesByAuthorIds,
+  patchIds,
+  segmentLabel,
   portalContainer,
   mode,
   now,
@@ -1575,11 +1768,13 @@ function ChangeRowHeader({
   sourcePath: SourcePath;
   changeType: ChangeType;
   segment: string;
-  modulePath: string;
+  modulePath: ModulePath;
   moduleFilePath: ModuleFilePath;
   isRouterPageKey: boolean;
   patchesByAuthorIds: Record<string, AuthorPatchInfo[]>;
   profilesByAuthorIds: Record<string, Profile>;
+  patchIds: PatchId[];
+  segmentLabel: string;
   portalContainer: HTMLElement | null;
   mode: "fs" | "http" | "unknown";
   now: Date;
@@ -1605,6 +1800,19 @@ function ChangeRowHeader({
       />
       <ChangeTypeLabel changeType={changeType} isEqual={isEqual} />
       <div className="ml-auto flex items-center gap-2 shrink-0">
+        {/*
+         * NOT gated on `canDiscard`. That flag is about the DISCARD controls
+         * only (see this file's header) and it defaults to false, so gating
+         * staging on it hid the toggle everywhere it was not explicitly passed.
+         * `StagingToggle` already returns null unless the provider says staging
+         * is enabled, which is the condition that actually applies: choosing
+         * what YOU publish is a different capability from throwing work away.
+         */}
+        <StagingToggle
+          patchIds={patchIds}
+          profilesByAuthorIds={profilesByAuthorIds}
+          label={segmentLabel}
+        />
         {canDiscard && (
           <DiscardControl
             isEqual={isEqual}
@@ -1645,12 +1853,25 @@ function ChangeTargetLabel({
 }: {
   sourcePath: SourcePath;
   segment: string;
-  modulePath: string;
+  modulePath: ModulePath;
   moduleFilePath: ModuleFilePath;
   isRouterPageKey: boolean;
   parentMediaType?: "images" | "files";
 }) {
+  const schemas = useSchemas();
+  const isSettingsModule =
+    schemas.status === "success" &&
+    schemas.data[moduleFilePath]?.type === "settings";
   const label = ((): string => {
+    if (isSettingsModule) {
+      // The words the Settings panel uses, so a change to "Tone of voice" is
+      // not reviewed as "Ai / Tone". `null` for a section this Studio does not
+      // know, which falls through to the generic label below.
+      const settingsLabel = settingsFieldLabel(modulePath);
+      if (settingsLabel !== null) {
+        return settingsLabel;
+      }
+    }
     if (parentMediaType) {
       const { filename, folder } = getRefParts(segment);
       // `folder` is "/" for a ref that sits directly in the media directory, so
@@ -2315,14 +2536,21 @@ function DiffSide({
         "border-fg-brand-primary": diffStyle === "added",
       })}
     >
-      {children}
+      <CompareScrollBox>{children}</CompareScrollBox>
     </div>
   );
 }
 
 // #region AvatarStack
 
-function AvatarStack({
+/**
+ * Condensed author avatars, overflowing to a `+N` badge past nine.
+ *
+ * Exported for `PatchGroupWidenedToasts`, which answers the same question —
+ * "whose work is this?" — about the patches a write's closure pulled in. Two
+ * drawings of that would drift.
+ */
+export function AvatarStack({
   authorIds,
   profilesByAuthorIds,
   mode,
@@ -2337,11 +2565,14 @@ function AvatarStack({
   return (
     <div className="flex items-center" aria-label="Authors">
       {visible.map((id, i) => (
-        <SummaryAvatar
+        <ProfileAvatar
           key={id}
           profile={profilesByAuthorIds[id] ?? null}
-          isFirst={i === 0}
           mode={mode}
+          size="sm"
+          className={classNames("border-2 border-bg-primary", {
+            "-ml-2": i > 0,
+          })}
         />
       ))}
       {overflow > 0 && (
@@ -2353,49 +2584,6 @@ function AvatarStack({
         </span>
       )}
     </div>
-  );
-}
-
-function SummaryAvatar({
-  profile,
-  isFirst,
-  mode,
-}: {
-  profile: Profile | null;
-  isFirst: boolean;
-  mode: "fs" | "http" | "unknown";
-}) {
-  const cls = classNames(
-    "shrink-0 w-7 h-7 rounded-full inline-flex items-center justify-center text-[11px] font-semibold overflow-hidden border-2 border-bg-primary",
-    { "-ml-2": !isFirst },
-  );
-  if (!profile) {
-    return (
-      <span
-        className={classNames(cls, "bg-bg-secondary text-fg-disabled")}
-        title={mode === "fs" ? "Local changes" : "Unknown author"}
-      >
-        {mode === "fs" ? <Save size={12} /> : <User size={12} />}
-      </span>
-    );
-  }
-  if (profile.avatar?.url) {
-    return (
-      <img
-        src={profile.avatar.url}
-        alt={profile.fullName}
-        title={profile.fullName}
-        className={classNames(cls, "object-cover")}
-      />
-    );
-  }
-  return (
-    <span
-      className={classNames(cls, "bg-bg-brand-primary text-fg-brand-primary")}
-      title={profile.fullName}
-    >
-      {getInitials(profile.fullName)}
-    </span>
   );
 }
 
@@ -2508,6 +2696,56 @@ function BeforeSourceOverride({
 
 // #region BeforeAfterLayout
 
+/**
+ * The scrolling part of a compare box.
+ *
+ * A value can be wider than its box - a code line, a long unbroken ref, a
+ * table in rich text - and taller than the screen. Before this, both ran out
+ * of the box: the whole review view scrolled sideways to fit one long line,
+ * and a long value pushed everything after it off the bottom, so on a phone
+ * there was no way to see a whole comparison. The overflow now belongs to the
+ * box that owns the value.
+ *
+ * The scroll container has to be OUTSIDE `ReadonlyGuard`, which is where the
+ * field itself ends up: that guard sets `inert`, so a scroll container within
+ * it can never be scrolled. Out here the guard's `pointer-events-none` works
+ * in our favour - the wheel and the finger land on this box instead.
+ */
+function CompareScrollBox({
+  side,
+  className,
+  children,
+}: {
+  /**
+   * Which half of a comparison this is, as a test hook.
+   *
+   * The two sides are told apart on screen by position and by a label that only
+   * appears when they stack, neither of which a test can hold on to - and
+   * `e2e/compare.spec.ts` has to assert that the before side shows the previous
+   * value and the after side the new one, not merely that both strings are
+   * somewhere in the row. Same reason `data-val-studio-path` exists.
+   */
+  side?: "before" | "after";
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      data-val-compare-side={side}
+      className={classNames(
+        "min-w-0 overflow-x-auto overflow-y-auto overscroll-contain",
+        // Generous on purpose: it engages only for a value that would
+        // otherwise bury the rest of the comparison, and a cap that clipped
+        // ordinary fields would be worse than the overflow it replaces.
+        "max-h-[60vh]",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 function BeforeAfterLayout({
   variant,
   before,
@@ -2524,7 +2762,7 @@ function BeforeAfterLayout({
           <div className="text-xs font-medium text-fg-tertiary mb-1">
             Before
           </div>
-          {before}
+          <CompareScrollBox side="before">{before}</CompareScrollBox>
         </div>
         <div
           className="hidden lg:flex items-center justify-center text-fg-tertiary pt-3"
@@ -2534,7 +2772,7 @@ function BeforeAfterLayout({
         </div>
         <div className="pl-1 min-w-0">
           <div className="text-xs font-medium text-fg-tertiary mb-1">After</div>
-          {after}
+          <CompareScrollBox side="after">{after}</CompareScrollBox>
         </div>
       </div>
     );
@@ -2562,7 +2800,7 @@ function BeforeAfterLayout({
          * wider, so the dense desktop row does not grow two redundant captions.
          */}
         <StackedSideLabel>Before</StackedSideLabel>
-        {before}
+        <CompareScrollBox side="before">{before}</CompareScrollBox>
       </div>
       <div
         className="hidden lg:flex items-center justify-center text-fg-tertiary"
@@ -2572,7 +2810,7 @@ function BeforeAfterLayout({
       </div>
       <div className="pl-4 lg:pl-1 pr-3 py-2 min-w-0">
         <StackedSideLabel>After</StackedSideLabel>
-        {after}
+        <CompareScrollBox side="after">{after}</CompareScrollBox>
       </div>
     </div>
   );

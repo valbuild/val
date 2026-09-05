@@ -38,6 +38,7 @@ import type { ChainProgress } from "../utils/describePendingChangesStall";
 import type { PublishResult } from "../stores/PublishSeam";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { SerializedPatchSet } from "../utils/PatchSets";
+import type { PatchGroupT } from "@valbuild/shared/internal";
 import { z } from "zod";
 import {
   ValEnrichedDeployment,
@@ -60,14 +61,18 @@ import { ValOverlayEmitter } from "../stores/react/ValOverlayEmitter";
 import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
 import { AIChatActionsProvider } from "./AIChatActionsContext";
+import { useAssistantAvailabilityOf } from "../hooks/useAssistantAvailability";
 import {
   useAIWebSocket,
   type AIMessageHandler,
   type AIClientMessage,
+  type AIModel,
+  type AIModelInfo,
   type AISession,
   AITool,
 } from "../hooks/useAIWebSocket";
-import { concatModulePath } from "../utils/sourcePath";
+import { concatModulePath, isPathWithin } from "../utils/sourcePath";
+import { touchedSourcePaths } from "../stores/SourceStore";
 
 export type { AITool };
 
@@ -191,6 +196,11 @@ type ValContextValue = {
     },
   ) => Promise<AIMessagesResponse>;
   aiSetSessionName: (sessionId: string, name: string) => Promise<void>;
+  /** The model to use, or null when no key makes any model reachable. */
+  availableAiModel: AIModel | null;
+  availableAiModels: AIModelInfo[];
+  selectedAiModel: AIModel | null;
+  selectAiModel: (model: AIModel) => void;
   aiSessionImagesToPatchFile: (args: {
     patchId: PatchId;
     parentRef: ParentRef;
@@ -200,16 +210,28 @@ type ValContextValue = {
     files: { filePath: string; metadata: ImageMetadata }[];
   }>;
 };
-const ValContext = React.createContext<ValContextValue>(
-  new Proxy(
-    {},
-    {
-      get: () => {
-        throw new Error("Cannot use ValContext outside of ValProvider");
-      },
+/**
+ * The context value that means "nobody mounted a provider".
+ *
+ * A Proxy that throws on any property read, so a hook which genuinely cannot do
+ * its job without a provider fails loudly at the first field it touches rather
+ * than quietly computing from undefined.
+ *
+ * Named, rather than inline in `createContext`, so a hook that CAN answer
+ * without a provider can recognise it by identity — see `useCurrentAuthorId`.
+ * The alternative is catching the throw, which means either swallowing every
+ * error raised during a destructure or matching on a message string.
+ */
+const NO_VAL_PROVIDER = new Proxy(
+  {},
+  {
+    get: () => {
+      throw new Error("Cannot use ValContext outside of ValProvider");
     },
-  ) as ValContextValue,
-);
+  },
+) as ValContextValue;
+
+const ValContext = React.createContext<ValContextValue>(NO_VAL_PROVIDER);
 
 export function useClient() {
   return useContext(ValContext).client;
@@ -246,11 +268,24 @@ export function ValProvider({
   ] = useStatus(client);
 
   const isStatConnected = "data" in stat && !!stat.data;
-  const wsEnabled =
-    isStatConnected &&
-    ("data" in stat && stat.data
-      ? stat.data.config?.ai?.chat?.experimental?.enable === true
-      : false);
+  /**
+   * Whether to open the AI socket: whenever there is a project to open it for.
+   *
+   * It used to ask the config whether either AI feature was wanted. It cannot
+   * ask that any more, and should not: whether the ASSISTANT is on is now the
+   * project's own content (`s.settings()`, `assistant.enabled`), which lives in
+   * the
+   * store this component builds below — and the old question had a false
+   * negative in it anyway, since a project that had disabled commit summaries
+   * and enabled the chat got no socket at all.
+   *
+   * Nothing is lost by opening it: the socket's job is to report what is
+   * reachable, and a project with no key gets `availableModel: null`, which is
+   * what turns both features off downstream. Commit summaries still honour
+   * `config.ai.commitMessages.disabled`, and the chat still honours settings —
+   * each where it is used, rather than here.
+   */
+  const wsEnabled = isStatConnected;
   const {
     subscribeToMessages: subscribeToWsMessages,
     send: sendWsMessage,
@@ -258,6 +293,10 @@ export function ValProvider({
     authError: aiAuthError,
     connectionError: aiConnectionError,
     retryConnection: retryAiConnection,
+    availableModel: availableAiModel,
+    availableModels: availableAiModels,
+    selectedModel: selectedAiModel,
+    selectModel: selectAiModel,
   } = useAIWebSocket(wsEnabled, client);
 
   const aiGetSessions = useCallback(
@@ -386,6 +425,15 @@ export function ValProvider({
     "data" in stat && stat.data ? stat.data.patches : undefined;
   const statMode = "data" in stat && stat.data ? stat.data.mode : undefined;
   /**
+   * Who the person at the keyboard is. `/stat` is the only thing that says.
+   *
+   * The same value `useCurrentAuthorId` reads out of context, kept as one
+   * expression here so the store system and the review UI cannot end up
+   * disagreeing about who you are.
+   */
+  const statProfileId =
+    "data" in stat && stat.data ? stat.data.profileId : null;
+  /**
    * Unpublished changes the server threw away because it could not read them.
    *
    * Cleared by the next stat, because the server drains the notice when it hands
@@ -394,12 +442,30 @@ export function ValProvider({
    */
   const statRemoved =
     "data" in stat && stat.data ? stat.data.removed : undefined;
+  /*
+   * Which of the announced ids have already SHIPPED.
+   *
+   * `undefined` where the server does not say — `fs` mode, or one that predates
+   * the field — and that is not the same as an empty list: absent leaves every
+   * record where it is, empty would un-apply the chain.
+   */
+  const statApplied =
+    "data" in stat && stat.data ? stat.data.appliedPatches : undefined;
+  /** The publish head, carried to `/save`. See `newestCommitSha`. */
+  const statHead =
+    "data" in stat && stat.data ? stat.data.headCommitSha : undefined;
   const storeStat = useMemo(
     () =>
       baseSha !== undefined && statPatches !== undefined
-        ? { baseSha, patches: statPatches, removed: statRemoved }
+        ? {
+            baseSha,
+            patches: statPatches,
+            removed: statRemoved,
+            appliedPatches: statApplied,
+            headCommitSha: statHead,
+          }
         : null,
-    [baseSha, statPatches, statRemoved],
+    [baseSha, statPatches, statRemoved, statApplied, statHead],
   );
 
   const getDirectFileUploadSettings = useCallback(async (): Promise<
@@ -464,11 +530,31 @@ export function ValProvider({
       }),
     [client, getDirectFileUploadSettings],
   );
+
+  /**
+   * Whether this project has an assistant, from its settings module.
+   *
+   * Read off the stores directly rather than through `useAssistantAvailability`,
+   * because this component BUILDS the system and mounts the provider that
+   * carries the answer ABOVE the one that puts the system in context. The
+   * subscriptions are the same ones every other reader gets.
+   */
+  const assistant = useAssistantAvailabilityOf(system);
   useEffect(() => {
     if (statMode === "fs" || statMode === "http") {
       system.setMode(statMode);
     }
   }, [system, statMode]);
+  /**
+   * Pushed in like the mode, and for the same reason — see `System.setAuthorId`.
+   *
+   * Without this a patch created here carried no author, and a locally created
+   * record is never re-fetched: every change made in the session showed as
+   * "Unknown author" next to the ones already on the server, until a reload.
+   */
+  useEffect(() => {
+    system.setAuthorId(statProfileId);
+  }, [system, statProfileId]);
 
   const [deployments, setDeployments] = useState<ValEnrichedDeployment[]>([]);
   const dismissedDeploymentsRef = useRef<Set<string>>(new Set());
@@ -693,7 +779,7 @@ export function ValProvider({
         client,
         publishSummaryState,
         setPublishSummaryState,
-        profileId: "data" in stat && stat.data ? stat.data.profileId : null,
+        profileId: statProfileId,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
         profileAuthError:
           profilesData.status === "auth-error" ? profilesData.error : null,
@@ -721,6 +807,10 @@ export function ValProvider({
         aiGetSessions,
         aiGetSessionMessages,
         aiSetSessionName,
+        availableAiModel,
+        availableAiModels,
+        selectedAiModel,
+        selectAiModel,
         aiSessionImagesToPatchFile,
       }}
     >
@@ -732,8 +822,19 @@ export function ValProvider({
           anything yet.
         */}
         <AIChatActionsProvider
-          isAIChatEnabled={wsEnabled}
-          isAIChatOnline={wsEnabled && isWsConnected}
+          /*
+           * Shown unless the project has turned it off. An assistant nobody has
+           * decided about is still offered: the panel is where the offer is
+           * made, so hiding it would leave no way to accept.
+           */
+          isAIChatEnabled={wsEnabled && assistant !== "off"}
+          /*
+           * "Online" is stricter, and deliberately: it is what decides whether
+           * an affordance that needs a LIVE conversation is offered (mentioning
+           * a field, chiefly), and an unconfigured assistant cannot take a
+           * message until someone has said yes.
+           */
+          isAIChatOnline={wsEnabled && isWsConnected && assistant === "on"}
         >
           {theme !== undefined && setTheme ? (
             <ValThemeProvider
@@ -1080,6 +1181,39 @@ export function useAIContext() {
   };
 }
 
+/**
+ * The model AI calls should ask for, or null when there is none.
+ *
+ * Null is the ordinary state for a project with no AI key configured: with
+ * bring-your-own-key there is no fallback, so the callers treat it as "AI is
+ * off" rather than as an error.
+ */
+export function useAvailableAIModel(): AIModel | null {
+  const { availableAiModel } = useContext(ValContext);
+  return availableAiModel;
+}
+
+/**
+ * The models on offer, the one selected, and how to change it.
+ *
+ * The list is what the project's keys can actually reach — reported by the
+ * providers, not guessed here — so a picker built from it can only offer
+ * models that will work.
+ */
+export function useAIModelSelection(): {
+  models: AIModelInfo[];
+  selected: AIModel | null;
+  select: (model: AIModel) => void;
+} {
+  const { availableAiModels, selectedAiModel, selectAiModel } =
+    useContext(ValContext);
+  return {
+    models: availableAiModels,
+    selected: selectedAiModel,
+    select: selectAiModel,
+  };
+}
+
 export function useDeployments() {
   const { deployments, dismissDeployment, observedCommitShas } =
     useContext(ValContext);
@@ -1099,6 +1233,136 @@ export function useDeployments() {
  * Asynchronous for the same reason: the grouping is in the worker realm, so
  * there is no synchronous answer to give.
  */
+/**
+ * The patch groups on this branch, or `undefined` where there are none.
+ *
+ * Re-read whenever the chain moves, because that is when the annotation
+ * arrives: `GET /patches` carries the groups alongside the patches, so a save
+ * landing or a stat arriving is also when membership can have changed.
+ *
+ * `undefined` and `[]` are different answers and both reach callers unchanged.
+ * `undefined` means this deployment has no groups and staging must stay off;
+ * `[]` means groups exist and this branch's hold nothing.
+ */
+/**
+ * Every pending patch id, oldest first — the order they are applied in.
+ *
+ * The prefix invariant is only meaningful in chain order, so the staging
+ * provider takes this rather than deriving it from the patch sets, whose own
+ * ordering is newest-first for display.
+ */
+export function useChainOrder(): PatchId[] {
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  /*
+   * Read during render, not from an effect.
+   *
+   * An effect fills this AFTER the first paint, so the first render answers
+   * `[]` — and an empty chain order makes `indexPatchSets` throw for every
+   * patch set it is handed, which the staging provider catches by turning
+   * staging off "for this render". The result was an error logged on every
+   * mount and the feature quietly disabled, with nothing failing.
+   *
+   * `chainVersion` is what makes this correct rather than merely early: it
+   * bumps on every movement of the chain, so the memo is recomputed exactly
+   * when `allRecords()` would answer differently.
+   */
+  const previous = useRef<PatchId[]>([]);
+  return useMemo(() => {
+    if (val === null) return previous.current;
+    const next = val.system.patchStore.allRecords().map((r) => r.patchId);
+    const current = previous.current;
+    // Identity kept when the chain has not actually reordered: this feeds the
+    // patch-set index, and a fresh array on every chain movement would reindex
+    // on every keystroke.
+    if (
+      current.length === next.length &&
+      current.every((id, i) => id === next[i])
+    ) {
+      return current;
+    }
+    previous.current = next;
+    return next;
+  }, [val, chainVersion]);
+}
+
+/**
+ * Moved by every change to the patch GROUPS. See `PatchStore`'s `bumpGroups`.
+ *
+ * Not `chainVersion`, in both directions. The groups move without the chain
+ * moving — a stage or unstage touches no patch, and a save can learn the id of
+ * the group it just created while the chain is exactly as it was — so keying on
+ * the chain left those changes unobserved. And the chain moves once per
+ * keystroke batch without the groups moving at all, so keying on it also meant
+ * re-reading them constantly for nothing.
+ */
+export function useGroupsVersion(): number {
+  const val = useValSystem();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      return val.system.patchStore.events.on("patch:groups", onChange);
+    },
+    [val],
+  );
+  const getSnapshot = useCallback(
+    () => (val === null ? 0 : val.system.patchStore.groupsVersion()),
+    [val],
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+export function usePatchGroups(): PatchGroupT[] | undefined {
+  const val = useValSystem();
+  const groupsVersion = useGroupsVersion();
+  /*
+   * Read during render rather than from an effect, and identity is the store's
+   * job now: `PatchStore` only moves `groupsVersion` when the annotation
+   * actually says something different, so an unchanged annotation is the same
+   * array and this memo does not even re-run. That matters because it feeds the
+   * `useMemo` deciding whether the staging controls repaint.
+   */
+  return useMemo(() => {
+    void groupsVersion;
+    if (val === null) return undefined;
+    return val.system.patchStore.groups();
+  }, [val, groupsVersion]);
+}
+
+/**
+ * The id of the group this client's own writes are joining, where one is known.
+ *
+ * Learned from the save response — see `PatchStore.ownPatchGroupId`. Separate
+ * from {@link usePatchGroups} because it carries no membership: it says which
+ * group to stage INTO, not what is in it.
+ */
+export function useOwnPatchGroupId(): string | undefined {
+  const val = useValSystem();
+  const groupsVersion = useGroupsVersion();
+  return useMemo(() => {
+    void groupsVersion;
+    if (val === null) return undefined;
+    return val.system.patchStore.ownGroupId();
+  }, [val, groupsVersion]);
+}
+
+/**
+ * Whether this deployment has patch groups at all.
+ *
+ * Not the same question as "do I have a group", and asking the second in place
+ * of the first is what turned staging off after a publish — see
+ * `PatchStore.patchGroupsSeen`.
+ */
+export function usePatchGroupsSupported(): boolean {
+  const val = useValSystem();
+  const groupsVersion = useGroupsVersion();
+  return useMemo(() => {
+    void groupsVersion;
+    if (val === null) return false;
+    return val.system.patchStore.patchGroupsSupported();
+  }, [val, groupsVersion]);
+}
+
 export function usePatchSets():
   | {
       status: "success";
@@ -1167,7 +1431,7 @@ export function usePatchSets():
 }
 
 /** Moved by every change to the patch chain. See `PatchStore`'s `bump`. */
-function useChainVersion(): number {
+export function useChainVersion(): number {
   const val = useValSystem();
   const subscribe = useCallback(
     (onChange: () => void) => {
@@ -1304,7 +1568,45 @@ export function useNoOpSourcePaths(
     void sourcesVersion;
     void chainVersion;
     const store = val.system.sourceStore;
+    /*
+     * Modules with a HELD patch, which are never no-ops.
+     *
+     * `peek` answers with the scoped source, so a module whose only pending
+     * patch is held back reads exactly like one whose pending patch was undone
+     * — and the review screen files it under "reverted", tells its author the
+     * content matches what is published, and offers only Discard. That is the
+     * screen a held change has to be put BACK from, so getting this wrong
+     * strands the change with no way to re-stage it.
+     *
+     * A held patch's two sides are not equal. They only look equal because we
+     * are hiding it.
+     */
+    const heldPaths: SourcePath[] = [];
+    for (const record of val.system.patchStore.recordsFor([
+      ...val.system.patchStore.heldPatchIds(),
+    ])) {
+      heldPaths.push(...touchedSourcePaths(record));
+    }
+    /*
+     * Per PATH, not per module.
+     *
+     * Excluding every path in a module that has any held patch is too coarse: a
+     * field the user typed back to its original, in a module that also happens
+     * to carry somebody else's held insert, never reaches the comparison and is
+     * listed as a live change it is not.
+     *
+     * A path is skipped when a held patch touches it, or touches something
+     * inside it — the second because a held change to `?items/0/title` is
+     * hidden from `?items` too, so `?items` compares equal for the same reason
+     * and would be misread the same way.
+     */
+    const hiddenAt = (path: SourcePath) =>
+      heldPaths.some(
+        (heldPath) =>
+          isPathWithin(heldPath, path) || isPathWithin(path, heldPath),
+      );
     for (const path of paths) {
+      if (hiddenAt(path)) continue;
       const after = store.peek(path);
       const before = store.peekBase(path);
       // Only a settled pair can be compared. Anything still loading is not
@@ -1560,6 +1862,83 @@ export function useCurrentPatchIds(): PatchId[] {
   }, [val, chainVersion]);
 }
 
+/**
+ * Pending patches this client is holding BACK, because they are outside its
+ * patch group.
+ *
+ * Not the same question as "is anything pending" or "does anything change".
+ * A held patch is not applied, so the scoped source equals base and every
+ * comparison against base reads it as an undone edit — which is why anything
+ * that wants to tell those two apart has to ask this instead.
+ *
+ * Empty wherever there is no scope: `fs` mode and any content API without
+ * groups hold nothing back.
+ */
+export function useHeldPatchIds(): ReadonlySet<PatchId> {
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  const groupsVersion = useGroupsVersion();
+  return useMemo(() => {
+    if (val === null) return new Set<PatchId>();
+    void chainVersion;
+    void groupsVersion;
+    /*
+     * COPIED, so identity tracks content.
+     *
+     * `PatchStore.heldPatchIds()` returns `this.heldIds` itself — one Set,
+     * mutated in place — so handing that reference out made this memo's result
+     * referentially identical forever, however much the held set changed. Any
+     * consumer keying its own memo on it then computed once and never again,
+     * which is what made Publish keep offering to stage a change the user had
+     * already staged.
+     *
+     * The copy is made inside this memo, so it is rebuilt only when the chain
+     * or the groups actually move — a new identity per CHANGE, not per render.
+     */
+    return new Set(val.system.patchStore.heldPatchIds());
+  }, [val, chainVersion, groupsVersion]);
+}
+
+/**
+ * How many pending changes are THIS user's own — what Publish would ship.
+ *
+ * Review's badge sits beside Publish and is read as "how much is waiting for
+ * me", so it counts the scoped set rather than the chain. On a shared branch
+ * the chain also holds other people's pending work, which this client can
+ * neither publish nor discard, and putting that on the badge asks the reader to
+ * go and do something about somebody else's edit.
+ *
+ * Unscoped — `fs` mode, or a content API without patch groups — is the whole
+ * chain, which is the same number as before and still the right one: there is
+ * only one author there.
+ *
+ * Committed patches are subtracted in both branches. A published patch stays in
+ * the chain in `http` mode until the new commit comes back, and counting it
+ * would have Review offer work that is already in a commit.
+ */
+export function useOwnPendingChangeCount(): number {
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  // The scope moves without the chain moving — a stage touches no patch — so
+  // both versions are dependencies. See `PatchStore.notifyGroupsChanged`.
+  const groupsVersion = useGroupsVersion();
+  const committed = useCommittedPatches();
+  return useMemo(() => {
+    if (val === null) return 0;
+    void chainVersion;
+    void groupsVersion;
+    const scope = val.system.patchGroup();
+    const inScope = scope === null ? null : new Set(scope);
+    let count = 0;
+    for (const record of val.system.patchStore.allRecords()) {
+      if (committed.has(record.patchId)) continue;
+      if (inScope !== null && !inScope.has(record.patchId)) continue;
+      count++;
+    }
+    return count;
+  }, [val, chainVersion, groupsVersion, committed]);
+}
+
 export type PendingPatch = {
   moduleFilePath: ModuleFilePath;
   patch: Patch;
@@ -1722,7 +2101,6 @@ type PublishSummaryState = z.infer<typeof PublishSummaryState>;
  */
 export function usePublishSummary() {
   const {
-    client,
     publishSummaryState,
     setPublishSummaryState,
     config: runtimeConfig,
@@ -1738,17 +2116,6 @@ export function usePublishSummary() {
     }
     return false;
   }, [patchErrors]);
-  const [canGenerate, setCanGenerate] = useState(false);
-  useEffect(() => {
-    if (
-      runtimeConfig?.ai?.commitMessages?.disabled === undefined ||
-      runtimeConfig.ai.commitMessages.disabled === false
-    ) {
-      setCanGenerate(true);
-    } else {
-      setCanGenerate(false);
-    }
-  }, [runtimeConfig]);
   useEffect(() => {
     if (publishSummaryState.type === "not-asked") {
       const storedSummaryState = getSummaryStateFromLocalStorage(
@@ -1764,57 +2131,6 @@ export function usePublishSummary() {
       }
     }
   }, [publishSummaryState, runtimeConfig, setPublishSummaryState]);
-  const generateSummary = useCallback(async (): Promise<
-    { type: "ai"; text: string } | { type: "error"; message: string }
-  > => {
-    if (globalServerSidePatchIds === null) {
-      return {
-        type: "error",
-        message: "Empty patch set",
-      };
-    }
-    if (
-      "isGenerating" in publishSummaryState &&
-      publishSummaryState.isGenerating
-    ) {
-      return {
-        type: "error",
-        message: "Already generating summary",
-      };
-    }
-    setPublishSummaryState((prev) => {
-      return {
-        ...prev,
-        isGenerating: true,
-      };
-    });
-    try {
-      const res = await client("/commit-summary", "GET", {
-        query: {
-          patch_id: globalServerSidePatchIds,
-        },
-      });
-      if (res.status === 200) {
-        if (res.json.commitSummary) {
-          return { type: "ai", text: res.json.commitSummary };
-        } else {
-          return {
-            type: "error",
-            message: "Commit summary could not be generated",
-          };
-        }
-      } else {
-        return { type: "error", message: res.json.message };
-      }
-    } finally {
-      setPublishSummaryState((prev) => {
-        return {
-          ...prev,
-          isGenerating: false,
-        };
-      });
-    }
-  }, [client, globalServerSidePatchIds, publishSummaryState]);
   const [isPublishing, setIsPublishing] = useState(false);
   const publish = useCallback(
     async (summary: string) => {
@@ -1931,8 +2247,13 @@ export function usePublishSummary() {
      */
     publishDisabled: isPublishing || hasPatchErrors === true,
     isPublishing,
-    generateSummary,
-    canGenerate,
+    /**
+     * Whether the project wants AI to write its commit messages.
+     *
+     * `ai.commitMessages.disabled` is an explicit opt-out, so absent config
+     * means enabled — same reading the removed REST path had.
+     */
+    aiEnabled: runtimeConfig?.ai?.commitMessages?.disabled !== true,
     summary: publishSummaryState,
     setSummary,
   };
@@ -2001,6 +2322,14 @@ type EnsureAllTypes<T extends Record<SerializedSchema["type"], unknown>> = T;
 export type ShallowSource = EnsureAllTypes<{
   array: SourcePath[];
   object: Record<string, SourcePath>;
+  /**
+   * The sections a settings module actually has, keyed by name.
+   *
+   * Shaped like an object's, and for the same reason — but only the keys that
+   * are PRESENT appear, which is how a caller tells an unset section from a set
+   * one: every settings key is optional.
+   */
+  settings: Record<string, SourcePath>;
   record: Record<string, SourcePath>;
   union: string | Record<string, SourcePath>;
   boolean: boolean;
@@ -2011,6 +2340,7 @@ export type ShallowSource = EnsureAllTypes<{
   date: string;
   dateTime: string;
   color: string;
+  code: string;
   file: {
     path: string;
     mimeType?: string;
@@ -2052,7 +2382,29 @@ export function useCurrentProfile() {
  * so the two cannot drift into disagreeing about who you are.
  */
 export function useCurrentAuthorId(): string | null {
-  const { profileId, profiles, mode } = useContext(ValContext);
+  const context = useContext(ValContext);
+  /*
+   * No provider is an honest `null` here, not a crash.
+   *
+   * The default context throws on any property read, which is the right guard
+   * for a hook that cannot do its job without a provider. This hook can: "who
+   * is the current author" has a correct answer when nobody is mounted, and it
+   * is nobody. Without this, one presentational component reaching for the
+   * author takes down every render of the whole review screen — which is what
+   * happened when the summary strip started naming authors, and it took out
+   * every ComparePatchSets story, not only the ones about authorship.
+   *
+   * Recognised by IDENTITY rather than by catching the throw. A `try` around
+   * the destructure would swallow every error raised inside it, not only this
+   * one, so a real fault in a mounted provider would surface as a silent
+   * "nobody" instead of a stack trace; matching on the message string would be
+   * worse again. `useContext` is still called unconditionally, so hook order is
+   * unaffected.
+   */
+  if (context === NO_VAL_PROVIDER) {
+    return null;
+  }
+  const { profileId, profiles, mode } = context;
   if (profileId) {
     return profileId;
   }
@@ -2660,7 +3012,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     return { status: "success", data: null };
   }
   const type: SerializedSchema["type"] = schemaType;
-  if (type === "object" || type === "record") {
+  if (type === "object" || type === "record" || type === "settings") {
     if (typeof source !== "object") {
       return {
         status: "error",
@@ -2673,7 +3025,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
         error: `Expected object, got array`,
       };
     }
-    const data: ShallowSource["object" | "record"] = {};
+    const data: ShallowSource["object" | "record" | "settings"] = {};
     for (const key of Object.keys(source)) {
       data[key] = concatModulePath(moduleFilePath, modulePath, key);
     }
@@ -2733,6 +3085,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     type === "date" ||
     type === "dateTime" ||
     type === "color" ||
+    type === "code" ||
     type === "string" ||
     type === "literal"
   ) {

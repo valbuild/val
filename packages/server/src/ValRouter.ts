@@ -1,13 +1,14 @@
 import { promises as fs } from "fs";
 import * as path from "path";
-import { DEFAULT_CONTENT_HOST, ValConfig, ValModules } from "@valbuild/core";
+import { ValConfig, ValModules } from "@valbuild/core";
 import {
   Api,
   ApiEndpoint,
   ValServerGenericResult,
 } from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
-import { ValServer, ValServerCallbacks, ValServerConfig } from "./ValServer";
+import { ValServer, ValServerCallbacks } from "./ValServer";
+import { initHandlerOptions } from "./valServerConfig";
 import { fromError } from "zod-validation-error";
 import { z, ZodError } from "zod";
 
@@ -143,91 +144,6 @@ export async function createValServer(
     },
     callbacks,
   );
-}
-
-async function initHandlerOptions(
-  route: string,
-  opts: ValApiOptions,
-  config: ValConfig,
-): Promise<ValServerConfig> {
-  const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
-  const maybeValSecret = opts.valSecret || process.env.VAL_SECRET;
-  const isProxyMode =
-    opts.mode === "proxy" ||
-    (opts.mode === undefined && (maybeApiKey || maybeValSecret));
-  const valEnableRedirectUrl =
-    opts.valEnableRedirectUrl || process.env.VAL_ENABLE_REDIRECT_URL;
-  const valDisableRedirectUrl =
-    opts.valDisableRedirectUrl || process.env.VAL_DISABLE_REDIRECT_URL;
-
-  const maybeValProject = opts.project || process.env.VAL_PROJECT;
-  const valBuildUrl =
-    opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://admin.val.build";
-  const valContentUrl =
-    opts.valContentUrl || process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
-  if (isProxyMode) {
-    if (!maybeApiKey || !maybeValSecret) {
-      throw new Error(
-        "VAL_API_KEY and VAL_SECRET env vars must both be set in proxy mode",
-      );
-    }
-    const maybeGitCommit = opts.gitCommit || process.env.VAL_GIT_COMMIT;
-    if (!maybeGitCommit) {
-      throw new Error("VAL_GIT_COMMIT env var must be set in proxy mode");
-    }
-    const maybeGitBranch = opts.gitBranch || process.env.VAL_GIT_BRANCH;
-    if (!maybeGitBranch) {
-      throw new Error("VAL_GIT_BRANCH env var must be set in proxy mode");
-    }
-    if (!maybeValProject) {
-      throw new Error(
-        "Proxy mode does not work unless the 'project' option in val.config is defined or the VAL_PROJECT env var is set.",
-      );
-    }
-    const coreVersion = opts.versions?.core;
-    if (!coreVersion) {
-      throw new Error("Could not determine version of @valbuild/core");
-    }
-    const nextVersion = opts.versions?.next;
-    if (!nextVersion) {
-      throw new Error("Could not determine version of @valbuild/next");
-    }
-
-    return {
-      mode: "http",
-      route,
-      apiKey: maybeApiKey,
-      valSecret: maybeValSecret,
-      commit: maybeGitCommit,
-      branch: maybeGitBranch,
-      root: opts.root,
-      project: maybeValProject,
-      valEnableRedirectUrl,
-      valDisableRedirectUrl,
-      valContentUrl,
-      valBuildUrl,
-      config,
-    };
-  } else {
-    const cwd = process.cwd();
-    const valBuildUrl =
-      opts.valBuildUrl ||
-      process.env.VAL_BUILD_URL ||
-      "https://admin.val.build";
-    return {
-      mode: "fs",
-      cwd,
-      route,
-      valDisableRedirectUrl,
-      valEnableRedirectUrl,
-      valBuildUrl,
-      valContentUrl,
-      apiKey: maybeApiKey,
-      valSecret: maybeValSecret,
-      project: maybeValProject,
-      config,
-    };
-  }
 }
 
 // TODO: remove
@@ -452,7 +368,7 @@ export function createValApiRouter<Res>(
       let bodyRes;
       try {
         bodyRes = reqDefinition.body
-          ? reqDefinition.body.safeParse(await req.json())
+          ? reqDefinition.body.safeParse(await readJsonBody(req))
           : ({ success: true, data: {} } as z.ZodSafeParseSuccess<unknown>);
         if (!bodyRes.success) {
           return zodErrorResult(bodyRes.error, "invalid body data");
@@ -540,6 +456,33 @@ export function createValApiRouter<Res>(
 function formatZodErrorString(error: ZodError): string {
   const errors = fromError(error).toString();
   return errors.length > 640 ? `${errors.slice(0, 640)}...` : errors;
+}
+
+/**
+ * The request's JSON body, or `undefined` when it has none.
+ *
+ * `req.json()` THROWS on an empty body, and the router used to call it
+ * unconditionally for any route that declares a body — so the moment
+ * `DELETE /patches` gained an optional body, every caller that sent none got
+ * `400 Could not parse request body`. Declaring the schema `.optional()` did
+ * not help: the throw happens before zod is ever consulted. Six e2e tests went
+ * red on a helper doing exactly what the route still permits.
+ *
+ * Told apart by the request rather than by catching, so a body that IS sent and
+ * is malformed still fails: absent means no content type and nothing to read,
+ * and anything else is parsed and allowed to throw. A route whose schema
+ * requires a body is unaffected — it gets `undefined` and zod refuses it, with
+ * the same 400 as before, now naming the field.
+ */
+async function readJsonBody(req: Request): Promise<unknown> {
+  if (req.headers.get("content-length") === "0") {
+    return undefined;
+  }
+  const text = await req.text();
+  if (text.length === 0) {
+    return undefined;
+  }
+  return JSON.parse(text);
 }
 
 function zodErrorResult(

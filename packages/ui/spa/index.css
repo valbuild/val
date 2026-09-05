@@ -24,10 +24,11 @@
     --colors-base-white: #ffffff;
 
     --colors-gray-light-mode-gray-100: #f4f4f5;
+    --colors-gray-light-mode-gray-150: #eeeef0;
     --colors-gray-light-mode-gray-200: #e8e8ea;
-    --colors-gray-light-mode-gray-300: #ccccd2;
+    --colors-gray-light-mode-gray-300: #c6c6ce;
     --colors-gray-light-mode-gray-400: #86868f;
-    --colors-gray-light-mode-gray-500: #6b6b74;
+    --colors-gray-light-mode-gray-500: #66666f;
     --colors-gray-light-mode-gray-600: #52525a;
     --colors-gray-light-mode-gray-700: #3f3f46;
     --colors-gray-light-mode-gray-800: #27272a;
@@ -105,21 +106,21 @@
     --text-selection: var(--colors-gray-light-mode-gray-900);
 
     /* Primary colors */
-    --bg-primary: var(--colors-base-white);
-    --bg-primary-hover: var(--colors-gray-light-mode-gray-100);
+    --bg-primary: var(--colors-gray-light-mode-gray-25);
+    --bg-primary-hover: var(--colors-gray-light-mode-gray-150);
     --fg-primary: var(--colors-gray-light-mode-gray-900);
     --fg-primary-alt: var(--colors-gray-light-mode-gray-500);
     --border-primary: var(--colors-gray-light-mode-gray-300);
 
     /* Secondary colors */
-    --bg-secondary: var(--colors-gray-light-mode-gray-50);
-    --bg-secondary-hover: var(--colors-gray-light-mode-gray-100);
+    --bg-secondary: var(--colors-gray-light-mode-gray-100);
+    --bg-secondary-hover: var(--colors-gray-light-mode-gray-150);
     --fg-secondary: var(--colors-gray-light-mode-gray-700);
     --fg-secondary-alt: var(--colors-gray-light-mode-gray-500);
     --border-secondary: var(--colors-gray-light-mode-gray-200);
 
     /* Tertiary colors */
-    --bg-tertiary: var(--colors-gray-light-mode-gray-100);
+    --bg-tertiary: var(--colors-gray-light-mode-gray-150);
     --fg-tertiary: var(--colors-gray-light-mode-gray-600);
 
     /* Brand colors */
@@ -185,16 +186,32 @@
 
     /* Shell surfaces: the canvas the editor sits on, and the floating
        surfaces (rail, panels, bars) that hover above it. In light mode the
-       canvas is tinted and floating surfaces are white; in dark mode the
-       relationship inverts. */
-    --bg-canvas: var(--colors-gray-light-mode-gray-50);
-    --bg-surface: var(--colors-base-white);
-    --bg-float: var(--colors-base-white);
-    --bg-float-raised: var(--colors-gray-light-mode-gray-100);
+       canvas is tinted and floating surfaces sit above it; in dark mode the
+       relationship inverts.
+
+       Note that nothing here is `--colors-base-white`, and that is the point.
+       The Studio fills the viewport, so a surface at full white is a lamp
+       rather than a background — and with the canvas only 4% below it, the
+       whole shell read as one bright sheet. Every neutral surface therefore
+       sits one step down the light ramp: floats at gray-25, the canvas at
+       gray-100, raised fills at gray-150. The luminance gap between a panel
+       and the canvas roughly doubles, so the floating layout reads as
+       layered while the total light coming off the chrome drops.
+
+       `contrast.test.ts` holds the consequences: muted text and the panel
+       hairline both had to come down a nudge with the surfaces (gray-500 and
+       gray-300), because on a softer background yesterday's values go
+       washed out rather than quiet. Darken these surfaces further and
+       `--fg-secondary-alt` on `--bg-float-raised` is the pair that fails
+       first. */
+    --bg-canvas: var(--colors-gray-light-mode-gray-100);
+    --bg-surface: var(--colors-gray-light-mode-gray-25);
+    --bg-float: var(--colors-gray-light-mode-gray-25);
+    --bg-float-raised: var(--colors-gray-light-mode-gray-150);
     --border-float: var(--colors-gray-light-mode-gray-300);
 
     /* Disabled colors */
-    --bg-disabled: var(--colors-gray-light-mode-gray-100);
+    --bg-disabled: var(--colors-gray-light-mode-gray-150);
     --fg-disabled: var(--colors-gray-light-mode-gray-400);
   }
 
@@ -611,6 +628,51 @@
   }
   .prose hr {
     @apply border-border-primary my-4;
+  }
+}
+
+/*
+ * The "still working" text effect: a bright band sweeping through the label.
+ *
+ * It has to be a background gradient clipped to the glyphs, not an opacity
+ * pulse - a pulse reads as "blinking error" and, at the 1-2s period that looks
+ * calm, spends half its time nearly invisible. The sweep never drops the text
+ * below `--fg-tertiary`, so the label stays readable at every frame.
+ *
+ * `-webkit-text-fill-color` is what actually makes the glyphs transparent in
+ * WebKit; `color` alone is ignored there once `background-clip: text` is on.
+ */
+@keyframes val-shimmer-text {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
+}
+.val-shimmer-text {
+  background-image: linear-gradient(
+    90deg,
+    var(--fg-tertiary) 0%,
+    var(--fg-tertiary) 30%,
+    var(--fg-primary) 50%,
+    var(--fg-tertiary) 70%,
+    var(--fg-tertiary) 100%
+  );
+  background-size: 250% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: val-shimmer-text 1.8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .val-shimmer-text {
+    animation: none;
+    background-image: none;
+    color: var(--fg-secondary);
+    -webkit-text-fill-color: var(--fg-secondary);
   }
 }
 

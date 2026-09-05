@@ -1,6 +1,6 @@
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
-import { StringRender } from "../render";
+import { FieldRender } from "../render";
 import { SourcePath } from "../val";
 import {
   ValidationError,
@@ -25,7 +25,17 @@ export type SerializedStringSchema = {
    * off the schema it already has. See `render.ts` for what that assumption
    * buys, and what to do if a render ever needs to stop being static.
    */
-  render?: StringRender;
+  render?: FieldRender;
+  /**
+   * Set by `.multiline()`: the field is a growing text box rather than a
+   * single-line input.
+   *
+   * A property of the schema rather than a `render` variant, because it says
+   * what the string IS — text that may hold line breaks — and not merely how one
+   * field is drawn. It is read the same way a render is, straight off the
+   * serialized schema where the field is drawn.
+   */
+  multiline?: boolean;
   /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
   preview?: true;
   options?: {
@@ -57,11 +67,12 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     private readonly customValidateFunctions: ((
       src: Src,
     ) => false | string)[] = [],
-    private readonly renderInput: StringRender | null = null,
+    private readonly renderInput: FieldRender | null = null,
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
     private readonly previewInput: ItemPreviewInput<Src> | null = null,
+    private readonly isMultiline: boolean = false,
   ) {
     super();
   }
@@ -77,6 +88,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       description ?? undefined,
       this.previewInput,
+      this.isMultiline,
     );
   }
 
@@ -98,6 +110,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       this.description,
       this.previewInput,
+      this.isMultiline,
     );
   }
 
@@ -119,6 +132,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       this.description,
       this.previewInput,
+      this.isMultiline,
     );
   }
 
@@ -133,6 +147,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       this.description,
       this.previewInput,
+      this.isMultiline,
     );
   }
 
@@ -149,6 +164,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       this.description,
       this.previewInput,
+      this.isMultiline,
     );
   }
 
@@ -246,24 +262,26 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       this.description,
       this.previewInput,
+      this.isMultiline,
     ) as unknown as StringSchema<Src | null>;
   }
 
-  readonly(): StringSchema<Src> {
+  readonly(isReadonly: boolean = true): StringSchema<Src> {
     return new StringSchema<Src>(
       this.options,
       this.opt,
       this.isRaw,
       this.customValidateFunctions,
       this.renderInput,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.previewInput,
+      this.isMultiline,
     );
   }
 
-  hidden(): StringSchema<Src> {
+  hidden(isHidden: boolean = true): StringSchema<Src> {
     return new StringSchema<Src>(
       this.options,
       this.opt,
@@ -271,9 +289,10 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.customValidateFunctions,
       this.renderInput,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.previewInput,
+      this.isMultiline,
     );
   }
 
@@ -288,6 +307,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       this.description,
       this.previewInput,
+      this.isMultiline,
     ) as unknown as StringSchema<
       Src extends null ? RawString | null : RawString
     >;
@@ -308,6 +328,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     return {
       type: "string",
       render: this.renderInput ?? undefined,
+      multiline: this.isMultiline ? true : undefined,
       preview: this.previewInput ? true : undefined,
       options: {
         maxLength: this.options?.maxLength,
@@ -333,13 +354,41 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
   }
 
   /**
-   * How this field is laid out in the editor: a textarea, or a code editor for
-   * the given language.
+   * This string holds text that may run to several lines: the editor gives it a
+   * growing text box instead of a single-line input.
+   *
+   * Nothing else changes — the value is still a plain string, and no validation
+   * is added or removed. For code, use `s.code({ language })` instead, which is
+   * its own schema type.
+   *
+   * @example
+   * const schema = s.string().multiline();
+   * export default c.define("/example.val.ts", schema, "Line one\nLine two");
+   */
+  multiline(): StringSchema<Src> {
+    return new StringSchema<Src>(
+      this.options,
+      this.opt,
+      this.isRaw,
+      this.customValidateFunctions,
+      this.renderInput,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.previewInput,
+      true,
+    );
+  }
+
+  /**
+   * How this field is laid out in the editor when it is the item of an array or
+   * record: `{ as: "inline" }` renders the field itself inside each row,
+   * instead of a preview row that navigates to it.
    *
    * Static configuration, not a callback — see `render.ts`. What a CONTAINER
    * shows for its items is a `preview`, which is a different thing entirely.
    */
-  render(input: StringRender): StringSchema<Src> {
+  render(input: FieldRender): StringSchema<Src> {
     return new StringSchema<Src>(
       this.options,
       this.opt,
@@ -350,6 +399,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       this.description,
       this.previewInput,
+      this.isMultiline,
     );
   }
 
@@ -369,6 +419,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       this.description,
       select,
+      this.isMultiline,
     );
   }
 

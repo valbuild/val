@@ -7,10 +7,10 @@ prevent — it has already been undone once, when the two shared a pipeline.
 ## The rule
 
 - **`render` is how the FIELD ITSELF is laid out, and applies only when you
-  are looking at the field.** `s.string().render({ as: "textarea" })` is a
-  textarea instead of an input; `.render({ as: "code", language })` a code
-  editor; `.render({ as: "inline" })` on an array/record item edits the item
-  inside the (sortable) list row instead of behind a clickable row.
+  are looking at the field.** `.render({ as: "inline" })` on an array/record
+  item edits the item inside the (sortable) list row instead of behind a
+  clickable row. That is the whole of what a render says — see "What a render
+  is not" below.
 - **`preview` is how the VALUE is shown wherever a preview of it is needed** —
   a list row you click through to, a reference (`keyOf`) dropdown, a search
   hit, the references view. A preview is needed exactly where the value is
@@ -22,6 +22,32 @@ the field is drawn, `preview` where the value is previewed. Declaring another
 `.render(...)` on the same schema REPLACES the earlier one (last wins), and a
 second `.preview(...)` replaces the earlier preview the same way — they do not
 merge.
+
+## What a render is not
+
+A render used to be the answer to "how is a string edited" as well: there were
+`{ as: "textarea" }` and `{ as: "code", language }` variants on `s.string()`
+alongside `inline`. Both are gone.
+
+```ts
+s.string().multiline(); // was .render({ as: "textarea" })
+s.code({ language: "typescript" }); // was .render({ as: "code", language })
+```
+
+The reason is that neither was about layout. Whether a string may hold line
+breaks is a fact about the content, and it belongs to the schema: it is
+`.multiline()`, a property the serialized schema carries next to `render`
+(`SerializedStringSchema.multiline`) and read the same synchronous way where the
+field is drawn. Code is a step further — it is its own schema type, `s.code()`,
+because a language is not a way of drawing a string but part of what the value
+is, and being a type is what lets it opt out of stega encoding: invisible
+characters woven into source code are corruption, not an edit tag
+(`stegaEncode`'s `isCodeSchema`).
+
+What is left is one question — is this item edited in its list row — which is
+why `FieldRender` is a single variant and `isInlineRender` can answer it from
+the serialized schema alone. A render that could also mean "textarea" was a
+union whose only common trait was that it lived in the same field.
 
 ## Where they meet: a list row, and the render wins
 

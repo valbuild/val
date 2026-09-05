@@ -3,8 +3,14 @@ import { VAL_AI_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
 import { AIChat, type AIChatHandle } from "./AIChat";
 import { useAI } from "../hooks/useAI";
 import { useAIChatActions } from "./AIChatActionsContext";
-import { useAIConnectionError, useValMode } from "./ValProvider";
+import {
+  useAIConnectionError,
+  useAIModelSelection,
+  useValMode,
+} from "./ValProvider";
 import { useSessionParam } from "./ValRouter";
+import { useAssistantAvailability } from "../hooks/useAssistantAvailability";
+import { EnableAssistantPrompt } from "./EnableAssistantPrompt";
 
 /**
  * The assistant, wired.
@@ -32,6 +38,24 @@ import { useSessionParam } from "./ValRouter";
  * URL, which is how the two hand a conversation back and forth.
  */
 export function AIChatSurface({ className }: { className?: string }) {
+  /**
+   * Nobody has said whether this project has an assistant, so ask before there
+   * is a conversation at all — see `EnableAssistantPrompt`. Before the hooks
+   * below, because a chat that cannot be used should not be opening sockets and
+   * loading sessions behind the offer.
+   */
+  const assistant = useAssistantAvailability();
+  if (assistant === "unconfigured") {
+    return (
+      <div className={className}>
+        <EnableAssistantPrompt />
+      </div>
+    );
+  }
+  return <ConnectedChat className={className} />;
+}
+
+function ConnectedChat({ className }: { className?: string }) {
   const chatRef = useRef<AIChatHandle | null>(null);
   const mode = useValMode();
   /**
@@ -43,6 +67,7 @@ export function AIChatSurface({ className }: { className?: string }) {
    */
   const unavailable = useAIConnectionError();
   const { chatEditorRef, flushPendingFieldRefs } = useAIChatActions();
+  const aiModels = useAIModelSelection();
   const { sessionParam, setSessionParam } = useSessionParam();
   // Read once, on the first render. Later URL changes — a navigation rewriting
   // the query, a `popstate` — must not reach in and swap the conversation the
@@ -62,6 +87,7 @@ export function AIChatSurface({ className }: { className?: string }) {
     isLoadingSession,
     answerToolQuestions,
     cancelToolQuestion,
+    cancel,
   } = useAI(chatRef, {
     initialSessionId: initialSessionIdRef.current,
     onSessionBorn: (id) => {
@@ -110,6 +136,10 @@ export function AIChatSurface({ className }: { className?: string }) {
       className={className}
       chatEditorRef={chatEditorRef}
       onSendMessage={sendMessage}
+      onCancel={cancel}
+      models={aiModels.models}
+      selectedModel={aiModels.selected}
+      onSelectModel={aiModels.select}
       onUploadFile={uploadAiImage}
       onNewSession={newSession}
       isConnected={isConnected}

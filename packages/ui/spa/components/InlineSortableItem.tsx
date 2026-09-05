@@ -2,6 +2,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
 import { cn } from "./designSystem/cn";
+import { DRAG_HANDLE_TOUCH } from "./dragHandle";
 
 export function InlineSortableItem({
   id,
@@ -23,7 +24,8 @@ export function InlineSortableItem({
       <button
         {...attributes}
         {...listeners}
-        className={cn("pt-4 pr-1", { invisible: disabled })}
+        /* See `DRAG_HANDLE_TOUCH`. */
+        className={cn("pt-4 pr-1", DRAG_HANDLE_TOUCH, { invisible: disabled })}
         disabled={disabled}
       >
         <GripVertical size={16} />

@@ -144,7 +144,7 @@ describe("computeRestorePatches", () => {
         patchSets.insert(
           unit.moduleFilePath,
           schema(),
-          unit.op,
+          [unit.op],
           unit.patchId,
           new Date().toISOString(),
           null,
@@ -175,7 +175,7 @@ describe("computeRestorePatches", () => {
         patchSets.insert(
           unit.moduleFilePath,
           schema(),
-          unit.op,
+          [unit.op],
           oneId,
           new Date().toISOString(),
           null,
@@ -199,7 +199,7 @@ describe("computeRestorePatches", () => {
         patchSets.insert(
           unit.moduleFilePath,
           schema(),
-          unit.op,
+          [unit.op],
           unit.patchId,
           new Date().toISOString(),
           null,

@@ -124,6 +124,7 @@ function containsReferrer(
     case "route":
       return query.kind === "route";
     case "object":
+    case "settings":
       return Object.values(schema.items).some((item) =>
         containsReferrer(item, query, seen),
       );
@@ -143,6 +144,7 @@ function containsReferrer(
     case "date":
     case "dateTime":
     case "color":
+    case "code":
     case "richtext":
       return false;
     default: {

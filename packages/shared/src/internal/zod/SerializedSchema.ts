@@ -17,6 +17,7 @@ import {
   type SerializedDateSchema as SerializedDateSchemaT,
   type SerializedDateTimeSchema as SerializedDateTimeSchemaT,
   type SerializedColorSchema as SerializedColorSchemaT,
+  type SerializedCodeSchema as SerializedCodeSchemaT,
   type SerializedImageSchema as SerializedImageSchemaT,
   CODE_LANGUAGES,
 } from "@valbuild/core";
@@ -24,23 +25,20 @@ import { SourcePath } from "./SourcePath";
 
 // A render is static config, so unlike a `preview` it travels WHOLE — this
 // is the field the editor reads the layout from. See `core/src/render.ts`.
-// Every field can carry `{ as: "inline" }`; strings have layouts of their own
-// on top. NB: these z.objects STRIP unknown keys, so a render variant that is
-// not declared here is silently dropped in transit — add it here when it is
-// added to `render.ts`.
+// Every field can carry `{ as: "inline" }`, and that is all a render says.
+// NB: these z.objects STRIP unknown keys, so a render variant that is not
+// declared here is silently dropped in transit — add it here when it is added
+// to `render.ts`.
 const InlineRender = z.object({ as: z.literal("inline") });
 const FieldRender = InlineRender.optional();
 
 export const SerializedStringSchema: z.ZodType<SerializedStringSchemaT> =
   z.object({
     type: z.literal("string"),
-    render: z
-      .union([
-        z.object({ as: z.literal("textarea") }),
-        z.object({ as: z.literal("code"), language: z.enum(CODE_LANGUAGES) }),
-        InlineRender,
-      ])
-      .optional(),
+    render: FieldRender,
+    // `.multiline()`. Stripped like any undeclared key if it goes missing here,
+    // which is a single-line input where the author asked for a text box.
+    multiline: z.boolean().optional(),
     preview: z.literal(true).optional(),
     options: z
       .object({
@@ -179,33 +177,26 @@ export const SerializedImageSchema: z.ZodType<SerializedImageSchemaT> =
 export const RichTextOptions: z.ZodType<SerializedRichTextOptionsT> = z.lazy(
   () =>
     z.object({
-      style: z
-        .object({
-          bold: z.boolean().optional(),
-          italic: z.boolean().optional(),
-          lineThrough: z.boolean().optional(),
-        })
+      // Set by `.maxLength()` / `.minLength()`, not by the options argument.
+      // These z.objects strip unknown keys, so leaving them out drops the
+      // length constraints in transit.
+      maxLength: z.number().optional(),
+      minLength: z.number().optional(),
+      bold: z.boolean().optional(),
+      italic: z.boolean().optional(),
+      lineThrough: z.boolean().optional(),
+      h1: z.boolean().optional(),
+      h2: z.boolean().optional(),
+      h3: z.boolean().optional(),
+      h4: z.boolean().optional(),
+      h5: z.boolean().optional(),
+      h6: z.boolean().optional(),
+      ul: z.boolean().optional(),
+      ol: z.boolean().optional(),
+      a: z
+        .union([z.boolean(), SerializedRouteSchema, SerializedStringSchema])
         .optional(),
-      block: z
-        .object({
-          h1: z.boolean().optional(),
-          h2: z.boolean().optional(),
-          h3: z.boolean().optional(),
-          h4: z.boolean().optional(),
-          h5: z.boolean().optional(),
-          h6: z.boolean().optional(),
-          ul: z.boolean().optional(),
-          ol: z.boolean().optional(),
-        })
-        .optional(),
-      inline: z
-        .object({
-          a: z
-            .union([z.boolean(), SerializedRouteSchema, SerializedStringSchema])
-            .optional(),
-          img: z.union([z.boolean(), SerializedImageSchema]).optional(),
-        })
-        .optional(),
+      img: z.union([z.boolean(), SerializedImageSchema]).optional(),
     }),
 );
 export const SerializedRichTextSchema: z.ZodType<SerializedRichTextSchemaT> =
@@ -333,6 +324,22 @@ export const SerializedColorSchema: z.ZodType<SerializedColorSchemaT> =
     description: z.string().optional(),
   });
 
+export const CodeOptions = z.object({
+  language: z.enum(CODE_LANGUAGES).optional(),
+});
+
+export const SerializedCodeSchema: z.ZodType<SerializedCodeSchemaT> = z.object({
+  type: z.literal("code"),
+  render: FieldRender,
+  preview: z.literal(true).optional(),
+  options: CodeOptions.optional(),
+  opt: z.boolean(),
+  customValidate: z.boolean().optional(),
+  readonly: z.boolean().optional(),
+  hidden: z.boolean().optional(),
+  description: z.string().optional(),
+});
+
 export const SerializedRouteSchema: z.ZodType<SerializedRouteSchemaT> =
   z.object({
     type: z.literal("route"),
@@ -377,5 +384,6 @@ export const SerializedSchema: z.ZodType<SerializedSchemaT> = z.union([
   SerializedDateSchema,
   SerializedDateTimeSchema,
   SerializedColorSchema,
+  SerializedCodeSchema,
   SerializedImageSchema,
 ]);

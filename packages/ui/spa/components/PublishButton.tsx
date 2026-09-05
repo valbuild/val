@@ -13,6 +13,7 @@ import {
 } from "./ValProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useValPortal } from "./ValPortalProvider";
+import { useOwnHeldPatchIds } from "./useOwnHeldPatchIds";
 import { useNavigation, VAL_ERRORS_ROUTE } from "./ValRouter";
 import {
   describePublishButton,
@@ -79,15 +80,8 @@ export function PublishButton({
   compact?: boolean;
 }) {
   const [summaryOpen, setSummaryOpen] = useState(false);
-  const {
-    publish,
-    publishDisabled,
-    isPublishing,
-    summary,
-    generateSummary,
-    setSummary,
-    canGenerate,
-  } = usePublishSummary();
+  const { publish, publishDisabled, isPublishing, summary } =
+    usePublishSummary();
   const allValidationErrors = useAllValidationErrors();
   const validationErrorPaths = Object.keys(allValidationErrors ?? {});
   const { patchErrors } = useAllPatchErrors();
@@ -114,6 +108,9 @@ export function PublishButton({
   );
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
   const hasNetChanges = useHasNetChanges();
+  // Only this user's own held patches: the message offers to stage them, and
+  // a colleague's change is not theirs to stage. See `useOwnHeldPatchIds`.
+  const heldChangeIds = useOwnHeldPatchIds();
   const mode = useValMode();
   const portalContainer = useValPortal();
   const { autoPublish } = useAutoPublish();
@@ -129,6 +126,7 @@ export function PublishButton({
     pendingServerSidePatchCount: pendingServerSidePatchIds.length,
     pendingClientSidePatchCount: pendingClientSidePatchIds.length,
     netChangesEmpty: !hasNetChanges,
+    heldChangeCount: heldChangeIds.size,
   });
   const saving = mode === "fs";
   /*
@@ -229,23 +227,9 @@ export function PublishButton({
       className={buttonClassName}
       aria-label={compact ? state.description : undefined}
       onClick={() => {
+        // Generation starts when the popover mounts, which is this same press —
+        // it lives with the summary it fills in, not with the button.
         setSummaryOpen(true);
-        // Always generate a new summary when opening
-        if (canGenerate) {
-          const timeoutPromise = new Promise<{ type: "timeout" }>((resolve) =>
-            setTimeout(() => resolve({ type: "timeout" }), 20000),
-          );
-
-          Promise.race([generateSummary(), timeoutPromise]).then((result) => {
-            if (result.type === "timeout") {
-              console.warn("Val: Summary generation timed out after 20s");
-            } else if (result.type === "ai") {
-              setSummary({ type: "ai", text: result.text.trim() });
-            } else if (result.type === "error") {
-              console.warn("Val: Summary generation failed:", result.message);
-            }
-          });
-        }
       }}
     >
       {face}

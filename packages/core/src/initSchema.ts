@@ -14,10 +14,12 @@ import { file } from "./schema/file";
 import { files } from "./schema/files";
 import { date } from "./schema/date";
 import { datetime } from "./schema/datetime";
+import { code } from "./schema/code";
 import { color } from "./schema/color";
 import { route } from "./schema/route";
 import { router } from "./schema/router";
 import { images } from "./schema/images";
+import { settings } from "./schema/settings";
 // import { i18n, I18n } from "./schema/future/i18n";
 // import { oneOf } from "./schema/future/oneOf";
 
@@ -211,6 +213,23 @@ export type InitSchema = {
    */
   readonly color: typeof color;
   /**
+   * Define a string edited in a code editor.
+   *
+   * Pass a `language` to syntax highlight it; leave it out for a plain
+   * monospaced editor. The value is a plain string, and — unlike `s.string()` —
+   * it is never stega encoded, so the code reaches your app as it was written.
+   *
+   * @example
+   * const schema = s.code({ language: "typescript" });
+   * export default c.define("/example.val.ts", schema, "const a = 1;");
+   *
+   * @example
+   * const schema = s.code();
+   * export default c.define("/example.val.ts", schema, "no highlighting here");
+   *
+   */
+  readonly code: typeof code;
+  /**
    * Define a string that references a route path in your application.
    *
    * To create router pages you can use the s.router() function.
@@ -285,6 +304,31 @@ export type InitSchema = {
    * ```
    */
   readonly files: typeof files;
+  /**
+   * Define the project's settings.
+   *
+   * One per project, at the root of the content tree — a module file path with
+   * no directory segment, `/settings.val.ts` by convention. Every section is
+   * optional, so `{}` is a complete settings module and stays one as sections
+   * are added.
+   *
+   * @example
+   * ```typescript
+   * export default c.define("/settings.val.ts", s.settings(), {});
+   * ```
+   *
+   * @example
+   * ```typescript
+   * export default c.define("/settings.val.ts", s.settings(), {
+   *   assistant: {
+   *     enabled: true,
+   *     context: "A CMS for developers. British English throughout.",
+   *     tone: "Plain and direct. Sentence case in headings.",
+   *   },
+   * });
+   * ```
+   */
+  readonly settings: typeof settings;
 };
 // export type InitSchemaLocalized<Locales extends readonly string[]> = {
 //   readonly i18n: I18n<Locales>;
@@ -309,9 +353,11 @@ export function initSchema() {
     date,
     datetime,
     color,
+    code,
     route,
     router,
     images,
+    settings,
     // i18n: i18n(locales),
   };
 }

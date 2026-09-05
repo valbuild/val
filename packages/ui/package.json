@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/ui",
-  "version": "0.110.0",
+  "version": "0.121.0",
   "sideEffects": false,
   "repository": {
     "type": "git",
@@ -173,6 +173,7 @@
   },
   "types": "dist/valbuild-ui.cjs.d.ts",
   "files": [
+    "CHANGELOG.md",
     "dist",
     "server"
   ]

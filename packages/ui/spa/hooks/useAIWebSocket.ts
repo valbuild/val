@@ -1,11 +1,148 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { ValClient } from "@valbuild/shared/internal";
+import {
+  resolvePreferredModel,
+  writePreferredModel,
+} from "./aiModelPreference";
 
 // --- Shared types (must match server-side definitions) ---
 
-export const AIModel = z.enum(["openai-gpt-5.1"]);
+/**
+ * The AI providers the content server has an implementation for.
+ *
+ * The one thing the server is authoritative about. Which models exist is this
+ * client's business — see `VAL_AI_MODELS`.
+ */
+export const AIProviderId = z.enum(["openai", "anthropic"]);
+export type AIProviderId = z.infer<typeof AIProviderId>;
+
+/**
+ * A model, as this client names it: a provider plus that provider's own model
+ * id, which the server passes through to the SDK untouched.
+ */
+export const AIModel = z.object({
+  provider: AIProviderId,
+  model: z.string().min(1),
+});
 export type AIModel = z.infer<typeof AIModel>;
+
+export type AIModelInfo = {
+  ref: AIModel;
+  /** What to call it in the UI. */
+  label: string;
+};
+
+/**
+ * The models the Studio offers, best first within each provider.
+ *
+ * This is the catalog, and it lives here rather than on the content server so
+ * that offering a newly released model is a change to the editor and nothing
+ * else. The server only checks that it implements the provider and that the
+ * caller has a key for it.
+ *
+ * Order is the fallback order: with bring-your-own-key an org may have a key
+ * for one provider and not another, so the first entry whose provider is
+ * reachable is the one used.
+ */
+export const VAL_AI_MODELS: AIModelInfo[] = [
+  {
+    ref: { provider: "openai", model: "gpt-5.1" },
+    label: "GPT-5.1",
+  },
+  {
+    ref: { provider: "anthropic", model: "claude-sonnet-5" },
+    label: "Claude Sonnet 5",
+  },
+  {
+    ref: { provider: "anthropic", model: "claude-opus-5" },
+    label: "Claude Opus 5",
+  },
+  {
+    ref: { provider: "anthropic", model: "claude-haiku-4-5" },
+    label: "Claude Haiku 4.5",
+  },
+];
+
+/**
+ * The first model in the catalog whose provider the server says is reachable.
+ *
+ * Null once the server has answered and none of them are — which with
+ * bring-your-own-key means no key is configured for any provider we can drive,
+ * and callers treat that as "AI is off" rather than as an error.
+ */
+export function pickAvailableModel(
+  serverProviders: string[] | undefined,
+): AIModel | null {
+  if (serverProviders === undefined) {
+    // An older content server does not report them, and had a shared OpenAI
+    // key with one model — so the original default is the right guess.
+    return VAL_AI_MODELS[0].ref;
+  }
+  const reachable = new Set(serverProviders);
+  return (
+    VAL_AI_MODELS.find((info) => reachable.has(info.ref.provider))?.ref ?? null
+  );
+}
+
+/**
+ * The server's model list, as `AIModelInfo`.
+ *
+ * Entries for a provider this version does not implement are dropped: the
+ * content server may know a provider before the Studio does, and offering one
+ * we cannot drive would be a picker entry that always fails.
+ */
+function toModelInfos(
+  reported: { provider: string; model: string; label: string }[] | undefined,
+): AIModelInfo[] {
+  if (!reported) {
+    return [];
+  }
+  return reported.flatMap((entry) => {
+    const provider = AIProviderId.safeParse(entry.provider);
+    if (!provider.success) {
+      return [];
+    }
+    return [
+      {
+        ref: { provider: provider.data, model: entry.model },
+        label: entry.label || entry.model,
+      },
+    ];
+  });
+}
+
+/**
+ * What to offer when the server reports no models of its own.
+ *
+ * With `providers` reported, the built-in catalog filtered to those providers:
+ * every entry is one the server said it can reach.
+ *
+ * With `providers` absent — an older content server — only the fallback model.
+ * Offering the whole catalog there would let someone pick a provider that
+ * server may have no key or no implementation for, and `pickAvailableModel`
+ * already treats a silent server as the original single-model default. One
+ * entry also means the picker hides itself, which is the honest UI for "there
+ * is no choice to make".
+ */
+function fallbackModels(
+  serverProviders: string[] | undefined,
+  fallback: AIModel | null,
+): AIModelInfo[] {
+  if (serverProviders === undefined) {
+    const known = fallback
+      ? VAL_AI_MODELS.find(
+          (info) =>
+            info.ref.provider === fallback.provider &&
+            info.ref.model === fallback.model,
+        )
+      : undefined;
+    return known ? [known] : [];
+  }
+  return VAL_AI_MODELS.filter((info) =>
+    serverProviders.includes(info.ref.provider),
+  );
+}
 
 export const AITool = z.object({
   name: z.string(),
@@ -49,14 +186,43 @@ export const AIErrorCode = z.enum([
   "authentication_required",
   "session_not_found",
   "internal_error",
+  // The content server grew these with BYOK.
+  "byok_invalid_key",
+  "provider_not_configured",
+  "model_refusal",
 ]);
 export type AIErrorCode = z.infer<typeof AIErrorCode>;
+
+/** Something the client can offer after an error, e.g. a link to set up a key. */
+export const AIErrorAction = z.object({
+  type: z.literal("setup_byok"),
+  label: z.string(),
+  url: z.string(),
+});
+export type AIErrorAction = z.infer<typeof AIErrorAction>;
 
 export const AIErrorMessage = z.object({
   type: z.literal("ai_error"),
   id: z.string(),
-  code: AIErrorCode,
+  /**
+   * Unknown codes fall back rather than failing the parse.
+   *
+   * This enum is strict and sits inside a discriminated union, so a code the
+   * server has but this client does not used to drop the entire message: the
+   * user saw the turn hang instead of the reason it stopped, and the only
+   * trace was a console log. The server is free to add codes without waiting
+   * for a Studio release; the message still arrives, with its text intact.
+   */
+  code: AIErrorCode.catch("internal_error"),
   message: z.string(),
+  resetDate: z.string().optional(),
+  action: AIErrorAction.optional(),
+  /**
+   * The provider's own account of the failure — status, error type, request id,
+   * verbatim message — for a developer who wants to work around the problem
+   * rather than guess at it. Shown behind a disclosure, never in the message.
+   */
+  details: z.string().optional(),
 });
 export type AIErrorMessage = z.infer<typeof AIErrorMessage>;
 
@@ -81,6 +247,25 @@ export const AIStreamingMessage = z.object({
 });
 export type AIStreamingMessage = z.infer<typeof AIStreamingMessage>;
 
+/**
+ * A prompt the user stopped. Not an error: the client should settle rather than
+ * report a failure, keeping whatever text arrived first.
+ */
+export const AICancelledMessage = z.object({
+  type: z.literal("ai_cancelled"),
+  id: z.string(),
+  sessionId: z.string().optional(),
+  partialResponse: z.string().optional(),
+});
+export type AICancelledMessage = z.infer<typeof AICancelledMessage>;
+
+export const AISessionUnhiddenMessage = z.object({
+  type: z.literal("ai_session_unhidden"),
+  id: z.string(),
+  sessionId: z.string(),
+});
+export type AISessionUnhiddenMessage = z.infer<typeof AISessionUnhiddenMessage>;
+
 export const AIAgentHandoffMessage = z.object({
   type: z.literal("ai_agent_handoff"),
   id: z.string(),
@@ -96,6 +281,8 @@ export const AIServerMessage = z.discriminatedUnion("type", [
   AIStreamingMessage,
   AIToolCallMessage,
   AIErrorMessage,
+  AICancelledMessage,
+  AISessionUnhiddenMessage,
   AIAgentHandoffMessage,
 ]);
 
@@ -116,6 +303,13 @@ export const AIPromptMessage = z.object({
   message: z.union([z.string(), z.array(AIMessageContentBlock)]),
   context: z.string().optional(),
   maxIterations: z.number().int().min(1).max(200).optional(),
+  /**
+   * Create the session outside the chat list. For work the user did not start a
+   * conversation for — the publish flow's commit summary — so it does not put a
+   * session in the sidebar per publish. Honoured only when the session is
+   * created; `ai_unhide_session` reveals it later.
+   */
+  hidden: z.boolean().optional(),
   agents: z.array(AIAgentDefinition).min(1),
 });
 export type AIPromptMessage = z.infer<typeof AIPromptMessage>;
@@ -164,7 +358,26 @@ export type AIGetSessionsWithMessagesMessage = z.infer<
   typeof AIGetSessionsWithMessagesMessage
 >;
 
-export type AIClientMessage = AIPromptMessage | AIToolResultMessage;
+/** Stop an in-flight prompt. `id` is the id of the `ai_prompt` to stop. */
+export const AICancelMessage = z.object({
+  type: z.literal("ai_cancel"),
+  id: z.string(),
+});
+export type AICancelMessage = z.infer<typeof AICancelMessage>;
+
+/** Bring a hidden session into the chat list, so the user can open it. */
+export const AIUnhideSessionMessage = z.object({
+  type: z.literal("ai_unhide_session"),
+  id: z.string(),
+  sessionId: z.string(),
+});
+export type AIUnhideSessionMessage = z.infer<typeof AIUnhideSessionMessage>;
+
+export type AIClientMessage =
+  | AIPromptMessage
+  | AIToolResultMessage
+  | AICancelMessage
+  | AIUnhideSessionMessage;
 
 export type AIMessageHandler = (message: AIServerMessage) => void;
 
@@ -224,10 +437,34 @@ export function useAIWebSocket(
   connectionError: string | null;
   /** Try to connect again, from the first attempt. */
   retryConnection: () => void;
+  /**
+   * The model to use, picked from what the server said is available.
+   *
+   * Null once the server has answered and nothing it offers is a model this
+   * client knows — which with bring-your-own-key means no key is configured
+   * for any provider the Studio can drive.
+   */
+  availableModel: AIModel | null;
+  /**
+   * Every model the project's keys can actually reach, as the providers report
+   * them. Empty when the content server does not report them (or could not
+   * reach a provider), in which case the built-in catalog is what is offered.
+   */
+  availableModels: AIModelInfo[];
+  /** The model the editor picked, or the best default until they pick one. */
+  selectedModel: AIModel | null;
+  selectModel: (model: AIModel) => void;
 } {
   const wsRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [authError, setAuthError] = useState(false);
+  const [availableModel, setAvailableModel] = useState<AIModel | null>(null);
+  const [availableModels, setAvailableModels] = useState<AIModelInfo[]>([]);
+  const [selectedModel, setSelectedModel] = useState<AIModel | null>(null);
+  const selectModel = useCallback((model: AIModel) => {
+    setSelectedModel(model);
+    writePreferredModel(model);
+  }, []);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const handlersRef = useRef<Set<AIMessageHandler>>(new Set());
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -278,6 +515,24 @@ export function useAIWebSocket(
         return;
       }
       setAuthError(false);
+      const fallback = pickAvailableModel(res.json.providers);
+      setAvailableModel(fallback);
+      // What the providers actually offer, when the server could ask them. The
+      // built-in catalog is the fallback, filtered to reachable providers, so
+      // an older content server or a provider that would not answer still
+      // leaves a usable picker rather than an empty one.
+      const reported = toModelInfos(res.json.models);
+      const offered =
+        reported.length > 0
+          ? reported
+          : fallbackModels(res.json.providers, fallback);
+      setAvailableModels(offered);
+      setSelectedModel(
+        resolvePreferredModel(
+          offered.map((info) => info.ref),
+          fallback,
+        ),
+      );
 
       const ws = new WebSocket(
         res.json.wsUrl + "?nonce=" + encodeURIComponent(res.json.nonce),
@@ -399,5 +654,9 @@ export function useAIWebSocket(
     authError,
     connectionError,
     retryConnection,
+    availableModel,
+    availableModels,
+    selectedModel,
+    selectModel,
   };
 }

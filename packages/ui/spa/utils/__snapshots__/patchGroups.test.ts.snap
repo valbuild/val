@@ -1,0 +1,464 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`patch groups a merge that invalidates a group leaves it alone the hole is reported, not filled, and Alice keeps her own edit 1`] = `
+"scenario: Alice holds item 0 and edits item 1, then Carol's append merges both
+module:   /content/page.val.ts
+shape:    { title, items: [{ title }] }
+base:     "Page" [A, B, C]
+
+1.  bob edits p1: replace items/0/title = "A*"
+      intent      rename "A" to "A*"
+      picked in   "Page" [A, B, C]
+      patch sets  ?items/0/title [p1]
+      bob    {p1}             "Page" [A*, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items/0/title [p1]
+      carol  {}               "Page" [A, B, C]   holds ?items/0/title [p1]
+
+2.  alice unstages p1
+      bob    {p1}             "Page" [A*, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items/0/title [p1]
+      carol  {}               "Page" [A, B, C]   holds ?items/0/title [p1]
+
+3.  alice edits p2: replace items/1/title = "B*"
+      intent      rename "B" to "B*"
+      picked in   "Page" [A, B, C]
+      patch sets  ?items/1/title [p2]   ?items/0/title [p1]
+      bob    {p1}             "Page" [A*, B, C]   holds ?items/1/title [p2]
+      alice  {p2}             "Page" [A, B*, C]   holds ?items/0/title [p1]
+      carol  {}               "Page" [A, B, C]   holds ?items/1/title [p2] ?items/0/title [p1]
+
+4.  carol edits into a section held by p1 (bob), p2 (alice)
+4.  carol edits p3: add items/3 = {"title":"D"}
+      intent      append "D"
+      picked in   "Page" [A*, B*, C]
+      patch sets  ?items [p1, p2, p3]
+      alice's group now has a hole: needs p1 — p3 changed the patch sets (publish refuses until they stage or unstage)
+      bob    {p1}             "Page" [A*, B, C]   holds ?items [p2,p3]
+      alice  {p2}             "Page" [A, B*, C]   holds ?items [p1,p3]
+      carol  {p1, p2, p3}     "Page" [A*, B*, C, D]
+
+if each author published now, from this same state:
+  bob    commits [p1] — only their own work
+         "Page" [A*, B, C]
+  alice  commits [p2] — only their own work
+         "Page" [A, B*, C]
+  carol  commits [p1, p2, p3] — carries p1 (bob), p2 (alice)
+         "Page" [A*, B*, C, D]"
+`;
+
+exports[`patch groups a region you have unstaged is read-only until you re-stage a new patch does not join a group that is holding its region 1`] = `
+"scenario: Alice holds the array; Bob adds more to it
+module:   /content/page.val.ts
+shape:    { title, items: [{ title }] }
+base:     "Page" [A, B, C]
+
+1.  bob edits p1: add items/0 = {"title":"Draft"}
+      intent      insert "Draft" at the top
+      picked in   "Page" [A, B, C]
+      patch sets  ?items [p1]
+      bob    {p1}             "Page" [Draft, A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items [p1]
+
+2.  alice unstages p1
+      bob    {p1}             "Page" [Draft, A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items [p1]
+
+3.  bob edits p2: add items/4 = {"title":"Extra"}
+      intent      append "Extra"
+      picked in   "Page" [Draft, A, B, C]
+      patch sets  ?items [p1, p2]
+      bob    {p1, p2}         "Page" [Draft, A, B, C, Extra]
+      alice  {}               "Page" [A, B, C]   holds ?items [p1,p2]
+
+if each author published now, from this same state:
+  bob    commits [p1, p2] — only their own work
+         "Page" [Draft, A, B, C, Extra]
+  alice  nothing staged"
+`;
+
+exports[`patch groups a region you have unstaged is read-only until you re-stage editing a held region is refused rather than silently corrupted 1`] = `
+"scenario: Alice unstages Bob's insert, then tries to edit that array
+module:   /content/page.val.ts
+shape:    { title, items: [{ title }] }
+base:     "Page" [A, B, C]
+
+1.  bob edits p1: add items/0 = {"title":"Draft"}
+      intent      insert "Draft" at the top
+      picked in   "Page" [A, B, C]
+      patch sets  ?items [p1]
+      bob    {p1}             "Page" [Draft, A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items [p1]
+
+2.  alice unstages p1
+      bob    {p1}             "Page" [Draft, A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items [p1]
+
+      REFUSED     you are holding p1 (bob) here — re-stage before editing
+      bob    {p1}             "Page" [Draft, A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items [p1]
+
+if each author published now, from this same state:
+  bob    commits [p1] — only their own work
+         "Page" [Draft, A, B, C]
+  alice  nothing staged"
+`;
+
+exports[`patch groups a region you have unstaged is read-only until you re-stage holding one region does not block edits in another 1`] = `
+"scenario: Alice holds Bob's array work but edits the page title
+module:   /content/page.val.ts
+shape:    { title, items: [{ title }] }
+base:     "Page" [A, B, C]
+
+1.  bob edits p1: add items/0 = {"title":"Draft"}
+      intent      insert "Draft" at the top
+      picked in   "Page" [A, B, C]
+      patch sets  ?items [p1]
+      bob    {p1}             "Page" [Draft, A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items [p1]
+
+2.  alice unstages p1
+      bob    {p1}             "Page" [Draft, A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items [p1]
+
+3.  alice edits p2: replace title = "Page*"
+      intent      retitle the page
+      picked in   "Page" [A, B, C]
+      patch sets  ?title [p2]   ?items [p1]
+      bob    {p1}             "Page" [Draft, A, B, C]   holds ?title [p2]
+      alice  {p2}             "Page*" [A, B, C]   holds ?items [p1]
+
+4.  alice publishes [p2]
+      new base    "Page*" [A, B, C]
+      patch sets  ?items [p1]
+      bob    {p1}             "Page*" [Draft, A, B, C]
+      alice  {}               "Page*" [A, B, C]   holds ?items [p1]"
+`;
+
+exports[`patch groups patch sets stay sensible a move belongs to two patch sets and entangles both 1`] = `
+"scenario: Alice moves an item between two arrays other people have edited
+module:   /content/board.val.ts
+shape:    { todo: [{ title }], done: [{ title }] }
+base:     todo[T1, T2] done[D1]
+
+1.  bob edits p1: replace todo/0/title = "T1*"
+      intent      rename "T1" to "T1*"
+      picked in   todo[T1, T2] done[D1]
+      patch sets  ?todo/0/title [p1]
+      bob    {p1}             todo[T1*, T2] done[D1]
+      carol  {}               todo[T1, T2] done[D1]   holds ?todo/0/title [p1]
+      alice  {}               todo[T1, T2] done[D1]   holds ?todo/0/title [p1]
+
+2.  carol edits p2: replace done/0/title = "D1*"
+      intent      rename "D1" to "D1*"
+      picked in   todo[T1, T2] done[D1]
+      patch sets  ?done/0/title [p2]   ?todo/0/title [p1]
+      bob    {p1}             todo[T1*, T2] done[D1]   holds ?done/0/title [p2]
+      carol  {p2}             todo[T1, T2] done[D1*]   holds ?todo/0/title [p1]
+      alice  {}               todo[T1, T2] done[D1]   holds ?done/0/title [p2] ?todo/0/title [p1]
+
+3.  alice edits into a section held by p1 (bob), p2 (carol)
+3.  alice edits p3: move done/1 from todo/1
+      intent      move "T2" from todo to done
+      picked in   todo[T1*, T2] done[D1*]
+      patch sets  ?todo [p1, p3]   ?done [p2, p3]
+      bob    {p1}             todo[T1*, T2] done[D1]   holds ?todo [p3] ?done [p2,p3]
+      carol  {p2}             todo[T1, T2] done[D1*]   holds ?todo [p1,p3] ?done [p3]
+      alice  {p1, p2, p3}     todo[T1*] done[D1*, T2]
+
+if each author published now, from this same state:
+  bob    commits [p1] — only their own work
+         todo[T1*, T2] done[D1]
+  carol  commits [p2] — only their own work
+         todo[T1, T2] done[D1*]
+  alice  commits [p1, p2, p3] — carries p1 (bob), p2 (carol)
+         todo[T1*] done[D1*, T2]"
+`;
+
+exports[`patch groups patch sets stay sensible independent record keys stay in separate patch sets 1`] = `
+"scenario: Bob retitles record key "foo", Alice retitles "bar"
+module:   /content/projects.val.ts
+shape:    record of { title }
+base:     {foo: Foo, bar: Bar}
+
+1.  bob edits p1: replace foo/title = "Foo*"
+      intent      retitle "foo"
+      picked in   {foo: Foo, bar: Bar}
+      patch sets  ?foo/title [p1]
+      bob    {p1}             {foo: Foo*, bar: Bar}
+      alice  {}               {foo: Foo, bar: Bar}   holds ?foo/title [p1]
+
+2.  alice edits p2: replace bar/title = "Bar*"
+      intent      retitle "bar"
+      picked in   {foo: Foo, bar: Bar}
+      patch sets  ?bar/title [p2]   ?foo/title [p1]
+      bob    {p1}             {foo: Foo*, bar: Bar}   holds ?bar/title [p2]
+      alice  {p2}             {foo: Foo, bar: Bar*}   holds ?foo/title [p1]
+
+if each author published now, from this same state:
+  bob    commits [p1] — only their own work
+         {foo: Foo*, bar: Bar}
+  alice  commits [p2] — only their own work
+         {foo: Foo, bar: Bar*}"
+`;
+
+exports[`patch groups patch sets stay sensible last write wins on a shared scalar field 1`] = `
+"scenario: Bob and Alice both retitle the page
+module:   /content/page.val.ts
+shape:    { title, items: [{ title }] }
+base:     "Page" [A, B, C]
+
+1.  bob edits p1: replace title = "Bob was here"
+      intent      have some page title of his own choosing
+      picked in   "Page" [A, B, C]
+      patch sets  ?title [p1]
+      bob    {p1}             "Bob was here" [A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?title [p1]
+
+2.  alice edits into a section held by p1 (bob)
+2.  alice edits p2: replace title = "Alice was here"
+      intent      set the page title to "Alice was here"
+      picked in   "Bob was here" [A, B, C]
+      patch sets  ?title [p1, p2]
+      bob    {p1}             "Bob was here" [A, B, C]   holds ?title [p2]
+      alice  {p1, p2}         "Alice was here" [A, B, C]
+
+if each author published now, from this same state:
+  bob    commits [p1] — only their own work
+         "Bob was here" [A, B, C]
+  alice  commits [p1, p2] — carries p1 (bob)
+         "Alice was here" [A, B, C]"
+`;
+
+exports[`patch groups patch sets stay sensible sibling record keys where one name is a prefix of the other 1`] = `
+"scenario: Bob deletes record key "foo", Alice retitles "foobar"
+module:   /content/projects.val.ts
+shape:    record of { title }
+base:     {foo: Foo, foobar: Foobar}
+
+1.  bob edits p1: remove foo
+      intent      delete "foo"
+      picked in   {foo: Foo, foobar: Foobar}
+      patch sets  ?foo [p1]
+      bob    {p1}             {foobar: Foobar}
+      alice  {}               {foo: Foo, foobar: Foobar}   holds ?foo [p1]
+
+2.  alice edits p2: replace foobar/title = "Foobar*"
+      intent      retitle "foobar"
+      picked in   {foo: Foo, foobar: Foobar}
+      patch sets  ?foobar/title [p2]   ?foo [p1]
+      bob    {p1}             {foobar: Foobar}   holds ?foobar/title [p2]
+      alice  {p2}             {foo: Foo, foobar: Foobar*}   holds ?foo [p1]
+
+if each author published now, from this same state:
+  bob    commits [p1] — only their own work
+         {foobar: Foobar}
+  alice  commits [p2] — only their own work
+         {foo: Foo, foobar: Foobar*}"
+`;
+
+exports[`patch groups unstaging is what buys independence Bob can carry on and publish after Alice's commit 1`] = `
+"scenario: Alice ships a title fix, then Bob finishes and ships the list
+module:   /content/page.val.ts
+shape:    { title, items: [{ title }] }
+base:     "Page" [A, B, C]
+
+1.  bob edits p1: add items/0 = {"title":"Draft"}
+      intent      insert "Draft" at the top
+      picked in   "Page" [A, B, C]
+      patch sets  ?items [p1]
+      bob    {p1}             "Page" [Draft, A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items [p1]
+
+2.  alice edits p2: replace title = "Page*"
+      intent      retitle the page
+      picked in   "Page" [A, B, C]
+      patch sets  ?title [p2]   ?items [p1]
+      bob    {p1}             "Page" [Draft, A, B, C]   holds ?title [p2]
+      alice  {p2}             "Page*" [A, B, C]   holds ?items [p1]
+
+3.  alice unstages p1
+      bob    {p1}             "Page" [Draft, A, B, C]   holds ?title [p2]
+      alice  {p2}             "Page*" [A, B, C]   holds ?items [p1]
+
+4.  alice publishes [p2]
+      new base    "Page*" [A, B, C]
+      patch sets  ?items [p1]
+      bob    {p1}             "Page*" [Draft, A, B, C]
+      alice  {}               "Page*" [A, B, C]   holds ?items [p1]
+
+5.  bob edits p3: replace items/3/title = "C*"
+      intent      rename "C" to "C*"
+      picked in   "Page*" [Draft, A, B, C]
+      patch sets  ?items [p1, p3]
+      bob    {p1, p3}         "Page*" [Draft, A, B, C*]
+      alice  {}               "Page*" [A, B, C]   holds ?items [p1,p3]
+
+6.  bob publishes [p1, p3]
+      new base    "Page*" [Draft, A, B, C*]
+      patch sets  (none)
+      bob    {}               "Page*" [Draft, A, B, C*]
+      alice  {}               "Page*" [Draft, A, B, C*]"
+`;
+
+exports[`patch groups unstaging is what buys independence publish just the page title, leaving another author's array work behind 1`] = `
+"scenario: Bob is mid-way through the list; Alice ships a title fix
+module:   /content/page.val.ts
+shape:    { title, items: [{ title }] }
+base:     "Page" [A, B, C]
+
+1.  bob edits p1: add items/0 = {"title":"Draft"}
+      intent      insert "Draft" at the top
+      picked in   "Page" [A, B, C]
+      patch sets  ?items [p1]
+      bob    {p1}             "Page" [Draft, A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items [p1]
+
+2.  alice edits p2: replace title = "Page*"
+      intent      retitle the page
+      picked in   "Page" [A, B, C]
+      patch sets  ?title [p2]   ?items [p1]
+      bob    {p1}             "Page" [Draft, A, B, C]   holds ?title [p2]
+      alice  {p2}             "Page*" [A, B, C]   holds ?items [p1]
+
+3.  alice unstages p1
+      bob    {p1}             "Page" [Draft, A, B, C]   holds ?title [p2]
+      alice  {p2}             "Page*" [A, B, C]   holds ?items [p1]
+
+4.  alice publishes [p2]
+      new base    "Page*" [A, B, C]
+      patch sets  ?items [p1]
+      bob    {p1}             "Page*" [Draft, A, B, C]
+      alice  {}               "Page*" [A, B, C]   holds ?items [p1]"
+`;
+
+exports[`patch groups unstaging is what buys independence re-staging restores the region and the view 1`] = `
+"scenario: Alice unstages Bob's insert and then changes her mind
+module:   /content/page.val.ts
+shape:    { title, items: [{ title }] }
+base:     "Page" [A, B, C]
+
+1.  bob edits p1: add items/0 = {"title":"Draft"}
+      intent      insert "Draft" at the top
+      picked in   "Page" [A, B, C]
+      patch sets  ?items [p1]
+      bob    {p1}             "Page" [Draft, A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items [p1]
+
+2.  alice unstages p1
+      bob    {p1}             "Page" [Draft, A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?items [p1]
+
+3.  alice stages p1
+      bob    {p1}             "Page" [Draft, A, B, C]
+      alice  {p1}             "Page" [Draft, A, B, C]
+
+4.  alice edits p2: replace items/2/title = "B*"
+      intent      rename "B" to "B*"
+      picked in   "Page" [Draft, A, B, C]
+      patch sets  ?items [p1, p2]
+      bob    {p1}             "Page" [Draft, A, B, C]   holds ?items [p2]
+      alice  {p1, p2}         "Page" [Draft, A, B*, C]
+
+5.  alice publishes [p1, p2]
+      carries      p1 (bob)
+      bob's group loses the patches that were just committed
+      new base    "Page" [Draft, A, B*, C]
+      patch sets  (none)
+      bob    {}               "Page" [Draft, A, B*, C]
+      alice  {}               "Page" [Draft, A, B*, C]"
+`;
+
+exports[`patch groups unstaging is what buys independence unstaging drops what was built on top of it, but not what came before 1`] = `
+"scenario: Alice unstages an insert her own later edit depends on
+module:   /content/page.val.ts
+shape:    { title, items: [{ title }] }
+base:     "Page" [A, B, C]
+
+1.  alice edits p1: replace title = "Page*"
+      intent      retitle the page
+      picked in   "Page" [A, B, C]
+      patch sets  ?title [p1]
+      alice  {p1}             "Page*" [A, B, C]
+      bob    {}               "Page" [A, B, C]   holds ?title [p1]
+
+2.  bob edits p2: add items/0 = {"title":"Draft"}
+      intent      insert "Draft" at the top
+      picked in   "Page" [A, B, C]
+      patch sets  ?items [p2]   ?title [p1]
+      alice  {p1}             "Page*" [A, B, C]   holds ?items [p2]
+      bob    {p2}             "Page" [Draft, A, B, C]   holds ?title [p1]
+
+3.  alice edits into a section held by p2 (bob)
+3.  alice edits p3: replace items/3/title = "C*"
+      intent      rename "C" to "C*"
+      picked in   "Page*" [Draft, A, B, C]
+      patch sets  ?items [p2, p3]   ?title [p1]
+      alice  {p1, p2, p3}     "Page*" [Draft, A, B, C*]
+      bob    {p2}             "Page" [Draft, A, B, C]   holds ?items [p3] ?title [p1]
+
+4.  alice unstages p2
+      also dropped p3 (alice) — they were built on top of it
+      alice  {p1}             "Page*" [A, B, C]   holds ?items [p2,p3]
+      bob    {p2}             "Page" [Draft, A, B, C]   holds ?items [p3] ?title [p1]
+
+5.  alice publishes [p1]
+      new base    "Page*" [A, B, C]
+      patch sets  ?items [p2, p3]
+      alice  {}               "Page*" [A, B, C]   holds ?items [p2,p3]
+      bob    {p2}             "Page*" [Draft, A, B, C]   holds ?items [p3]"
+`;
+
+exports[`patch groups why a group is its author's closure over their patch sets a path is picked before the closure runs, so the closure must cover the patch set 1`] = `
+"scenario: Alice inserts at the top, then Bob renames the item he can see
+module:   /content/page.val.ts
+shape:    { title, items: [{ title }] }
+base:     "Page" [A, B, C]
+
+1.  alice edits p1: add items/0 = {"title":"New"}
+      intent      insert "New" at the top
+      picked in   "Page" [A, B, C]
+      patch sets  ?items [p1]
+      alice  {p1}             "Page" [New, A, B, C]
+      bob    {}               "Page" [A, B, C]   holds ?items [p1]
+
+2.  bob edits into a section held by p1 (alice)
+2.  bob edits p2: replace items/2/title = "B*"
+      intent      rename "B" to "B*"
+      picked in   "Page" [New, A, B, C]
+      patch sets  ?items [p1, p2]
+      alice  {p1}             "Page" [New, A, B, C]   holds ?items [p2]
+      bob    {p1, p2}         "Page" [New, A, B*, C]
+
+if each author published now, from this same state:
+  alice  commits [p1] — only their own work
+         "Page" [New, A, B, C]
+  bob    commits [p1, p2] — carries p1 (alice)
+         "Page" [New, A, B*, C]"
+`;
+
+exports[`patch groups why a group is its author's closure over their patch sets unrelated patch sets publish independently with nobody unstaging 1`] = `
+"scenario: Two authors edit unrelated things and neither unstages
+module:   /content/page.val.ts
+shape:    { title, items: [{ title }] }
+base:     "Page" [A, B, C]
+
+1.  bob edits p1: replace title = "Page*"
+      intent      retitle the page
+      picked in   "Page" [A, B, C]
+      patch sets  ?title [p1]
+      bob    {p1}             "Page*" [A, B, C]
+      alice  {}               "Page" [A, B, C]   holds ?title [p1]
+
+2.  alice edits p2: replace items/2/title = "C*"
+      intent      rename "C" to "C*"
+      picked in   "Page" [A, B, C]
+      patch sets  ?items/2/title [p2]   ?title [p1]
+      bob    {p1}             "Page*" [A, B, C]   holds ?items/2/title [p2]
+      alice  {p2}             "Page" [A, B, C*]   holds ?title [p1]
+
+if each author published now, from this same state:
+  bob    commits [p1] — only their own work
+         "Page*" [A, B, C]
+  alice  commits [p2] — only their own work
+         "Page" [A, B, C*]"
+`;

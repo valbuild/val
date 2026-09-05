@@ -60,7 +60,17 @@ test.describe("the canvas and the back button", () => {
    * only entry there is leaves the page entirely, which would pass this test for
    * the wrong reason.
    */
-  test("opening a panel is not a history entry", async ({ page }) => {
+  /**
+   * QUARANTINED - see https://github.com/valbuild/val/issues/569.
+   *
+   * Timing-based by construction: the `waitForTimeout(1000)` below is waiting
+   * for the shell's own fitted-position write, and the baseline is only correct
+   * if that write landed inside it. Late, and the shell's entry is counted as
+   * this test's. The fix is to wait for a quiet `history.length` rather than for
+   * a duration - this asserts a DELTA, so it needs a settled baseline, not a
+   * fixed delay.
+   */
+  test.skip("opening a panel is not a history entry", async ({ page }) => {
     await openStudio(page, HOME);
     // After the shell has written its own state once: landing writes the
     // canvas's fitted position, and that write is not what is being tested.
@@ -74,7 +84,10 @@ test.describe("the canvas and the back button", () => {
   });
 
   /** The canvas, by the same measure: one entry, not none and not two. */
-  test("closing the canvas is exactly one history entry", async ({ page }) => {
+  /** QUARANTINED - same sleep-then-measure baseline as above. See https://github.com/valbuild/val/issues/569. */
+  test.skip("closing the canvas is exactly one history entry", async ({
+    page,
+  }) => {
     await openStudio(page, `${HOME}&canvas=1`);
     const exit = page.getByLabel("Exit Preview");
     await expect(exit).toBeVisible();

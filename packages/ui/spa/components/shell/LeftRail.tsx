@@ -1,4 +1,4 @@
-import { Braces, FileText, Image, Settings } from "lucide-react";
+import { Braces, CircleUser, FileText, Image, Settings } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import {
   Tooltip,
@@ -7,7 +7,7 @@ import {
 } from "../designSystem/tooltip";
 import { ShellDestination, ShellPanel } from "./types";
 import { ValLogo } from "./ValLogo";
-import { Avatar } from "./Avatar";
+import { Avatar } from "../Avatar";
 import { AccountErrorDot } from "./AccountError";
 
 export type RailItem = {
@@ -17,13 +17,18 @@ export type RailItem = {
 };
 
 /**
- * The content destinations, and only those.
+ * The destinations, in rail order.
  *
- * Settings is not one of them: the account button at the foot of the rail
- * opens the same panel, and two controls that do the same thing in one strip
- * of four icons is one too many. Where there is no account — running against
- * the working copy on disk, where there is no session — a cog takes its place
- * at the foot of the rail rather than being added here.
+ * Settings is last, and on desktop it is drawn at the FOOT of the rail rather
+ * than in the strip at the top — directly above the account button, which is
+ * where a project's own configuration belongs: near the other thing that is
+ * about the setup rather than about a piece of content. The account button is
+ * below it, and is not a destination at all (it is per-person: the theme, auto
+ * save, signing out).
+ *
+ * It is still a member of this list because mobile has no rail — the switcher
+ * at the top of every sheet stands in for it, and Settings has to be reachable
+ * there too. `LeftRail` is what splits the list; see `FOOT_PANEL`.
  *
  * External pages are not a top-level destination either — they live at the
  * bottom of the Pages panel, because that is where someone looks for "the
@@ -36,7 +41,15 @@ export const RAIL_ITEMS: RailItem[] = [
   { panel: "pages", label: "Pages", icon: FileText },
   { panel: "media", label: "Media", icon: Image },
   { panel: "data", label: "Data", icon: Braces },
+  { panel: "settings", label: "Settings", icon: Settings },
 ];
+
+/**
+ * The destination drawn at the foot of the rail instead of in the top strip.
+ *
+ * One, and named here so `LeftRail` and its tests agree on which.
+ */
+const FOOT_PANEL: ShellDestination = "settings";
 
 /**
  * The rail items a project offers, in rail order.
@@ -63,7 +76,7 @@ export type LeftRailProps = {
    * broken rather than as something the project does not use.
    */
   destinations?: readonly ShellDestination[];
-  user?: { initials: string; name: string };
+  user?: { name: string; avatarUrl?: string };
   /** Number of pending draft changes, shown as a dot on the account button. */
   hasDraftChanges?: boolean;
   /**
@@ -94,6 +107,8 @@ export function LeftRail({
   isLoading,
 }: LeftRailProps) {
   const items = visibleRailItems(destinations);
+  const topItems = items.filter((item) => item.panel !== FOOT_PANEL);
+  const footItem = items.find((item) => item.panel === FOOT_PANEL);
   return (
     <nav
       aria-label="Main"
@@ -102,7 +117,7 @@ export function LeftRail({
       <div className="grid place-items-center w-8 h-8 mb-1 shrink-0 text-fg-primary">
         <ValLogo className="h-6" blinking={isLoading} />
       </div>
-      {items.map(({ panel, label, icon: Icon }) => (
+      {topItems.map(({ panel, label, icon: Icon }) => (
         <Tooltip key={panel}>
           <TooltipTrigger asChild>
             <button
@@ -124,25 +139,55 @@ export function LeftRail({
         </Tooltip>
       ))}
       {/*
-       * The foot of the rail: the account, or a cog where there is no account.
+       * The foot of the rail: the account, or a faceless one where there is no
+       * account.
        *
-       * Settings is not only about the person signed in — the theme, dev mode,
-       * auto save and the branch all live there — so hiding the account button
-       * on a local checkout hid the whole panel with it, and there was no way
-       * to reach it at all.
+       * The panel it opens is not only about the person signed in — the theme,
+       * dev mode, auto save and the branch all live there — so hiding the
+       * button on a local checkout hid the whole panel with it, and there was
+       * no way to reach it at all.
+       *
+       * A person outline rather than a cog: the cog is Settings now, and the
+       * same icon twice in one strip reads as one control drawn twice.
        */}
-      <div className="mt-auto shrink-0">
+      {/*
+       * Settings, immediately above the account: the project's own setup next
+       * to the person's own. Absent for a project with no `s.settings()`
+       * module — see `availableDestinations`.
+       */}
+      <div className="mt-auto shrink-0 flex flex-col items-center gap-1">
+        {footItem && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={footItem.label}
+                aria-current={openPanel === footItem.panel ? "true" : undefined}
+                onClick={() => onSelect(footItem.panel)}
+                className={cn(
+                  "grid place-items-center w-8 h-8 rounded-md shrink-0 transition-colors",
+                  openPanel === footItem.panel
+                    ? "bg-bg-float-raised text-fg-primary"
+                    : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+                )}
+              >
+                <footItem.icon size={17} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">{footItem.label}</TooltipContent>
+          </Tooltip>
+        )}
         {user ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
                 aria-label={`Account: ${user.name}`}
-                aria-current={openPanel === "settings" ? "true" : undefined}
-                onClick={() => onSelect("settings")}
+                aria-current={openPanel === "account" ? "true" : undefined}
+                onClick={() => onSelect("account")}
                 className="relative grid place-items-center w-8 h-8 rounded-full"
               >
-                <Avatar initials={user.initials} size="sm" />
+                <Avatar name={user.name} imageUrl={user.avatarUrl} size="sm" />
                 {accountError && <AccountErrorDot />}
                 {hasDraftChanges && (
                   <span className="absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full bg-fg-secondary ring-2 ring-bg-float" />
@@ -158,17 +203,17 @@ export function LeftRail({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                aria-label="Settings"
-                aria-current={openPanel === "settings" ? "true" : undefined}
-                onClick={() => onSelect("settings")}
+                aria-label="Account"
+                aria-current={openPanel === "account" ? "true" : undefined}
+                onClick={() => onSelect("account")}
                 className={cn(
                   "relative grid place-items-center w-8 h-8 rounded-md transition-colors",
-                  openPanel === "settings"
+                  openPanel === "account"
                     ? "bg-bg-float-raised text-fg-primary"
                     : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
                 )}
               >
-                <Settings size={17} />
+                <CircleUser size={17} />
                 {accountError && <AccountErrorDot />}
                 {hasDraftChanges && (
                   <span className="absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full bg-fg-secondary ring-2 ring-bg-float" />
@@ -176,7 +221,7 @@ export function LeftRail({
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              {accountError ? accountError.message : "Settings"}
+              {accountError ? accountError.message : "Account"}
             </TooltipContent>
           </Tooltip>
         )}

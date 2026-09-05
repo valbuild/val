@@ -942,10 +942,31 @@ export function PageWorkspace({
           className="h-full overflow-clip"
           style={open ? { paddingTop: PHONE_STRIP_CLEARANCE } : undefined}
         >
+          {/*
+           * The transform is dropped while the track is at rest, and that is
+           * not a micro-optimisation.
+           *
+           * A transformed element is the containing block for every
+           * `position: fixed` descendant, so `translateX(0%)` — a transform
+           * that moves nothing — silently re-bases the whole editor pane's
+           * fixed positioning onto this box. dnd-kit's `DragOverlay` is
+           * `position: fixed` at the dragged row's CLIENT rect, and it is
+           * rendered inside the list, so with the preview open its `top` was
+           * resolved against a box already pushed down by
+           * `PHONE_STRIP_CLEARANCE`: the card floated 132px below the finger,
+           * and — because the same rect is what dnd-kit collides against —
+           * dropping it landed the row about three positions too far down.
+           *
+           * `isolation` keeps the stacking context the transform used to
+           * create, which the strip above depends on (see the `z-window` note
+           * below); unlike a transform it does not touch fixed positioning.
+           */}
           <div
-            className="flex h-full w-full"
+            className="flex h-full w-full isolate"
             style={{
-              transform: `translateX(${open && pane === "canvas" ? "-100%" : "0%"})`,
+              ...(open && pane === "canvas"
+                ? { transform: "translateX(-100%)" }
+                : {}),
               transition: ease(["transform"]),
             }}
           >

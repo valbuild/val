@@ -219,8 +219,31 @@ export type MockDeployment = {
   updatedAt: string;
 };
 
+/** One group, as the mock's control plane reports it. */
+export type MockPatchGroup = {
+  patchGroupId: string;
+  authorId: string | null;
+  publishedAt: string | null;
+  patchIds: string[];
+  /**
+   * Which of `patchIds` the client said the user actually asked for.
+   *
+   * `home` stores this per membership row and reads what it is not told about
+   * as a dependency, so a client that folds `patchIds` and `withPatchIds`
+   * together files every patch — the clicked one included — as something the
+   * closure dragged in.
+   */
+  askedForPatchIds: string[];
+};
+
 export type MockState = {
   patches: MockPatch[];
+  /**
+   * Empty unless a test called {@link mock.enablePatchGroups}, because a mock
+   * without them is what a content API that predates groups looks like — the
+   * state every deployed project is in today.
+   */
+  patchGroups: MockPatchGroup[];
   patchFiles: MockPatchFile[];
   commits: MockCommit[];
   deployments: MockDeployment[];
@@ -321,6 +344,17 @@ export const mock = {
   /** What the content service currently holds. */
   state(): Promise<MockState> {
     return control<MockState>("state");
+  },
+
+  /**
+   * Give this content service patch groups.
+   *
+   * Off by default — see the mock's `State.patchGroupsEnabled`. A test that
+   * wants staging has to say so, which keeps "no groups on this deployment" a
+   * tested state rather than an assumption.
+   */
+  async enablePatchGroups(enabled = true): Promise<void> {
+    await control("patch-groups", { method: "POST", body: { enabled } });
   },
 
   /** The text a commit wrote for one module, or null if no commit touched it. */

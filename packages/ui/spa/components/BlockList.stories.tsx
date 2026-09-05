@@ -142,7 +142,7 @@ const pagesModule = c.define(
       s
         .object({
           title: s.string(),
-          subtitle: s.string().render({ as: "textarea" }),
+          subtitle: s.string().multiline(),
           sections: s.array(
             s
               .object({
@@ -239,7 +239,7 @@ const authorsModule = c.define(
     s.object({
       name: s.string(),
       birthdate: s.date(),
-      bio: s.string().render({ as: "textarea" }),
+      bio: s.string().multiline(),
     }),
   ),
   {
@@ -298,7 +298,7 @@ const sectionsModule = c.define(
         s
           .object({
             type: s.literal("code"),
-            code: s.string().render({ as: "code", language: "typescript" }),
+            code: s.code({ language: "typescript" }),
           })
           .render({ as: "inline" })
           .preview(({ val }) => ({ title: val.code })),

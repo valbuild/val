@@ -27,6 +27,7 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 import { splitRemoteRef } from "../remote/splitRemoteRef";
+import { mimeTypeMatchesAccept } from "../mimeType";
 import type { ImageEncodeOption } from "./image";
 
 type MediaOptions = {
@@ -510,23 +511,7 @@ export class RecordSchema<
       return `Invalid mime type format. Got: '${mimeType}'`;
     }
 
-    const acceptedTypes = accept.split(",").map((type) => type.trim());
-
-    const isValidMimeType = acceptedTypes.some((acceptedType) => {
-      if (acceptedType === "*/*") {
-        return true;
-      }
-      if (acceptedType === "image/*") {
-        return mimeType.startsWith("image/");
-      }
-      if (acceptedType.endsWith("/*")) {
-        const baseType = acceptedType.slice(0, -2);
-        return mimeType.startsWith(baseType);
-      }
-      return acceptedType === mimeType;
-    });
-
-    if (!isValidMimeType) {
+    if (!mimeTypeMatchesAccept(mimeType, accept)) {
       return `Mime type mismatch. Found '${mimeType}' but schema accepts '${accept}'`;
     }
 
@@ -599,7 +584,7 @@ export class RecordSchema<
     ) as RecordSchema<T, K, Src | null>;
   }
 
-  readonly(): RecordSchema<T, K, Src> {
+  readonly(isReadonly: boolean = true): RecordSchema<T, K, Src> {
     return new RecordSchema(
       this.item,
       this.opt,
@@ -607,7 +592,7 @@ export class RecordSchema<
       this.currentRouter,
       this.keySchema,
       this.mediaOptions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.isJsonValues,
@@ -616,7 +601,7 @@ export class RecordSchema<
     );
   }
 
-  hidden(): RecordSchema<T, K, Src> {
+  hidden(isHidden: boolean = true): RecordSchema<T, K, Src> {
     return new RecordSchema(
       this.item,
       this.opt,
@@ -625,7 +610,7 @@ export class RecordSchema<
       this.keySchema,
       this.mediaOptions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.isJsonValues,
       this.previewInput,

@@ -455,7 +455,12 @@ export function ValRouter({
   );
   const setSessionParam = useCallback(
     (id: string | null, opts?: { replace?: boolean }) => {
-      // Overlay runs on the host page — never mutate that URL.
+      // The selection is state either way. Only the URL write is skipped in
+      // overlay mode, because the overlay runs on the host page and must never
+      // mutate that URL. Returning before this left the overlay unable to
+      // select a session at all: the assistant reads it when it mounts, so
+      // "open this conversation" opened whichever one was there before.
+      setSessionParamState(id);
       if (overlay) return;
       const url = new URL(window.location.href);
       if (id == null) url.searchParams.delete("session");
@@ -466,7 +471,6 @@ export function ValRouter({
       } else {
         window.history.pushState(null, "", target);
       }
-      setSessionParamState(id);
     },
     [overlay],
   );

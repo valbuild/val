@@ -16,6 +16,7 @@ import {
   SerializedDateSchema,
   SerializedDateTimeSchema,
   SerializedColorSchema,
+  SerializedCodeSchema,
 } from "@valbuild/core";
 import { vercelStegaCombine, vercelStegaSplit } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
@@ -312,7 +313,7 @@ function resolveLiteralUnionSchema(
 /**
  * The image schema of a richtext's inline images.
  *
- * `inline.img` serializes as `true` when the author did not pass a schema, so
+ * `img` serializes as `true` when the author did not pass a schema, so
  * there is nothing to hand down; a bare `{type: "image"}` is enough, since all
  * the media branch needs is to know that it is looking at media.
  */
@@ -322,7 +323,7 @@ function inlineImageSchemaOf(
   if (schema?.type !== "richtext") {
     return undefined;
   }
-  const img = schema.options?.inline?.img;
+  const img = schema.options?.img;
   if (!img) {
     return undefined;
   }
@@ -418,6 +419,12 @@ export function stegaEncode(
       return sourceOrSelector;
     }
     if (recOpts?.schema && isColorSchema(recOpts?.schema)) {
+      return sourceOrSelector;
+    }
+    // Stega weaves invisible characters into the string. In source code they
+    // are not invisible: they are syntax errors, or silent corruption in a
+    // string literal. So a code value is handed back verbatim.
+    if (recOpts?.schema && isCodeSchema(recOpts?.schema)) {
       return sourceOrSelector;
     }
     if (recOpts?.schema && isUnionSchema(recOpts?.schema)) {
@@ -591,6 +598,12 @@ function isColorSchema(
   schema: SerializedSchema | undefined,
 ): schema is SerializedColorSchema {
   return schema?.type === "color";
+}
+
+function isCodeSchema(
+  schema: SerializedSchema | undefined,
+): schema is SerializedCodeSchema {
+  return schema?.type === "code";
 }
 
 function unknownSchema(schema: unknown) {

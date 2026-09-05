@@ -1,0 +1,537 @@
+import {
+  initVal,
+  type ModuleFilePath,
+  type PatchId,
+  type SourcePath,
+} from "@valbuild/core";
+import { createSystem, type System } from "./createSystem";
+import type { PatchGroupMembership } from "./PatchSync";
+import { PatchSetStore } from "./PatchSetStore";
+import { SearchStore } from "./SearchStore";
+import { ReferenceStore } from "./ReferenceStore";
+
+/**
+ * Independent publish, at the seam where it either works or does not.
+ *
+ * The claim this file exists to hold up: **a client publishes its own patch
+ * group and nothing else, even while other people's pending patches sit in the
+ * same chain — and it renders the same set it would publish.**
+ *
+ * Both halves are asserted against the real `createSystem` graph with a fake
+ * `POST /save`, so what is checked is the ids that reach the server and the
+ * values that reach a reader. No UI, no provider, no staging component: if
+ * these pass, the core is doing the thing regardless of what the review screen
+ * looks like.
+ *
+ * Why the two halves have to be one file: publishing a set the editor was never
+ * shown is the specific failure the whole feature exists to prevent. Testing
+ * "publish ships the group" and "source renders the group" separately would let
+ * them drift apart and both stay green.
+ */
+
+const MODULE = "/a.val.ts" as ModuleFilePath;
+const OTHER = "/b.val.ts" as ModuleFilePath;
+const TITLE = '/a.val.ts?p="title"' as SourcePath;
+const OTHER_TITLE = '/b.val.ts?p="title"' as SourcePath;
+
+const project = () => {
+  const { c, s } = initVal();
+  return [
+    c.define(MODULE, s.object({ title: s.string() }), { title: "base A" }),
+    c.define(OTHER, s.object({ title: s.string() }), { title: "base B" }),
+  ];
+};
+
+function makeSystem() {
+  const publishes: PatchId[][] = [];
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: (() => {
+      let next = 0;
+      return () => `p${++next}` as PatchId;
+    })(),
+    savePatches: async ({ patches, parentRef }) => ({
+      status: "saved",
+      newPatchIds: patches.map((patch) => patch.patchId),
+      parentRef,
+    }),
+    publishPatches: async (request) => {
+      publishes.push([...request.patchIds]);
+      return { status: "published" };
+    },
+  });
+  system.host.receive(project());
+  system.stat.receiveStat({ patches: [], baseSha: "sha" });
+  return { system, publishes };
+}
+
+async function edit(
+  system: System,
+  moduleFilePath: ModuleFilePath,
+  value: string,
+): Promise<PatchId> {
+  const res = await system.patchStore.createPatch(moduleFilePath, [
+    { op: "replace", path: ["title"], value },
+  ]);
+  if (res.status !== "created") {
+    throw new Error(`createPatch failed: ${res.status}`);
+  }
+  return res.record.patchId;
+}
+
+/** What a reader actually sees at a path, which is the only thing that matters. */
+function read(system: System, path: SourcePath): unknown {
+  const peek = system.sourceStore.peek(path);
+  return peek.status === "ready" ? peek.data : peek.status;
+}
+
+test("publishes only the group's patches, though the chain holds more", async () => {
+  const { system, publishes } = makeSystem();
+
+  // Three pending patches from a mixture of authors. Only the middle one is
+  // this client's — the shape that used to be impossible to publish alone.
+  const someoneElsesEarlier = await edit(system, OTHER, "theirs, earlier");
+  const mine = await edit(system, MODULE, "mine");
+  const someoneElsesLater = await edit(system, OTHER, "theirs, later");
+
+  system.setPatchGroup([mine]);
+
+  const result = await system.publish([], "ship mine");
+
+  expect(result.status).toBe("published");
+  expect(publishes).toEqual([[mine]]);
+  // Stated separately and deliberately: the assertion above would still pass if
+  // the other two had never been created, which is not what is being claimed.
+  expect(publishes[0]).not.toContain(someoneElsesEarlier);
+  expect(publishes[0]).not.toContain(someoneElsesLater);
+  // And they are still pending — publishing mine did not discard theirs.
+  expect(system.patchStore.allRecords().map((r) => r.patchId)).toEqual(
+    expect.arrayContaining([someoneElsesEarlier, someoneElsesLater]),
+  );
+});
+
+test("publishes the group in CHAIN order, not the order the group names", async () => {
+  const { system, publishes } = makeSystem();
+
+  const first = await edit(system, MODULE, "first");
+  const second = await edit(system, MODULE, "second");
+
+  // Named backwards on purpose. The server applies what it is given in the
+  // order it is given, so a group — which is a set — must not be able to
+  // reorder the chain by the order somebody happened to list it in.
+  system.setPatchGroup([second, first]);
+  await system.publish([]);
+
+  expect(publishes).toEqual([[first, second]]);
+});
+
+test("an unscoped client still publishes the whole chain", async () => {
+  const { system, publishes } = makeSystem();
+
+  const one = await edit(system, MODULE, "one");
+  const two = await edit(system, OTHER, "two");
+
+  // `null` is fs mode and any content API without patch groups. The old
+  // behaviour has to survive exactly, or turning groups on becomes the only
+  // supported configuration.
+  system.setPatchGroup(null);
+  await system.publish([]);
+
+  expect(publishes).toEqual([[one, two]]);
+});
+
+test("an empty group publishes nothing rather than everything", async () => {
+  const { system, publishes } = makeSystem();
+
+  await edit(system, MODULE, "pending");
+
+  // The dangerous confusion in one test: if `[]` were ever treated as "no
+  // scope", unstaging your last change would publish the entire project.
+  system.setPatchGroup([]);
+  const result = await system.publish([]);
+
+  expect(result.status).toBe("nothing-to-publish");
+  expect(publishes).toEqual([]);
+});
+
+test("renders base + the group, so what is shown is what would ship", async () => {
+  const { system } = makeSystem();
+
+  const mine = await edit(system, MODULE, "mine");
+  await edit(system, OTHER, "theirs");
+
+  // Before scoping, this client sees everything pending — today's behaviour.
+  expect(read(system, TITLE)).toBe("mine");
+  expect(read(system, OTHER_TITLE)).toBe("theirs");
+
+  system.setPatchGroup([mine]);
+
+  // After scoping, the other author's pending edit is not in this client's
+  // view: `/b` is back at base while `/a` keeps the patch this group holds.
+  expect(read(system, TITLE)).toBe("mine");
+  expect(read(system, OTHER_TITLE)).toBe("base B");
+});
+
+test("a held patch is hidden, not discarded — re-staging brings it back", async () => {
+  const { system } = makeSystem();
+
+  const mine = await edit(system, MODULE, "mine");
+  const theirs = await edit(system, OTHER, "theirs");
+
+  system.setPatchGroup([mine]);
+  expect(read(system, OTHER_TITLE)).toBe("base B");
+  // Still in the chain. Hiding a patch must not be a one-way trapdoor: the
+  // patch is held, not gone, and nothing has to be re-fetched to restore it.
+  expect(system.patchStore.allRecords().map((r) => r.patchId)).toContain(
+    theirs,
+  );
+
+  system.setPatchGroup([mine, theirs]);
+  expect(read(system, OTHER_TITLE)).toBe("theirs");
+});
+
+test("a patch held before it ever applies still settles the chain", async () => {
+  /*
+   * The failure this pins is severe and completely invisible from the value.
+   *
+   * `chainSettled()` waits for every patch in the chain to be accounted for as
+   * applied, failed or pending, and the editor holds EVERY field inert until it
+   * is true (`useInitialPatchesApplied`). A held patch is none of those three,
+   * so a source store that simply skips it leaves the chain unsettled and the
+   * whole Studio dimmed for the life of the tab — while rendering exactly the
+   * right content, which is what makes it so hard to spot.
+   *
+   * The ORDER here is the whole test. Applying a patch and then holding it
+   * leaves a stale `appliedIds` entry that keeps the chain looking settled, so
+   * that version passes with the bug present — it did, and it was worthless.
+   * The real path is a foreign patch that is held from the moment it arrives
+   * and therefore never applies at all: the Studio opens with a group set, and
+   * somebody else's pending work comes down from the server.
+   */
+  const theirs = "p-theirs" as PatchId;
+  const system = createSystem({
+    fetchPatches: async () => ({
+      patches: [
+        {
+          patchId: theirs,
+          moduleFilePath: OTHER,
+          patch: [{ op: "replace", path: ["title"], value: "theirs" }],
+          createdAt: new Date().toISOString(),
+          authorId: "someone-else",
+        },
+      ] as never,
+    }),
+    createPatchId: () => "p-mine" as PatchId,
+    savePatches: async ({ patches, parentRef }) => ({
+      status: "saved",
+      newPatchIds: patches.map((patch) => patch.patchId),
+      parentRef,
+    }),
+    publishPatches: async () => ({ status: "published" }),
+  });
+  system.host.receive(project());
+  // Scoped BEFORE anything arrives, which is what a real session does.
+  system.setPatchGroup([]);
+  system.stat.receiveStat({ patches: [theirs], baseSha: "sha" });
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  // Held, so not in the view...
+  expect(read(system, OTHER_TITLE)).toBe("base B");
+  // ...and yet the chain is finished with it.
+  expect(system.patchStore.chainSettled()).toBe(true);
+});
+
+test("later patches in a module survive an earlier one being held", async () => {
+  const { system } = makeSystem();
+
+  // Two edits to the SAME module, so holding the first means the second has to
+  // be replayed onto base rather than onto the first one's result. An
+  // un-apply would get this wrong; a rebuild gets it right.
+  const first = await edit(system, MODULE, "first");
+  const second = await system.patchStore.createPatch(MODULE, [
+    { op: "replace", path: ["title"], value: "second" },
+  ]);
+  if (second.status !== "created") throw new Error("createPatch failed");
+
+  system.setPatchGroup([second.record.patchId]);
+
+  expect(read(system, TITLE)).toBe("second");
+  expect(system.patchGroup()).toEqual([second.record.patchId]);
+  // The held one is untouched in the chain.
+  expect(system.patchStore.allRecords().map((r) => r.patchId)).toContain(first);
+});
+
+/**
+ * The group travels with the write, and the closure comes from the resolver.
+ *
+ * `PatchSync` cannot compute the closure: it needs patch sets, which need the
+ * schema, and neither is visible from the write path. So whatever holds that
+ * knowledge registers a resolver, and this pins that its answer actually
+ * reaches the request rather than being computed and dropped.
+ *
+ * The closure is the part that matters. Sending the group's CURRENT membership
+ * would be a no-op — the server set-unions it — and would miss the case the
+ * whole feature exists for: another author's array insert has to join your
+ * group when you edit that array, or your op lands on the wrong element.
+ */
+test("sends the resolver's group and closure with the write", async () => {
+  const saves: { patchGroup?: unknown }[] = [];
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: () => "p-mine" as PatchId,
+    savePatches: async ({ patches, parentRef, patchGroup }) => {
+      saves.push({ patchGroup });
+      return {
+        status: "saved",
+        newPatchIds: patches.map((patch) => patch.patchId),
+        parentRef,
+      };
+    },
+    publishPatches: async () => ({ status: "published" }),
+  });
+  system.host.receive(project());
+  system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+  const asked: PatchId[][] = [];
+  system.setPatchGroupResolver(async (patchIds) => {
+    asked.push([...patchIds]);
+    return {
+      patchGroupId: "group-alice",
+      // Somebody else's patch, entangled with this one.
+      withPatchIds: ["p-theirs" as PatchId],
+    };
+  });
+
+  await edit(system, MODULE, "mine");
+  await system.patchSync.flush();
+
+  // Asked about the batch it was about to write.
+  expect(asked).toEqual([["p-mine"]]);
+  expect(saves).toEqual([
+    {
+      patchGroup: {
+        patchGroupId: "group-alice",
+        withPatchIds: ["p-theirs"],
+      },
+    },
+  ]);
+});
+
+test("writes with no group when no resolver is registered", async () => {
+  const saves: { patchGroup?: unknown }[] = [];
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: () => "p-mine" as PatchId,
+    savePatches: async ({ patches, parentRef, patchGroup }) => {
+      saves.push({ patchGroup });
+      return {
+        status: "saved",
+        newPatchIds: patches.map((patch) => patch.patchId),
+        parentRef,
+      };
+    },
+    publishPatches: async () => ({ status: "published" }),
+  });
+  system.host.receive(project());
+  system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+  await edit(system, MODULE, "mine");
+  await system.patchSync.flush();
+
+  // Absent, not null: this is what every client did before groups existed, and
+  // what fs mode and a content API without them keep doing.
+  expect(saves).toEqual([{ patchGroup: undefined }]);
+});
+
+/**
+ * The write path names no group, and the server resolves one.
+ *
+ * A review found the client holding a `patchGroupId` across writes. It cannot:
+ * a publish CLOSES the group, and the content API refuses a write into a closed
+ * one — so the stale id would fail the next save and lose the edit. It also
+ * made a fresh branch unbootstrappable in one reading, since a client with no
+ * group would never ask for one.
+ *
+ * The server resolves "this author's open group, created if absent" whenever no
+ * id is named (`patchGroupId ?? null` triggers `getOrCreateOpen`), so the right
+ * thing for a write to send is the closure and nothing else.
+ */
+test("a write sends the closure without naming a group", async () => {
+  const saves: { patchGroup?: PatchGroupMembership }[] = [];
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: () => "p-mine" as PatchId,
+    savePatches: async ({ patches, parentRef, patchGroup }) => {
+      saves.push({ patchGroup });
+      return {
+        status: "saved",
+        newPatchIds: patches.map((patch) => patch.patchId),
+        parentRef,
+      };
+    },
+    publishPatches: async () => ({ status: "published" }),
+  });
+  system.host.receive(project());
+  system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+  system.setPatchGroupResolver(async () => ({
+    withPatchIds: ["p-theirs" as PatchId],
+  }));
+
+  await edit(system, MODULE, "mine");
+  await system.patchSync.flush();
+
+  expect(saves).toHaveLength(1);
+  // The closure travels; the id does not.
+  expect(saves[0].patchGroup?.withPatchIds).toEqual(["p-theirs"]);
+  expect(saves[0].patchGroup?.patchGroupId).toBeUndefined();
+});
+
+/**
+ * The closure a write actually carries, computed the way the app computes it.
+ *
+ * Every other test here STUBS the resolver, which is why the real one could be
+ * empty in the normal case and nothing noticed. `PatchSync.listenTo` flushes
+ * synchronously on `patch:create`, so a resolver answering from already-rendered
+ * patch sets is one grouping behind: the patch being saved is in no set,
+ * `stageClosure` has nothing to pull in for it, and `withPatchIds` comes out
+ * empty — the exact hole `DESIGN.md` says a write cannot open.
+ */
+test("a write carries the patches its own edit is entangled with", async () => {
+  const saves: { withPatchIds?: readonly PatchId[] }[] = [];
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: (() => {
+      let next = 0;
+      return () => `p${++next}` as PatchId;
+    })(),
+    savePatches: async ({ patches, parentRef, patchGroup }) => {
+      saves.push({ withPatchIds: patchGroup?.withPatchIds });
+      return {
+        status: "saved",
+        newPatchIds: patches.map((patch) => patch.patchId),
+        parentRef,
+      };
+    },
+    publishPatches: async () => ({ status: "published" }),
+  });
+  system.host.receive(project());
+  system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+  // The real resolver, as `ValShell` registers it.
+  system.setPatchGroupResolver(async (patchIds) => ({
+    withPatchIds: await system.computeWriteClosure(patchIds),
+  }));
+
+  // An earlier edit to the same path, held back — so it is in this client's
+  // chain, in the same patch set as what comes next, and NOT in its group.
+  const earlier = await edit(system, MODULE, "earlier");
+  await system.patchSync.flush();
+  system.setPatchGroup([]);
+  saves.length = 0;
+
+  await edit(system, MODULE, "mine");
+  await system.patchSync.flush();
+
+  expect(saves).toHaveLength(1);
+  /*
+   * The whole claim. `earlier` precedes this edit in the same patch set, so it
+   * has to join the group or the group holds a suffix and the publish gate
+   * refuses it. Empty here is the bug: it means the grouping used to compute
+   * the closure did not yet contain the patch being written.
+   */
+  expect(saves[0].withPatchIds).toEqual([earlier]);
+});
+
+/**
+ * The same claim, with a patch-set build ALREADY IN FLIGHT.
+ *
+ * Which is the normal case while someone is typing, not a corner: `usePatchSets`
+ * re-runs on every chain movement and the save flushes synchronously on
+ * `patch:create`, so a build is usually running when the next write lands.
+ *
+ * `computePatchSets` shares the in-flight promise — right for readers, wrong
+ * here, because that build planned against a chain from before this patch
+ * existed. The guard against it was there and could never fire: it asked the
+ * INDEX whether it knew the id, and the index was being built from the current
+ * records while only the sets came from the stale build. Always true, retry
+ * dead, closure empty. The build now carries the chain it planned against, so
+ * the question is answerable.
+ *
+ * The test above passes with the bug present, because nothing is in flight
+ * there. That is the whole reason this one exists.
+ */
+test("a write during a patch-set build still carries its closure", async () => {
+  const saves: { withPatchIds?: readonly PatchId[] }[] = [];
+  /*
+   * A real worker round trip, held open on demand.
+   *
+   * Without this the in-process bridge answers within a microtask, so the build
+   * has always settled by the time the write lands and the case cannot be
+   * reached at all — which is exactly why the test above passes with the bug
+   * present.
+   */
+  const realPatchSets = new PatchSetStore();
+  let gate: Promise<void> | null = null;
+  const system = createSystem({
+    workerRealm: {
+      search: new SearchStore(),
+      references: new ReferenceStore(),
+      patchSets: {
+        getPatchSets: async (request) => {
+          if (gate !== null) await gate;
+          return realPatchSets.getPatchSets(request);
+        },
+      },
+    },
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: (() => {
+      let next = 0;
+      return () => `p${++next}` as PatchId;
+    })(),
+    savePatches: async ({ patches, parentRef, patchGroup }) => {
+      saves.push({ withPatchIds: patchGroup?.withPatchIds });
+      return {
+        status: "saved",
+        newPatchIds: patches.map((patch) => patch.patchId),
+        parentRef,
+      };
+    },
+    publishPatches: async () => ({ status: "published" }),
+  });
+  system.host.receive(project());
+  system.stat.receiveStat({ patches: [], baseSha: "sha" });
+  system.setPatchGroupResolver(async (patchIds) => ({
+    withPatchIds: await system.computeWriteClosure(patchIds),
+  }));
+
+  const earlier = await edit(system, MODULE, "earlier");
+  await system.patchSync.flush();
+  system.setPatchGroup([]);
+  saves.length = 0;
+
+  /*
+   * A build in flight and NOT finished — exactly what the review screen leaves
+   * running when the user goes back to typing.
+   */
+  let openGate: () => void = () => {};
+  gate = new Promise<void>((resolve) => {
+    openGate = resolve;
+  });
+  const inFlight = system.getPatchSets();
+  // The write is not awaited either: it has to reach the resolver WHILE the
+  // build is stuck, which is the whole scenario.
+  const written = (async () => {
+    await edit(system, MODULE, "mine");
+    await system.patchSync.flush();
+  })();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  gate = null;
+  openGate();
+  await inFlight;
+  await written;
+
+  expect(saves).toHaveLength(1);
+  expect(saves[0].withPatchIds).toEqual([earlier]);
+});

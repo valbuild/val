@@ -154,6 +154,35 @@ type MockPatch = {
   applied: { commitSha: string } | null;
 };
 
+/**
+ * One author's curated set of patch ids, as `home`'s `patch_groups` holds it.
+ *
+ * A group is what a publish ships. It is per author and per branch, it is
+ * CLOSED by a publish (`publishedAt`), and a write into a closed one is
+ * refused — which is the whole reason the client is not allowed to remember an
+ * id across publishes.
+ */
+type MockPatchGroup = {
+  patchGroupId: string;
+  authorId: string | null;
+  branch: string;
+  createdAt: string;
+  publishedAt: string | null;
+  /** Insertion-ordered, though nothing depends on it: a group is a set. */
+  patchIds: Set<string>;
+  /**
+   * The ids the client sent as `patchIds` — what the user actually ASKED for,
+   * as opposed to what arrived in `withPatchIds` behind it.
+   *
+   * `home` stores this per membership row (`explicit` vs `dependency`) and
+   * reads what it is not told about as a dependency, so a client that folds the
+   * two halves together files every patch — the clicked one included — as
+   * something the closure dragged in. Modelled here so a test can tell the two
+   * apart; nothing in the mock's own behaviour depends on it.
+   */
+  askedForPatchIds: Set<string>;
+};
+
 type MockCommit = {
   commitSha: string;
   clientCommitSha: string;
@@ -279,6 +308,24 @@ type State = {
   >;
   /** Bytes of files a commit moved out to remote storage, keyed by remote ref. */
   remoteFiles: Map<string, string>;
+  /**
+   * Patch groups, by id. Insertion-ordered, like `patches`.
+   *
+   * Only consulted when {@link State.patchGroupsEnabled} is on — see there for
+   * why that is a switch rather than always.
+   */
+  patchGroups: Map<string, MockPatchGroup>;
+  /**
+   * Whether this mock has patch groups at all.
+   *
+   * OFF by default, and that is the honest default rather than a convenience:
+   * it is what a content API that predates groups does, which is what every
+   * deployed project is today. With it off, `GET /patch-groups` 404s exactly as
+   * an unknown route would, the Val server reads that as "could not ask", and
+   * the annotation stays absent — so staging stays off and every other http
+   * spec sees the behaviour it was written against.
+   */
+  patchGroupsEnabled: boolean;
   /** Nonces handed out by `presigned-auth-nonce` and `websocket/nonces`. */
   nonces: Set<string>;
   /** The commit the mock considers current, i.e. what a new build would carry. */
@@ -311,6 +358,8 @@ function emptyState(): State {
     deployments: [],
     repoOverlay: new Map(),
     remoteFiles: new Map(),
+    patchGroups: new Map(),
+    patchGroupsEnabled: false,
     nonces: new Set(),
     headCommitSha: process.env.MOCK_CONTENT_INITIAL_COMMIT ?? "mockcommit0",
     aiImages: new Map(),
@@ -591,6 +640,15 @@ const savePatch: Handler = async (req, res) => {
     patchId: string;
     parentPatchId: string | null;
     baseSha: string;
+    branch?: string;
+    /**
+     * Deliberately absent on the write path, so the server resolves the
+     * author's open group. See {@link getOrCreateOpenGroup}.
+     */
+    patchGroupId?: string | null;
+    /** What must move with this patch. */
+    withPatchIds?: string[];
+    coreVersion?: string | null;
   }>(req);
   if (!body || typeof body.patchId !== "string") {
     json(res, 400, { message: "Invalid save-patch body" });
@@ -598,7 +656,10 @@ const savePatch: Handler = async (req, res) => {
   }
   if (state.patches.has(body.patchId)) {
     // Idempotent: the client retries a save it did not get an answer to.
-    json(res, 200, { patchId: body.patchId });
+    json(res, 200, {
+      patchId: body.patchId,
+      ...groupOfPatch(body.patchId),
+    });
     return;
   }
   const parentPatchId = body.parentPatchId ?? null;
@@ -618,6 +679,25 @@ const savePatch: Handler = async (req, res) => {
     );
     return;
   }
+  /*
+   * Everything that can REFUSE runs before the patch is stored, matching what
+   * `home` does inside its transaction: an invalid closure is a 400 with
+   * nothing written, rather than a patch that exists outside its author's
+   * group — which is a patch its author cannot publish until a repair puts it
+   * back.
+   */
+  const withPatchIds = body.withPatchIds ?? [];
+  if (state.patchGroupsEnabled) {
+    const unknown = withPatchIds.filter(
+      (patchId) => !state.patches.has(patchId),
+    );
+    if (unknown.length > 0) {
+      json(res, 400, {
+        message: `Unknown patch ids in withPatchIds: ${unknown.join(", ")}`,
+      });
+      return;
+    }
+  }
   state.patches.set(body.patchId, {
     patchId: body.patchId,
     path: body.path,
@@ -628,17 +708,269 @@ const savePatch: Handler = async (req, res) => {
     parentPatchId: body.parentPatchId ?? null,
     applied: null,
   });
+  let patchGroupId: string | undefined;
+  if (state.patchGroupsEnabled) {
+    /*
+     * The author's own group, and NOBODY else's.
+     *
+     * An earlier revision of `home` fanned every new patch out to every open
+     * group on the branch. Too broad: what a view has to hold is everything
+     * that could shift ITS paths, and that is exactly the author's patch sets —
+     * which `withPatchIds` already carries, computed on the client, the only
+     * side with the schema.
+     */
+    const group =
+      body.patchGroupId != null
+        ? state.patchGroups.get(body.patchGroupId)
+        : getOrCreateOpenGroup(body.authorId ?? null, body.branch ?? "main");
+    if (!group) {
+      json(res, 404, { message: "Patch group not found" });
+      return;
+    }
+    // The new patch is what its author meant; the closure is what came with it.
+    // `home` files them as 'explicit' and 'dependency' respectively.
+    if (!group.patchIds.has(body.patchId)) {
+      group.askedForPatchIds.add(body.patchId);
+    }
+    group.patchIds.add(body.patchId);
+    for (const patchId of withPatchIds) {
+      group.patchIds.add(patchId);
+    }
+    patchGroupId = group.patchGroupId;
+  }
   broadcastChain();
-  json(res, 200, { patchId: body.patchId });
+  json(res, 200, {
+    patchId: body.patchId,
+    createdAt: nowIso(),
+    ...(patchGroupId !== undefined ? { patchGroupId } : {}),
+  });
+};
+
+/** The group holding this patch, as a spreadable fragment. */
+function groupOfPatch(patchId: string): { patchGroupId?: string } {
+  if (!state.patchGroupsEnabled) return {};
+  for (const group of state.patchGroups.values()) {
+    if (group.patchIds.has(patchId)) {
+      return { patchGroupId: group.patchGroupId };
+    }
+  }
+  return {};
+}
+
+/**
+ * This author's open group on this branch, created if they have none.
+ *
+ * Mirrors `dal.patchGroups.getOrCreateOpen` in `home`. It is the reason a write
+ * names no group: the client cannot hold an id across publishes, because a
+ * publish closes the group and the next write into it would be refused — so the
+ * server resolves "whichever is open, or a new one" on every save.
+ */
+function getOrCreateOpenGroup(
+  authorId: string | null,
+  branch: string,
+): MockPatchGroup {
+  for (const group of state.patchGroups.values()) {
+    if (
+      group.publishedAt === null &&
+      group.branch === branch &&
+      group.authorId === authorId
+    ) {
+      return group;
+    }
+  }
+  const group: MockPatchGroup = {
+    patchGroupId: randomUUID(),
+    authorId,
+    branch,
+    createdAt: nowIso(),
+    publishedAt: null,
+    patchIds: new Set(),
+    askedForPatchIds: new Set(),
+  };
+  state.patchGroups.set(group.patchGroupId, group);
+  return group;
+}
+
+/**
+ * `GET /v1/{project}/patch-groups?branch=` — every group on the branch.
+ *
+ * `branch` is required and answered 400 without it, as the real endpoint does.
+ * That is not pedantry: `ValOpsHttp.getPatchGroups` omitted it once, every
+ * lookup failed, and because a failed lookup is not distinguishable from "no
+ * groups" at a glance the whole feature was silently off.
+ */
+const getPatchGroups: Handler = (req, res, url) => {
+  if (!state.patchGroupsEnabled) {
+    // What a content API that predates groups answers. See
+    // `State.patchGroupsEnabled`.
+    json(res, 404, { message: "Patch groups are not enabled on this mock" });
+    return;
+  }
+  const branch = url.searchParams.get("branch");
+  if (!branch) {
+    json(res, 400, { message: "Missing branch" });
+    return;
+  }
+  json(res, 200, {
+    patchGroups: [...state.patchGroups.values()]
+      .filter((group) => group.branch === branch)
+      .map((group) => ({
+        patchGroupId: group.patchGroupId,
+        authorId: group.authorId,
+        createdAt: group.createdAt,
+        publishedAt: group.publishedAt,
+        patchIds: [...group.patchIds],
+      })),
+  });
+};
+
+/**
+ * `POST`/`DELETE /v1/{project}/patch-groups/{id}/patches` — stage and unstage.
+ *
+ * A union and a difference, and nothing cleverer. The client sends a set it has
+ * already closed over its patch sets; deriving that closure needs the content
+ * schema, which the content API does not have, so it does not second-guess it.
+ */
+/**
+ * `home`'s `resolveOwnOpenGroup`: the group named, if it is the caller's and
+ * still open. Answers on `res` and returns `null` when it refuses.
+ *
+ * `home` refuses in this sequence: no profile → 403, unknown group → 404,
+ * someone else's → 403, already published → 409. The order is observable — a
+ * published group belonging to somebody else is 403 there and would be 409 if
+ * the published check came first — and the point of this mock is to answer what
+ * the thing it stands in for answers.
+ *
+ * The app's API key names the PROJECT, not the person, so the caller's identity
+ * arrives as `x-val-profile-id` — a claim the app makes alongside its key.
+ * Without it there is no profile to compare against `group.authorId` and the
+ * real content API answers 403 rather than trusting the key.
+ *
+ * ONE implementation, shared by stage, unstage and commit, because `home` has
+ * one: all three call `resolveOwnOpenGroup`. Modelling the refusal matters as
+ * much as modelling the success — this mock had no auth on these routes at all,
+ * so `ValOpsHttp` not sending the header looked like it worked here while
+ * failing every stage in production, and then the same omission on `commit`
+ * went unnoticed a second time because this handler trusted whatever it was
+ * named.
+ */
+function resolveOwnOpenGroup(
+  req: IncomingMessage,
+  res: ServerResponse,
+  patchGroupId: string,
+): MockPatchGroup | null {
+  const profileId = req.headers["x-val-profile-id"];
+  if (typeof profileId !== "string" || profileId.length === 0) {
+    res.writeHead(403, { "Content-Type": "text/plain", ...corsHeaders(res) });
+    res.end(
+      "Cannot resolve the caller's profile, so patch group ownership cannot be checked",
+    );
+    return null;
+  }
+  const group = state.patchGroups.get(patchGroupId);
+  if (!group) {
+    json(res, 404, { message: "Patch group not found" });
+    return null;
+  }
+  if (group.authorId === null || group.authorId !== profileId) {
+    res.writeHead(403, { "Content-Type": "text/plain", ...corsHeaders(res) });
+    res.end("Patch group belongs to another user");
+    return null;
+  }
+  if (group.publishedAt !== null) {
+    // 409 rather than 500, because the client distinguishes it: the group has
+    // shipped and this id will never be writable again.
+    res.writeHead(409, { "Content-Type": "text/plain", ...corsHeaders(res) });
+    res.end("Patch group is already published");
+    return null;
+  }
+  return group;
+}
+
+const mutatePatchGroup: Handler = async (req, res, url) => {
+  if (!state.patchGroupsEnabled) {
+    json(res, 404, { message: "Patch groups are not enabled on this mock" });
+    return;
+  }
+  const patchGroupId = decodeURIComponent(url.pathname.split("/").at(-2) ?? "");
+  const group = resolveOwnOpenGroup(req, res, patchGroupId);
+  if (group === null) {
+    return;
+  }
+  const body = await readJsonBody<{
+    patchIds: string[];
+    withPatchIds?: string[];
+    coreVersion?: string | null;
+  }>(req);
+  // `patchIds` is what the user asked for and `withPatchIds` is what came with
+  // it. Both join or leave the group; only the first half is `explicit`, which
+  // is how `home` files them.
+  const explicit = body?.patchIds ?? [];
+  const dependency = body?.withPatchIds ?? [];
+  for (const patchId of [...explicit, ...dependency]) {
+    if (req.method === "POST") {
+      if (!state.patches.has(patchId)) {
+        json(res, 400, { message: `Unknown patch id: ${patchId}` });
+        return;
+      }
+      /*
+       * The reason is recorded on FIRST entry only, because `home`'s upsert is
+       * `ON CONFLICT DO NOTHING` — so a patch that arrived as a dependency
+       * stays one even when its owner later stages it by hand, and one that
+       * arrived explicit is not demoted by a later closure.
+       *
+       * Modelled rather than glossed over: this mock has twice been kinder than
+       * the thing it stands in for (the missing `x-val-profile-id`, and closing
+       * groups on a rule of its own), and both times a test was green against a
+       * server that does not behave that way.
+       */
+      if (!group.patchIds.has(patchId) && explicit.includes(patchId)) {
+        group.askedForPatchIds.add(patchId);
+      }
+      group.patchIds.add(patchId);
+    } else {
+      group.patchIds.delete(patchId);
+      group.askedForPatchIds.delete(patchId);
+    }
+  }
+  json(res, 200, {
+    patchGroupId: group.patchGroupId,
+    patchIds: [...group.patchIds],
+  });
 };
 
 /** `DELETE /v1/{project}/patches` — what discard and the auto-delete path call. */
 const deletePatches: Handler = async (req, res) => {
-  const body = await readJsonBody<{ patchIds: string[] }>(req);
+  const body = await readJsonBody<{
+    patchIds: string[];
+    unstagePatchIds?: string[];
+  }>(req);
   const ids = body?.patchIds ?? [];
   for (const patchId of ids) {
     state.patches.delete(patchId);
     state.patchFiles.delete(patchId);
+    // Membership of a deleted patch goes with it — `home` gets this from an
+    // ON DELETE CASCADE.
+    for (const group of state.patchGroups.values()) {
+      group.patchIds.delete(patchId);
+      group.askedForPatchIds.delete(patchId);
+    }
+  }
+  /*
+   * A cascade alone is not enough.
+   *
+   * Deleting a patch out of the middle of a patch set leaves every group still
+   * holding the rest with a non-prefix intersection, which is the one invariant
+   * a group has: the patches after the hole were written against a view that
+   * had it. Working out which those are needs the content schema, so the client
+   * computes the forward closure and sends it, and those lose their membership
+   * everywhere WITHOUT being deleted.
+   */
+  for (const patchId of body?.unstagePatchIds ?? []) {
+    for (const group of state.patchGroups.values()) {
+      group.patchIds.delete(patchId);
+      group.askedForPatchIds.delete(patchId);
+    }
   }
   broadcastChain();
   // Every id comes back as deleted, including ones that were already gone: a
@@ -842,10 +1174,38 @@ const commit: Handler = async (req, res) => {
     committer: string;
     existingBranch: string;
     newBranch?: string;
+    /** The group this commit empties, if the client says it empties one. */
+    patchGroupId?: string;
   }>(req);
   if (!body) {
     json(res, 400, { message: "Invalid commit body" });
     return;
+  }
+  /*
+   * The group this commit CLOSES has to be the caller's — refused BEFORE
+   * anything is written, exactly as `home`'s `postCommit` does it.
+   *
+   * `markPublished` matches on project and id with no author clause, so this
+   * route used to close whatever the body named. It is the most damaging of the
+   * three group mutations: someone else's pending patches end up in a closed
+   * group and in no open one, so their scoped draft renders base and their next
+   * stage is 409'd. Group ids are not secret — the annotation hands every
+   * editor on the branch the id and author of every group.
+   *
+   * Here rather than beside the close further down for the reason `home` gives:
+   * by then the commit exists, and on the real server it has been pushed to
+   * GitHub, outside the transaction's reach. A refusal has to happen while
+   * there is still nothing to undo.
+   *
+   * This is also what makes the e2e suite able to catch a missing
+   * `x-val-profile-id` on `ValOpsHttp.commit`, which it could not before: with
+   * no check here, a client that never says who it is publishes happily against
+   * the mock and is refused 403 by the content API in production.
+   */
+  if (state.patchGroupsEnabled && typeof body.patchGroupId === "string") {
+    if (resolveOwnOpenGroup(req, res, body.patchGroupId) === null) {
+      return;
+    }
   }
   const parentCommitSha = state.headCommitSha;
   const commitSha = sha(
@@ -892,6 +1252,43 @@ const commit: Handler = async (req, res) => {
       const patch = state.patches.get(patchId);
       if (patch) {
         patch.applied = { commitSha };
+      }
+    }
+  }
+  /*
+   * A publish CLOSES the group the request NAMES, and no other.
+   *
+   * This used to close any group all of whose patches the commit shipped, which
+   * was a nicer rule and not `home`'s: `postCommit.ts` calls `markPublished`
+   * only when the body carries `patchGroupId`. So the mock was closing groups
+   * production leaves open, and every test of the post-publish window here was
+   * green against a rule the real server does not implement — the same shape as
+   * the missing `x-val-profile-id`, which this mock also failed to catch by
+   * being more permissive than the thing it stands in for.
+   *
+   * Unconditional, like `home`: it does not check that the commit shipped the
+   * whole group. That is exactly why the client must only name a group it has
+   * emptied — and why the mock must not quietly make a mistaken name safe.
+   */
+  if (state.patchGroupsEnabled && typeof body.patchGroupId === "string") {
+    const group = state.patchGroups.get(body.patchGroupId);
+    if (group !== undefined && group.publishedAt === null) {
+      group.publishedAt = nowIso();
+    }
+  }
+  /*
+   * And the applied ids leave EVERY group, named or not.
+   *
+   * `home` does this on its own (`removePatchesFromAllGroups`), separately from
+   * closing: they are in the base now, so leaving them behind would make the
+   * next person's publish try to re-apply an applied patch.
+   */
+  if (state.patchGroupsEnabled) {
+    const committed = new Set(Object.values(body.appliedPatches ?? {}).flat());
+    for (const group of state.patchGroups.values()) {
+      for (const patchId of committed) {
+        group.patchIds.delete(patchId);
+        group.askedForPatchIds.delete(patchId);
       }
     }
   }
@@ -1217,7 +1614,17 @@ async function playAiTurn(
   socket: WebSocket,
   prompt: { id?: string; sessionId?: string; message?: unknown },
 ): Promise<void> {
-  const messageId = randomUUID();
+  /**
+   * Every server -> client message echoes the id the client put on its prompt.
+   *
+   * That is what the real service does (`aiHandler.ts` passes `message.id`
+   * straight through to `ai_streaming`, `ai_tool_call`, `ai_response`,
+   * `ai_cancelled` and `ai_error`), and the Studio relies on it: one socket
+   * carries every session, so the id is how a listener tells its own turn from
+   * somebody else's. Minting a fresh one here made the mock the only "server"
+   * that answered a prompt under an id nobody asked about.
+   */
+  const messageId = prompt.id ?? randomUUID();
   const sessionId = prompt.sessionId ?? randomUUID();
   const imageKeys = imageKeysOf(prompt.message);
   state.aiPrompts.push({
@@ -1327,6 +1734,19 @@ const controlPlane: Handler = async (req, res, url) => {
     json(res, 200, { ok: true });
     return;
   }
+  if (action === "patch-groups" && req.method === "POST") {
+    /*
+     * Turn patch groups on for this run.
+     *
+     * A switch rather than a fixture, because "this deployment has no groups"
+     * is a state the product must keep working in — it is what every project
+     * is today — and a mock that always had them would stop testing it.
+     */
+    const body = await readJsonBody<{ enabled?: boolean }>(req);
+    state.patchGroupsEnabled = body?.enabled !== false;
+    json(res, 200, { ok: true, enabled: state.patchGroupsEnabled });
+    return;
+  }
   if (action === "state" && req.method === "GET") {
     json(res, 200, {
       patches: [...state.patches.values()].map((patch) => ({
@@ -1335,6 +1755,25 @@ const controlPlane: Handler = async (req, res, url) => {
         authorId: patch.authorId,
         applied: patch.applied,
         parentPatchId: patch.parentPatchId,
+      })),
+      /**
+       * What each group holds, so a test can assert on the SERVER's answer
+       * rather than on what the screen is showing.
+       *
+       * The distinction is the point: a stage that moves the local scope and
+       * never reaches the server looks identical in the browser and is lost on
+       * reload — which is the dangerous direction for an unstage, because the
+       * change silently comes back staged and the next publish ships what the
+       * user meant to hold.
+       */
+      patchGroups: [...state.patchGroups.values()].map((group) => ({
+        patchGroupId: group.patchGroupId,
+        authorId: group.authorId,
+        publishedAt: group.publishedAt,
+        patchIds: [...group.patchIds],
+        // Exposed only here, on the test-facing state dump — the content API's
+        // own `GET /patch-groups` does not report it either.
+        askedForPatchIds: [...group.askedForPatchIds],
       })),
       /**
        * Every uploaded file, whatever state its patch is in.
@@ -1573,7 +2012,17 @@ async function handle(
     await putRemoteFile(req, res, url);
     return;
   }
+  if (
+    /^\/patch-groups\/[^/]+\/patches$/.test(rest) &&
+    (req.method === "POST" || req.method === "DELETE")
+  ) {
+    await mutatePatchGroup(req, res, url);
+    return;
+  }
   switch (route) {
+    case "GET /patch-groups":
+      getPatchGroups(req, res, url);
+      return;
     case "GET /applicable/patches":
       getApplicablePatches(req, res, url);
       return;

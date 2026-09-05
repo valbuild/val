@@ -12,6 +12,7 @@ import {
   ShellPage,
   ShellValidationError,
 } from "./types";
+import { placeholderAvatar } from "../stories/placeholderAssets";
 
 /**
  * Mock data for the shell stories.
@@ -327,7 +328,6 @@ function dataModule(
  * that do organise their content that the tree exists for.
  */
 export const mockDataModules: ShellDataModule[] = [
-  dataModule("/content/settings.val.ts"),
   dataModule("/content/navigation.val.ts", { hasDraft: true }),
   dataModule("/content/footer.val.ts"),
   dataModule("/content/shop/products.val.ts", { errorCount: 3 }),
@@ -460,6 +460,14 @@ export const mockActivity: ShellActivityEntry[] = [
 ];
 
 /** Full 40-character shas, as git produces and as the deployment feed joins on. */
+/**
+ * A fixed instant the mock timestamps are relative to, so `updatedAt` and the
+ * already-formatted `timestamp` beside it agree with each other.
+ */
+const MOCK_NOW = new Date("2026-08-25T12:00:00Z").getTime();
+const mockMinutesAgo = (minutes: number): string =>
+  new Date(MOCK_NOW - minutes * 60 * 1000).toISOString();
+
 export const mockDeployments: ShellDeployment[] = [
   {
     commitSha: "9f21c4ae0b7d1e5a3c8f2d6b04e7a915cd83f620",
@@ -467,6 +475,7 @@ export const mockDeployments: ShellDeployment[] = [
     message: "Update hero copy and pricing table",
     author: "Fredrik Ekholdt",
     timestamp: "just now",
+    updatedAt: mockMinutesAgo(0),
     isLive: false,
   },
   {
@@ -475,6 +484,7 @@ export const mockDeployments: ShellDeployment[] = [
     message: "Add customer story: nordic-retail",
     author: "Ida Sørensen",
     timestamp: "12 minutes ago",
+    updatedAt: mockMinutesAgo(12),
     isLive: true,
   },
   {
@@ -483,6 +493,7 @@ export const mockDeployments: ShellDeployment[] = [
     message: "Swap footer links",
     author: "Fredrik Ekholdt",
     timestamp: "1 hour ago",
+    updatedAt: mockMinutesAgo(60),
     isLive: false,
   },
 ];
@@ -522,13 +533,18 @@ const mockNewPageRoutes: ShellNewPageRoutes = {
 };
 
 export const mockShellData: ShellData = {
-  projectName: "val-demo-project",
+  projectName: "val-demo/val-demo-project",
+  admin: {
+    project: "https://admin.val.build/~/val-demo/val-demo-project",
+    members: "https://admin.val.build/manage-members/val-demo",
+  },
   branch: "main",
   hasRouters: true,
   pages: mockPages,
   newPage: mockNewPageRoutes,
   externalPages: mockExternalPages,
   media: mockMedia,
+  settings: { moduleFilePath: "/settings.val.ts" as ModuleFilePath },
   data: mockDataModules,
   notifications: mockNotifications,
   activity: mockActivity,
@@ -536,8 +552,8 @@ export const mockShellData: ShellData = {
   deployments: mockDeployments,
   user: {
     name: "Fredrik Ekholdt",
-    initials: "FE",
     email: "fredrik@valbuild.com",
+    avatarUrl: placeholderAvatar("Fredrik Ekholdt"),
   },
 };
 
@@ -572,6 +588,7 @@ export const emptyShellData: ShellData = {
   pages: [],
   externalPages: [],
   media: [],
+  settings: undefined,
   data: [],
   notifications: [],
   activity: [],

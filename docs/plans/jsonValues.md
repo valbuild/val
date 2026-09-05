@@ -1,10 +1,11 @@
 # Implementation tracker: `.jsonValues()` — lazily-loaded JSON entries
 
 > **2026-08-28:** `.render({ as: "list", select })` on a `record` or an `array` is
-> now `.preview(select)`. `render` still exists, but only as the static field
-> layout on `string` (`{ as: "textarea" | "code" }`). This document predates that
-> split and is left as the record of what was decided at the time; read every
-> `.render()` here as a preview.
+> now `.preview(select)`. `render` still exists, but only as `{ as: "inline" }`
+> on an array/record item — a multi-line string is `s.string().multiline()` and
+> code is `s.code({ language })`. This document predates that split and is left
+> as the record of what was decided at the time; read every `.render()` here as
+> a preview.
 
 > Living implementation plan for `s.record(...).jsonValues()` / `s.router(...).jsonValues()`.
 > The **design rationale + locked decisions** live in the approved design doc

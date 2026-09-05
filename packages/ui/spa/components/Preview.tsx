@@ -11,11 +11,13 @@ import { KeyOfPreview } from "./fields/KeyOfField";
 import { RoutePreview } from "./fields/RouteField";
 import { DatePreview } from "./fields/DateField";
 import { DateTimePreview } from "./fields/DateTimeField";
+import { CodePreview } from "./fields/CodeField";
 import { ColorPreview } from "./fields/ColorField";
 import { LiteralPreview } from "./fields/LiteralPreview";
 import { RecordPreview } from "./fields/RecordFields";
 import { RichTextPreview } from "./fields/RichTextField";
 import { FilePreview } from "./fields/FileField";
+import { SettingsPreview } from "./fields/SettingsFields";
 import { Loader2 } from "lucide-react";
 
 export function Preview({
@@ -65,10 +67,14 @@ export function Preview({
     return <DateTimePreview path={path} />;
   } else if (type === "color") {
     return <ColorPreview path={path} />;
+  } else if (type === "code") {
+    return <CodePreview path={path} />;
   } else if (type === "literal") {
     return <LiteralPreview path={path} />;
   } else if (type === "record") {
     return <RecordPreview path={path} size={size} />;
+  } else if (type === "settings") {
+    return <SettingsPreview path={path} size={size} />;
   } else if (type === "richtext") {
     return <RichTextPreview path={path} />;
   } else if (type === "file") {
