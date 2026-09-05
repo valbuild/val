@@ -377,11 +377,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    */
   const renderSettings = useCallback(
     () => (
-      <ValSettingsSections
-        moduleFilePath={
-          data.settings?.moduleFilePath as ModuleFilePath | undefined
-        }
-      />
+      <ValSettingsSections moduleFilePath={data.settings?.moduleFilePath} />
     ),
     [data.settings?.moduleFilePath],
   );
