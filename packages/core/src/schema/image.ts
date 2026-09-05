@@ -448,14 +448,14 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
     );
   }
 
-  readonly(): ImageSchema<Src> {
+  readonly(isReadonly: boolean = true): ImageSchema<Src> {
     return new ImageSchema<Src>(
       this.options,
       this.opt,
       this.isRemote,
       this.customValidateFunctions,
       this.moduleMetadata,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.renderInput,
@@ -463,7 +463,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
     );
   }
 
-  hidden(): ImageSchema<Src> {
+  hidden(isHidden: boolean = true): ImageSchema<Src> {
     return new ImageSchema<Src>(
       this.options,
       this.opt,
@@ -471,7 +471,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
       this.customValidateFunctions,
       this.moduleMetadata,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.renderInput,
       this.previewInput,

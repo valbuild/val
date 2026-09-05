@@ -669,12 +669,12 @@ export class RichTextSchema<
     );
   }
 
-  readonly(): RichTextSchema<O, Src> {
+  readonly(isReadonly: boolean = true): RichTextSchema<O, Src> {
     return new RichTextSchema(
       this.options,
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.renderInput,
@@ -682,13 +682,13 @@ export class RichTextSchema<
     );
   }
 
-  hidden(): RichTextSchema<O, Src> {
+  hidden(isHidden: boolean = true): RichTextSchema<O, Src> {
     return new RichTextSchema(
       this.options,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.renderInput,
       this.previewInput,

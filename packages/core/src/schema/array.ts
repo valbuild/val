@@ -172,12 +172,12 @@ export class ArraySchema<
     );
   }
 
-  readonly(): ArraySchema<T, Src> {
+  readonly(isReadonly: boolean = true): ArraySchema<T, Src> {
     return new ArraySchema(
       this.item,
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.previewInput,
@@ -185,13 +185,13 @@ export class ArraySchema<
     );
   }
 
-  hidden(): ArraySchema<T, Src> {
+  hidden(isHidden: boolean = true): ArraySchema<T, Src> {
     return new ArraySchema(
       this.item,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.previewInput,
       this.renderInput,

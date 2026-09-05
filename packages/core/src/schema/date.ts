@@ -216,12 +216,12 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  readonly(): DateSchema<Src> {
+  readonly(isReadonly: boolean = true): DateSchema<Src> {
     return new DateSchema<Src>(
       this.options,
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.renderInput,
@@ -229,13 +229,13 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  hidden(): DateSchema<Src> {
+  hidden(isHidden: boolean = true): DateSchema<Src> {
     return new DateSchema<Src>(
       this.options,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.renderInput,
       this.previewInput,

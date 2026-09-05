@@ -584,7 +584,7 @@ export class RecordSchema<
     ) as RecordSchema<T, K, Src | null>;
   }
 
-  readonly(): RecordSchema<T, K, Src> {
+  readonly(isReadonly: boolean = true): RecordSchema<T, K, Src> {
     return new RecordSchema(
       this.item,
       this.opt,
@@ -592,7 +592,7 @@ export class RecordSchema<
       this.currentRouter,
       this.keySchema,
       this.mediaOptions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.isJsonValues,
@@ -601,7 +601,7 @@ export class RecordSchema<
     );
   }
 
-  hidden(): RecordSchema<T, K, Src> {
+  hidden(isHidden: boolean = true): RecordSchema<T, K, Src> {
     return new RecordSchema(
       this.item,
       this.opt,
@@ -610,7 +610,7 @@ export class RecordSchema<
       this.keySchema,
       this.mediaOptions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.isJsonValues,
       this.previewInput,
