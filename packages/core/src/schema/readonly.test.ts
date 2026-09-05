@@ -82,4 +82,54 @@ describe("Schema.readonly()", () => {
       plain["executeValidate"](path, "x"),
     );
   });
+
+  test("readonly(true) is the same as readonly()", () => {
+    expect(s.string().readonly(true)["executeSerialize"]().readonly).toBe(true);
+  });
+
+  test("readonly(false) leaves the field un-readonly", () => {
+    expect(s.string().readonly(false)["executeSerialize"]().readonly).toBe(
+      false,
+    );
+  });
+
+  test("readonly(false) undoes a previous readonly()", () => {
+    expect(
+      s.string().readonly().readonly(false)["executeSerialize"]().readonly,
+    ).toBe(false);
+  });
+
+  test("readonly takes the flag from a variable", () => {
+    const fields: { locked: boolean; editable: boolean } = {
+      locked: true,
+      editable: false,
+    };
+    expect(
+      s.string().readonly(fields.locked)["executeSerialize"]().readonly,
+    ).toBe(true);
+    expect(
+      s.string().readonly(fields.editable)["executeSerialize"]().readonly,
+    ).toBe(false);
+  });
+
+  test("readonly(false) serializes across schema types", () => {
+    expect(
+      s.number().readonly().readonly(false)["executeSerialize"]().readonly,
+    ).toBe(false);
+    expect(
+      s.array(s.string()).readonly().readonly(false)["executeSerialize"]()
+        .readonly,
+    ).toBe(false);
+    expect(
+      s
+        .object({ a: s.string() })
+        .readonly()
+        .readonly(false)
+        ["executeSerialize"]().readonly,
+    ).toBe(false);
+    expect(
+      s.record(s.string()).readonly().readonly(false)["executeSerialize"]()
+        .readonly,
+    ).toBe(false);
+  });
 });

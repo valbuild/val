@@ -21,7 +21,6 @@ import {
   toExternalPages,
   toShellPages,
   toValidationErrors,
-  initialsOf,
   directoryName,
   countKeys,
   countErrorsIn,
@@ -159,7 +158,7 @@ export function useShellData(): ShellDataState {
           ? {
               name: profile.fullName,
               email: profile.email,
-              initials: initialsOf(profile.fullName),
+              ...(profile.avatar?.url ? { avatarUrl: profile.avatar.url } : {}),
             }
           : undefined,
       },

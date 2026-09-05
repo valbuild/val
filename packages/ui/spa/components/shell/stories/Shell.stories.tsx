@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { useEffect, useState } from "react";
 import { Shell } from "../Shell";
 import { PublishState } from "../TopBar";
-import { SaveState } from "../StatusBar";
+import { SaveState, StatusBarProps } from "../StatusBar";
 import { ShellData, ShellPanel } from "../types";
 import {
   emptyShellData,
@@ -101,6 +101,12 @@ const meta: Meta<typeof ShellHarness> = {
       control: "boolean",
       description: "Include validation errors, which block publishing",
     },
+    mode: {
+      control: "inline-radio",
+      options: ["fs", "http"],
+      description:
+        "How Val is running. `fs` is the dev server (Save, Dev mode, auto save); `http` is a real project, which is the only mode with a deploy feed — so every `deployments` control below needs it.",
+    },
     deployments: {
       control: "select",
       options: ["mixed", "building", "failed", "live", "none", "hidden"],
@@ -146,6 +152,7 @@ type HarnessProps = {
   theme: "dark" | "light";
   publishState: PublishState;
   saveState: SaveState;
+  mode: StatusBarProps["mode"];
   isLoading: boolean;
   loadError: string;
   withValidationErrors: boolean;
@@ -242,6 +249,7 @@ function ShellHarness({
   theme,
   publishState,
   saveState,
+  mode,
   isLoading,
   loadError,
   withValidationErrors,
@@ -255,9 +263,9 @@ function ShellHarness({
   const [currentTheme, setCurrentTheme] = useState<"dark" | "light">(theme);
   /**
    * Held here because the real one lives in `localStorage` behind
-   * `useAutoPublish`, which needs a running system. `mode="fs"` below for the
-   * same reason the toggle is gated on it: auto save is a dev-server setting,
-   * and a story that did not say so would render a shell where it is hidden.
+   * `useAutoPublish`, which needs a running system. Only visible under
+   * `mode="fs"`, which is what that control defaults to: auto save is a
+   * dev-server setting.
    */
   const [autoSave, setAutoSave] = useState(false);
   const full = empty ? emptyShellData : mockShellData;
@@ -278,7 +286,7 @@ function ShellHarness({
   return (
     <Shell
       renderSettings={() => <MockSettingsSections />}
-      key={`${openPanel}-${selectionId}-${empty}-${withoutRouters}-${aiEnabled}-${searchOpen}-${isLoading}-${loadError}-${deployments}-${deploymentsOpen}-${canvasOpen}-${canvasView}-${canvasReported}`}
+      key={`${openPanel}-${selectionId}-${empty}-${withoutRouters}-${aiEnabled}-${searchOpen}-${isLoading}-${loadError}-${mode}-${deployments}-${deploymentsOpen}-${canvasOpen}-${canvasView}-${canvasReported}`}
       data={data}
       initialPanel={openPanel}
       initialSelectionId={selectionId}
@@ -289,7 +297,7 @@ function ShellHarness({
       pendingChanges={empty ? 0 : 12}
       publishState={publishState}
       saveState={saveState}
-      mode="fs"
+      mode={mode}
       autoSave={autoSave}
       onAutoSaveChange={setAutoSave}
       isLoading={isLoading}
@@ -298,6 +306,15 @@ function ShellHarness({
       canvasPage={canvasReported ? mockCanvasPage : undefined}
       initialCanvasOpen={canvasOpen}
       initialCanvasView={canvasView}
+      // Both page writes, so the Pages panel shows the New page button and the
+      // per-row Duplicate control. The mock routes carry the URLs already in
+      // `mockPages`, so the "already exists" state is reachable in both forms.
+      onNewPage={(moduleFilePath, urlPath) =>
+        console.log("New page", moduleFilePath, urlPath)
+      }
+      onDuplicatePage={(moduleFilePath, fromUrlPath, toUrlPath) =>
+        console.log("Duplicate page", moduleFilePath, fromUrlPath, toUrlPath)
+      }
     />
   );
 }
@@ -323,6 +340,7 @@ function useSimulatedPublish(enabled: boolean): ShellDeployment | null {
       message: "Rewrite the pricing page",
       author: "Fredrik Ekholdt",
       timestamp: "just now",
+      updatedAt: new Date().toISOString(),
       isLive: false,
     };
     const started = setTimeout(() => setDeployment(base), 1500);
@@ -352,6 +370,7 @@ export const Default: Story = {
     theme: "dark",
     publishState: "idle",
     saveState: "saved",
+    mode: "fs",
     canvasReported: true,
     isLoading: false,
     loadError: "",
@@ -444,11 +463,11 @@ export const AccountOpen: Story = {
 };
 
 /**
- * The project's settings, behind the cog under Media.
+ * The project's settings, behind the cog at the foot of the rail.
  *
- * The sections come from the app (`renderSettings`), so in the shell's own
- * story the panel is empty chrome — see `Shell/SettingsPanel` for the sections
- * themselves.
+ * The sections come from the app (`renderSettings`), and this story supplies
+ * the same components with local state — see `Shell/SettingsPanel` for the
+ * states they can be in.
  */
 export const SettingsOpen: Story = {
   args: {
@@ -569,6 +588,7 @@ export const JustPublished: Story = {
   args: {
     ...Default.args,
     selectionId: mockSelectionIds.home,
+    mode: "http",
     deployments: "mixed",
     deploymentsOpen: true,
   },
@@ -579,6 +599,7 @@ export const Building: Story = {
   args: {
     ...Default.args,
     selectionId: mockSelectionIds.home,
+    mode: "http",
     deployments: "building",
   },
 };
@@ -591,6 +612,7 @@ export const BuildFailed: Story = {
   args: {
     ...Default.args,
     selectionId: mockSelectionIds.home,
+    mode: "http",
     deployments: "failed",
     deploymentsOpen: true,
   },
@@ -601,6 +623,7 @@ export const NothingPublishedYet: Story = {
   args: {
     ...Default.args,
     selectionId: mockSelectionIds.home,
+    mode: "http",
     deployments: "none",
     deploymentsOpen: true,
   },
@@ -614,15 +637,36 @@ export const NoDeploymentFeed: Story = {
   args: {
     ...Default.args,
     selectionId: mockSelectionIds.home,
+    mode: "http",
     deployments: "hidden",
   },
 };
 
-/** On mobile the status bar is gone, so the feed lives in Account. */
+/**
+ * A publish, announced on a phone.
+ *
+ * The bottom bar takes the row the status bar would have had, so the feed
+ * comes to the phone as the list itself, above that bar, where a toast would
+ * be. Set the viewport to a phone to see it. Publishing used to say nothing
+ * here at all: the button went back to "Publish" and the feed was reachable
+ * only through Settings, so a push that had landed and one that never went out
+ * looked the same.
+ */
 export const DeploymentsOnMobile: Story = {
   args: {
     ...Default.args,
+    mode: "http",
+    deployments: "mixed",
+    deploymentsOpen: true,
+  },
+};
+
+/** The same feed on a phone, looked up in Account rather than announced. */
+export const DeploymentsInMobileSettings: Story = {
+  args: {
+    ...Default.args,
     openPanel: "account",
+    mode: "http",
     deployments: "mixed",
   },
 };
@@ -636,6 +680,7 @@ export const PublishRoundTrip: Story = {
   args: {
     ...Default.args,
     selectionId: mockSelectionIds.home,
+    mode: "http",
     deployments: "live",
     simulatePublish: true,
   },

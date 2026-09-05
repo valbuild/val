@@ -23,9 +23,7 @@ import {
   Minus,
   Pencil,
   Plus,
-  Save,
   Undo2,
-  User,
   Loader2,
 } from "lucide-react";
 import { SerializedPatchSet } from "../utils/PatchSets";
@@ -68,7 +66,7 @@ import {
   PopoverTrigger,
 } from "./designSystem/popover";
 import { Skeleton } from "./designSystem/skeleton";
-import { getInitials } from "../utils/getInitials";
+import { ProfileAvatar } from "./Avatar";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { prettifyModulePath } from "../utils/prettifyText";
 import { FieldPathLink } from "./FieldPathLink";
@@ -564,7 +562,10 @@ function collectAuthorIds(rows: ChangeTreeNode[]): string[] {
 export function CompareLoading() {
   return (
     <div
-      className="mx-auto max-w-7xl flex flex-col gap-8 min-w-[380px]"
+      // `min-w-0`, for the reason the loaded view is: a 380px floor is wider
+      // than the content box of a 360px phone, so the placeholder scrolled
+      // sideways and then handed over to a view that does not.
+      className="mx-auto max-w-7xl flex flex-col gap-8 min-w-0"
       aria-busy="true"
       aria-live="polite"
       aria-label="Loading changes"
@@ -2361,7 +2362,7 @@ function DiffSide({
         "border-fg-brand-primary": diffStyle === "added",
       })}
     >
-      {children}
+      <CompareScrollBox>{children}</CompareScrollBox>
     </div>
   );
 }
@@ -2383,11 +2384,14 @@ function AvatarStack({
   return (
     <div className="flex items-center" aria-label="Authors">
       {visible.map((id, i) => (
-        <SummaryAvatar
+        <ProfileAvatar
           key={id}
           profile={profilesByAuthorIds[id] ?? null}
-          isFirst={i === 0}
           mode={mode}
+          size="sm"
+          className={classNames("border-2 border-bg-primary", {
+            "-ml-2": i > 0,
+          })}
         />
       ))}
       {overflow > 0 && (
@@ -2399,49 +2403,6 @@ function AvatarStack({
         </span>
       )}
     </div>
-  );
-}
-
-function SummaryAvatar({
-  profile,
-  isFirst,
-  mode,
-}: {
-  profile: Profile | null;
-  isFirst: boolean;
-  mode: "fs" | "http" | "unknown";
-}) {
-  const cls = classNames(
-    "shrink-0 w-7 h-7 rounded-full inline-flex items-center justify-center text-[11px] font-semibold overflow-hidden border-2 border-bg-primary",
-    { "-ml-2": !isFirst },
-  );
-  if (!profile) {
-    return (
-      <span
-        className={classNames(cls, "bg-bg-secondary text-fg-disabled")}
-        title={mode === "fs" ? "Local changes" : "Unknown author"}
-      >
-        {mode === "fs" ? <Save size={12} /> : <User size={12} />}
-      </span>
-    );
-  }
-  if (profile.avatar?.url) {
-    return (
-      <img
-        src={profile.avatar.url}
-        alt={profile.fullName}
-        title={profile.fullName}
-        className={classNames(cls, "object-cover")}
-      />
-    );
-  }
-  return (
-    <span
-      className={classNames(cls, "bg-bg-brand-primary text-fg-brand-primary")}
-      title={profile.fullName}
-    >
-      {getInitials(profile.fullName)}
-    </span>
   );
 }
 
@@ -2554,6 +2515,56 @@ function BeforeSourceOverride({
 
 // #region BeforeAfterLayout
 
+/**
+ * The scrolling part of a compare box.
+ *
+ * A value can be wider than its box - a code line, a long unbroken ref, a
+ * table in rich text - and taller than the screen. Before this, both ran out
+ * of the box: the whole review view scrolled sideways to fit one long line,
+ * and a long value pushed everything after it off the bottom, so on a phone
+ * there was no way to see a whole comparison. The overflow now belongs to the
+ * box that owns the value.
+ *
+ * The scroll container has to be OUTSIDE `ReadonlyGuard`, which is where the
+ * field itself ends up: that guard sets `inert`, so a scroll container within
+ * it can never be scrolled. Out here the guard's `pointer-events-none` works
+ * in our favour - the wheel and the finger land on this box instead.
+ */
+function CompareScrollBox({
+  side,
+  className,
+  children,
+}: {
+  /**
+   * Which half of a comparison this is, as a test hook.
+   *
+   * The two sides are told apart on screen by position and by a label that only
+   * appears when they stack, neither of which a test can hold on to - and
+   * `e2e/compare.spec.ts` has to assert that the before side shows the previous
+   * value and the after side the new one, not merely that both strings are
+   * somewhere in the row. Same reason `data-val-studio-path` exists.
+   */
+  side?: "before" | "after";
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      data-val-compare-side={side}
+      className={classNames(
+        "min-w-0 overflow-x-auto overflow-y-auto overscroll-contain",
+        // Generous on purpose: it engages only for a value that would
+        // otherwise bury the rest of the comparison, and a cap that clipped
+        // ordinary fields would be worse than the overflow it replaces.
+        "max-h-[60vh]",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 function BeforeAfterLayout({
   variant,
   before,
@@ -2570,7 +2581,7 @@ function BeforeAfterLayout({
           <div className="text-xs font-medium text-fg-tertiary mb-1">
             Before
           </div>
-          {before}
+          <CompareScrollBox side="before">{before}</CompareScrollBox>
         </div>
         <div
           className="hidden lg:flex items-center justify-center text-fg-tertiary pt-3"
@@ -2580,7 +2591,7 @@ function BeforeAfterLayout({
         </div>
         <div className="pl-1 min-w-0">
           <div className="text-xs font-medium text-fg-tertiary mb-1">After</div>
-          {after}
+          <CompareScrollBox side="after">{after}</CompareScrollBox>
         </div>
       </div>
     );
@@ -2608,7 +2619,7 @@ function BeforeAfterLayout({
          * wider, so the dense desktop row does not grow two redundant captions.
          */}
         <StackedSideLabel>Before</StackedSideLabel>
-        {before}
+        <CompareScrollBox side="before">{before}</CompareScrollBox>
       </div>
       <div
         className="hidden lg:flex items-center justify-center text-fg-tertiary"
@@ -2618,7 +2629,7 @@ function BeforeAfterLayout({
       </div>
       <div className="pl-4 lg:pl-1 pr-3 py-2 min-w-0">
         <StackedSideLabel>After</StackedSideLabel>
-        {after}
+        <CompareScrollBox side="after">{after}</CompareScrollBox>
       </div>
     </div>
   );

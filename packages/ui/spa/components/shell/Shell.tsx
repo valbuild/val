@@ -55,6 +55,7 @@ import { AccountPanel } from "./AccountPanel";
 import { NoSettingsModule, SettingsPanel } from "./SettingsPanel";
 import { ShellAccountError } from "./AccountError";
 import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
+import { isDeploymentNews, MobileDeployments } from "./Deployments";
 import { PublishState, TopBar } from "./TopBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { availableDestinations } from "./shellDataMapping";
@@ -315,6 +316,12 @@ export type ShellProps = {
   onSelectActivity?: (entry: ShellActivityEntry) => void;
   /** Create a page under a route. See `PagesPanelProps`. */
   onNewPage?: (moduleFilePath: ModuleFilePath, urlPath: string) => void;
+  /** Copy a page to another URL under the same route. See `PagesPanelProps`. */
+  onDuplicatePage?: (
+    moduleFilePath: ModuleFilePath,
+    fromUrlPath: string,
+    toUrlPath: string,
+  ) => void;
   onUploadMedia?: (gallery: ShellMediaGallery) => void;
   /** Open the review view. Offered from the top bar and the quick actions. */
   onCompare?: () => void;
@@ -399,6 +406,7 @@ export function Shell({
   onSelectValidationError,
   onSelectActivity,
   onNewPage,
+  onDuplicatePage,
   onUploadMedia,
   onCompare,
   onDiscardAll,
@@ -506,7 +514,8 @@ export function Shell({
   // A publish is the one thing here that finishes somewhere else, so the list
   // opens itself when a commit Val has not seen before shows up. The first
   // feed after mount is history rather than news: opening on it would pop a
-  // panel at someone who has not published anything.
+  // panel at someone who has not published anything. So is a commit that has
+  // been serving the site for a while - see `isDeploymentNews`.
   const seenCommits = useRef<ReadonlySet<string> | null>(null);
   useEffect(() => {
     if (data.deployments === undefined) {
@@ -518,7 +527,12 @@ export function Shell({
     if (seen === null) {
       return;
     }
-    if (data.deployments.some((d) => !seen.has(d.commitSha))) {
+    const now = Date.now();
+    if (
+      data.deployments.some(
+        (d) => !seen.has(d.commitSha) && isDeploymentNews(d, now),
+      )
+    ) {
       setDeploymentsOpen(true);
       setDeploymentsAutoOpened(true);
     }
@@ -865,32 +879,50 @@ export function Shell({
         />
 
         {breakpoint === "mobile" ? (
-          <MobileBottomBar
-            pendingChanges={pendingChanges}
-            onPreview={onPreview ?? (() => undefined)}
-            previewHref={previewHref}
-            onToggleCanvas={canCanvas ? togglePreview : undefined}
-            isCanvasOpen={isCanvasOpen}
-            /*
-             * What the button does NEXT, said plainly, because on a phone it is
-             * three different acts depending on where you are — see
-             * `togglePreview`. A control that swaps has to say which way.
-             */
-            canvasActionLabel={
-              !isCanvasOpen
-                ? "Open the canvas"
-                : workspacePane === "canvas"
-                  ? "Back to the editor"
-                  : "Back to the preview"
-            }
-            // The main half no longer closes the canvas on a phone, so the way
-            // out has to be somewhere the menu can offer it too.
-            onExitCanvas={isCanvasOpen ? closeCanvas : undefined}
-            onPublish={onPublish ?? (() => undefined)}
-            publishSlot={publishSlot}
-            onOpenStatus={() => setOpenPanel("account")}
-            onOpenQuickActions={() => setOpenPanel("utility")}
-          />
+          <>
+            {/*
+             * The phone's answer to "did that publish go out?". The bottom bar
+             * takes the row the status bar would have had, so the list is
+             * anchored above it and behaves as the announcement it is - see
+             * `MobileDeployments`. Same `mode === "http"` gate as the status
+             * bar: there is nothing to deploy to in dev.
+             */}
+            {mode === "http" && deployments !== undefined && (
+              <MobileDeployments
+                deployments={deployments}
+                open={deploymentsOpen}
+                onOpenChange={setDeploymentsOpenByUser}
+                onDismiss={dismissDeployment}
+                autoClose={deploymentsAutoOpened}
+              />
+            )}
+            <MobileBottomBar
+              pendingChanges={pendingChanges}
+              onPreview={onPreview ?? (() => undefined)}
+              previewHref={previewHref}
+              onToggleCanvas={canCanvas ? togglePreview : undefined}
+              isCanvasOpen={isCanvasOpen}
+              /*
+               * What the button does NEXT, said plainly, because on a phone it is
+               * three different acts depending on where you are — see
+               * `togglePreview`. A control that swaps has to say which way.
+               */
+              canvasActionLabel={
+                !isCanvasOpen
+                  ? "Open the canvas"
+                  : workspacePane === "canvas"
+                    ? "Back to the editor"
+                    : "Back to the preview"
+              }
+              // The main half no longer closes the canvas on a phone, so the way
+              // out has to be somewhere the menu can offer it too.
+              onExitCanvas={isCanvasOpen ? closeCanvas : undefined}
+              onPublish={onPublish ?? (() => undefined)}
+              publishSlot={publishSlot}
+              onOpenStatus={() => setOpenPanel("account")}
+              onOpenQuickActions={() => setOpenPanel("utility")}
+            />
+          </>
         ) : (
           <StatusBar
             breakpoint={breakpoint}
@@ -925,6 +957,7 @@ export function Shell({
               if (next) select(next);
             }}
             onNewPage={onNewPage ?? (() => undefined)}
+            onDuplicatePage={onDuplicatePage}
             // Only where a route accepts one. A project of static routes has no
             // key to invent, so there is nothing for a New page button to do.
             newPage={onNewPage ? data.newPage : undefined}

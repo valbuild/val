@@ -176,12 +176,12 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     );
   }
 
-  readonly(): NumberSchema<Src> {
+  readonly(isReadonly: boolean = true): NumberSchema<Src> {
     return new NumberSchema<Src>(
       this.options,
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.renderInput,
@@ -189,13 +189,13 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     );
   }
 
-  hidden(): NumberSchema<Src> {
+  hidden(isHidden: boolean = true): NumberSchema<Src> {
     return new NumberSchema<Src>(
       this.options,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.renderInput,
       this.previewInput,

@@ -2,7 +2,6 @@ import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import {
   availableDestinations,
   hostLabel,
-  initialsOf,
   toActivity,
   toAdminLinks,
   toDataModules,
@@ -307,21 +306,6 @@ describe("toActivity", () => {
       now,
     );
     expect(entry.author).toBeUndefined();
-  });
-});
-
-describe("initialsOf", () => {
-  test.each([
-    ["Fredrik Ekholdt", "FE"],
-    ["Ada", "AD"],
-    ["Ada Byron King Lovelace", "AL"],
-    ["  spaced   out  ", "SO"],
-  ])("%s -> %s", (name, expected) => {
-    expect(initialsOf(name)).toBe(expected);
-  });
-
-  test("does not crash on an empty name", () => {
-    expect(initialsOf("")).toBe("?");
   });
 });
 

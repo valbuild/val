@@ -17,6 +17,7 @@ export function StringField({
   path,
   autoFocus,
   readonly,
+  compact,
 }: {
   path: SourcePath;
   autoFocus?: boolean;
@@ -113,6 +114,38 @@ export function StringField({
    * `architecture/quirks.md`.) If it ever stops being static, this read is the
    * thing that has to change. See `core/src/render.ts`.
    */
+  /**
+   * A read-only value in a dense row is TEXT, not a disabled input.
+   *
+   * `readonly` fields are wrapped in `ReadonlyGuard`, which sets `inert` - so
+   * the input inside cannot be focused, scrolled, or even selected. A single
+   * line longer than the box was therefore clipped at the right edge with no
+   * way at all to reach the rest of it, which in the compare view (where the
+   * box is half of a phone's width) is most of the values worth reading. Text
+   * wraps, so the whole value is on screen, and it needs no guard because
+   * there is nothing there to type into.
+   *
+   * `compact` rather than `readonly` alone: a `s.string().readonly()` field in
+   * the editor still sits in a row of inputs and should look like one. Compact
+   * is the dense read-only presentation - the compare view is its only caller.
+   */
+  if (readonly && compact) {
+    const value = sourceAtPath.data;
+    if (value === null) {
+      return <PreviewNull path={path} />;
+    }
+    return (
+      <div
+        id={path}
+        // `whitespace-pre-wrap` keeps the newlines of a multiline value, and
+        // `anywhere` breaks the unbroken ones - a URL or a hash has no space
+        // in it to wrap at, and would otherwise widen the row instead.
+        className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere] opacity-70"
+      >
+        {value}
+      </div>
+    );
+  }
   const multiline = schemaAtPath.data.multiline;
   let content: React.ReactNode;
   if (multiline) {

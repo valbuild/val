@@ -7,7 +7,7 @@ import {
 } from "../designSystem/tooltip";
 import { ShellDestination, ShellPanel } from "./types";
 import { ValLogo } from "./ValLogo";
-import { Avatar } from "./Avatar";
+import { Avatar } from "../Avatar";
 import { AccountErrorDot } from "./AccountError";
 
 export type RailItem = {
@@ -76,7 +76,7 @@ export type LeftRailProps = {
    * broken rather than as something the project does not use.
    */
   destinations?: readonly ShellDestination[];
-  user?: { initials: string; name: string };
+  user?: { name: string; avatarUrl?: string };
   /** Number of pending draft changes, shown as a dot on the account button. */
   hasDraftChanges?: boolean;
   /**
@@ -187,7 +187,7 @@ export function LeftRail({
                 onClick={() => onSelect("account")}
                 className="relative grid place-items-center w-8 h-8 rounded-full"
               >
-                <Avatar initials={user.initials} size="sm" />
+                <Avatar name={user.name} imageUrl={user.avatarUrl} size="sm" />
                 {accountError && <AccountErrorDot />}
                 {hasDraftChanges && (
                   <span className="absolute -right-0.5 -bottom-0.5 w-2 h-2 rounded-full bg-fg-secondary ring-2 ring-bg-float" />
