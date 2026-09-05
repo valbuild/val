@@ -12,7 +12,12 @@ import { SchemaValidator } from "../validation/validateModule";
 import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
 import { describeStuckSave } from "../utils/describeStuckSave";
 import { SchemaStore } from "./SchemaStore";
-import { SourceStore, type FetchJsonEntry } from "./SourceStore";
+import {
+  SourceStore,
+  type FetchExternalEntries,
+  type FetchExternalKeys,
+  type FetchJsonEntry,
+} from "./SourceStore";
 import {
   PatchStore,
   type CreatePatchId,
@@ -297,6 +302,15 @@ export type SystemOptions = {
    */
   fetchJsonEntry?: FetchJsonEntry;
   /**
+   * How to read an EXTERNAL record: its key list, and its entry content.
+   *
+   * Two seams rather than one because they answer different questions, and only
+   * external records have the first: a `.jsonValues()` record's keys are in its
+   * own source, while an external record's source is a marker.
+   */
+  fetchExternalKeys?: FetchExternalKeys;
+  fetchExternalEntries?: FetchExternalEntries;
+  /**
    * Where a local patch is written back to (`PUT /patches`).
    *
    * Omitting it means this system never writes: edits stay local, and
@@ -431,6 +445,8 @@ export function createSystem(options: SystemOptions): System {
     schemaStore,
     activity,
     options.fetchJsonEntry,
+    options.fetchExternalKeys,
+    options.fetchExternalEntries,
   );
   const stat = new StatStore();
   const status = new StatusStore(activity);

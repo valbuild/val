@@ -44,6 +44,79 @@ export type FetchJsonEntry = (
 >;
 
 /**
+ * Fetch a page of an EXTERNAL record's keys (`GET /external/keys` in the app).
+ *
+ * By cursor, not offset: the store has its own ordering and its own idea of
+ * where a page stopped, and an offset into it would mean counting rows the store
+ * has already forgotten about.
+ *
+ * The one thing an external record needs that no other storage mode does. A
+ * `.jsonValues()` record's keys are in its own source; an external record's
+ * source is a marker, so the keys have to be asked for.
+ */
+export type FetchExternalKeys = (
+  moduleFilePath: ModuleFilePath,
+  args: { cursor: string | null; limit: number },
+) => Promise<
+  | {
+      status: "ok";
+      keys: string[];
+      cursor: string | null;
+      total?: { count: number; exact: boolean } | "unavailable";
+    }
+  | { status: "error"; message: string }
+>;
+
+/** Fetch external entry content by key (`GET /external/entries` in the app). */
+export type FetchExternalEntries = (
+  moduleFilePath: ModuleFilePath,
+  keys: string[],
+) => Promise<
+  | {
+      status: "ok";
+      entries: Record<string, Json>;
+      errors: Record<string, string>;
+    }
+  | { status: "error"; message: string }
+>;
+
+/**
+ * What is known of an external record's key list.
+ *
+ * A growing prefix plus a cursor, because that is all a cursor-paged store can
+ * offer: there is no way to ask for "page 7" without having walked to it. The UI
+ * pages forward through what has been loaded and asks for more at the end.
+ */
+export type ExternalKeysState = {
+  keys: string[];
+  /** `null` once every key has been loaded. */
+  cursor: string | null;
+  /**
+   * How many entries there are. `"unavailable"` means the adapter declined to
+   * count — which is NOT zero, and a pager that renders it as zero is lying
+   * about an empty record. `undefined` means it has not been asked yet.
+   */
+  total?: { count: number; exact: boolean } | "unavailable";
+  loading: boolean;
+  error?: string;
+};
+
+const EMPTY_EXTERNAL_KEYS: ExternalKeysState = {
+  keys: [],
+  cursor: null,
+  loading: false,
+};
+
+/**
+ * How many keys to ask for in one page.
+ *
+ * Fifty, matching the Studio's own default page size: the number belongs to the
+ * UI, and a store that will only serve ten at a time is chunked behind this
+ * without the UI ever finding out.
+ */
+export const DEFAULT_EXTERNAL_PAGE_SIZE = 50;
+
+/**
  * What `peek` says, without loading anything.
  *
  * `peek` exists because `get` has a SIDE EFFECT: it triggers an entry fetch. The
@@ -367,11 +440,120 @@ export class SourceStore {
    */
   private listenersByModule = new Map<ModuleFilePath, Set<SourcePath>>();
 
+  /**
+   * What is known of each external record's keys.
+   *
+   * Kept beside `jsonEntries` rather than inside it because they answer
+   * different questions: `jsonEntries` is content that HAS been loaded, and this
+   * is the list of what exists — which for an external record cannot be derived
+   * from the module's own source at all.
+   */
+  private externalKeys = new Map<ModuleFilePath, ExternalKeysState>();
+  /** In-flight key pages, so two components asking cause one request. */
+  private loadingExternalKeys = new Map<ModuleFilePath, Promise<void>>();
+
   constructor(
     private readonly schemaStore: SchemaStore,
     private readonly activity: ActivitySink = noopActivity,
     private readonly fetchJsonEntry?: FetchJsonEntry,
+    private readonly fetchExternalKeys?: FetchExternalKeys,
+    private readonly fetchExternalEntries?: FetchExternalEntries,
   ) {}
+
+  /** Whether a module's entries live behind an adapter. */
+  private isExternalModule(moduleFilePath: ModuleFilePath): boolean {
+    const schema = this.schemaStore.get(moduleFilePath);
+    return schema?.type === "record" && schema.external !== undefined;
+  }
+
+  /**
+   * What is known of an external record's keys, right now.
+   *
+   * Reference-stable while nothing changes, so a `useSyncExternalStore` over it
+   * does not re-render on every read.
+   */
+  externalKeysState(moduleFilePath: ModuleFilePath): ExternalKeysState {
+    return this.externalKeys.get(moduleFilePath) ?? EMPTY_EXTERNAL_KEYS;
+  }
+
+  /**
+   * Load the next page of an external record's keys.
+   *
+   * `reset` starts again from the first page — what a publish or a store version
+   * change calls for, since a cursor issued against the old contents cannot be
+   * replayed against the new ones.
+   */
+  async loadExternalKeys(
+    moduleFilePath: ModuleFilePath,
+    opts?: { limit?: number; reset?: boolean },
+  ): Promise<void> {
+    if (this.fetchExternalKeys === undefined) {
+      return;
+    }
+    if (opts?.reset) {
+      this.externalKeys.delete(moduleFilePath);
+      this.loadingExternalKeys.delete(moduleFilePath);
+    }
+    const existing = this.externalKeys.get(moduleFilePath);
+    // Nothing left to load. Checked before the in-flight map so a settled record
+    // does not keep a stale promise alive.
+    if (existing !== undefined && existing.cursor === null && !opts?.reset) {
+      return;
+    }
+    const inFlight = this.loadingExternalKeys.get(moduleFilePath);
+    if (inFlight !== undefined) {
+      return inFlight;
+    }
+    const limit = opts?.limit ?? DEFAULT_EXTERNAL_PAGE_SIZE;
+    const request = (async () => {
+      const before = this.externalKeys.get(moduleFilePath);
+      this.externalKeys.set(moduleFilePath, {
+        keys: before?.keys ?? [],
+        cursor: before?.cursor ?? null,
+        total: before?.total,
+        loading: true,
+      });
+      this.bump(moduleFilePath);
+      const fetcher = this.fetchExternalKeys;
+      const res = fetcher
+        ? await fetcher(moduleFilePath, {
+            cursor: before?.cursor ?? null,
+            limit,
+          })
+        : ({ status: "error", message: "No external fetcher" } as const);
+      const now = this.externalKeys.get(moduleFilePath);
+      if (res.status === "error") {
+        this.externalKeys.set(moduleFilePath, {
+          keys: now?.keys ?? [],
+          cursor: now?.cursor ?? null,
+          total: now?.total,
+          loading: false,
+          error: res.message,
+        });
+      } else {
+        // Appended, not replaced: the list is a growing prefix, and a page that
+        // repeats a key the store already gave must not double it.
+        const seen = new Set(now?.keys ?? []);
+        const keys = [...(now?.keys ?? [])];
+        for (const key of res.keys) {
+          if (!seen.has(key)) {
+            seen.add(key);
+            keys.push(key);
+          }
+        }
+        this.externalKeys.set(moduleFilePath, {
+          keys,
+          cursor: res.cursor,
+          total: res.total ?? now?.total,
+          loading: false,
+        });
+      }
+      this.loadingExternalKeys.delete(moduleFilePath);
+      this.bump(moduleFilePath);
+    })();
+    this.loadingExternalKeys.set(moduleFilePath, request);
+    return request;
+  }
 
   /**
    * A counter over EVERY module, moved by every `bump`.
@@ -723,11 +905,19 @@ export class SourceStore {
         // announcement for all of them.
         await Promise.resolve();
         this.pendingEntryLoads.delete(moduleFilePath);
-        await this.batched(() =>
-          Promise.all(
+        await this.batched(async () => {
+          if (this.isExternalModule(moduleFilePath)) {
+            // One request for the whole window, not one per key: an external
+            // read costs a round trip to a store, and the endpoint takes an
+            // array precisely so a page of rows is one call and — where the
+            // adapter declares an `around` — one transaction.
+            await this.loadExternalEntries(moduleFilePath, [...keysWanted]);
+            return;
+          }
+          await Promise.all(
             [...keysWanted].map((key) => this.loadEntry(moduleFilePath, key)),
-          ),
-        );
+          );
+        });
       })();
       pending = { keys: keysWanted, request };
       this.pendingEntryLoads.set(moduleFilePath, pending);
@@ -736,6 +926,68 @@ export class SourceStore {
       pending.keys.add(key);
     }
     await pending.request;
+  }
+
+  /**
+   * Load external entry content for the given keys, in one request.
+   *
+   * Failures are recorded PER KEY, exactly as a `.jsonValues()` entry's are, so
+   * a row that cannot be read shows its own error and a retry button rather than
+   * taking the page with it. A whole-request failure is recorded against every
+   * key that was asked for, because from a row's point of view that is what
+   * happened to it.
+   */
+  private async loadExternalEntries(
+    moduleFilePath: ModuleFilePath,
+    keys: string[],
+  ): Promise<void> {
+    if (keys.length === 0) return;
+    const fetcher = this.fetchExternalEntries;
+    if (fetcher === undefined) {
+      for (const key of keys) {
+        this.entryFailures.set(
+          entryKey(moduleFilePath, key),
+          "This system cannot read external records",
+        );
+      }
+      this.bump(moduleFilePath);
+      return;
+    }
+    for (const key of keys) {
+      this.entryFailures.delete(entryKey(moduleFilePath, key));
+    }
+    let res;
+    try {
+      res = await fetcher(moduleFilePath, keys);
+    } catch (e) {
+      res = {
+        status: "error" as const,
+        message: e instanceof Error ? e.message : String(e),
+      };
+    }
+    if (res.status === "error") {
+      for (const key of keys) {
+        this.entryFailures.set(entryKey(moduleFilePath, key), res.message);
+      }
+      this.bump(moduleFilePath);
+      return;
+    }
+    for (const [key, message] of Object.entries(res.errors)) {
+      this.entryFailures.set(entryKey(moduleFilePath, key), message);
+    }
+    for (const key of keys) {
+      const content = res.entries[key];
+      if (content === undefined) {
+        if (!this.entryFailures.has(entryKey(moduleFilePath, key))) {
+          // Neither returned nor reported as an error: the store no longer has
+          // this key. `null` is the entry's value, not its absence — the row
+          // renders as empty rather than spinning forever.
+          this.receiveJsonEntry(moduleFilePath, key, null);
+        }
+        continue;
+      }
+      this.receiveJsonEntry(moduleFilePath, key, content);
+    }
   }
 
   /** In-flight coalesced entry loads, per module. See {@link loadEntries}. */
@@ -754,13 +1006,32 @@ export class SourceStore {
    * answer as if it were complete.
    */
   async loadAllEntries(moduleFilePath: ModuleFilePath): Promise<void> {
+    await this.loadEntries(moduleFilePath, this.lazyEntryKeys(moduleFilePath));
+  }
+
+  /**
+   * The keys of this module whose CONTENT is loaded on demand.
+   *
+   * One definition for both storage modes, because everything that counts
+   * outstanding entries — progress, the "is this module complete" guard, the
+   * validation sweep — has to agree on what it is counting. They read from
+   * different places: a `.jsonValues()` record lists its keys in its own source,
+   * and an external record's are whatever has been paged in from the store.
+   *
+   * For an external record this is deliberately what is KNOWN, not what exists:
+   * nothing here may walk a store on its own initiative.
+   */
+  private lazyEntryKeys(moduleFilePath: ModuleFilePath): string[] {
+    if (this.isExternalModule(moduleFilePath)) {
+      return [...(this.externalKeys.get(moduleFilePath)?.keys ?? [])];
+    }
     const source = this.sources[moduleFilePath];
-    if (source === undefined || !isJsonObject(source)) return;
+    if (source === undefined || !isJsonObject(source)) return [];
     const keys: string[] = [];
     for (const [key, value] of Object.entries(source)) {
       if (Internal.isJson(value)) keys.push(key);
     }
-    await this.loadEntries(moduleFilePath, keys);
+    return keys;
   }
 
   /**
@@ -808,8 +1079,7 @@ export class SourceStore {
         continue;
       }
       const here = this.jsonEntries.get(moduleFilePath);
-      for (const [key, value] of Object.entries(source)) {
-        if (!Internal.isJson(value)) continue;
+      for (const key of this.lazyEntryKeys(moduleFilePath)) {
         if (here?.has(key) === true) continue;
         const message = this.entryFailures.get(entryKey(moduleFilePath, key));
         if (message !== undefined) {
@@ -870,8 +1140,7 @@ export class SourceStore {
       return false;
     }
     const loaded = this.jsonEntries.get(moduleFilePath);
-    for (const [key, value] of Object.entries(source)) {
-      if (!Internal.isJson(value)) continue;
+    for (const key of this.lazyEntryKeys(moduleFilePath)) {
       if (loaded?.has(key) !== true) return true;
     }
     return false;
@@ -1114,8 +1383,7 @@ export class SourceStore {
     let total = 0;
     let loaded = 0;
     let failed = 0;
-    for (const [key, value] of Object.entries(source)) {
-      if (!Internal.isJson(value)) continue;
+    for (const key of this.lazyEntryKeys(moduleFilePath)) {
       total++;
       if (here?.has(key) === true) {
         loaded++;
@@ -1139,6 +1407,16 @@ export class SourceStore {
     key: string,
   ): Promise<{ status: "ok" } | { status: "error"; message: string }> {
     this.entryFailures.delete(entryKey(moduleFilePath, key));
+    if (this.isExternalModule(moduleFilePath)) {
+      // The same road the first attempt took. Retrying down the `.jsonValues()`
+      // path would look for an import thunk the module does not have and report
+      // the row as permanently broken.
+      await this.loadExternalEntries(moduleFilePath, [key]);
+      const message = this.entryFailures.get(entryKey(moduleFilePath, key));
+      return message === undefined
+        ? { status: "ok" }
+        : { status: "error", message };
+    }
     return this.loadEntry(moduleFilePath, key);
   }
 
@@ -1740,6 +2018,9 @@ export class SourceStore {
     from: Map<ModuleFilePath, Map<string, Json>> = this.jsonEntries,
   ): Json {
     const entries = from.get(moduleFilePath);
+    if (this.isExternalModule(moduleFilePath)) {
+      return this.externalRecordSource(moduleFilePath, source, entries);
+    }
     if (entries === undefined || entries.size === 0) return source;
     if (!isJsonObject(source)) return source;
     const n = this.revisions.get(moduleFilePath) ?? 0;
@@ -1751,6 +2032,58 @@ export class SourceStore {
     const substituted = substituteJsonEntries(source, entries);
     this.substituted.set(source, { n, source: substituted });
     return substituted;
+  }
+
+  /**
+   * An external record's source, as every reader downstream needs to see it.
+   *
+   * The module's own source is the bare `c.external()` marker — the entries are
+   * in a store — so this builds the record the rest of the Studio expects: one
+   * property per KNOWN key, holding the loaded content, or the marker itself
+   * where the content has not arrived.
+   *
+   * Leaving the marker in place for an unloaded key is what makes the whole
+   * lazy-loading machinery work unchanged: `peek` already reports a marker as
+   * `entry-missing`, the field hooks already demand it, and the record list
+   * already renders a skeleton for it. Substituting `null` instead would say
+   * "this entry is empty", which is a different and wrong answer.
+   *
+   * Cached exactly as the jsonValues substitution is, and for the same reason:
+   * an uncached copy-on-write here makes `peek` of the record root answer with a
+   * new object on every read, and a `useSyncExternalStore` whose snapshot always
+   * changes re-renders until React gives up.
+   */
+  private externalRecordSource(
+    moduleFilePath: ModuleFilePath,
+    source: Json,
+    entries: Map<string, Json> | undefined,
+  ): Json {
+    const known = this.externalKeys.get(moduleFilePath);
+    if (known === undefined || known.keys.length === 0) {
+      // Nothing listed yet. The marker is the honest answer — an empty object
+      // would read as "this record has no entries".
+      return source;
+    }
+    // The cache is keyed on the source OBJECT, and an external record's source
+    // is the marker — which is an object, so this works exactly as it does for
+    // jsonValues. A non-object source is not something this can key on, and is
+    // not something an external record ever has.
+    if (!isJsonObject(source)) {
+      return source;
+    }
+    const n = this.revisions.get(moduleFilePath) ?? 0;
+    const cached = this.substituted.get(source);
+    if (cached !== undefined && cached.n === n) {
+      return cached.source;
+    }
+    this.activity.work("source:substitute-external-entries", moduleFilePath);
+    const built: Record<string, Json> = {};
+    for (const key of known.keys) {
+      const content = entries?.get(key);
+      built[key] = content === undefined ? source : content;
+    }
+    this.substituted.set(source, { n, source: built });
+    return built;
   }
 
   loadedModules(): ModuleFilePath[] {
@@ -2217,7 +2550,14 @@ function resolveAtModulePath(source: Json, modulePath: string): Resolved {
     // `.jsonValues()` is root-only, so the entry key is always the first segment
     // — which is why `i === 0` is a condition and not an assertion: a marker
     // found deeper is not an entry and this function cannot name its key.
-    if (i === 0 && i < parts.length - 1 && Internal.isJson(current)) {
+    if (
+      i === 0 &&
+      i < parts.length - 1 &&
+      // Two markers, one meaning. A `.jsonValues()` entry holds `{_type:"json"}`
+      // and an external one holds the record's own `{_type:"external"}`, and a
+      // path descending into either is asking for content that has not arrived.
+      (Internal.isJson(current) || Internal.isExternal(current))
+    ) {
       return { status: "needs-entry", key: part };
     }
   }

@@ -114,12 +114,19 @@ export function ArrayAndRecordTools({
   );
   const isParentFixedRoute =
     parentRoutePattern?.every((part) => part.type === "literal") || false;
+  const parentWritable =
+    !parentSchemaAtPath ||
+    parentSchemaAtPath.type !== "record" ||
+    (parentSchemaAtPath.external === undefined &&
+      parentSchemaAtPath.readonly !== true);
   const canParentDelete =
+    parentWritable &&
     // not a route - just a normal record so can delete:
-    !parentRoutePattern ||
-    // there are no dynamic route parts so we cannot delete
-    !isParentFixedRoute;
-  const canParentChange = !parentRoutePattern || !isParentFixedRoute;
+    (!parentRoutePattern ||
+      // there are no dynamic route parts so we cannot delete
+      !isParentFixedRoute);
+  const canParentChange =
+    parentWritable && (!parentRoutePattern || !isParentFixedRoute);
   /*
    * The copy needs a key of its own, and a fixed route has none to give: a
    * router whose pattern is all literals has exactly one URL, which is already
@@ -130,7 +137,25 @@ export function ArrayAndRecordTools({
 
   const isFixedRoute =
     routePattern?.every((part) => part.type === "literal") || false;
-  const canAdd = !routePattern || !isFixedRoute; // cannot add if this is a router and this has no dynamic route parts
+  /**
+   * Whether this record's entries live behind an adapter.
+   *
+   * External records are READ-ONLY for now: reading them works end to end, and
+   * writing them — publish, the two clocks, what happens when a commit lands
+   * before its build — is its own piece of work. Hiding the affordance is the
+   * honest version of that: an editor who cannot save must not be offered a
+   * button that says they can.
+   *
+   * `.readonly()` is folded in here too, which the popovers did not consult at
+   * all: a readonly record's add/delete buttons were live, and only the leaf
+   * inputs inside an entry were guarded.
+   */
+  const schemaHere = "data" in schemaAtPath ? schemaAtPath.data : undefined;
+  const isExternalRecord =
+    schemaHere?.type === "record" && schemaHere.external !== undefined;
+  const isReadonlyRecord = schemaHere?.readonly === true;
+  const writable = !isExternalRecord && !isReadonlyRecord;
+  const canAdd = writable && (!routePattern || !isFixedRoute); // cannot add if this is a router and this has no dynamic route parts
 
   // Determine if the parent is a router (for showing route references)
   const isParentRouter =
