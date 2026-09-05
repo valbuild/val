@@ -281,6 +281,48 @@ replayed against the entry's `*.val.json` instead — `classifyJsonValuesOp` +
 `import(...)` specifier in the `.val.ts`, not derived from the key: entries may be
 hand-placed, and deriving would write a file the module does not read.
 
+## External records
+
+**Three type-level details keep `s.record().external()` navigable, and all three
+fail silently.** The point of the feature is that a developer can click from
+`post.title` in a page, to `title: s.string()` in the schema, to the `title` the
+adapter's `get` returns. Nothing about that survives a green typecheck on its
+own, so `externalNavigation.test.ts` drives a real `ts.LanguageService` over a
+fixture and asserts the hops. What it is guarding:
+
+- **`ObjectSchemaSrcOf` and `JsonOf` must stay homomorphic mapped types**
+  (`{ [K in keyof T]: ... }` over a naked `T`). That is the only reason
+  TypeScript keeps a property's declaration link through them. Rewriting either
+  as a `Record<string, ...>`, or wrapping one in `Omit<>`, is behaviour-preserving
+  and kills every hop.
+- **`ok()` takes `NoInfer<T>`.** Without it, `T` is inferred from the argument, so
+  the literal in `ok({ a: { title } })` types itself rather than being checked
+  against the contract — and its `title` is then a fresh property that merely
+  shares a name. The cost of the fix is real and worth knowing: `ok(...)` written
+  where there is no contextual type (a helper with no return type annotation)
+  infers `unknown`, and fails at the use rather than at the call.
+- **The `Selector<T>` arm for `ExternalRecordSrc` must be `GenericSelector<T>`,
+  not `GenericSelector<ExternalRecordSrc>`.** The marker carries the item type,
+  the label and the readonly flag as phantom parameters; widening the arm throws
+  all three away, and the adapter contract silently becomes untypeable from the
+  schema.
+
+**The source marker cannot be a `SourceObject`.** `SourceObject` reserves
+`_type?: never`, and the marker's whole job is to carry `_type: "external"` — so
+`ExternalRecordSrc` is its own arm of the `Source` union. The knock-on: a
+`source is Record<string, Source>` predicate does NOT exclude it (the marker is
+structurally assignable), which is why `isRecordSource` narrows to `SourceObject`
+and checks `Internal.isExternal` explicitly. Both copies of that predicate — in
+`ReferenceStore.ts` and `customValidate.ts` — have to agree.
+
+**Entries written inline in an external module are legal at the type level.** As
+with `.remote()` and `.jsonValues()`, content must be movable between storage
+modes without the intermediate state failing to compile, so `c.define` accepts a
+plain record where the schema says external (`InlineEntriesFor`). Validation is
+what reports them, per key, as an `external:upload` fix — and that fix is
+deliberately NOT applied by a blanket `val validate --fix`, because applying it
+writes to a live store.
+
 ## Patches
 
 **`GET /patches` with no `patch_id` returns every patch.** The filter is applied

@@ -1,3 +1,4 @@
+import { ExternalRecordSrc } from "./external";
 import { JsonSource } from "./json";
 import { MediaSource } from "./media";
 import { RichTextOptions, RichTextSource } from "./richtext";
@@ -8,6 +9,7 @@ export type Source =
   | SourceArray
   | MediaSource
   | JsonSource
+  | ExternalRecordSrc
   | RichTextSource<RichTextOptions>;
 
 export type SourceObject = { [key in string]: Source } & {

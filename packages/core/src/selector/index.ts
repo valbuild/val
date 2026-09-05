@@ -12,6 +12,7 @@ import { MediaSource } from "../source/media";
 import { AllRichTextOptions, RichTextSource } from "../source/richtext";
 import { RichTextSelector } from "./richtext";
 import { JsonSource } from "../source/json";
+import { ExternalRecordSrc } from "../source/external";
 
 export type Selector<T extends Source> = Source extends T
   ? GenericSelector<T>
@@ -23,21 +24,31 @@ export type Selector<T extends Source> = Source extends T
     ? GenericSelector<T>
     : T extends JsonSource
       ? GenericSelector<JsonSource>
-      : T extends RichTextSource<infer O>
-        ? RichTextSelector<O>
-        : T extends SourceObject
-          ? ObjectSelector<T>
-          : T extends SourceArray
-            ? ArraySelector<T>
-            : T extends string
-              ? StringSelector<T>
-              : T extends number
-                ? NumberSelector<T>
-                : T extends boolean
-                  ? BooleanSelector<T>
-                  : T extends null
-                    ? PrimitiveSelector<null>
-                    : never;
+      : // An external record's entries are not reachable through a selector —
+        // they are fetched by key. The arm exists so the marker does not fall
+        // through to `SourceObject` and then to `never`.
+        //
+        // `GenericSelector<T>`, NOT `GenericSelector<ExternalRecordSrc>`: the
+        // marker's phantom parameters carry the item type, the label and the
+        // readonly flag, and widening here throws all three away — which leaves
+        // an adapter unable to be typed from the schema it is bound to.
+        T extends ExternalRecordSrc
+        ? GenericSelector<T>
+        : T extends RichTextSource<infer O>
+          ? RichTextSelector<O>
+          : T extends SourceObject
+            ? ObjectSelector<T>
+            : T extends SourceArray
+              ? ArraySelector<T>
+              : T extends string
+                ? StringSelector<T>
+                : T extends number
+                  ? NumberSelector<T>
+                  : T extends boolean
+                    ? BooleanSelector<T>
+                    : T extends null
+                      ? PrimitiveSelector<null>
+                      : never;
 
 export type SelectorSource =
   | SourcePrimitive
@@ -48,6 +59,7 @@ export type SelectorSource =
     }
   | MediaSource
   | JsonSource
+  | ExternalRecordSrc
   | RichTextSource<AllRichTextOptions>
   | GenericSelector<Source>;
 

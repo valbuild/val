@@ -15,7 +15,10 @@ export type {
   ContentConstructor,
 } from "./initVal";
 export { Schema, type SerializedSchema, type SelectorOfSchema } from "./schema";
-export { hasRemoteFileSchema } from "./schema/hasRemoteFileSchema";
+export {
+  hasRemoteFileSchema,
+  hasMediaSchema,
+} from "./schema/hasRemoteFileSchema";
 export type {
   ImageMetadata,
   ImageEncodeOption,
@@ -26,6 +29,13 @@ export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/media";
 export type { JsonSource, JsonOf, JsonImportThunk } from "./source/json";
+export type {
+  ExternalRecordSrc,
+  ExternalRecordWritableSrc,
+  ExternalItemOf,
+  ExternalLabelOf,
+  ExternalReadonlyOf,
+} from "./source/external";
 export type { RemoteRef } from "./source/remote";
 export { DEFAULT_VAL_REMOTE_HOST } from "./schema/remote";
 export type { RawString } from "./schema/string";
@@ -113,6 +123,12 @@ import {
 import { type ImageMetadata } from "./schema/image";
 import { type FileMetadata } from "./schema/file";
 import { isJson, getJsonImport, resolveJsonValues } from "./source/json";
+import { isExternal, hasInlineExternalEntries } from "./source/external";
+import {
+  createExternalFileRef,
+  splitExternalFileRef,
+  isExternalFileRef,
+} from "./source/externalRef";
 import { createRemoteRef } from "./source/remote";
 import {
   getValidationBasis,
@@ -259,6 +275,11 @@ const Internal = {
   isJson,
   getJsonImport,
   resolveJsonValues,
+  isExternal,
+  hasInlineExternalEntries,
+  createExternalFileRef,
+  splitExternalFileRef,
+  isExternalFileRef,
   createValPathOfItem,
   getSHA256Hash,
   initSchema,

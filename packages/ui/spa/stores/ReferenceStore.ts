@@ -4,6 +4,7 @@ import {
   type ModuleFilePath,
   type SerializedSchema,
   type Source,
+  type SourceObject,
   type SourcePath,
 } from "@valbuild/core";
 import { StoreBus } from "./StoreBus";
@@ -398,8 +399,19 @@ function fileRefOf(source: Source): string | null {
   return typeof ref === "string" ? ref : null;
 }
 
-function isRecordSource(source: Source): source is Record<string, Source> {
+/**
+ * A source object whose entries are actually here to be walked.
+ *
+ * Excludes the `c.external()` marker: an external record's entries live behind
+ * an adapter, so there is nothing local to walk and the marker carries no keys
+ * of its own. Every source-walking consumer needs this distinction, which is why
+ * the marker is on the SOURCE and not only on the schema.
+ */
+function isRecordSource(source: Source): source is SourceObject {
   return (
-    typeof source === "object" && source !== null && !Array.isArray(source)
+    typeof source === "object" &&
+    source !== null &&
+    !Array.isArray(source) &&
+    !Internal.isExternal(source)
   );
 }

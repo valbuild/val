@@ -196,6 +196,10 @@ function deserializeSchemaImpl(
         // The preview closure cannot survive serialization; the render can.
         null,
         serialized.render ?? null,
+        // The external label is static data, so it survives serialization and
+        // must be carried back: a deserialized schema that forgot it would walk
+        // an external record as if its entries were local.
+        serialized.external ?? null,
       );
     case "keyOf":
       return new KeyOfSchema(

@@ -9,6 +9,7 @@ import {
   Path,
 } from "./selector";
 import { Source } from "./source";
+import { ExternalRecordSrc } from "./source/external";
 import { ModuleFilePath, ModulePath, SourcePath } from "./val";
 import { ArraySchema, SerializedArraySchema } from "./schema/array";
 import { UnionSchema, SerializedUnionSchema } from "./schema/union";
@@ -46,10 +47,32 @@ export type ReplaceRawStringWithString<T extends SelectorSource> =
           ? ReplaceRawStringWithString<T[number]>[]
           : T;
 
+/**
+ * What may be WRITTEN as an external record's source, on top of the marker.
+ *
+ * Entries inline in the `.val.ts` are accepted on purpose — the same call
+ * `.jsonValues()` makes for the same reason: pasting content straight into the
+ * module is the natural first thing to write, and a type error there is a dead
+ * end, because the author cannot see what to write instead. Validation reports
+ * them as an `external:upload` fix, and they are readable at runtime meanwhile.
+ *
+ * Widened HERE rather than in the schema's own source type so that the MODULE
+ * stays typed on the marker alone. An adapter is bound to a module, and a module
+ * whose type were "marker or plain record" would be indistinguishable from an
+ * ordinary record — which would let `entry()` accept a module that is not
+ * external at all.
+ */
+type InlineEntriesFor<S> =
+  S extends ExternalRecordSrc<infer Item, string, boolean>
+    ? Record<string, Item>
+    : never;
+
 export function define<T extends Schema<SelectorSource>>(
   id: string, // TODO: `/${string}`
   schema: T,
-  source: ReplaceRawStringWithString<SelectorOfSchema<T>>,
+  source:
+    | ReplaceRawStringWithString<SelectorOfSchema<T>>
+    | InlineEntriesFor<SelectorOfSchema<T>>,
 ): ValModule<SelectorOfSchema<T>> {
   return {
     [GetSource]: source,

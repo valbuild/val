@@ -108,3 +108,83 @@ export function hasRemoteFileSchema(schema: SerializedSchema): boolean {
     throw new Error(`Unexpected schema: ${JSON.stringify(exhaustiveCheck)}`);
   }
 }
+
+/**
+ * Does this schema hold any media at all — remote or not?
+ *
+ * The sibling of {@link hasRemoteFileSchema}, and the same walk minus the
+ * `remote` predicate. It answers the question an external record has to ask
+ * before it will accept a binding: an item schema containing media needs a
+ * `putFile`/`getFile` pair, and without one that is a schema error.
+ *
+ * It is a walk over the SERIALIZED schema for the reasons given above, and for
+ * one more that is specific to this question: the two cases most likely to be
+ * missed are invisible to a value type. A media collection (`s.images()` /
+ * `s.files()`) serializes as a record of metadata with no image schema inside
+ * it, and a richtext inline image lives in a constructor argument. A check
+ * written against the item TYPE would silently pass both — and the gallery case
+ * already has a data-loss incident attached to it (see above).
+ */
+export function hasMediaSchema(schema: SerializedSchema): boolean {
+  if (schema.type === "file" || schema.type === "image") {
+    return true;
+  } else if (schema.type === "richtext") {
+    // `img` is `boolean | SerializedImageSchema`: `true` means inline images are
+    // allowed with the DEFAULT image schema, and is just as much media as a
+    // spelled-out one. `hasRemoteFileSchema` tests only for an object because a
+    // default image is not remote — a different question with a different
+    // answer, which is why these two walks are separate functions.
+    if (schema.options?.inline?.img) {
+      return true;
+    }
+    return false;
+  } else if (schema.type === "array") {
+    return hasMediaSchema(schema.item);
+  } else if (schema.type === "record") {
+    // A media collection names its file by the record's KEY, so there is no
+    // image schema inside to find: `mediaType` is where the answer is written.
+    if (schema.mediaType) {
+      return true;
+    }
+    return hasMediaSchema(schema.item);
+  } else if (schema.type === "object") {
+    for (const key in schema.items) {
+      if (hasMediaSchema(schema.items[key])) {
+        return true;
+      }
+    }
+    return false;
+  } else if (schema.type === "union") {
+    const unionObjectSchema =
+      typeof schema.key === "string"
+        ? (schema as SerializedObjectUnionSchema)
+        : undefined;
+    if (unionObjectSchema) {
+      for (const item of unionObjectSchema.items) {
+        if (hasMediaSchema(item)) {
+          return true;
+        }
+      }
+    }
+    // A string union's items are literals, so there is nothing to look inside.
+    return false;
+  } else if (
+    schema.type === "boolean" ||
+    schema.type === "number" ||
+    schema.type === "string" ||
+    schema.type === "literal" ||
+    schema.type === "date" ||
+    schema.type === "dateTime" ||
+    schema.type === "color" ||
+    schema.type === "code" ||
+    schema.type === "keyOf" ||
+    schema.type === "route"
+  ) {
+    return false;
+  } else {
+    // Same contract as above: adding a schema type without teaching this
+    // function about it must not compile.
+    const exhaustiveCheck: never = schema;
+    throw new Error(`Unexpected schema: ${JSON.stringify(exhaustiveCheck)}`);
+  }
+}
