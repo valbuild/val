@@ -113,18 +113,23 @@ describe("Schema.readonly()", () => {
   });
 
   test("readonly(false) serializes across schema types", () => {
-    expect(s.number().readonly(false)["executeSerialize"]().readonly).toBe(
-      false,
-    );
     expect(
-      s.array(s.string()).readonly(false)["executeSerialize"]().readonly,
+      s.number().readonly().readonly(false)["executeSerialize"]().readonly,
     ).toBe(false);
     expect(
-      s.object({ a: s.string() }).readonly(false)["executeSerialize"]()
+      s.array(s.string()).readonly().readonly(false)["executeSerialize"]()
         .readonly,
     ).toBe(false);
     expect(
-      s.record(s.string()).readonly(false)["executeSerialize"]().readonly,
+      s
+        .object({ a: s.string() })
+        .readonly()
+        .readonly(false)
+        ["executeSerialize"]().readonly,
+    ).toBe(false);
+    expect(
+      s.record(s.string()).readonly().readonly(false)["executeSerialize"]()
+        .readonly,
     ).toBe(false);
   });
 });

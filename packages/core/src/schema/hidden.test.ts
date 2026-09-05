@@ -118,15 +118,18 @@ describe("Schema.hidden()", () => {
   });
 
   test("hidden(false) serializes across schema types", () => {
-    expect(s.number().hidden(false)["executeSerialize"]().hidden).toBe(false);
-    expect(s.array(s.string()).hidden(false)["executeSerialize"]().hidden).toBe(
+    expect(s.number().hidden().hidden(false)["executeSerialize"]().hidden).toBe(
       false,
     );
     expect(
-      s.object({ a: s.string() }).hidden(false)["executeSerialize"]().hidden,
+      s.array(s.string()).hidden().hidden(false)["executeSerialize"]().hidden,
     ).toBe(false);
     expect(
-      s.record(s.string()).hidden(false)["executeSerialize"]().hidden,
+      s.object({ a: s.string() }).hidden().hidden(false)["executeSerialize"]()
+        .hidden,
+    ).toBe(false);
+    expect(
+      s.record(s.string()).hidden().hidden(false)["executeSerialize"]().hidden,
     ).toBe(false);
   });
 });
