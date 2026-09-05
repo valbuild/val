@@ -17,9 +17,6 @@ import { openStudio, test } from "./studio";
  */
 const POST = "/val/~/app/blogs/[blog]/page.val.ts?p=%22%2Fblogs%2Fblog1%22";
 
-/** The green in `--border-focus`, as Chromium reports it. */
-const FOCUS_RING = "rgb(71, 205, 137) 0px 0px 0px 2px inset";
-
 test.describe("the combobox search field's focus ring", () => {
   test("is drawn on the row, edge to edge, and not on the input inside it", async ({
     page,
@@ -55,7 +52,19 @@ test.describe("the combobox search field's focus ring", () => {
         const r = el.getBoundingClientRect();
         return { left: r.left, right: r.right };
       };
+      // `--border-focus` is a different green in light mode and in dark, so the
+      // colour is read from the token rather than written down here - a literal
+      // would pin one theme and fail on the other for a reason that has nothing
+      // to do with where the ring is. Painted onto a probe because a computed
+      // `color` is always normalised to `rgb(...)`, which is the form
+      // `box-shadow` reports.
+      const probe = document.createElement("span");
+      probe.style.color = "var(--border-focus)";
+      row.appendChild(probe);
+      const focusColor = getComputedStyle(probe).color;
+      probe.remove();
       return {
+        focusColor,
         box: edges(box),
         row: edges(row),
         input: edges(input),
@@ -70,9 +79,13 @@ test.describe("the combobox search field's focus ring", () => {
     if (measured === null) return;
 
     expect(
+      measured.focusColor,
+      "`--border-focus` did not resolve to a colour",
+    ).toMatch(/^rgba?\(/);
+    expect(
       measured.rowShadow,
       "the ring is not painted on the search row",
-    ).toContain(FOCUS_RING);
+    ).toContain(`${measured.focusColor} 0px 0px 0px 2px inset`);
     expect(
       measured.inputShadow,
       "the ring is still on the input, which is narrower than the box",
