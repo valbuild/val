@@ -20,7 +20,12 @@ import type { ExternalRecords } from "./externalRecords";
  * correctly setup" naming the module, exactly as a nested `.jsonValues()` does.
  */
 
-/** Same shape as `ModulesError` in `ValOps`, without the import cycle. */
+/**
+ * Same shape as `ModulesError` in `ValOps`, without the import cycle.
+ *
+ * Warnings carry it too — what separates the two is which array they come back
+ * in and what the caller does with them, not their shape.
+ */
 export type ExternalSetupError = { path: ModuleFilePath; message: string };
 
 /**
@@ -84,12 +89,17 @@ export function rootExternalLabel(
  * `records` being undefined means the project registered nothing at all, which
  * is only an error if some module expects an adapter — a project with no
  * external records must not be told to configure something it does not use.
+ *
+ * Errors block the module, as a nested `.jsonValues()` does. Warnings are
+ * logged and nothing else: they describe a setup that works today and will fail
+ * on a big enough file, which is not something to refuse to boot over.
  */
 export function checkExternalSetup(
   schemas: Record<ModuleFilePath, SerializedSchema>,
   records: ExternalRecords | undefined,
-): ExternalSetupError[] {
+): { errors: ExternalSetupError[]; warnings: ExternalSetupError[] } {
   const errors: ExternalSetupError[] = [];
+  const warnings: ExternalSetupError[] = [];
   const boundLabels = new Set<string>();
 
   for (const moduleFilePathS of Object.keys(schemas)) {
@@ -121,21 +131,32 @@ export function checkExternalSetup(
     boundLabels.add(label);
     // Media is required by the item SCHEMA, not by the adapter type — a gallery
     // stores its files under keys the type system never sees, and an inline
-    // richtext image lives in a constructor argument. So the pair is checked
-    // here, where both halves are in hand.
+    // richtext image lives in a constructor argument. So it is checked here,
+    // where both halves are in hand.
+    //
+    // Only presence is checked: the `files` union already guarantees that
+    // whichever arm is chosen carries both a write path and a read path, so
+    // "stores bytes nowhere" and "serves bytes from nowhere" are states this
+    // type cannot express.
     if (hasMediaSchema(schema)) {
-      const missing: string[] = [];
-      if (typeof binding.adapter.putFile !== "function") {
-        missing.push("putFile");
-      }
-      if (typeof binding.adapter.getFile !== "function") {
-        missing.push("getFile");
-      }
-      if (missing.length > 0) {
+      const files = binding.adapter.files;
+      if (files === undefined) {
         errors.push({
           path: moduleFilePath,
-          message: `${moduleFilePath} stores images or files, but the adapter for '${label}' has no ${missing.join(" and no ")}. An external record whose items hold media must be able to store and serve the bytes: without ${missing.length === 2 ? "them" : "it"} an upload would be written nowhere and the reference would point at nothing.`,
+          message: `${moduleFilePath} stores images or files, but the adapter for '${label}' has no 'files'. An external record whose items hold media must say where the bytes go: add files: { type: "bytes", put, get } to route them through this server, or files: { type: "presigned", signUpload, url } to upload them directly to your store.`,
         });
+      } else if (files.type === "bytes") {
+        const platform = bodyLimitedPlatform();
+        if (platform !== undefined) {
+          // A warning, not an error. An adapter whose record only ever holds
+          // small files is not wrong, and Val cannot know that it does not.
+          // What it can do is say so at boot, naming the platform and the
+          // limit, rather than let an editor find out from a failed upload.
+          warnings.push({
+            path: moduleFilePath,
+            message: `${moduleFilePath} stores images or files and the adapter for '${label}' is files.type "bytes", which routes every byte through this server. This looks like a ${platform.name} deployment, where a request body is capped at ${platform.limit} — a larger upload will fail, and so will reading one back. Use files: { type: "presigned", signUpload, url } to upload directly to your store.`,
+          });
+        }
       }
     }
     if (binding.moduleFilePath !== moduleFilePath) {
@@ -161,5 +182,39 @@ export function checkExternalSetup(
     });
   }
 
-  return errors;
+  return { errors, warnings };
+}
+
+/**
+ * The deployment platform's request body cap, if this looks like one that has
+ * one.
+ *
+ * Environment variables rather than configuration, because the developer should
+ * not have to tell Val where it is running — and because the answer is only
+ * used to decide whether to say something. A false negative costs a warning
+ * nobody got; a false positive costs a warning that names a platform this is
+ * not, which is why the check is a set of vendor-set variables rather than a
+ * guess.
+ *
+ * The response side has the same ceiling on all of these, which is why the
+ * warning mentions reading a file back as well as writing one.
+ */
+function bodyLimitedPlatform(): { name: string; limit: string } | undefined {
+  const env = typeof process === "undefined" ? undefined : process.env;
+  if (env === undefined) {
+    return undefined;
+  }
+  if (env.VERCEL) {
+    return { name: "Vercel", limit: "4.5 MB" };
+  }
+  if (env.NETLIFY) {
+    return { name: "Netlify", limit: "6 MB" };
+  }
+  if (env.CF_PAGES) {
+    return { name: "Cloudflare Pages", limit: "100 MB" };
+  }
+  if (env.AWS_LAMBDA_FUNCTION_NAME) {
+    return { name: "AWS Lambda", limit: "6 MB" };
+  }
+  return undefined;
 }

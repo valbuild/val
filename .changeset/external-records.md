@@ -74,8 +74,13 @@ an editor has just typed or deleted.
   `around` and repeat the single call where you do not; a thrown error is never
   retried.
 - `s.images()`, `s.files()` and `s.router()` are all records, so they take
-  `.external()` too. A media record requires `putFile` and `getFile`, checked at
-  startup.
+  `.external()` too. A media record declares one `files` strategy, checked at
+  startup: `{ type: "bytes", put, get }` routes bytes through your server, which
+  is right for local development and anywhere without a request body limit;
+  `{ type: "presigned", signUpload, url }` has your store take them directly, and
+  is what you want on Vercel, Netlify or Lambda. Choose `bytes` and deploy
+  somewhere that caps request bodies and Val says so at startup, naming the
+  platform and the limit.
 - Entries written inline in the `.val.ts` still compile — that is how content
   moves into a store — and `val validate` reports each as an `external:upload`
   fix. A blanket `val validate --fix` will not apply it, because applying it

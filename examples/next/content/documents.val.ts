@@ -5,9 +5,9 @@ import { c, s } from "../val.config";
  *
  * `s.files()` is a `RecordSchema` with media options, so it gets external
  * storage from the same `.external()` as any other record. What it adds is the
- * requirement that the adapter implement `putFile` and `getFile`: a gallery's
- * files are named by the record's KEY, so there is no image schema inside the
- * item to notice, and the check is made against the schema at startup instead.
+ * requirement that the adapter declare a `files` strategy: a gallery's files are
+ * named by the record's KEY, so there is no image schema inside the item to
+ * notice, and the check is made against the schema at startup instead.
  *
  * `directory` stays required. The path is virtual once the bytes are in a store,
  * but it is the file's identity — it travels inside the reference, exactly as it

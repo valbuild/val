@@ -490,14 +490,20 @@ export class ExternalStore {
       return this.notBound(moduleFilePath);
     }
     return this.scope(binding, opts, async (invoke, adapter) => {
-      const getFile = adapter.getFile;
-      if (getFile === undefined) {
+      // `presigned` may decline to serve bytes at all — a store the browser can
+      // reach and the app cannot is legitimate — so the absence is reported as
+      // its own thing rather than as a misconfiguration.
+      const get = adapter.files?.get;
+      if (get === undefined) {
         throw new ExternalOpFailure({
-          message: `The adapter for '${binding.label}' stores media but has no getFile`,
+          message:
+            adapter.files === undefined
+              ? `The adapter for '${binding.label}' stores media but has no files`
+              : `The adapter for '${binding.label}' has files.type "${adapter.files.type}" with no get: it cannot hand back bytes, only a URL`,
           retryable: false,
         });
       }
-      return invoke((ctx) => getFile(path, ctx));
+      return invoke((ctx) => get(path, ctx));
     });
   }
 }

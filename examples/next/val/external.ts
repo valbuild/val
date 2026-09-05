@@ -279,31 +279,39 @@ export default modules({
     },
 
     /**
-     * Stores the bytes at the path VAL chose.
+     * Where this record's bytes live.
      *
-     * The path is an input, not something to invent: the stored reference embeds
-     * it, so the same bytes get the same name under every storage mode and a
-     * gallery can be moved back to local files by writing them where the
-     * reference already says they belong.
-     *
-     * Idempotent on the content hash, so a replayed publish re-uses rather than
+     * `put` stores them at the path VAL chose — an input, not something to
+     * invent: the stored reference embeds it, so the same bytes get the same
+     * name under every storage mode and a gallery can be moved back to local
+     * files by writing them where the reference already says they belong. It is
+     * idempotent on the content hash, so a replayed publish re-uses rather than
      * duplicating.
      */
-    putFile: async (file, { tx }) => {
-      tx.db
-        .prepare(
-          `INSERT INTO document_bytes (path, sha256, bytes) VALUES (?, ?, ?)
-           ON CONFLICT(path) DO UPDATE SET sha256 = excluded.sha256, bytes = excluded.bytes`,
-        )
-        .run(file.path, file.sha256, file.bytes);
-      return ok({ data: { storedAt: file.path } });
-    },
+    files: {
+      // "bytes" because the store is a blob column: there is no URL to sign,
+      // and this example runs on a local dev server, where routing bytes
+      // through it costs nothing. An adapter backed by S3 would be
+      // `type: "presigned"` instead — see the startup warning in
+      // externalStartup.ts, which says so on a host that caps request bodies.
+      type: "bytes",
 
-    getFile: async (path, { tx }) => {
-      const row = tx.db
-        .prepare("SELECT bytes FROM document_bytes WHERE path = ?")
-        .get(path) as { bytes: Uint8Array } | undefined;
-      return ok(row ? new Uint8Array(row.bytes) : null);
+      put: async (file, { tx }) => {
+        tx.db
+          .prepare(
+            `INSERT INTO document_bytes (path, sha256, bytes) VALUES (?, ?, ?)
+             ON CONFLICT(path) DO UPDATE SET sha256 = excluded.sha256, bytes = excluded.bytes`,
+          )
+          .run(file.path, file.sha256, file.bytes);
+        return ok({ data: { storedAt: file.path } });
+      },
+
+      get: async (path, { tx }) => {
+        const row = tx.db
+          .prepare("SELECT bytes FROM document_bytes WHERE path = ?")
+          .get(path) as { bytes: Uint8Array } | undefined;
+        return ok(row ? new Uint8Array(row.bytes) : null);
+      },
     },
   }),
 });

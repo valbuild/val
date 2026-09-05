@@ -28,8 +28,11 @@ import type {
  * - **Derived** — `count`, `search`. Computable from the read methods, so
  *   omitting one costs performance, never capability. `false` declines the
  *   fallback; that is the only thing `false` ever means here.
- * - **Media** — `putFile`, `getFile`. A pair, and required by the item SCHEMA
- *   rather than by this type (see `hasMediaSchema`).
+ * - **Media** — one `files` field holding a tagged union, required by the item
+ *   SCHEMA rather than by this type (see `hasMediaSchema`). A union rather than
+ *   a bag of optional methods so that a write path without its read path is
+ *   unrepresentable, and so the discriminant can be read at startup without
+ *   calling anything.
  */
 
 // #region result
@@ -226,9 +229,113 @@ export type ExternalFile = {
   bytes: Uint8Array;
   filename: string;
   mimeType: string;
-  /** Content address. Make `putFile` idempotent on it, so a retry re-uses. */
+  /** Content address. Make the write idempotent on it, so a retry re-uses. */
   sha256: string;
 };
+
+/**
+ * What Val knows about a file it is about to have uploaded, when it will not be
+ * carrying the bytes itself.
+ *
+ * The same fields as `ExternalFile` minus `bytes`, plus `size` — because the
+ * signature is the only place a limit can be enforced once Val is out of the
+ * path, and a signer that cannot see the bytes still needs to be able to refuse
+ * a 4 GB one.
+ */
+export type ExternalUploadRequest = Omit<ExternalFile, "bytes"> & {
+  size: number;
+};
+
+/**
+ * Permission to write one file, in the shape the object stores actually want.
+ *
+ * S3 and R2 presigned PUTs need a URL and headers; an S3 POST policy needs form
+ * fields sent before the file; GCS signed URLs are a PUT; Azure wants a SAS URL
+ * plus `x-ms-blob-type`; Cloudinary and Uploadcare are POSTs with a signature in
+ * the fields. One shape covers all of them, and an adapter needing none of the
+ * optional parts returns a URL.
+ */
+export type ExternalUploadAuthorization = {
+  url: string;
+  /** Default `"PUT"`. */
+  method?: "PUT" | "POST";
+  headers?: Record<string, string>;
+  /** A POST policy's form fields, sent before the file. */
+  fields?: Record<string, string>;
+  /** Where the bytes go in a POST. Default `"file"`. */
+  fileField?: string;
+  /** Val will not reuse the signature past this. */
+  expiresAt?: string;
+  /** → `ctx.uploads[path].data` on the `put` that follows. */
+  data?: Json;
+};
+
+/**
+ * How this record's media is stored, as a tagged union.
+ *
+ * The choice is driven by one question — **does the host cap request bodies?**
+ * Vercel, Netlify, Lambda and Cloudflare Pages do; a VPS, Docker, Fly and a
+ * self-hosted Node server do not. `checkExternalSetup` reads `type` at startup
+ * and says so, to the people it concerns and nobody else.
+ *
+ * A union rather than four optional sibling methods because it makes the two
+ * mistakes unrepresentable: a write path without a read path, and a pair drawn
+ * from different strategies.
+ */
+export type ExternalFiles<Tx> =
+  | {
+      /**
+       * Val hands the adapter the bytes and asks for them back.
+       *
+       * Right for local development (always), a self-hosted server, a blob
+       * column, and a store on a private network the browser cannot reach.
+       * Every byte passes through `/api/val/…`, so on a host that caps request
+       * bodies this fails for a large file — in both directions.
+       */
+      type: "bytes";
+      /** Stores bytes at the path Val chose. Idempotent on `sha256`. */
+      put(
+        file: ExternalFile,
+        ctx: ExternalCtx<Tx>,
+      ): Promise<Returns<{ data?: Json }>>;
+      /** Reads them back. If an adapter can store bytes it must return them. */
+      get(
+        path: string,
+        ctx: ExternalCtx<Tx>,
+      ): Promise<Returns<Uint8Array | null>>;
+    }
+  | {
+      /**
+       * Val never holds the bytes: the adapter authorises an upload, and
+       * resolves a URL to read one back.
+       *
+       * No size ceiling in either direction, and a published read never touches
+       * the app server. The right answer for S3, R2, GCS, Azure, Cloudinary and
+       * anything with a CDN in front of it.
+       */
+      type: "presigned";
+      signUpload(
+        request: ExternalUploadRequest,
+        ctx: ExternalCtx<Tx>,
+      ): Promise<Returns<ExternalUploadAuthorization>>;
+      /**
+       * Where a published file is served from — a public CDN URL, or a signed
+       * GET. `null` means this path holds nothing.
+       */
+      url(
+        path: string,
+        ctx: ExternalCtx<Tx>,
+      ): Promise<Returns<{ url: string; expiresAt?: string } | null>>;
+      /**
+       * Bytes through the server anyway, for the callers that need them rather
+       * than a URL — `val validate` reading a file to check it, for one.
+       * Optional because a store the app itself cannot read is legitimate.
+       */
+      get?(
+        path: string,
+        ctx: ExternalCtx<Tx>,
+      ): Promise<Returns<Uint8Array | null>>;
+    };
 
 // #endregion
 
@@ -261,7 +368,8 @@ type WriteMethods<Item, Tx> = {
     entries: Record<string, Item>,
     ctx: ExternalCtx<Tx> & {
       /**
-       * What `putFile` returned, keyed by the path it was given.
+       * What the media write returned — `files.put`, or `files.signUpload` —
+       * keyed by the path it was given.
        *
        * Path rather than sha256 because the entry references its file by path
        * and carries no hash — keying by hash would need a second map. The sha is
@@ -332,17 +440,12 @@ type OptionalMethods<Item, Tx> = {
    */
   version?(ctx: ExternalCtx<Tx>): Promise<Returns<string>>;
 
-  /** Stores bytes at the path Val chose. Paired with `getFile`. */
-  putFile?(
-    file: ExternalFile,
-    ctx: ExternalCtx<Tx>,
-  ): Promise<Returns<{ data?: Json }>>;
-
-  /** Reads them back. If an adapter can store bytes it must return them. */
-  getFile?(
-    path: string,
-    ctx: ExternalCtx<Tx>,
-  ): Promise<Returns<Uint8Array | null>>;
+  /**
+   * How this record's media is stored. Required when the item schema holds an
+   * image or a file, which is checked against the SCHEMA at startup rather than
+   * here — a gallery stores files under keys this type never sees.
+   */
+  files?: ExternalFiles<Tx>;
 };
 
 /** The item type an external module's entries hold, loosened as JSON allows. */

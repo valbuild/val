@@ -167,7 +167,14 @@ function findExternalModuleErrors(
   // `external` being undefined is not short-circuited: a project that declares
   // .external() modules and registers nothing is precisely the case worth
   // reporting, and checkExternalSetup says nothing about a project with none.
-  return checkExternalSetup(serialized, external);
+  const { errors, warnings } = checkExternalSetup(serialized, external);
+  for (const warning of warnings) {
+    // Logged rather than returned: a warning describes a setup that works and
+    // will fail on a big enough file, and returning it here would surface it as
+    // "Val is not correctly setup" and block the module.
+    console.warn(`Val: ${warning.message}`);
+  }
+  return errors;
 }
 
 export type ValOpsOptions = {
