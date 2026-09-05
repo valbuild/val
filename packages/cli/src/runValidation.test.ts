@@ -878,4 +878,105 @@ describe("runValidation", () => {
       expect(events.at(-1)).not.toEqual({ type: "summary-success" });
     });
   });
+
+  describe("settings modules", () => {
+    /**
+     * Writes a settings module into the fixture and registers it.
+     *
+     * Written by the test rather than kept as a fixture file: "one settings
+     * module, at the root" is a rule about the whole project, so a permanent
+     * broken fixture would be a rule the fixture project is always breaking.
+     */
+    const addSettingsModule = (moduleFilePath: string) => {
+      const relative = moduleFilePath.slice(1);
+      const upToRoot = "../".repeat(relative.split("/").length - 1) || "./";
+      fs.mkdirSync(path.dirname(path.join(tmpDir, relative)), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(tmpDir, relative),
+        [
+          `import { s, c } from "${upToRoot}val.config";`,
+          `export default c.define("${moduleFilePath}", s.settings(), {});`,
+          "",
+        ].join("\n"),
+      );
+      const valModulesPath = path.join(tmpDir, "val.modules.ts");
+      const registration = `  { def: () => import("./${relative.replace(
+        /\.ts$/,
+        "",
+      )}") },\n]);`;
+      fs.writeFileSync(
+        valModulesPath,
+        fs
+          .readFileSync(valModulesPath, "utf8")
+          .replace(/\]\);\s*$/, registration),
+      );
+    };
+
+    const runOn = async (valFiles: string[]) => {
+      const events: ValidationEvent[] = [];
+      for await (const event of runValidation({
+        root: tmpDir,
+        fix: false,
+        valFiles,
+        project: undefined,
+        remote: mockRemote,
+        fs: createDefaultValFSHost(),
+      })) {
+        events.push(event);
+      }
+      return events;
+    };
+
+    test("a settings module at the root is valid", async () => {
+      addSettingsModule("/settings.val.ts");
+
+      expect((await runOn(["settings.val.ts"])).at(-1)).toEqual({
+        type: "summary-success",
+      });
+    });
+
+    test("rejects a settings module in a subdirectory", async () => {
+      addSettingsModule("/content/settings.val.ts");
+
+      const events = await runOn(["content/settings.val.ts"]);
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "fatal-error",
+            message: expect.stringContaining(
+              "Settings must be defined at the root of the content tree",
+            ),
+          }),
+        ]),
+      );
+      expect(events.at(-1)).not.toEqual({ type: "summary-success" });
+    });
+
+    test("rejects a second settings module, naming both", async () => {
+      addSettingsModule("/settings.val.ts");
+      addSettingsModule("/config.val.ts");
+
+      const events = await runOn(["settings.val.ts", "config.val.ts"]);
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "fatal-error",
+            file: "/settings.val.ts",
+            message: expect.stringContaining(
+              "A project can only define settings once",
+            ),
+          }),
+          expect.objectContaining({
+            type: "fatal-error",
+            file: "/config.val.ts",
+          }),
+        ]),
+      );
+      expect(events.at(-1)).not.toEqual({ type: "summary-success" });
+    });
+  });
 });

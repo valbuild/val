@@ -60,6 +60,7 @@ import { ValOverlayEmitter } from "../stores/react/ValOverlayEmitter";
 import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
 import { AIChatActionsProvider } from "./AIChatActionsContext";
+import { useAssistantAvailabilityOf } from "../hooks/useAssistantAvailability";
 import {
   useAIWebSocket,
   type AIMessageHandler,
@@ -266,19 +267,23 @@ export function ValProvider({
 
   const isStatConnected = "data" in stat && !!stat.data;
   /**
-   * Whether to open the AI socket.
+   * Whether to open the AI socket: whenever there is a project to open it for.
    *
-   * Two things need it now, not one. Commit summaries moved onto this socket, so
-   * gating it on experimental chat alone would have silently taken AI summaries
-   * away from every project that had them without opting into the chat — the
-   * chat flag is about the panel, not about whether AI exists.
+   * It used to ask the config whether either AI feature was wanted. It cannot
+   * ask that any more, and should not: whether the ASSISTANT is on is now the
+   * project's own content (`s.settings()`, `assistant.enabled`), which lives in
+   * the
+   * store this component builds below — and the old question had a false
+   * negative in it anyway, since a project that had disabled commit summaries
+   * and enabled the chat got no socket at all.
+   *
+   * Nothing is lost by opening it: the socket's job is to report what is
+   * reachable, and a project with no key gets `availableModel: null`, which is
+   * what turns both features off downstream. Commit summaries still honour
+   * `config.ai.commitMessages.disabled`, and the chat still honours settings —
+   * each where it is used, rather than here.
    */
-  const wsEnabled =
-    isStatConnected &&
-    ("data" in stat && stat.data
-      ? stat.data.config?.ai?.chat?.experimental?.enable === true ||
-        stat.data.config?.ai?.commitMessages?.disabled !== true
-      : false);
+  const wsEnabled = isStatConnected;
   const {
     subscribeToMessages: subscribeToWsMessages,
     send: sendWsMessage,
@@ -505,6 +510,16 @@ export function ValProvider({
       }),
     [client, getDirectFileUploadSettings],
   );
+
+  /**
+   * Whether this project has an assistant, from its settings module.
+   *
+   * Read off the stores directly rather than through `useAssistantAvailability`,
+   * because this component BUILDS the system and mounts the provider that
+   * carries the answer ABOVE the one that puts the system in context. The
+   * subscriptions are the same ones every other reader gets.
+   */
+  const assistant = useAssistantAvailabilityOf(system);
   useEffect(() => {
     if (statMode === "fs" || statMode === "http") {
       system.setMode(statMode);
@@ -787,8 +802,19 @@ export function ValProvider({
           anything yet.
         */}
         <AIChatActionsProvider
-          isAIChatEnabled={wsEnabled}
-          isAIChatOnline={wsEnabled && isWsConnected}
+          /*
+           * Shown unless the project has turned it off. An assistant nobody has
+           * decided about is still offered: the panel is where the offer is
+           * made, so hiding it would leave no way to accept.
+           */
+          isAIChatEnabled={wsEnabled && assistant !== "off"}
+          /*
+           * "Online" is stricter, and deliberately: it is what decides whether
+           * an affordance that needs a LIVE conversation is offered (mentioning
+           * a field, chiefly), and an unconfigured assistant cannot take a
+           * message until someone has said yes.
+           */
+          isAIChatOnline={wsEnabled && isWsConnected && assistant === "on"}
         >
           {theme !== undefined && setTheme ? (
             <ValThemeProvider
@@ -2031,6 +2057,14 @@ type EnsureAllTypes<T extends Record<SerializedSchema["type"], unknown>> = T;
 export type ShallowSource = EnsureAllTypes<{
   array: SourcePath[];
   object: Record<string, SourcePath>;
+  /**
+   * The sections a settings module actually has, keyed by name.
+   *
+   * Shaped like an object's, and for the same reason — but only the keys that
+   * are PRESENT appear, which is how a caller tells an unset section from a set
+   * one: every settings key is optional.
+   */
+  settings: Record<string, SourcePath>;
   record: Record<string, SourcePath>;
   union: string | Record<string, SourcePath>;
   boolean: boolean;
@@ -2713,7 +2747,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     return { status: "success", data: null };
   }
   const type: SerializedSchema["type"] = schemaType;
-  if (type === "object" || type === "record") {
+  if (type === "object" || type === "record" || type === "settings") {
     if (typeof source !== "object") {
       return {
         status: "error",
@@ -2726,7 +2760,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
         error: `Expected object, got array`,
       };
     }
-    const data: ShallowSource["object" | "record"] = {};
+    const data: ShallowSource["object" | "record" | "settings"] = {};
     for (const key of Object.keys(source)) {
       data[key] = concatModulePath(moduleFilePath, modulePath, key);
     }

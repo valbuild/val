@@ -5,6 +5,7 @@ import {
   SerializedObjectSchema,
   SerializedRecordSchema,
   SerializedSchema,
+  SerializedSettingsSchema,
   SerializedUnionSchema,
   Source,
   SourcePath,
@@ -17,6 +18,7 @@ export type LeafSerializedSchema = Exclude<
   | SerializedArraySchema
   | SerializedUnionSchema
   | SerializedRecordSchema
+  | SerializedSettingsSchema
 >;
 
 export type LeafVisitor = (
@@ -45,7 +47,14 @@ export function traverseSchemas(
       console.error(`Schema not found for ${sourcePath}`);
       return;
     }
-    if (schema.type === "object" || schema.type === "record") {
+    if (
+      schema.type === "object" ||
+      schema.type === "record" ||
+      // Settings holds its sections like an object holds its keys, and this
+      // walk starts from the SOURCE, so an absent section is simply not
+      // visited — which is what an absent settings key means.
+      schema.type === "settings"
+    ) {
       if (isObjectOrRecordSource(source)) {
         for (const key in source) {
           if (key === "patch_id") {
@@ -54,7 +63,7 @@ export function traverseSchemas(
           // NOTE: for object we are uncertain if we should use the source or the schema to get the keys. Currently we use the schema.items in other places, but source is more correct perhaps? Or perhaps not? We are not sure...
           const sourceValue = (source as Record<string, Source>)[key];
           const schemaValue =
-            schema.type === "object" ? schema.items?.[key] : schema.item;
+            schema.type === "record" ? schema.item : schema.items?.[key];
           if (sourceValue !== undefined) {
             go(sourcePathOfChild(sourcePath, key), schemaValue, sourceValue);
           }

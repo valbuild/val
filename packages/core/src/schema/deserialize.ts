@@ -18,6 +18,7 @@ import { ObjectSchema } from "./object";
 import { RecordSchema } from "./record";
 import { RichTextSchema } from "./richtext";
 import { RouteSchema } from "./route";
+import { SettingsSchema } from "./settings";
 import { StringSchema } from "./string";
 import { UnionSchema } from "./union";
 
@@ -105,6 +106,18 @@ function deserializeSchemaImpl(
         false,
         serialized.description,
         serialized.render ?? null,
+      );
+    case "settings":
+      return new SettingsSchema(
+        Object.fromEntries(
+          Object.entries(serialized.items).map(([key, item]) => {
+            return [key, deserializeSchema(item)];
+          }),
+        ),
+        serialized.opt,
+        false,
+        false,
+        serialized.description,
       );
     case "array":
       return new ArraySchema(

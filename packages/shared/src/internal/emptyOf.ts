@@ -60,6 +60,11 @@ export function emptyOf(schema: SerializedSchema): Json {
     return [];
   } else if (schema.type === "record") {
     return {};
+  } else if (schema.type === "settings") {
+    // Not an object of empty sections: every settings key is optional, and
+    // absent IS the empty value. Filling the sections in would write a shape
+    // the project never asked for.
+    return {};
   } else if (schema.opt) {
     return null;
   } else if (schema.type === "richtext") {

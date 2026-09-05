@@ -18,6 +18,7 @@ import { SerializedColorSchema } from "./color";
 import { SerializedDateSchema } from "./date";
 import { SerializedDateTimeSchema } from "./datetime";
 import { SerializedRouteSchema } from "./route";
+import { SerializedSettingsSchema } from "./settings";
 import {
   ValidationError,
   ValidationErrors,
@@ -47,6 +48,7 @@ export type SerializedSchema =
   | SerializedColorSchema
   | SerializedCodeSchema
   | SerializedRouteSchema
+  | SerializedSettingsSchema
   | SerializedImageSchema;
 
 type Primitives = number | string | boolean | null | FileSource;

@@ -60,7 +60,10 @@ export function hasRemoteFileSchema(schema: SerializedSchema): boolean {
       return true;
     }
     return hasRemoteFileSchema(schema.item);
-  } else if (schema.type === "object") {
+  } else if (schema.type === "object" || schema.type === "settings") {
+    // Settings holds its sections the way an object holds its keys, so looking
+    // inside is the same walk. Nothing in settings takes a file today, but the
+    // answer should stay right when something does.
     for (const key in schema.items) {
       const hasRemoteFile = hasRemoteFileSchema(schema.items[key]);
       if (hasRemoteFile) {

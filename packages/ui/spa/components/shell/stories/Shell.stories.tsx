@@ -13,6 +13,13 @@ import {
 import { ShellDeployment } from "../types";
 import { CanvasView } from "../canvas/PageWorkspace";
 import { mockCanvasPage } from "../canvas/mockCanvasPage";
+import {
+  AssistantSettingsFields,
+  AssistantSettingsValue,
+  SettingsTabs,
+} from "../SettingsPanel";
+import { Sparkles } from "lucide-react";
+import { ASSISTANT_SETTINGS_MAX_LENGTH } from "@valbuild/core";
 
 /**
  * The whole shell in one story.
@@ -41,8 +48,9 @@ const meta: Meta<typeof ShellHarness> = {
         null,
         "pages",
         "media",
-        "data",
         "settings",
+        "data",
+        "account",
         "utility",
         "ai",
         "notifications",
@@ -194,6 +202,43 @@ function deploymentsFor(
  * story, and keys the shell on the mount-time args so changing a control
  * remounts it into that state.
  */
+/**
+ * The settings sections, as the app supplies them.
+ *
+ * The real ones read source and write patches (`ValSettingsSections`), which
+ * needs a running system; these hold the same values in local state. Without
+ * something here the Settings panel in this story would be the empty-project
+ * state, which is not what the panel normally looks like.
+ */
+function MockSettingsSections() {
+  const [value, setValue] = useState<AssistantSettingsValue>({
+    enabled: true,
+    context:
+      "A CMS for developers, run by a team of four in Oslo. The product is Val, never VAL.",
+    tone: "Plain and direct. British English, sentence case in headings, and no exclamation marks.",
+  });
+  return (
+    <SettingsTabs
+      tabs={[
+        {
+          id: "assistant",
+          label: "Assistant",
+          icon: Sparkles,
+          content: (
+            <AssistantSettingsFields
+              value={value}
+              onChange={(field, next) =>
+                setValue((current) => ({ ...current, [field]: next }))
+              }
+              maxLength={ASSISTANT_SETTINGS_MAX_LENGTH}
+            />
+          ),
+        },
+      ]}
+    />
+  );
+}
+
 function ShellHarness({
   openPanel,
   selectionId,
@@ -240,6 +285,7 @@ function ShellHarness({
   };
   return (
     <Shell
+      renderSettings={() => <MockSettingsSections />}
       key={`${openPanel}-${selectionId}-${empty}-${withoutRouters}-${aiEnabled}-${searchOpen}-${isLoading}-${loadError}-${mode}-${deployments}-${deploymentsOpen}-${canvasOpen}-${canvasView}-${canvasReported}`}
       data={data}
       initialPanel={openPanel}
@@ -408,6 +454,21 @@ export const NotificationsOpen: Story = {
 };
 
 /** Account and workspace settings — and, on mobile, the status controls. */
+export const AccountOpen: Story = {
+  args: {
+    ...Default.args,
+    openPanel: "account",
+    selectionId: mockSelectionIds.home,
+  },
+};
+
+/**
+ * The project's settings, behind the cog at the foot of the rail.
+ *
+ * The sections come from the app (`renderSettings`), and this story supplies
+ * the same components with local state — see `Shell/SettingsPanel` for the
+ * states they can be in.
+ */
 export const SettingsOpen: Story = {
   args: {
     ...Default.args,
@@ -600,11 +661,11 @@ export const DeploymentsOnMobile: Story = {
   },
 };
 
-/** The same feed on a phone, looked up in Settings rather than announced. */
+/** The same feed on a phone, looked up in Account rather than announced. */
 export const DeploymentsInMobileSettings: Story = {
   args: {
     ...Default.args,
-    openPanel: "settings",
+    openPanel: "account",
     mode: "http",
     deployments: "mixed",
   },
