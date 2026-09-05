@@ -271,7 +271,7 @@ function checkRouteIsValid(
  * it — all of which mean the same thing: this project has not said it is
  * translated.
  */
-function declaredLocales(snapshot: SchemaSourceSnapshot): string[] {
+export function declaredLocales(snapshot: SchemaSourceSnapshot): string[] {
   const { moduleFilePath } = resolveSettingsModule(snapshot.schemas);
   if (moduleFilePath === null) {
     return [];

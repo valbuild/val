@@ -559,6 +559,18 @@ export class UnionSchema<
     );
   }
 
+  protected override localeScopeChildren(): {
+    key: string;
+    schema: Schema<SelectorSource>;
+  }[] {
+    // Only the object form has anything below it. Each branch is walked under
+    // the same path: whichever the value takes, that is where it sits.
+    if (typeof this.key !== "string") {
+      return [];
+    }
+    return this.items.map((item) => ({ key: "*", schema: item }));
+  }
+
   protected override executeCustomValidateAt(
     path: SourcePath,
     src: Src,

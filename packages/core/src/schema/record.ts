@@ -311,6 +311,15 @@ export class RecordSchema<
     });
     const declaredKeys = this.getDeclaredKeysValidation(path, src);
     error = this.mergeValidationErrors(error, declaredKeys);
+    for (const scopeError of this.localeScopeErrors()) {
+      error = this.appendValidationError(
+        error,
+        path,
+        scopeError.message,
+        src,
+        scopeError.schemaError,
+      );
+    }
     return error;
   }
 
@@ -352,6 +361,21 @@ export class RecordSchema<
         },
       ],
     };
+  }
+
+  protected override opensLocaleScope(): "field" | "key" | null {
+    return this.keySchema !== null && this.keySchema["isLocaleField"]()
+      ? "key"
+      : null;
+  }
+
+  protected override localeScopeChildren(): {
+    key: string;
+    schema: Schema<SelectorSource>;
+  }[] {
+    // The KEY schema is not a child here. A locale key is what opens this
+    // record's scope; it is not something inside the scope.
+    return [{ key: "*", schema: this.item }];
   }
 
   private isRemoteUrl(url: string): boolean {

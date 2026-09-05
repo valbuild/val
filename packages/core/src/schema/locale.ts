@@ -232,6 +232,10 @@ export class LocaleSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
+  protected override isLocaleField(): boolean {
+    return true;
+  }
+
   protected override executeCustomValidateAt(
     path: SourcePath,
     src: Src,
