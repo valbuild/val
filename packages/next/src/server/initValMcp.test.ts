@@ -253,7 +253,7 @@ describe("cross-origin requests", () => {
 });
 
 describe("credentials", () => {
-  test("proxy mode passes the caller's bearer token through unread", async () => {
+  test("proxy mode with no oauth config refuses instead of relaying a token", async () => {
     const res = await withEnv(httpModeEnv(), async () =>
       withNodeEnv("production", async () =>
         mcp().valMcpAuthorize(
@@ -265,57 +265,95 @@ describe("credentials", () => {
       ),
     );
 
-    // Verbatim: this app is not the authority on what the token may do, so it
-    // must not normalise, truncate or interpret it on the way to the backend.
-    expect(res.status === "ok" && res.ctx.auth).toEqual({
-      type: "pat",
-      pat: "pat-from-the-caller",
+    // This is the configuration that used to serve MCP to whoever presented a
+    // bearer token: with no issuer the app has no key to check one against, so
+    // it forwarded it unread and let the backend decide. The reasoning was
+    // sound and the shape was not — it made an endpoint that authenticates
+    // nobody a supported deployment. A credential the app cannot check is one
+    // it cannot refuse either, which is the whole problem.
+    expect(res.status).toBe("refused");
+    if (res.status !== "refused") {
+      throw new Error("expected a refusal");
+    }
+    expect(res.response.status).toBe(500);
+    // 500 rather than 401: nothing the client can present will help, so
+    // inviting it to authorize would send it round a loop. The app is
+    // misconfigured, and the body has to say which config is missing or this
+    // is a wall with no door.
+    const body = await res.response.json();
+    expect(body.error).toContain("oauth");
+    expect(body.error).toContain("initValMcp");
+  });
+
+  test("the token is never echoed back in the refusal", async () => {
+    // It cannot be checked, so it must not be repeated: an error body reaches
+    // logs, terminals and bug reports, and a relayed credential in one is a
+    // credential leaked to all three.
+    const res = await withEnv(httpModeEnv(), async () =>
+      withNodeEnv("production", async () =>
+        mcp().valMcpAuthorize(
+          request({
+            host: "example.com",
+            authorization: "Bearer pat-not-a-real-token",
+          }),
+        ),
+      ),
+    );
+
+    if (res.status !== "refused") {
+      throw new Error("expected a refusal");
+    }
+    expect(await res.response.text()).not.toContain("pat-not-a-real-token");
+  });
+
+  test("proxy mode with no oauth config refuses even with no token at all", async () => {
+    // The refusal is about the app's configuration, not the request, so it
+    // cannot be reached or avoided by choosing what to send.
+    const res = await withEnv(httpModeEnv(), async () =>
+      withNodeEnv("production", async () =>
+        mcp().valMcpAuthorize(request({ host: "example.com" })),
+      ),
+    );
+
+    expect(res.status).toBe("refused");
+  });
+
+  test("local filesystem mode refuses a token rather than ignoring it", async () => {
+    // The developer did nothing dangerous — they left a credential in a client
+    // config — but a token that reaches a working tree was checked by nothing,
+    // and silence is what would let them believe otherwise. There is no `oauth`
+    // config here, so this refusal has to happen at the endpoint: no verified
+    // credential reaches `createValTools` for it to refuse.
+    const res = await withNodeEnv("development", async () =>
+      mcp().valMcpAuthorize(
+        request({
+          host: "localhost:3000",
+          authorization: "Bearer pat-not-a-real-token",
+        }),
+      ),
+    );
+
+    if (res.status !== "refused") {
+      throw new Error("expected a refusal");
+    }
+    expect(res.response.status).toBe(400);
+    const body = await res.response.text();
+    expect(body).toContain("local filesystem mode");
+    expect(body).not.toContain("pat-not-a-real-token");
+  });
+
+  test("local filesystem mode still needs no config at all", async () => {
+    // The one case that is genuinely credential-free, and it has to stay a
+    // one-liner: there is no authorization server to point local development
+    // at, and no backend for a token to mean anything to.
+    const res = await withNodeEnv("development", async () =>
+      mcp().valMcpAuthorize(request({ host: "localhost:3000" })),
+    );
+
+    expect(res.status === "ok" && res.ctx).toEqual({
+      auth: null,
+      sessionId: null,
     });
-  });
-
-  test("proxy mode serves a deployed host without a loopback check", async () => {
-    // The loopback requirement is specific to fs mode. In proxy mode the
-    // caller's own token is the check, and the endpoint has to work on a real
-    // hostname or it is useless.
-    const res = await withEnv(httpModeEnv(), async () =>
-      withNodeEnv("production", async () =>
-        mcp().valMcpAuthorize(
-          request({ host: "example.com", authorization: "Bearer pat" }),
-        ),
-      ),
-    );
-
-    expect(res.status).toBe("ok");
-  });
-
-  test("the bearer scheme is matched case-insensitively", async () => {
-    const res = await withEnv(httpModeEnv(), async () =>
-      withNodeEnv("production", async () =>
-        mcp().valMcpAuthorize(
-          request({ host: "example.com", authorization: "bearer pat" }),
-        ),
-      ),
-    );
-
-    expect(res.status === "ok" && res.ctx.auth).toEqual({
-      type: "pat",
-      pat: "pat",
-    });
-  });
-
-  test("a non-bearer Authorization header is not treated as a credential", async () => {
-    // Reported as absent rather than passed on: the registry then refuses the
-    // call in proxy mode, which is the right answer for a scheme we did not
-    // agree to.
-    const res = await withEnv(httpModeEnv(), async () =>
-      withNodeEnv("production", async () =>
-        mcp().valMcpAuthorize(
-          request({ host: "example.com", authorization: "Basic dXNlcjpwdw==" }),
-        ),
-      ),
-    );
-
-    expect(res.status === "ok" && res.ctx.auth).toBeNull();
   });
 });
 
@@ -394,10 +432,11 @@ describe("oauth mode", () => {
     clearValAccessTokenCache();
   });
 
-  test("no config means nothing changes, and no metadata is published", async () => {
+  test("no config publishes no metadata document", async () => {
     // A project that has not been told where to authorize must not publish a
-    // document claiming it knows — and must keep working, because local
-    // development has no authorization server to point at.
+    // document claiming it knows. Leaving the config out is only viable in
+    // local filesystem mode now — see the credentials cases — and there is
+    // nothing to point such a project's clients at.
     expect(mcp().valMcpMetadata).toBeNull();
   });
 
@@ -500,6 +539,27 @@ describe("oauth mode", () => {
       resource: harness.resource,
       authorization_servers: [harness.issuer],
     });
+  });
+
+  test("a deployed host is served without a loopback check", async () => {
+    // The loopback requirement is specific to fs mode. In proxy mode the
+    // verified token is the check, and the endpoint has to work on a real
+    // hostname or it is useless — so the host must not be what refuses it.
+    const harness = oauthHarness();
+    const res = await withEnv(httpModeEnv(), () =>
+      withNodeEnv("production", () =>
+        initValMcp({ config, modules: [] }, config, {
+          oauth: harness,
+        }).valMcpAuthorize(
+          request({
+            host: "example.com",
+            authorization: `Bearer ${harness.signToken()}`,
+          }),
+        ),
+      ),
+    );
+
+    expect(res.status).toBe("ok");
   });
 
   test("a cross-origin request is still refused before the token is looked at", async () => {

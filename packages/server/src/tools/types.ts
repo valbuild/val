@@ -80,56 +80,45 @@ export type ValToolDefinitionJson = Omit<ValToolDefinition, "inputSchema"> & {
 };
 
 /**
- * How the caller was established, and it is a union because there are two
- * genuinely different answers — with different consequences downstream.
+ * How the caller was established, and there is one acceptable answer: the host
+ * **checked a signature**.
  *
- * The distinction that matters is **who checked**. A PAT is forwarded to the
- * backend unchecked, because the app cannot resolve one; an access token is
- * verified by the app itself, against a public key it does not hold and
- * therefore cannot forge. The first is a credential being relayed. The second
- * is a signature that has already been checked.
+ * A union of one, deliberately. It carried a second variant — a personal access
+ * token relayed to the backend unchecked, on the reasoning that the app cannot
+ * resolve one and the backend can. The reasoning held; the shape did not. A
+ * credential the host cannot check is one it also cannot refuse, so accepting
+ * one made "a deployed endpoint that authenticates nobody" a supported
+ * configuration, and it let a host serve these tools without ever being told
+ * where callers should authorize. The discriminant stays so that adding a
+ * second *verified* kind stays a one-line change at every call site.
  */
-export type ValToolAuth =
-  | {
-      type: "pat";
-      /**
-       * The caller's PAT. Never log this, never put it in a URL, and never let
-       * it reach a tool result.
-       *
-       * Relayed to the backend as-is: this app is not the authority on what the
-       * token may do, and the backend that is decides. Nothing is derived from
-       * it here — see `docs/plans/mcp.md` D.2.
-       */
-      pat: string;
-    }
-  | {
-      type: "verified-profile";
-      /**
-       * The profile the host **verified** — the `sub` of an access token whose
-       * signature, issuer, audience and expiry were all checked against the
-       * authorization server's published key.
-       *
-       * This field is the reason this type became a union, and an earlier
-       * version of this file argued no identity field should exist at all. That
-       * argument was about a specific case and stated too broadly: an id the
-       * host *asserts* on the strength of a credential it cannot check is an
-       * unverified claim dressed as a checked one, and that is still refused —
-       * it is why the `pat` variant carries no profile. An id the host
-       * *verified* cryptographically is a different thing, and it is the same
-       * standing the Studio has when it re-signs a session it established
-       * itself.
-       */
-      profileId: AuthorId;
-      /**
-       * The token's granted scopes, as the authorization server issued them.
-       *
-       * Enforced here as well as by the backend, deliberately. Two checks on
-       * one grant is not redundancy for its own sake: this one can refuse a
-       * write before it is attempted, so a token that may only read never
-       * reaches the code that builds a patch.
-       */
-      scopes: string[];
-    };
+export type ValToolAuth = {
+  type: "verified-profile";
+  /**
+   * The profile the host **verified** — the `sub` of an access token whose
+   * signature, issuer, audience and expiry were all checked against the
+   * authorization server's published key.
+   *
+   * This field is why an identity field exists at all, and an earlier version
+   * of this file argued none should. That argument was about a specific case
+   * and stated too broadly: an id the host *asserts* on the strength of a
+   * credential it cannot check is an unverified claim dressed as a checked one,
+   * and that is still refused — it is why a relayed token never carried a
+   * profile, and now cannot reach here at all. An id the host *verified*
+   * cryptographically is a different thing, and it is the same standing the
+   * Studio has when it re-signs a session it established itself.
+   */
+  profileId: AuthorId;
+  /**
+   * The token's granted scopes, as the authorization server issued them.
+   *
+   * Enforced here as well as by the backend, deliberately. Two checks on one
+   * grant is not redundancy for its own sake: this one can refuse a write
+   * before it is attempted, so a token that may only read never reaches the
+   * code that builds a patch.
+   */
+  scopes: string[];
+};
 
 /**
  * Who is calling, established once per request by the host.

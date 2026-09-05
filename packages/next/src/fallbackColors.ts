@@ -17,9 +17,9 @@
 /** `--bg-canvas`, dark. The studio's own background. */
 export const canvasDarkBg = "#08080a";
 /** `--bg-canvas`, light. */
-export const canvasLightBg = "#fafafa";
+export const canvasLightBg = "#f4f4f5";
 
 /** `--bg-float`, dark. Val's chrome, floating over the customer's page. */
 export const floatDarkBg = "#131316";
 /** `--bg-float`, light. */
-export const floatLightBg = "#ffffff";
+export const floatLightBg = "#fcfcfc";

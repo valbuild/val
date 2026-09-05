@@ -328,14 +328,13 @@ describe("who a patch is attributed to", () => {
   /**
    * The rule, in one place: an author is written only when somebody checked it.
    *
-   * A PAT is relayed to the backend unresolved, so this app knows nothing about
-   * whose it is; an access token was verified here against a key this app does
-   * not hold, so the `sub` in it is a fact rather than a claim. Getting this
-   * backwards in either direction is bad in its own way — inventing an author
-   * from a PAT would put an unchecked name on a change, and dropping the
-   * verified one would leave every edit made through a signed-in editor's
-   * session with no author at all, on a review screen organised by who changed
-   * what.
+   * An access token is verified here against a key this app does not hold, so
+   * the `sub` in it is a fact rather than a claim, and it is written. Local
+   * filesystem mode has no credential to check, so it writes nothing. Getting
+   * this backwards in either direction is bad in its own way — inventing an
+   * author would put an unchecked name on a change, and dropping the verified
+   * one would leave every edit made through a signed-in editor's session with
+   * no author at all, on a review screen organised by who changed what.
    */
 
   const PROFILE = authorIdFromVerifiedSubject("profile-abc");
@@ -364,28 +363,6 @@ describe("who a patch is attributed to", () => {
     // a profile, so asserting an author would be a claim it has not checked.
     expect(patches).toMatchObject([{ authorId: null, published: false }]);
     expect(CTX.auth).toBeNull();
-  });
-
-  test("a PAT still lands no author", async () => {
-    const { tools, depsFor } = setup();
-
-    const res = await savePatch(
-      await depsFor({
-        auth: { type: "pat", pat: "pat-not-a-real-token" },
-        sessionId: null,
-      }),
-      PAGES_PATH,
-      [{ op: "replace", path: ["home", "title"], value: "Renamed" }],
-    );
-
-    expect(res.status).toBe("ok");
-    // A PAT is forwarded, never resolved. Anything written here would be this
-    // app asserting an identity it has not established — and the request
-    // already carries the caller's own token, which is a better answer to "who
-    // did this" than anything this side could make up.
-    expect(await callOk(tools, "get_patches", {})).toMatchObject([
-      { authorId: null },
-    ]);
   });
 
   test("a verified profile is written onto the patch it made", async () => {
