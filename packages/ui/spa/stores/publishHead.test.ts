@@ -188,3 +188,103 @@ test("a server that answers no sha leaves the head where it was", async () => {
 
   expect(sent).toEqual(["commit-1", "commit-1"]);
 });
+
+test("a stat answered before this publish does not put the client back on the old head", async () => {
+  /*
+   * The other half of the window above, and the one a poll makes routine.
+   *
+   * `/stat` is asked and answered; publishing in between changes the answer
+   * after the question was asked. So the response carries the PRE-publish head
+   * — truthfully, for the moment it was computed — and adopting it puts this
+   * client back on a world it has already left. Its next publish then names a
+   * commit the server has moved past and is refused 409 "someone else
+   * published", about its own commit. `/save` moving the head fixed the gap
+   * between two publishes; this is the same gap with a stat landing in it.
+   */
+  const { system, sent } = makeSystem({ commitSha: "commit-2" });
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headCommitSha: "commit-1",
+  });
+
+  await edit(system);
+  expect((await system.publish([], "first")).status).toBe("published");
+
+  // In flight while the publish was happening: honest when it was computed,
+  // stale by the time it arrives.
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headCommitSha: "commit-1",
+  });
+
+  await edit(system);
+  await system.publish([], "second");
+
+  expect(sent).toEqual(["commit-1", "commit-2"]);
+});
+
+test("the SECOND stat saying so is believed, so a rewound head is not a wedge", async () => {
+  /*
+   * Why the stale head is ignored once rather than forever.
+   *
+   * A head that has really gone backwards — a force-push over a published
+   * commit — is rare, but a client that refused to hear it would be stuck
+   * naming a commit nobody else has, refused on every publish, until the page
+   * was reloaded. The poll is serial, so exactly one answer can have been in
+   * flight when the publish landed; anything after that is the server's
+   * current word and is taken as such.
+   */
+  const { system, sent } = makeSystem({ commitSha: "commit-2" });
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headCommitSha: "commit-1",
+  });
+
+  await edit(system);
+  await system.publish([], "first");
+
+  // The one that was in flight, then one asked afterwards that still says it.
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headCommitSha: "commit-1",
+  });
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headCommitSha: "commit-1",
+  });
+
+  await edit(system);
+  await system.publish([], "second");
+
+  expect(sent).toEqual(["commit-1", "commit-1"]);
+});
+
+test("a stat that has caught up moves the head on as usual", async () => {
+  // Somebody else published after this client did. Nothing about the guard may
+  // stand between this client and a head it has not seen before.
+  const { system, sent } = makeSystem({ commitSha: "commit-2" });
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headCommitSha: "commit-1",
+  });
+
+  await edit(system);
+  await system.publish([], "first");
+
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headCommitSha: "commit-3",
+  });
+
+  await edit(system);
+  await system.publish([], "second");
+
+  expect(sent).toEqual(["commit-1", "commit-3"]);
+});

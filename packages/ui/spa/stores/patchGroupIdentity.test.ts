@@ -150,6 +150,15 @@ test("a publish forgets the group, because a publish closes it", async () => {
   await edit(system, "edited");
   const beforePublish = system.patchStore.groupsVersion();
   expect(system.patchStore.ownGroupId()).toBe("g1");
+  /*
+   * The two lines that make this publish actually CLOSE the group, which is
+   * what the test is named for. Without them nothing names the group on the
+   * commit, the content API leaves it open, and forgetting the id here would
+   * be forgetting a group its owner can still add to — the case the partial
+   * publish tests below cover.
+   */
+  system.setOwnPatchGroupId("g1");
+  system.setPatchGroup(["p1" as PatchId]);
 
   await system.publish([], "ship it");
 
@@ -216,6 +225,9 @@ test("a publish does not make the deployment look like one without groups", asyn
   const system = makeSystem({ savedInGroup: "g1" });
   await edit(system, "edited");
   expect(system.patchStore.patchGroupsSupported()).toBe(true);
+  // As above: this publish has to close the group for the id to go.
+  system.setOwnPatchGroupId("g1");
+  system.setPatchGroup(["p1" as PatchId]);
 
   await system.publish([], "ship it");
 
@@ -420,4 +432,68 @@ test("a PARTIAL publish leaves the group open", async () => {
    * the deferred path forever.
    */
   expect(system.patchStore.groups()?.[0].publishedAt).toBeNull();
+});
+
+test("a partial publish leaves the client still knowing which group is its own", async () => {
+  /*
+   * The other half of "leaves the group open", and the half that was missed.
+   *
+   * The annotation close asks whether the whole group shipped; forgetting
+   * `ownGroupId` did not ask at all, so a publish that deliberately left the
+   * group open on the server still made this client forget which group that
+   * was. `useCurrentPatchGroup` then had nothing to resolve and every stage and
+   * unstage in the review screen went to the deferred queue as though this
+   * author had no group — on a single-author branch, where no annotation is
+   * ever fetched to fall back to, until the next save happened to name it
+   * again.
+   *
+   * `setOwnPatchGroupId` is called here on purpose: without it the decision is
+   * "this client has no group" and the assertion below would hold for a reason
+   * that has nothing to do with the publish being partial.
+   */
+  const system = makeSystem({
+    savedInGroup: "g1",
+    fetchAnswers: [
+      {
+        patches: [],
+        patchGroups: [openGroup(["p1" as PatchId, "p2" as PatchId])],
+      },
+    ],
+  });
+  await edit(system, "edited");
+  await deliverGroups(system, ["p2" as PatchId]);
+  system.setOwnPatchGroupId("g1");
+  system.setPatchGroup(["p1" as PatchId]);
+
+  expect((await system.publish([], "only part of it")).status).toBe(
+    "published",
+  );
+
+  // Not closed on the server, so not forgotten here. The two answers are one
+  // decision, made once and read twice.
+  expect(system.publishes[0].closesPatchGroupId).toBe(undefined);
+  expect(system.patchStore.ownGroupId()).toBe("g1");
+});
+
+test("a publish that closes the group DOES forget it", async () => {
+  /*
+   * The positive control for the test above, and the behaviour that must not
+   * regress: a closed group refuses every write and stage, so keeping its id
+   * would answer each one with a 409 until something re-fetched the annotation.
+   */
+  const system = makeSystem({
+    savedInGroup: "g1",
+    fetchAnswers: [
+      { patches: [], patchGroups: [openGroup(["p1" as PatchId])] },
+    ],
+  });
+  await edit(system, "edited");
+  await deliverGroups(system);
+  system.setOwnPatchGroupId("g1");
+  system.setPatchGroup(["p1" as PatchId]);
+
+  expect((await system.publish([], "ship all of it")).status).toBe("published");
+
+  expect(system.publishes[0].closesPatchGroupId).toBe("g1");
+  expect(system.patchStore.ownGroupId()).toBe(undefined);
 });

@@ -1153,7 +1153,10 @@ export class PatchStore {
    * forgotten immediately afterwards and this is redundant, in `http` they stay
    * in the chain and this is the only thing that knows.
    */
-  markPublished(patchIds: readonly PatchId[]): void {
+  markPublished(
+    patchIds: readonly PatchId[],
+    options?: { closedOwnPatchGroup?: boolean },
+  ): void {
     let changed = false;
     for (const patchId of patchIds) {
       if (this.publishedIds.has(patchId)) continue;
@@ -1162,16 +1165,31 @@ export class PatchStore {
     }
     if (changed) this.bump();
     let groupsMoved = false;
-    if (this.ownPatchGroupId !== undefined) {
+    if (
+      this.ownPatchGroupId !== undefined &&
+      options?.closedOwnPatchGroup !== false
+    ) {
       /*
-       * A publish CLOSES the group, and the content API refuses a write or a
-       * stage into a closed one. So the remembered id is not merely stale after
-       * this, it is actively wrong: keeping it would answer every stage with a
-       * 409 until something re-fetched the annotation.
+       * A publish that NAMED the group closes it, and the content API refuses a
+       * write or a stage into a closed one. So the remembered id is not merely
+       * stale after that, it is actively wrong: keeping it would answer every
+       * stage with a 409 until something re-fetched the annotation.
        *
        * Forgotten rather than replaced, because there is nothing to replace it
        * with yet — the next write creates the next group and the save response
        * names it, exactly as the first one did.
+       *
+       * Only when it was named, which is what `closedOwnPatchGroup` says. A
+       * PARTIAL publish leaves the group open on the server with the rest of
+       * its work still in it, and forgetting the id then was the mirror of the
+       * annotation bug below: `useCurrentPatchGroup` had nothing to resolve, so
+       * every stage and unstage in the review screen went to the deferred queue
+       * as though this author had no group — on a single-author branch, where
+       * no annotation is ever fetched to fall back to, until the next save
+       * happened to name the id again.
+       *
+       * Absent means forget, so `fs` mode and any caller that does not publish
+       * through the group path keep the behaviour they had.
        */
       this.ownPatchGroupId = undefined;
       groupsMoved = true;

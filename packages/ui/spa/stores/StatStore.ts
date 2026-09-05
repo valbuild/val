@@ -79,6 +79,30 @@ export class StatStore {
   private baseSha: string | null = null;
   /** The publish head. See {@link StatSnapshot.headCommitSha}. */
   private headCommitSha: string | null = null;
+  /**
+   * The head a local publish moved us off, until one stat has answered with it.
+   *
+   * `/stat` is asked and answered; a publish in between changes the answer
+   * after the question was asked. The response then carries the PRE-publish
+   * head, and adopting it puts this client back on a world it has already left
+   * — so its next publish names a commit the server has moved past and comes
+   * back 409 "someone else published", about its own commit. Auto-publish hits
+   * that window on every pause in typing.
+   *
+   * Ignored for exactly ONE stat, and then cleared. The poll is serial — a
+   * request is issued only after the previous one has been answered — so at
+   * most one response can have been in flight when the publish landed. Clearing
+   * is what keeps a rewind survivable: if the server's head really has gone
+   * backwards (a force-push over a published commit), the next stat says so
+   * again and is believed, rather than this client being wedged on a commit
+   * nobody else has until the page is reloaded.
+   *
+   * `resyncChain` asks `/stat` outside that serial loop, so two answers CAN be
+   * in flight at once; the second would still rewind. That is the bug as it
+   * stands today rather than a new one, and closing it needs a per-request
+   * sequence number carried on the response.
+   */
+  private supersededHead: string | null = null;
 
   /**
    * Adopt a `/stat` result. The id list is authoritative and replaces what we
@@ -90,7 +114,14 @@ export class StatStore {
       this.baseSha = snapshot.baseSha;
     }
     if (snapshot.headCommitSha !== undefined) {
-      this.headCommitSha = snapshot.headCommitSha;
+      if (snapshot.headCommitSha === this.supersededHead) {
+        // The answer to a question asked before we published. See
+        // {@link supersededHead}: ignored once, and then believed.
+        this.supersededHead = null;
+      } else {
+        this.headCommitSha = snapshot.headCommitSha;
+        this.supersededHead = null;
+      }
     }
     this.events.emit({
       type: "stat:receive",
@@ -141,6 +172,9 @@ export class StatStore {
    * moment it publishes.
    */
   setHeadCommitSha(headCommitSha: string): void {
+    if (this.headCommitSha !== null && this.headCommitSha !== headCommitSha) {
+      this.supersededHead = this.headCommitSha;
+    }
     this.headCommitSha = headCommitSha;
   }
 

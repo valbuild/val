@@ -2142,10 +2142,16 @@ export function createSystem(options: SystemOptions): System {
         }
 
         const headCommitSha = stat.currentHeadCommitSha();
+        /*
+         * Decided once, and read twice: it is what the server is asked to do
+         * and what the store is told happened. Recomputing it after the publish
+         * would ask a chain the publish has already moved.
+         */
+        const closesOwnPatchGroup = emptiesOwnPatchGroup(toPublish);
         const outcome = await options.publishPatches({
           patchIds: toPublish,
           message,
-          ...(emptiesOwnPatchGroup(toPublish)
+          ...(closesOwnPatchGroup
             ? { closesPatchGroupId: ownPatchGroupId }
             : {}),
           /*
@@ -2234,7 +2240,12 @@ export function createSystem(options: SystemOptions): System {
         // Recorded before the mode split, because it is true in both: these
         // patches are in a commit now. `filePatchIds` needs it in `http` mode,
         // where the chain keeps them — see `PatchStore.publishedIds`.
-        patchStore.markPublished(toPublish);
+        patchStore.markPublished(toPublish, {
+          // Whether the group was CLOSED, not whether a publish happened: a
+          // partial publish leaves it open on the server holding the rest of
+          // its work, and the store has to go on knowing which group that is.
+          closedOwnPatchGroup: closesOwnPatchGroup,
+        });
         if (mode === "fs") {
           // ORDER MATTERS, and this is the whole reason both methods exist.
           // Promote first: the patched value becomes the base, so when the chain
