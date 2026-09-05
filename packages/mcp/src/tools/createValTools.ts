@@ -131,7 +131,12 @@ export function createValTools(
         if (state.status === "error") {
           return state.result;
         }
-        const deps: ValToolDeps = { ops, ctx, state: state.state };
+        const deps: ValToolDeps = {
+          ops,
+          config: options,
+          ctx,
+          state: state.state,
+        };
         return await tool.handler(parsed.data, deps);
       } catch (error) {
         // A thrown error here is a bug or an unreachable backend, not something

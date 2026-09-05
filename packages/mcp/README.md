@@ -41,4 +41,10 @@ const { valMcpAuthorize, valMcpTools } = initValMcp(valModules, config, {
 Leave `extraTools` out and everything else still works — an agent can then read,
 validate and edit content, but not add an image.
 
+Remotely stored images (`s.images({ remote: true })`) work through the same tool.
+Adding one uploads nothing to Val's content host — the bytes go into the patch
+store, and the push happens at publish — so the only thing it needs is the
+project's bucket list, read with your app's own credential (its API key, or the
+`val login` token in your project during local development).
+
 See `docs/plans/mcp.md` in the repository for the design.

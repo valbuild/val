@@ -3,6 +3,10 @@ import type { ValServerConfig } from "./ValServer";
 import type { ValApiOptions } from "./ValRouter";
 import { ValOpsFS } from "./ValOpsFS";
 import { ValOpsHttp } from "./ValOpsHttp";
+import {
+  getPersonalAccessTokenPath,
+  parsePersonalAccessTokenFile,
+} from "./personalAccessTokens";
 
 /**
  * Resolving how Val is configured, and building the data layer from it.
@@ -266,4 +270,78 @@ function warnIfInsecureUrls(urls: Record<CredentialBearingUrl, string>): void {
       console.warn(warning);
     }
   }
+}
+
+/**
+ * Which credential talks to the content host about REMOTE FILES.
+ *
+ * A separate question from the one `createValOps` answers, and it has to be:
+ * `ValOps` is authenticated per caller, but remote files are project-level —
+ * looking up a project's public id and its buckets, and later pushing bytes to
+ * them, is the same operation whoever asked for it.
+ *
+ * The rule, in order:
+ *
+ * 1. The app's API key, if there is one. Proxy mode always has one; fs mode has
+ *    one when `VAL_API_KEY` is set.
+ * 2. In fs mode, the developer's own `val login` token, read off disk. This is
+ *    the same file `val validate --fix` reads, and it is why local remote
+ *    uploads work with no configuration beyond having logged in.
+ * 3. Nothing, which is an error rather than a fallback.
+ *
+ * Lives here rather than inside `createValServer` because the MCP image tool
+ * needs the same answer, and this is the file that exists so that two callers
+ * cannot disagree about how a project is configured. A registry that decided it
+ * had no credential while the Studio in the same process had one would be a
+ * genuinely confusing afternoon.
+ */
+export type RemoteFileAuth = { apiKey: string } | { pat: string };
+
+export type ResolveRemoteFileAuthResult =
+  | { status: "success"; auth: RemoteFileAuth }
+  | {
+      status: "error";
+      errorCode: "project-not-configured" | "pat-error";
+      message: string;
+    };
+
+export async function resolveRemoteFileAuth(
+  options: ValServerConfig,
+): Promise<ResolveRemoteFileAuthResult> {
+  if (options.apiKey) {
+    return { status: "success", auth: { apiKey: options.apiKey } };
+  }
+  if (options.mode !== "fs") {
+    // Unreachable through `initHandlerOptions`, which refuses to build a proxy
+    // config without an api key. Kept because this is exported.
+    return {
+      status: "error",
+      errorCode: "project-not-configured",
+      message: "Remote file auth is not configured",
+    };
+  }
+  // `options.cwd`, which `initHandlerOptions` sets from `process.cwd()`. The
+  // token lives in the project's own `.val/pat.json`, so this is the same file
+  // `val login` wrote and `val validate --fix` reads.
+  const patPath = getPersonalAccessTokenPath(options.cwd);
+  const fs = await import("fs");
+  let patFile: string;
+  try {
+    patFile = await fs.promises.readFile(patPath, "utf-8");
+  } catch {
+    return {
+      status: "error",
+      errorCode: "pat-error",
+      message: "Could not read personal access token file",
+    };
+  }
+  const patRes = parsePersonalAccessTokenFile(patFile);
+  if (!patRes.success) {
+    return {
+      status: "error",
+      errorCode: "pat-error",
+      message: "Could not parse personal access token file",
+    };
+  }
+  return { status: "success", auth: { pat: patRes.data.pat } };
 }

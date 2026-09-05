@@ -251,16 +251,26 @@ is typed structurally (`SharpLike`), so this package typechecks in a project
 that has never heard of sharp; `sharpImageProcessor.test.ts` assigns the real
 library to that type, which is what stops it drifting.
 
-The tool refuses remote images (`s.image({ remote: true })`): uploading one goes
-through a presigned nonce and a PAT, which is the boundary `docs/plans/mcp.md`
-D.1 draws.
+Remote images (`s.image().remote()`, `s.images({ remote: true })`) work too, and
+the thing to know is that **nothing is uploaded to the content host when the
+image is added**. The bytes go into the patch store like any local pending file;
+the push to `remote.val.build` happens at publish, from
+`ValOpsFS.saveOrUploadFiles(mode: "upload-remote")`. All the tool does extra is
+build the ref — which needs the project's public id and a bucket, from
+`getSettings`.
+
+No credential comes from the MCP caller for that, in either mode:
+`resolveRemoteFileAuth` (shared with `ValServer`) uses the app's api key where
+there is one and otherwise, in fs mode, the developer's own `val login` token
+off disk. Same precondition `val validate --fix` has. See
+`docs/plans/mcp-remote-images.md`.
 
 Encoding is the Studio's decision table and nothing else: `encode` is off
 unless the schema asks, and when it asks, which images are converted, how far
 they are scaled and when the original wins are all in
 `encodeImageDecisions.ts`. The tool adds no rule of its own.
 
-Three orderings in there are load-bearing and all three were got wrong first:
+Four things in there are load-bearing, and the first three were got wrong first:
 
 1. **Bytes go up before the patch is validated.** A `file` op carries a hash,
    so validation asks the store where the bytes are — and rejects the write
@@ -272,7 +282,13 @@ Three orderings in there are load-bearing and all three were got wrong first:
    the gallery is snapshotted at module evaluation and shows the _published_
    gallery — that resolves when both patches publish, so it is reported rather
    than refused.
-3. **`accept` is checked after the conversion, never before it.**
+3. **A remote ref's validation hash is computed from a schema that has to
+   match what the validator will resolve.** For a gallery entry that is a
+   SYNTHESIZED `SerializedImageSchema` carrying the record's `accept` and
+   `directory` — `galleryEntryImageSchema`, which must stay identical to
+   `handleRemoteGalleryFileUpload`'s. Get it wrong and the file uploads and
+   then never validates, silently, because `validateRemoteFiles` is a stub.
+4. **`accept` is checked after the conversion, never before it.**
    `s.image({ accept: "image/webp", encode: { type: "webp" } })` means "I store
    webp and I will convert what you give me", so checking the SOURCE against
    `accept` refuses the PNG the conversion existed to handle. The tool checks

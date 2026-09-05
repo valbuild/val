@@ -67,9 +67,16 @@ validate and edit content, it just cannot add an image. `sharp` is passed in
 rather than imported, so you can supply another encoder: `ValImageProcessor` is
 two functions, `read` and `encode`.
 
-Remote images (`s.image({ remote: true })`) are refused with a message saying
-so. Uploading one goes through a presigned nonce and a personal access token,
-which this endpoint deliberately does not hold.
+Remotely stored images work too — `s.image().remote()` and
+`s.images({ remote: true })` — and they need nothing extra from the MCP client.
+Adding one does not upload anything to Val's content host: the bytes go into the
+patch store like any other unpublished change, and the push to
+`remote.val.build` happens when you publish, exactly as it does for an image
+added through the Studio. All the tool has to do first is ask the project which
+bucket to name in the ref, and the credential for that is the one your app
+already has — its API key when it has one, and in local development the
+`val login` token in your project, the same one `val validate --fix` uses. If
+you have not logged in, it says so and writes nothing.
 
 ## `npm create @valbuild` asks
 

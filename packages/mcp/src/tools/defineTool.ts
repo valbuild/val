@@ -11,6 +11,7 @@ import type {
   PatchAnalysis,
   Schemas,
   Sources,
+  ValServerConfig,
 } from "@valbuild/server";
 import type {
   ValToolContext,
@@ -37,6 +38,16 @@ export type ValToolDeps = {
    * caller, so a tool must never reach for an ambient instance instead.
    */
   ops: ValOps;
+  /**
+   * How this project is configured — the same object `createValOps` was built
+   * from.
+   *
+   * Here because remote images need it: which credential talks to the content
+   * host about them is a property of the project, not of the caller, and a tool
+   * that had to be handed it separately would be handed a second copy of an
+   * answer the registry already has.
+   */
+  config: ValServerConfig;
   ctx: ValToolContext;
   /**
    * The content as the caller should see it: base sources with pending patches

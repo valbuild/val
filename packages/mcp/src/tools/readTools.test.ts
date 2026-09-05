@@ -7,6 +7,7 @@ import {
   ITEMS_PATH,
   MEDIA_PATH,
   PAGES_PATH,
+  REMOTE_GALLERY_PATH,
   STRICT_GALLERY_PATH,
   callErr,
   callOk,
@@ -102,6 +103,7 @@ describe("get_all_schema", () => {
       ITEMS_PATH,
       MEDIA_PATH,
       PAGES_PATH,
+      REMOTE_GALLERY_PATH,
       STRICT_GALLERY_PATH,
     ]);
     expect(data).toMatchObject({

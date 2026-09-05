@@ -5,6 +5,16 @@ export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
 // while the Studio thinks it is in proxy mode reads different content from the
 // same project.
 export { initHandlerOptions, createValOps } from "./valServerConfig";
+// Which credential talks to the content host about remote files: the app's api
+// key, else the developer's own `val login` token off disk. Exported for
+// `@valbuild/mcp`'s image tool, which needs the same answer the Studio's api
+// routes get — two copies of this would let the MCP endpoint decide it cannot
+// upload remotely while the Studio in the same process can.
+export { resolveRemoteFileAuth } from "./valServerConfig";
+export type {
+  RemoteFileAuth,
+  ResolveRemoteFileAuthResult,
+} from "./valServerConfig";
 export { ValModuleLoader } from "./ValModuleLoader";
 export { getCompilerOptions } from "./getCompilerOptions";
 export { ValSourceFileHandler } from "./ValSourceFileHandler";

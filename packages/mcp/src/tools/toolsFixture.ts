@@ -40,6 +40,8 @@ export const CONVERTING_GALLERY_PATH =
 export const STRICT_GALLERY_PATH =
   "/test/strictGallery.val.ts" as ModuleFilePath;
 export const ALT_GALLERY_PATH = "/test/altGallery.val.ts" as ModuleFilePath;
+export const REMOTE_GALLERY_PATH =
+  "/test/remoteGallery.val.ts" as ModuleFilePath;
 export const MEDIA_PATH = "/test/media.val.ts" as ModuleFilePath;
 
 /** Local fs mode: there is no credential to hold and no session to group by. */
@@ -169,6 +171,23 @@ export default c.define(
 `;
 
 /**
+ * A gallery whose images live on Val's content host.
+ *
+ * `remote: true` changes what the content POINTS AT — a `remote.val.build` URL
+ * instead of a `/public` path — and nothing about where an unpublished upload's
+ * bytes go, which is the patch store either way.
+ */
+const REMOTE_GALLERY_CODE = `
+import { s, c } from "val.config";
+
+export default c.define(
+  "${REMOTE_GALLERY_PATH}",
+  s.images({ remote: true, directory: "/public/val/remote" }),
+  {}
+);
+`;
+
+/**
  * A plain image field, and one backed by the gallery above.
  *
  * The gallery-backed one is what makes the two-module write path testable:
@@ -184,8 +203,12 @@ export default c.define(
   s.object({
     hero: s.image().nullable(),
     thumbnail: s.image(gallery).nullable(),
+    remoteHero: s
+      .image({ directory: "/public/val/remote" })
+      .remote()
+      .nullable(),
   }),
-  { hero: null, thumbnail: null }
+  { hero: null, thumbnail: null, remoteHero: null }
 );
 `;
 
@@ -280,6 +303,7 @@ export function setup(options?: {
     [CONVERTING_GALLERY_PATH]: CONVERTING_GALLERY_CODE,
     [STRICT_GALLERY_PATH]: STRICT_GALLERY_CODE,
     [ALT_GALLERY_PATH]: ALT_GALLERY_CODE,
+    [REMOTE_GALLERY_PATH]: REMOTE_GALLERY_CODE,
     [MEDIA_PATH]: MEDIA_CODE,
   };
   // ValOps reads the .val.ts files off disk to derive the base sha and to write
@@ -319,7 +343,7 @@ export function setup(options?: {
         `Could not load the fixture's state: ${JSON.stringify(state.result)}`,
       );
     }
-    return { ops, ctx, state: state.state };
+    return { ops, config: serverConfig, ctx, state: state.state };
   };
   return { tools, rootDir, depsFor };
 }

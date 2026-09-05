@@ -4,8 +4,11 @@ import {
   Internal,
   type ImageMetadata,
   type ModuleFilePath,
+  type SerializedImageSchema,
+  type SerializedRecordSchema,
   type SerializedSchema,
 } from "@valbuild/core";
+import { getFileExt, type ValServerConfig } from "@valbuild/server";
 import {
   ENCODE_MIME_TYPE_OF,
   buildImageGalleryPatch,
@@ -36,6 +39,12 @@ import {
 import { loadState } from "../tools/createValTools";
 import type { ValToolError, ValToolResult } from "../tools/types";
 import type { ValImageProcessor } from "./types";
+import {
+  buildRemoteRef,
+  createRemoteSettingsLoader,
+  resolveRemoteUploadTarget,
+  type RemoteSettingsLoader,
+} from "./remoteUploadTarget";
 
 /**
  * Uploading an image over MCP.
@@ -72,14 +81,47 @@ const MAX_INLINE_BYTES = 20 * 1024 * 1024;
 
 export function createValImageTools(
   processor: ValImageProcessor,
+  options?: {
+    /**
+     * Where a remote image's project settings come from.
+     *
+     * Only tests pass this. It exists because the real loader talks to the
+     * content host to learn a project's public id and bucket list, and a suite
+     * that had to reach one would be testing the network rather than the ref
+     * this builds from the answer.
+     */
+    loadRemoteSettings?: RemoteSettingsLoader;
+  },
 ): ValToolImpl[] {
+  /**
+   * One settings loader per config, made on first use.
+   *
+   * Not made here, because the config arrives with the call: the host builds
+   * these tools and hands them to `createValTools`, which is what knows how the
+   * project is configured. Keyed by identity rather than remade every call so
+   * that a gallery of twenty images asks the content host once — and so that
+   * the same tools handed to two registries do not share one answer.
+   */
+  let loader: RemoteSettingsLoader | null = null;
+  let loaderConfig: ValServerConfig | null = null;
+  const settingsFor = (config: ValServerConfig): RemoteSettingsLoader => {
+    if (options?.loadRemoteSettings) {
+      return options.loadRemoteSettings;
+    }
+    if (loader === null || loaderConfig !== config) {
+      loader = createRemoteSettingsLoader(config);
+      loaderConfig = config;
+    }
+    return loader;
+  };
+
   return [
     defineTool(
       {
         name: "upload_image",
         title: "Upload an image",
         description:
-          "Upload an image file and put it in an image field, or add it to an image gallery module (one declared with s.images()). Give it either imageFilePath — a path to a file on the machine this app runs on — or imageBase64. The image is re-encoded first if the schema asks for that. Remote images (s.image({ remote: true })) are not supported.",
+          "Upload an image file and put it in an image field, or add it to an image gallery module (one declared with s.images()). Give it either imageFilePath — a path to a file on the machine this app runs on — or imageBase64. The image is re-encoded first if the schema asks for that. Works for remotely stored images too (s.image({ remote: true })), which need the project to be connected to Val Build.",
         inputSchema: z.object({
           moduleFilePath: ModuleFilePathSchema,
           path: z
@@ -173,27 +215,43 @@ export function createValImageTools(
             "Could not derive a filename for the uploaded image.",
           );
         }
-        const filePath = `${target.directory}/${generated}`;
+        // Where the bytes live, always: a `/public/...` path in the patch
+        // store. For a remote image the CONTENT points somewhere else, but the
+        // bytes still land here and stay here until publish pushes them.
+        const storedPath = `${target.directory}/${generated}`;
+        const resolvedRef = await resolveRef(target, settingsFor(deps.config), {
+          bytes: prepared.bytes,
+          storedPath,
+          generated,
+          metadata,
+        });
+        if (resolvedRef.status === "error") {
+          return resolvedRef;
+        }
+        const file: UploadedFile = {
+          ref: resolvedRef.ref,
+          storedPath,
+          remote: target.remote !== null,
+          dataUrl,
+          metadata,
+        };
 
         const saved =
           target.kind === "gallery"
-            ? await uploadToGallery(deps, modulePath, target.gallerySchema, {
-                filePath,
-                dataUrl,
-                metadata,
-              })
+            ? await uploadToGallery(
+                deps,
+                modulePath,
+                target.gallerySchema,
+                file,
+              )
             : target.galleryBacked
               ? await uploadToGalleryBackedField(deps, {
                   fieldModule: modulePath,
                   fieldPath: args.path,
                   galleryModule: target.referencedModule as ModuleFilePath,
-                  file: { filePath, dataUrl, metadata },
+                  file,
                 })
-              : await uploadToField(deps, modulePath, args.path, {
-                  filePath,
-                  dataUrl,
-                  metadata,
-                });
+              : await uploadToField(deps, modulePath, args.path, file);
         if (saved.status === "error") {
           return saved;
         }
@@ -202,7 +260,8 @@ export function createValImageTools(
           status: "ok",
           data: {
             ...saved.data,
-            filePath,
+            filePath: file.ref,
+            remote: file.remote,
             width: prepared.width,
             height: prepared.height,
             mimeType: prepared.mimeType,
@@ -216,6 +275,57 @@ export function createValImageTools(
       },
     ),
   ];
+}
+
+/**
+ * What the content will point at: a local path, or a remote ref.
+ *
+ * The remote branch is the only thing in this tool that talks to the network,
+ * and all it asks for is which project and which bucket. The bytes do not go to
+ * the content host here — they go to the patch store like any other pending
+ * file, and publish pushes them. See `docs/plans/mcp-remote-images.md` Part A.
+ */
+async function resolveRef(
+  target: Extract<ImageTarget, { status: "ok" }>,
+  loadSettings: RemoteSettingsLoader,
+  file: {
+    bytes: Uint8Array;
+    storedPath: string;
+    generated: string;
+    metadata: ImageMetadata;
+  },
+): Promise<{ status: "ok"; ref: string } | ValToolError> {
+  if (target.remote === null) {
+    return { status: "ok", ref: file.storedPath };
+  }
+  const relative = file.storedPath.startsWith("/public/")
+    ? file.storedPath.slice(1)
+    : null;
+  if (relative === null) {
+    // `createRemoteRef` types the path as `public/${string}` and means it: the
+    // ref encodes the path, and publish splits it back out to find the bytes.
+    return err(
+      "invalid-args",
+      `A remote image has to be stored under /public, and this schema's directory is ${JSON.stringify(
+        target.directory,
+      )}.`,
+    );
+  }
+  const resolved = await resolveRemoteUploadTarget(loadSettings);
+  if (resolved.status !== "success") {
+    return resolved;
+  }
+  return {
+    status: "ok",
+    ref: buildRemoteRef({
+      target: resolved.target,
+      bytes: file.bytes,
+      filePath: relative as `public/${string}`,
+      fileExt: getFileExt(file.generated),
+      metadata: file.metadata,
+      schema: target.remote.schema,
+    }),
+  };
 }
 
 /**
@@ -236,6 +346,7 @@ type ImageTarget =
       accept: string | undefined;
       encode: EncodeSettings | null;
       altRequired: boolean;
+      remote: RemoteTarget | null;
     }
   | {
       status: "ok";
@@ -246,8 +357,19 @@ type ImageTarget =
       accept: string | undefined;
       encode: EncodeSettings | null;
       altRequired: boolean;
+      remote: RemoteTarget | null;
     }
   | { status: "error"; result: ValToolResult };
+
+/**
+ * That this image is stored remotely, and the schema its ref is hashed against.
+ *
+ * The schema is carried rather than looked up later because getting it wrong is
+ * silent: the validation hash is baked into the ref, the validator recomputes it
+ * from the schema it finds at the path, and a mismatch means a file that uploads
+ * and then never validates. See `docs/plans/mcp-remote-images.md` Part D.
+ */
+type RemoteTarget = { schema: SerializedImageSchema };
 
 /** The default in `createFilePatch`, and the same default here. */
 const DEFAULT_DIRECTORY = "/public/val";
@@ -267,9 +389,6 @@ function resolveTarget(
         ),
       };
     }
-    if (moduleSchema.remote) {
-      return { status: "error", result: refuseRemote() };
-    }
     return {
       status: "ok",
       kind: "gallery",
@@ -278,6 +397,9 @@ function resolveTarget(
       accept: moduleSchema.accept,
       encode: resolveEncodeSettings(undefined, moduleSchema.encode),
       altRequired: altIsRequired(moduleSchema),
+      remote: moduleSchema.remote
+        ? { schema: galleryEntryImageSchema(moduleSchema) }
+        : null,
     };
   }
 
@@ -312,10 +434,6 @@ function resolveTarget(
       ),
     };
   }
-  if (schema.remote) {
-    return { status: "error", result: refuseRemote() };
-  }
-
   // A gallery-backed field (`s.image(galleryVal)`) serializes with EMPTY
   // options, so `accept`, `directory` and `encode` all have to fall through to
   // the gallery or it would never honour what the gallery asked for. The
@@ -327,9 +445,19 @@ function resolveTarget(
     : undefined;
   const galleryRecord =
     gallerySchema?.type === "record" ? gallerySchema : undefined;
-  if (galleryRecord?.remote) {
-    return { status: "error", result: refuseRemote() };
-  }
+  // Where the bytes end up is what decides which schema the ref is hashed
+  // against. A gallery-backed field's image is a GALLERY entry — the field only
+  // points at it — so it is the gallery's synthesized schema either way, and a
+  // plain field is hashed against its own. `s.image(gallery)` has no `remote`
+  // option of its own, so a gallery-backed field is remote exactly when its
+  // gallery is.
+  const remote: RemoteTarget | null = galleryRecord
+    ? galleryRecord.remote
+      ? { schema: galleryEntryImageSchema(galleryRecord) }
+      : null
+    : schema.remote
+      ? { schema }
+      : null;
   return {
     status: "ok",
     kind: "field",
@@ -347,6 +475,31 @@ function resolveTarget(
     // Only a gallery has an alt schema to satisfy. A plain `s.image()` field
     // stores `alt` if it is given and is fine without it.
     altRequired: galleryRecord ? altIsRequired(galleryRecord) : false,
+    remote,
+  };
+}
+
+/**
+ * The image schema a gallery ENTRY is validated as.
+ *
+ * A gallery's item schema is an object (width/height/mimeType/alt), but the
+ * remote ref's validation hash is computed over a `SerializedImageSchema` — so
+ * one has to be synthesized, carrying the `accept` and `directory` of the record
+ * that holds the entry. This is `handleRemoteGalleryFileUpload`'s synthesis, and
+ * it has to stay identical to it: the CLI's `--fix` writes refs this way and the
+ * check that validates them reads them the same way, so a third shape here would
+ * bake a hash that can never match.
+ */
+function galleryEntryImageSchema(
+  gallery: SerializedRecordSchema,
+): SerializedImageSchema {
+  return {
+    type: "image",
+    opt: false,
+    options: {
+      ...(gallery.accept ? { accept: gallery.accept } : {}),
+      ...(gallery.directory ? { directory: gallery.directory } : {}),
+    },
   };
 }
 
@@ -365,13 +518,6 @@ function altIsRequired(gallerySchema: SerializedSchema): boolean {
     return false;
   }
   return gallerySchema.alt !== undefined && !gallerySchema.alt.opt;
-}
-
-function refuseRemote(): ValToolResult {
-  return err(
-    "unsupported",
-    "This field stores its images remotely, and uploading a remote file needs a credential this endpoint does not hold. Add the image through the Val Studio, or with `val validate --fix` after putting the file in the project.",
-  );
 }
 
 /** The bytes to upload, from whichever of the two arguments was given. */
@@ -628,9 +774,22 @@ function refuseUnaccepted(
   };
 }
 
-/** An uploaded image, and where it is going to live. */
+/**
+ * An uploaded image, and where it is going to live.
+ *
+ * Two paths, because a remote image has two. `ref` is what the content refers
+ * to — a `/public/...` path locally, a `remote.val.build` URL remotely — and it
+ * is what the patch stores. `storedPath` is where the BYTES go, which is the
+ * patch store in both cases and always a `/public/...` path: a remote ref is a
+ * URL that encodes one, and the store keys files by the path, not the URL.
+ *
+ * They are the same string for a local image, and separating them anyway is
+ * what stops the remote branch being a set of ad-hoc splits at each use.
+ */
 type UploadedFile = {
-  filePath: string;
+  ref: string;
+  storedPath: string;
+  remote: boolean;
   dataUrl: string;
   metadata: ImageMetadata;
 };
@@ -644,7 +803,7 @@ async function uploadToGallery(
 ): Promise<SavePatchResult> {
   const built = buildImageGalleryPatch(
     {
-      filePath: file.filePath,
+      filePath: file.ref,
       imageKey: file.dataUrl,
       metadata: file.metadata,
     },
@@ -668,12 +827,12 @@ async function uploadToField(
     {
       op: "replace",
       path: fieldPath,
-      value: { path: file.filePath, ...file.metadata },
+      value: { path: file.ref, ...file.metadata },
     },
     {
       op: "file",
       path: fieldPath,
-      filePath: file.filePath,
+      filePath: file.ref,
       value: file.dataUrl,
       metadata: file.metadata,
       remote: false,
@@ -740,7 +899,7 @@ async function uploadToGalleryBackedField(
       path: target.fieldPath,
       // No `file` op and no metadata: the bytes are already in the gallery
       // patch above, and the gallery is where everything about them lives.
-      value: { path: target.file.filePath },
+      value: { path: target.file.ref },
     },
   ]);
   if (built.kind !== "ok") {
@@ -785,7 +944,7 @@ function splitFileOps(
   deps: ValToolDeps,
   file: UploadedFile,
 ): { patchOps: Patch; uploadFiles: UploadPatchFiles } {
-  const { filePath, dataUrl, metadata } = file;
+  const { ref, storedPath, remote, dataUrl, metadata } = file;
   const textEncoder = new TextEncoder();
   const patchOps: Patch = patch.map((op) =>
     op.op === "file" && typeof op.value === "string"
@@ -793,8 +952,13 @@ function splitFileOps(
       : op,
   );
   const uploadFiles: UploadPatchFiles = async ({ patchId, parentRef }) => {
+    // `storedPath`, not the ref: the patch store keys files by path, and a
+    // remote ref is a URL that encodes one. This is the same split the Studio
+    // makes before it POSTs — and it is what lets publish find these bytes
+    // again, because `saveOrUploadFiles` reads them back by the path it splits
+    // out of the ref.
     const saved = await deps.ops.saveBase64EncodedBinaryFileFromPatch(
-      filePath,
+      storedPath,
       parentRef,
       patchId,
       dataUrl,
@@ -815,7 +979,9 @@ function splitFileOps(
     // working tree, and will not be until this patch is published.
     return {
       status: "ok",
-      files: { [filePath]: { patchId, remote: false, isDelete: false } },
+      // Keyed by the REF, which is what `analyzePatches` will key the real
+      // patch by once it exists — the file op carries the ref, not the path.
+      files: { [ref]: { patchId, remote, isDelete: false } },
     };
   };
   return { patchOps, uploadFiles };

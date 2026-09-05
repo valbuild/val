@@ -51,11 +51,11 @@ import { fromError } from "zod-validation-error";
 import { ValOpsHttp } from "./ValOpsHttp";
 import { result } from "@valbuild/core/fp";
 import { getSettings } from "./getSettings";
-import { createValOps } from "./valServerConfig";
 import {
-  getPersonalAccessTokenPath,
-  parsePersonalAccessTokenFile,
-} from "./personalAccessTokens";
+  createValOps,
+  resolveRemoteFileAuth,
+  type RemoteFileAuth,
+} from "./valServerConfig";
 import path from "path";
 import { getErrorMessageFromUnknownJson } from "@valbuild/shared/internal";
 
@@ -301,11 +301,19 @@ export const ValServer = (
     };
   };
 
-  let remoteFileAuth: { apiKey: string } | { pat: string } | null = null;
+  let remoteFileAuth: RemoteFileAuth | null = null;
+  /**
+   * The credential for remote-file work, memoised for the life of the server.
+   *
+   * The rule itself is `resolveRemoteFileAuth` in `valServerConfig`, shared with
+   * the MCP image tool — what is left here is the memoisation and the shape the
+   * api routes answer in. Memoised because in fs mode it reads a file off disk,
+   * and every remote image in a gallery would otherwise read it again.
+   */
   const getRemoteFileAuth = async (): Promise<
     | {
         status: 200;
-        json: { remoteFileAuth: { apiKey: string } | { pat: string } };
+        json: { remoteFileAuth: RemoteFileAuth };
       }
     | {
         status: 400;
@@ -316,69 +324,17 @@ export const ValServer = (
       }
   > => {
     if (remoteFileAuth) {
-      return {
-        status: 200,
-        json: { remoteFileAuth },
-      };
+      return { status: 200, json: { remoteFileAuth } };
     }
-    if (options.apiKey) {
-      remoteFileAuth = {
-        apiKey: options.apiKey,
-      };
-    } else if (serverOps instanceof ValOpsFS) {
-      const projectRootDir = options.config.root || ".";
-      if (!projectRootDir) {
-        return {
-          status: 400,
-          json: {
-            errorCode: "project-not-configured",
-            message: "Root directory was empty",
-          },
-        };
-      }
-      const fs = await import("fs");
-      const patPath = getPersonalAccessTokenPath(path.join(process.cwd()));
-      let patFile;
-
-      try {
-        patFile = await fs.promises.readFile(patPath, "utf-8");
-      } catch (err) {
-        return {
-          status: 400,
-          json: {
-            errorCode: "pat-error",
-            message: "Could not read personal access token file",
-          },
-        };
-      }
-      const patRes = parsePersonalAccessTokenFile(patFile);
-      if (patRes.success) {
-        remoteFileAuth = {
-          pat: patRes.data.pat,
-        };
-      } else {
-        return {
-          status: 400,
-          json: {
-            errorCode: "pat-error",
-            message: "Could not parse personal access token file",
-          },
-        };
-      }
-    }
-    if (!remoteFileAuth) {
+    const resolved = await resolveRemoteFileAuth(options);
+    if (resolved.status === "error") {
       return {
         status: 400,
-        json: {
-          errorCode: "project-not-configured",
-          message: "Remote file auth is not configured",
-        },
+        json: { errorCode: resolved.errorCode, message: resolved.message },
       };
     }
-    return {
-      status: 200,
-      json: { remoteFileAuth },
-    };
+    remoteFileAuth = resolved.auth;
+    return { status: 200, json: { remoteFileAuth } };
   };
 
   return {
