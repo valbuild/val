@@ -39,6 +39,36 @@ function picker(studio: Locator): Locator {
   return studio.locator('input[type="file"]:not([multiple])');
 }
 
+/**
+ * Wait until an upload can actually succeed, then hand over the file.
+ *
+ * A remote gallery cannot upload until `/remote/settings` has answered and a
+ * bucket has been picked from it, which is several async hops after intake -
+ * and `openHttpStudio` returns at intake. Setting the file before then makes
+ * `handleUpload` refuse it AND clear the input (`ev.target.value = ""`), so the
+ * upload never happens at all and the test fails 30s later polling for a ref
+ * that was never going to appear. That is the flake this replaces; CI caught it
+ * with `currentRemoteFileBucket: null, remoteFiles: { status: 'loading' }` -
+ * the request still in flight.
+ *
+ * The wait is on the upload button being enabled rather than on the response,
+ * because the button is downstream of BOTH the response and the effect that
+ * picks a bucket. Waiting for the response alone would still leave a render to
+ * race. It is also a boundary a person can see - the Studio does not offer the
+ * control until it works - rather than a reach into the client's state.
+ *
+ * `setInputFiles` does NOT wait for this on its own: measured, it sets files on
+ * a disabled input immediately, and the disabled input still fires `change`.
+ * So the wait has to be explicit.
+ */
+async function uploadWhenReady(studio: Locator, file: string): Promise<void> {
+  await expect(
+    studio.getByTitle("Upload file"),
+    "the gallery never became ready to upload",
+  ).toBeEnabled({ timeout: 30_000 });
+  await picker(studio).first().setInputFiles(file);
+}
+
 /** Every `file` op path in the chain: where an upload decided to store itself. */
 function uploadedRefs(page: Page): Promise<string[]> {
   return page.evaluate(() => {
@@ -97,7 +127,7 @@ test.describe("remote files", () => {
   }) => {
     await openHttpStudio(page, `/val/~${MODULE}`);
     const studio = page.locator("#val-shadow-root");
-    await picker(studio).first().setInputFiles(IMAGE);
+    await uploadWhenReady(studio, IMAGE);
 
     // A remote ref, not a repo path: `https://remote.val.build/file/p/...`, with
     // the project, bucket and hashes the content service handed out.
@@ -146,7 +176,7 @@ test.describe("remote files", () => {
   }) => {
     await openHttpStudio(page, `/val/~${MODULE}`);
     const studio = page.locator("#val-shadow-root");
-    await picker(studio).first().setInputFiles(IMAGE);
+    await uploadWhenReady(studio, IMAGE);
     await expect
       .poll(() => uploadedRefs(page), { timeout: 30_000 })
       .toHaveLength(1);
@@ -187,7 +217,7 @@ test.describe("remote files", () => {
   test("deletes a remote entry it just uploaded", async ({ page }) => {
     await openHttpStudio(page, `/val/~${MODULE}`);
     const studio = page.locator("#val-shadow-root");
-    await picker(studio).first().setInputFiles(OTHER_IMAGE);
+    await uploadWhenReady(studio, OTHER_IMAGE);
 
     const tile = studio.locator('img[src*="green-8x8_"]');
     await expect(tile).toHaveCount(1);

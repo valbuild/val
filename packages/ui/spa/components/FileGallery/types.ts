@@ -44,6 +44,15 @@ export interface FileGalleryProps {
   disabled?: boolean;
   onUploadClick?: () => void;
   uploading?: boolean;
+  /**
+   * The upload control cannot succeed yet, so it is not offered.
+   *
+   * Distinct from `uploading` (a request is in flight) and from `disabled` (the
+   * whole gallery is inert): this is specifically "the preconditions for an
+   * upload are not in place", which today means a remote gallery still waiting
+   * on `/remote/settings`.
+   */
+  uploadDisabled?: boolean;
   defaultOpenFileRef?: string;
   isDraggingOver?: boolean;
 }

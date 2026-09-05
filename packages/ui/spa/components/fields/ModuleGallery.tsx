@@ -153,6 +153,26 @@ export function ModuleGallery({
         }
       : null;
 
+  /**
+   * Whether an upload can succeed RIGHT NOW.
+   *
+   * A remote gallery cannot upload until `/remote/settings` has answered and a
+   * bucket has been picked from it - which is several async hops after intake:
+   * schemas arrive, that sets `requiresRemoteFiles`, that fires the request, and
+   * `useCurrentRemoteFileBucket` picks a bucket in an effect after the response.
+   * Until then `remoteData` is null and `handleUpload` can only refuse.
+   *
+   * Exposed so the button is not offered before it can work. It is also the only
+   * signal anything outside this component can wait on - `remoteFiles` and the
+   * bucket are both context state with no DOM of their own - which is what
+   * `e2e/http/remoteFiles.spec.ts` waits for instead of racing the request.
+   */
+  const canUpload = !requireRemote || remoteData !== null;
+  /** Loading is transient and about to resolve; inactive is a real failure. */
+  const remoteSettingsPending =
+    requireRemote === true &&
+    (remoteFiles.status === "loading" || remoteFiles.status === "not-asked");
+
   const files: GalleryFile[] = rawSource
     ? Object.entries(rawSource).map(([ref, meta]) => {
         const mimeType = typeof meta.mimeType === "string" ? meta.mimeType : "";
@@ -361,6 +381,21 @@ export function ModuleGallery({
       setUploadError(null);
       if (requireRemote && (!remoteData || !currentRemoteFileBucket)) {
         if (!currentRemoteFileBucket) {
+          /**
+           * Still loading is NOT the same as unavailable.
+           *
+           * Both used to land on "contact support", so an editor quick enough to
+           * pick a file while `/remote/settings` was still in flight was told
+           * their upload had failed permanently - for a state that resolves in
+           * milliseconds. The button is disabled until `canUpload`, so this is
+           * now only reachable by something that bypasses it (a drop, or a test
+           * driving the hidden input), and it says what is actually true.
+           */
+          if (remoteSettingsPending) {
+            setUploadError("Preparing remote uploads - try again in a moment.");
+            ev.target.value = "";
+            return;
+          }
           console.error("Current remote file bucket is not available", {
             remoteFiles,
             currentRemoteFileBucket,
@@ -506,6 +541,7 @@ export function ModuleGallery({
       schema,
       remoteFiles,
       encode,
+      remoteSettingsPending,
     ],
   );
 
@@ -515,8 +551,17 @@ export function ModuleGallery({
       dragCounterRef.current = 0;
       setIsDraggingOver(false);
       if (requireRemote && (!remoteData || !currentRemoteFileBucket)) {
+        /**
+         * Same distinction as `handleUpload`, and this is the path that needs
+         * it most: a drop has no button to disable, so `canUpload` cannot keep
+         * anyone out of here. Dropping a file while `/remote/settings` is still
+         * in flight is the one way an editor can still meet this, and it is
+         * transient - saying "not available" would be false.
+         */
         setUploadError(
-          "Remote uploads are not available. Please try again later.",
+          remoteSettingsPending
+            ? "Preparing remote uploads - try again in a moment."
+            : "Remote uploads are not available. Please try again later.",
         );
         return;
       }
@@ -642,6 +687,11 @@ export function ModuleGallery({
       computeRef,
       handleProgress,
       encode,
+      // Derived from `remoteFiles`, which is NOT otherwise a dependency here.
+      // On loading -> inactive neither `remoteData` nor the bucket changes
+      // (both stay null), so without this the flag stays stale at `true` and a
+      // genuinely unavailable remote would keep saying "try again in a moment".
+      remoteSettingsPending,
     ],
   );
 
@@ -702,6 +752,7 @@ export function ModuleGallery({
         }
         onFileDelete={readonly ? undefined : handleFileDelete}
         onUploadClick={readonly ? undefined : () => inputRef.current?.click()}
+        uploadDisabled={!canUpload}
         uploading={uploading}
         defaultOpenFileRef={showChildRef ?? undefined}
         isDraggingOver={isDraggingOver}
