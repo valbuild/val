@@ -39,12 +39,6 @@ jest.mock("../ValFieldProvider", () => ({
     addPatch: mockAddPatch,
     addModuleFilePatch: mockAddModuleFilePatch,
   }),
-  // Reached through `useEmptyOf` -> `useProjectLocales`, which asks for the
-  // project's languages before building an empty entry. This fixture has no
-  // settings module, so "still loading" is the honest answer and the one the
-  // hook already handles: no languages, and nothing about locales is shown.
-  useSchemas: () => ({ status: "loading" }),
-  useSourceAtPath: () => ({ status: "loading" }),
 }));
 
 jest.mock("../ValPortalProvider", () => ({

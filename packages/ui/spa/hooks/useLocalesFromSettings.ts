@@ -5,7 +5,16 @@ import { settingsModuleFilePath } from "./assistantSettings";
 import { sourcePathOfItem } from "../utils/sourcePathOfItem";
 
 /**
- * The languages this project publishes, from its settings module.
+ * The languages this project publishes, read from its settings module.
+ *
+ * Called ONCE, by the shell, and handed down through
+ * {@link ProjectLocalesProvider}. Everything else asks
+ * {@link useProjectLocales}, which is a context read. That split is the whole
+ * point of this file existing separately: the read below is a whole-project
+ * subscription — `useSchemas` wakes on every schema change, `useSourceAtPath`
+ * on the settings module — and a field is mounted once per field, so a copy of
+ * it in every field and every filtered row makes one edit O(project). See
+ * `perFieldSubscriptions.test.ts`.
  *
  * Empty where the project has no settings module, no `locales` section, or
  * nothing in it — all of which mean the same thing, and mean it in the same way
@@ -17,7 +26,7 @@ import { sourcePathOfItem } from "../utils/sourcePathOfItem";
  * field that refused to render until it was well-formed would disappear exactly
  * when someone was fixing it.
  */
-export function useProjectLocales(): string[] {
+export function useLocalesFromSettings(): string[] {
   const schemas = useSchemas();
   const moduleFilePath =
     schemas.status === "success" ? settingsModuleFilePath(schemas.data) : null;
@@ -41,9 +50,10 @@ export function useProjectLocales(): string[] {
    *
    * `useSourceAtPath` hands back a new object whenever anything it watches
    * moves, so the memo above recomputes — and a fresh array here would be a new
-   * `locales` prop on the shell, and a new predicate for every filtered row, on
-   * every keystroke anywhere in the project. Reference stability is load-bearing
-   * in this codebase; see `architecture/stores.md`.
+   * `locales` prop on the shell, a new context value for the whole tree, and a
+   * new predicate for every filtered row, on every keystroke anywhere in the
+   * project. Reference stability is load-bearing in this codebase; see
+   * `architecture/stores.md`.
    *
    * Keyed on the content rather than the array, so the identity survives a
    * recompute that produced the same languages.

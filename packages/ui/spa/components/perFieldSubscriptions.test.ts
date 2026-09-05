@@ -42,7 +42,17 @@ import path from "path";
  */
 const FIELDS_DIR = path.join(__dirname, "fields");
 
-/** Per-field components that do not live under `fields/`. */
+/**
+ * Per-field components and hooks that do not live under `fields/`.
+ *
+ * Hooks belong here as much as components do: a hook every field calls is a
+ * subscription every field has, and the call is one line in a file the guard
+ * would otherwise never look at. `useProjectLocales` and `useEmptyOf` are here
+ * because both were exactly that — the languages a project declares live in the
+ * settings module, so reading them from source means `useSchemas` plus the
+ * module, and every field and every filtered row asks. They read a context now;
+ * the shell does the reading (see `useLocalesFromSettings`).
+ */
 const EXTRA_FILES = [
   "Field.tsx",
   "InlineField.tsx",
@@ -51,6 +61,9 @@ const EXTRA_FILES = [
   "BlockList.tsx",
   "FieldValidationError.tsx",
   "FieldPatchAuthorsSection.tsx",
+  "LocaleFilterProvider.tsx",
+  "../hooks/useProjectLocales.tsx",
+  "../hooks/useEmptyOf.ts",
 ];
 
 /** Hooks that wake for something other than the field reading them. */
