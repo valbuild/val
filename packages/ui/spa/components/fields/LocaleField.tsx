@@ -21,20 +21,7 @@ import {
 } from "../designSystem/select";
 import { ReadonlyGuard } from "./ReadonlyGuard";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-
-/**
- * The name of a language, in that language.
- *
- * `undefined` for anything `Intl` will not parse, so a value validation is
- * already complaining about shows as itself rather than crashing the field.
- */
-export function localeName(tag: string): string | undefined {
-  try {
-    return new Intl.DisplayNames([tag], { type: "language" }).of(tag);
-  } catch {
-    return undefined;
-  }
-}
+import { localeName } from "../../utils/localeName";
 
 /**
  * One of the project's languages, as a picker.

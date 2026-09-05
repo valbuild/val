@@ -26,6 +26,16 @@ export type ShellUrlState = {
   canvasView: CanvasView;
   /** Pan and zoom, when they have been moved from the fitted default. */
   canvasTransform: CanvasTransform | null;
+  /**
+   * The language being looked at, or `null` for all of them.
+   *
+   * A view filter rather than a place: it changes what is LISTED and never what
+   * is reachable, so a link to a Norwegian page still opens it while the filter
+   * says English. `null` is the default and writes nothing to the URL — most
+   * projects have no languages at all, and they should not carry a param
+   * saying so.
+   */
+  locale: string | null;
 };
 
 const PANELS: ShellPanel[] = [
@@ -45,6 +55,7 @@ const PARAM = {
   canvasRoute: "canvas-route",
   canvasView: "canvas-view",
   canvasTransform: "canvas-at",
+  locale: "locale",
 };
 
 /**
@@ -63,6 +74,11 @@ export function parseShellUrlState(search: string): ShellUrlState {
     canvasRoute: params.get(PARAM.canvasRoute),
     canvasView: view === "fields" ? "fields" : "normal",
     canvasTransform: parseTransform(params.get(PARAM.canvasTransform)),
+    // Not checked against the project's languages here: this runs before the
+    // settings module has loaded, and a link is something a person can edit.
+    // The picker resolves it against `locales.available` and falls back to all
+    // locales, which is the same thing an unrecognised value should do.
+    locale: params.get(PARAM.locale),
   };
 }
 
@@ -118,6 +134,7 @@ export function applyShellUrlState(
       ? null
       : formatTransform(state.canvasTransform),
   );
+  set(PARAM.locale, state.locale);
   const query = params.toString();
   return query ? `?${query}` : "";
 }

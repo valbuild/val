@@ -23,6 +23,7 @@ import { AccountErrorDot } from "./AccountError";
 import { ValLogo } from "./ValLogo";
 import { ShellBreakpoint, ShellPanel } from "./types";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
+import { LocaleFilter } from "./LocaleFilter";
 
 export type TopBarProps = {
   breakpoint: ShellBreakpoint;
@@ -44,6 +45,13 @@ export type TopBarProps = {
   /** Absent until a profile loads, and in modes that have none. */
   user?: { name: string; avatarUrl?: string };
   onOpenSearch: () => void;
+  /**
+   * The project's languages, for the locale filter. Empty hides it entirely.
+   */
+  locales?: string[];
+  /** The language being shown, or `null` for all of them. */
+  locale?: string | null;
+  onLocaleChange?: (locale: string | null) => void;
   onPreview: () => void;
   /**
    * Opens the canvas beside the editor.
@@ -128,6 +136,9 @@ export function TopBar({
   unreadNotifications,
   user,
   onOpenSearch,
+  locales,
+  locale = null,
+  onLocaleChange,
   onPreview,
   onToggleCanvas,
   isCanvasOpen,
@@ -171,6 +182,18 @@ export function TopBar({
       <ProjectName projectName={projectName} projectHref={projectHref} />
       <SearchTrigger breakpoint={breakpoint} onClick={onOpenSearch} />
       <div className="ml-auto flex items-center gap-1.5 shrink-0">
+        {/*
+         * First in the cluster, and before the divider: everything after it is
+         * something you DO, and this is what you are looking at while you do it.
+         * On a phone it moves to the bottom bar, where the actions are.
+         */}
+        {!isMobile && locales !== undefined && onLocaleChange !== undefined && (
+          <LocaleFilter
+            locales={locales}
+            value={locale}
+            onChange={onLocaleChange}
+          />
+        )}
         {!isMobile && (
           <>
             <PreviewButton

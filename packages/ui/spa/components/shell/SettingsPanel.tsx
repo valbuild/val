@@ -9,6 +9,7 @@ import {
   DebouncedFieldWrite,
   useDebouncedFieldWrite,
 } from "../fields/useDebouncedFieldWrite";
+import { localeName } from "../../utils/localeName";
 
 export type SettingsPanelProps = {
   breakpoint: ShellBreakpoint;
@@ -477,21 +478,6 @@ export function LocalesSettingsFields({
       </label>
     </SettingsSection>
   );
-}
-
-/**
- * The name of a language, in that language.
- *
- * `undefined` where the tag is malformed — `Intl.DisplayNames` throws on those,
- * and a row for a tag validation is already complaining about should show the
- * tag rather than a crash.
- */
-function localeName(tag: string): string | undefined {
-  try {
-    return new Intl.DisplayNames([tag], { type: "language" }).of(tag);
-  } catch {
-    return undefined;
-  }
 }
 
 function LocaleRow({

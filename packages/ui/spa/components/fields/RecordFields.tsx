@@ -20,6 +20,7 @@ import { useValSystem } from "../../stores/react/SystemContext";
 import { ModuleGallery } from "./ModuleGallery";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
+import { useLocaleFilterPredicate } from "../LocaleFilterProvider";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
@@ -51,6 +52,7 @@ export function RecordFields({
 }) {
   const type = "record";
   const validationErrors = useAllValidationErrors() || {};
+  const matchesLocale = useLocaleFilterPredicate();
   const schemaAtPath = useSchemaAtPath(path);
   const previewAtPath = usePreviewAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
@@ -94,6 +96,16 @@ export function RecordFields({
   }
   const source = sourceAtPath.data;
   const schema = schemaAtPath.data;
+  /**
+   * The keys the locale filter leaves on screen.
+   *
+   * A locale-keyed record is the case where a key IS a language, so the filter
+   * can answer from the key alone — no entry has to be loaded to know it is
+   * Norwegian. Every other record is untouched, because its keys say nothing
+   * about language.
+   */
+  const visibleKeys = (keys: string[]): string[] =>
+    keys.filter((key) => matchesLocale({ key, keySchema: schema.key }));
 
   // Entries are rendered in place either because the caller asked for it
   // (`inline` prop) or because the item schema opted in with
@@ -110,26 +122,30 @@ export function RecordFields({
         <div className={`flex flex-col ${compact ? "gap-3" : "gap-4"}`}>
           {schema.item.hidden
             ? null
-            : Object.entries(sourceEntries).map(([key, itemPath]) => (
-                <Field
-                  key={itemPath}
-                  label={key}
-                  path={itemPath}
-                  type={schema.item.type}
-                  readonly={readonly || schema.item.readonly}
-                  compact={compact}
-                  errorDisplay={errorDisplay}
-                >
-                  <AnyField
+            : Object.entries(sourceEntries)
+                .filter(([key]) =>
+                  matchesLocale({ key, keySchema: schema.key }),
+                )
+                .map(([key, itemPath]) => (
+                  <Field
+                    key={itemPath}
+                    label={key}
                     path={itemPath}
-                    schema={schema.item}
+                    type={schema.item.type}
                     readonly={readonly || schema.item.readonly}
                     compact={compact}
-                    inline={inline}
                     errorDisplay={errorDisplay}
-                  />
-                </Field>
-              ))}
+                  >
+                    <AnyField
+                      path={itemPath}
+                      schema={schema.item}
+                      readonly={readonly || schema.item.readonly}
+                      compact={compact}
+                      inline={inline}
+                      errorDisplay={errorDisplay}
+                    />
+                  </Field>
+                ))}
         </div>
       </div>
     );
@@ -155,14 +171,14 @@ export function RecordFields({
           // list that rendered just those could never scroll far enough to load
           // the rest. Each row looks its own item up by key (resolveRefPreview),
           // so a key with no item falls back to a skeleton or the default preview.
-          keys={Object.keys(source)}
+          keys={visibleKeys(Object.keys(source))}
           jsonValues={schema.jsonValues === true}
         />
       )}
       {!previewAtPathData && source && (
         <RecordCardList
           path={path}
-          keys={Object.keys(source)}
+          keys={visibleKeys(Object.keys(source))}
           jsonValues={schema.jsonValues === true}
           validationErrors={validationErrors}
         />
