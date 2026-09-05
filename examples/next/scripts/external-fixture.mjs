@@ -9,10 +9,17 @@
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
+// Resolved against THIS FILE, not the working directory: run from the repo root
+// and a cwd-relative path would quietly create a second, empty store there —
+// which then looks like the app losing its content.
+const exampleDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
 const file =
-  process.env.VAL_EXAMPLE_DB ??
-  path.join(process.cwd(), ".val-example-store.db");
+  process.env.VAL_EXAMPLE_DB ?? path.join(exampleDir, ".val-example-store.db");
 
 const db = new DatabaseSync(file);
 db.exec("PRAGMA journal_mode = WAL");

@@ -32,6 +32,9 @@ let db: DatabaseSync | null = null;
 
 export function getDb(): DatabaseSync {
   if (db === null) {
+    // `cwd` is right HERE, unlike in the seed script: a Next server runs from
+    // the app root, and that is where the store belongs. `VAL_EXAMPLE_DB` is the
+    // override for anything that does not.
     const file =
       process.env.VAL_EXAMPLE_DB ??
       path.join(process.cwd(), ".val-example-store.db");
