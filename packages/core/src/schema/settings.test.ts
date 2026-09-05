@@ -230,3 +230,111 @@ describe("resolveSettingsModule", () => {
     }
   });
 });
+
+describe("the locales section", () => {
+  /** The errors for one settings source, as `path -> messages`. */
+  function validate(src: Record<string, unknown>): Record<string, string[]> {
+    const errors = settings()["executeValidate"](
+      "/settings.val.ts" as SourcePath,
+      src,
+    );
+    if (errors === false) {
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(errors).map(([path, list]) => [
+        path,
+        list.map((error) => error.message),
+      ]),
+    );
+  }
+
+  test("a project with no locales section is not translated, and says nothing", () => {
+    expect(validate({})).toEqual({});
+    expect(validate({ locales: {} })).toEqual({});
+  });
+
+  test("canonical tags pass", () => {
+    expect(
+      validate({
+        locales: { available: ["en-US", "fr-FR", "nb-NO"], default: "en-US" },
+      }),
+    ).toEqual({});
+  });
+
+  test("a tag that is not canonical names the spelling to use", () => {
+    // The case that matters: `nb-no` parses, but nothing else in the stack
+    // agrees it is the same string as `nb-NO`.
+    expect(
+      validate({ locales: { available: ["nb-no"] } })[
+        '/settings.val.ts?p="locales"."available".0'
+      ],
+    ).toEqual(["'nb-no' is not canonical. Write it as 'nb-NO'"]);
+  });
+
+  test("an underscore is rejected as the POSIX spelling it is", () => {
+    expect(
+      validate({ locales: { available: ["nb_NO"] } })[
+        '/settings.val.ts?p="locales"."available".0'
+      ],
+    ).toEqual([
+      "'nb_NO' is not a language tag. Language then region, separated by a hyphen — 'nb-NO', not 'nb_NO'",
+    ]);
+  });
+
+  test("a default that is not one of the languages is reported on the default", () => {
+    expect(
+      validate({
+        locales: { available: ["en-US", "nb-NO"], default: "fr-FR" },
+      }),
+    ).toEqual({
+      '/settings.val.ts?p="locales"."default"':
+        // Named on `default` rather than on the section: that is the field the
+        // editor has to change.
+        ["'fr-FR' is not one of this project's languages: 'en-US', 'nb-NO'"],
+    });
+  });
+
+  test("a default with nothing declared says so, rather than listing an empty set", () => {
+    expect(
+      validate({ locales: { default: "en-US" } })[
+        '/settings.val.ts?p="locales"."default"'
+      ],
+    ).toEqual([
+      "'en-US' is not one of this project's languages, because none are declared",
+    ]);
+  });
+
+  test("a language declared twice is reported on the repeat, not on the list", () => {
+    // The second `en-US` is the one to delete, so that is the row that carries
+    // the error — a message on the list itself would not say which.
+    expect(
+      validate({ locales: { available: ["en-US", "nb-NO", "en-US"] } }),
+    ).toEqual({
+      '/settings.val.ts?p="locales"."available".2': [
+        "'en-US' is declared twice",
+      ],
+    });
+  });
+
+  test("the section survives a hand-written module of the wrong shape", () => {
+    // Validation runs against whatever is in the file, including the shapes the
+    // per-key pass is reporting in the same breath. The cross-key rule must not
+    // throw on its way past them.
+    expect(() => validate({ locales: { available: "en-US" } })).not.toThrow();
+    expect(() =>
+      validate({ locales: { available: [1, null], default: 2 } }),
+    ).not.toThrow();
+  });
+
+  test("s.settings() declares the section, so a project can be typed against it", () => {
+    const module = c.define(
+      "/settings.val.ts" as ModuleFilePath,
+      s.settings(),
+      {
+        locales: { available: ["en-US", "nb-NO"], default: "en-US" },
+      },
+    );
+    expect(module).toBeDefined();
+  });
+});

@@ -22,6 +22,49 @@
  */
 export type SettingsSource = {
   assistant?: AssistantSettingsSource;
+  locales?: LocalesSettingsSource;
+};
+
+/**
+ * The languages this project publishes.
+ *
+ * Content rather than configuration, and deliberately: which languages a site
+ * has is a decision the people who write it make, and under a build-time
+ * constant it took a developer and a deploy. It is the same move `assistant`
+ * makes with `enabled`.
+ *
+ * Val ships no list of its own. A project with no `locales` section has not
+ * said it is translated, and nothing about locales appears anywhere — no picker
+ * in the Studio, no checks, nothing.
+ *
+ * **This list is a decision with a blast radius.** Every locale in content is
+ * checked against it, so removing one invalidates the content that uses it, and
+ * adding one leaves every locale-keyed record short of a language until it is
+ * filled in. That is the intended behaviour — a language that is declared and
+ * missing everywhere is worth being told about — but it is why the Studio warns
+ * before saving a removal rather than treating this as an ordinary field.
+ */
+export type LocalesSettingsSource = {
+  /**
+   * The languages, as canonical BCP 47 tags: `en-US`, `nb-NO`.
+   *
+   * Order is the project's own, and it is kept: it decides the order of the
+   * Studio's picker and of the rows in a locale-keyed record, so a project can
+   * put the language it works in first.
+   */
+  available?: string[] | null;
+  /**
+   * The language content is written in first.
+   *
+   * Where the Studio starts, and what a translation is made FROM — never the
+   * locale that happens to be on screen, so that the same button on the same
+   * field asks the same thing whatever is being looked at.
+   *
+   * Must be one of `available`. Unset where nothing has been declared, or where
+   * a project genuinely has no primary language, in which case nothing offers
+   * to translate.
+   */
+  default?: string | null;
 };
 
 /**

@@ -9,11 +9,14 @@ import {
 import {
   ASSISTANT_SETTINGS_MAX_LENGTH,
   AssistantSettingsSource,
+  LocalesSettingsSource,
   SettingsSource,
 } from "../source/settings";
 import { ModuleFilePath, SourcePath } from "../val";
+import { array } from "./array";
 import { boolean } from "./boolean";
 import { string } from "./string";
+import { localeTagError } from "../locale";
 import {
   ValidationError,
   ValidationErrors,
@@ -74,6 +77,23 @@ export class SettingsSchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
+    /**
+     * Val's own rule about this section, across more than one of its keys.
+     *
+     * Not the `validate` the class deliberately does not offer: that one is the
+     * schema author's, and `s.settings()` takes no arguments to declare it
+     * with. This is Val stating a rule about a shape Val owns — `locales.default`
+     * having to be one of `locales.available` is true of every project, and
+     * there is nowhere else it can be said. A single field's rules stay on that
+     * field's own schema; this is only for the ones that need a sibling.
+     *
+     * Errors carry a path WITHIN the section, so `default` is reported on
+     * `default` and a bad tag on the entry that holds it, rather than all of
+     * them landing on the section — which is not where the editor is looking.
+     */
+    private readonly sectionValidate?: (
+      src: Record<string, unknown>,
+    ) => { path: (string | number)[]; message: string }[],
   ) {
     super();
   }
@@ -138,6 +158,22 @@ export class SettingsSchema<
         );
       }
     }
+    if (this.sectionValidate) {
+      for (const { path: keys, message } of this.sectionValidate(src)) {
+        let subPath: SourcePath | ModuleFilePath | undefined = path;
+        for (const key of keys) {
+          subPath = subPath && createValPathOfItem(subPath, key);
+        }
+        error = this.appendValidationError(
+          error,
+          // Falls back to the section itself, which is where an error belongs
+          // when the value it is about is not addressable.
+          (subPath as SourcePath | undefined) ?? path,
+          message,
+          src,
+        );
+      }
+    }
     return error;
   }
 
@@ -173,6 +209,7 @@ export class SettingsSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
+      this.sectionValidate,
     );
   }
 
@@ -183,6 +220,7 @@ export class SettingsSchema<
       true,
       this.isHidden,
       this.description,
+      this.sectionValidate,
     );
   }
 
@@ -193,6 +231,7 @@ export class SettingsSchema<
       this.isReadonly,
       true,
       this.description,
+      this.sectionValidate,
     );
   }
 
@@ -305,5 +344,73 @@ export function settings(): SettingsSchema<SettingsSource> {
           "How the assistant should write when it writes content: formal or playful, British or American, how headings are cased.",
         ),
     }),
+    locales: new SettingsSchema<LocalesSettingsSource>(
+      {
+        available: array(string()).describe(
+          "The languages this project publishes, as BCP 47 tags: en-US, nb-NO. The first is where the Studio starts.",
+        ),
+        default: string()
+          .nullable()
+          .describe(
+            "The language content is written in first, and the one translations are made from.",
+          ),
+      },
+      false,
+      false,
+      false,
+      undefined,
+      localesSectionErrors,
+    ),
   });
+}
+
+/**
+ * The rules about `locales` that need more than one of its keys.
+ *
+ * Each tag's own spelling is checked by the field (see `localeTagError`); this
+ * is what is left: a default has to name a language the project actually has,
+ * and a language cannot be declared twice.
+ *
+ * Reads defensively rather than asserting the source's type. A settings module
+ * is a file someone edits by hand, and validation runs against whatever is in
+ * it — including the shapes the per-key pass is, in the same breath, reporting.
+ */
+function localesSectionErrors(
+  src: Record<string, unknown>,
+): { path: (string | number)[]; message: string }[] {
+  const errors: { path: (string | number)[]; message: string }[] = [];
+  const raw = Array.isArray(src["available"]) ? src["available"] : [];
+  const available: string[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < raw.length; i++) {
+    const tag = raw[i];
+    if (typeof tag !== "string") {
+      // The item's own schema has already said what is wrong with it.
+      continue;
+    }
+    available.push(tag);
+    const spelling = localeTagError(tag);
+    if (spelling !== false) {
+      errors.push({ path: ["available", i], message: spelling });
+    } else if (seen.has(tag)) {
+      errors.push({
+        path: ["available", i],
+        message: `'${tag}' is declared twice`,
+      });
+    }
+    seen.add(tag);
+  }
+  const fallback = src["default"];
+  if (typeof fallback === "string" && !seen.has(fallback)) {
+    errors.push({
+      path: ["default"],
+      message:
+        available.length === 0
+          ? `'${fallback}' is not one of this project's languages, because none are declared`
+          : `'${fallback}' is not one of this project's languages: ${available
+              .map((tag) => `'${tag}'`)
+              .join(", ")}`,
+    });
+  }
+  return errors;
 }

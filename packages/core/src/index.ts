@@ -149,6 +149,7 @@ export {
 export {
   type SettingsSource,
   type AssistantSettingsSource,
+  type LocalesSettingsSource,
   type AssistantAvailability,
   ASSISTANT_SETTINGS_MAX_LENGTH,
   assistantAvailability,
@@ -159,6 +160,7 @@ export {
   isRootModuleFilePath,
   resolveSettingsModule,
 } from "./settingsModule";
+export { localeTagError } from "./locale";
 export {
   type SerializedColorSchema,
   type ColorOptions,

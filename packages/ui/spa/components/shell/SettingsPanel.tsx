@@ -356,3 +356,202 @@ export function NoSettingsModule() {
     </PanelEmptyState>
   );
 }
+
+export type LocalesSettingsValue = {
+  /** The declared languages, in the project's own order. */
+  available: string[];
+  /** One of `available`, or `null` where nothing has been chosen. */
+  default: string | null;
+};
+
+export type LocalesSettingsFieldsProps = {
+  value: LocalesSettingsValue;
+  onChange: (next: LocalesSettingsValue) => void;
+  /**
+   * What validation says, by language tag and about the default.
+   *
+   * Keyed by tag rather than by index so a row keeps its message when the row
+   * above it is removed — the source has not been re-validated yet at that
+   * point, and an index would shift the message onto its neighbour.
+   */
+  errors?: { byTag?: Record<string, string>; default?: string };
+  readonly?: boolean;
+};
+
+/**
+ * The languages a project publishes, and which one it writes in first.
+ *
+ * The list is the project's own order, and it is kept rather than sorted: it
+ * decides the order of the locale picker and of the rows in a locale-keyed
+ * record, so a team that works in Norwegian can put Norwegian at the top.
+ *
+ * Each language is named as well as tagged. `Intl.DisplayNames` is asked in the
+ * language's OWN language, so Norwegian reads "norsk bokmål" rather than
+ * "Norwegian Bokmål" — the row is for the person who writes that language.
+ */
+export function LocalesSettingsFields({
+  value,
+  onChange,
+  errors,
+  readonly,
+}: LocalesSettingsFieldsProps) {
+  const [draft, setDraft] = useState("");
+  const add = () => {
+    const tag = draft.trim();
+    if (tag === "" || value.available.includes(tag)) {
+      setDraft("");
+      return;
+    }
+    onChange({
+      available: [...value.available, tag],
+      // The first language declared is the one a project writes in until it
+      // says otherwise, which saves a second decision on the common path.
+      default: value.default ?? tag,
+    });
+    setDraft("");
+  };
+  const remove = (tag: string) => {
+    const available = value.available.filter((each) => each !== tag);
+    onChange({
+      available,
+      // A default that has just been removed is not a default any more. Left
+      // alone it would be a dangling tag that every check then complains about.
+      default: value.default === tag ? (available[0] ?? null) : value.default,
+    });
+  };
+  return (
+    <SettingsSection description="The languages this project publishes. Content is checked against this list, so removing a language reports every piece of content still written in it.">
+      <div className="flex flex-col gap-1.5">
+        {value.available.length === 0 && (
+          <p className="text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
+            No languages yet. Add one and this project becomes translated.
+          </p>
+        )}
+        {value.available.map((tag) => (
+          <LocaleRow
+            key={tag}
+            tag={tag}
+            isDefault={value.default === tag}
+            error={errors?.byTag?.[tag]}
+            readonly={readonly}
+            onMakeDefault={() => onChange({ ...value, default: tag })}
+            onRemove={() => remove(tag)}
+          />
+        ))}
+      </div>
+      <label className="block">
+        <span className="text-xs font-medium">Add a language</span>
+        <span className="block mt-0.5 text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
+          A BCP 47 tag: language, then region, separated by a hyphen — en-US,
+          nb-NO.
+        </span>
+        <span className="mt-1.5 flex gap-1.5">
+          <input
+            className="flex-1 min-w-0 rounded-md border border-border-primary bg-bg-primary px-3 h-8 text-xs placeholder:text-fg-secondary-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
+            placeholder="nb-NO"
+            value={draft}
+            disabled={readonly}
+            spellCheck={false}
+            onChange={(event) => setDraft(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                add();
+              }
+            }}
+          />
+          <button
+            type="button"
+            disabled={readonly || draft.trim() === ""}
+            onClick={add}
+            className="shrink-0 h-8 px-3 rounded-md border border-border-primary text-xs font-medium hover:bg-bg-float-raised disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Add
+          </button>
+        </span>
+        {errors?.default && (
+          <span className="mt-1 block text-[0.6875rem] text-fg-error-on-surface leading-relaxed">
+            {errors.default}
+          </span>
+        )}
+      </label>
+    </SettingsSection>
+  );
+}
+
+/**
+ * The name of a language, in that language.
+ *
+ * `undefined` where the tag is malformed — `Intl.DisplayNames` throws on those,
+ * and a row for a tag validation is already complaining about should show the
+ * tag rather than a crash.
+ */
+function localeName(tag: string): string | undefined {
+  try {
+    return new Intl.DisplayNames([tag], { type: "language" }).of(tag);
+  } catch {
+    return undefined;
+  }
+}
+
+function LocaleRow({
+  tag,
+  isDefault,
+  error,
+  readonly,
+  onMakeDefault,
+  onRemove,
+}: {
+  tag: string;
+  isDefault: boolean;
+  error?: string;
+  readonly?: boolean;
+  onMakeDefault: () => void;
+  onRemove: () => void;
+}) {
+  const name = localeName(tag);
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-border-primary px-3 py-2">
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs font-medium truncate">
+            {name ?? tag}
+          </span>
+          {name !== undefined && (
+            <span className="block text-[0.6875rem] text-fg-secondary-alt tabular-nums">
+              {tag}
+            </span>
+          )}
+        </span>
+        {isDefault ? (
+          <span className="shrink-0 rounded px-1.5 py-0.5 text-[0.625rem] font-medium bg-bg-float-raised text-fg-secondary">
+            Written in first
+          </span>
+        ) : (
+          <button
+            type="button"
+            disabled={readonly}
+            onClick={onMakeDefault}
+            className="shrink-0 text-[0.6875rem] text-fg-secondary hover:text-fg-primary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Write in this first
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={readonly}
+          onClick={onRemove}
+          aria-label={`Remove ${name ?? tag}`}
+          className="shrink-0 text-[0.6875rem] text-fg-secondary hover:text-fg-error-on-surface disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Remove
+        </button>
+      </div>
+      {error && (
+        <span className="text-[0.6875rem] text-fg-error-on-surface leading-relaxed">
+          {error}
+        </span>
+      )}
+    </div>
+  );
+}

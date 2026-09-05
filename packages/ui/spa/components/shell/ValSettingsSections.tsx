@@ -1,18 +1,29 @@
+import { useMemo } from "react";
 import {
   ASSISTANT_SETTINGS_MAX_LENGTH,
   ModuleFilePath,
   SourcePath,
 } from "@valbuild/core";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
-import { useSchemaAtPath, useShallowSourceAtPath } from "../ValFieldProvider";
+import {
+  useSchemaAtPath,
+  useShallowSourceAtPath,
+  useSourceAtPath,
+} from "../ValFieldProvider";
 import { useWriteAssistantSetting } from "../../hooks/useWriteAssistantSetting";
-import { useValidationErrors } from "../ValErrorProvider";
+import { useWriteSettingsSection } from "../../hooks/useWriteSettingsSection";
+import {
+  useAllValidationErrors,
+  useValidationErrors,
+} from "../ValErrorProvider";
 import {
   AssistantSettingsFields,
+  LocalesSettingsFields,
+  LocalesSettingsValue,
   NoSettingsModule,
   SettingsTabs,
 } from "./SettingsPanel";
-import { Sparkles } from "lucide-react";
+import { Languages, Sparkles } from "lucide-react";
 import { PanelSkeleton } from "./PanelPrimitives";
 
 /**
@@ -58,6 +69,14 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
   const contextErrors = useValidationErrors(contextPath);
   const toneErrors = useValidationErrors(tonePath);
   const writeAssistantSetting = useWriteAssistantSetting(moduleFilePath);
+  const localesPath = sourcePathOfItem(moduleFilePath, "locales");
+  const localesValue = useLocalesSection(localesPath);
+  const localesErrors = useLocalesErrors(localesPath, localesValue.available);
+  const writeLocalesSetting = useWriteSettingsSection(
+    moduleFilePath,
+    "locales",
+    LOCALES_FIELDS,
+  );
 
   if (settings.status === "loading" || schema.status === "loading") {
     return <PanelSkeleton rows={4} />;
@@ -88,9 +107,93 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
             />
           ),
         },
+        {
+          id: "locales",
+          label: "Locales",
+          icon: Languages,
+          content: (
+            <LocalesSettingsFields
+              value={localesValue}
+              onChange={(next) => {
+                // Only what changed. Removing the language that was the default
+                // changes both, and writing a field that did not move would put
+                // an identical value in the publish diff.
+                if (next.available !== localesValue.available) {
+                  writeLocalesSetting("available", next.available);
+                }
+                if (next.default !== localesValue.default) {
+                  writeLocalesSetting("default", next.default);
+                }
+              }}
+              errors={localesErrors}
+              readonly={readonly}
+            />
+          ),
+        },
       ]}
     />
   );
+}
+
+/** Every field the locales section has. See `useWriteSettingsSection`. */
+const LOCALES_FIELDS = ["available", "default"] as const;
+
+/**
+ * The locales section, as the panel needs it.
+ *
+ * Read defensively rather than asserted: a settings module is a file someone
+ * edits, so `available` can hold anything at the moment it is being typed, and
+ * the panel has to draw the rows it CAN rather than refusing to render.
+ */
+function useLocalesSection(localesPath: SourcePath): LocalesSettingsValue {
+  const availableSource = useSourceAtPath(
+    sourcePathOfItem(localesPath, "available"),
+  );
+  const defaultSource = useShallowSourceAtPath(
+    sourcePathOfItem(localesPath, "default"),
+    "string",
+  );
+  return useMemo<LocalesSettingsValue>(() => {
+    const raw =
+      "data" in availableSource && Array.isArray(availableSource.data)
+        ? availableSource.data
+        : [];
+    return {
+      available: raw.filter((tag): tag is string => typeof tag === "string"),
+      default:
+        "data" in defaultSource && typeof defaultSource.data === "string"
+          ? defaultSource.data
+          : null,
+    };
+  }, [availableSource, defaultSource]);
+}
+
+/**
+ * Validation for the locales section, arranged the way the fields want it.
+ *
+ * Errors arrive per source path — `available.2`, `default` — and the component
+ * takes them per TAG, so a row keeps its message when the row above it is
+ * removed. Resolving the index against the list is what connects the two.
+ */
+function useLocalesErrors(
+  localesPath: SourcePath,
+  available: string[],
+): { byTag?: Record<string, string>; default?: string } {
+  const availablePath = sourcePathOfItem(localesPath, "available");
+  const allErrors = useAllValidationErrors() || {};
+  const defaultErrors = useValidationErrors(
+    sourcePathOfItem(localesPath, "default"),
+  );
+  return useMemo(() => {
+    const byTag: Record<string, string> = {};
+    for (let i = 0; i < available.length; i++) {
+      const errors = allErrors[sourcePathOfItem(availablePath, i)];
+      if (errors && errors.length > 0) {
+        byTag[available[i]] = errors[0].message;
+      }
+    }
+    return { byTag, default: defaultErrors[0]?.message };
+  }, [allErrors, availablePath, available, defaultErrors]);
 }
 
 /**
