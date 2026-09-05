@@ -1,5 +1,6 @@
 import {
   localeOfValue,
+  unionBranchOf,
   type SerializedSchema,
   type SourcePath,
 } from "@valbuild/core";
@@ -62,15 +63,29 @@ export function LocaleFiltered({
   const filter = useLocaleFilter();
   const projectLocales = useProjectLocales();
   const schemaAtPath = useSchemaAtPath(path);
-  const schema = "data" in schemaAtPath ? schemaAtPath.data : undefined;
+  const nodeSchema = "data" in schemaAtPath ? schemaAtPath.data : undefined;
+  // A block row's schema is the UNION, and a union has no fields of its own:
+  // the locale field is on the BRANCH the row takes. Which branch that is can
+  // only be read from the row's tag, so it takes a second lookup — and without
+  // it the filter would be a no-op on exactly the content it was written for.
+  const tagField =
+    nodeSchema?.type === "union" && typeof nodeSchema.key === "string"
+      ? nodeSchema.key
+      : null;
+  const tagSource = useShallowSourceAtPath(
+    tagField === null ? NO_PATH : sourcePathOfItem(path, tagField),
+    "literal",
+  );
+  const schema =
+    tagField === null
+      ? nodeSchema
+      : unionBranchOf(
+          nodeSchema,
+          "data" in tagSource ? tagSource.data : undefined,
+        );
   const localeField = schema === undefined ? null : localeFieldNameOf(schema);
-  // A path that cannot exist rather than `undefined`: the hook below is a hook,
-  // so it runs whether or not this row has a locale field. It resolves to
-  // nothing, which is the answer for every row that has none.
   const localePath: SourcePath =
-    localeField === null
-      ? ("" as SourcePath)
-      : sourcePathOfItem(path, localeField);
+    localeField === null ? NO_PATH : sourcePathOfItem(path, localeField);
   const localeSource = useShallowSourceAtPath(localePath, "locale");
   if (filter === null || !projectLocales.includes(filter)) {
     return <>{children}</>;
@@ -96,6 +111,15 @@ export function LocaleFiltered({
   }
   return <>{children}</>;
 }
+
+/**
+ * A path that cannot exist, for a lookup this row does not need.
+ *
+ * The reads above are hooks, so they run whether or not this row has a union
+ * tag or a locale field. This resolves to nothing, which is the right answer
+ * for every row that has neither.
+ */
+const NO_PATH = "" as SourcePath;
 
 /** The name of an object schema's `s.locale()` field, if it has one. */
 function localeFieldNameOf(schema: SerializedSchema): string | null {
@@ -183,18 +207,29 @@ function localeScopeOf(
   if (node.keySchema?.type === "locale" && node.key !== undefined) {
     return localeOfValue(node.key, projectLocales, node.keySchema.aliases);
   }
-  if (node.schema?.type !== "object") {
-    return null;
-  }
   const source = node.source;
-  if (typeof source !== "object" || source === null || Array.isArray(source)) {
+  if (!isRecord(source)) {
     return null;
   }
-  for (const [field, item] of Object.entries(node.schema.items)) {
+  // A union row is a fork, not a level: the branch the value takes IS the node,
+  // and the locale field is on the branch. See `unionBranchOf`.
+  const schema =
+    node.schema?.type === "union"
+      ? unionBranchOf(
+          node.schema,
+          typeof node.schema.key === "string"
+            ? source[node.schema.key]
+            : undefined,
+        )
+      : node.schema;
+  if (schema?.type !== "object") {
+    return null;
+  }
+  for (const [field, item] of Object.entries(schema.items)) {
     if (item.type !== "locale") {
       continue;
     }
-    const value = (source as Record<string, unknown>)[field];
+    const value = source[field];
     if (typeof value !== "string") {
       // Not filled in. Not one language rather than another, so it stays
       // listed — hiding it would hide the field someone has to fill in.
@@ -203,4 +238,15 @@ function localeScopeOf(
     return localeOfValue(value, projectLocales, item.aliases);
   }
   return null;
+}
+
+/**
+ * Whether a value is a plain object, so its fields can be read.
+ *
+ * A type predicate rather than an assertion: a node's source arrives as
+ * `unknown` — the lists that draw rows hold whatever the module holds — and
+ * reading a field off it should narrow rather than claim.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

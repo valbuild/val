@@ -17,14 +17,29 @@ const aliased = s
   })
   ["executeSerialize"]();
 const plain = s.object({ title: s.string() })["executeSerialize"]();
+const blocks = s
+  .union(
+    "type",
+    s.object({
+      type: s.literal("quote"),
+      locale: s.locale(),
+      text: s.string(),
+    }),
+    s.object({ type: s.literal("image"), alt: s.string() }),
+  )
+  ["executeSerialize"]();
 
 /**
- * What the row is: its schema, and the value of its locale field.
+ * What the row is: its schema, the value of its locale field, and — where the
+ * row is a block — the tag saying which branch of the union it takes.
  *
  * Keyed by path so one mock serves every row a test renders — the component
- * reads the schema at its own path and the locale field one level under it.
+ * reads the schema at its own path and both fields one level under it.
  */
-const rows: Record<string, { schema: unknown; locale?: string | null }> = {};
+const rows: Record<
+  string,
+  { schema: unknown; locale?: string | null; tag?: string }
+> = {};
 
 jest.mock("../hooks/useProjectLocales", () => ({
   __esModule: true,
@@ -38,12 +53,18 @@ jest.mock("./ValFieldProvider", () => ({
       ? { status: "not-found" }
       : { status: "success", data: rows[path].schema },
   useShallowSourceAtPath: (path: string) => {
-    // The locale field's own path: `<row>?p="locale"` for a row at `<row>`.
+    // A field's own path: `<row>."locale"` for a row at `<row>`. The empty path
+    // the component passes for a lookup it does not need matches no row, which
+    // is how it resolves to nothing.
     const row = Object.keys(rows).find((each) => path.startsWith(each));
-    if (row === undefined || rows[row].locale === undefined) {
+    if (row === undefined) {
       return { status: "not-found" };
     }
-    return { status: "success", data: rows[row].locale };
+    const value = path.endsWith('."type"') ? rows[row].tag : rows[row].locale;
+    if (value === undefined) {
+      return { status: "not-found" };
+    }
+    return { status: "success", data: value };
   },
 }));
 
@@ -109,6 +130,32 @@ describe("a row under the locale filter", () => {
   test("a row whose content has not loaded yet stays drawn", () => {
     // A row that vanishes as its content arrives is the other bad outcome.
     rows["/c.val.ts?p=0"] = { schema: scoped };
+    renderRow("/c.val.ts?p=0", "nb-NO");
+    expect(screen.getByTestId("row")).toBeDefined();
+  });
+
+  test("a block row reads the locale field on the BRANCH it takes", () => {
+    // The row's schema is the union, and a union has no fields of its own. A
+    // filter that stopped there would be a no-op on the block lists it was
+    // written for.
+    rows["/c.val.ts?p=0"] = { schema: blocks, tag: "quote", locale: "en-US" };
+    renderRow("/c.val.ts?p=0", "nb-NO");
+    expect(screen.queryByTestId("row")).toBeNull();
+    rows["/c.val.ts?p=0"] = { schema: blocks, tag: "quote", locale: "nb-NO" };
+    renderRow("/c.val.ts?p=0", "nb-NO");
+    expect(screen.getByTestId("row")).toBeDefined();
+  });
+
+  test("a block whose branch has no locale field is always drawn", () => {
+    rows["/c.val.ts?p=0"] = { schema: blocks, tag: "image" };
+    renderRow("/c.val.ts?p=0", "nb-NO");
+    expect(screen.getByTestId("row")).toBeDefined();
+  });
+
+  test("a block whose tag has not loaded stays drawn", () => {
+    // No branch yet, so no locale field to read — and a row that vanishes as
+    // its content arrives is the mistake this avoids.
+    rows["/c.val.ts?p=0"] = { schema: blocks, locale: "en-US" };
     renderRow("/c.val.ts?p=0", "nb-NO");
     expect(screen.getByTestId("row")).toBeDefined();
   });

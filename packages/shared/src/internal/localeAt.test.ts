@@ -185,6 +185,42 @@ describe("localeAt", () => {
     ).toBe("nb-NO");
   });
 
+  test("a path that STOPS at a scope answers with that scope", () => {
+    // The block itself, not something inside it — which is the path the Studio
+    // has when it draws a row, and the one a deep link carries.
+    const page = c.define(
+      "/content/page.val.ts",
+      s.object({
+        block: s.union(
+          "type",
+          s.object({
+            type: s.literal("quote"),
+            locale: s.locale(),
+            text: s.string(),
+          }),
+          s.object({ type: s.literal("image"), alt: s.string() }),
+        ),
+        sections: s.array(s.object({ locale: s.locale(), text: s.string() })),
+        byLocale: s.record(s.locale(), s.object({ title: s.string() })),
+      }),
+      {
+        block: { type: "quote", locale: "nb-NO", text: "Varm." },
+        sections: [{ locale: "en-US", text: "Warm." }],
+        byLocale: { "nb-NO": { title: "Vinterjakke" } },
+      },
+    );
+    const snapshot = project(["en-US", "nb-NO"], [page]);
+    expect(localeAt(AT('/content/page.val.ts?p="block"'), snapshot)).toBe(
+      "nb-NO",
+    );
+    expect(localeAt(AT('/content/page.val.ts?p="sections".0'), snapshot)).toBe(
+      "en-US",
+    );
+    expect(
+      localeAt(AT('/content/page.val.ts?p="byLocale"."nb-NO"'), snapshot),
+    ).toBe("nb-NO");
+  });
+
   test("a module that is not in the snapshot has no answer, and does not throw", () => {
     const snapshot = project(["en-US"], []);
     expect(localeAt(AT('/content/missing.val.ts?p="title"'), snapshot)).toBe(

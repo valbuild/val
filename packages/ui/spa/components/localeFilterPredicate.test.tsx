@@ -43,6 +43,17 @@ describe("the locale filter predicate", () => {
     .object({ locale: s.locale(), title: s.string() })
     ["executeSerialize"]();
   const plainObject = s.object({ title: s.string() })["executeSerialize"]();
+  const blockUnion = s
+    .union(
+      "type",
+      s.object({
+        type: s.literal("quote"),
+        locale: s.locale(),
+        text: s.string(),
+      }),
+      s.object({ type: s.literal("image"), alt: s.string() }),
+    )
+    ["executeSerialize"]();
 
   test("with no filter, everything is shown", () => {
     const matches = predicateUnder(null);
@@ -100,6 +111,46 @@ describe("the locale filter predicate", () => {
     );
     expect(
       matches({ schema: scopedObject, source: { locale: null, title: "x" } }),
+    ).toBe(true);
+  });
+
+  test("a block is filtered by the locale field on the branch it takes", () => {
+    // A union has no fields of its own: the branch the tag names IS the node,
+    // and that is where the locale field is.
+    const matches = predicateUnder("nb-NO");
+    expect(
+      matches({
+        schema: blockUnion,
+        source: { type: "quote", locale: "nb-NO", text: "Varm." },
+      }),
+    ).toBe(true);
+    expect(
+      matches({
+        schema: blockUnion,
+        source: { type: "quote", locale: "en-US", text: "Warm." },
+      }),
+    ).toBe(false);
+  });
+
+  test("a block on a branch with no locale field is always shown", () => {
+    const matches = predicateUnder("nb-NO");
+    expect(
+      matches({
+        schema: blockUnion,
+        source: { type: "image", alt: "A jacket" },
+      }),
+    ).toBe(true);
+  });
+
+  test("a block whose tag names no branch is shown, not guessed at", () => {
+    // Not a member of the union at all — validation is already saying so, and
+    // reading a language out of the wrong shape would be a confident mistake.
+    const matches = predicateUnder("nb-NO");
+    expect(
+      matches({
+        schema: blockUnion,
+        source: { type: "video", locale: "en-US" },
+      }),
     ).toBe(true);
   });
 

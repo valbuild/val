@@ -175,6 +175,7 @@ export {
   declaredKeySetOf,
   missingDeclaredKeys,
 } from "./schema/declaredKeys";
+export { unionBranchOf } from "./schema/unionBranch";
 export {
   type SerializedColorSchema,
   type ColorOptions,
