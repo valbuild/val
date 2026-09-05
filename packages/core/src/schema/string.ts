@@ -266,14 +266,14 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     ) as unknown as StringSchema<Src | null>;
   }
 
-  readonly(): StringSchema<Src> {
+  readonly(isReadonly: boolean = true): StringSchema<Src> {
     return new StringSchema<Src>(
       this.options,
       this.opt,
       this.isRaw,
       this.customValidateFunctions,
       this.renderInput,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.previewInput,
@@ -281,7 +281,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  hidden(): StringSchema<Src> {
+  hidden(isHidden: boolean = true): StringSchema<Src> {
     return new StringSchema<Src>(
       this.options,
       this.opt,
@@ -289,7 +289,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.customValidateFunctions,
       this.renderInput,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.previewInput,
       this.isMultiline,

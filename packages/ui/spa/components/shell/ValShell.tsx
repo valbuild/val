@@ -9,6 +9,7 @@ import { SaveState } from "./StatusBar";
 import { PublishState } from "./TopBar";
 import { ShellData, ShellMediaGallery, ShellValidationError } from "./types";
 import { useShellData } from "./useShellData";
+import { ValSettingsSections } from "./ValSettingsSections";
 import { discardAllDescription } from "../discardAllDescription";
 import { useValPortal } from "../ValPortalProvider";
 import { useContentSearch } from "./useContentSearch";
@@ -21,6 +22,7 @@ import {
 import { Module } from "../Module";
 import { useRequestUpload } from "../UploadRequest";
 import { useAddPage } from "../useAddPage";
+import { useDuplicatePage } from "../useDuplicatePage";
 import { PublishButton } from "../PublishButton";
 import { ValidationErrorsView } from "../ValidationErrors";
 import { ComparePatchSets, CompareLoading } from "../ComparePatchSets";
@@ -124,9 +126,10 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   /**
    * Whether there is an assistant at all.
    *
-   * `ai.chat.experimental.enable` in the project config. Not the connection —
-   * a configured assistant that is currently offline still gets its panel,
-   * which is where `aiConnectionError` and its retry are shown.
+   * `assistant.enabled` in the project's settings module, resolved by
+   * `useAssistantAvailability` and carried here by `AIChatActionsProvider`. Not
+   * the connection: an assistant that is currently offline still gets its
+   * panel, which is where `aiConnectionError` and its retry are shown.
    */
   const { isAIChatEnabled, setOpenAIChatImpl } = useAIChatActions();
   const insertFieldRef = useInsertFieldRef();
@@ -366,6 +369,20 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   );
 
   /**
+   * The settings panel's sections.
+   *
+   * The connected half is mounted only while the panel is open (the shell calls
+   * this from inside it), which is what keeps a project without a settings
+   * module from calling hooks with a path it does not have.
+   */
+  const renderSettings = useCallback(
+    () => (
+      <ValSettingsSections moduleFilePath={data.settings?.moduleFilePath} />
+    ),
+    [data.settings?.moduleFilePath],
+  );
+
+  /**
    * The route the canvas opens on.
    *
    * A page selection is a router entry, and a route pointing anywhere inside one
@@ -598,6 +615,14 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * cannot come to disagree about what an empty page is. See `useAddPage`.
    */
   const addPage = useAddPage();
+  /**
+   * Copy a page to another URL, and open the copy.
+   *
+   * The router module IS the record, so the two URLs are the two keys and the
+   * copy is one `copy` op - see `useDuplicateRecordEntry`, which the page's own
+   * toolbar goes through as well.
+   */
+  const duplicatePage = useDuplicatePage();
 
   const requestUpload = useRequestUpload();
   const uploadInto = useCallback(
@@ -872,6 +897,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       selectionId={overrideEditor ? null : selectionId}
       onSelectionChange={onSelectionChange}
       renderEditor={renderEditor}
+      renderSettings={renderSettings}
       editorOverride={overrideEditor}
       publishSlot={<PublishButton />}
       publishState={publishState}
@@ -920,6 +946,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       initialCanvasTransform={urlState.initial.canvasTransform}
       onViewStateChange={setViewState}
       onNewPage={addPage}
+      onDuplicatePage={duplicatePage}
       onUploadMedia={uploadInto}
       onPreview={openPreviewTab}
       // Also as an href, so the menu item is a link that can be copied. The URL

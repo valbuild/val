@@ -24,9 +24,11 @@ export const handbookSectionSchema = s
   .object({
     heading: s.string().minLength(2),
     body: s.richtext({
-      style: { bold: true, italic: true },
-      block: { h2: true, ul: true },
-      inline: { a: true },
+      bold: true,
+      italic: true,
+      h2: true,
+      ul: true,
+      a: true,
     }),
     /** A route this section points at, so route references have something to find. */
     seeAlso: s.route().nullable(),

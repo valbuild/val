@@ -1,5 +1,6 @@
 import {
   resolvePath as resolveAtPath,
+  safeResolvePath as safeResolveAtPath,
   define,
   getSourceAtPath,
   isValModule,
@@ -12,12 +13,16 @@ import { SelectorOfSchema } from "./schema";
 import { array } from "./schema/array";
 import { number } from "./schema/number";
 import { object } from "./schema/object";
+import { settings } from "./schema/settings";
 import { string, StringSchema } from "./schema/string";
 import { union } from "./schema/union";
 import { GetSource } from "./selector";
 import { newSelectorProxy } from "./selector/SelectorProxy";
 import { ModulePath, SourcePath } from "./val";
 import { literal } from "./schema/literal";
+import { richtext } from "./schema/richtext";
+import { route, RouteSchema } from "./schema/route";
+import { image, ImageSchema } from "./schema/image";
 
 // import { i18n as initI18nSchema } from "./schema/i18n";
 // import { i18n as initI18nSource } from "./source/i18n";
@@ -191,6 +196,100 @@ describe("module", () => {
         parentOfSourcePath(parentOfSourcePath(parentOfSourcePath(base))),
       ),
     ).toStrictEqual("/content/test");
+  });
+
+  /**
+   * Richtext content has no schema of its own per node, so resolving a path
+   * INTO it walks out to the richtext field and reads the option that governs
+   * that node: `a` for an anchor's href, `img` for an image's src. Both are
+   * reached through `instanceof RichTextSchema`, which narrows the options to
+   * `any` - so nothing here is checked by tsc, and a rename that misses one of
+   * these branches silently hands back the richtext schema instead.
+   */
+  test("resolvePath: an anchor href resolves to the schema its `a` option carries", () => {
+    const schema = object({
+      body: richtext({ a: route() }),
+    });
+    const { schema: resolved } = resolveAtPath(
+      '"body".0."children".0."href"' as ModulePath,
+      {
+        body: [
+          {
+            tag: "p",
+            children: [{ tag: "a", href: "/blogs/one", children: ["One"] }],
+          },
+        ],
+      } as SelectorOfSchema<typeof schema>,
+      schema,
+    );
+    expect(resolved).toBeInstanceOf(RouteSchema);
+  });
+
+  test("resolvePath: an image src resolves to the schema its `img` option carries", () => {
+    const schema = object({
+      body: richtext({ img: image() }),
+    });
+    const { schema: resolved } = resolveAtPath(
+      '"body".0."children".0."src"' as ModulePath,
+      {
+        body: [
+          {
+            tag: "p",
+            children: [{ tag: "img", src: { path: "/public/val/one.png" } }],
+          },
+        ],
+      } as SelectorOfSchema<typeof schema>,
+      schema,
+    );
+    expect(resolved).toBeInstanceOf(ImageSchema);
+  });
+
+  test("resolvePath: into a settings section", () => {
+    const schema = settings();
+    const { schema: resolved, source } = resolveAtPath(
+      '"assistant"."tone"' as ModulePath,
+      { assistant: { tone: "Plain and direct." } },
+      schema,
+    );
+    expect(resolved).toBeInstanceOf(StringSchema);
+    expect(source).toBe("Plain and direct.");
+  });
+
+  test("resolvePath: an UNSET settings key resolves rather than throwing", () => {
+    // The difference between settings and an object: an object refuses a path
+    // whose key is missing, and every settings key is optional, so refusing
+    // would make `{}` — the normal state of a fresh settings module —
+    // unresolvable at every path inside it.
+    const schema = settings();
+    const { schema: resolved, source } = resolveAtPath(
+      '"assistant"."tone"' as ModulePath,
+      {},
+      schema,
+    );
+    expect(resolved).toBeInstanceOf(StringSchema);
+    expect(source).toBe(undefined);
+  });
+
+  test("safeResolvePath: an UNSET settings key resolves rather than erroring", () => {
+    /**
+     * The Studio's own resolver, and the one that matters here: every field
+     * reads its schema through `useSchemaAtPathInternal`, which calls this. An
+     * empty `{}` settings module — the normal state of a fresh one — has no
+     * `assistant` section, so both parts of this path arrive with an undefined
+     * source. Erroring on that took the panel's fields and the publish diff's
+     * "before" side with it.
+     */
+    const schema = settings();
+    const res = safeResolveAtPath(
+      '"assistant"."tone"' as ModulePath,
+      {},
+      schema,
+    );
+    expect(res.status).toBe("ok");
+    if (res.status === "ok") {
+      expect(res.schema).toBeInstanceOf(StringSchema);
+      expect(res.source).toBe(undefined);
+    }
   });
 
   test("isValModule tells a module apart from what else a .val.ts might export", () => {

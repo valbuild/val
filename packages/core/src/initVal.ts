@@ -27,16 +27,19 @@ export type ValConfig = {
   gitBranch?: string;
   defaultTheme?: "dark" | "light";
   ai?: {
+    /**
+     * The AI commit-message summariser.
+     *
+     * Still config, and deliberately: it is about how the repository is
+     * written to rather than about the content, and it is getting settings of
+     * its own. The ASSISTANT is not here — it is `s.settings()`, under
+     * `assistant.enabled`, because whether editors have a chat is a decision
+     * about the
+     * project's content, made by the people who edit it, and published like any
+     * other content change.
+     */
     commitMessages?: {
       disabled?: boolean;
-    };
-    chat?: {
-      experimental?: {
-        enable?: boolean;
-      };
-      suggestions?: string[];
-      title?: string;
-      description?: string;
     };
   };
 };

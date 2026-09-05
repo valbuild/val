@@ -252,12 +252,12 @@ export class ObjectSchema<
     );
   }
 
-  readonly(): ObjectSchema<Props, Src> {
+  readonly(isReadonly: boolean = true): ObjectSchema<Props, Src> {
     return new ObjectSchema(
       this.items,
       this.opt,
       this.customValidateFunctions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.renderInput,
@@ -265,13 +265,13 @@ export class ObjectSchema<
     );
   }
 
-  hidden(): ObjectSchema<Props, Src> {
+  hidden(isHidden: boolean = true): ObjectSchema<Props, Src> {
     return new ObjectSchema(
       this.items,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.renderInput,
       this.previewInput,

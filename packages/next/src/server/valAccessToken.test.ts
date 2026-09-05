@@ -68,21 +68,69 @@ function signToken(
   return `${signingInput}.${signature.toString("base64url")}`;
 }
 
-/** A `fetch` that serves one JWKS and counts how often it was asked. */
+/**
+ * A `fetch` that serves one JWKS, counts how often it was asked, and can have
+ * the document swapped underneath it.
+ *
+ * The swap is what makes the rotation cases testable at all: publishing a new
+ * key is something the issuer does between two calls to this server, and the
+ * question is whether the second call notices.
+ */
 function serveJwks(keys: Record<string, unknown>[]): {
   fetchImpl: typeof fetch;
   calls: () => number;
+  publish: (keys: Record<string, unknown>[]) => void;
+  hold: () => () => void;
+  breakIssuer: () => void;
 } {
   let calls = 0;
+  let published = keys;
+  let gate: Promise<void> | null = null;
+  let broken = false;
   const fetchImpl: typeof fetch = async (input) => {
     calls++;
     const url = typeof input === "string" ? input : String(input);
     if (!url.endsWith("/.well-known/jwks.json")) {
       return new Response("not found", { status: 404 });
     }
-    return new Response(JSON.stringify({ keys }), { status: 200 });
+    if (gate) {
+      await gate;
+    }
+    if (broken) {
+      return new Response("boom", { status: 500 });
+    }
+    return new Response(JSON.stringify({ keys: published }), { status: 200 });
   };
-  return { fetchImpl, calls: () => calls };
+  return {
+    fetchImpl,
+    // Counted before the gate, so this is "fetches started", which is what the
+    // issuer would see.
+    calls: () => calls,
+    publish: (next) => {
+      published = next;
+    },
+    /**
+     * Hold every fetch open until the returned function is called.
+     *
+     * The only way to test what happens *while* a fetch is in flight: without
+     * it the mock resolves in a microtask and there is no window for a second
+     * request to arrive in.
+     */
+    hold: () => {
+      let open = (): void => {};
+      gate = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      return () => {
+        gate = null;
+        open();
+      };
+    },
+    /** Every fetch from now on fails, as a flaky issuer would. */
+    breakIssuer: () => {
+      broken = true;
+    },
+  };
 }
 
 function oauth(fetchImpl: typeof fetch): ValOAuthConfig {
@@ -461,5 +509,198 @@ describe("verifyValAccessToken", () => {
     // A cold start serving a burst should not fetch the key set once per
     // request in flight.
     expect(jwks.calls()).toBe(1);
+  });
+
+  test("refetches once for a kid the cached key set does not hold, then verifies", async () => {
+    const oldKeys = makeKeys("old-key");
+    const newKeys = makeKeys("new-key");
+    const jwks = serveJwks([oldKeys.publicJwk]);
+    const config = oauth(jwks.fetchImpl);
+
+    // Warm the cache on the pre-rotation key set.
+    await verifyValAccessToken(
+      request(signToken(oldKeys, { scope: "val:read" }, { kid: "old-key" })),
+      config,
+    );
+    expect(jwks.calls()).toBe(1);
+
+    // The issuer rotates. Without a refetch this token is refused for the rest
+    // of the five-minute TTL, on every warm instance at once, which is a
+    // rotation turning into an outage.
+    jwks.publish([oldKeys.publicJwk, newKeys.publicJwk]);
+    const res = await verifyValAccessToken(
+      request(signToken(newKeys, { scope: "val:read" }, { kid: "new-key" })),
+      config,
+    );
+
+    expect(res.status).toBe("ok");
+    expect(jwks.calls()).toBe(2);
+
+    // And the refetch replaced the cache rather than being a one-off: the next
+    // token with the same `kid` costs nothing.
+    const again = await verifyValAccessToken(
+      request(signToken(newKeys, { scope: "val:read" }, { kid: "new-key" })),
+      config,
+    );
+    expect(again.status).toBe("ok");
+    expect(jwks.calls()).toBe(2);
+  });
+
+  test("does not refetch again for further unknown kids inside the window", async () => {
+    const keys = makeKeys("published-key");
+    const jwks = serveJwks([keys.publicJwk]);
+    const config = oauth(jwks.fetchImpl);
+
+    await verifyValAccessToken(
+      request(signToken(keys, { scope: "val:read" }, { kid: "published-key" })),
+      config,
+    );
+    expect(jwks.calls()).toBe(1);
+
+    // The `kid` is attacker-controlled, so an unknown one must not be a lever
+    // for making this server call its own issuer once per request. The first
+    // spends the window; the rest are refused out of the cache.
+    const attempts = ["ghost-1", "ghost-2", "ghost-3", "ghost-4"];
+    for (const kid of attempts) {
+      const res = await verifyValAccessToken(
+        request(signToken(keys, { scope: "val:read" }, { kid })),
+        config,
+      );
+      expect(res).toMatchObject({ status: "refused", error: "invalid_token" });
+    }
+
+    expect(jwks.calls()).toBe(2);
+  });
+
+  test("a burst arriving during a rotation all joins the one refetch", async () => {
+    const oldKeys = makeKeys("old-key");
+    const newKeys = makeKeys("new-key");
+    const jwks = serveJwks([oldKeys.publicJwk]);
+    const config = oauth(jwks.fetchImpl);
+
+    await verifyValAccessToken(
+      request(signToken(oldKeys, { scope: "val:read" }, { kid: "old-key" })),
+      config,
+    );
+    expect(jwks.calls()).toBe(1);
+
+    jwks.publish([oldKeys.publicJwk, newKeys.publicJwk]);
+    const release = jwks.hold();
+
+    // The shape of a real rotation: not one request meeting the new key, but
+    // every in-flight request meeting it at once. The rate limit is on starting
+    // a fetch — a request that arrives while one is already running has to join
+    // it, or all but the first are refused and the rotation is still an outage.
+    const pending = Promise.all([
+      verifyValAccessToken(
+        request(signToken(newKeys, { scope: "val:read" }, { kid: "new-key" })),
+        config,
+      ),
+      verifyValAccessToken(
+        request(signToken(newKeys, { scope: "val:read" }, { kid: "new-key" })),
+        config,
+      ),
+      verifyValAccessToken(
+        request(signToken(newKeys, { scope: "val:read" }, { kid: "new-key" })),
+        config,
+      ),
+    ]);
+    // A macrotask boundary, so every one of the three has reached the fetch
+    // before it is allowed to resolve. Awaiting microtasks would not prove it.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    release();
+
+    const results = await pending;
+    expect(results.map((res) => res.status)).toEqual(["ok", "ok", "ok"]);
+    // Joined, not repeated: the issuer saw one more request, not three.
+    expect(jwks.calls()).toBe(2);
+  });
+
+  test("a failed unknown-kid refetch leaves the cached key set alone", async () => {
+    const keys = makeKeys("published-key");
+    const jwks = serveJwks([keys.publicJwk]);
+    const config = oauth(jwks.fetchImpl);
+    const good = signToken(
+      keys,
+      { scope: "val:read" },
+      { kid: "published-key" },
+    );
+
+    expect((await verifyValAccessToken(request(good), config)).status).toBe(
+      "ok",
+    );
+    expect(jwks.calls()).toBe(1);
+
+    // One token naming a key that does not exist, arriving while the issuer is
+    // briefly down. Nothing about it should be able to reach the keys we
+    // already hold — but the forced refetch writes the cache, so before the
+    // fix a single such token replaced a live key set with an error entry and
+    // took every other token down with it for the error TTL.
+    jwks.breakIssuer();
+    const refused = await verifyValAccessToken(
+      request(signToken(keys, { scope: "val:read" }, { kid: "ghost" })),
+      config,
+    );
+    expect(refused).toMatchObject({
+      status: "refused",
+      error: "invalid_token",
+    });
+    expect(jwks.calls()).toBe(2);
+
+    // The load-bearing assertion: a token signed by a key we had cached all
+    // along still verifies, and costs no further fetch.
+    expect((await verifyValAccessToken(request(good), config)).status).toBe(
+      "ok",
+    );
+    expect(jwks.calls()).toBe(2);
+  });
+
+  test("says the keys could not be fetched when the refetch itself failed", async () => {
+    const keys = makeKeys("published-key");
+    const jwks = serveJwks([keys.publicJwk]);
+    const config = oauth(jwks.fetchImpl);
+
+    await verifyValAccessToken(
+      request(signToken(keys, { scope: "val:read" }, { kid: "published-key" })),
+      config,
+    );
+    jwks.breakIssuer();
+
+    const res = await verifyValAccessToken(
+      request(signToken(keys, { scope: "val:read" }, { kid: "ghost" })),
+      config,
+    );
+
+    expect(res).toMatchObject({ status: "refused", error: "invalid_token" });
+    if (res.status === "refused") {
+      // "The issuer does not publish that key" is not something we learned —
+      // the request that would have told us never arrived. Saying it anyway
+      // sends the client off to re-authorize when it should retry.
+      expect(res.description).toMatch(/temporary/i);
+      expect(res.description).not.toMatch(/does not publish/i);
+    }
+  });
+
+  test("does not refetch on an unknown kid when the cached key set is an error", async () => {
+    const keys = makeKeys();
+    let calls = 0;
+    const failing: typeof fetch = async () => {
+      calls++;
+      return new Response("boom", { status: 500 });
+    };
+    const config = oauth(failing);
+    const token = signToken(keys, { scope: "val:read" });
+
+    const first = await verifyValAccessToken(request(token), config);
+    expect(first).toMatchObject({ status: "refused", error: "invalid_token" });
+    expect(calls).toBe(1);
+
+    // An unreachable issuer already has its own, shorter recovery TTL. Letting
+    // an unknown `kid` shortcut it would hand a struggling issuer a retry storm
+    // from every resource server at once — the failure mode the error cache
+    // exists to prevent.
+    const second = await verifyValAccessToken(request(token), config);
+    expect(second).toMatchObject({ status: "refused", error: "invalid_token" });
+    expect(calls).toBe(1);
   });
 });

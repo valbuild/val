@@ -117,6 +117,19 @@ export type NavMenuData = {
   external?: ExternalModule;
   /** `s.images()` / `s.files()` gallery modules, shown under Media. */
   media?: MediaModule[];
+  /**
+   * The project's `s.settings()` module, when it has exactly one valid one.
+   *
+   * Absent both when the project has no settings module and when what it has
+   * cannot be used — two of them, or one in a subdirectory. Those are reported
+   * as module errors (see `resolveSettingsModule`); the navigation's job is
+   * only to say whether there is a Settings destination to go to.
+   */
+  settings?: SettingsModule;
+};
+
+export type SettingsModule = {
+  moduleFilePath: ModuleFilePath;
 };
 
 /**

@@ -1,3 +1,4 @@
+import { ModuleFilePath } from "@valbuild/core";
 import { AvailableRoute } from "../NavMenu/NewPageForm";
 
 /**
@@ -54,6 +55,22 @@ export type ShellExternalPage = {
   /** Where the entry's content lives, for navigation. */
   sourcePath?: string;
   errorCount?: number;
+};
+
+/** The project's settings module (an `s.settings()` module). */
+export type ShellSettings = {
+  /**
+   * Branded, unlike the other rows here.
+   *
+   * It comes from `resolveSettingsModule` as a `ModuleFilePath` and is handed
+   * straight back to a hook that needs one, so widening it to `string` bought
+   * nothing but an assertion at the other end.
+   */
+  moduleFilePath: ModuleFilePath;
+  /** Validation errors in the settings module (not descendants of others). */
+  errorCount?: number;
+  /** Whether settings have unpublished changes. */
+  hasDraft?: boolean;
 };
 
 /** A media gallery (an `s.images()` / `s.files()` module). */
@@ -155,22 +172,32 @@ export type ShellActivityEntry = {
 };
 
 /**
- * A content destination: what the left rail switches between.
+ * A destination: what the left rail switches between.
  *
- * Its own type because a project does not necessarily have all three — a site
+ * Its own type because a project does not necessarily have all of them — a site
  * with no `s.router` has no Pages, a project with no `s.images()`/`s.files()`
- * has no Media — and several pieces of the shell have to agree on which are on
- * offer: the rail, the mobile switcher, the quick actions, and whichever panel
- * a fresh session opens on.
+ * has no Media, a project with no `s.settings()` module has no Settings — and
+ * several pieces of the shell have to agree on which are on offer: the rail,
+ * the mobile switcher, the quick actions, and whichever panel a fresh session
+ * opens on.
+ *
+ * `account` is deliberately NOT one: it is per-person rather than a place in
+ * the project, and it is reached from the foot of the rail.
  */
-export type ShellDestination = Extract<ShellPanel, "pages" | "media" | "data">;
+export type ShellDestination = Extract<
+  ShellPanel,
+  "pages" | "media" | "settings" | "data"
+>;
 
 /** Which floating panel is currently open. At most one at a time. */
 export type ShellPanel =
   | "pages"
   | "media"
-  | "data"
+  /** The project's settings: `s.settings()` content, behind the cog. */
   | "settings"
+  | "data"
+  /** Who is signed in, the theme, auto save, the branch, the deploy feed. */
+  | "account"
   | "utility"
   | "ai"
   | "notifications";
@@ -217,6 +244,15 @@ export type ShellData = {
   newPage?: ShellNewPageRoutes;
   externalPages: ShellExternalPage[];
   media: ShellMediaGallery[];
+  /**
+   * The project's settings module, when it has exactly one usable one.
+   *
+   * Absent for a project without `s.settings()` — and that is what hides the
+   * cog, the same way an absent router hides Pages. Also absent when the
+   * project has two of them or one in a subdirectory; those are module errors,
+   * and the Studio says so rather than picking one.
+   */
+  settings?: ShellSettings;
   data: ShellDataModule[];
   /**
    * Val has no notification feed. Left optional so the design can keep the
@@ -227,7 +263,12 @@ export type ShellData = {
   activity?: ShellActivityEntry[];
   validationErrors: ShellValidationError[];
   /** Absent until a profile has loaded, and in modes that have none. */
-  user?: { name: string; initials: string; email?: string };
+  user?: {
+    name: string;
+    email?: string;
+    /** Absent when the profile has no picture, or in modes with no profiles. */
+    avatarUrl?: string;
+  };
   /** Changes Publish would ship. */
   pendingChanges?: number;
   /**
@@ -272,6 +313,15 @@ export type ShellDeployment = {
   author?: string;
   /** Human-readable relative time, e.g. "2 minutes ago". */
   timestamp: string;
+  /**
+   * When the publish last changed, as an ISO string.
+   *
+   * `timestamp` is this same instant already formatted, and is what the rows
+   * render. The raw value is kept because the shell has to compare a publish's
+   * age against a threshold, which a phrase like "12 minutes ago" cannot
+   * answer.
+   */
+  updatedAt: string;
   /** True once Val has seen this commit serving the live site. */
   isLive: boolean;
 };

@@ -616,12 +616,16 @@ export class RecordSchema<
   /**
    * A record you can look at but not change.
    *
-   * Returns `RO = true` so `.external()` can freeze it into the source marker.
-   * That is why this must come BEFORE `.external()`: afterwards the value is a
-   * `Schema`, and there is no `.readonly()` left to call — which is the error
-   * the compiler gives, and a clearer one than a runtime throw.
+   * The flag rides in the TYPE as well as in the instance, so `.external()` can
+   * freeze it into the source marker and the adapter's write methods become
+   * required or forbidden on the strength of it. That is also why `.readonly()`
+   * must come BEFORE `.external()`: afterwards the value is a `Schema`, and
+   * there is no `.readonly()` left to call — which is the error the compiler
+   * gives, and a clearer one than a runtime throw.
    */
-  readonly(): RecordSchema<T, K, Src, true> {
+  readonly<B extends boolean = true>(
+    isReadonly: B = true as B,
+  ): RecordSchema<T, K, Src, B> {
     return new RecordSchema(
       this.item,
       this.opt,
@@ -629,7 +633,7 @@ export class RecordSchema<
       this.currentRouter,
       this.keySchema,
       this.mediaOptions,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.isJsonValues,
@@ -639,7 +643,7 @@ export class RecordSchema<
     );
   }
 
-  hidden(): RecordSchema<T, K, Src> {
+  hidden(isHidden: boolean = true): RecordSchema<T, K, Src> {
     return new RecordSchema(
       this.item,
       this.opt,
@@ -648,7 +652,7 @@ export class RecordSchema<
       this.keySchema,
       this.mediaOptions,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.isJsonValues,
       this.previewInput,

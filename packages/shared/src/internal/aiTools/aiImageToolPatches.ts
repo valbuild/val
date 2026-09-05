@@ -120,7 +120,7 @@ export function getInlineImgInfo(
   richtextSchema: SerializedSchema,
 ): InlineImgInfo {
   if (richtextSchema.type !== "richtext") return { kind: "not-allowed" };
-  const img = richtextSchema.options?.inline?.img;
+  const img = richtextSchema.options?.img;
   if (!img) return { kind: "not-allowed" };
   if (img === true) return { kind: "allowed", remote: false };
   return { kind: "allowed", remote: img.remote === true };

@@ -197,7 +197,7 @@ describe("hasMediaSchema", () => {
   });
 
   test("finds an inline richtext image, which lives in a constructor arg", () => {
-    const rt = s.richtext({ inline: { img: true } });
+    const rt = s.richtext({ img: true });
     expect(hasMediaSchema(rt["executeSerialize"]())).toBe(true);
   });
 

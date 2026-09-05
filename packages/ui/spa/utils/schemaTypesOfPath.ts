@@ -22,7 +22,7 @@ export function schemaTypesOfPath(
       current = current.item;
     } else if (current.type === "record") {
       current = current.item;
-    } else if (current.type === "object") {
+    } else if (current.type === "object" || current.type === "settings") {
       current = current.items[pathPart];
     } else if (current.type === "richtext") {
       // richtext has internal structure (nodes with indices and tags), allow traversal

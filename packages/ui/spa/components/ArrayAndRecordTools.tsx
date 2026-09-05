@@ -7,7 +7,7 @@ import {
 } from "@valbuild/core";
 import * as React from "react";
 import { JSONValue } from "@valbuild/core/patch";
-import { Plus, Trash, Edit, Link } from "lucide-react";
+import { Plus, Trash, Edit, Link, Copy } from "lucide-react";
 import { emptyOf } from "@valbuild/shared/internal";
 import { Button } from "./designSystem/button";
 import { prettifyFilename } from "../utils/prettifyFilename";
@@ -43,6 +43,7 @@ import {
   TooltipTrigger,
 } from "./designSystem/tooltip";
 import { ChangeRecordPopover } from "./ChangeRecordPopover";
+import { DuplicateRecordPopover } from "./DuplicateRecordPopover";
 import { ConnectedReferencesList } from "./ReferencesList";
 
 type Variant = "module" | "field";
@@ -119,6 +120,13 @@ export function ArrayAndRecordTools({
     // there are no dynamic route parts so we cannot delete
     !isParentFixedRoute;
   const canParentChange = !parentRoutePattern || !isParentFixedRoute;
+  /*
+   * The copy needs a key of its own, and a fixed route has none to give: a
+   * router whose pattern is all literals has exactly one URL, which is already
+   * taken by the entry being duplicated. Same reason `canParentChange` and
+   * `canParentDelete` are gated on it.
+   */
+  const canParentDuplicate = canParentChange;
 
   const isFixedRoute =
     routePattern?.every((part) => part.type === "literal") || false;
@@ -170,6 +178,18 @@ export function ArrayAndRecordTools({
             >
               <Edit size={getIconSize(variant)} />
             </ChangeRecordPopover>
+          )}
+          {canParentDuplicate && (
+            <DuplicateRecordPopover
+              defaultValue={last.text}
+              parentPath={maybeParentPath}
+              variant={getButtonVariant(variant)}
+              size={getButtonSize(variant)}
+              routePattern={parentRoutePattern}
+              keyDescription={parentKeyDescription}
+            >
+              <Copy size={getIconSize(variant)} />
+            </DuplicateRecordPopover>
           )}
           {canParentDelete && (
             <DeleteRecordPopover

@@ -351,7 +351,7 @@ export function planSessionKeyExpansion(args: {
     if (foundSiteCount > 0 && inlineImg.kind === "not-allowed") {
       return {
         kind: "error",
-        message: `Patch op #${opIndex} inserts an inline image into a richtext that does not allow inline images (options.inline.img is not enabled).`,
+        message: `Patch op #${opIndex} inserts an inline image into a richtext that does not allow inline images (options.img is not enabled).`,
       };
     }
   }

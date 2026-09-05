@@ -7,21 +7,21 @@ export function serializedRichTextOptionsToFeatures(
   if (!options) return {};
   const features: Partial<EditorFeatures> = {};
 
-  features.bold = options.style?.bold ?? false;
-  features.italic = options.style?.italic ?? false;
-  features.strikethrough = options.style?.lineThrough ?? false;
+  features.bold = options.bold ?? false;
+  features.italic = options.italic ?? false;
+  features.strikethrough = options.lineThrough ?? false;
 
-  features.h1 = options.block?.h1 ?? false;
-  features.h2 = options.block?.h2 ?? false;
-  features.h3 = options.block?.h3 ?? false;
-  features.h4 = options.block?.h4 ?? false;
-  features.h5 = options.block?.h5 ?? false;
-  features.h6 = options.block?.h6 ?? false;
-  features.bulletList = options.block?.ul ?? false;
-  features.orderedList = options.block?.ol ?? false;
+  features.h1 = options.h1 ?? false;
+  features.h2 = options.h2 ?? false;
+  features.h3 = options.h3 ?? false;
+  features.h4 = options.h4 ?? false;
+  features.h5 = options.h5 ?? false;
+  features.h6 = options.h6 ?? false;
+  features.bulletList = options.ul ?? false;
+  features.orderedList = options.ol ?? false;
 
-  features.link = !!options.inline?.a;
-  features.image = !!options.inline?.img;
+  features.link = !!options.a;
+  features.image = !!options.img;
 
   features.hardBreak = true;
   features.fixedToolbar = true;

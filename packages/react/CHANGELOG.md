@@ -1,5 +1,67 @@
 # @valbuild/react
 
+## 0.120.4
+
+### Patch Changes
+
+- Updated dependencies [[`6df3cae`](https://github.com/valbuild/val/commit/6df3caec1cc043a07b532d3174583b8218d4871d)]:
+  - @valbuild/ui@0.120.4
+
+## 0.120.3
+
+### Patch Changes
+
+- Updated dependencies [[`9b96184`](https://github.com/valbuild/val/commit/9b96184cf6ad6d52a714867fb1527eeec6c776f4), [`1a2484a`](https://github.com/valbuild/val/commit/1a2484a309679bd5e963d626466c2828f74d49f8), [`71becc7`](https://github.com/valbuild/val/commit/71becc7e543432e4a57e36d54aaf803e9a447ffd)]:
+  - @valbuild/ui@0.120.3
+
+## 0.120.0
+
+### Minor Changes
+
+- [#589](https://github.com/valbuild/val/pull/589) [`c2d3c0e`](https://github.com/valbuild/val/commit/c2d3c0e6c2010c0a94c725d9dbaa618998773e8a) Thanks [@freekh](https://github.com/freekh)! - **Breaking:** `s.richtext()` options are flat.
+
+  The `style`, `block` and `inline` groups are gone — every option is a key of its
+  own. The names are unchanged, so updating a schema is only a matter of removing
+  the wrappers:
+
+  ```ts
+  // before
+  s.richtext({
+    style: { bold: true, italic: true },
+    block: { h1: true, ul: true },
+    inline: { a: true, img: s.image() },
+  });
+
+  // after
+  s.richtext({
+    bold: true,
+    italic: true,
+    h1: true,
+    ul: true,
+    a: true,
+    img: s.image(),
+  });
+  ```
+
+  The groups never carried any meaning the option names did not already have, and
+  they cost something real: an option name and its `ValRichText` theme key were
+  spelled differently (`block.h1` vs `theme.h1`), so the type that keeps a theme
+  exhaustive had to restate all thirteen options by hand. It is now a mapped type
+  over the options themselves — which also fixes an inconsistency in it: enabling
+  links with a schema (`a: s.route()`) rather than `a: true` now requires an `a`
+  key in the theme, the way `img` always has.
+
+  `ValRichText` themes were already flat and are unchanged. The serialized schema
+  that the server sends the Studio is flat too, so a project must not mix
+  `@valbuild/*` versions across this release.
+
+### Patch Changes
+
+- Updated dependencies [[`c2d3c0e`](https://github.com/valbuild/val/commit/c2d3c0e6c2010c0a94c725d9dbaa618998773e8a)]:
+  - @valbuild/core@0.120.0
+  - @valbuild/shared@0.120.0
+  - @valbuild/ui@0.120.0
+
 ## 0.119.0
 
 ### Patch Changes

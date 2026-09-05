@@ -1,4 +1,5 @@
 import { initVal } from "@valbuild/core";
+import type { ModuleFilePath } from "@valbuild/core";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,7 +7,9 @@ import { Script } from "node:vm";
 import { transform } from "sucrase";
 import synchronizedPrettier from "@prettier/sync";
 import type { ValServerConfig } from "../ValServer";
-import { createValTools } from "./createValTools";
+import { createValOps } from "../valServerConfig";
+import { createValTools, loadState } from "./createValTools";
+import type { ValToolDeps } from "./defineTool";
 import type { ValToolContext, ValTools } from "./types";
 
 /**
@@ -24,8 +27,12 @@ import type { ValToolContext, ValTools } from "./types";
  * and the state load that every handler depends on.
  */
 
-export const PAGES_PATH = "/test/pages.val.ts";
-export const ITEMS_PATH = "/test/items.val.ts";
+// Branded once here rather than at each use. `ModuleFilePath` is a branded
+// string with no constructor — the assertion is the codebase's own idiom for
+// one — and doing it in the fixture means the suites can hand these straight to
+// anything that takes a real `ModuleFilePath`, not only to `call`'s `unknown`.
+export const PAGES_PATH = "/test/pages.val.ts" as ModuleFilePath;
+export const ITEMS_PATH = "/test/items.val.ts" as ModuleFilePath;
 
 /** Local fs mode: there is no credential to hold and no session to group by. */
 export const CTX: ValToolContext = { auth: null, sessionId: null };
@@ -65,6 +72,20 @@ export function setup(): {
   tools: ValTools;
   /** Where the project lives, for a test that has to reach past the tools. */
   rootDir: string;
+  /**
+   * What a tool handler is handed, for a caller of your choosing.
+   *
+   * The one thing `tools.call` cannot give a test: this fixture is fs mode, and
+   * fs mode refuses every credential before a handler runs (deliberately — see
+   * `createValTools`). So the behaviour that depends on *who* is calling has no
+   * route through `call` here, and the alternative to this seam is no coverage
+   * of it at all.
+   *
+   * It is the registry's own `loadState` over the registry's own ops, so a
+   * handler called with these sees what it would see in proxy mode. What is
+   * faked is the caller, which is the point.
+   */
+  depsFor: (ctx: ValToolContext) => Promise<ValToolDeps>;
 } {
   const { s, c, config } = initVal();
   // The OS temp dir, NOT the repo-local ".tmp" that other suites in this package
@@ -109,16 +130,27 @@ export function setup(): {
     config,
   };
 
-  const tools = createValTools(
-    {
-      config,
-      modules: Object.values(sourceFiles).map((code) => ({
-        def: async () => ({ default: evalModule(code) }),
-      })),
-    },
-    options,
-  );
-  return { tools, rootDir };
+  const valModules = {
+    config,
+    modules: Object.values(sourceFiles).map((code) => ({
+      def: async () => ({ default: evalModule(code) }),
+    })),
+  };
+  const tools = createValTools(valModules, options);
+  // Built from the same modules and options as the registry's own, and against
+  // the same working tree, so a save made through it is a save the tools can
+  // then read back.
+  const ops = createValOps(valModules, options);
+  const depsFor = async (ctx: ValToolContext): Promise<ValToolDeps> => {
+    const state = await loadState(ops);
+    if (state.status === "error") {
+      throw new Error(
+        `Could not load the fixture's state: ${JSON.stringify(state.result)}`,
+      );
+    }
+    return { ops, ctx, state: state.state };
+  };
+  return { tools, rootDir, depsFor };
 }
 
 /** Unwrap an `ok` result, failing with the tool's own message if it errored. */

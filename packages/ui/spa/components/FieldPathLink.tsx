@@ -1,11 +1,12 @@
 import { ReactNode } from "react";
-import { SourcePath } from "@valbuild/core";
+import { Internal, SourcePath } from "@valbuild/core";
 import { Globe } from "lucide-react";
 import { urlOf } from "@valbuild/shared/internal";
 import { cn } from "./designSystem/cn";
 import { getNavPathFromAll } from "./getNavPath";
 import { useNavLink } from "./navLink";
 import { useAllSources, useSchemas } from "./ValFieldProvider";
+import { useShellPanelLink } from "./shell/shellPanelLink";
 
 /**
  * The path of a field, as somewhere you can go.
@@ -50,9 +51,25 @@ export function FieldPathLink({
    */
   const navPath = getNavPathFromAll(sourcePath, allSources, schemasData);
   const target = navPath ?? sourcePath;
-  const link = useNavLink(target, {
+  const navLink = useNavLink(target, {
     scrollToPath: target !== sourcePath ? sourcePath : undefined,
   });
+  /**
+   * Settings goes to the Settings panel, not to the module in the editor.
+   *
+   * A settings field is edited in a UI built for it — a switch, a labelled
+   * paragraph box — and the editor canvas would show it through the generic
+   * field renderer instead. Since that is true of every view that lists a field
+   * by path, the redirect is here rather than in each of them.
+   *
+   * Both hooks run either way: they are hooks, and the module's type is not
+   * known until the schemas have loaded.
+   */
+  const [moduleFilePath] =
+    Internal.splitModuleFilePathAndModulePath(sourcePath);
+  const isSettingsModule = schemasData?.[moduleFilePath]?.type === "settings";
+  const settingsLink = useShellPanelLink("settings");
+  const link = isSettingsModule ? settingsLink : navLink;
   const anchor = (
     <a {...link} title={sourcePath} className={cn(PATH_LINK_CLASS, className)}>
       {children}

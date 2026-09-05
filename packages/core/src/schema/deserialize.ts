@@ -1,6 +1,7 @@
 import { SerializedSchema, Schema } from ".";
 import { SelectorSource } from "../selector";
 import { ImageSource } from "../source/media";
+import { RichTextOptions } from "../source/richtext";
 import { SourcePath } from "../val";
 import { ArraySchema } from "./array";
 import { BooleanSchema } from "./boolean";
@@ -17,6 +18,7 @@ import { ObjectSchema } from "./object";
 import { RecordSchema } from "./record";
 import { RichTextSchema } from "./richtext";
 import { RouteSchema } from "./route";
+import { SettingsSchema } from "./settings";
 import { StringSchema } from "./string";
 import { UnionSchema } from "./union";
 
@@ -105,6 +107,18 @@ function deserializeSchemaImpl(
         serialized.description,
         serialized.render ?? null,
       );
+    case "settings":
+      return new SettingsSchema(
+        Object.fromEntries(
+          Object.entries(serialized.items).map(([key, item]) => {
+            return [key, deserializeSchema(item)];
+          }),
+        ),
+        serialized.opt,
+        false,
+        false,
+        serialized.description,
+      );
     case "array":
       return new ArraySchema(
         deserializeSchema(serialized.item),
@@ -133,31 +147,23 @@ function deserializeSchemaImpl(
         serialized.render ?? null,
       );
     case "richtext": {
-      const deserializedOptions = {
+      const deserializedOptions: RichTextOptions & {
+        maxLength?: number;
+        minLength?: number;
+      } = {
         ...(serialized.options || {}),
-        inline:
-          typeof serialized.options?.inline?.img === "object" ||
-          typeof serialized.options?.inline?.a === "object"
-            ? {
-                a:
-                  typeof serialized.options?.inline?.a === "object"
-                    ? (deserializeSchema(serialized.options.inline.a) as
-                        | RouteSchema<string>
-                        | StringSchema<string>)
-                    : serialized.options?.inline?.a,
-                img:
-                  typeof serialized.options?.inline?.img === "object"
-                    ? (deserializeSchema(
-                        serialized.options.inline.img,
-                      ) as ImageSchema<ImageSource>)
-                    : serialized.options?.inline?.img,
-              }
-            : (serialized.options?.inline as
-                | undefined
-                | {
-                    a: boolean | undefined;
-                    img: boolean | undefined;
-                  }),
+        a:
+          typeof serialized.options?.a === "object"
+            ? (deserializeSchema(serialized.options.a) as
+                | RouteSchema<string>
+                | StringSchema<string>)
+            : serialized.options?.a,
+        img:
+          typeof serialized.options?.img === "object"
+            ? (deserializeSchema(
+                serialized.options.img,
+              ) as ImageSchema<ImageSource>)
+            : serialized.options?.img,
       };
       return new RichTextSchema(
         deserializedOptions,

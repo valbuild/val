@@ -375,14 +375,14 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     );
   }
 
-  readonly(): FileSchema<Src> {
+  readonly(isReadonly: boolean = true): FileSchema<Src> {
     return new FileSchema<Src>(
       this.options,
       this.opt,
       this.isRemote,
       this.customValidateFunctions,
       this.moduleMetadata,
-      true,
+      isReadonly,
       this.isHidden,
       this.description,
       this.renderInput,
@@ -390,7 +390,7 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     );
   }
 
-  hidden(): FileSchema<Src> {
+  hidden(isHidden: boolean = true): FileSchema<Src> {
     return new FileSchema<Src>(
       this.options,
       this.opt,
@@ -398,7 +398,7 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       this.customValidateFunctions,
       this.moduleMetadata,
       this.isReadonly,
-      true,
+      isHidden,
       this.description,
       this.renderInput,
       this.previewInput,
