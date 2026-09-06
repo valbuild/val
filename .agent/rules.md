@@ -308,6 +308,19 @@ same 20), and every tool call already pays that in `loadState`. Re-run the
 benchmark before believing anything different: `searchIndex.perf.test.ts` in
 `@valbuild/shared` guards the linearity, not the stopwatch.
 
+The same ratio is why the tool takes a LIST of queries: everything expensive
+happens before the first query runs, so a second query against a built index is
+free next to a second call, which pays for `loadState` and the build again. One
+call, up to 20 queries, answered separately so a caller can tell which of its
+guesses found the thing. `limit` is per query and defaults to 100 — a model
+filters a long list more cheaply than it asks again.
+
+`performSearch` counts all the matches, not the page it returns. FlexSearch
+stops as soon as it has the ids it was asked for, so a `total` taken from a
+page-sized search is the page size wearing a count's name; it is counted
+separately up to `MAX_COUNTED_RESULTS`, and `totalIsLowerBound` says when that
+bound was reached instead of letting the number lie.
+
 Two things in the tool are load bearing:
 
 - **The module order is sorted.** Indexing stops at a deadline, so the order

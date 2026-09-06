@@ -39,15 +39,44 @@ import { z } from "zod";
  * of a cost that is already sunk, rather than being the expensive thing it looks
  * like.
  *
+ * That ratio between building the index and querying it — 162 ms against
+ * 0.2 ms — is also why the tool takes a LIST of queries rather than one.
+ * Everything expensive about a call happens before the first query runs, so a
+ * second query against the same index is free next to a second call, which pays
+ * for the load and the build again. An agent exploring content asks several
+ * near-identical things, because the whole point of searching is not knowing
+ * which word the content uses; batching them turns five calls into one.
+ *
  * It is also the wrong comparison that matters: the alternative is `get_source`
  * on every module so the model can read them itself, which moves the whole
- * corpus through the context window. This moves a query in and a page of hits
- * back.
+ * corpus through the context window. This moves a handful of queries in and a
+ * page of hits back for each.
  */
 
 /** Low on purpose. See the numbers above: reaching it means something is wrong. */
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_TIMEOUT_MS = 120_000;
+
+/**
+ * Hits per query, and high because the expensive work is already done by the
+ * time any of them is counted.
+ *
+ * A page-sized default made sense when the answer was a screen for a person to
+ * scroll. It is a model reading this, and it can filter a long list far more
+ * cheaply than it can ask again — a low default just buys a second call for
+ * content it was going to look at anyway.
+ */
+const DEFAULT_LIMIT = 100;
+const MAX_LIMIT = 500;
+
+/**
+ * Queries per call.
+ *
+ * Not a cost bound — the index is built either way and each query is
+ * sub-millisecond. It bounds the RESPONSE, which is `queries x limit` hits at
+ * worst and is the only part of this that reaches a context window.
+ */
+const MAX_QUERIES = 20;
 
 /** How many omitted module paths to name before summarising the rest. */
 const MAX_NAMED_OMISSIONS = 20;
@@ -59,19 +88,28 @@ const ModulePatternSchema = z
     'Module file path globs, e.g. ["/content/blogs/**"]. Matched against the whole module file path.',
   );
 
+/**
+ * One query or several.
+ *
+ * A bare string is accepted because a caller that means one query will send one
+ * whatever the schema says, and refusing it teaches nothing. Normalised to a
+ * list here so the handler and the response have a single shape.
+ */
+const QueriesSchema = z
+  .union([z.string(), z.array(z.string()).min(1).max(MAX_QUERIES)])
+  .transform((queries) => (typeof queries === "string" ? [queries] : queries));
+
 export function searchContentTool(): ValToolImpl {
   return defineTool(
     {
       name: "search_content",
       title: "Search content",
       description:
-        "Find content by text across the project's Val modules, with unpublished changes applied. Returns the source paths of matching values, which get_source reads. Narrow with include/exclude when you know roughly where to look — that is also the fix if a search reports omitted modules.",
+        "Find content by text across the project's Val modules, with unpublished changes applied. Returns the source paths of matching values, which get_source reads. Pass every query you have in one call: the index is built per call and querying it is thousands of times cheaper than building it, so five queries cost about what one costs. Narrow with include/exclude when you know roughly where to look — that is also the fix if a search reports omitted modules.",
       inputSchema: z.object({
-        query: z
-          .string()
-          .describe(
-            'The text to search for. Matches are on word prefixes, so "blog" finds "blogging".',
-          ),
+        queries: QueriesSchema.describe(
+          `The text to search for: one string, or up to ${MAX_QUERIES} of them answered in a single pass over the index. Matches are on word prefixes, so "blog" finds "blogging". Prefer several guesses in one call over one call per guess — the content may not use the word you would.`,
+        ),
         include: ModulePatternSchema.describe(
           'Only search these modules, e.g. ["/content/blogs/**"]. Everything else is skipped and is NOT reported as omitted — omissions mean the deadline was hit, not that you excluded something.',
         ),
@@ -82,15 +120,17 @@ export function searchContentTool(): ValToolImpl {
           .number()
           .int()
           .min(1)
-          .max(200)
-          .default(20)
-          .describe("Maximum number of hits to return."),
+          .max(MAX_LIMIT)
+          .default(DEFAULT_LIMIT)
+          .describe(
+            `Maximum hits to return PER QUERY, so a call returns up to queries x limit of them. Defaults to ${DEFAULT_LIMIT}; lower it when searching a common word across many queries at once.`,
+          ),
         offset: z
           .number()
           .int()
           .min(0)
           .default(0)
-          .describe("Number of hits to skip, for paging."),
+          .describe("Number of hits to skip per query, for paging."),
         timeoutMs: z
           .number()
           .int()
@@ -98,14 +138,22 @@ export function searchContentTool(): ValToolImpl {
           .max(MAX_TIMEOUT_MS)
           .default(DEFAULT_TIMEOUT_MS)
           .describe(
-            "How long to spend indexing before answering with what has been indexed so far. The default is enough for any ordinary project; a search that reports omitted modules is better narrowed with include than given longer.",
+            "How long to spend indexing before answering with what has been indexed so far. It bounds the indexing, which every query in the call shares — not the queries, which are free. The default is enough for any ordinary project; a search that reports omitted modules is better narrowed with include than given longer.",
           ),
       }),
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
     async (args, deps) => {
-      if (args.query.trim() === "") {
-        return err("invalid-args", "The query is empty, so nothing to search.");
+      // First occurrence wins, so the answers stay in the order they were
+      // asked. A repeated query costs nothing to run and a duplicate page of
+      // hits to read, and every answer names its own query, so collapsing them
+      // loses nothing a caller can correlate by.
+      const queries = [...new Set(args.queries.map((query) => query.trim()))];
+      if (queries.some((query) => query === "")) {
+        return err(
+          "invalid-args",
+          "One of the queries is empty, so there is nothing to search for.",
+        );
       }
 
       const selected = selectModules(deps.state, args.include, args.exclude);
@@ -119,24 +167,37 @@ export function searchContentTool(): ValToolImpl {
       }
 
       const built = buildWithDeadline(deps.state, selected, args.timeoutMs);
-      const found = performSearch(
-        built.index,
-        args.query,
-        args.limit,
-        args.offset,
-      );
 
       return ok({
-        results: found.results.map((hit) => ({
-          path: hit.path,
-          // What the Studio would show for this hit, so an agent and an editor
-          // are looking at the same thing.
-          label: hit.label,
-          moduleFilePath: moduleOf(hit.path),
-        })),
-        total: found.total,
-        // What was actually searched, so `total` can be read for what it is: a
-        // count over these modules, not over the project.
+        // Answered per query rather than merged, because which guess found the
+        // thing is most of why several were asked. One query gets a list of
+        // one: a response shape that changes with the arguments is a shape
+        // every caller has to branch on.
+        queries: queries.map((query) => {
+          const found = performSearch(
+            built.index,
+            query,
+            args.limit,
+            args.offset,
+          );
+          return {
+            query,
+            results: found.results.map((hit) => ({
+              path: hit.path,
+              // What the Studio would show for this hit, so an agent and an
+              // editor are looking at the same thing.
+              label: hit.label,
+              moduleFilePath: moduleOf(hit.path),
+            })),
+            // Matches for this query across the indexed modules, not the size
+            // of the page above: it is how a caller knows whether narrowing or
+            // paging is worth it.
+            total: found.total,
+            ...(found.totalIsLowerBound ? { totalIsLowerBound: true } : {}),
+          };
+        }),
+        // What was actually searched, so the totals can be read for what they
+        // are: counts over these modules, not over the project.
         searched: {
           modules: built.indexedModules,
           of: selected.length,
@@ -149,7 +210,7 @@ export function searchContentTool(): ValToolImpl {
         timedOut: built.timedOut,
         ...(built.timedOut
           ? {
-              hint: `Indexing stopped after ${args.timeoutMs}ms with ${built.omitted.length} module(s) unread, so these results are partial. Search again with include set to the modules you care about, or use count_entries to see which of the omitted ones are large.`,
+              hint: `Indexing stopped after ${args.timeoutMs}ms with ${built.omitted.length} module(s) unread, so these results are partial — for every query in this call, including the ones that found plenty. Search again with include set to the modules you care about, or use count_entries to see which of the omitted ones are large.`,
             }
           : {}),
       });
@@ -198,6 +259,10 @@ function selectModules(
  * The first module is always indexed, deadline or not. A search that returned
  * nothing at all because the clock had already run out would be a worse answer
  * than a slow one.
+ *
+ * The deadline covers the indexing and nothing else, and there is nothing else
+ * for it to cover: the queries run against the finished index in well under a
+ * millisecond each, so no number of them can be what made a call slow.
  *
  * Exported for its own tests: driving the deadline through the tool would mean
  * a corpus big enough to take longer than the smallest timeout the schema

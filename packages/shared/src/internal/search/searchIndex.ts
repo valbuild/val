@@ -198,17 +198,38 @@ function fastRemoveNonWordChars(str: string): string {
   return result;
 }
 
+/**
+ * How many hits are counted before `total` stops being a count.
+ *
+ * FlexSearch stops as soon as it has the number of ids it was asked for, so a
+ * `total` taken from a page-sized search is just the page size again — which
+ * reads as "that is all there is" to anyone who did not write it. Counting is
+ * asking for more ids than the page needs, so it costs an array of ids and no
+ * more; this bound is where that stops being free, and `totalIsLowerBound` says
+ * it was reached rather than letting the number quietly lie.
+ */
+const MAX_COUNTED_RESULTS = 10_000;
+
+export type SearchResults = {
+  results: Array<{ path: SourcePath; label: string }>;
+  /** Matches for the query, not just on this page. */
+  total: number;
+  /** `total` hit {@link MAX_COUNTED_RESULTS}, so it means "at least this many". */
+  totalIsLowerBound: boolean;
+};
+
 export function performSearch(
   searchIndex: SearchIndex | null,
   query: string,
   limit = 50,
   offset = 0,
-): { results: Array<{ path: SourcePath; label: string }>; total: number } {
+): SearchResults {
   if (searchIndex === null || !query.trim()) {
-    return { results: [], total: 0 };
+    return { results: [], total: 0, totalIsLowerBound: false };
   }
   const { index, pathToLabel } = searchIndex;
-  const searchResults = index.search(query, { limit: offset + limit });
+  const counted = Math.max(offset + limit, MAX_COUNTED_RESULTS);
+  const searchResults = index.search(query, { limit: counted });
   const total = searchResults.length;
   const paged = searchResults.slice(offset, offset + limit);
   return {
@@ -217,5 +238,6 @@ export function performSearch(
       label: pathToLabel.get(id as string) || (id as string),
     })),
     total,
+    totalIsLowerBound: total >= counted,
   };
 }
