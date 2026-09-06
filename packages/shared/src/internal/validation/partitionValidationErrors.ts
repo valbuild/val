@@ -84,6 +84,13 @@ function isSkippableFixCode(fix: ValidationFix): boolean {
       // rewriting the module) and saving does not repair it either, so surface
       // it: the message names the command (`val validate --fix`) that does.
       return false;
+    case "external:upload":
+      // Same shape as `jsonValues:extract-entry` — an entry inlined in a
+      // `.val.ts` that belongs elsewhere — and more emphatically not skippable.
+      // Fixing it writes to a live store, which is why even the CLI does it only
+      // under `val external upload` and never under a blanket `--fix`. Surfacing
+      // it is the whole point: someone has to decide.
+      return false;
     default: {
       // Exhaustiveness check: a new ValidationFix code must add a case above.
       const exhaustive: never = fix;

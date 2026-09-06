@@ -1,4 +1,32 @@
 export { createService, Service } from "./Service";
+// The external-record adapter contract. Types plus the `ok`/`err` helpers; the
+// registry that executes them arrives with the read endpoints.
+export {
+  defineExternal,
+  ok,
+  err,
+  isExternalResult,
+  EXTERNAL_RESULT,
+} from "./externalRecords";
+export type {
+  AdapterFor,
+  BoundExternalRecord,
+  ExternalAuthor,
+  ExternalBuilder,
+  ExternalCtx,
+  ExternalDefinition,
+  ExternalFile,
+  ExternalIssue,
+  ExternalKeyPage,
+  ExternalRecords,
+  ExternalResult,
+  ExternalSearchHit,
+  ExternalSearchPage,
+  ExternalSort,
+  ItemOfModule,
+  ReadonlyRecordHasNoWrites,
+  Returns,
+} from "./externalRecords";
 export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
 // Val's tools, over ValOps rather than the Studio's browser stores — so an MCP
 // server, a stdio transport or anything else can drive Val content without a
@@ -58,6 +86,7 @@ export {
   handleUniqueFolderCheck,
   handleCheckAllFiles,
   handleJsonValuesExtractEntry,
+  handleExternalUpload,
 } from "./fixHandlers";
 export type {
   FixHandler,
