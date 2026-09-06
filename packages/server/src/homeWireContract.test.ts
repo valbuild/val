@@ -1,4 +1,5 @@
 import { ValOpsHttp } from "./ValOpsHttp";
+import { result } from "@valbuild/core/fp";
 import type { AuthorId } from "./ValOps";
 import type { ModuleFilePath, PatchId, SerializedSchema } from "@valbuild/core";
 
@@ -225,6 +226,65 @@ test("stage and unstage say who is asking", async () => {
     expect(profileHeaderOf(unstage.sent)).toEqual([PROFILE]);
   } finally {
     unstage.restore();
+  }
+});
+
+/**
+ * `home` — `Api["/commits/:commitSha/modules"]["GET"]["res"]`, copied from there.
+ *
+ * The reading half of the same contract the commit test pins the writing half
+ * of. Drift here is quieter than a 500: `ValOpsHttp` validates with zod, so a
+ * renamed field makes every commit read as unreadable — which looks exactly
+ * like a project with no history.
+ */
+const HOME_COMMIT_MODULES = {
+  commitSha: "a3f19c2",
+  parentCommitSha: "p1",
+  modules: [
+    {
+      moduleFilePath: "/content/landing.val.ts",
+      commitSha: "a3f19c2",
+      sourceSha: "aaaa",
+      schemaSha: "bbbb",
+      source: { heading: "Content as code" },
+      schema: { type: "object", items: {}, opt: false },
+      unavailable: false,
+    },
+  ],
+};
+
+test("a commit's stored modules parse, with the schema left unvalidated", async () => {
+  const { ops, restore } = opsAnswering(HOME_COMMIT_MODULES);
+  try {
+    const res = await ops.getCommitModules("a3f19c2");
+    if (result.isErr(res)) {
+      throw new Error(`did not parse: ${JSON.stringify(res.error)}`);
+    }
+    expect(res.value).toHaveLength(1);
+    expect(res.value[0].moduleFilePath).toBe("/content/landing.val.ts");
+    expect(res.value[0].source).toEqual({ heading: "Content as code" });
+    // The schema arrives unchecked ON PURPOSE. Validating it at the transport
+    // boundary would turn "written by a different version of Val" into a failed
+    // REQUEST instead of one module that cannot be shown.
+    expect(res.value[0].schema).toBeDefined();
+  } finally {
+    restore();
+  }
+});
+
+test("a module we hold a hash for but no object is unavailable, not empty", async () => {
+  const { ops, restore } = opsAnswering({
+    ...HOME_COMMIT_MODULES,
+    modules: [
+      { ...HOME_COMMIT_MODULES.modules[0], source: null, unavailable: true },
+    ],
+  });
+  try {
+    const res = await ops.getCommitModules("a3f19c2");
+    if (result.isErr(res)) throw new Error("did not parse");
+    expect(res.value[0].unavailable).toBe(true);
+  } finally {
+    restore();
   }
 });
 
