@@ -57,6 +57,12 @@ expensive to re-derive from the code:
 
 Val has a dual type system: **Source** types define data shape, **Selector** types is the user facing types.
 
+**Source is the data of a module** - JSON, the thing patches apply to. It is not
+the `.val.ts` file and not a description of it; a variable holding `.val.ts`
+text is text, not Source. See
+[`architecture/terminology.md`](../architecture/terminology.md) for that
+distinction and the path vocabulary that goes with it.
+
 ```
 Source (data)          →  Selector (access)
 ─────────────────────────────────────────────
