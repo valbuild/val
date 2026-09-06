@@ -6,19 +6,23 @@ import {
   SourcePath,
 } from "@valbuild/core";
 import FlexSearch, { Index } from "flexsearch";
-import {
-  traverseSchemaSource,
-  flattenRichText,
-} from "../utils/traverseSchemaSource";
-import { getRefParts } from "../utils/getFilenameFromRef";
+import { traverseSchemaSource, flattenRichText } from "./traverseSchemaSource";
+import { getRefParts } from "./getFilenameFromRef";
 
 /**
  * The search index and the labels to render for its hits.
  *
  * Kept as a plain module rather than living inside a worker so it can be tested:
  * a worker entry runs `self.onmessage` on import, which no test environment here
- * provides. `SearchStore` is the only consumer — the Studio's own second copy in
- * `search/search.worker.ts` is deleted.
+ * provides.
+ *
+ * In `@valbuild/shared` rather than the Studio because there are now two
+ * realms searching the same content: the Studio's `SearchStore`, which keeps an
+ * index alive in a worker and re-indexes a module at a time, and the MCP
+ * `search_content` tool, which builds one per call and throws it away. What
+ * counts as a document, and what a hit is labelled, must not differ between
+ * them — an agent and an editor searching the same project should find the same
+ * things.
  */
 export type SearchIndex = {
   index: Index;

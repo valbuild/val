@@ -297,6 +297,33 @@ Four things in there are load-bearing, and the first three were got wrong first:
    that as server-repairable and therefore non-blocking. The Studio does not
    need the check: its file picker carries `accept`. An agent has no picker.
 
+`search_content` builds its index on every call and throws it away, and the
+measurement is why that is allowed rather than a shortcut. Indexing
+`valbuild/web` — a real production site, 20 modules and 206 KB of source JSON —
+takes **162 ms**; the cost is linear, so 2 MB is ~1.4 s and 10 MB is ~7.9 s, and
+the 10 s default deadline is not reached until roughly 13 MB. Searching the
+built index is another 0.2 ms, which is why none of those numbers are about
+searching. Loading the modules costs _more_ than indexing them (843 ms for the
+same 20), and every tool call already pays that in `loadState`. Re-run the
+benchmark before believing anything different: `searchIndex.perf.test.ts` in
+`@valbuild/shared` guards the linearity, not the stopwatch.
+
+Two things in the tool are load bearing:
+
+- **The module order is sorted.** Indexing stops at a deadline, so the order
+  decides what a partial answer contains. Sorted means the same call twice
+  gives the same partial answer, and that narrowing with `include` predictably
+  reaches what was dropped.
+- **The deadline is checked between modules, never inside one**, and the first
+  module is always indexed. `indexModule` is atomic — half a module in the index
+  is a module whose absent half looks like content that does not exist — and a
+  search that returned nothing because the clock had already run out is a worse
+  answer than a slow one.
+
+An excluded module is not an omission. `omittedModules` means the deadline was
+hit; a caller has to be able to tell "you told me not to" from "I ran out of
+time", because only one of them means retry.
+
 ## Testing
 
 Run tests from root dir with:

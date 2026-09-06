@@ -31,3 +31,10 @@ export * from "./validation/blockingValidationErrors";
 // the conversion on a canvas and the MCP image tool runs it on sharp, and the
 // two must agree on which images get converted and how far they are scaled.
 export * from "./media/encodeImageDecisions";
+// Full-text search over content. Shared because two realms search the same
+// project: the Studio's worker-backed index, and the MCP `search_content` tool,
+// which builds one per call. What counts as a document must not differ.
+export * from "./search/searchIndex";
+export * from "./search/traverseSchemaSource";
+export * from "./search/getFilenameFromRef";
+export * from "./search/sourcePath";

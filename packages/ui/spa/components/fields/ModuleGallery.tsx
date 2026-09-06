@@ -26,7 +26,7 @@ import {
 } from "../ValProvider";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
-import { getRefParts } from "../../utils/getFilenameFromRef";
+import { getRefParts } from "@valbuild/shared/internal";
 import { FieldLoading } from "../FieldLoading";
 import { Progress } from "../designSystem/progress";
 import { FileGallery } from "../FileGallery/FileGallery";
