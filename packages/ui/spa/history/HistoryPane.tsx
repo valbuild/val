@@ -24,12 +24,15 @@ export function HistoryPane({
   path,
   loading,
   error,
+  restoreSlot,
 }: {
   patchSet: HistoricalPatchSet | undefined;
   /** The path to show. Under lock this is the editor's own path. */
   path: SourcePath | null;
   loading: boolean;
   error: string | null;
+  /** The restore controls, when this commit can be restored from. */
+  restoreSlot?: React.ReactNode;
 }) {
   const system = useCommitSystem(patchSet);
   const unavailable = useMemo(() => unavailableModules(patchSet), [patchSet]);
@@ -72,10 +75,48 @@ export function HistoryPane({
   }
 
   return (
-    <ValSystemProvider system={system}>
-      <Module path={path as SourcePath} showModuleGalleryChild={null} />
-    </ValSystemProvider>
+    <>
+      {restoreSlot}
+      <ValSystemProvider system={system}>
+        <Module path={path as SourcePath} showModuleGalleryChild={null} />
+      </ValSystemProvider>
+    </>
   );
+}
+
+/**
+ * Whether a commit can be restored from at all, and what to say if not.
+ *
+ * Not an error, and worded so it does not read like one: a commit made before
+ * history was recorded, or one made outside Val, simply has nothing stored to
+ * restore FROM. The control is disabled with the reason beside it, because a
+ * disabled button with no explanation is worse than no button.
+ */
+export function restorability(patchSet: HistoricalPatchSet | undefined): {
+  canRestore: boolean;
+  reason: string | null;
+} {
+  if (!patchSet) {
+    return { canRestore: false, reason: null };
+  }
+  const restorable = Object.values(patchSet.modules).some(
+    (module) => module.schema !== null && module.source !== null,
+  );
+  if (restorable) {
+    return { canRestore: true, reason: null };
+  }
+  if (!patchSet.commit.hasArchive) {
+    return {
+      canRestore: false,
+      reason:
+        "This commit was made before Val started recording history, so there is nothing here to restore from. Everything since then can be restored.",
+    };
+  }
+  return {
+    canRestore: false,
+    reason:
+      "Nothing in this commit can be restored into the project as it is now.",
+  };
 }
 
 /** What the commit changed, when no particular module is in view. */

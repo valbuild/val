@@ -50,6 +50,7 @@ import {
   useHistoryParams,
 } from "../ValRouter";
 import { HistoryPane } from "../../history/HistoryPane";
+import { RestoreControls } from "../../history/RestoreControls";
 import { HistorySplit } from "../../history/HistorySplit";
 import { useHistoricalCommit } from "../../history/useHistoricalCommit";
 import {
@@ -931,6 +932,16 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
           commitLabel={`At ${history.commitSha?.slice(0, 7)}`}
           history={
             <HistoryPane
+              restoreSlot={
+                <RestoreControls
+                  patchSet={
+                    commitState?.status === "success"
+                      ? commitState.patchSet
+                      : undefined
+                  }
+                  path={navigation.currentSourcePath as SourcePath | null}
+                />
+              }
               patchSet={
                 commitState?.status === "success"
                   ? commitState.patchSet
