@@ -40,6 +40,7 @@ import { analyzeValModule } from "./patch/ts/valModule";
 import type { HistoryError } from "./history/HistoryError";
 import type {
   AffectedFile,
+  StoredModuleVersion,
   CommitPage,
   CommitPatch,
   HistoricalCommit,
@@ -2066,6 +2067,47 @@ export abstract class ValOps {
       ),
     );
 
+    /*
+     * What each changed module IS after this commit, and the schema it is under.
+     *
+     * The data rather than the file's text, because that is the half git cannot
+     * give back: a `.val.ts` in git is code, and turning code back into data
+     * means parsing it, which is best-effort and rots across TypeScript,
+     * runtime and Val versions. The schema comes along because a value on its
+     * own cannot be RENDERED - showing a module as it was at a commit whose
+     * schema has since changed needs the schema of that commit, and nothing in
+     * the current checkout has it.
+     *
+     * Taken from `getSources(analysis)` rather than re-derived here so the data
+     * stored is the same data the Studio shows, produced by the one
+     * implementation of "apply these ops".
+     */
+    const moduleVersions: Record<
+      ModuleFilePath,
+      { source: JSONValue | null; schema: SerializedSchema }
+    > = {};
+    const { sources: sourcesAfter } = await this.getSources(patchAnalysis);
+    for (const path of Object.keys(patchesByModule) as ModuleFilePath[]) {
+      let serialized: SerializedSchema | undefined;
+      try {
+        serialized = schemas[path]?.["executeSerialize"]();
+      } catch {
+        // Same guard as above: one unserializable schema must not cost every
+        // other module its history.
+        serialized = undefined;
+      }
+      if (!serialized) {
+        continue;
+      }
+      const source = sourcesAfter[path];
+      moduleVersions[path] = {
+        // `undefined` here means the module is gone, which is a state history
+        // has to be able to show. `null` is how that travels over the wire.
+        source: source === undefined ? null : (source as JSONValue),
+        schema: serialized,
+      };
+    }
+
     const res: PreparedCommit = {
       hasErrors,
       sourceFilePatchErrors,
@@ -2079,6 +2121,7 @@ export abstract class ValOps {
       appliedPatches,
       skippedPatches,
       triedPatches,
+      moduleVersions,
     };
     return res;
   }
@@ -2286,9 +2329,18 @@ export abstract class ValOps {
    * file path. Empty for a commit made before this was recorded - which the
    * caller reports as `source-unavailable` rather than as an empty module.
    */
-  abstract getCommitPreviousSources(
+  /**
+   * Each module a commit changed: its data, and the schema it was under.
+   *
+   * `asOf` widens it from "what this commit changed" to "the whole project as
+   * this commit left it", which is what reverting everything to a point in time
+   * needs; `moduleFilePath` narrows it to one module, for navigating the
+   * history pane off the changed set.
+   */
+  abstract getCommitModules(
     commitSha: string,
-  ): Promise<result.Result<Record<string, string>, HistoryError>>;
+    options?: { asOf?: boolean; moduleFilePath?: ModuleFilePath },
+  ): Promise<result.Result<StoredModuleVersion[], HistoryError>>;
 
   /** Which files the commit touched, and how. Names them; does not fetch them. */
   abstract getCommitAffectedFiles(
@@ -2461,6 +2513,15 @@ export type PreparedCommit = {
    * Previous source files that were patched
    */
   previousSourceFiles: Record<ModuleFilePath, string>;
+  /**
+   * Each changed module's Source after this commit, and its schema.
+   *
+   * This is what makes a commit restorable. See the comment where it is built.
+   */
+  moduleVersions: Record<
+    ModuleFilePath,
+    { source: JSONValue | null; schema: SerializedSchema }
+  >;
   /**
    * Diagnosis only: what the source file looks like with the appliable patches
    * applied, for modules that had at least one unappliable patch. Populated

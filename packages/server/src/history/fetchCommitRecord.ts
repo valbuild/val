@@ -1,13 +1,18 @@
 import { result } from "@valbuild/core/fp";
 import type { ValOps } from "../ValOps";
 import type { HistoryError } from "./HistoryError";
-import type { AffectedFile, CommitPatch, HistoricalCommit } from "./types";
+import type {
+  AffectedFile,
+  CommitPatch,
+  HistoricalCommit,
+  StoredModuleVersion,
+} from "./types";
 
 export type CommitRecord = {
   commit: HistoricalCommit;
   patches: CommitPatch[];
-  /** Pre-commit `.val.ts` text, keyed by module file path. */
-  previousSourceFiles: Record<string, string>;
+  /** Each module this commit changed, as data plus the schema it was under. */
+  modules: StoredModuleVersion[];
   affectedFiles: AffectedFile[];
 };
 
@@ -25,16 +30,16 @@ export async function fetchCommitRecord(
   ops: ValOps,
   commitSha: string,
 ): Promise<result.Result<CommitRecord, HistoryError>> {
-  const [patchesRes, sourcesRes, filesRes] = await Promise.all([
+  const [patchesRes, modulesRes, filesRes] = await Promise.all([
     ops.getCommitPatches(commitSha),
-    ops.getCommitPreviousSources(commitSha),
+    ops.getCommitModules(commitSha),
     ops.getCommitAffectedFiles(commitSha),
   ]);
   if (result.isErr(patchesRes)) {
     return patchesRes;
   }
-  if (result.isErr(sourcesRes)) {
-    return sourcesRes;
+  if (result.isErr(modulesRes)) {
+    return modulesRes;
   }
   if (result.isErr(filesRes)) {
     return filesRes;
@@ -42,7 +47,7 @@ export async function fetchCommitRecord(
   return result.ok({
     commit: patchesRes.value.commit,
     patches: patchesRes.value.patches,
-    previousSourceFiles: sourcesRes.value,
+    modules: modulesRes.value,
     affectedFiles: filesRes.value,
   });
 }

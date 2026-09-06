@@ -22,11 +22,9 @@ export { getHistoricalPatchSet } from "./getHistoricalPatchSet";
 
 export { listCommits } from "./listCommits";
 export { fetchCommitRecord } from "./fetchCommitRecord";
-export { parseModuleSource } from "./parseModuleSource";
-export { applyPatchesToSource } from "./applyPatchesToSource";
 export { resolveJsonEntriesAtCommit } from "./resolveJsonEntriesAtCommit";
 export {
   describeBinaryFilesAtCommit,
   historyFileUrl,
 } from "./describeBinaryFiles";
-export { diffSources } from "./diffSources";
+export { changedPathsOf } from "./changedPaths";

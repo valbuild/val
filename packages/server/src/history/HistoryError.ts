@@ -31,19 +31,22 @@ export type HistoryError =
    */
   | { kind: "archive-unreadable"; commitSha: string; message: string }
   /**
-   * No pre-commit text was stored for this module - a commit made before
-   * archiving shipped, or by a Val too old to send it. NOT the same as an empty
-   * module, which is why it is reported rather than defaulted.
+   * Nothing was stored for this module at this commit - a commit made before
+   * history was recorded, or by a Val too old to send it. NOT the same as an
+   * empty module, which is why it is reported rather than defaulted.
    */
   | { kind: "source-unavailable"; moduleFilePath: ModuleFilePath }
   /**
-   * The stored `.val.ts` will not statically evaluate to a source. Usually a
-   * module authored before the current shape (e.g. a `c.image(...)` call where
-   * a plain object now goes), or one hand-edited into something that is no
-   * longer a literal.
+   * The schema stored with this commit is not one this version of Val can read.
+   *
+   * Expected, and NOT anyone's mistake: schemas are stored as written, and Val's
+   * schema format is allowed to move. An older project opened in a newer Val -
+   * or the reverse - can hit this, and the honest thing is to say the commit
+   * cannot be shown HERE rather than to imply the data is damaged. Everything
+   * else about the commit still reads.
    */
   | {
-      kind: "source-unparseable";
+      kind: "schema-unreadable";
       moduleFilePath: ModuleFilePath;
       message: string;
     }
@@ -104,8 +107,8 @@ export function historyErrorMessage(error: HistoryError): string {
       return `Could not read the stored record of commit ${error.commitSha}: ${error.message}`;
     case "source-unavailable":
       return `No stored source for ${error.moduleFilePath} at this commit (it predates history being recorded)`;
-    case "source-unparseable":
-      return `Could not read the stored source of ${error.moduleFilePath}: ${error.message}`;
+    case "schema-unreadable":
+      return `The schema stored for ${error.moduleFilePath} at this commit is not one this version of Val can read: ${error.message}`;
     case "module-removed":
       return `${error.moduleFilePath} no longer exists in this project`;
     case "patch-not-applicable":

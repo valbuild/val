@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { PatchId } from "./Patch";
+import { JSONValue, PatchId } from "./Patch";
+import { SerializedSchema } from "./SerializedSchema";
 
 /**
  * The wire shapes for reading history.
@@ -27,7 +28,7 @@ export const HistoryError = z.discriminatedUnion("kind", [
     moduleFilePath: z.string(),
   }),
   z.object({
-    kind: z.literal("source-unparseable"),
+    kind: z.literal("schema-unreadable"),
     moduleFilePath: z.string(),
     message: z.string(),
   }),
@@ -100,8 +101,15 @@ export const BinaryFileRef = z.object({
 export type BinaryFileRef = z.infer<typeof BinaryFileRef>;
 
 export const HistoricalModule = z.object({
-  before: z.unknown().nullable(),
-  after: z.unknown().nullable(),
+  /** The module's data at this commit. Null if deleted, or unreadable. */
+  source: JSONValue.nullable(),
+  /**
+   * The schema at this commit, already validated against THIS Val.
+   *
+   * Null with a `schema-unreadable` failure means the stored schema came from a
+   * Val whose schema format this one does not know — expected, not damage.
+   */
+  schema: SerializedSchema.nullable(),
   patchIds: z.array(PatchId),
   changedPaths: z.array(z.string()),
   failures: z.array(HistoryError),

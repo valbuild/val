@@ -40,6 +40,7 @@ import { JsonEntryFilesFingerprint } from "./jsonEntryFiles";
 import type { HistoryError } from "./history/HistoryError";
 import type {
   AffectedFile,
+  StoredModuleVersion,
   CommitPage,
   CommitPatch,
   HistoricalCommit,
@@ -1389,8 +1390,8 @@ export class ValOpsFS extends ValOps {
     return result.err({ kind: "not-supported-in-fs-mode" });
   }
 
-  override async getCommitPreviousSources(): Promise<
-    result.Result<Record<string, string>, HistoryError>
+  override async getCommitModules(): Promise<
+    result.Result<StoredModuleVersion[], HistoryError>
   > {
     return result.err({ kind: "not-supported-in-fs-mode" });
   }

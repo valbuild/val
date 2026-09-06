@@ -32,6 +32,7 @@ import { fromError } from "zod-validation-error";
 import type { HistoryError } from "./history/HistoryError";
 import type {
   AffectedFile,
+  StoredModuleVersion,
   CommitPage,
   CommitPatch,
   HistoricalCommit,
@@ -43,6 +44,7 @@ import {
   ValDeployment,
   PatchGroup,
   type PatchGroupT,
+  JSONValue as JSONValueSchema,
 } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
 import {
@@ -221,10 +223,31 @@ const CommitPatchesResponse = z.object({
   ),
 });
 
-const CommitSourcesResponse = z.object({
+/**
+ * `home` — `Api["/commits/:commitSha/modules"]["GET"]["res"]`.
+ *
+ * `schema` stays `unknown` here on purpose. The content service stores it
+ * opaquely and cannot vouch for it, so validating it at the transport boundary
+ * would turn "a schema written by a different version of Val" into a failed
+ * REQUEST rather than one module that cannot be shown. It is checked in
+ * `getHistoricalPatchSet`, per module, where a failure degrades that module and
+ * leaves the commit readable.
+ */
+const CommitModulesResponse = z.object({
   commitSha: z.string(),
   parentCommitSha: z.string(),
-  previousSourceFiles: z.record(z.string(), z.string()),
+  modules: z.array(
+    z.object({
+      moduleFilePath: z.string(),
+      commitSha: z.string(),
+      sourceSha: z.string().nullable(),
+      schemaSha: z.string(),
+      // Validated, because a Source IS just JSON and this side knows that much.
+      source: JSONValueSchema.nullable(),
+      schema: z.unknown(),
+      unavailable: z.boolean(),
+    }),
+  ),
 });
 
 const CommitAffectedFilesResponse = z.object({
@@ -1844,12 +1867,19 @@ export class ValOpsHttp extends ValOps {
           patchedSourceFiles: prepared.patchedSourceFiles,
           patchedBinaryFilesDescriptors: prepared.patchedBinaryFilesDescriptors,
           appliedPatches: prepared.appliedPatches,
-          // How each module looked BEFORE this commit. `prepare` already works
-          // it out - it has been sent to /commit-summary for a while and then
-          // thrown away - and it is the one thing history cannot reconstruct
-          // later, since reading it from git would make every look at the past
-          // depend on the repository still existing and still being reachable.
-          previousSourceFiles: prepared.previousSourceFiles,
+          /*
+           * What each changed module IS after this commit, as DATA, with the
+           * schema it is under.
+           *
+           * The half git cannot give back. Git keeps the `.val.ts`, but that is
+           * code: turning it back into data means parsing it, which is
+           * best-effort and rots across TypeScript, runtime and Val versions -
+           * so a commit that reads today can quietly stop reading later. And
+           * git has no copy at all of the SCHEMA a commit was written under,
+           * which is what showing a module as it was needs once the schema has
+           * moved on.
+           */
+          modules: prepared.moduleVersions,
           commit: this.commitSha,
           root: this.root,
           filesDirectory,
@@ -2090,18 +2120,32 @@ export class ValOpsHttp extends ValOps {
     return result.err({ kind: "commit-not-found", commitSha });
   }
 
-  override async getCommitPreviousSources(
+  override async getCommitModules(
     commitSha: string,
-  ): Promise<result.Result<Record<string, string>, HistoryError>> {
+    options?: { asOf?: boolean; moduleFilePath?: ModuleFilePath },
+  ): Promise<result.Result<StoredModuleVersion[], HistoryError>> {
+    const query = new URLSearchParams();
+    if (options?.asOf) {
+      query.set("as_of", "1");
+    }
+    if (options?.moduleFilePath) {
+      query.set("path", options.moduleFilePath);
+    }
+    const search = query.toString();
     const res = await this.getHistory(
-      `/commits/${commitSha}/sources`,
-      CommitSourcesResponse,
+      `/commits/${commitSha}/modules${search ? `?${search}` : ""}`,
+      CommitModulesResponse,
       commitSha,
     );
     if (result.isErr(res)) {
       return res;
     }
-    return result.ok(res.value.previousSourceFiles);
+    return result.ok(
+      res.value.modules.map((module) => ({
+        ...module,
+        moduleFilePath: module.moduleFilePath as ModuleFilePath,
+      })),
+    );
   }
 
   override async getCommitAffectedFiles(
