@@ -28,3 +28,4 @@ export {
   historyFileUrl,
 } from "./describeBinaryFiles";
 export { changedPathsOf } from "./changedPaths";
+export { getModuleAtCommit } from "./getModuleAtCommit";

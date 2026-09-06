@@ -12,7 +12,11 @@ import {
 import { Patch, PatchId } from "./zod/Patch";
 import { SerializedSchema } from "./zod/SerializedSchema";
 import { ValCommit } from "./zod/ValCommit";
-import { HistoricalCommit, HistoricalPatchSet } from "./zod/History";
+import {
+  HistoricalCommit,
+  HistoricalModule,
+  HistoricalPatchSet,
+} from "./zod/History";
 
 const ModuleFilePath = z.string().refine(
   (_path): _path is ModuleFilePath => true, // TODO: validation
@@ -1431,6 +1435,47 @@ export const Api = {
           json: GenericError.and(z.object({ kind: z.string().optional() })),
         }),
         z.object({ status: z.literal(200), json: HistoricalPatchSet }),
+      ]),
+    },
+  },
+  /**
+   * ONE module, as of a commit — including a commit that did not change it.
+   *
+   * `/history/commit` covers what a commit changed, which is the narrow case:
+   * navigate the history pane to anything else and there would be nothing to
+   * show. This answers "how did this module look at that point", which is the
+   * question someone comparing two panes is actually asking. Immutable for the
+   * same reason: what a commit left behind cannot change.
+   */
+  "/history/module": {
+    GET: {
+      req: {
+        query: {
+          commit_sha: onlyOneStringQueryParam,
+          module_file_path: onlyOneStringQueryParam,
+        },
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({ status: z.literal(400), json: GenericError }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError.and(z.object({ kind: z.string().optional() })),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            moduleFilePath: z.string(),
+            /**
+             * Null when history has no record of this module at or before the
+             * commit — it was last edited before recording started, or never.
+             * Distinct from a module the commit deleted.
+             */
+            module: HistoricalModule.nullable(),
+          }),
+        }),
       ]),
     },
   },

@@ -2,6 +2,7 @@ import type { Json, ModuleFilePath, SerializedSchema } from "@valbuild/core";
 import type { HistoricalPatchSet } from "@valbuild/shared/internal";
 import { useMemo } from "react";
 import { createReadOnlySystem } from "../stores/readOnlySystem";
+import { useValSystem } from "../stores/react/SystemContext";
 import type { System } from "../stores/createSystem";
 
 /**
@@ -22,12 +23,35 @@ import type { System } from "../stores/createSystem";
 export function useCommitSystem(
   patchSet: HistoricalPatchSet | undefined,
 ): System | null {
+  const live = useValSystem();
   return useMemo(() => {
     if (!patchSet) {
       return null;
     }
-    const schemas: Record<ModuleFilePath, SerializedSchema | undefined> = {};
-    const sources: Record<ModuleFilePath, Json | undefined> = {};
+    /*
+     * Start from the project as it is, then lay the commit on top.
+     *
+     * A commit knows only the modules it changed, but the fields in those
+     * modules do not stay inside them: a `keyOf` indexes another module, a
+     * gallery-backed `s.image(galleryVal)` reads its dimensions from one, a
+     * route field resolves against one. Given only the commit's modules, every
+     * one of those renders as missing or stuck loading — the pane promises the
+     * real field renderers and then breaks exactly the ones that reach across
+     * modules.
+     *
+     * Seeding with today's schemas and sources gives them something to resolve
+     * against. It is honest as long as the OVERLAY wins, which it does: for
+     * every module the commit recorded, the commit's version replaces today's
+     * entirely. What is left underneath is only the modules the commit did not
+     * touch, and for those "as it is now" is the closest thing we know — and it
+     * is what the field was pointing at anyway.
+     */
+    const schemas: Record<ModuleFilePath, SerializedSchema | undefined> = {
+      ...(live?.system.schemaStore.all() ?? {}),
+    };
+    const sources: Record<ModuleFilePath, Json | undefined> = {
+      ...(live?.system.sourceStore.allSources() ?? {}),
+    };
     for (const [path, module] of Object.entries(patchSet.modules)) {
       const moduleFilePath = path as ModuleFilePath;
       /*
@@ -40,6 +64,15 @@ export function useCommitSystem(
        * `unavailableModules` below is how the UI knows to say so.
        */
       if (module.schema === null) {
+        /*
+         * Its schema was stored but this version of Val cannot read it (see
+         * `schema-unreadable`). Today's version of the module is REMOVED rather
+         * than left showing through: the seed is there so cross-module
+         * references resolve, not so a module the commit changed can quietly
+         * render as it is now while claiming to be as it was.
+         */
+        delete schemas[moduleFilePath];
+        delete sources[moduleFilePath];
         continue;
       }
       schemas[moduleFilePath] = module.schema;
@@ -50,7 +83,7 @@ export function useCommitSystem(
       sources,
       noServerReason: "This is how things were; there is nothing pending here",
     });
-  }, [patchSet]);
+  }, [patchSet, live]);
 }
 
 /**

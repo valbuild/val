@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { Module } from "../components/Module";
 import { ValSystemProvider } from "../stores/react/SystemContext";
 import { unavailableModules, useCommitSystem } from "./useCommitSystem";
+import { useModuleAtCommit } from "./useModuleAtCommit";
 import { cn } from "../components/designSystem/cn";
 
 /**
@@ -61,16 +62,19 @@ export function HistoryPane({
 
   if (!(moduleFilePath in patchSet.modules)) {
     /*
-     * The commit did not change this module — which is NOT the same as saying
-     * it looked like it does now. It may well have changed in a later commit.
-     * Saying only what is known is the whole difference between a history view
-     * that can be trusted and one that quietly makes things up.
+     * The commit did not change this module, which does NOT mean it looked
+     * like it does now — it may have changed in a later commit. So the pane
+     * asks how it looked at that point rather than guessing or refusing.
      */
     return (
-      <PaneNote title="Not changed in this commit">
-        This commit did not touch this module. What it held at the time is not
-        recorded here.
-      </PaneNote>
+      <>
+        {restoreSlot}
+        <OutsideCommit
+          commitSha={patchSet.commit.commitSha}
+          moduleFilePath={moduleFilePath}
+          path={path as SourcePath}
+        />
+      </>
     );
   }
 
@@ -81,6 +85,61 @@ export function HistoryPane({
         <Module path={path as SourcePath} showModuleGalleryChild={null} />
       </ValSystemProvider>
     </>
+  );
+}
+
+/**
+ * A module the commit did not change, fetched as of that commit.
+ *
+ * Its own component because it needs its own system, built from one module —
+ * and because a hook cannot be called after the early returns above without
+ * putting every render of this pane through it.
+ */
+function OutsideCommit({
+  commitSha,
+  moduleFilePath,
+  path,
+}: {
+  commitSha: string;
+  moduleFilePath: ModuleFilePath;
+  path: SourcePath;
+}) {
+  const state = useModuleAtCommit(commitSha, moduleFilePath, false);
+  const asPatchSet = useMemo(
+    () =>
+      state?.status === "success" && state.module
+        ? { modules: { [moduleFilePath]: state.module } }
+        : undefined,
+    [state, moduleFilePath],
+  );
+  const system = useCommitSystem(asPatchSet as HistoricalPatchSet | undefined);
+
+  if (!state || state.status === "loading") {
+    return <PaneNote title="Loading this module…">{null}</PaneNote>;
+  }
+  if (state.status === "error") {
+    return <PaneNote title="Not shown here">{state.message}</PaneNote>;
+  }
+  if (state.module === null) {
+    return (
+      <PaneNote title="Not recorded at this point">
+        History has no record of this module at or before this commit — it was
+        last edited before Val started recording, or has never been edited.
+      </PaneNote>
+    );
+  }
+  if (state.module.schema === null || !system) {
+    return (
+      <PaneNote title="Not shown here">
+        This module was saved with a different version of Val, so it cannot be
+        shown here. Nothing is lost.
+      </PaneNote>
+    );
+  }
+  return (
+    <ValSystemProvider system={system}>
+      <Module path={path} showModuleGalleryChild={null} />
+    </ValSystemProvider>
   );
 }
 

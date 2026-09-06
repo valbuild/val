@@ -210,6 +210,18 @@ const ListCommitsResponse = z.object({
 
 const CommitPatchesResponse = z.object({
   commitSha: z.string(),
+  commit: z.object({
+    commitSha: z.string(),
+    parentCommitSha: z.string(),
+    clientCommitSha: z.string(),
+    branch: z.string(),
+    createdBranch: z.string().nullable(),
+    creator: z.string().nullable(),
+    message: z.string().nullable(),
+    createdAt: z.string(),
+    seqNum: z.string(),
+    hasArchive: z.boolean(),
+  }),
   patches: z.array(
     z.object({
       patchId: z.string(),
@@ -2062,26 +2074,23 @@ export class ValOpsHttp extends ValOps {
       HistoryError
     >
   > {
-    // The commit summary and its patches come from two endpoints, because
-    // listing is paginated and a single commit is not addressable within a
-    // page. Asked for together so a caller gets one round trip's worth of
-    // latency rather than two.
-    const [patchesRes, commitRes] = await Promise.all([
-      this.getHistory(
-        `/commits/${commitSha}/patches`,
-        CommitPatchesResponse,
-        commitSha,
-      ),
-      this.findCommitInListing(commitSha),
-    ]);
+    // One request. The endpoint returns the commit's own summary alongside its
+    // patches, because it already has the row - this used to page the commit
+    // LISTING until the sha turned up, which cost up to twenty requests to open
+    // an old commit and could not find one on another branch at all.
+    const patchesRes = await this.getHistory(
+      `/commits/${commitSha}/patches`,
+      CommitPatchesResponse,
+      commitSha,
+    );
     if (result.isErr(patchesRes)) {
       return patchesRes;
     }
-    if (result.isErr(commitRes)) {
-      return commitRes;
-    }
     return result.ok({
-      commit: commitRes.value,
+      commit: {
+        ...patchesRes.value.commit,
+        patchCount: patchesRes.value.patches.length,
+      },
       patches: patchesRes.value.patches.map((patch) => ({
         patchId: patch.patchId as PatchId,
         moduleFilePath: patch.path as ModuleFilePath,
@@ -2092,40 +2101,6 @@ export class ValOpsHttp extends ValOps {
         coreVersion: patch.coreVersion,
       })),
     });
-  }
-
-  /**
-   * One commit's summary, found by walking the listing.
-   *
-   * The content service lists commits by branch and reads one by sha, but does
-   * not return a single commit's summary on its own - so this walks pages of
-   * the branch this ops instance is on until it finds the sha. Bounded, because
-   * an unbounded walk over a long-lived branch is a way to make one bad request
-   * expensive.
-   */
-  private async findCommitInListing(
-    commitSha: string,
-  ): Promise<result.Result<HistoricalCommit, HistoryError>> {
-    const MAX_PAGES = 20;
-    let cursor: string | undefined = undefined;
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const listRes: result.Result<CommitPage, HistoryError> =
-        await this.listCommits(this.branch, { limit: 100, cursor });
-      if (result.isErr(listRes)) {
-        return listRes;
-      }
-      const found = listRes.value.commits.find(
-        (commit) => commit.commitSha === commitSha,
-      );
-      if (found) {
-        return result.ok(found);
-      }
-      if (listRes.value.nextCursor === null) {
-        break;
-      }
-      cursor = listRes.value.nextCursor;
-    }
-    return result.err({ kind: "commit-not-found", commitSha });
   }
 
   override async getCommitModules(

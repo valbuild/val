@@ -1,16 +1,22 @@
-import type { ModuleFilePath, PatchId, SourcePath } from "@valbuild/core";
-import type { ValidationError } from "@valbuild/core";
+import type { ModuleFilePath } from "@valbuild/core";
 
 /**
  * Everything that can go wrong reading, replaying or restoring history.
  *
  * There is a lot of it, which is the point of making it one closed union rather
- * than strings: reconstructing a module as it was at some commit means reading
- * an archive written by an older version of Val, parsing source someone may
- * have hand-edited since, replaying ops against it, and then asking whether the
- * result still fits a schema that has moved on. Each of those fails
- * differently, and a caller deciding whether to OFFER A RESTORE needs to know
+ * than strings: reading a commit means reaching a content host, finding the
+ * commit, reading what was recorded for each of its modules, and asking whether
+ * this version of Val can make sense of the schema it was stored under. Each of
+ * those fails differently, and a caller deciding what to SHOW needs to know
  * which.
+ *
+ * Every member has a producer. The union once carried five more - a module
+ * removed from the project, an op that would not replay, a value that no longer
+ * fits today's schema, a field the schema no longer defines, and ops from a
+ * core version known to replay wrongly. All five belonged to reconstructing a
+ * commit by replaying patches against a parsed source; storing the data ended
+ * that, and a member nothing can produce is a state the Studio writes handling
+ * for and never sees.
  *
  * ## The rule
  *
@@ -50,50 +56,8 @@ export type HistoryError =
       moduleFilePath: ModuleFilePath;
       message: string;
     }
-  /** The module has no schema in the project today: it was deleted or renamed. */
-  | { kind: "module-removed"; moduleFilePath: ModuleFilePath }
-  /**
-   * An op would not apply to the source it was recorded against. Per patch, so
-   * the other patches in the same module still replay.
-   */
-  | {
-      kind: "patch-not-applicable";
-      patchId: PatchId;
-      moduleFilePath: ModuleFilePath;
-      message: string;
-    }
-  /**
-   * The historical value does not satisfy TODAY's schema. The main reason a
-   * restore is refused: the shape moved on, and writing the old value back
-   * would put the module in a state the schema says is invalid.
-   */
-  | {
-      kind: "schema-mismatch";
-      moduleFilePath: ModuleFilePath;
-      sourcePath: SourcePath;
-      errors: ValidationError[];
-    }
-  /**
-   * The historical value has a field the current schema does not define.
-   *
-   * Separate from `schema-mismatch` because validation does not always object
-   * to an extra key, and restoring one would silently reintroduce a field that
-   * was deliberately removed.
-   */
-  | {
-      kind: "unknown-field";
-      moduleFilePath: ModuleFilePath;
-      sourcePath: SourcePath;
-      key: string;
-    }
   /** A binary file or `*.val.json` entry could not be read at that commit. */
   | { kind: "file-unavailable"; gitPath: string; message: string }
-  /**
-   * These ops were written by a version of @valbuild/core known to produce ops
-   * that do not replay correctly. Flagged rather than replayed, because a wrong
-   * source that looks right is worse than a refusal.
-   */
-  | { kind: "unsupported-core-version"; patchId: PatchId; coreVersion: string }
   /** History needs the content host; local FS mode has git instead. */
   | { kind: "not-supported-in-fs-mode" }
   /** Could not reach the content host at all. */
@@ -109,20 +73,8 @@ export function historyErrorMessage(error: HistoryError): string {
       return `No stored source for ${error.moduleFilePath} at this commit (it predates history being recorded)`;
     case "schema-unreadable":
       return `The schema stored for ${error.moduleFilePath} at this commit is not one this version of Val can read: ${error.message}`;
-    case "module-removed":
-      return `${error.moduleFilePath} no longer exists in this project`;
-    case "patch-not-applicable":
-      return `Patch ${error.patchId} does not apply to ${error.moduleFilePath}: ${error.message}`;
-    case "schema-mismatch":
-      return `${error.sourcePath} does not fit the current schema: ${error.errors
-        .map((validationError) => validationError.message)
-        .join("; ")}`;
-    case "unknown-field":
-      return `${error.sourcePath} has '${error.key}', which the current schema does not define`;
     case "file-unavailable":
       return `Could not read ${error.gitPath} at this commit: ${error.message}`;
-    case "unsupported-core-version":
-      return `Patch ${error.patchId} was written by @valbuild/core ${error.coreVersion}, which cannot be replayed reliably`;
     case "not-supported-in-fs-mode":
       return "History is only available for projects connected to Val's content service";
     case "transport":

@@ -54,6 +54,7 @@ import { result } from "@valbuild/core/fp";
 import type { HistoryError } from "./history/HistoryError";
 import { historyErrorMessage } from "./history/HistoryError";
 import { getHistoricalPatchSet } from "./history/getHistoricalPatchSet";
+import { getModuleAtCommit } from "./history/getModuleAtCommit";
 import { getSettings } from "./getSettings";
 import { createValOps } from "./valServerConfig";
 import {
@@ -3266,18 +3267,66 @@ export const ValServer = (
         if (result.isErr(res)) {
           return historyErrorResponse(res.error);
         }
+        /*
+         * Immutable ONLY when nothing in the answer was transient.
+         *
+         * What a commit recorded cannot change, so a clean answer is reusable
+         * forever - that is what makes comparing many commits cheap. But a
+         * module marked `unavailable` means a blob fetch failed, and a warning
+         * means an entry read against GitHub did; both can succeed on the next
+         * try. Cached for a year, one flaky read would become "nothing was
+         * recorded for this module" for the rest of the session and beyond.
+         *
+         * `private`, not `public`: this route is behind the session cookie, and
+         * a shared cache holding it would hand one project's module sources to
+         * whoever asked next. The browser's own cache is where the reuse was
+         * wanted anyway.
+         */
+        const settled =
+          res.value.warnings.length === 0 &&
+          Object.values(res.value.modules).every(
+            (module) => module.failures.length === 0,
+          );
         return {
           status: 200,
           json: res.value,
-          // A reconstructed commit says nothing about the current source or
-          // schema, so it cannot change for this sha. Immutable is what makes
-          // comparing many commits cheap.
-          //
-          // `private`, not `public`: this route is behind the session cookie,
-          // and a shared cache holding it would hand one project's module
-          // sources to whoever asked next. The browser's own cache is where
-          // the reuse was wanted anyway.
-          headers: { "Cache-Control": "private, max-age=31536000, immutable" },
+          headers: {
+            "Cache-Control": settled
+              ? "private, max-age=31536000, immutable"
+              : "no-store",
+          },
+        };
+      },
+    },
+    "/history/module": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const res = await getModuleAtCommit(
+          serverOps,
+          req.query.commit_sha,
+          req.query.module_file_path as ModuleFilePath,
+        );
+        if (result.isErr(res)) {
+          return historyErrorResponse(res.error);
+        }
+        // Immutable only when the answer settled — a module reported
+        // unavailable means a blob fetch failed and may succeed next time, and
+        // caching that for a year turns one flaky read into a permanent gap.
+        const settled = res.value === null || res.value.failures.length === 0;
+        return {
+          status: 200,
+          json: {
+            moduleFilePath: req.query.module_file_path,
+            module: res.value,
+          },
+          headers: {
+            "Cache-Control": settled
+              ? "private, max-age=31536000, immutable"
+              : "no-store",
+          },
         };
       },
     },

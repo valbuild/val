@@ -27,13 +27,28 @@ export function changedPathsOf(
       if (op.op === "file") {
         continue;
       }
-      const sourcePath = Internal.createValPathOfItem(
-        moduleFilePath as unknown as SourcePath,
-        // Patch paths are arrays of segments; joining them through the same
-        // helper the Studio uses keeps one notion of what a path is.
-        op.path.join("."),
-      );
-      if (sourcePath && !seen.has(sourcePath)) {
+      /*
+       * The canonical patch-path-to-source-path conversion, not a hand-rolled
+       * join.
+       *
+       * `createValPathOfItem` JSON-quotes the ONE key it is handed, so joining
+       * the segments with "." first produced `?p="teddy.name"` — a single
+       * segment with a dot in its name — rather than `?p="teddy"."name"`. Only
+       * top-level fields came out right, a record key containing a dot was
+       * split in the other direction, and an op at the module root became
+       * `?p=""`.
+       *
+       * `patchPathToModulePath` is what the rest of the Studio produces and
+       * parses, integer segments left unquoted (`"items".2."label"`).
+       */
+      const sourcePath: SourcePath =
+        op.path.length === 0
+          ? (moduleFilePath as unknown as SourcePath)
+          : Internal.joinModuleFilePathAndModulePath(
+              moduleFilePath,
+              Internal.patchPathToModulePath(op.path),
+            );
+      if (!seen.has(sourcePath)) {
         seen.add(sourcePath);
         paths.push(sourcePath);
       }
