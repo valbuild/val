@@ -238,7 +238,19 @@ describe("checkCompatibility", () => {
       expect(message.length).toBeGreaterThan(0);
       // No bare enum names leaking into a sentence a person reads.
       expect(message).not.toContain(reason.kind);
+      // Nor "a object": the type names are data, and three of them are vowels.
+      expect(message).not.toMatch(/\ba [aeiou]/);
     }
+  });
+
+  test("the vowel-initial type names read correctly", () => {
+    expect(
+      explainIncompatible({
+        kind: "type-changed",
+        from: "object",
+        to: "image",
+      }),
+    ).toBe("This was an object and the field here is an image.");
   });
 });
 

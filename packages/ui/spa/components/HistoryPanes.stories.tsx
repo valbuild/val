@@ -88,15 +88,11 @@ function Pane({
     >
       <div className="flex items-baseline justify-between gap-3 border-b border-border-primary px-4 py-3">
         <div className="flex flex-col">
-          <span className="text-text-primary text-sm font-semibold">
-            {title}
-          </span>
-          <span className="text-text-quartenary font-mono text-xs">
-            {subtitle}
-          </span>
+          <span className="text-fg-primary text-sm font-semibold">{title}</span>
+          <span className="text-fg-tertiary font-mono text-xs">{subtitle}</span>
         </div>
         {readonly && (
-          <span className="text-text-quartenary rounded border border-border-primary px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider">
+          <span className="text-fg-tertiary rounded border border-border-primary px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider">
             read only
           </span>
         )}
@@ -348,8 +344,8 @@ function MobilePanes(props: React.ComponentProps<typeof TwoPanes>) {
               className={
                 "flex-1 rounded px-3 py-1.5 text-sm " +
                 (showing === key
-                  ? "bg-bg-brand-primary text-text-primary font-medium"
-                  : "text-text-quartenary")
+                  ? "bg-bg-brand-primary text-fg-primary font-medium"
+                  : "text-fg-tertiary")
               }
             >
               {label}

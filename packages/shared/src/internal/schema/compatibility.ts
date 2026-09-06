@@ -45,6 +45,17 @@ function incompatible(reason: IncompatibleReason): Compatibility {
 }
 
 /**
+ * "an object", "a string".
+ *
+ * Schema type names are data — `object`, `array`, `image` — so an interpolated
+ * "a" is wrong for three of them, in a sentence shown to editors the moment a
+ * restore is refused.
+ */
+function withArticle(type: string): string {
+  return /^[aeiou]/i.test(type) ? `an ${type}` : `a ${type}`;
+}
+
+/**
  * A sentence an editor can act on, for the popup that explains a refusal.
  *
  * Kept beside the reasons rather than in the UI so that adding a reason without
@@ -53,7 +64,7 @@ function incompatible(reason: IncompatibleReason): Compatibility {
 export function explainIncompatible(reason: IncompatibleReason): string {
   switch (reason.kind) {
     case "type-changed":
-      return `This was a ${reason.from} and the field here is a ${reason.to}.`;
+      return `This was ${withArticle(reason.from)} and the field here is ${withArticle(reason.to)}.`;
     case "no-matching-variant":
       return `This does not match any of the shapes allowed here: ${reason.variants.join(", ")}.`;
     case "unknown-field":
