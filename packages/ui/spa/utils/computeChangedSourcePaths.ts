@@ -105,7 +105,15 @@ function buildPatchesByAuthorIds(
   patches: PatchMetadata[],
 ): Record<string, ChangeTreePatch[]> {
   const result: Record<string, ChangeTreePatch[]> = {};
+  // One entry per PATCH, though `patches` carries one per op — see the note on
+  // `patchIds` in `buildTreeForPatchSet`. Without this a single patch that
+  // touched two paths is listed as two edits by the same author.
+  const seen = new Set<PatchId>();
   for (const patch of patches) {
+    if (seen.has(patch.patchId)) {
+      continue;
+    }
+    seen.add(patch.patchId);
     const authorKey = patch.author ?? "unknown";
     if (!result[authorKey]) {
       result[authorKey] = [];
@@ -392,7 +400,19 @@ function insertHalf(
   }
 
   const root = treesByModule[key];
-  const patchIds = patchSet.patches.map((p) => p.patchId);
+  /*
+   * De-duplicated: `patchSet.patches` has one entry per OP, not per patch.
+   *
+   * `PatchSets.insert` records every op of a patch, so a two-op patch appears
+   * twice in the same patch set — with different `patchPath`s, which is what
+   * that array is for. This derives PATCH ids, so the same id twice is a patch
+   * counted twice: the staging controls would say "2 changes" for one edit, and
+   * the closure would be handed a list with repeats.
+   *
+   * Deduped here rather than in `PatchSets`, because the per-op detail is the
+   * point of the array and other readers use it.
+   */
+  const patchIds = [...new Set(patchSet.patches.map((p) => p.patchId))];
   const authors = patchSet.authors.filter((a): a is string => a !== null);
   const patchesByAuthorIds = buildPatchesByAuthorIds(
     moduleFilePath,

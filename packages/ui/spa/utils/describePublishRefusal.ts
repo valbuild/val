@@ -36,6 +36,12 @@ export function describePublishRefusal(refusal: Refusal): {
           "Cannot publish: the content changed while it was being checked.",
         details: "Nothing was published. Try again.",
       };
+    case "head-moved":
+      return {
+        message: "Cannot publish: somebody else published while you were here.",
+        details:
+          "Nothing was published. Open Review again to see what changed, then publish.",
+      };
     default: {
       const exhaustive: never = refusal;
       void exhaustive;
