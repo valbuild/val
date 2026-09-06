@@ -45,4 +45,25 @@ describe("SerializedSchema round-trips", () => {
       options: { a: { type: "route" }, img: { type: "image" } },
     });
   });
+
+  // Not a strip but an outright rejection: `settings` was in the TypeScript
+  // union and absent from this one, so /schema answered 500 for every project
+  // with a settings module rather than dropping a field.
+  test("settings parses, nested sections and all", () => {
+    const parsed = SerializedSchema.safeParse(serialize(s.settings()));
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data).toMatchObject({
+      type: "settings",
+      items: {
+        assistant: {
+          type: "settings",
+          items: {
+            enabled: { type: "boolean" },
+            context: { type: "string" },
+            tone: { type: "string" },
+          },
+        },
+      },
+    });
+  });
 });
