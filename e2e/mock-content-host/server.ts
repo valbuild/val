@@ -44,6 +44,11 @@
  *   GET    /v1/{project}/ai/sessions/{sessionId}/messages
  *   POST   /v1/{project}/patches/{patchId}/files/from-session-file
  *   GET    /v1/{project}/ai/images                    (fs mode mirrors the bytes)
+ *   GET    /v1/{project}/commits                      (history: a branch's commits)
+ *   GET    /v1/{project}/commits/{sha}/patches        (history: the ops behind one)
+ *   GET    /v1/{project}/commits/{sha}/modules        (history: each module's data + schema)
+ *   GET    /v1/{project}/commits/{sha}/affected-files (history: what it touched)
+ *   GET    /v1/{project}/commits/{sha}/file           (history: one file's bytes then)
  *
  * The browser, cross-origin, with `x-val-auth-nonce`:
  *   POST   /v1/{project}/patches/{patchId}/files      (the bytes of an upload)
@@ -68,6 +73,12 @@
  * process imported at startup, exactly as in production between a commit and the
  * deploy that follows it — so after a publish the page shows the pre-publish
  * value until something reloads it. That divergence is real, not an artifact.
+ *
+ * History is the one place the mock does remember the past. Every commit made
+ * through `POST /commit` snapshots the overlay as it stood after that commit and
+ * records the same archive `home` writes to object storage — the ops, the
+ * pre-commit `.val.ts` text, the affected files — so the `/commits/*` routes can
+ * answer for a commit made several commits ago. See `#region history`.
  *
  * No auth flow. `http` mode rejects any request without a session, so the tests
  * mint the `val_session` cookie directly (see `e2e/httpMode.ts`). Login has its
@@ -152,6 +163,63 @@ type MockPatch = {
   parentPatchId: string | null;
   /** Set by a commit. The client reads this as `appliedAt`. */
   applied: { commitSha: string } | null;
+  /**
+   * Which @valbuild/core wrote the ops. `home` records it on every row and
+   * hands it back from `/commits/{sha}/patches`, where the history reader uses
+   * it to refuse replaying ops from a version known to replay wrongly.
+   */
+  coreVersion: string;
+};
+
+/** A file as the overlay holds it. `null` is a file a commit deleted. */
+type OverlayValue = { encoding: "utf8" | "base64"; value: string } | null;
+
+/**
+ * What one commit touched, as `home`'s archive describes it.
+ *
+ * `gitPath` is repo-relative with no leading slash (`examples/next/content/x.val.ts`),
+ * because that is what a git tree entry is called and what the history reader
+ * hands back to `/commits/{sha}/file`.
+ */
+type MockAffectedFile =
+  | {
+      kind: "module-source" | "json-entry" | "binary";
+      gitPath: string;
+      change: "added" | "modified" | "deleted";
+    }
+  | {
+      kind: "remote-binary";
+      ref: string;
+      change: "added" | "modified" | "deleted";
+    };
+
+/**
+ * Everything about a commit that git would not hold — `home`'s
+ * `CommitArchiveV1`, minus the fields only its own storage needs.
+ *
+ * Recorded at commit time from the same request the overlay is written from.
+ * The patch records are COPIED here rather than looked up later, because the
+ * ops are what the archive exists to preserve: in `home` the row loses them
+ * the moment the archive is written.
+ */
+type MockCommitArchive = {
+  commitSha: string;
+  parentCommitSha: string;
+  baseSha: string;
+  /** 1-based position in `state.commits`; what `home` calls `seq_num`. */
+  seqNum: number;
+  patches: MockPatch[];
+  /**
+   * Each `.val.ts` this commit changed: its Source AFTER the commit, as data,
+   * and the serialized schema it was written under — exactly what the client
+   * sent as `modules`. `source: null` is a module the commit deleted.
+   *
+   * Held as values rather than as `home`'s content hashes, because the mock has
+   * no blob store to point into; the hashes it reports are computed from these
+   * the same way `home`'s `blobSha` computes them.
+   */
+  modules: Record<string, { source: unknown; schema: unknown }>;
+  affectedFiles: MockAffectedFile[];
 };
 
 /**
@@ -302,10 +370,26 @@ type State = {
    * silently corrupts every byte outside ASCII — so the bytes are kept as base64
    * and only decoded on the way out.
    */
-  repoOverlay: Map<
-    string,
-    { encoding: "utf8" | "base64"; value: string } | null
-  >;
+  repoOverlay: Map<string, OverlayValue>;
+  /**
+   * The overlay as it stood right after each commit, keyed by commit sha.
+   *
+   * What lets a file be read AT a commit rather than only at the head. A
+   * snapshot is a copy of the whole overlay, which is fine here — the overlay
+   * only ever holds what commits wrote, and a test makes a handful of them. A
+   * key missing from a snapshot means no commit up to that point touched the
+   * file, so the working tree is what it looked like.
+   */
+  snapshots: Map<string, Map<string, OverlayValue>>;
+  /**
+   * The archive `home` would have written for each commit, keyed by sha.
+   *
+   * Only commits made through `POST /commit` have one. A commit pushed through
+   * the control plane deliberately has none: that is what a commit from before
+   * archiving shipped looks like, and the history reader has to cope with it
+   * (`hasArchive: false`, patches still readable, no pre-commit sources).
+   */
+  archives: Map<string, MockCommitArchive>;
   /** Bytes of files a commit moved out to remote storage, keyed by remote ref. */
   remoteFiles: Map<string, string>;
   /**
@@ -357,6 +441,8 @@ function emptyState(): State {
     commits: [],
     deployments: [],
     repoOverlay: new Map(),
+    snapshots: new Map(),
+    archives: new Map(),
     remoteFiles: new Map(),
     patchGroups: new Map(),
     patchGroupsEnabled: false,
@@ -559,6 +645,109 @@ async function readRepoFile(
   }
 }
 
+/**
+ * A repo file as it was AT a commit, rather than at the head.
+ *
+ * `PUT /files` deliberately does not do this — it answers the latest overlay
+ * whatever `commitSha` it is handed, because the app's own commit never moves
+ * between deploys and a second publish has to prepare against the first one's
+ * result (see {@link readRepoFile}). History is the one reader that means the
+ * sha literally, so it gets its own lookup: the snapshot taken after that
+ * commit, falling through to the working tree for files no commit ever touched.
+ *
+ * `gitPath` is repo-relative (`examples/next/content/x.val.ts`), with or without
+ * a leading slash; the overlay keys carry one, so it is normalised here.
+ */
+async function readFileAtCommit(
+  commitSha: string,
+  gitPath: string,
+): Promise<{ bytes: Buffer } | { status: 404; error: string }> {
+  const key = "/" + gitPath.replace(/^\/+/, "");
+  const initialCommit =
+    process.env.MOCK_CONTENT_INITIAL_COMMIT ?? "mockcommit0";
+  let overlaid: OverlayValue | undefined;
+  if (commitSha === initialCommit) {
+    // Nothing had been committed yet: the working tree IS that commit.
+    overlaid = undefined;
+  } else {
+    const snapshot = state.snapshots.get(commitSha);
+    if (!snapshot) {
+      return {
+        status: 404,
+        error: `No commit ${commitSha} created by Val in this project`,
+      };
+    }
+    overlaid = snapshot.get(key);
+  }
+  if (overlaid === null) {
+    return {
+      status: 404,
+      error: `File was deleted by commit ${commitSha}: ${key}`,
+    };
+  }
+  if (overlaid !== undefined) {
+    return {
+      bytes: Buffer.from(
+        overlaid.value,
+        overlaid.encoding === "base64" ? "base64" : "utf-8",
+      ),
+    };
+  }
+  try {
+    return { bytes: await readFile(path.join(REPO_ROOT, key)) };
+  } catch (err) {
+    return {
+      status: 404,
+      error: `File not found at commit ${commitSha}: ${key} (${
+        err instanceof Error ? err.message : String(err)
+      })`,
+    };
+  }
+}
+
+/**
+ * The content type for a file, from its extension.
+ *
+ * A short list rather than a dependency: the history file route exists so an
+ * `<img>` can point at it, and these are the kinds of file a Val project puts
+ * under `/public/val`.
+ */
+function mimeTypeOf(filePath: string): string {
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  const known: Record<string, string> = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+    avif: "image/avif",
+    svg: "image/svg+xml",
+    pdf: "application/pdf",
+    json: "application/json",
+    txt: "text/plain",
+    ts: "text/plain",
+    js: "text/javascript",
+  };
+  return known[ext] ?? "application/octet-stream";
+}
+
+/**
+ * What kind of file a git path is, the way `home`'s `classifyAffectedFile`
+ * decides it: by suffix, and anything that is neither a module nor an entry is
+ * a binary the history reader can only offer as bytes.
+ */
+function classifyAffectedFile(
+  gitPath: string,
+): "module-source" | "json-entry" | "binary" {
+  if (gitPath.endsWith(".val.ts") || gitPath.endsWith(".val.js")) {
+    return "module-source";
+  }
+  if (gitPath.endsWith(".val.json")) {
+    return "json-entry";
+  }
+  return "binary";
+}
+
 // #endregion
 
 // #region endpoints
@@ -707,6 +896,10 @@ const savePatch: Handler = async (req, res) => {
     createdAt: nowIso(),
     parentPatchId: body.parentPatchId ?? null,
     applied: null,
+    // `home` stores whatever the client says it is, NOT NULL. A client that
+    // sends none gets a value that is obviously not a release, so a test
+    // reading it back cannot mistake the default for a real version.
+    coreVersion: body.coreVersion ?? "0.0.0-mock",
   });
   let patchGroupId: string | undefined;
   if (state.patchGroupsEnabled) {
@@ -1174,8 +1367,17 @@ const commit: Handler = async (req, res) => {
     committer: string;
     existingBranch: string;
     newBranch?: string;
+    baseSha?: string;
     /** The group this commit empties, if the client says it empties one. */
     patchGroupId?: string;
+    /**
+     * Each changed `.val.ts` module's Source after this commit and the schema it
+     * was written against — the DATA, not the file's text. Optional because an
+     * older `@valbuild/server` does not send it, and such a commit is then one
+     * the history reader reports per module as `source-unavailable` rather than
+     * treating as an empty module.
+     */
+    modules?: Record<string, { source: unknown; schema: unknown }>;
   }>(req);
   if (!body) {
     json(res, 400, { message: "Invalid commit body" });
@@ -1247,14 +1449,86 @@ const commit: Handler = async (req, res) => {
       });
     }
   }
-  for (const patchIds of Object.values(body.appliedPatches ?? {})) {
-    for (const patchId of patchIds) {
-      const patch = state.patches.get(patchId);
-      if (patch) {
-        patch.applied = { commitSha };
-      }
+  const appliedPatchIds = new Set(
+    Object.values(body.appliedPatches ?? {}).flat(),
+  );
+  for (const patchId of appliedPatchIds) {
+    const patch = state.patches.get(patchId);
+    if (patch) {
+      patch.applied = { commitSha };
     }
   }
+  /*
+   * The archive and the snapshot: what history reads.
+   *
+   * `home` writes the archive AFTER the push and BEFORE the patch rows give up
+   * their ops. The mock has no cold storage to move ops into, so the copy here
+   * is the whole of that step — but it is still a COPY taken now, so a later
+   * discard or reset of the chain cannot change what a commit is recorded as
+   * having done.
+   *
+   * Patches are archived in chain order, which is `state.patches` iteration
+   * order: the history reader replays them and any other order gives a
+   * different source.
+   */
+  const modules = body.modules ?? {};
+  const toGitPath = (filePath: string): string =>
+    path.posix.join(body.root || "/", filePath).replace(/^\/+/, "");
+  // Which modules existed before this commit, asked of the versions the earlier
+  // commits recorded — the same question `home` asks its `val_module_versions`
+  // index. Keyed by MODULE FILE PATH, which is how both sides name a module.
+  const previouslyKnown = new Set(modulesAsOf(state.commits.length).keys());
+  const affectedFiles: MockAffectedFile[] = [];
+  for (const [filePath, content] of Object.entries(
+    body.patchedSourceFiles ?? {},
+  )) {
+    const gitPath = toGitPath(filePath);
+    affectedFiles.push({
+      kind: classifyAffectedFile(gitPath),
+      gitPath,
+      // Deleted if the commit removed it, modified if an earlier commit recorded
+      // a version of it, otherwise this commit created it.
+      change:
+        content === null
+          ? "deleted"
+          : previouslyKnown.has(filePath)
+            ? "modified"
+            : "added",
+    });
+  }
+  for (const [filePath, descriptor] of Object.entries(
+    body.patchedBinaryFilesDescriptors ?? {},
+  )) {
+    if (descriptor.remote) {
+      affectedFiles.push({
+        kind: "remote-binary",
+        ref: filePath,
+        change: "added",
+      });
+    } else {
+      // Always "added", as in `home`: the archive genuinely does not know
+      // whether the path existed before, and says so rather than guessing.
+      affectedFiles.push({
+        kind: "binary",
+        gitPath: toGitPath(filePath),
+        change: "added",
+      });
+    }
+  }
+  state.archives.set(commitSha, {
+    commitSha,
+    parentCommitSha,
+    baseSha: body.baseSha ?? "",
+    // This commit is about to be pushed onto `state.commits`, so its 1-based
+    // position is the current length plus one.
+    seqNum: state.commits.length + 1,
+    patches: [...state.patches.values()]
+      .filter((patch) => appliedPatchIds.has(patch.patchId))
+      .map((patch) => ({ ...patch })),
+    modules,
+    affectedFiles,
+  });
+  state.snapshots.set(commitSha, new Map(state.repoOverlay));
   /*
    * A publish CLOSES the group the request NAMES, and no other.
    *
@@ -1318,6 +1592,345 @@ const commit: Handler = async (req, res) => {
 const commitSummary: Handler = (req, res) => {
   json(res, 200, { commitSummary: "Mock summary of the changes" });
 };
+
+// #region history
+
+/**
+ * The `/commits/*` routes, as `home` serves them.
+ *
+ * Every one of them is addressed by the sha Val CREATED — `MockCommit.commitSha`,
+ * the value `POST /commit` answered with — and answers 404 for anything else,
+ * because "not a commit Val made" is the answer the history reader turns into
+ * `commit-not-found`, and a lenient mock here would hide a Studio that asked
+ * for the wrong sha.
+ */
+
+/** The commit sha in `/commits/{sha}/...`, or null if the path is not one. */
+function commitShaInPath(rest: string): string | null {
+  const match = rest.match(
+    /^\/commits\/([^/]+)\/(patches|modules|affected-files|file)$/,
+  );
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function findCommit(commitSha: string): MockCommit | undefined {
+  return state.commits.find((commit) => commit.commitSha === commitSha);
+}
+
+/**
+ * `GET /v1/{project}/commits?branch=&limit=&cursor=`
+ *
+ * Newest first, a page at a time. The cursor is the `seqNum` of the last commit
+ * on the previous page, exactly as `home` does it with `val_commits.seq_num`:
+ * monotonic and unique, so a commit made while someone pages through cannot make
+ * the listing skip or repeat one. Here `seqNum` is the commit's 1-based position
+ * in `state.commits`.
+ */
+const listCommits: Handler = (req, res, url) => {
+  const branch = url.searchParams.get("branch");
+  if (!branch) {
+    json(res, 400, { message: "Missing required query param: branch" });
+    return;
+  }
+  const DEFAULT_LIMIT = 25;
+  const MAX_LIMIT = 100;
+  let limit = DEFAULT_LIMIT;
+  const limitParam = url.searchParams.get("limit");
+  if (limitParam !== null) {
+    const parsed = Number(limitParam);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_LIMIT) {
+      json(res, 400, {
+        message: `Invalid limit: must be an integer between 1 and ${MAX_LIMIT}`,
+      });
+      return;
+    }
+    limit = parsed;
+  }
+  let cursor: number | null = null;
+  const cursorParam = url.searchParams.get("cursor");
+  if (cursorParam !== null) {
+    const parsed = Number(cursorParam);
+    if (!Number.isInteger(parsed)) {
+      json(res, 400, {
+        message: "Invalid cursor: expected the nextCursor of a previous page",
+      });
+      return;
+    }
+    cursor = parsed;
+  }
+  const rows = state.commits
+    .map((commit, index) => ({ commit, seqNum: index + 1 }))
+    .filter(({ commit }) => commit.branch === branch)
+    .filter(({ seqNum }) => cursor === null || seqNum < cursor)
+    .reverse();
+  // One extra row tells "last page" apart from "the next page is empty",
+  // without a count.
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  const last = page[page.length - 1];
+  json(res, 200, {
+    commits: page.map(({ commit, seqNum }) => ({
+      commitSha: commit.commitSha,
+      parentCommitSha: commit.parentCommitSha,
+      clientCommitSha: commit.clientCommitSha,
+      branch: commit.branch,
+      createdBranch: null,
+      creator: commit.creator,
+      message: commit.commitMessage,
+      createdAt: commit.createdAt,
+      seqNum: String(seqNum),
+      patchCount: [...state.patches.values()].filter(
+        (patch) => patch.applied?.commitSha === commit.commitSha,
+      ).length,
+      hasArchive: state.archives.has(commit.commitSha),
+    })),
+    nextCursor: hasMore && last ? String(last.seqNum) : null,
+  });
+};
+
+/**
+ * `GET /v1/{project}/commits/{sha}/patches`
+ *
+ * The ops from the archive when there is one. For a commit without one — pushed
+ * through the control plane, standing in for a commit from before archiving
+ * shipped — `home` still answers from the rows, whose ops stayed inline; the
+ * mock does the same from `state.patches`, which for such a commit is empty.
+ */
+const commitPatches: Handler = (req, res, url) => {
+  const commitSha = commitShaInPath(
+    url.pathname.slice(`/v1/${PROJECT}`.length),
+  );
+  const commit = commitSha ? findCommit(commitSha) : undefined;
+  if (!commitSha || !commit) {
+    json(res, 404, {
+      message: `No commit ${commitSha} created by Val in this project`,
+    });
+    return;
+  }
+  const archive = state.archives.get(commitSha);
+  const patches =
+    archive?.patches ??
+    [...state.patches.values()].filter(
+      (patch) => patch.applied?.commitSha === commitSha,
+    );
+  json(res, 200, {
+    commitSha,
+    /*
+     * The commit's own summary, alongside its ops.
+     *
+     * `home` returns it here because it already has the row. Val used to find
+     * it by paging the LISTING until the sha turned up — twenty requests to
+     * open an old commit, and one on another branch never found at all — so
+     * this is now where the summary comes from, and the mock has to speak it or
+     * every history read is a 500.
+     */
+    commit: {
+      commitSha: commit.commitSha,
+      parentCommitSha: commit.parentCommitSha,
+      clientCommitSha: commit.clientCommitSha,
+      branch: commit.branch,
+      createdBranch: null,
+      creator: commit.creator,
+      message: commit.commitMessage,
+      createdAt: commit.createdAt,
+      seqNum: String(
+        state.commits.findIndex((c) => c.commitSha === commitSha) + 1,
+      ),
+      hasArchive: state.archives.has(commitSha),
+    },
+    patches: patches.map((patch) => ({
+      patchId: patch.patchId,
+      path: patch.path,
+      patch: patch.patch,
+      authorId: patch.authorId,
+      createdAt: patch.createdAt,
+      baseSha: patch.baseSha,
+      coreVersion: patch.coreVersion,
+    })),
+  });
+};
+
+/**
+ * The hash `home` would file a Source or schema under: SHA-256 of the JSON as
+ * written. Reported so a test can assert two commits share an unchanged schema
+ * the way `home`'s content addressing makes them.
+ */
+function blobSha(value: unknown): string {
+  return sha(JSON.stringify(value));
+}
+
+type ModuleVersion = {
+  moduleFilePath: string;
+  commitSha: string;
+  source: unknown;
+  schema: unknown;
+};
+
+/**
+ * Every module's state as of the commit at 1-based position `seqNum` — the
+ * latest recorded version of each module, at or before that commit.
+ *
+ * This is `home`'s `val_module_versions` lookup, done as a walk over the
+ * archives rather than an index because a test makes a handful of commits. The
+ * walk is in commit order, so the last write for a module wins.
+ */
+function modulesAsOf(seqNum: number): Map<string, ModuleVersion> {
+  const versions = new Map<string, ModuleVersion>();
+  state.commits.slice(0, seqNum).forEach((commit) => {
+    const archive = state.archives.get(commit.commitSha);
+    if (!archive) return;
+    for (const [moduleFilePath, module] of Object.entries(archive.modules)) {
+      versions.set(moduleFilePath, {
+        moduleFilePath,
+        commitSha: commit.commitSha,
+        source: module.source,
+        schema: module.schema,
+      });
+    }
+  });
+  return versions;
+}
+
+/**
+ * `GET /v1/{project}/commits/{sha}/modules?as_of=1&path=`
+ *
+ * Each module the commit changed: its data and the schema it was written under,
+ * both handed back opaquely — `home` never reads a schema, and neither does the
+ * mock; deciding whether this Val can read it is the reader's job.
+ *
+ * `as_of=1` widens the answer from "what this commit changed" to "every module
+ * as this commit left the project", which is what a whole-project revert and
+ * navigating the history pane off the changed set need. `path=` narrows to one
+ * module. Same shape either way.
+ *
+ * A commit with no archive answers an empty list, as `home` does for a commit
+ * made before archiving shipped: the Val side reports that per module as
+ * `source-unavailable`, not as "the module was empty".
+ */
+const commitModules: Handler = (req, res, url) => {
+  const commitSha = commitShaInPath(
+    url.pathname.slice(`/v1/${PROJECT}`.length),
+  );
+  const commit = commitSha ? findCommit(commitSha) : undefined;
+  if (!commitSha || !commit) {
+    json(res, 404, {
+      message: `No commit ${commitSha} created by Val in this project`,
+    });
+    return;
+  }
+  const seqNum = state.commits.indexOf(commit) + 1;
+  const asOf = url.searchParams.get("as_of") === "1";
+  const wantedPath = url.searchParams.get("path");
+  let versions: ModuleVersion[];
+  if (asOf) {
+    versions = [...modulesAsOf(seqNum).values()];
+  } else {
+    const archive = state.archives.get(commitSha);
+    versions = archive
+      ? Object.entries(archive.modules).map(([moduleFilePath, module]) => ({
+          moduleFilePath,
+          commitSha,
+          source: module.source,
+          schema: module.schema,
+        }))
+      : [];
+  }
+  json(res, 200, {
+    commitSha,
+    parentCommitSha: commit.parentCommitSha,
+    modules: versions
+      .filter(
+        (version) =>
+          wantedPath === null || version.moduleFilePath === wantedPath,
+      )
+      .map((version) => ({
+        moduleFilePath: version.moduleFilePath,
+        commitSha: version.commitSha,
+        sourceSha: version.source === null ? null : blobSha(version.source),
+        schemaSha: blobSha(version.schema),
+        source: version.source,
+        schema: version.schema,
+        // The mock holds the values themselves, so it can never hold a hash
+        // without the object. `home` can, and reports it here.
+        unavailable: false,
+      })),
+  });
+};
+
+/** `GET /v1/{project}/commits/{sha}/affected-files` — names, not bytes. */
+const commitAffectedFiles: Handler = (req, res, url) => {
+  const commitSha = commitShaInPath(
+    url.pathname.slice(`/v1/${PROJECT}`.length),
+  );
+  const commit = commitSha ? findCommit(commitSha) : undefined;
+  if (!commitSha || !commit) {
+    json(res, 404, {
+      message: `No commit ${commitSha} created by Val in this project`,
+    });
+    return;
+  }
+  json(res, 200, {
+    commitSha,
+    files: state.archives.get(commitSha)?.affectedFiles ?? [],
+  });
+};
+
+/**
+ * `GET /v1/{project}/commits/{sha}/file?path=&remote=`
+ *
+ * One file's bytes as they were at that commit. Bytes rather than JSON so an
+ * `<img src>` can point straight at the app route that proxies this, and
+ * immutable for the same reason `home` marks it so: a file at a fixed commit
+ * cannot change.
+ *
+ * A remote file is content-addressed and lives outside git, so the commit is
+ * not part of finding it — the ref is, and the mock holds it under the ref the
+ * commit named.
+ */
+const commitFile: Handler = async (req, res, url) => {
+  const commitSha = commitShaInPath(
+    url.pathname.slice(`/v1/${PROJECT}`.length),
+  );
+  const commit = commitSha ? findCommit(commitSha) : undefined;
+  const initialCommit =
+    process.env.MOCK_CONTENT_INITIAL_COMMIT ?? "mockcommit0";
+  if (!commitSha || (!commit && commitSha !== initialCommit)) {
+    json(res, 404, {
+      message: `No commit ${commitSha} created by Val in this project`,
+    });
+    return;
+  }
+  const filePath = url.searchParams.get("path");
+  if (!filePath) {
+    json(res, 400, { message: "Missing required query param: path" });
+    return;
+  }
+  let bytes: Buffer;
+  if (url.searchParams.get("remote") === "true") {
+    const stored = state.remoteFiles.get(filePath);
+    if (stored === undefined) {
+      json(res, 404, { message: `No remote file for ref ${filePath}` });
+      return;
+    }
+    bytes = Buffer.from(stored, "base64");
+  } else {
+    const read = await readFileAtCommit(commitSha, filePath);
+    if ("error" in read) {
+      json(res, read.status, { message: read.error });
+      return;
+    }
+    bytes = read.bytes;
+  }
+  res.writeHead(200, {
+    "Content-Type": mimeTypeOf(filePath),
+    "Content-Length": bytes.byteLength,
+    "Cache-Control": "private, max-age=31536000, immutable",
+    ...corsHeaders(res),
+  });
+  res.end(bytes);
+};
+
+// #endregion history
 
 /**
  * `POST /v1/{project}/presigned-auth-nonce`
@@ -1796,9 +2409,39 @@ const controlPlane: Handler = async (req, res, url) => {
       deployments: state.deployments,
       repoOverlay: [...state.repoOverlay.keys()],
       remoteFiles: [...state.remoteFiles.keys()],
+      /** Which commits history can read in full. See `State.archives`. */
+      archives: [...state.archives.keys()],
       headCommitSha: state.headCommitSha,
       subscribers: sockets.size,
       socketsAccepted,
+    });
+    return;
+  }
+  if (action === "archive" && req.method === "GET") {
+    /*
+     * The archive one commit was recorded with, for asserting on what a publish
+     * actually stored — which is the boundary history depends on. A test that
+     * only reads the app's `/history/commit` cannot tell "the client never sent
+     * the pre-commit text" from "the server never recorded it"; this can.
+     */
+    const commitSha = url.searchParams.get("commit");
+    if (!commitSha) {
+      json(res, 400, { message: "commit is required" });
+      return;
+    }
+    const archive = state.archives.get(commitSha);
+    json(res, 200, {
+      archive: archive
+        ? {
+            ...archive,
+            patches: archive.patches.map((patch) => ({
+              patchId: patch.patchId,
+              path: patch.path,
+              patch: patch.patch,
+              coreVersion: patch.coreVersion,
+            })),
+          }
+        : null,
     });
     return;
   }
@@ -1926,6 +2569,11 @@ const controlPlane: Handler = async (req, res, url) => {
     };
     state.commits.push(record);
     state.headCommitSha = commitSha;
+    // A pushed commit changed nothing Val manages, so the files at it are the
+    // files at its parent. Snapshotted so `/commits/{sha}/file` can answer for
+    // it; deliberately NOT archived, so it stands in for a commit from before
+    // archiving shipped — `hasArchive: false`, no pre-commit sources.
+    state.snapshots.set(commitSha, new Map(state.repoOverlay));
     broadcast({ type: "commit", commit: record });
     json(res, 200, { commit: record });
     return;
@@ -2012,6 +2660,18 @@ async function handle(
     await putRemoteFile(req, res, url);
     return;
   }
+  if (req.method === "GET" && commitShaInPath(rest) !== null) {
+    if (rest.endsWith("/patches")) {
+      commitPatches(req, res, url);
+    } else if (rest.endsWith("/modules")) {
+      commitModules(req, res, url);
+    } else if (rest.endsWith("/affected-files")) {
+      commitAffectedFiles(req, res, url);
+    } else {
+      await commitFile(req, res, url);
+    }
+    return;
+  }
   if (
     /^\/patch-groups\/[^/]+\/patches$/.test(rest) &&
     (req.method === "POST" || req.method === "DELETE")
@@ -2040,6 +2700,9 @@ async function handle(
       return;
     case "POST /commit-summary":
       commitSummary(req, res, url);
+      return;
+    case "GET /commits":
+      listCommits(req, res, url);
       return;
     case "POST /presigned-auth-nonce":
       presignedAuthNonce(req, res, url);
