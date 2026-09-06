@@ -240,6 +240,7 @@ test("stage and unstage say who is asking", async () => {
 const HOME_COMMIT_MODULES = {
   commitSha: "a3f19c2",
   parentCommitSha: "p1",
+  complete: true,
   modules: [
     {
       moduleFilePath: "/content/landing.val.ts",
@@ -260,13 +261,47 @@ test("a commit's stored modules parse, with the schema left unvalidated", async 
     if (result.isErr(res)) {
       throw new Error(`did not parse: ${JSON.stringify(res.error)}`);
     }
-    expect(res.value).toHaveLength(1);
-    expect(res.value[0].moduleFilePath).toBe("/content/landing.val.ts");
-    expect(res.value[0].source).toEqual({ heading: "Content as code" });
+    expect(res.value.modules).toHaveLength(1);
+    expect(res.value.modules[0].moduleFilePath).toBe("/content/landing.val.ts");
+    expect(res.value.modules[0].source).toEqual({
+      heading: "Content as code",
+    });
     // The schema arrives unchecked ON PURPOSE. Validating it at the transport
     // boundary would turn "written by a different version of Val" into a failed
     // REQUEST instead of one module that cannot be shown.
-    expect(res.value[0].schema).toBeDefined();
+    expect(res.value.modules[0].schema).toBeDefined();
+  } finally {
+    restore();
+  }
+});
+
+test("an as-of read that history cannot cover whole says so", async () => {
+  // The trap this closes: `as_of` reads the project as a commit left it, but
+  // the index only has rows for commits made after history started being
+  // recorded. A module last edited before that is simply absent — and a
+  // whole-project revert would leave it untouched without telling anyone.
+  const { ops, restore } = opsAnswering({
+    ...HOME_COMMIT_MODULES,
+    complete: false,
+  });
+  try {
+    const res = await ops.getCommitModules("a3f19c2", { asOf: true });
+    if (result.isErr(res)) throw new Error("did not parse");
+    expect(res.value.complete).toBe(false);
+  } finally {
+    restore();
+  }
+});
+
+test("an older content server, which never had the flag, still parses", async () => {
+  const withoutFlag: Record<string, unknown> = { ...HOME_COMMIT_MODULES };
+  delete withoutFlag["complete"];
+  const { ops, restore } = opsAnswering(withoutFlag);
+  try {
+    const res = await ops.getCommitModules("a3f19c2");
+    if (result.isErr(res)) throw new Error("did not parse");
+    // It only ever answered "what this commit changed", and that is whole.
+    expect(res.value.complete).toBe(true);
   } finally {
     restore();
   }
@@ -282,7 +317,7 @@ test("a module we hold a hash for but no object is unavailable, not empty", asyn
   try {
     const res = await ops.getCommitModules("a3f19c2");
     if (result.isErr(res)) throw new Error("did not parse");
-    expect(res.value[0].unavailable).toBe(true);
+    expect(res.value.modules[0].unavailable).toBe(true);
   } finally {
     restore();
   }

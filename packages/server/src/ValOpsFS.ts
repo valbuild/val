@@ -1391,7 +1391,10 @@ export class ValOpsFS extends ValOps {
   }
 
   override async getCommitModules(): Promise<
-    result.Result<StoredModuleVersion[], HistoryError>
+    result.Result<
+      { modules: StoredModuleVersion[]; complete: boolean },
+      HistoryError
+    >
   > {
     return result.err({ kind: "not-supported-in-fs-mode" });
   }

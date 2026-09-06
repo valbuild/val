@@ -236,6 +236,14 @@ const CommitPatchesResponse = z.object({
 const CommitModulesResponse = z.object({
   commitSha: z.string(),
   parentCommitSha: z.string(),
+  /**
+   * Whether an `asOf` read covered the whole project.
+   *
+   * Optional so an older content server still parses. False means modules last
+   * edited before history started being recorded are missing from the answer -
+   * which a whole-project revert has to say out loud rather than silently skip.
+   */
+  complete: z.boolean().optional(),
   modules: z.array(
     z.object({
       moduleFilePath: z.string(),
@@ -2123,7 +2131,12 @@ export class ValOpsHttp extends ValOps {
   override async getCommitModules(
     commitSha: string,
     options?: { asOf?: boolean; moduleFilePath?: ModuleFilePath },
-  ): Promise<result.Result<StoredModuleVersion[], HistoryError>> {
+  ): Promise<
+    result.Result<
+      { modules: StoredModuleVersion[]; complete: boolean },
+      HistoryError
+    >
+  > {
     const query = new URLSearchParams();
     if (options?.asOf) {
       query.set("as_of", "1");
@@ -2140,12 +2153,15 @@ export class ValOpsHttp extends ValOps {
     if (result.isErr(res)) {
       return res;
     }
-    return result.ok(
-      res.value.modules.map((module) => ({
+    return result.ok({
+      modules: res.value.modules.map((module) => ({
         ...module,
         moduleFilePath: module.moduleFilePath as ModuleFilePath,
       })),
-    );
+      // Absent from an older content server, which only ever answered "what
+      // this commit changed" - and that answer is always whole.
+      complete: res.value.complete ?? !options?.asOf,
+    });
   }
 
   override async getCommitAffectedFiles(

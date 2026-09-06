@@ -58,7 +58,7 @@ function opsWith(
 ): ValOps {
   return {
     getCommitPatches: async () => result.ok({ commit: commit(), patches }),
-    getCommitModules: async () => result.ok(modules),
+    getCommitModules: async () => result.ok({ modules, complete: true }),
     getCommitAffectedFiles: async () => result.ok([]),
   } as unknown as ValOps;
 }
@@ -174,7 +174,7 @@ describe("reconstructing a commit", () => {
     const ops = {
       getCommitPatches: async () =>
         result.err({ kind: "commit-not-found", commitSha: COMMIT }),
-      getCommitModules: async () => result.ok([]),
+      getCommitModules: async () => result.ok({ modules: [], complete: true }),
       getCommitAffectedFiles: async () => result.ok([]),
     } as unknown as ValOps;
     const res = await getHistoricalPatchSet(ops, COMMIT);

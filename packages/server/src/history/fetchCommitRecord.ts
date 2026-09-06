@@ -47,7 +47,7 @@ export async function fetchCommitRecord(
   return result.ok({
     commit: patchesRes.value.commit,
     patches: patchesRes.value.patches,
-    modules: modulesRes.value,
+    modules: modulesRes.value.modules,
     affectedFiles: filesRes.value,
   });
 }

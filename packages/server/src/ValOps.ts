@@ -2340,7 +2340,12 @@ export abstract class ValOps {
   abstract getCommitModules(
     commitSha: string,
     options?: { asOf?: boolean; moduleFilePath?: ModuleFilePath },
-  ): Promise<result.Result<StoredModuleVersion[], HistoryError>>;
+  ): Promise<
+    result.Result<
+      { modules: StoredModuleVersion[]; complete: boolean },
+      HistoryError
+    >
+  >;
 
   /** Which files the commit touched, and how. Names them; does not fetch them. */
   abstract getCommitAffectedFiles(
