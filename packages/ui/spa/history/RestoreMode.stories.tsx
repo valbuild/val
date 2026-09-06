@@ -7,49 +7,33 @@ import {
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
-import {
-  checkCompatibility,
-  type Compatibility,
-  type ValClient,
-} from "@valbuild/shared/internal";
+import type { JSONValue } from "@valbuild/core/patch";
+import type { HistoricalPatchSet, ValClient } from "@valbuild/shared/internal";
 import { useMemo, useState } from "react";
-import { AnyField } from "../components/AnyField";
+import { Module } from "../components/Module";
 import { TooltipProvider } from "../components/designSystem/tooltip";
 import { ValProvider } from "../components/ValProvider";
 import { ValRouter } from "../components/ValRouter";
 import { Themes } from "../components/ValThemeProvider";
-import type { System } from "../stores/createSystem";
 import { createStorySystem } from "../stores/react/storySystem";
 import { ValSystemProvider } from "../stores/react/SystemContext";
-import { sourcePathOfItem } from "../utils/sourcePathOfItem";
-import {
-  applyHistoryParams,
-  enterRestore,
-  pickRestoreSource,
-  pickRestoreTarget,
-  type HistoryParams,
-} from "./historyParams";
-import { RestoreTarget } from "./RestoreTarget";
+import { HistoryPane } from "./HistoryPane";
+import { HistorySplit } from "./HistorySplit";
+import { RestoreModeProvider, type RestoreMode } from "./RestoreModeContext";
 
 /**
- * Restore mode: pick on the right, then pick on the left.
+ * Restore mode, driven through the components that actually ship.
  *
- * The two things worth looking at in these screens:
+ * There is no story-only chrome here. The marks and the pick targets come from
+ * `Field` reading `RestoreModeProvider` — the same path the Studio takes — so
+ * what these screens show is what the feature does, not a drawing of it.
  *
- * 1. **The left pane is marked before anything is clicked.** Once a value is
- *    picked on the right, every field on the left says whether it can hold it.
- *    Nobody has to try a restore to find out it was refused.
- * 2. **The URL is the state.** The strip at the top is not decoration — it is
- *    the actual query the panes are rendered from, so every stage of a restore
- *    is a link that reloads into exactly this screen.
- *
- * `SchemaChanged` is still the load-bearing case: `cta` was a plain object at
- * the commit and is a union today, and the old value goes back in fine because
- * the union still contains its shape.
+ * `SchemaChanged` is the load-bearing one: `cta` was a plain object at the
+ * commit and is a union today, and the union still contains that shape, so the
+ * left `cta` is offered while everything else is refused with a reason.
  */
 
 const { s, c } = initVal();
-
 const MODULE = "/content/landing.val.ts" as ModuleFilePath;
 
 function toStoreData(
@@ -72,17 +56,12 @@ function toStoreData(
   };
 }
 
-type StoreData = ReturnType<typeof toStoreData>;
-
-// --- the content: today's schema, and the one at the commit ---
-
-const nowData = toStoreData([
+const now = toStoreData([
   c.define(
     MODULE,
     s.object({
       heading: s.string(),
       tagline: s.string(),
-      // Today a union. At the commit it was the plain object below.
       cta: s.union(
         "kind",
         s.object({
@@ -107,7 +86,7 @@ const nowData = toStoreData([
   ),
 ]);
 
-const atCommitData = toStoreData([
+const atCommit = toStoreData([
   c.define(
     MODULE,
     s.object({
@@ -129,39 +108,40 @@ const atCommitData = toStoreData([
   ),
 ]);
 
-// --- reading a field out of the story data ---
-
-type FieldRef = {
-  key: string;
-  path: SourcePath;
-  schema: SerializedSchema;
-  value: Json;
-};
-
-/**
- * The top-level fields of the module, as the panes offer them.
- *
- * Top-level only because these stories are about the mechanism, not about
- * navigation — the real thing marks whatever the panes are showing, at whatever
- * depth the Studio has been navigated to.
- */
-function fieldsOf(data: StoreData): FieldRef[] {
-  const schema = data.schemas[MODULE];
-  const source = data.sources[MODULE];
-  if (schema.type !== "object" || typeof source !== "object" || !source) {
-    return [];
-  }
-  const record: Record<string, Json> = source as Record<string, Json>;
-  return Object.entries(schema.items).map(([key, itemSchema]) => ({
-    key,
-    path: sourcePathOfItem(MODULE, key),
-    schema: itemSchema,
-    value: record[key] ?? null,
-  }));
+/** The wire carries `JSONValue`; `c.define` yields `Source`. A round trip. */
+function asWire(value: Json): JSONValue {
+  return JSON.parse(JSON.stringify(value));
 }
 
-function findField(data: StoreData, path: SourcePath): FieldRef | undefined {
-  return fieldsOf(data).find((field) => field.path === path);
+function patchSetOf(): HistoricalPatchSet {
+  return {
+    commit: {
+      commitSha: "7b21e40",
+      parentCommitSha: "p1",
+      clientCommitSha: "c1",
+      branch: "main",
+      createdBranch: null,
+      creator: "Fredrik",
+      message: "Rework the hero",
+      createdAt: "2026-06-01T10:00:00.000Z",
+      seqNum: "12",
+      patchCount: 2,
+      hasArchive: true,
+    },
+    modules: {
+      [MODULE]: {
+        source: asWire(atCommit.sources[MODULE]),
+        schema: atCommit.schemas[MODULE],
+        patchIds: [],
+        changedPaths: [],
+        failures: [],
+      },
+    },
+    patches: [],
+    jsonEntries: {},
+    binaryFiles: [],
+    warnings: [],
+  };
 }
 
 function createMockClient(): ValClient {
@@ -180,17 +160,47 @@ function createMockClient(): ValClient {
     })) as unknown as ValClient;
 }
 
-function StudioProviders({
-  children,
-  system,
-}: {
-  children: React.ReactNode;
-  system: System;
-}) {
+/**
+ * The story stands in for `useDirectedRestore`, which needs the router and a
+ * live client. What it hands the panes is the same `RestoreMode` shape they get
+ * in the Studio, so everything below it is the real thing.
+ */
+function Panes({ initialFrom }: { initialFrom?: string }) {
+  const nowSystem = useMemo(() => createStorySystem(now), []);
   const [theme, setTheme] = useState<Themes | null>("dark");
   const client = useMemo(() => createMockClient(), []);
+  const path = `${MODULE}?p=` as SourcePath;
+  const [from, setFrom] = useState<RestoreMode["from"]>(() => {
+    if (!initialFrom) return null;
+    const source = atCommit.sources[MODULE];
+    const schema = atCommit.schemas[MODULE];
+    if (schema.type !== "object" || typeof source !== "object" || !source) {
+      return null;
+    }
+    return {
+      path: `${MODULE}?p=${JSON.stringify(initialFrom)}` as SourcePath,
+      value: (source as Record<string, Json>)[initialFrom],
+      schema: schema.items[initialFrom],
+    };
+  });
+  const [toPath, setToPath] = useState<SourcePath | null>(null);
+
+  const shared = {
+    from,
+    toPath,
+    onPickSource: (
+      pickedPath: SourcePath,
+      value: Json,
+      schema: SerializedSchema,
+    ) => {
+      setFrom({ path: pickedPath, value, schema });
+      setToPath(null);
+    },
+    onPickTarget: (pickedPath: SourcePath) => setToPath(pickedPath),
+  };
+
   return (
-    <ValSystemProvider system={system}>
+    <ValSystemProvider system={nowSystem}>
       <TooltipProvider>
         <ValRouter>
           <ValProvider
@@ -200,7 +210,34 @@ function StudioProviders({
             theme={theme}
             setTheme={setTheme}
           >
-            {children}
+            <div className="flex min-h-[620px] w-full bg-bg-primary p-4">
+              <HistorySplit
+                breakpoint="desktop"
+                commitLabel="At 7b21e40"
+                editor={
+                  <RestoreModeProvider mode={{ side: "now", ...shared }}>
+                    <ValSystemProvider system={nowSystem}>
+                      <div className="p-2">
+                        <Module path={path} showModuleGalleryChild={null} />
+                      </div>
+                    </ValSystemProvider>
+                  </RestoreModeProvider>
+                }
+                history={
+                  <HistoryPane
+                    patchSet={patchSetOf()}
+                    path={path}
+                    loading={false}
+                    error={null}
+                    wrapModule={(module) => (
+                      <RestoreModeProvider mode={{ side: "commit", ...shared }}>
+                        {module}
+                      </RestoreModeProvider>
+                    )}
+                  />
+                }
+              />
+            </div>
           </ValProvider>
         </ValRouter>
       </TooltipProvider>
@@ -208,320 +245,26 @@ function StudioProviders({
   );
 }
 
-/**
- * The URL, shown rather than described.
- *
- * In a story there is no address bar to point at, and the deep-linking is the
- * part of this design that is easiest to claim and hardest to see.
- */
-function UrlStrip({ state }: { state: HistoryParams }) {
-  const query = applyHistoryParams(new URLSearchParams("p="), state).toString();
-  return (
-    <div className="overflow-x-auto rounded-lg border border-border-primary bg-bg-secondary px-3 py-2">
-      <code className="whitespace-nowrap font-mono text-[11px] text-fg-tertiary">
-        /val/~{MODULE}?{decodeURIComponent(query)}
-      </code>
-    </div>
-  );
-}
-
-function PaneShell({
-  title,
-  subtitle,
-  tone,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  tone: "now" | "commit";
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      className={
-        "flex min-w-0 flex-1 flex-col rounded-lg border border-border-primary " +
-        (tone === "commit" ? "bg-bg-secondary" : "bg-bg-primary")
-      }
-    >
-      <div className="flex items-baseline justify-between gap-3 border-b border-border-primary px-4 py-3">
-        <div className="flex flex-col">
-          <span className="text-sm font-semibold text-fg-primary">{title}</span>
-          <span className="font-mono text-xs text-fg-tertiary">{subtitle}</span>
-        </div>
-      </div>
-      <div className="flex min-w-0 flex-col gap-3 p-4">{children}</div>
-    </div>
-  );
-}
-
-/** The field's name, which the panes' own chrome would otherwise swallow. */
-function FieldBody({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <span className="font-mono text-[11px] uppercase tracking-wider text-fg-tertiary">
-        {label}
-      </span>
-      {children}
-    </div>
-  );
-}
-
-/**
- * A field on the commit side, offered as the thing to restore.
- *
- * Nothing to check here: a value at a commit is always a legal value of the
- * schema it was stored under. Compatibility is a question about where it is
- * going, which is why the marks are all on the other pane.
- */
-function RestoreSource({
-  field,
-  selected,
-  onSelect,
-  children,
-}: {
-  field: FieldRef;
-  selected: boolean;
-  onSelect: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(ev) => {
-        if (ev.key === "Enter" || ev.key === " ") {
-          ev.preventDefault();
-          onSelect();
-        }
-      }}
-      className={
-        "cursor-pointer rounded-lg border p-3 transition-colors " +
-        (selected
-          ? "border-fg-brand-primary ring-1 ring-fg-brand-primary"
-          : "border-border-primary hover:border-fg-brand-primary")
-      }
-      data-restore-source={field.key}
-    >
-      <div className="mb-2">
-        <span className="inline-flex items-center gap-1 rounded border border-border-primary px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-fg-tertiary">
-          {selected ? "Restoring this" : "Restore this"}
-        </span>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function RestorePanes({
-  now,
-  atCommit,
-  commitSha,
-  commitWhen,
-  initialFrom,
-}: {
-  now: StoreData;
-  atCommit: StoreData;
-  commitSha: string;
-  commitWhen: string;
-  /** Deep-link straight into a stage, the way a shared link would. */
-  initialFrom?: string;
-}) {
-  const nowSystem = useMemo(() => createStorySystem(now), [now]);
-  const commitSystem = useMemo(() => createStorySystem(atCommit), [atCommit]);
-  const [state, setState] = useState<HistoryParams>(() => {
-    const base = enterRestore({
-      commitSha,
-      locked: true,
-      rightPath: null,
-      restore: { mode: "off" },
-    });
-    return initialFrom
-      ? pickRestoreSource(base, sourcePathOfItem(MODULE, initialFrom))
-      : base;
-  });
-
-  const from =
-    state.restore.mode === "picking-target" ||
-    state.restore.mode === "confirming"
-      ? findField(atCommit, state.restore.from)
-      : undefined;
-  const to =
-    state.restore.mode === "confirming"
-      ? findField(now, state.restore.to)
-      : undefined;
-
-  /**
-   * The marks, computed once for the whole left pane.
-   *
-   * Every field, not just the one with the same name: a restore is allowed to
-   * cross paths (an old headline into today's tagline), so the question is
-   * asked of each candidate rather than assumed from the key.
-   */
-  const marks = useMemo<Map<SourcePath, Compatibility>>(() => {
-    const result = new Map<SourcePath, Compatibility>();
-    if (!from) return result;
-    for (const candidate of fieldsOf(now)) {
-      result.set(
-        candidate.path,
-        checkCompatibility(
-          { schema: from.schema, value: from.value },
-          { schema: candidate.schema },
-        ),
-      );
-    }
-    return result;
-  }, [from, now]);
-
-  return (
-    <StudioProviders system={nowSystem}>
-      <div className="flex min-h-[620px] w-full flex-col gap-4 bg-bg-primary p-6">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex flex-col">
-            <span className="text-sm font-semibold text-fg-primary">
-              Restore from {commitSha}
-            </span>
-            <span className="text-xs text-fg-secondary">
-              {to && from
-                ? `“${from.key}” goes into “${to.key}”. Nothing is written until you stage it.`
-                : from
-                  ? `Pick where “${from.key}” should go.`
-                  : "Pick a field on the right to restore."}
-            </span>
-          </div>
-          {to && from && (
-            <div className="flex items-center gap-3">
-              <span className="font-mono text-xs text-fg-secondary">
-                {from.key} → {to.key}
-              </span>
-              <button className="rounded bg-bg-brand-primary px-3 py-1.5 text-sm font-medium text-fg-brand-primary-alt">
-                Stage restore
-              </button>
-            </div>
-          )}
-        </div>
-        <UrlStrip state={state} />
-        <div className="flex min-w-0 gap-4">
-          <PaneShell title="Now" subtitle="main · working copy" tone="now">
-            {fieldsOf(now).map((field) => {
-              const compatibility: Compatibility = marks.get(field.path) ?? {
-                status: "unknown",
-                message: "Nothing picked yet.",
-              };
-              const body = (
-                <FieldBody label={field.key}>
-                  <ValSystemProvider system={nowSystem}>
-                    <AnyField
-                      path={field.path}
-                      schema={field.schema}
-                      compact
-                      errorDisplay="none"
-                    />
-                  </ValSystemProvider>
-                </FieldBody>
-              );
-              if (!from) {
-                return (
-                  <div
-                    key={field.key}
-                    className="rounded-lg border border-border-primary p-3 opacity-60"
-                  >
-                    {body}
-                  </div>
-                );
-              }
-              return (
-                <RestoreTarget
-                  key={field.key}
-                  compatibility={compatibility}
-                  selected={
-                    state.restore.mode === "confirming" &&
-                    state.restore.to === field.path
-                  }
-                  onSelect={() =>
-                    setState((prev) => pickRestoreTarget(prev, field.path))
-                  }
-                >
-                  {body}
-                </RestoreTarget>
-              );
-            })}
-          </PaneShell>
-          <PaneShell
-            title={`At ${commitSha}`}
-            subtitle={commitWhen}
-            tone="commit"
-          >
-            {fieldsOf(atCommit).map((field) => (
-              <RestoreSource
-                key={field.key}
-                field={field}
-                selected={from?.path === field.path}
-                onSelect={() =>
-                  setState((prev) => pickRestoreSource(prev, field.path))
-                }
-              >
-                <FieldBody label={field.key}>
-                  <ValSystemProvider system={commitSystem}>
-                    <AnyField
-                      path={field.path}
-                      schema={field.schema}
-                      readonly
-                      compact
-                      errorDisplay="none"
-                    />
-                  </ValSystemProvider>
-                </FieldBody>
-              </RestoreSource>
-            ))}
-          </PaneShell>
-        </div>
-      </div>
-    </StudioProviders>
-  );
-}
-
-const meta: Meta<typeof RestorePanes> = {
+const meta: Meta<typeof Panes> = {
   title: "History/Restore mode",
-  component: RestorePanes,
+  component: Panes,
   parameters: { layout: "fullscreen" },
 };
 export default meta;
-type Story = StoryObj<typeof RestorePanes>;
+type Story = StoryObj<typeof Panes>;
 
-const baseArgs = {
-  now: nowData,
-  atCommit: atCommitData,
-  commitSha: "7b21e40",
-  commitWhen: "3 months ago · Fredrik",
-};
-
-/** Restore mode entered, nothing picked. The left pane is not yet marked. */
-export const PickingSource: Story = { args: baseArgs };
+/** Restore mode entered, nothing picked: the left pane is not yet marked. */
+export const PickingSource: Story = { args: {} };
 
 /**
- * The load-bearing one.
- *
- * `cta` is picked on the right, where it was a plain object. Today it is a
- * union — and the union still contains that shape, so the left `cta` is
- * offered. Every other field is refused with a reason, before anyone clicks.
+ * `cta` picked on the right, where it was a plain object. Today it is a union
+ * that still contains that shape, so the left `cta` is offered and every other
+ * field is refused with a reason — all before anyone clicks.
  */
-export const SchemaChanged: Story = {
-  args: { ...baseArgs, initialFrom: "cta" },
-};
+export const SchemaChanged: Story = { args: { initialFrom: "cta" } };
 
 /**
- * Cross-path restore: an old headline can go into today's tagline.
- *
- * Both are strings, so both are offered — which is the point of asking each
- * field rather than matching by name.
+ * Cross-path restore: an old headline can go into today's tagline, because
+ * each field is asked rather than matched by name.
  */
-export const CrossPath: Story = {
-  args: { ...baseArgs, initialFrom: "heading" },
-};
+export const CrossPath: Story = { args: { initialFrom: "heading" } };

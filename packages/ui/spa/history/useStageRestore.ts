@@ -8,7 +8,7 @@ import { useCallback, useState } from "react";
 import { useAddPatch } from "../components/ValFieldProvider";
 import {
   buildRestorePatch,
-  collectMediaPaths,
+  collectMedia,
   fetchFileAtCommit,
   moduleFilePathOf,
 } from "./stageRestore";
@@ -71,9 +71,12 @@ export function useStageRestore(
        * not one. So the bytes are fetched from the commit and uploaded again,
        * under the same path, which is where the restored value expects them.
        */
-      const mediaPaths = collectMediaPaths(schema, value);
+      const media = collectMedia(schema, value);
       const fileOps: Patch = [];
-      for (const filePath of mediaPaths) {
+      const basePath = Internal.createPatchPath(
+        Internal.splitModuleFilePathAndModulePath(to)[1],
+      );
+      for (const { filePath, fieldPath, metadata } of media) {
         const remote = !filePath.startsWith("/public");
         const fetched = await fetchFileAtCommit(
           apiBasePath,
@@ -87,12 +90,27 @@ export function useStageRestore(
         }
         fileOps.push({
           op: "file",
-          path: Internal.createPatchPath(
-            Internal.splitModuleFilePathAndModulePath(to)[1],
-          ),
+          /*
+           * The MEDIA FIELD's path, not the restore target's.
+           *
+           * The server injects a draft `patch_id` at `op.path` — literally
+           * `op.path.concat(nestedFilePath).concat("patch_id")` — so pointing
+           * every file op at the target meant an object restore carrying a
+           * nested image put the patch id on the object, and the draft URL for
+           * that image never resolved.
+           */
+          path: [...basePath, ...fieldPath],
           filePath,
           value: fetched.dataUrl,
           remote,
+          /*
+           * What the field says the bytes are. Every other file op carries
+           * this, and commit-time validation reports `image:check-metadata`
+           * against the field when a stored value's dimensions disagree with
+           * its file — so the op should state what the value claims rather than
+           * rely on the two happening to agree.
+           */
+          ...(metadata ? { metadata } : {}),
         });
       }
 

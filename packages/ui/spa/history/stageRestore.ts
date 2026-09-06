@@ -45,26 +45,50 @@ export function moduleFilePathOf(path: SourcePath): ModuleFilePath {
  * object that happens to have a `path`, and miss a media field whose value is
  * shaped unusually.
  */
-export function collectMediaPaths(
+export type RestoredMedia = {
+  /** The file this value refers to. */
+  filePath: string;
+  /** Where in the restored value it sits, RELATIVE to the restore target. */
+  fieldPath: string[];
+  /** What the value says the bytes are: width, height, mime type. */
+  metadata: JSONValue | undefined;
+};
+
+export function collectMedia(
   schema: SerializedSchema,
   value: JSONValue,
-): string[] {
-  const found: string[] = [];
-  walk(schema, value, found);
-  return Array.from(new Set(found));
+): RestoredMedia[] {
+  const found: RestoredMedia[] = [];
+  walk(schema, value, [], found);
+  // One file referenced twice is uploaded once — keyed by the file, since that
+  // is what the upload is.
+  const seen = new Set<string>();
+  return found.filter((entry) => {
+    if (seen.has(entry.filePath)) return false;
+    seen.add(entry.filePath);
+    return true;
+  });
 }
 
 function walk(
   schema: SerializedSchema,
   value: JSONValue,
-  found: string[],
+  at: string[],
+  found: RestoredMedia[],
 ): void {
   if (value === null || value === undefined) {
     return;
   }
   if (schema.type === "image" || schema.type === "file") {
     if (isObject(value) && typeof value["path"] === "string") {
-      found.push(value["path"]);
+      // Everything the value carries EXCEPT the path is what was read from the
+      // bytes, which is exactly what a file op's metadata is.
+      const { path: _path, ...metadata } = value;
+      found.push({
+        filePath: value["path"],
+        fieldPath: at,
+        metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+      });
     }
     return;
   }
@@ -72,20 +96,20 @@ function walk(
     for (const [key, itemSchema] of Object.entries(schema.items)) {
       const child = value[key];
       if (child !== undefined) {
-        walk(itemSchema, child, found);
+        walk(itemSchema, child, [...at, key], found);
       }
     }
     return;
   }
   if (schema.type === "array" && Array.isArray(value)) {
-    for (const item of value) {
-      walk(schema.item, item, found);
-    }
+    value.forEach((item, index) => {
+      walk(schema.item, item, [...at, index.toString()], found);
+    });
     return;
   }
   if (schema.type === "record" && isObject(value)) {
-    for (const item of Object.values(value)) {
-      walk(schema.item, item, found);
+    for (const [key, item] of Object.entries(value)) {
+      walk(schema.item, item, [...at, key], found);
     }
     return;
   }
@@ -94,7 +118,7 @@ function walk(
     // paths, so a variant that does not match simply contributes none, and
     // getting the narrowing wrong here would silently miss a file.
     for (const variant of schema.items) {
-      walk(variant, value, found);
+      walk(variant, value, at, found);
     }
   }
 }

@@ -2,7 +2,8 @@ import type { SourcePath } from "@valbuild/core";
 import type { HistoricalPatchSet } from "@valbuild/shared/internal";
 import { useHistoryParams } from "../components/ValRouter";
 import { Button } from "../components/designSystem/button";
-import { enterRestore, exitRestore, pickRestoreSource } from "./historyParams";
+import { enterRestore, exitRestore } from "./historyParams";
+import type { DirectedRestore } from "./useDirectedRestore";
 import { restorability } from "./HistoryPane";
 import { planRevertAll } from "./revertAll";
 import { useAddPatch } from "../components/ValFieldProvider";
@@ -23,9 +24,11 @@ import { useState } from "react";
 export function RestoreControls({
   patchSet,
   path,
+  restore,
 }: {
   patchSet: HistoricalPatchSet | undefined;
   path: SourcePath | null;
+  restore: DirectedRestore;
 }) {
   const { history, setHistory } = useHistoryParams();
   const { canRestore, reason } = restorability(patchSet);
@@ -82,25 +85,44 @@ export function RestoreControls({
       </div>
       {inRestoreMode && (
         <p className="text-xs text-fg-secondary">
-          {history.restore.mode === "picking-source"
+          {!restore.from
             ? "Pick a field here to restore, then pick where it goes on the left."
-            : "Now pick where it goes on the left. Fields that cannot hold it are marked."}
+            : !restore.toPath
+              ? "Now pick where it goes on the left. Fields that cannot hold it are marked."
+              : "Nothing is written until you stage it, and nothing is published until you publish."}
         </p>
+      )}
+      {/* The confirm step. Only reachable once BOTH ends are picked, which is
+          the whole point of directing a restore rather than computing one. */}
+      {restore.from && restore.toPath && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            disabled={restore.stage.status === "staging"}
+            onClick={restore.confirm}
+          >
+            {restore.stage.status === "staging"
+              ? "Staging…"
+              : "Stage this restore"}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={restore.clearTarget}>
+            Pick a different place
+          </Button>
+        </div>
+      )}
+      {restore.stage.status === "staged" && (
+        <p className="text-xs text-fg-secondary">
+          Staged. It is in your pending changes, to review and publish with
+          everything else.
+        </p>
+      )}
+      {restore.stage.status === "error" && (
+        <p className="text-xs text-fg-error-primary">{restore.stage.message}</p>
       )}
       {/* Nothing is written until Publish — said here rather than discovered. */}
       {reverting && <p className="text-xs text-fg-secondary">{reverting}</p>}
       {reason && (
         <p className="max-w-prose text-xs text-fg-tertiary">{reason}</p>
-      )}
-      {inRestoreMode && path && history.restore.mode === "picking-source" && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="self-start"
-          onClick={() => setHistory(pickRestoreSource(history, path))}
-        >
-          Restore this whole module
-        </Button>
       )}
     </div>
   );

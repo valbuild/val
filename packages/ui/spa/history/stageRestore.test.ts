@@ -1,6 +1,6 @@
 import { initVal, type SourcePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
-import { buildRestorePatch, collectMediaPaths } from "./stageRestore";
+import { buildRestorePatch, collectMedia } from "./stageRestore";
 import { planRevertAll } from "./revertAll";
 import type { HistoricalPatchSet } from "@valbuild/shared/internal";
 
@@ -33,8 +33,15 @@ describe("finding the media a restored value carries", () => {
       hero: { path: "/public/val/hero_a1b2c.png", width: 10, height: 10 },
       caption: "A caption",
     };
-    expect(collectMediaPaths(schema, value)).toEqual([
-      "/public/val/hero_a1b2c.png",
+    expect(collectMedia(schema, value)).toEqual([
+      {
+        filePath: "/public/val/hero_a1b2c.png",
+        // WHERE it sits, so the file op points at the image rather than at the
+        // object being restored — the server injects the draft patch_id at the
+        // op's path, and the wrong path means the draft URL never resolves.
+        fieldPath: ["hero"],
+        metadata: { width: 10, height: 10 },
+      },
     ]);
   });
 
@@ -43,7 +50,7 @@ describe("finding the media a restored value carries", () => {
       .object({ link: s.object({ path: s.string() }) })
       ["executeSerialize"]();
     const value: JSONValue = { link: { path: "/not-a-file" } };
-    expect(collectMediaPaths(schema, value)).toEqual([]);
+    expect(collectMedia(schema, value)).toEqual([]);
   });
 
   test("media nested in arrays and records is found", () => {
@@ -56,9 +63,9 @@ describe("finding the media a restored value carries", () => {
         { img: { path: "/public/val/b.png" } },
       ],
     };
-    expect(collectMediaPaths(schema, value)).toEqual([
-      "/public/val/a.png",
-      "/public/val/b.png",
+    expect(collectMedia(schema, value).map((m) => m.fieldPath)).toEqual([
+      ["gallery", "0", "img"],
+      ["gallery", "1", "img"],
     ]);
   });
 
@@ -70,7 +77,9 @@ describe("finding the media a restored value carries", () => {
       a: { path: "/public/val/same.png" },
       b: { path: "/public/val/same.png" },
     };
-    expect(collectMediaPaths(schema, value)).toEqual(["/public/val/same.png"]);
+    expect(collectMedia(schema, value).map((m) => m.filePath)).toEqual([
+      "/public/val/same.png",
+    ]);
   });
 });
 

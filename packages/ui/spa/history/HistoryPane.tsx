@@ -7,6 +7,7 @@ import { ValSystemProvider } from "../stores/react/SystemContext";
 import { unavailableModules, useCommitSystem } from "./useCommitSystem";
 import { useModuleAtCommit } from "./useModuleAtCommit";
 import { cn } from "../components/designSystem/cn";
+import { PendingWriteHoldProvider } from "../components/PendingWriteHold";
 
 /**
  * One module, as a commit left it, rendered by the Studio's own components.
@@ -26,6 +27,7 @@ export function HistoryPane({
   loading,
   error,
   restoreSlot,
+  wrapModule,
 }: {
   patchSet: HistoricalPatchSet | undefined;
   /** The path to show. Under lock this is the editor's own path. */
@@ -34,6 +36,13 @@ export function HistoryPane({
   error: string | null;
   /** The restore controls, when this commit can be restored from. */
   restoreSlot?: React.ReactNode;
+  /**
+   * Wrap the rendered module — how restore mode reaches this pane's fields.
+   *
+   * A render prop rather than the pane knowing about restore, so the pane keeps
+   * one job: showing a module as a commit left it.
+   */
+  wrapModule?: (module: React.ReactNode) => React.ReactNode;
 }) {
   const system = useCommitSystem(patchSet);
   const unavailable = useMemo(() => unavailableModules(patchSet), [patchSet]);
@@ -73,6 +82,7 @@ export function HistoryPane({
           commitSha={patchSet.commit.commitSha}
           moduleFilePath={moduleFilePath}
           path={path as SourcePath}
+          wrapModule={wrapModule}
         />
       </>
     );
@@ -82,7 +92,20 @@ export function HistoryPane({
     <>
       {restoreSlot}
       <ValSystemProvider system={system}>
-        <Module path={path as SourcePath} showModuleGalleryChild={null} />
+        {/*
+         * Held, permanently: the past is not editable.
+         *
+         * The system behind this pane cannot write anyway — it has no
+         * `savePatches` — but that only means an edit would go nowhere. This
+         * is what makes the fields SAY so, and it is what stops a `literal`
+         * rendering its "not editable" error in a pane where nothing was
+         * going to be edited.
+         */}
+        <PendingWriteHoldProvider held>
+          {(wrapModule ?? ((node: React.ReactNode) => node))(
+            <Module path={path as SourcePath} showModuleGalleryChild={null} />,
+          )}
+        </PendingWriteHoldProvider>
       </ValSystemProvider>
     </>
   );
@@ -99,10 +122,12 @@ function OutsideCommit({
   commitSha,
   moduleFilePath,
   path,
+  wrapModule,
 }: {
   commitSha: string;
   moduleFilePath: ModuleFilePath;
   path: SourcePath;
+  wrapModule?: (module: React.ReactNode) => React.ReactNode;
 }) {
   const state = useModuleAtCommit(commitSha, moduleFilePath, false);
   const asPatchSet = useMemo(
@@ -138,7 +163,11 @@ function OutsideCommit({
   }
   return (
     <ValSystemProvider system={system}>
-      <Module path={path} showModuleGalleryChild={null} />
+      <PendingWriteHoldProvider held>
+        {(wrapModule ?? ((node: React.ReactNode) => node))(
+          <Module path={path} showModuleGalleryChild={null} />,
+        )}
+      </PendingWriteHoldProvider>
     </ValSystemProvider>
   );
 }

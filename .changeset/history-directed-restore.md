@@ -22,10 +22,14 @@ picks leave nothing to guess. You can restore across paths, so last month's
 headline can become today's tagline.
 
 Before you click, every field on the "now" side says whether it can hold the
-value you picked. A field that cannot explains why when you click it, rather
+value you picked, and a field that cannot explains why when you click it rather
 than doing nothing. A changed union is not itself a blocker: what matters is
 whether the value's own shape is still allowed, so a union that gained a case
 restores fine and one that lost the case you are restoring does not.
+
+Rich text can be restored but is marked "probably fits" rather than confirmed —
+comparing every mark and block against the options a schema allows is not done
+yet, and saying so is better than a confident answer we cannot back.
 
 **Restores are staged, not applied.** They land in pending changes, are reviewed
 beside every other edit, and go out with the next publish. There is also "put

@@ -51,6 +51,8 @@ import {
 } from "../ValRouter";
 import { HistoryPane } from "../../history/HistoryPane";
 import { RestoreControls } from "../../history/RestoreControls";
+import { RestoreModeProvider } from "../../history/RestoreModeContext";
+import { useDirectedRestore } from "../../history/useDirectedRestore";
 import { HistorySplit } from "../../history/HistorySplit";
 import { useHistoricalCommit } from "../../history/useHistoricalCommit";
 import {
@@ -921,17 +923,39 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * editor's own path, which is what people want almost every time: they came
    * to compare one field with its older self.
    */
+  /*
+   * The restore being aimed, shared by both panes.
+   *
+   * Held here because it spans them: the value is picked on the right and the
+   * destination on the left, and neither pane can hold state the other needs.
+   * The URL is still the source of truth for WHICH stage we are at — the picked
+   * VALUE is carried alongside it because a path alone would mean re-reading the
+   * commit to answer every compatibility question.
+   */
+  const restore = useDirectedRestore(
+    commitState?.status === "success" ? commitState.patchSet : undefined,
+  );
+
   const renderHistory = history.commitSha
     ? (
         editor: React.ReactNode,
         breakpoint: "mobile" | "tablet" | "desktop",
       ) => (
         <HistorySplit
-          editor={editor}
+          editor={
+            <RestoreModeProvider mode={restore.nowMode}>
+              {editor}
+            </RestoreModeProvider>
+          }
           breakpoint={breakpoint}
           commitLabel={`At ${history.commitSha?.slice(0, 7)}`}
           history={
             <HistoryPane
+              wrapModule={(module) => (
+                <RestoreModeProvider mode={restore.commitMode}>
+                  {module}
+                </RestoreModeProvider>
+              )}
               restoreSlot={
                 <RestoreControls
                   patchSet={
@@ -940,6 +964,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
                       : undefined
                   }
                   path={navigation.currentSourcePath as SourcePath | null}
+                  restore={restore}
                 />
               }
               patchSet={
