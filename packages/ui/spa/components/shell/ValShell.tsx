@@ -47,7 +47,11 @@ import {
   VAL_ERRORS_ROUTE,
   scrollToStudioPath,
   useNavigation,
+  useHistoryParams,
 } from "../ValRouter";
+import { HistoryPane } from "../../history/HistoryPane";
+import { HistorySplit } from "../../history/HistorySplit";
+import { useHistoricalCommit } from "../../history/useHistoricalCommit";
 import {
   useAllPatchErrors,
   useAuthenticationState,
@@ -147,6 +151,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const { isAIChatEnabled, setOpenAIChatImpl } = useAIChatActions();
   const insertFieldRef = useInsertFieldRef();
   const navigation = useNavigation();
+  const { history } = useHistoryParams();
+  const commitState = useHistoricalCommit(history.commitSha);
   const connectionStatus = useConnectionStatus();
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
   const { patchErrors } = useAllPatchErrors();
@@ -905,8 +911,49 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     <Module path={unlistedModulePath} showModuleGalleryChild={null} />
   ) : null;
 
+  /*
+   * History, when a commit is in the URL.
+   *
+   * The left half is the editor exactly as it is - the shell hands it back to
+   * us - so opening history changes what is BESIDE the Studio and nothing about
+   * the Studio itself. Under lock (the default) the right pane follows the
+   * editor's own path, which is what people want almost every time: they came
+   * to compare one field with its older self.
+   */
+  const renderHistory = history.commitSha
+    ? (
+        editor: React.ReactNode,
+        breakpoint: "mobile" | "tablet" | "desktop",
+      ) => (
+        <HistorySplit
+          editor={editor}
+          breakpoint={breakpoint}
+          commitLabel={`At ${history.commitSha?.slice(0, 7)}`}
+          history={
+            <HistoryPane
+              patchSet={
+                commitState?.status === "success"
+                  ? commitState.patchSet
+                  : undefined
+              }
+              path={
+                history.locked
+                  ? (navigation.currentSourcePath as SourcePath | null)
+                  : history.rightPath
+              }
+              loading={commitState?.status === "loading"}
+              error={
+                commitState?.status === "error" ? commitState.message : null
+              }
+            />
+          }
+        />
+      )
+    : undefined;
+
   return (
     <Shell
+      renderHistory={renderHistory}
       data={data}
       theme={theme === "light" ? "light" : "dark"}
       onThemeChange={setTheme}
