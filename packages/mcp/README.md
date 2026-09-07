@@ -24,6 +24,7 @@ Reading:
 | Tool                         |                                                           |
 | ---------------------------- | --------------------------------------------------------- |
 | `get_all_schema`             | every module's path and schema — where to start           |
+| `search_content`             | find content by text, several queries at once             |
 | `get_source`                 | the content at a source path, unpublished changes applied |
 | `get_record_keys`            | a record's keys without its values                        |
 | `count_entries`              | how big something is before asking for it                 |

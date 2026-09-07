@@ -366,6 +366,9 @@ importers:
       '@valbuild/shared':
         specifier: workspace:*
         version: link:../shared
+      minimatch:
+        specifier: ^10.2.6
+        version: 10.2.6
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -634,6 +637,9 @@ importers:
       '@valbuild/core':
         specifier: workspace:*
         version: link:../core
+      flexsearch:
+        specifier: ^0.8.212
+        version: 0.8.212
       zod:
         specifier: ^4.4.3
         version: 4.4.3

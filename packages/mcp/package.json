@@ -37,6 +37,7 @@
     "@valbuild/core": "workspace:*",
     "@valbuild/server": "workspace:*",
     "@valbuild/shared": "workspace:*",
+    "minimatch": "^10.2.6",
     "zod": "^4.4.3"
   },
   "devDependencies": {

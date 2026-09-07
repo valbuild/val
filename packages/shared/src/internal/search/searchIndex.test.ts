@@ -109,6 +109,67 @@ describe("buildSearchIndex", () => {
   });
 });
 
+describe("performSearch", () => {
+  /** One module, `n` entries, every one of them matching "match". */
+  function manyMatches(n: number) {
+    const source: Record<string, Json> = {};
+    for (let i = 0; i < n; i++) {
+      source[`k${i}`] = `match ${i}`;
+    }
+    return {
+      [PAGES]: {
+        source: source as Json,
+        schema: {
+          type: "record",
+          opt: false,
+          item: { type: "string", opt: false, raw: false },
+        } as SerializedSchema,
+      },
+    };
+  }
+
+  test("counts every match, not just the page it returns", () => {
+    // The count a caller decides whether to page on. Taken from a
+    // page-sized search it would just be the page size again, which reads as
+    // "that is all there is" — so it is asked for separately.
+    const index = buildSearchIndex(manyMatches(30));
+
+    const page = performSearch(index, "match", 5);
+
+    expect(page.results).toHaveLength(5);
+    expect(page.total).toBe(30);
+    expect(page.totalIsLowerBound).toBe(false);
+  });
+
+  test("the count survives paging", () => {
+    const index = buildSearchIndex(manyMatches(30));
+
+    expect(performSearch(index, "match", 5, 20).total).toBe(30);
+  });
+
+  test("says when the count is a lower bound rather than a count", () => {
+    // Counting stops somewhere, and where it stopped has to be visible: a
+    // caller that reads a floor as a total draws exactly the wrong conclusion
+    // about how much it has not seen. Sat on the boundary, because a flag that
+    // is only ever asserted false is not tested at all.
+    const under = performSearch(buildSearchIndex(manyMatches(9_999)), "match");
+    const at = performSearch(buildSearchIndex(manyMatches(10_001)), "match");
+
+    expect(under).toMatchObject({ total: 9_999, totalIsLowerBound: false });
+    expect(at).toMatchObject({ total: 10_000, totalIsLowerBound: true });
+  });
+
+  test("an empty query is not a search", () => {
+    const index = buildSearchIndex(manyMatches(3));
+
+    expect(performSearch(index, "   ")).toEqual({
+      results: [],
+      total: 0,
+      totalIsLowerBound: false,
+    });
+  });
+});
+
 function getModules(
   valModules: ValModule<Source>[],
 ): Record<ModuleFilePath, { source: Json; schema: SerializedSchema }> {
