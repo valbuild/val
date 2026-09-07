@@ -12,6 +12,11 @@ import {
 import { Patch, PatchId } from "./zod/Patch";
 import { SerializedSchema } from "./zod/SerializedSchema";
 import { ValCommit } from "./zod/ValCommit";
+import {
+  HistoricalCommit,
+  HistoricalModule,
+  HistoricalPatchSet,
+} from "./zod/History";
 
 const ModuleFilePath = z.string().refine(
   (_path): _path is ModuleFilePath => true, // TODO: validation
@@ -1315,6 +1320,139 @@ export const Api = {
       ]),
     },
   },
+  // #region history
+  //
+  // Reading the past. Split across three routes on purpose, because they cache
+  // differently: a reconstructed commit cannot change and is immutable
+  // forever, the comparison against current source changes with every edit, and
+  // a file at a fixed commit is immutable too. Folding them together would mean
+  // the cheapest thing dragging the most expensive one's cache headers down to
+  // no-store.
+  "/history/commits": {
+    GET: {
+      req: {
+        query: {
+          branch: onlyOneStringQueryParam,
+          limit: onlyOneIntQueryParam.optional(),
+          /** The previous page's `nextCursor`. */
+          cursor: onlyOneStringQueryParam.optional(),
+        },
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({
+          status: z.literal(400),
+          json: GenericError.and(z.object({ kind: z.string().optional() })),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError.and(z.object({ kind: z.string().optional() })),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            commits: z.array(HistoricalCommit),
+            nextCursor: z.string().nullable(),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * One commit, reconstructed. IMMUTABLE for a given sha - it says nothing
+   * about the current source or schema, which is what lets it be cached
+   * forever and what makes comparing many commits cheap.
+   */
+  "/history/commit": {
+    GET: {
+      req: {
+        query: { commit_sha: onlyOneStringQueryParam },
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({ status: z.literal(400), json: GenericError }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError.and(z.object({ kind: z.string().optional() })),
+        }),
+        z.object({ status: z.literal(200), json: HistoricalPatchSet }),
+      ]),
+    },
+  },
+  /**
+   * ONE module, as of a commit — including a commit that did not change it.
+   *
+   * `/history/commit` covers what a commit changed, which is the narrow case:
+   * navigate the history pane to anything else and there would be nothing to
+   * show. This answers "how did this module look at that point", which is the
+   * question someone comparing two panes is actually asking. Immutable for the
+   * same reason: what a commit left behind cannot change.
+   */
+  "/history/module": {
+    GET: {
+      req: {
+        query: {
+          commit_sha: onlyOneStringQueryParam,
+          module_file_path: onlyOneStringQueryParam,
+        },
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({ status: z.literal(400), json: GenericError }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError.and(z.object({ kind: z.string().optional() })),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            moduleFilePath: z.string(),
+            /**
+             * Null when history has no record of this module at or before the
+             * commit — it was last edited before recording started, or never.
+             * Distinct from a module the commit deleted.
+             */
+            module: HistoricalModule.nullable(),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * One file as it was at one commit.
+   *
+   * The lazy half: `/history/commit` NAMES a commit's binary files and this is
+   * where their bytes come from, so nothing is fetched until an `<img>`
+   * actually mounts. A file at a fixed commit cannot change, so the response is
+   * immutable and the browser's own cache handles flipping between commits.
+   */
+  "/history/files": {
+    GET: {
+      req: {
+        query: {
+          commit_sha: onlyOneStringQueryParam,
+          path: onlyOneStringQueryParam,
+          remote: onlyOneStringQueryParam.optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({ status: z.literal(400), json: GenericError }),
+        z.object({
+          status: z.literal(200),
+          body: z.instanceof(ReadableStream),
+        }),
+      ]),
+    },
+  },
+  // #endregion history
   "/files": {
     GET: {
       req: {

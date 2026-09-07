@@ -1,7 +1,12 @@
 import { createContext, ReactNode, useContext } from "react";
 
 /**
- * Whether writing is held while something the fields depend on is still loading.
+ * Whether writing is held for everything in this subtree.
+ *
+ * Two callers, one meaning. The Studio holds writes while something the fields
+ * depend on is still loading; the history pane holds them forever, because the
+ * past is not editable. Both are "you may look at this field but not change
+ * it", which is why they share a mechanism rather than growing a second one.
  *
  * The one reader is {@link AnyField}, which folds this into the `readonly` it
  * already computes — so the hold reuses the guard every readonly field already

@@ -26,3 +26,6 @@ screens/
 # The fixture copy under packages/cli/src/__fixtures__/ is deliberate, and a
 # root-anchored pattern leaves it alone.
 /.val/
+
+# Storybook writes this on a failed start
+debug-storybook.log
