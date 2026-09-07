@@ -45,6 +45,68 @@ function remoteRef(localPath: `public/${string}`): string {
   });
 }
 
+describe("a remote key that does not parse", () => {
+  /**
+   * The case Copilot's review caught, and it is the same failure this module
+   * exists to prevent, arriving through the back door.
+   *
+   * `splitRemoteRef` rejects any URL that is not exactly a ref: truncated by a
+   * hand edit, a path outside `public/`, a `..` segment, or written by a core
+   * version whose format it does not accept. Read as a LOCAL path, such a key
+   * sends the missing-file check looking for `<projectRoot>/https://…`, finds
+   * nothing, and `--fix` deletes the entry — at the one moment that key is the
+   * only remaining record of where the bytes went.
+   *
+   * The malformed key is not being swept under the rug: the record schema
+   * reports it as "Invalid remote URL format", which is an error for a person,
+   * not a file for `--fix` to go missing.
+   */
+  it.each([
+    ["truncated", "https://remote.val.build/file/p/pub-1/b/01"],
+    [
+      "a path outside public/",
+      "https://remote.val.build/file/p/pub-1/b/01/v/1.0.0/h/abcd/f/0123456789ab/p/elsewhere/x.png",
+    ],
+    ["not a ref at all", "https://example.com/x.png"],
+  ])("is never reported missing (%s)", (_why, key) => {
+    const result = checkGalleryFiles({
+      entryKeys: [key],
+      directory: "/public/img",
+      projectRoot: PROJECT_ROOT,
+      fs: fakeFs([]),
+    });
+
+    expect(result.missingTrackedFiles).toEqual([]);
+  });
+
+  it("does not claim a local file in the directory", () => {
+    // The flip side: a URL key tracks nothing on disk, so a real file sitting
+    // beside it is still untracked and still reported.
+    const result = checkGalleryFiles({
+      entryKeys: ["https://remote.val.build/file/p/pub-1/b/01"],
+      directory: "/public/img",
+      projectRoot: PROJECT_ROOT,
+      fs: fakeFs(["/public/img/unclaimed.png"]),
+    });
+
+    expect(result.missingTrackedFiles).toEqual([]);
+    expect(result.untrackedFiles).toEqual(["/public/img/unclaimed.png"]);
+  });
+
+  it("a plain relative path is still local, so it is still checked", () => {
+    // The guard is scoped to URLs. Anything else keeps the old behaviour, or
+    // the fix would make every missing local file invisible.
+    const result = checkGalleryFiles({
+      entryKeys: ["/public/img/gone.png"],
+      directory: "/public/img",
+      projectRoot: PROJECT_ROOT,
+      fs: fakeFs([]),
+    });
+
+    expect(result.missingTrackedFiles).toEqual(["/public/img/gone.png"]);
+  });
+});
+
 describe("local entries", () => {
   it("reports one whose file is not on disk", () => {
     const result = checkGalleryFiles({

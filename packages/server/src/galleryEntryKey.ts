@@ -23,16 +23,43 @@ import { Internal } from "@valbuild/core";
  * missing from both sides at once.
  */
 export type GalleryEntryKey = {
-  /** Where the bytes are, or would be, in the working tree. */
+  /**
+   * Where the bytes are, or would be, in the working tree.
+   *
+   * The key itself for a remote key that does not parse — there is no such
+   * place for one, and nothing reads this for a remote entry except the
+   * untracked-files comparison, where a URL matches no file.
+   */
   localPath: string;
-  /** True when the key is a remote ref, so the local file is optional. */
+  /** True when the key is a URL, so a local file is not required. */
   remote: boolean;
 };
+
+/** A key that names somewhere else, whether or not it is a ref we can read. */
+function isRemoteUrl(key: string): boolean {
+  return key.startsWith("https://") || key.startsWith("http://");
+}
 
 export function galleryEntryOf(key: string): GalleryEntryKey {
   const remoteRefRes = Internal.remote.splitRemoteRef(key);
   if (remoteRefRes.status === "success") {
     return { localPath: `/${remoteRefRes.filePath}`, remote: true };
+  }
+  if (isRemoteUrl(key)) {
+    // A URL that is not a ref this version can read: truncated by a hand edit,
+    // a path outside `public/`, a `..` segment — or written by a core version
+    // whose format `splitRemoteRef` rejects.
+    //
+    // Still not a path in the working tree, so the on-disk checks must not run
+    // against it. They would find nothing at `<projectRoot>/https://…`, report
+    // the entry as missing, and `--fix` would DELETE it — the exact failure
+    // this module exists to prevent, arriving at the one moment the key is the
+    // only remaining record of where the bytes went.
+    //
+    // Nothing is being hidden by this: a malformed key is already reported, by
+    // the record schema's own "Invalid remote URL format". That is an error for
+    // a person to look at, not a file for `--fix` to go missing.
+    return { localPath: key, remote: true };
   }
   return { localPath: key, remote: false };
 }

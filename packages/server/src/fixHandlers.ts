@@ -630,9 +630,6 @@ export async function handleUniqueFolderCheck(
   return { success: true };
 }
 
-// Maps a gallery key to its on-disk local path. Remote galleries key uploaded
-// entries by a remote URL while keeping the file on disk; everything else is
-// already a local path and is returned unchanged.
 /**
  * What is out of step between a gallery's entries and its directory.
  *
