@@ -25,6 +25,10 @@ export function initValMcp(
   config: ValConfig,
   opts?: {
     formatter?: (code: string, filePath: string) => string | Promise<string>;
+    /**
+     * Where to authorize, and what audience to expect. Required for proxy
+     * mode; see `initValMcp` in `@valbuild/mcp` for what omitting it means.
+     */
     oauth?: ValOAuthConfig;
     /**
      * Tools to serve alongside the built-in ones — the image tool arrives this

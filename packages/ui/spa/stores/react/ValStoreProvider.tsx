@@ -55,6 +55,10 @@ export function ValStoreProvider({
     patches: PatchId[];
     /** See {@link StatSnapshot.removed}. Cleared by the next stat. */
     removed?: { patchId: PatchId; reason: string }[];
+    /** See {@link StatSnapshot.appliedPatches}. Absent is not "none". */
+    appliedPatches?: PatchId[];
+    /** See {@link StatSnapshot.headCommitSha}. The publish head. */
+    headCommitSha?: string;
   } | null;
   children: ReactNode;
 }) {
@@ -124,6 +128,11 @@ export function ValStoreProvider({
       patches: stat.patches,
       baseSha: stat.baseSha,
       removed: stat.removed,
+      // Which of them have shipped, so a record this client already holds
+      // learns that somebody else's publish committed it. See
+      // `PatchStore.receiveApplied`.
+      appliedPatches: stat.appliedPatches,
+      headCommitSha: stat.headCommitSha,
     });
   }, [system, stat, received]);
 

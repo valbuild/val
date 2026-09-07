@@ -764,6 +764,28 @@ export async function handleJsonValuesExtractEntry(
   return { success: true, appliedFix: true };
 }
 
+/**
+ * `external:upload` under `val validate --fix`: refuse, and say what to run.
+ *
+ * Every other fix in this registry rewrites something inside the repository —
+ * reversible, visible in a diff, wrong by at most one commit. This one would
+ * write entries into a live external store: not in a diff, not undone by
+ * `git revert`, and against production indistinguishable from an editor's
+ * publish. So a blanket `--fix` must never apply it.
+ *
+ * `fixableErrorMessage` rather than a plain error, because the error IS fixable
+ * — just not by this command.
+ */
+export async function handleExternalUpload(): Promise<FixHandlerResult> {
+  return {
+    success: true,
+    fixableErrorMessage:
+      "This entry is written inline but its record is .external(). " +
+      "Run 'val external upload' to move it into the store — " +
+      "'val validate --fix' will not write to a live store.",
+  };
+}
+
 // Fix handler registry. `keyof:check-keys` and `router:check-route` are
 // resolved upfront by the shared resolveSchemaSourceFixes — they never reach
 // this registry, so they're excluded from the key set.
@@ -790,6 +812,7 @@ export const currentFixHandlers: Record<
   "images:check-all-files": handleCheckAllFiles,
   "files:check-all-files": handleCheckAllFiles,
   "jsonValues:extract-entry": handleJsonValuesExtractEntry,
+  "external:upload": handleExternalUpload,
 };
 const deprecatedFixHandlers: Record<string, FixHandler> = {
   "image:replace-metadata": handleFileMetadata,

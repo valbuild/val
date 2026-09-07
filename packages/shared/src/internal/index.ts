@@ -3,6 +3,7 @@ export * from "./server/types";
 export * from "./ValClient";
 export * from "./ValUrls";
 export * from "./ApiRoutes";
+export * from "./newestCommitSha";
 export * from "./zod/Patch";
 export * from "./sessionStorage";
 export * from "./SharedValConfig";

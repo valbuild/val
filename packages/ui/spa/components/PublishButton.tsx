@@ -13,6 +13,7 @@ import {
 } from "./ValProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useValPortal } from "./ValPortalProvider";
+import { useOwnHeldPatchIds } from "./useOwnHeldPatchIds";
 import { useNavigation, VAL_ERRORS_ROUTE } from "./ValRouter";
 import {
   describePublishButton,
@@ -107,6 +108,9 @@ export function PublishButton({
   );
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
   const hasNetChanges = useHasNetChanges();
+  // Only this user's own held patches: the message offers to stage them, and
+  // a colleague's change is not theirs to stage. See `useOwnHeldPatchIds`.
+  const heldChangeIds = useOwnHeldPatchIds();
   const mode = useValMode();
   const portalContainer = useValPortal();
   const { autoPublish } = useAutoPublish();
@@ -122,6 +126,7 @@ export function PublishButton({
     pendingServerSidePatchCount: pendingServerSidePatchIds.length,
     pendingClientSidePatchCount: pendingClientSidePatchIds.length,
     netChangesEmpty: !hasNetChanges,
+    heldChangeCount: heldChangeIds.size,
   });
   const saving = mode === "fs";
   /*

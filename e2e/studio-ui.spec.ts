@@ -527,7 +527,10 @@ test.describe("a field inside a jsonValues entry", () => {
   const TITLE =
     '/app/support/[slug]/page.val.ts?p="/support/getting-started"."title"';
 
-  test("applies the edit, and does not discard the patch", async ({ page }) => {
+  test("applies the edit, and does not discard the patch", async ({
+    page,
+    request,
+  }) => {
     // Anything claiming a patch could not be applied is a failure here: the
     // module is fully loaded and the path exists.
     const refused: string[] = [];
@@ -580,7 +583,14 @@ test.describe("a field inside a jsonValues entry", () => {
     ).toEqual([]);
 
     await discardAll(page);
-    await expect.poll(() => chainLength(page)).toBe(0);
+    // The server, not the client's view of it. `discardAll` already polls the
+    // client chain to zero, so re-asserting it here was true by construction at
+    // the moment it ran and could only fail if the chain went back UP — which it
+    // does, by design: `PatchStore` holds a record through one empty fetch
+    // (`notDeliveredOnce`), and the stat that settles it is a 20s long poll
+    // racing this 20s `expect`. `expectNoPatchesOnServer` in `studio.ts` is the
+    // question this was meant to ask, and its doc block names this exact race.
+    await expectNoPatchesOnServer(request);
   });
 });
 

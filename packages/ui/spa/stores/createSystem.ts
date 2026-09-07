@@ -21,8 +21,21 @@ import {
 } from "./PatchStore";
 import { StatStore } from "./StatStore";
 import { StatusStore } from "./StatusStore";
-import { PatchSync, type ResyncChain, type SavePatches } from "./PatchSync";
+import {
+  PatchSync,
+  type ResyncChain,
+  type SavePatches,
+  type PatchGroupResolver,
+} from "./PatchSync";
 import { HostStore } from "./HostStore";
+import {
+  indexPatchSets,
+  stageClosure,
+  unstageClosure,
+  validateGroup,
+  type PatchSetIndex,
+  type PrefixViolation,
+} from "../utils/patchGroups";
 import { PreviewStore } from "./PreviewStore";
 import { PatchSetStore, type PatchSetRequest } from "./PatchSetStore";
 import { PatchSetChain, type PatchSetPlan } from "./PatchSetChain";
@@ -197,6 +210,115 @@ export type System = HostRealm &
     /** What the field at one path points at. Scans first if a pass is owed. */
     referenceAt(path: SourcePath): Promise<Reference | null>;
     /**
+     * Scope this client to a patch group: what it renders and what it publishes.
+     *
+     * One call sets both, because the two must not be able to disagree —
+     * publishing something the editor was never shown is the failure this whole
+     * feature exists to prevent, and two setters is how that happens.
+     *
+     * `null` is unscoped: every pending patch renders and publishes, which is
+     * what this system did before groups existed, and is what fs mode and a
+     * content API without patch groups stay on. `[]` is a real and different
+     * answer — a group holding nothing, so the studio shows base.
+     *
+     * The ids are the group's FULL membership, closure included. This does not
+     * compute the closure: that needs patch sets, which need the schema, and it
+     * is `utils/patchGroups.ts` that owns it. Handing a set that breaks the
+     * prefix invariant will publish a set that breaks it.
+     */
+    setPatchGroup(patchIds: readonly PatchId[] | null): void;
+    /**
+     * Register who can answer "which group does this write join".
+     *
+     * The closure needs patch sets, which need the schema, and the write path
+     * can see neither — so whatever holds that knowledge registers itself here.
+     * See {@link PatchGroupResolver}.
+     *
+     * `undefined` clears it, and writing without a group is exactly what this
+     * client did before groups existed.
+     */
+    /**
+     * Scope to what the server says this user's group holds, keeping whatever
+     * this tab has written since. See the implementation for why the union is
+     * not optional.
+     */
+    seedPatchGroup(ids: readonly PatchId[]): void;
+    setPatchGroupResolver(resolver: PatchGroupResolver | undefined): void;
+    /**
+     * Tell the system which patch group is this client's.
+     *
+     * Resolving that needs the author id and the chain annotation, neither of
+     * which these stores see — `useCurrentPatchGroup` is where the decision
+     * lives. `publish` needs the answer so it can tell the content API which
+     * group a commit empties, and the content API closes what it is told
+     * without checking, so getting this wrong closes a group that still holds
+     * somebody's unpublished work.
+     */
+    setOwnPatchGroupId(patchGroupId: string | undefined): void;
+    /**
+     * The closure for a write: which OTHER patches must join this author's
+     * group so it stays prefix-closed.
+     *
+     * On the system because it needs an AWAITED grouping — see the
+     * implementation for why answering from already-rendered patch sets makes
+     * the closure empty in the normal case. A caller registering a resolver
+     * should delegate to this rather than computing it themselves.
+     */
+    computeWriteClosure(patchIds: readonly PatchId[]): Promise<PatchId[]>;
+    /**
+     * The forward closure of a DISCARD: which other patches must lose their
+     * group membership because these are being deleted.
+     *
+     * See the implementation. Sent to the content API as `unstagePatchIds`
+     * — the name is the content API's, kept identical here so there is one
+     * thing to grep for across both repos.
+     */
+    computeDiscardClosure(patchIds: readonly PatchId[]): Promise<PatchId[]>;
+    /**
+     * Persist a change to what this user's group holds.
+     *
+     * Separate from {@link System.setPatchGroup}, which only scopes THIS client.
+     * A stage that is not persisted is lost on reload — and for an unstage that
+     * is the dangerous direction, because the change silently comes back staged
+     * and the next publish ships what the user meant to hold.
+     */
+    stagePatches(
+      request: Parameters<StagePatches>[0],
+    ): ReturnType<StagePatches>;
+    unstagePatches(
+      request: Parameters<StagePatches>[0],
+    ): ReturnType<StagePatches>;
+    /**
+     * Send a group change, or hold it until there is a group to send it to.
+     *
+     * `patchGroupId` is `undefined` whenever this author has no open group:
+     * before their first write on a branch, and again after every publish,
+     * because a publish closes the group and the next one is created by the
+     * next write. The review screen is usable in both windows — unstaging
+     * somebody else's patch, or re-staging one held earlier — and every such
+     * change used to reach only the local scope and then be lost on reload.
+     *
+     * Held on the SYSTEM rather than in the review screen, because the screen
+     * unmounts the moment the user navigates off it to make the write that
+     * creates the group. A queue that lives on the screen is a queue that is
+     * gone before it can be flushed.
+     */
+    persistPatchGroupChange(
+      patchGroupId: string | undefined,
+      change: PatchGroupChangeRequest,
+    ): void;
+    /**
+     * Send everything {@link System.persistPatchGroupChange} held back.
+     *
+     * Called when a group id appears. In chain order of the user's clicks: the
+     * server unions on stage and removes on unstage, so replaying the moves in
+     * the order they were made lands on the membership the user asked for, even
+     * when they toggled the same patch twice.
+     */
+    flushPatchGroupChanges(patchGroupId: string): void;
+    /** The current group, or `null` when unscoped. See {@link System.setPatchGroup}. */
+    patchGroup(): readonly PatchId[] | null;
+    /**
      * Commit patches, if they are publishable.
      *
      * On the system because it is the one operation that needs three stores at
@@ -256,6 +378,70 @@ export type System = HostRealm &
     setAuthorId(authorId: string | null): void;
     dispose(): void;
   };
+
+/**
+ * Change what a patch group holds — stage, or unstage.
+ *
+ * The ids are already CLOSED by the caller: staging carries the prefix closure
+ * over each patch set, unstaging the forward closure. Neither is derived here,
+ * for the reason the closure is never derived server-side — it needs the
+ * schema, and one implementation of that rule is the point.
+ */
+export type StagePatches = (request: {
+  patchGroupId: string;
+  /** What the user asked for. */
+  patchIds: PatchId[];
+  /**
+   * What has to come with it, because the patches asked for are written on top
+   * of it.
+   *
+   * The content API stores each membership row as `explicit` or `dependency`
+   * and treats what it is not told about as `dependency`. Folding the two
+   * halves into one list therefore files the patch somebody clicked as one the
+   * closure dragged in — the only record anywhere of what the author chose, and
+   * read backwards.
+   */
+  withPatchIds: PatchId[];
+}) => Promise<
+  | { status: "ok" }
+  | {
+      status: "error";
+      message: string;
+      /**
+       * The group has already SHIPPED — the content API's 409.
+       *
+       * Carried apart from the message because it is the one refusal the client
+       * can act on rather than only report: the id this tab is holding will
+       * never be writable again, so continuing to hold it turns every later
+       * stage into the same 409. Every other failure leaves the group usable
+       * and the id worth keeping.
+       */
+      reason?: "group-published";
+    }
+>;
+
+/**
+ * One move of this author's group, as it goes on the wire.
+ *
+ * Named because it is also what gets QUEUED when the group does not exist yet —
+ * see {@link System.persistPatchGroupChange}.
+ */
+/**
+ * How many un-persistable group changes to remember.
+ *
+ * Only reached on a branch where the group never comes into existence, which
+ * means the user never writes — so this is a bound on a pathological session,
+ * not a working one.
+ */
+const MAX_DEFERRED_GROUP_CHANGES = 100;
+
+export type PatchGroupChangeRequest = {
+  type: "stage" | "unstage";
+  /** What the user asked for. */
+  patchIds: PatchId[];
+  /** What has to move with it. See {@link StagePatches}. */
+  withPatchIds: PatchId[];
+};
 
 export type SystemOptions = {
   fetchPatches: FetchPatches;
@@ -322,6 +508,16 @@ export type SystemOptions = {
   saveFlushTimeoutMs?: number;
   /** `POST /save`. Omitting it means this system cannot publish. */
   publishPatches?: PublishPatches;
+  /**
+   * `PUT` / `DELETE /patch-groups/~/patches` — stage and unstage.
+   *
+   * Omitting them means this system cannot change group membership, which is
+   * every system without patch groups: `fs`, and any content API that predates
+   * them. The staging UI stays off there rather than offering controls that
+   * cannot do anything.
+   */
+  stagePatches?: StagePatches;
+  unstagePatches?: StagePatches;
   /** `DELETE /patches`. Omitting it means this system cannot discard. */
   discardPatches?: DiscardPatches;
   /**
@@ -486,6 +682,254 @@ export function createSystem(options: SystemOptions): System {
   const patchSetChain = new PatchSetChain();
   /** One publish at a time. See `publish`. */
   let publishing = false;
+  /**
+   * The patch group: which pending patches are THIS user's to see and publish.
+   *
+   * `null` means unscoped — fs mode, or a content API without patch groups —
+   * and everything pending applies and publishes, which is what this system did
+   * before groups existed. An empty array is a real, different answer: a group
+   * holding nothing.
+   *
+   * Held here rather than in `SourceStore` because two stores need the same
+   * answer and neither owns it. Source needs it to decide what the studio and
+   * the preview render; publish needs it to decide what ships. Letting them
+   * hold it separately is how they come to disagree, and the two disagreeing is
+   * precisely the bug this feature exists to prevent — publishing something the
+   * editor was never shown.
+   */
+  let patchGroupIds: readonly PatchId[] | null = null;
+  /**
+   * Which group is this client's, as the shell resolved it.
+   *
+   * Held rather than derived because resolving it needs the author id, which
+   * lives in `/stat` and never reaches these stores — see
+   * `useCurrentPatchGroup`, which weighs the save response against the chain
+   * annotation and is the one place that decision is made. This is only its
+   * answer, kept where `publish` can read it.
+   */
+  let ownPatchGroupId: string | undefined;
+  /**
+   * Group changes made while this author had no open group. See
+   * {@link System.persistPatchGroupChange}.
+   */
+  let deferredGroupChanges: PatchGroupChangeRequest[] = [];
+
+  /**
+   * Does committing exactly these patches leave this client's group empty?
+   *
+   * The content API closes the group a commit names, and closes it WITHOUT
+   * checking that the commit shipped all of it — so naming a group that still
+   * holds work would take those patches out of every group and leave their
+   * author unable to publish them. This is therefore the conservative
+   * direction: unsure means no, and the cost of a false negative is only that
+   * the group stays open and its id is reused.
+   *
+   * A member already shipped does not keep the group open. A publish leaves its
+   * patches in the chain with `appliedAt` set until the deploy lands, and the
+   * content API drops applied ids from every group anyway, so a scope carrying
+   * one is describing something that is no longer the group's to hold.
+   */
+  function emptiesOwnPatchGroup(toPublish: readonly PatchId[]): boolean {
+    if (ownPatchGroupId === undefined) return false;
+    if (patchGroupIds === null) return false;
+    /*
+     * The SERVER's account of the group as well as this tab's scope.
+     *
+     * The scope is seeded once and then grows only on this tab's own writes, so
+     * the same author writing or staging from a second tab adds ids the
+     * annotation knows about and the scope never will. Deciding from the scope
+     * alone passed this check on a group that still held unshipped work — and
+     * the content API closes what it is named without looking, so those patches
+     * fell into a closed group and out of the next one, and the other tab's
+     * next stage into that id got a 409.
+     *
+     * An ABSENT annotation is treated as no additional members rather than as a
+     * refusal, and that is the deliberate half. Refusing without it sounds
+     * safer and is not: on a single-author branch nothing is ever missing from
+     * the chain, so no fetch is made, so no annotation ever arrives — and the
+     * group would then never close on exactly the branches where it matters
+     * most. That is the bug the `patchGroupId` field was added to fix.
+     *
+     * What is left is narrow, because the case that worries us mostly brings
+     * the annotation with it: a patch written in another tab is a MISSING id
+     * here, so the chain fetch that pulls it in carries the groups too. The
+     * residual is another tab STAGING an id this chain already has, with no
+     * fetch to trigger — recorded in `DESIGN.md`.
+     */
+    const annotated = patchStore
+      .groups()
+      ?.find((group) => group.patchGroupId === ownPatchGroupId);
+    const accountedFor = new Set([
+      ...patchGroupIds,
+      ...(annotated?.patchIds ?? []),
+    ]);
+    /*
+     * `pendingAmong` is the store's one answer to "has this shipped", and it is
+     * used here rather than restated. The predicate was written out at both
+     * this call site and `markPublished`'s annotation close, and the two
+     * disagreed the moment a member could be applied by somebody else's
+     * publish: this one closed the group on the server, that one left the
+     * annotation saying it was open, and every stage afterwards 409'd.
+     *
+     * It also answers the third state neither of them had. An id in the scope
+     * or the annotation with no record left is GONE — discarded, or deployed
+     * away — not pending, so one discard of a staged patch no longer leaves the
+     * group unclosable for the rest of the session.
+     */
+    const shipping = new Set(toPublish);
+    return [...patchStore.pendingAmong(accountedFor)].every((patchId) =>
+      shipping.has(patchId),
+    );
+  }
+
+  /**
+   * Which OTHER patches must lose their group membership when these are deleted.
+   *
+   * Deleting a patch out of the middle of a patch set leaves every group that
+   * still holds the rest with a non-prefix intersection — and a prefix is the
+   * one invariant a group has, because the patches after the hole were written
+   * against a view that had it. The patches at risk are the ones built on top,
+   * which is the forward closure, and deriving it needs the schema: the content
+   * API cannot compute it, so the client sends it.
+   *
+   * Returns only the OTHERS. The deleted patches lose their memberships by
+   * cascade on the content side; naming them again would be noise.
+   *
+   * `[]` on any failure. This rides along with a delete that is going to happen
+   * regardless, so a closure that cannot be computed must not take the discard
+   * down with it — the cost is a group left holding a suffix, which `publish`
+   * refuses and names, rather than a discard that silently does nothing.
+   */
+  async function computeDiscardClosure(
+    patchIds: readonly PatchId[],
+  ): Promise<PatchId[]> {
+    if (patchIds.length === 0) return [];
+    if (!patchStore.patchGroupsSupported()) {
+      /*
+       * No groups on this deployment, so there are no memberships to repair and
+       * `ValOpsFS.deletePatches` ignores the answer. Without this, every discard
+       * paid for a full worker patch-set build that nobody read — on a long
+       * chain, that is the delay before anything is deleted.
+       *
+       * NOT `patchGroupIds === null`, which is the condition
+       * `computeWriteClosure` uses and would be wrong here. That one asks "do I
+       * have a group to keep closed", and an unscoped client has none. This
+       * asks whether ANYONE does — a client that has not been scoped yet, in
+       * the window before the annotation arrives, is unscoped and other
+       * people's groups exist regardless. Skipping there would let a discard in
+       * that window leave them holding a suffix.
+       */
+      return [];
+    }
+    try {
+      const chain = patchStore.allRecords().map((record) => record.patchId);
+      const index = indexPatchSets(await computePatchSets(), chain);
+      /*
+       * Run against the WHOLE chain rather than against this client's group.
+       *
+       * What is being computed is not "what leaves my group" but "what can no
+       * longer be a member of any group anywhere", and the answer is the same
+       * set whoever is asking. Scoping it to the local group would name only
+       * the part this author happens to hold and leave everybody else's group
+       * holding the suffix — the exact thing this exists to prevent.
+       */
+      const surviving = unstageClosure(index, new Set(chain), patchIds);
+      const discarded = new Set(patchIds);
+      return chain.filter(
+        (patchId) => !surviving.has(patchId) && !discarded.has(patchId),
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  /** One stage or unstage, on the wire. Failures are logged, not thrown. */
+  async function sendPatchGroupChange(
+    patchGroupId: string,
+    change: PatchGroupChangeRequest,
+  ): Promise<void> {
+    const call =
+      change.type === "stage" ? options.stagePatches : options.unstagePatches;
+    if (call === undefined) {
+      // No seam configured, which is `fs` mode: membership is local truth
+      // there, and the local scope has already moved.
+      return;
+    }
+    const res = await call({
+      patchGroupId,
+      patchIds: change.patchIds,
+      withPatchIds: change.withPatchIds,
+    });
+    if (res.status === "error") {
+      if (res.reason === "group-published") {
+        /*
+         * Somebody CLOSED this group — this same author publishing from another
+         * tab, since a group is one person's.
+         *
+         * Forgotten rather than retried: a published group is immutable, so a
+         * tab that keeps naming it answers every stage and unstage with the
+         * same 409, silently, for the rest of the session. Nothing else would
+         * correct it — the annotation refreshes only inside a fetch for MISSING
+         * patch ids, and there are none to fetch on a quiet branch.
+         *
+         * Forgetting hands the question back to `useCurrentPatchGroup`, which
+         * falls through to the annotation and then to the deferred queue, so
+         * the next write creates the next group and the click is replayed into
+         * it. Exactly the window the queue exists for.
+         */
+        patchStore.forgetOwnPatchGroup();
+      }
+      /*
+       * KNOWN GAP: nothing puts the local scope back.
+       *
+       * `PatchStore` re-reads the group annotation only inside a fetch it makes
+       * for MISSING patch ids, so on a quiet branch the request that would
+       * correct the screen may never happen — the user keeps seeing a stage the
+       * server refused until they reload. Same root cause as a stage in one tab
+       * not reaching another. See `docs/independent-publish/DESIGN.md`.
+       */
+      console.error("Val: could not update patch group", res.message);
+    }
+  }
+
+  /**
+   * Widen the scope to include these patches, keeping both halves in step.
+   *
+   * The scope means "my group", and there are two ways a patch joins one
+   * without anybody touching a staging control:
+   *
+   * - this client WROTE it. The server puts a new patch in its author's open
+   *   group unconditionally, so a scope that did not grow with it would hide
+   *   the author's own typing behind their own filter;
+   * - it is in the CLOSURE of something this client wrote. The write path sends
+   *   `withPatchIds` and the server unions them in, so those patches are in
+   *   the group on the server whether or not this client is showing them — and
+   *   not showing them is the exact failure this feature exists to prevent:
+   *   publishing a set the editor was never shown.
+   *
+   * A no-op when unscoped (`null` — fs mode, or a content API without groups),
+   * where everything is visible already.
+   */
+  function extendPatchGroup(patchIds: readonly PatchId[]): void {
+    if (patchGroupIds === null) {
+      return;
+    }
+    const next = new Set(patchGroupIds);
+    let grew = false;
+    for (const patchId of patchIds) {
+      if (next.has(patchId)) continue;
+      next.add(patchId);
+      grew = true;
+    }
+    if (!grew) {
+      return;
+    }
+    patchGroupIds = [...next];
+    // Same call for both halves, for the reason `setPatchGroup` documents: what
+    // is visible and what will ship must not come apart.
+    sourceStore.setVisiblePatchIds(patchGroupIds);
+    patchStore.notifyGroupsChanged();
+  }
   /** One whole-project validation at a time. See `validateEverything`. */
   let fullValidationRunning = false;
   /**
@@ -502,7 +946,182 @@ export function createSystem(options: SystemOptions): System {
    * suffix twice. Sharing the in-flight call gives concurrent readers one build
    * and one answer, which is what they wanted anyway.
    */
-  let patchSetsInFlight: Promise<SerializedPatchSet> | null = null;
+  let patchSetsInFlight: Promise<PatchSetsBuild> | null = null;
+  /**
+   * The grouping, shared by `System.getPatchSets` and the publish gate.
+   *
+   * Hoisted out of the object literal because the publish gate needs it too and
+   * `this` inside a returned literal is not something to build a safety check
+   * on. One in-flight build either way.
+   */
+  /**
+   * Which patch sets `toPublish` would leave a hole in.
+   *
+   * Empty means safe: within every patch set, what is about to ship is a prefix
+   * of what the chain holds.
+   *
+   * A patch that has ALREADY shipped counts as shipped — it cannot be left
+   * behind by this commit, and a chain still carrying it (an `appliedAt` that
+   * arrived before the new commit did) would otherwise read as a hole in front
+   * of everything staged and refuse every publish.
+   */
+  async function prefixViolations(
+    toPublish: readonly PatchId[],
+  ): Promise<PrefixViolation[]> {
+    const chain = patchStore.allRecords();
+    let index;
+    try {
+      index = indexPatchSets(
+        await computePatchSets(),
+        chain.map((record) => record.patchId),
+      );
+    } catch {
+      /*
+       * The grouping and the chain disagree, which is a skew rather than a
+       * malformed group — the two are read at slightly different moments and a
+       * patch can land in between.
+       *
+       * Failed OPEN, deliberately, and it is the one judgement call in this
+       * gate. Refusing here would make a publish impossible whenever the worker
+       * hiccups, with a message about patch sets that says nothing a user can
+       * act on. The case this gate exists for — a group that really does skip a
+       * patch — is not transient and is caught on the next click.
+       */
+      return [];
+    }
+    const shipped = new Set<PatchId>(toPublish);
+    for (const record of chain) {
+      if (record.appliedAt !== null && record.appliedAt !== undefined) {
+        shipped.add(record.patchId);
+      }
+    }
+    for (const patchId of patchStore.publishedPatchIds()) {
+      shipped.add(patchId);
+    }
+    return validateGroup(index, shipped);
+  }
+
+  /**
+   * The closure a write must carry: which OTHER patches have to join this
+   * author's group so it stays prefix-closed.
+   *
+   * Computed here rather than in the caller, and against a grouping that is
+   * AWAITED rather than one already rendered. That is the whole point:
+   * `PatchSync.listenTo` flushes synchronously on `patch:create`, so a resolver
+   * reading the last-rendered patch sets sees an index that does not contain
+   * the patch being saved — it is in no set, `stageClosure` has nothing to pull
+   * in for it, and `withPatchIds` comes out empty in the NORMAL case, not a
+   * corner one. That is precisely the hole `DESIGN.md` says a write cannot
+   * open, and with automatic repair removed it now surfaces only as a publish
+   * refusal naming raw patch ids.
+   *
+   * Returns only what is NEW. The server set-unions, so re-sending what the
+   * group already holds is a no-op — and on a long chain it is a much larger
+   * request, once per keystroke batch.
+   */
+  async function computeWriteClosure(
+    patchIds: readonly PatchId[],
+  ): Promise<PatchId[]> {
+    if (patchGroupIds === null) {
+      // Unscoped: no group to keep closed.
+      return [];
+    }
+    /*
+     * Did the BUILD plan against a chain containing these patches?
+     *
+     * Asked of the build, not of the index. Two earlier versions asked
+     * something else and were both wrong, in opposite directions:
+     *
+     * - `index.setsOf.has(id)` — false forever for a patch of only `file` or
+     *   `test` ops, which `PatchSets.insertOp` skips, so every gallery delete
+     *   paid for a second build that could not change its answer;
+     * - `index.chainPosition.has(id)` — true always, because the index was
+     *   being built from `allRecords()` at THIS moment while the sets came
+     *   from a shared in-flight promise planned before this patch existed. The
+     *   retry below became dead code and every write made during a build sent
+     *   an empty closure. That is the normal case while typing, since
+     *   `usePatchSets` re-runs on each chain movement and the save flushes
+     *   synchronously on `patch:create`.
+     *
+     * The build now carries its own chain, so the question is answerable. The
+     * index is built from that same chain too, or its positions would describe
+     * a chain the sets do not.
+     */
+    const covers = (build: PatchSetsBuild) => {
+      const planned = new Set(build.chain);
+      return patchIds.every((patchId) => planned.has(patchId));
+    };
+    let index: PatchSetIndex;
+    try {
+      let build = await computePatchSetsBuild();
+      if (!covers(build)) {
+        /*
+         * A build that was already in flight when this write happened, so it
+         * planned against a chain without these ids. `computePatchSetsBuild`
+         * shares the in-flight promise, which is right for readers and wrong
+         * here. The first has settled by now, so this starts a fresh one.
+         */
+        build = await computePatchSetsBuild();
+      }
+      index = indexPatchSets(build.sets, build.chain);
+    } catch {
+      // The grouping and the chain disagree, which is possible mid-sync. Join
+      // the group without a closure rather than refusing the write: losing the
+      // edit is worse, and the prefix can still be restored by staging.
+      return [];
+    }
+    const held = new Set(patchGroupIds);
+    const next = stageClosure(index, held, patchIds);
+    return [...next].filter(
+      (patchId) => !held.has(patchId) && !patchIds.includes(patchId),
+    );
+  }
+
+  /**
+   * A grouping, together with the chain it was PLANNED against.
+   *
+   * The chain is part of the answer, not context: `computePatchSets` shares an
+   * in-flight build, so a caller can be handed a grouping planned before the
+   * patch it is asking about existed. Without the chain there is no way to tell
+   * — see `computeWriteClosure`, where asking the wrong question made the
+   * staleness check dead code and every write during a build under-closed.
+   */
+  type PatchSetsBuild = {
+    sets: SerializedPatchSet;
+    /** Chain order at plan time, which is also what `sets` describes. */
+    chain: PatchId[];
+  };
+
+  function computePatchSetsBuild(): Promise<PatchSetsBuild> {
+    if (patchSetsInFlight !== null) {
+      return patchSetsInFlight;
+    }
+    const run = (async () => {
+      // `allRecords()`, so the chain compared against is the patches whose OPS
+      // have arrived — not `ordered`, which can name an announced patch this
+      // client has never seen the contents of. Using `ordered` would ask for a
+      // rebuild carrying a record that does not exist yet; using this means a
+      // foreign patch announced mid-chain reads as `current` until its data
+      // lands, and as a rebuild the moment it does.
+      const chain = patchStore.allRecords();
+      const patchIds = chain.map((record) => record.patchId);
+      const plan = patchSetChain.plan(patchIds);
+      const request = patchSetRequest(plan, chain);
+      const sets = await patchSetStore.getPatchSets(request);
+      // AFTER the call, not before: a worker that threw or a message that was
+      // never answered must not leave the host believing the grouping moved.
+      patchSetChain.covers(plan);
+      return { sets, chain: patchIds };
+    })().finally(() => {
+      patchSetsInFlight = null;
+    });
+    patchSetsInFlight = run;
+    return run;
+  }
+
+  function computePatchSets(): Promise<SerializedPatchSet> {
+    return computePatchSetsBuild().then((build) => build.sets);
+  }
   // See `PatchStore.publishInFlight`: a stat landing mid-publish would otherwise
   // reconcile away the patches `/save` has just deleted server-side.
   patchStore.setPublishInFlight(() => publishing);
@@ -619,7 +1238,10 @@ export function createSystem(options: SystemOptions): System {
       );
       return;
     }
-    const res = await options.discardPatches(toDelete);
+    const res = await options.discardPatches(
+      toDelete,
+      await computeDiscardClosure(toDelete),
+    );
     if (res.status === "error") {
       // Left for the next round: if the patch is still on the server it will be
       // announced again, fail again, and be attempted again — which is what the
@@ -669,6 +1291,21 @@ export function createSystem(options: SystemOptions): System {
 
   const unsubscribe = [
     patchStore.listenTo(stat, sourceStore),
+    /*
+     * A patch this client just wrote joins the scope — BEFORE the source store
+     * is told about it.
+     *
+     * Order is the whole point of registering it here rather than with the
+     * other listeners further down. `SourceStore.listenTo` is next in this
+     * list, and a `StoreBus` calls its listeners in registration order, so
+     * running first means the patch is already visible by the time
+     * `applyEntries` decides whether to hold it. Registered after, the patch
+     * would be applied as held and then un-held by a full module rebuild —
+     * correct, but a rebuild of the module's whole chain on every keystroke.
+     */
+    patchStore.events.on("patch:create", (event) => {
+      extendPatchGroup(event.patches);
+    }),
     sourceStore.listenTo(patchStore),
     // The write is the one path that is not demand-driven: a local patch has to
     // reach the server whether or not anything reads it again. So the sync
@@ -1041,30 +1678,8 @@ export function createSystem(options: SystemOptions): System {
       await rescanReferences();
       return referenceStore.at(path);
     },
-    async getPatchSets() {
-      if (patchSetsInFlight !== null) {
-        return patchSetsInFlight;
-      }
-      const run = (async () => {
-        // `allRecords()`, so the chain compared against is the patches whose OPS
-        // have arrived — not `ordered`, which can name an announced patch this
-        // client has never seen the contents of. Using `ordered` would ask for a
-        // rebuild carrying a record that does not exist yet; using this means a
-        // foreign patch announced mid-chain reads as `current` until its data
-        // lands, and as a rebuild the moment it does.
-        const chain = patchStore.allRecords();
-        const plan = patchSetChain.plan(chain.map((record) => record.patchId));
-        const request = patchSetRequest(plan, chain);
-        const sets = await patchSetStore.getPatchSets(request);
-        // AFTER the call, not before: a worker that threw or a message that was
-        // never answered must not leave the host believing the grouping moved.
-        patchSetChain.covers(plan);
-        return sets;
-      })().finally(() => {
-        patchSetsInFlight = null;
-      });
-      patchSetsInFlight = run;
-      return run;
+    getPatchSets() {
+      return computePatchSets();
     },
     async search(query, limit, offset) {
       // Gather ONLY what the index owes a pass for. On a first query that is
@@ -1134,6 +1749,196 @@ export function createSystem(options: SystemOptions): System {
           running: false,
         });
       }
+    },
+    computeWriteClosure(patchIds) {
+      return computeWriteClosure(patchIds);
+    },
+    computeDiscardClosure(patchIds) {
+      return computeDiscardClosure(patchIds);
+    },
+    setOwnPatchGroupId(patchGroupId) {
+      ownPatchGroupId = patchGroupId;
+    },
+    setPatchGroupResolver(resolver) {
+      if (resolver === undefined) {
+        patchSync.setPatchGroupResolver(undefined);
+        return;
+      }
+      /*
+       * Wrapped, so the CLOSURE lands in the local scope as well as on the
+       * server.
+       *
+       * The resolver's answer is "these other patches must join my group for it
+       * to stay applicable" — another author's array insert that this edit sits
+       * on top of, typically. The server unions them in, so after this write
+       * they are in the group; if the scope did not follow, the editor would be
+       * rendering its own edit WITHOUT the insert it was written against, and a
+       * publish would ship a combination that was never on screen.
+       *
+       * Here rather than in `PatchSync` because the scope lives here, and here
+       * rather than in the caller because every caller would have to remember.
+       */
+      patchSync.setPatchGroupResolver(async (patchIds) => {
+        const membership = await resolver(patchIds);
+        if (membership !== undefined) {
+          extendPatchGroup([...patchIds, ...membership.withPatchIds]);
+          /*
+           * And SAY SO, when the closure brought somebody else's work along.
+           *
+           * This is the one place other people's patches enter a user's view
+           * without them asking, and until now it happened in silence — the
+           * scope widened, the modules rebuilt, and the only trace was a number
+           * changing on the Review button.
+           *
+           * Announced only when the closure moved something. `patchIds` is the
+           * user's own write and is not news; an empty `withPatchIds`, which
+           * is the common case, says nothing at all.
+           */
+          const widenedBy = membership.withPatchIds.filter(
+            (patchId) => !patchIds.includes(patchId),
+          );
+          if (widenedBy.length > 0) {
+            patchSync.events.emit({
+              type: "patch:group-widened",
+              patches: widenedBy,
+            });
+          }
+        }
+        return membership;
+      });
+    },
+    async stagePatches(request) {
+      if (options.stagePatches === undefined) {
+        return {
+          status: "error",
+          message: "This system cannot change patch group membership.",
+        };
+      }
+      return options.stagePatches(request);
+    },
+    async unstagePatches(request) {
+      if (options.unstagePatches === undefined) {
+        return {
+          status: "error",
+          message: "This system cannot change patch group membership.",
+        };
+      }
+      return options.unstagePatches(request);
+    },
+    persistPatchGroupChange(patchGroupId, change) {
+      if (change.patchIds.length === 0 && change.withPatchIds.length === 0) {
+        return;
+      }
+      if (patchGroupId === undefined) {
+        /*
+         * Nothing to stage into yet. Held rather than dropped — see the
+         * declaration; the alternative was a control that moved the screen and
+         * silently persisted nothing.
+         *
+         * Capped so a user clicking away at a review screen on a branch whose
+         * group never materialises cannot grow this without bound. The oldest
+         * moves are the ones a later toggle is most likely to have already
+         * undone, so they are the ones dropped.
+         */
+        deferredGroupChanges.push(change);
+        if (deferredGroupChanges.length > MAX_DEFERRED_GROUP_CHANGES) {
+          deferredGroupChanges = deferredGroupChanges.slice(
+            -MAX_DEFERRED_GROUP_CHANGES,
+          );
+        }
+        return;
+      }
+      void sendPatchGroupChange(patchGroupId, change);
+    },
+    flushPatchGroupChanges(patchGroupId) {
+      if (deferredGroupChanges.length === 0) return;
+      const queued = deferredGroupChanges;
+      // Cleared BEFORE sending, so a change made while the flush is in flight
+      // queues behind nothing and is sent on its own rather than being replayed
+      // twice by the next flush.
+      deferredGroupChanges = [];
+      /*
+       * Replayed against the CURRENT scope, not verbatim.
+       *
+       * Verbatim was wrong in the very case the queue exists for. The group id
+       * appears because the user went and wrote something, and that write runs
+       * its own closure: a queued unstage of a patch the closure then pulled
+       * back in would be replayed afterwards and take it out of the group on
+       * the server — while the local scope, and therefore publish, still held
+       * it. The result was a hole in front of the user's own patch, surfacing a
+       * publish refusal naming raw ids, and only after a reload.
+       *
+       * The local scope is what this client intends the group to be, and every
+       * click has already been folded into it. So the queue is only a means of
+       * persisting that intent, and where the two disagree the scope wins —
+       * which is the write winning over the earlier click, as it must.
+       *
+       * Snapshotted once, so a scope change during the flush cannot make two
+       * entries in one replay disagree with each other.
+       */
+      const scope = patchGroupIds === null ? null : new Set(patchGroupIds);
+      void (async () => {
+        for (const change of queued) {
+          const inScope = (patchId: PatchId) =>
+            scope === null ||
+            (change.type === "stage"
+              ? scope.has(patchId)
+              : !scope.has(patchId));
+          // Both halves are filtered the same way. Filtering only the union and
+          // then intersecting would let the request name an id it is no longer
+          // sending.
+          const patchIds = change.patchIds.filter(inScope);
+          const withPatchIds = change.withPatchIds.filter(inScope);
+          if (patchIds.length === 0 && withPatchIds.length === 0) continue;
+          await sendPatchGroupChange(patchGroupId, {
+            ...change,
+            patchIds,
+            withPatchIds,
+          });
+        }
+      })();
+    },
+    seedPatchGroup(ids) {
+      /*
+       * Adopt the server's answer as a STARTING POINT, without losing what this
+       * tab has written since that answer was read.
+       *
+       * The annotation is fetched when the chain gains ids this client does not
+       * have, and a patch this client wrote is never one of those — so at the
+       * moment the shell first has a group to scope to, the annotation
+       * routinely predates the last few things the user typed. Seeding it
+       * verbatim held those patches: the editor showed the value from before
+       * the keystroke, having just accepted the keystroke.
+       *
+       * Union with every INTERNAL patch in the chain, because a patch this tab
+       * wrote is in this author's group on the server by construction — the
+       * content API puts it there. Only the seed does this. An explicit stage
+       * or unstage is the user's decision and is honoured exactly, which is why
+       * it goes through `setPatchGroup` instead; unstaging your own change has
+       * to be able to hide it.
+       */
+      const next = new Set(ids);
+      for (const record of patchStore.allRecords()) {
+        if (patchStore.originOf(record.patchId) === "internal") {
+          next.add(record.patchId);
+        }
+      }
+      patchGroupIds = [...next];
+      sourceStore.setVisiblePatchIds(patchGroupIds);
+      patchStore.notifyGroupsChanged();
+    },
+    setPatchGroup(ids) {
+      patchGroupIds = ids === null ? null : [...ids];
+      // Source is scoped in the same call, so "what I can see" and "what I will
+      // publish" cannot come apart.
+      sourceStore.setVisiblePatchIds(patchGroupIds);
+      // And anything counting the scope is woken, which `setVisiblePatchIds`
+      // alone does not do: it bumps only the modules whose visible set moved,
+      // so a scope change that shows nothing new tells no one.
+      patchStore.notifyGroupsChanged();
+    },
+    patchGroup() {
+      return patchGroupIds;
     },
     async publish(requestedPatchIds, message, publishOptions) {
       const exact = publishOptions?.exact === true;
@@ -1244,17 +2049,103 @@ export function createSystem(options: SystemOptions): System {
          * is typing, and a save that refuses whenever that happens is a save
          * that never runs.
          */
+        /**
+         * The chain, restricted to the caller's patch group.
+         *
+         * This is where independent publish actually happens, and it is a
+         * deliberate weakening of the rule the comment above states. "Publish
+         * the whole pending chain" is the conservative approximation of the
+         * real constraint, which is that what ships must not leave behind a
+         * patch whose paths it could move. Two patches that can move each
+         * other's paths are, by definition, in the same PATCH SET — and a group
+         * is required to hold a prefix of every patch set it touches
+         * (`utils/patchGroups.ts`). So a group is safe to publish even though it
+         * is not a prefix of the chain: what stays behind is in other patch
+         * sets, and committing this cannot shift it.
+         *
+         * Chain ORDER is preserved by filtering `chainNow` rather than using
+         * the group's own ordering, because the server applies what it is given
+         * in the order it is given, and the group is a set.
+         *
+         * Unscoped (`null`) is unchanged: the whole chain, exactly as before.
+         */
+        const groupScoped =
+          patchGroupIds === null
+            ? chainNow
+            : /*
+               * The group, minus whatever has already SHIPPED.
+               *
+               * A group's ids stay in the scope after they are applied — by
+               * this author publishing from another tab, or by somebody else's
+               * publish whose closure carried them — and `/stat`'s applied set
+               * marks the records without touching the scope. Sending them
+               * anyway asks the server to re-apply an applied patch and names a
+               * group it has already closed, so a tab whose whole group went
+               * out elsewhere answered `failed: "Patch group is already
+               * published"` where the honest answer was `nothing-to-publish`.
+               *
+               * Through `pendingAmong`, which is the store's single answer to
+               * "has this shipped" and what `emptiesOwnPatchGroup` already asks.
+               * Writing the predicate out again here is how the close decision
+               * and the annotation drifted apart two rounds ago.
+               *
+               * Unscoped (`null`) is untouched: `fs` mode has no applied set to
+               * consult and the whole chain is the answer, exactly as before.
+               */
+              ((ids) => chainNow.filter((patchId) => ids.has(patchId)))(
+                patchStore.pendingAmong(patchGroupIds),
+              );
         const toPublish = exact
           ? takeNamedPrefix(
-              chainNow,
+              groupScoped,
               new Set(requestedPatchIds),
               new Set(
                 patchStore.unsavedRecords().map((record) => record.patchId),
               ),
             )
-          : chainNow;
+          : groupScoped;
         if (toPublish.length === 0) {
           return { status: "nothing-to-publish" };
+        }
+
+        /*
+         * The prefix invariant, checked where it actually costs something.
+         *
+         * A scoped publish is only safe because a group holds a PREFIX of every
+         * patch set it touches: what stays behind is in other patch sets and
+         * cannot have its paths shifted by this commit. Skip a patch and ship a
+         * later one from the same set and the later one applies onto a value
+         * that has never existed — silently, and in a commit.
+         *
+         * `stageClosure` cannot produce such a group; that is what it is for.
+         * But a group can arrive this way regardless — a stale annotation, a
+         * client on an older closure version, a repair that has not run, a
+         * hand-written request to `/patch-groups` — so the invariant is checked
+         * here rather than assumed, at the one point where getting it wrong is
+         * not recoverable.
+         *
+         * Refused rather than repaired, and this is the ONLY thing that
+         * notices. Nothing auto-repairs a coalesced hole: widening the group
+         * would publish work the user never staged, and truncating it would
+         * drop their own. So the refusal names what is missing, and the review
+         * screen is where they choose — stage it, or unstage what depends on
+         * it.
+         */
+        if (patchGroupIds !== null) {
+          const violations = await prefixViolations(toPublish);
+          if (violations.length > 0) {
+            const missing = violations.flatMap(
+              (violation) => violation.missing,
+            );
+            return {
+              status: "failed",
+              message:
+                "These changes depend on earlier changes that are not staged: " +
+                missing.join(", ") +
+                ". Stage them, or unstage the changes that depend on them.",
+              retryable: false,
+            };
+          }
         }
 
         // Validate the affected modules, and validate them rather than reading
@@ -1324,10 +2215,35 @@ export function createSystem(options: SystemOptions): System {
           };
         }
 
+        const headCommitSha = stat.currentHeadCommitSha();
+        /*
+         * Decided once, and read twice: it is what the server is asked to do
+         * and what the store is told happened. Recomputing it after the publish
+         * would ask a chain the publish has already moved.
+         */
+        const closesOwnPatchGroup = emptiesOwnPatchGroup(toPublish);
         const outcome = await options.publishPatches({
           patchIds: toPublish,
           message,
+          ...(closesOwnPatchGroup
+            ? { closesPatchGroupId: ownPatchGroupId }
+            : {}),
+          /*
+           * The world this publish was decided against.
+           *
+           * Read here rather than captured at the top of the call: the gate
+           * above has just re-checked the chain, so this is the head that goes
+           * with the set about to ship.
+           */
+          ...(headCommitSha !== null
+            ? { expectedHeadCommitSha: headCommitSha }
+            : {}),
         });
+        if (outcome.status === "head-moved") {
+          // Nothing was written. The review screen showed a world somebody else
+          // has changed since, so the honest answer is to look again.
+          return { status: "refused", reason: "head-moved" };
+        }
         if (outcome.status === "patch-errors") {
           // Recorded, not just returned. A server refusal never resolves itself,
           // so the publish gate has to keep seeing it after the caller that made
@@ -1337,6 +2253,26 @@ export function createSystem(options: SystemOptions): System {
             status: "failed",
             message: outcome.message,
             patchErrors: outcome.errors,
+            retryable: false,
+          };
+        }
+        if (outcome.status === "group-published") {
+          /*
+           * This author's group went out from somewhere else — another tab.
+           *
+           * Forgotten here for the same reason `sendPatchGroupChange` forgets
+           * it: a published group is immutable, so a client that keeps naming
+           * it answers every publish and every stage with the same 409, and
+           * nothing else would correct it on a quiet branch. The next write
+           * creates the next group and the save response names it.
+           *
+           * Not retryable, unlike the `not-fast-forward` below: catching up
+           * changes nothing, because this id will never be writable again.
+           */
+          patchStore.forgetOwnPatchGroup();
+          return {
+            status: "failed",
+            message: outcome.message,
             retryable: false,
           };
         }
@@ -1352,6 +2288,21 @@ export function createSystem(options: SystemOptions): System {
               outcome.status === "not-fast-forward" ||
               outcome.status === "network-error",
           };
+        }
+
+        /*
+         * The head this publish just made.
+         *
+         * Set before anything else, and this is the fix for a client refusing
+         * its OWN next publish: `stat.currentHeadCommitSha()` above is what
+         * goes out as `expectedHeadCommitSha`, and until a `/stat` response
+         * lands it was still the pre-publish head. The server then compared it
+         * against the commit this client had just made and answered 409
+         * "someone else published while you were reviewing" — for the user's
+         * own commit, on every pause in typing with auto-publish on.
+         */
+        if (outcome.commitSha !== undefined) {
+          stat.setHeadCommitSha(outcome.commitSha);
         }
 
         /*
@@ -1383,7 +2334,12 @@ export function createSystem(options: SystemOptions): System {
         // Recorded before the mode split, because it is true in both: these
         // patches are in a commit now. `filePatchIds` needs it in `http` mode,
         // where the chain keeps them — see `PatchStore.publishedIds`.
-        patchStore.markPublished(toPublish);
+        patchStore.markPublished(toPublish, {
+          // Whether the group was CLOSED, not whether a publish happened: a
+          // partial publish leaves it open on the server holding the rest of
+          // its work, and the store has to go on knowing which group that is.
+          closedOwnPatchGroup: closesOwnPatchGroup,
+        });
         if (mode === "fs") {
           // ORDER MATTERS, and this is the whole reason both methods exist.
           // Promote first: the patched value becomes the base, so when the chain
@@ -1418,7 +2374,18 @@ export function createSystem(options: SystemOptions): System {
           message: "This system has no discard seam configured.",
         };
       }
-      const res = await options.discardPatches(patchIds);
+      /*
+       * Computed here, not in the seam.
+       *
+       * The seam is the network call; this needs the patch sets, which only
+       * this graph has. And it has to be computed BEFORE the delete: afterwards
+       * the discarded patches are gone from the chain, so the sets they were in
+       * no longer say what was built on top of them.
+       */
+      const res = await options.discardPatches(
+        patchIds,
+        await computeDiscardClosure(patchIds),
+      );
       if (res.status === "error") {
         return { status: "failed", message: res.message };
       }

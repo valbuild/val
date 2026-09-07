@@ -21,6 +21,7 @@ import {
   unsafeCreateSourcePath,
 } from "../selector/SelectorProxy";
 import { JsonOf, JsonSource, isJson } from "../source/json";
+import { ExternalRecordSrc, isExternal } from "../source/external";
 import { ModuleFilePath, SourcePath } from "../val";
 import {
   ValidationError,
@@ -65,6 +66,12 @@ export type SerializedRecordSchema = {
   // When true, entry values are stored in separate lazily-loaded `*.val.json`
   // files (see `.jsonValues()`).
   jsonValues?: boolean;
+  /**
+   * The label from `.external(label)`. Its presence is what marks the record as
+   * externally stored; the value names the binding a reader — or a model — can
+   * grep for. See `source/external.ts`.
+   */
+  external?: string;
   readonly?: boolean;
   hidden?: boolean;
   description?: string;
@@ -97,7 +104,14 @@ export class RecordSchema<
   Src extends
     | Record<SelectorOfSchema<K>, SelectorOfSchema<T>>
     | JsonValuesRecordSrc<T, K>
+    | ExternalRecordSrc
     | null,
+  /**
+   * Whether `.readonly()` was called. It rides in the type — not only in
+   * `isReadonly` — because `.external()` freezes it into the source marker, and
+   * the adapter's write methods are required or forbidden on the strength of it.
+   */
+  RO extends boolean = false,
 > extends Schema<Src> {
   constructor(
     private readonly item: T,
@@ -113,6 +127,17 @@ export class RecordSchema<
     private readonly isJsonValues: boolean = false,
     private readonly previewInput: ItemPreviewInput<Src> | null = null,
     private readonly renderInput: FieldRender | null = null,
+    /**
+     * Set by `.external(label)`; the entries live behind that adapter.
+     *
+     * LAST on purpose: every other `new RecordSchema(...,
+      this.externalLabel,
+    )` in the codebase
+     * passes its arguments positionally, so a new parameter anywhere else
+     * silently shifts `previewInput` and `renderInput` at each of those call
+     * sites.
+     */
+    private readonly externalLabel: string | null = null,
   ) {
     super();
   }
@@ -131,6 +156,7 @@ export class RecordSchema<
       this.isJsonValues,
       this.previewInput,
       this.renderInput,
+      this.externalLabel,
     );
   }
 
@@ -150,11 +176,15 @@ export class RecordSchema<
       this.isJsonValues,
       this.previewInput,
       this.renderInput,
+      this.externalLabel,
     );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     let error: ValidationErrors = false;
+    if (this.externalLabel !== null) {
+      return this.validateExternal(path, src);
+    }
     const customValidationErrors: ValidationError[] =
       this.executeCustomValidateFunctions(src, this.customValidateFunctions, {
         path,
@@ -581,10 +611,23 @@ export class RecordSchema<
       this.isJsonValues,
       this.previewInput,
       this.renderInput,
+      this.externalLabel,
     ) as RecordSchema<T, K, Src | null>;
   }
 
-  readonly(isReadonly: boolean = true): RecordSchema<T, K, Src> {
+  /**
+   * A record you can look at but not change.
+   *
+   * The flag rides in the TYPE as well as in the instance, so `.external()` can
+   * freeze it into the source marker and the adapter's write methods become
+   * required or forbidden on the strength of it. That is also why `.readonly()`
+   * must come BEFORE `.external()`: afterwards the value is a `Schema`, and
+   * there is no `.readonly()` left to call — which is the error the compiler
+   * gives, and a clearer one than a runtime throw.
+   */
+  readonly<B extends boolean = true>(
+    isReadonly: B = true as B,
+  ): RecordSchema<T, K, Src, B> {
     return new RecordSchema(
       this.item,
       this.opt,
@@ -598,6 +641,7 @@ export class RecordSchema<
       this.isJsonValues,
       this.previewInput,
       this.renderInput,
+      this.externalLabel,
     );
   }
 
@@ -615,6 +659,7 @@ export class RecordSchema<
       this.isJsonValues,
       this.previewInput,
       this.renderInput,
+      this.externalLabel,
     );
   }
 
@@ -632,6 +677,7 @@ export class RecordSchema<
       this.isJsonValues,
       this.previewInput,
       this.renderInput,
+      this.externalLabel,
     );
   }
 
@@ -649,6 +695,7 @@ export class RecordSchema<
       this.isJsonValues,
       this.previewInput,
       this.renderInput,
+      this.externalLabel,
     );
   }
 
@@ -706,7 +753,113 @@ export class RecordSchema<
       // Null by construction: the guard above rejects any that was declared.
       null,
       this.renderInput,
+      this.externalLabel,
     );
+  }
+
+  /**
+   * Store this record's entries behind an adapter — a database, an HTTP API, a
+   * bucket — instead of in the module.
+   *
+   * Available on every record-derived schema, which is `s.record()`,
+   * `s.router()`, `s.images()` and `s.files()` alike: a router is a
+   * `RecordSchema` with a `ValRouter`, a gallery one with media options, so all
+   * four get external storage from this one method.
+   *
+   * `label` does not address the binding — the registry is keyed by module, and
+   * so is the wire protocol. It exists so a reader of the schema can see what
+   * backs it, and it is checked against the binding that claims it, so the two
+   * cannot drift.
+   *
+   * Only supported on a module's ROOT record, exactly as `.jsonValues()` is: a
+   * nested external record would leave a hole in the middle of a module's
+   * source, and the Studio, patching and validation all assume a module's
+   * source is complete apart from its entries.
+   */
+  external<L extends string>(
+    label: L,
+  ): RecordSchema<T, K, ExternalRecordSrc<SelectorOfSchema<T>, L, RO>, RO> {
+    if (this.isJsonValues) {
+      throw new Error(
+        ".external() cannot be combined with .jsonValues(): entries live in one place or the other, not both.",
+      );
+    }
+    if (!label) {
+      throw new Error('.external() requires a label, e.g. .external("posts")');
+    }
+    return new RecordSchema<
+      T,
+      K,
+      ExternalRecordSrc<SelectorOfSchema<T>, L, RO>,
+      RO
+    >(
+      this.item,
+      this.opt,
+      // Empty by construction: a validator declared before `.external()` is
+      // typed against the un-external source shape and cannot be carried over.
+      [],
+      this.currentRouter,
+      this.keySchema,
+      this.mediaOptions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.isJsonValues,
+      null,
+      this.renderInput,
+      label,
+    );
+  }
+
+  /**
+   * An external record's source is either the `c.external()` marker or entries
+   * still written inline in the `.val.ts`.
+   *
+   * Inline entries are NOT a type error (see `ExternalRecordWritableSrc`), so
+   * this is where they surface: as an `external:upload` fix, per key, the way
+   * `.jsonValues()` reports an un-extracted entry. Reporting per key rather than
+   * once for the record is what lets the fix be applied to one entry, and what
+   * puts the error at a path the editor can navigate to.
+   */
+  private validateExternal(path: SourcePath, src: Src): ValidationErrors {
+    if (this.opt && (src === null || src === undefined)) {
+      return false;
+    }
+    if (src === null || typeof src !== "object" || Array.isArray(src)) {
+      return {
+        [path]: [
+          {
+            message: `Expected the c.external() marker or inline entries, got '${
+              src === null ? "null" : Array.isArray(src) ? "array" : typeof src
+            }'`,
+            value: src,
+            schemaError: true,
+          },
+        ],
+      };
+    }
+    if (isExternal(src)) {
+      // The marker: the entries are the adapter's, and there is nothing here to
+      // check. Their content is validated as it is read.
+      return false;
+    }
+    let error: ValidationErrors = false;
+    for (const key of Object.keys(src)) {
+      const subPath = createValPathOfItem(path, key);
+      if (!subPath) {
+        continue;
+      }
+      error = this.appendValidationError(
+        error,
+        subPath,
+        `Entry is written inline, but this record is .external("${this.externalLabel}"). Run 'val external upload' to move it into the store.`,
+        (src as Record<string, unknown>)[key],
+      );
+      const errors = error as Record<SourcePath, ValidationError[]>;
+      const last = errors[subPath][errors[subPath].length - 1];
+      last.fixes = ["external:upload"];
+    }
+    return error;
   }
 
   private getRouterValidations(path: SourcePath, src: Src): ValidationErrors {
@@ -795,6 +948,7 @@ export class RecordSchema<
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
       jsonValues: this.isJsonValues ? true : undefined,
+      external: this.externalLabel ?? undefined,
       readonly: this.isReadonly,
       hidden: this.isHidden,
       description: this.description,
@@ -834,6 +988,10 @@ export class RecordSchema<
   ): ReifiedPreview {
     const res: ReifiedPreview = {};
     if (src === null) {
+      return res;
+    }
+    if (isExternal(src)) {
+      // The entries are the adapter's; there is nothing here to preview.
       return res;
     }
     for (const key in src) {
@@ -942,6 +1100,7 @@ export class RecordSchema<
       this.isJsonValues,
       select,
       this.renderInput,
+      this.externalLabel,
     );
   }
 
@@ -966,6 +1125,7 @@ export class RecordSchema<
       this.isJsonValues,
       this.previewInput,
       input,
+      this.externalLabel,
     );
   }
 }

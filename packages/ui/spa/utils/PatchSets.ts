@@ -34,6 +34,31 @@ type InternalPatchSetPath = string;
 export type SerializedPatchSet = PatchSetMetadata[];
 type PatchPath = string[];
 
+/**
+ * Is `inner` strictly nested inside the patch set `outer`?
+ *
+ * A plain `inner.startsWith(outer)` is not enough, and the difference is not
+ * cosmetic. The file part of a key is terminated by the '?' delimiter, but the
+ * segments of the patch path are not terminated by anything, so a raw prefix
+ * test also matches siblings whose *name* merely starts with the same
+ * characters: '/p.val.ts?foobar/title' starts with '/p.val.ts?foo', so removing
+ * record key "foo" and retitling record key "foobar" would be merged into one
+ * patch set.
+ *
+ * That used to only over-group two unrelated changes in the compare view. Now
+ * that patch sets decide what a patch group must contain, it means staging one
+ * key silently publishes its similarly-named sibling — so the boundary has to be
+ * checked explicitly: '?' when `outer` is a bare module file path, '/' when it
+ * already has a patch path.
+ */
+export function isInsidePatchSetPath(inner: string, outer: string): boolean {
+  if (!inner.startsWith(outer)) {
+    return false;
+  }
+  const boundary = inner[outer.length];
+  return outer.includes("?") ? boundary === "/" : boundary === "?";
+}
+
 export class PatchSets {
   private insertedPatches: Set<PatchId>;
   private patchSetMetadata: Record<InternalPatchSetPath, PatchSetMetadata>;
@@ -70,20 +95,18 @@ export class PatchSets {
         ? `${moduleFilePath}?${affectsPatchPath.join("/")}`
         : moduleFilePath;
     const pathIndexesThatMustBeMerged: number[] = [];
-    // TODO: current implementation is O(n), with startsWith it is: O(n x m) - there's room for optimization (Trie?). Just make sure order is maintained and that insert AND then serialize is what we optimize for because the UX will do an insert, then serialize immediately after
+    // TODO: current implementation is O(n), with isInside it is: O(n x m) - there's room for optimization (Trie?). Just make sure order is maintained and that insert AND then serialize is what we optimize for because the UX will do an insert, then serialize immediately after
     for (let i = this.orderedInsertKeys.length - 1; i >= 0; i--) {
       const currentInsertKey = this.orderedInsertKeys[i];
-      // We think .startsWith would not be correct unless we had 1) .val.ts to end the files 2) a delimiter ('?') for the patch path (that is there even if it is an empty array) - right?
-      // but both 1) and 2) are guaranteed by the format of the patch set path, we can do this (which is simple, but not very efficient?):
       if (newPatchSetPath !== currentInsertKey) {
-        if (newPatchSetPath.startsWith(currentInsertKey)) {
+        if (isInsidePatchSetPath(newPatchSetPath, currentInsertKey)) {
           // This new patch set is inside an existing patch set...
           // Use the existing patch set as the new name
           newPatchSetPath = currentInsertKey;
           // Move to new patch set to head
           this.orderedInsertKeys.splice(i, 1);
           this.orderedInsertKeys.unshift(newPatchSetPath);
-        } else if (currentInsertKey.startsWith(newPatchSetPath)) {
+        } else if (isInsidePatchSetPath(currentInsertKey, newPatchSetPath)) {
           // We found a patch set (with a shorter path) that needs to be merged into this new patch set
           pathIndexesThatMustBeMerged.push(i);
         }
@@ -181,10 +204,21 @@ export class PatchSets {
     }
   }
 
+  /**
+   * Insert a whole patch.
+   *
+   * Takes the patch rather than one op because the de-duplication below is
+   * per-*patch*: a patch is either known to this instance or it is not. When this
+   * took a single op, callers looped and every call after the first hit the
+   * `insertedPatches` guard and returned — so only a patch's first op ever reached
+   * a patch set. A patch that touched two places (a `move`, or a `file` op sitting
+   * before its source op) was therefore mis-grouped, which is invisible in the
+   * compare view but decides what a patch group must contain.
+   */
   insert(
     moduleFilePath: ModuleFilePath,
     schema: SerializedSchema | undefined,
-    op: Operation,
+    patch: Operation[],
     patchId: PatchId,
     createdAt: IsoDateString,
     author: AuthorId | null,
@@ -192,6 +226,27 @@ export class PatchSets {
     if (this.insertedPatches.has(patchId)) {
       return;
     }
+    // Marked inserted unconditionally, schema or not. An earlier revision of this
+    // fix only marked it once a schema was available, so that a patch grouped
+    // under the whole-module fallback could be re-inserted later with the real
+    // schema. That is no longer this class's problem: `PatchSetChain` invalidates
+    // on `schema:init` and a rebuild calls `reset()`, which clears this set — so
+    // the fallback is already re-derived from scratch when the schema lands, and a
+    // conditional here would only leave the per-patch de-duplication half-applied.
+    this.insertedPatches.add(patchId);
+    for (const op of patch) {
+      this.insertOp(moduleFilePath, schema, op, patchId, createdAt, author);
+    }
+  }
+
+  private insertOp(
+    moduleFilePath: ModuleFilePath,
+    schema: SerializedSchema | undefined,
+    op: Operation,
+    patchId: PatchId,
+    createdAt: IsoDateString,
+    author: AuthorId | null,
+  ) {
     if (!schema) {
       this.insertPath(
         moduleFilePath,
@@ -205,8 +260,6 @@ export class PatchSets {
       );
       return;
     }
-
-    this.insertedPatches.add(patchId);
     if (op.op === "file" || op.op === "test") {
       return;
     }

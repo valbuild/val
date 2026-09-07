@@ -35,6 +35,31 @@ export type StatSnapshot = {
    * drains it when it hands it over, so it arrives exactly once.
    */
   removed?: { patchId: PatchId; reason: string }[];
+  /**
+   * Of `patches`, the ones that have already SHIPPED.
+   *
+   * The id list says what exists; this says what has been committed but not yet
+   * deployed. A client never re-fetches a record it already holds, so without
+   * this it never learns that somebody else's publish moved a patch it is
+   * holding — the patch stayed pending in the scope, the prefix gate read a
+   * hole in front of it, and Publish refused for a reason that had stopped
+   * being true.
+   *
+   * Optional: `fs` mode forgets published patches outright, and a server that
+   * does not send it leaves the client exactly where it was.
+   */
+  appliedPatches?: PatchId[];
+  /**
+   * The newest commit the server has told this client about.
+   *
+   * The PUBLISH HEAD. Unlike `baseSha`, which only moves once a deployment
+   * lands, it moves the instant somebody publishes — so it is the one thing a
+   * client can carry to `/save` to say which world it decided against.
+   *
+   * `undefined` where there is nothing to say (`fs` mode, or no commits yet),
+   * and absent leaves the last known head alone rather than clearing it.
+   */
+  headCommitSha?: string;
 };
 
 /**
@@ -52,6 +77,32 @@ export class StatStore {
 
   private patches: PatchId[] = [];
   private baseSha: string | null = null;
+  /** The publish head. See {@link StatSnapshot.headCommitSha}. */
+  private headCommitSha: string | null = null;
+  /**
+   * The head a local publish moved us off, until one stat has answered with it.
+   *
+   * `/stat` is asked and answered; a publish in between changes the answer
+   * after the question was asked. The response then carries the PRE-publish
+   * head, and adopting it puts this client back on a world it has already left
+   * — so its next publish names a commit the server has moved past and comes
+   * back 409 "someone else published", about its own commit. Auto-publish hits
+   * that window on every pause in typing.
+   *
+   * Ignored for exactly ONE stat, and then cleared. The poll is serial — a
+   * request is issued only after the previous one has been answered — so at
+   * most one response can have been in flight when the publish landed. Clearing
+   * is what keeps a rewind survivable: if the server's head really has gone
+   * backwards (a force-push over a published commit), the next stat says so
+   * again and is believed, rather than this client being wedged on a commit
+   * nobody else has until the page is reloaded.
+   *
+   * `resyncChain` asks `/stat` outside that serial loop, so two answers CAN be
+   * in flight at once; the second would still rewind. That is the bug as it
+   * stands today rather than a new one, and closing it needs a per-request
+   * sequence number carried on the response.
+   */
+  private supersededHead: string | null = null;
 
   /**
    * Adopt a `/stat` result. The id list is authoritative and replaces what we
@@ -62,7 +113,23 @@ export class StatStore {
     if (snapshot.baseSha !== undefined) {
       this.baseSha = snapshot.baseSha;
     }
-    this.events.emit({ type: "stat:receive", patches: [...this.patches] });
+    if (snapshot.headCommitSha !== undefined) {
+      if (snapshot.headCommitSha === this.supersededHead) {
+        // The answer to a question asked before we published. See
+        // {@link supersededHead}: ignored once, and then believed.
+        this.supersededHead = null;
+      } else {
+        this.headCommitSha = snapshot.headCommitSha;
+        this.supersededHead = null;
+      }
+    }
+    this.events.emit({
+      type: "stat:receive",
+      patches: [...this.patches],
+      ...(snapshot.appliedPatches !== undefined
+        ? { appliedPatches: [...snapshot.appliedPatches] }
+        : {}),
+    });
     if (snapshot.removed !== undefined && snapshot.removed.length > 0) {
       // A separate event, after the id list: what this says is not "the chain
       // moved", it is "work you made no longer exists anywhere". Only one thing
@@ -76,6 +143,39 @@ export class StatStore {
 
   currentPatchIds(): PatchId[] {
     return [...this.patches];
+  }
+
+  /**
+   * The newest commit this client has been told about, or `null`.
+   *
+   * See {@link StatSnapshot.headCommitSha}. Read rather than carried on the
+   * event, for the same reason `baseSha` is: the event says something changed,
+   * and a consumer that needs this asks for it.
+   */
+  currentHeadCommitSha(): string | null {
+    return this.headCommitSha;
+  }
+
+  /**
+   * Move the publish head without waiting for a `/stat` response.
+   *
+   * Two things know the head has moved before the next poll does: this
+   * client's own publish, which gets the sha back from `/save`, and the
+   * websocket `commit` message, which is how another author's publish arrives.
+   * Neither used to move it, so between a publish and the next poll the head
+   * here was the PRE-publish one — and a second publish in that window sent it
+   * as `expectedHeadCommitSha`, was compared against the commit this same
+   * client had just made, and came back 409 "someone else published". With
+   * auto-publish that window is hit on every pause in typing.
+   *
+   * No event: nothing renders the head, and the one reader asks for it at the
+   * moment it publishes.
+   */
+  setHeadCommitSha(headCommitSha: string): void {
+    if (this.headCommitSha !== null && this.headCommitSha !== headCommitSha) {
+      this.supersededHead = this.headCommitSha;
+    }
+    this.headCommitSha = headCommitSha;
   }
 
   /**

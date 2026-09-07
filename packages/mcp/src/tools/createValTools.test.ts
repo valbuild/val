@@ -17,10 +17,6 @@ import type { ValToolContext, ValTools } from "./types";
  */
 
 const NO_AUTH: ValToolContext = { auth: null, sessionId: null };
-const WITH_PAT: ValToolContext = {
-  auth: { type: "pat", pat: "pat-not-a-real-token" },
-  sessionId: null,
-};
 
 function verified(...scopes: string[]): ValToolContext {
   return {
@@ -73,8 +69,12 @@ describe("authorization", () => {
     expect(res).toEqual({
       status: "error",
       code: "forbidden",
-      message: expect.stringContaining("personal access token"),
+      message: expect.stringContaining("access token"),
     });
+    // And that the message names the config a caller cannot supply, because
+    // the usual cause of an absent credential in proxy mode is an endpoint that
+    // never asked for one.
+    expect(res.status === "error" && res.message).toContain("oauth");
   });
 
   test("proxy mode refuses a write with no credential too", async () => {
@@ -97,25 +97,6 @@ describe("authorization", () => {
     const res = await httpTools().call("nope", {}, NO_AUTH);
 
     expect(res.status === "error" && res.code).toBe("unknown-tool");
-  });
-
-  test("fs mode refuses a credential rather than ignoring it", async () => {
-    const res = await fsTools().call("get_all_schema", {}, WITH_PAT);
-
-    // A host that believes it is authenticating must not silently get direct
-    // filesystem access instead: fs mode writes straight to the working tree,
-    // with no backend permission check anywhere in the path.
-    expect(res).toEqual({
-      status: "error",
-      code: "unsupported",
-      message: expect.stringContaining("local filesystem mode"),
-    });
-    // A PAT is something the caller chose to send, so the fix is on their side
-    // and the message says so without dragging in config they never touched.
-    expect(res.status === "error" && res.message).toContain(
-      "Do not send a credential",
-    );
-    expect(res.status === "error" && res.message).not.toContain("oauth");
   });
 
   test("fs mode serves a call with no credential", async () => {
@@ -208,16 +189,16 @@ describe("scopes", () => {
     expect(res.status === "error" && res.message).toContain("val:read");
   });
 
-  test("fs mode refuses a verified profile too", async () => {
+  test("fs mode refuses a credential rather than ignoring it", async () => {
     const res = await fsTools().call(
       "get_all_schema",
       {},
       verified("val:read", "val:write"),
     );
 
-    // Same reasoning as the PAT case: a host that believes it is
-    // authenticating must not silently get direct filesystem access, and which
-    // *kind* of credential it holds does not change that.
+    // A host that believes it is authenticating must not silently get direct
+    // filesystem access instead: fs mode writes straight to the working tree,
+    // with no backend permission check anywhere in the path.
     expect(res).toEqual({
       status: "error",
       code: "unsupported",
@@ -232,18 +213,22 @@ describe("scopes", () => {
     expect(res.status === "error" && res.message).toContain("VAL_OAUTH_ISSUER");
   });
 
-  test("a PAT is not scope-checked here", async () => {
-    // A PAT carries no scopes in this process: the backend resolves it and
-    // decides. Inventing a default would be this app claiming an authority it
-    // does not have — so the gate must not refuse a write on a PAT for want of
-    // a scope it was never given.
+  test("an unverified credential cannot reach the scope gate at all", async () => {
+    // There is no longer a credential that arrives without scopes. A personal
+    // access token used to, and the gate had to let it past unchecked because
+    // only the backend could resolve it — so the registry accepted a caller it
+    // could not describe. Now the only auth it accepts carries its own scopes,
+    // which is what makes checking them here meaningful rather than optional.
     const res = await httpTools().call(
       "create_patch",
       { moduleFilePath: "/test/pages.val.ts", patch: [] },
-      WITH_PAT,
+      { auth: null, sessionId: null },
     );
 
-    expect(res.status).toBe("error");
-    expect(res.status === "error" && res.code).not.toBe("forbidden");
+    expect(res).toEqual({
+      status: "error",
+      code: "forbidden",
+      message: expect.stringContaining("access token"),
+    });
   });
 });

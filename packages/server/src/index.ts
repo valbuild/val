@@ -1,4 +1,32 @@
 export { createService, Service } from "./Service";
+// The external-record adapter contract. Types plus the `ok`/`err` helpers; the
+// registry that executes them arrives with the read endpoints.
+export {
+  defineExternal,
+  ok,
+  err,
+  isExternalResult,
+  EXTERNAL_RESULT,
+} from "./externalRecords";
+export type {
+  AdapterFor,
+  BoundExternalRecord,
+  ExternalAuthor,
+  ExternalBuilder,
+  ExternalCtx,
+  ExternalDefinition,
+  ExternalFile,
+  ExternalIssue,
+  ExternalKeyPage,
+  ExternalRecords,
+  ExternalResult,
+  ExternalSearchHit,
+  ExternalSearchPage,
+  ExternalSort,
+  ItemOfModule,
+  ReadonlyRecordHasNoWrites,
+  Returns,
+} from "./externalRecords";
 export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
 // Exported for a host that has to build the same config the API router builds:
 // two copies of this decision drift, and a registry that thinks it is in fs mode
@@ -44,6 +72,7 @@ export {
   handleUniqueFolderCheck,
   handleCheckAllFiles,
   handleJsonValuesExtractEntry,
+  handleExternalUpload,
 } from "./fixHandlers";
 export type {
   FixHandler,
