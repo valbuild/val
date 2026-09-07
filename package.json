@@ -20,7 +20,8 @@
     "release": "pnpm run build && changeset publish",
     "dev:example-next": "concurrently -k \"cd  packages/ui; pnpm run dev\" \"cd examples/next; pnpm run dev\"",
     "dev:storybook:": "cd packages/ui; pnpm run storybook",
-    "debug:replay": "tsx scripts/debugReplay.ts"
+    "debug:replay": "tsx scripts/debugReplay.ts",
+    "prune:github-releases": "tsx scripts/pruneGithubReleases.ts"
   },
   "devDependencies": {
     "@babel/core": "^7.29.6",

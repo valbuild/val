@@ -679,6 +679,70 @@ until someone bumps it. So, once the new version is on npm:
    shows up here first, and this is the last place to catch it before it is what
    every new project starts from.
 
+### No GitHub Release has been created since 0.107.0
+
+Symptom: npm has every version, the git tags are all there, `CHANGELOG.md` has
+the notes — and the Releases page stops dead at `@valbuild/*@0.107.0`. The
+Release job is green, with no error and no mention of a release in its log.
+
+→ `@changesets/cli` went from 2.29.8 to 3.0.1 in `81cbd26`, and
+`changesets/action@v1` learns which packages were published by parsing
+`New tag: <pkg>@<version>` lines out of `changeset publish`'s stdout. v3 does
+not print them: it prints its own UI instead, `◇ Created git tags.`, and pushes
+the tags itself. So the action parses **zero** published packages, concludes
+nothing was published, and skips creating the GitHub Releases. Publishing to npm
+is unaffected, which is why nothing ever went red.
+
+The two runs either side of it are worth reading together, because the diff is
+the whole diagnosis:
+
+- [run 1129](https://github.com/valbuild/val/actions/runs/33236610492) published
+  0.107.0 and its log ends with git's own
+  `* [new tag] @valbuild/next@0.107.0 -> @valbuild/next@0.107.0`. Releases created.
+- [run 1133](https://github.com/valbuild/val/actions/runs/33238398776) published
+  0.108.0 47 minutes later and ends with `◇ Created git tags.` No releases, and
+  none since.
+
+Note that the break lands a day AFTER the version bump. `pnpm install
+--frozen-lockfile` kept resolving 2.29.8 until `changeset version` ran
+`pnpm install --no-frozen-lockfile` and committed the updated lock file in a
+"Version Packages" PR. So the first run to actually execute v3 is the one after
+that PR merged, not the one after the bump — do not use the bump's date to
+decide which releases are affected.
+
+Either pin `@changesets/cli` back to `^2`, or move to a `changesets/action`
+release that understands v3's output — check which of those exists before
+picking, the action's v1 tag floats. Whichever way it is fixed, 0.108.0 through
+0.123.0 have notes in their `CHANGELOG.md` and no Release carrying them; those
+can be backfilled from the changelog sections.
+
+### Pruning the Releases page
+
+`pnpm prune:github-releases` deletes the Releases-page entries that have no
+notes, and nothing else:
+
+```bash
+GITHUB_TOKEN=$(gh auth token) pnpm prune:github-releases          # dry run
+GITHUB_TOKEN=$(gh auth token) pnpm prune:github-releases --apply  # delete
+```
+
+One release is created per package per version, so a 12-package version puts 12
+rows on the page — 1 667 of them by 0.107.0, and every single one with an empty
+body, because the changelogs were generated empty until 0.117.0 (#579). The
+script keeps anything with notes, anything with an asset attached, drafts,
+immutable releases and the project's first release; it deletes the rest, oldest
+first, and writes the full plan to `.github-releases-prune.json` before it does.
+
+**Deleting a release does not delete its tag.** The tags stay, so `git describe`,
+tag permalinks and `npm view` all still resolve — what goes is the row on the
+page. There is no undo for the row itself, so read the plan from a dry run first.
+
+It throttles to one delete a second on purpose: GitHub's secondary rate limit on
+mutative requests is not the one in the `X-RateLimit-*` headers and cannot be
+read ahead of time. 1 660 deletes is therefore about half an hour. An
+interrupted run is just re-run — the plan is recomputed from the live list every
+time.
+
 ### Publishing a package for the FIRST time
 
 A new package cannot be published by CI, and the failure looks like nothing to do

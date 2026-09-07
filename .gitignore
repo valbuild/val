@@ -29,3 +29,7 @@ screens/
 
 # Storybook writes this on a failed start
 debug-storybook.log
+
+# The plan `pnpm prune:github-releases` writes before it deletes anything: a
+# snapshot of what the Releases page looked like at that moment, not an input.
+/.github-releases-prune.json
