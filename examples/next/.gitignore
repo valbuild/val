@@ -37,3 +37,8 @@ next-env.d.ts
 
 # Val
 .val
+
+# The external-record example's SQLite store. Content in a store is not content
+# in the repository — that is the whole distinction the feature draws — so it is
+# seeded with `pnpm run external-fixture`, never committed.
+.val-example-store.db*

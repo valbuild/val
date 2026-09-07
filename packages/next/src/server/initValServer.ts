@@ -1,13 +1,14 @@
 import { Internal, ValConfig, ValModules } from "@valbuild/core";
 import { createValApiRouter } from "@valbuild/server";
 import { createValServer } from "@valbuild/server";
+import type { ExternalRecords } from "@valbuild/server";
 import type { draftMode } from "next/headers";
 import { NextResponse } from "next/server";
 import { VERSION } from "../version";
 
 const initValNextAppRouter = (
   valModules: ValModules,
-  config: ValConfig,
+  config: ValConfig & { external?: ExternalRecords },
   nextConfig: ValServerNextConfig & {
     formatter?: (code: string, filePath: string) => Promise<string> | string;
   },
@@ -110,6 +111,20 @@ export function initValServer(
   valModules: ValModules,
   config: ValConfig & {
     disableCache?: boolean;
+    /**
+     * The project's external-record adapters — what `defineExternal(...).modules`
+     * returned.
+     *
+     * Registered here rather than imported by a `.val.ts`, because an adapter
+     * pulls in a database driver or an SDK, and `.val.ts` files are evaluated by
+     * the CLI inside a `node:vm` sandbox and bundled into the client. This file
+     * is `server-only`; that is where the driver belongs.
+     *
+     * @example
+     * import externalRecords from "./external";
+     * initValServer(valModules, { ...config, external: externalRecords }, { draftMode });
+     */
+    external?: ExternalRecords;
   },
   nextConfig: ValServerNextConfig,
 ): {

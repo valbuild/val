@@ -50,12 +50,14 @@ describe("collectMediaModules", () => {
         moduleFilePath: "/content/docs.val.ts",
         directory: "/public/val/docs",
         mediaType: "files",
+        canUpload: true,
         errors: undefined,
       },
       {
         moduleFilePath: "/content/photos.val.ts",
         directory: "/public/val/photos",
         mediaType: "images",
+        canUpload: true,
         errors: undefined,
       },
     ]);
@@ -117,5 +119,62 @@ describe("excludePathsFromTree", () => {
 
     const names = explorer.children[0].children.map((child) => child.name);
     expect(names).toStrictEqual(["authors.val.ts"]);
+  });
+});
+
+describe("a gallery that cannot take an upload", () => {
+  /**
+   * `canUpload` is what keeps a gallery out of the "Upload" destination menu.
+   * It still lists, and it still opens — an editor can look at what is in it.
+   * What it must not do is offer an upload that cannot work, because the
+   * failure would arrive after the file has been chosen.
+   */
+  const externalGallery: SerializedSchema = {
+    type: "record",
+    item: { type: "object", items: {}, opt: false },
+    opt: false,
+    mediaType: "files",
+    directory: "/public/val/documents",
+    external: "documents",
+  };
+
+  const readonlyGallery: SerializedSchema = {
+    type: "record",
+    item: { type: "object", items: {}, opt: false },
+    opt: false,
+    mediaType: "images",
+    directory: "/public/val/stock",
+    readonly: true,
+  };
+
+  test("an external gallery is listed, but not uploadable", () => {
+    const media = collectMediaModules(
+      { ["/content/documents.val.ts" as ModuleFilePath]: externalGallery },
+      () => undefined,
+    );
+    expect(media).toHaveLength(1);
+    expect(media[0].canUpload).toBe(false);
+  });
+
+  test("a readonly gallery is listed, but not uploadable", () => {
+    const media = collectMediaModules(
+      { ["/content/stock.val.ts" as ModuleFilePath]: readonlyGallery },
+      () => undefined,
+    );
+    expect(media).toHaveLength(1);
+    expect(media[0].canUpload).toBe(false);
+  });
+
+  test("an ordinary gallery still is", () => {
+    const media = collectMediaModules(
+      {
+        ["/content/photos.val.ts" as ModuleFilePath]: gallery(
+          "images",
+          "/public/val/photos",
+        ),
+      },
+      () => undefined,
+    );
+    expect(media[0].canUpload).toBe(true);
   });
 });

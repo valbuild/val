@@ -27,6 +27,7 @@ import {
 export type UseValType<T extends SelectorSource> =
   SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never;
 function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
+  refuseExternalInClient(selector, "useVal");
   const valOverlayContext = useValOverlayContext();
   const moduleIds = React.useMemo(
     () => getModuleIds(selector) as ModuleFilePath[],
@@ -199,10 +200,38 @@ const jsonEntryPromiseCache = new Map<string, Promise<unknown>>();
  * overlay; in production — and whenever there is no draft view — it resolves the
  * entry's lazy import thunk from the local module.
  */
+/**
+ * An external record cannot be read from a client component, and saying so is
+ * better than rendering nothing.
+ *
+ * Every other kind of Val content is bundled with the app, so a client component
+ * already holds it. An external record's content is only ever in the store, and
+ * reaching the store from a browser would mean either exposing the read endpoint
+ * to anonymous callers — enumerating someone's product table is not a capability
+ * to hand out by accident — or working in the Studio and failing in production,
+ * which is the worse of the two.
+ *
+ * So it is a thrown error naming the fix, not a silent `undefined`. Read it in a
+ * server component with `fetchVal`, `fetchValKey` or `fetchValKeys` and pass the
+ * result down as a prop.
+ */
+function refuseExternalInClient(selector: unknown, hook: string): void {
+  if (!Internal.isValModule(selector)) {
+    return;
+  }
+  if (!Internal.isExternal(Internal.getSource(selector))) {
+    return;
+  }
+  throw new Error(
+    `Val: ${hook} cannot read ${Internal.getValPath(selector)} — its entries are .external(), so they are not bundled with the app. Read it in a server component (fetchVal, fetchValKey or fetchValKeys) and pass the result to this component as a prop.`,
+  );
+}
+
 function useValKeyStega<T extends ValModule<GenericSelector<SourceObject>>>(
   selector: T,
   key: string,
 ): JsonEntryContentOf<T> | undefined {
+  refuseExternalInClient(selector, "useValKey");
   const valOverlayContext = useValOverlayContext();
   const moduleFilePath =
     selector && (Internal.getValPath(selector) as unknown as ModuleFilePath);

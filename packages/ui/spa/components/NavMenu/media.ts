@@ -37,6 +37,10 @@ export function collectMediaModules(
       // the module path so the row has something to identify it by.
       directory: schema.directory ?? moduleFilePath,
       mediaType: schema.mediaType,
+      // An external gallery's files are behind an adapter Val cannot write to
+      // yet, and a readonly one is not writable by definition. Both still list
+      // and still open — only uploading is off.
+      canUpload: schema.readonly !== true && schema.external === undefined,
       errors: collectErrors(moduleFilePath),
     });
   }

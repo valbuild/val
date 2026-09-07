@@ -130,9 +130,7 @@ export class RecordSchema<
     /**
      * Set by `.external(label)`; the entries live behind that adapter.
      *
-     * LAST on purpose: every other `new RecordSchema(...,
-      this.externalLabel,
-    )` in the codebase
+     * LAST on purpose: every other `new RecordSchema(...)` in the codebase
      * passes its arguments positionally, so a new parameter anywhere else
      * silently shifts `previewInput` and `renderInput` at each of those call
      * sites.
@@ -863,10 +861,31 @@ export class RecordSchema<
   }
 
   private getRouterValidations(path: SourcePath, src: Src): ValidationErrors {
-    if (!this.currentRouter) {
+    if (isExternal(src)) {
+      // The marker holds no entries, and its one enumerable property is `_type`
+      // — which a router would happily reject as a bad route. The keys of an
+      // external router are validated as they are READ, per key, by
+      // {@link validateRecordKeys}: they are the store's, and the store is not
+      // here.
       return false;
     }
-    if (src === null) {
+    return this.validateRecordKeys(
+      path,
+      src === null || typeof src !== "object" ? [] : Object.keys(src),
+    );
+  }
+
+  /**
+   * Check entry KEYS against the record's router, if it has one.
+   *
+   * Separate from `executeValidate` because an external record's keys do not
+   * arrive with its source: the source is a marker, and the keys come back a
+   * page at a time from the adapter. Validating the whole key set at once would
+   * mean validating nothing at all for such a record — which is worse than not
+   * validating, because it LOOKS like a check.
+   */
+  validateRecordKeys(path: SourcePath, keys: string[]): ValidationErrors {
+    if (!this.currentRouter) {
       return false;
     }
     const [moduleFilePath, modulePath] = splitModuleFilePathAndModulePath(path);
@@ -882,7 +901,7 @@ export class RecordSchema<
     }
     const routerValidationErrors = this.currentRouter.validate(
       moduleFilePath,
-      Object.keys(src),
+      keys,
     );
     if (routerValidationErrors.length > 0) {
       return Object.fromEntries(

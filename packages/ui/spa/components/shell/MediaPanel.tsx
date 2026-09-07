@@ -458,7 +458,24 @@ function UploadMenu({
   const containerRef = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setIsOpen(false), []);
   useDismissOnOutsidePointer(containerRef, isOpen, close);
-  const only = media.length === 1 ? media[0] : null;
+  /**
+   * Only the galleries that can actually take a file.
+   *
+   * A readonly gallery, or an external one whose files are behind an adapter Val
+   * cannot write to yet, still lists in the panel and still opens — an editor
+   * can look at what is in it. What it must not do is appear in this menu:
+   * "Upload" that cannot upload is worse than no button, because the failure
+   * arrives after the file has been chosen.
+   */
+  const writable = useMemo(
+    () => media.filter((gallery) => gallery.canUpload),
+    [media],
+  );
+  const only = writable.length === 1 ? writable[0] : null;
+  // Nothing to upload into: no button rather than a menu with no options.
+  if (writable.length === 0) {
+    return null;
+  }
   return (
     <div ref={containerRef} className="relative">
       <button
@@ -482,7 +499,7 @@ function UploadMenu({
           role="menu"
           className="absolute right-0 top-full z-window mt-1 w-64 rounded-md border border-border-float bg-bg-float py-1 shadow-lg"
         >
-          {media.map((gallery) => (
+          {writable.map((gallery) => (
             <button
               key={gallery.id}
               type="button"

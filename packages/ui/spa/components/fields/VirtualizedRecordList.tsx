@@ -123,7 +123,7 @@ export function VirtualizedRecordList({
   moduleFilePath,
   keys,
   estimatedRowHeight,
-  jsonValues,
+  lazyEntries,
   className,
   renderRow,
 }: {
@@ -131,8 +131,12 @@ export function VirtualizedRecordList({
   /** Record keys, in source order. */
   keys: string[];
   estimatedRowHeight: number;
-  /** True when this is a `.jsonValues()` record, whose rows must be loaded. */
-  jsonValues: boolean;
+  /**
+   * True when this record's rows must be LOADED rather than read from source —
+   * `.jsonValues()` and `.external()` alike. The two differ in where the content
+   * comes from, which is `SourceStore`'s business, not this list's.
+   */
+  lazyEntries: boolean;
   className?: string;
   renderRow: (key: string) => ReactNode;
 }) {
@@ -193,7 +197,7 @@ export function VirtualizedRecordList({
    */
   const requestedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!jsonValues || windowKeysRef.current.length === 0) {
+    if (!lazyEntries || windowKeysRef.current.length === 0) {
       return;
     }
     const fresh = windowKeysRef.current.filter(
@@ -209,7 +213,7 @@ export function VirtualizedRecordList({
     // share a single fetch (`SourceStore.loadEntry`), so a fast scroll that
     // crosses several windows does not fan out into duplicate requests.
     void val?.system.sourceStore.loadEntries(moduleFilePath, fresh);
-  }, [val, moduleFilePath, jsonValues, windowKeysId]);
+  }, [val, moduleFilePath, lazyEntries, windowKeysId]);
 
   // A different module in the same component instance is a different record, so
   // what was asked for no longer applies.

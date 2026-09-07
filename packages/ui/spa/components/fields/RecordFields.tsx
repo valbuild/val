@@ -35,6 +35,7 @@ import classNames from "classnames";
 import { PreviewError } from "../PreviewError";
 import { Field } from "../../components/Field";
 import { AnyField } from "../../components/AnyField";
+import { useExternalRecordKeys } from "./ExternalRecordKeys";
 
 export function RecordFields({
   path,
@@ -54,6 +55,34 @@ export function RecordFields({
   const schemaAtPath = useSchemaAtPath(path);
   const previewAtPath = usePreviewAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  /**
+   * The label of the adapter behind this record, if there is one.
+   *
+   * Read before the early returns below because hooks cannot be called
+   * conditionally, and read off the SCHEMA rather than the source because the
+   * source of an external record changes shape as keys arrive.
+   */
+  const externalLabel =
+    schemaAtPath.status === "success" && schemaAtPath.data.type === "record"
+      ? schemaAtPath.data.external
+      : undefined;
+  const externalKeys = useExternalRecordKeys(
+    moduleFilePath,
+    externalLabel !== undefined,
+  );
+  /**
+   * Whether entries have to be LOADED rather than read out of the module.
+   *
+   * True for both storage modes that keep entries elsewhere, and the rest of
+   * this component does not distinguish them — a row must not be able to tell
+   * whether its content came from a `*.val.json` or from a database.
+   */
+  const lazyEntries =
+    (schemaAtPath.status === "success" &&
+      schemaAtPath.data.type === "record" &&
+      schemaAtPath.data.jsonValues === true) ||
+    externalLabel !== undefined;
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -155,17 +184,75 @@ export function RecordFields({
           // list that rendered just those could never scroll far enough to load
           // the rest. Each row looks its own item up by key (resolveRefPreview),
           // so a key with no item falls back to a skeleton or the default preview.
+          //
+          // For an EXTERNAL record the source is the marker until keys arrive,
+          // and `SourceStore` builds a record out of the keys it has loaded — so
+          // this reads the same either way, which is the whole point.
           keys={Object.keys(source)}
-          jsonValues={schema.jsonValues === true}
+          lazyEntries={lazyEntries}
         />
       )}
       {!previewAtPathData && source && (
         <RecordCardList
           path={path}
           keys={Object.keys(source)}
-          jsonValues={schema.jsonValues === true}
+          lazyEntries={lazyEntries}
           validationErrors={validationErrors}
         />
+      )}
+      {externalLabel !== undefined && (
+        <ExternalRecordFooter
+          state={externalKeys}
+          shown={source ? Object.keys(source).length : 0}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * What sits under an external record's list: how much of it is here, and the
+ * button that asks for more.
+ *
+ * A "load more" rather than numbered pages, because a cursor-paged store cannot
+ * be asked for page 7 without having walked to it — and an offset into a live
+ * store would mean counting rows it has already forgotten about. The count above
+ * it is what makes the list honest about being partial.
+ */
+function ExternalRecordFooter({
+  state,
+  shown,
+}: {
+  state: ReturnType<typeof useExternalRecordKeys>;
+  shown: number;
+}) {
+  if (state.error !== undefined) {
+    return (
+      <div className="py-2 text-sm text-destructive">
+        Could not load entries: {state.error}
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-4 py-2 text-sm text-muted-foreground">
+      <span>
+        {/* Three answers, and they are not the same answer. "unavailable" is
+            the adapter declining to count — NOT zero, which would claim an
+            empty record. `exact: false` means Val counted as far as it was
+            willing to walk, so the honest rendering is "1,000+". */}
+        {state.total === undefined || state.total === "unavailable"
+          ? `${shown} shown`
+          : `${shown} of ${state.total.count}${state.total.exact ? "" : "+"}`}
+      </span>
+      {state.loading && <span>Loading…</span>}
+      {!state.loading && state.cursor !== null && (
+        <button
+          type="button"
+          className="underline"
+          onClick={() => state.loadMore()}
+        >
+          Load more
+        </button>
       )}
     </div>
   );
@@ -192,12 +279,13 @@ const PREVIEW_ROW_CONTENT_HEIGHT = 56;
 function RecordCardList({
   path,
   keys,
-  jsonValues,
+  lazyEntries,
   validationErrors,
 }: {
   path: SourcePath;
   keys: string[];
-  jsonValues: boolean;
+  /** Whether entries are loaded on demand rather than read from source. */
+  lazyEntries: boolean;
   validationErrors: Record<SourcePath, ValidationError[]>;
 }) {
   const { navigate } = useNavigation();
@@ -205,14 +293,14 @@ function RecordCardList({
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   const { unloadedKeys, errorByKey } = useJsonEntryRowStates(
     moduleFilePath,
-    jsonValues,
+    lazyEntries,
   );
   return (
     <VirtualizedRecordList
       moduleFilePath={moduleFilePath}
       keys={keys}
       estimatedRowHeight={CARD_ROW_HEIGHT}
-      jsonValues={jsonValues}
+      lazyEntries={lazyEntries}
       className="grid grid-cols-1"
       renderRow={(key) => {
         const loadError = errorByKey.get(key);
@@ -280,7 +368,8 @@ function RecordCardList({
  */
 function useJsonEntryRowStates(
   moduleFilePath: ModuleFilePath,
-  jsonValues: boolean,
+  /** Whether this record's entries are loaded on demand rather than in source. */
+  lazyEntries: boolean,
 ): {
   unloadedKeys: ReadonlySet<string>;
   errorByKey: ReadonlyMap<string, string>;
@@ -292,7 +381,7 @@ function useJsonEntryRowStates(
     const unloadedKeys = new Set<string>();
     const errorByKey = new Map<string, string>();
     if (
-      !jsonValues ||
+      !lazyEntries ||
       data === undefined ||
       data === null ||
       typeof data !== "object" ||
@@ -301,7 +390,12 @@ function useJsonEntryRowStates(
       return { unloadedKeys, errorByKey };
     }
     for (const [key, value] of Object.entries(data)) {
-      if (!Internal.isJson(value)) {
+      // Two markers, one meaning: "the content for this key is not here yet".
+      // A `.jsonValues()` entry holds `{_type:"json"}` until its file loads; an
+      // external entry holds the record's own `{_type:"external"}` marker until
+      // the store answers. Everything below is the same either way, which is the
+      // point — a row must not be able to tell how its content is stored.
+      if (!Internal.isJson(value) && !Internal.isExternal(value)) {
         continue;
       }
       const error = val?.system.sourceStore.entryError(moduleFilePath, key);
@@ -317,32 +411,33 @@ function useJsonEntryRowStates(
     // depends on has not changed, and the memo would not re-run on its own.
     // It does not need to: `peek` reports `entry-failed` for a path inside the
     // entry, which is what wakes the row, and this map is read on that render.
-  }, [jsonValues, data, val, moduleFilePath]);
+  }, [lazyEntries, data, val, moduleFilePath]);
 }
 
 function RecordPreviewList({
   path,
   keys,
-  jsonValues,
+  lazyEntries,
 }: {
   path: SourcePath;
   /** Every key of the record, in source order — see the call site. */
   keys: string[];
-  jsonValues: boolean;
+  /** Whether entries are loaded on demand rather than read from source. */
+  lazyEntries: boolean;
 }) {
   const { navigate } = useNavigation();
   const val = useValSystem();
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   const { unloadedKeys, errorByKey } = useJsonEntryRowStates(
     moduleFilePath,
-    jsonValues,
+    lazyEntries,
   );
   return (
     <VirtualizedRecordList
       moduleFilePath={moduleFilePath}
       keys={keys}
       estimatedRowHeight={PREVIEW_ROW_HEIGHT}
-      jsonValues={jsonValues}
+      lazyEntries={lazyEntries}
       className="flex flex-col w-full"
       renderRow={(key) => {
         const loadError = errorByKey.get(key);

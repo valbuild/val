@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "fixtures": "node scripts/jsonvalues-fixtures.mjs",
-    "handbook": "node scripts/handbook-fixture.mjs"
+    "handbook": "node scripts/handbook-fixture.mjs",
+    "external-fixture": "node scripts/external-fixture.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",

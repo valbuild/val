@@ -260,6 +260,7 @@ export const mockMedia: ShellMediaGallery[] = [
     moduleFilePath: "/content/media.val.ts",
     itemCount: IMAGE_NAMES.length,
     mediaType: "images",
+    canUpload: true,
     files: galleryFiles(
       "/content/media.val.ts",
       "/public/val/images",
@@ -273,6 +274,7 @@ export const mockMedia: ShellMediaGallery[] = [
     moduleFilePath: "/content/illustrations.val.ts",
     itemCount: 3,
     mediaType: "images",
+    canUpload: true,
     files: galleryFiles(
       "/content/illustrations.val.ts",
       "/public/val/illustrations",
@@ -286,6 +288,7 @@ export const mockMedia: ShellMediaGallery[] = [
     moduleFilePath: "/content/people.val.ts",
     itemCount: 0,
     mediaType: "images",
+    canUpload: true,
     // An empty gallery is a state of its own, and reads differently from one
     // that has not loaded.
     files: [],
@@ -297,6 +300,7 @@ export const mockMedia: ShellMediaGallery[] = [
     moduleFilePath: "/content/documents.val.ts",
     itemCount: 4,
     mediaType: "files",
+    canUpload: true,
     files: galleryFiles("/content/documents.val.ts", "/public/val/docs", [
       "price-list_1a2b3.pdf",
       "terms_4c5d6.pdf",

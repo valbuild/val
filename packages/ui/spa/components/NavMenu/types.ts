@@ -80,6 +80,14 @@ export type MediaModule = {
   directory: string;
   /** Whether this gallery holds images or arbitrary files. */
   mediaType: "files" | "images";
+  /**
+   * Whether files can be uploaded into it.
+   *
+   * False for a `.readonly()` gallery, and for an `.external()` one — whose
+   * files live behind an adapter that Val cannot write to yet. Browsing either
+   * is fine; offering "Upload" on one is offering something that cannot work.
+   */
+  canUpload: boolean;
   /** Validation errors attributable to this module. */
   errors?: NavItemErrors;
 };

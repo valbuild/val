@@ -130,6 +130,7 @@ export function useShellData(): ShellDataState {
             directory: entry.directory,
             moduleFilePath: entry.moduleFilePath,
             mediaType: entry.mediaType,
+            canUpload: entry.canUpload,
             itemCount: countKeys(mediaRecords[index]),
             files: toMediaFiles(mediaRecords[index]),
           }),

@@ -63,6 +63,7 @@ export type WorkKind =
   | "source:share-json-entry-load"
   /** Entry content was folded into a module's source for an in-realm walk. */
   | "source:substitute-json-entries"
+  | "source:substitute-external-entries"
   /**
    * One module was reset to base and its surviving chain re-applied.
    *

@@ -8,6 +8,7 @@ import {
 } from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
 import { ValServer, ValServerCallbacks } from "./ValServer";
+import type { ExternalRecords } from "./externalRecords";
 import { initHandlerOptions } from "./valServerConfig";
 import { fromError } from "zod-validation-error";
 import { z, ZodError } from "zod";
@@ -125,6 +126,19 @@ type ValServerOverrides = Partial<{
    * Disable the cache.
    */
   disableCache?: boolean;
+  /**
+   * The project's external-record adapters — what `defineExternal(...).modules`
+   * returned.
+   *
+   * Register it from a `server-only` file, never from a `.val.ts`: an adapter
+   * pulls in a database driver or an SDK, and `.val.ts` files are evaluated by
+   * the CLI inside a `node:vm` sandbox and bundled into the client.
+   *
+   * @example
+   * import externalRecords from "./external";
+   * initValServer(valModules, { ...config, external: externalRecords }, { ... });
+   */
+  external: ExternalRecords;
 }>;
 
 export async function createValServer(
