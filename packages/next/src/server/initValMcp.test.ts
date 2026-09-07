@@ -525,6 +525,38 @@ describe("oauth mode", () => {
     expect(res.status).toBe("ok");
   });
 
+  test("an app cannot turn the project check on where Val has no project", async () => {
+    const harness = oauthHarness();
+    /**
+     * The hole the test above could not see.
+     *
+     * It runs in http mode, where Val always has a project, so the override
+     * always happened and the assertion passed for the right reason by
+     * accident. In local filesystem mode `project` is optional — and while the
+     * override was a conditional spread, an app-supplied `oauth.project` passed
+     * straight through and enabled a check against a value the app chose,
+     * which is the opposite of what the comment beside it claimed.
+     *
+     * The token here carries `test/project` and the app asks for
+     * `someone-else/site`. Val has no project, so there is nothing to compare
+     * against and the claim is not checked at all.
+     */
+    const res = await withNodeEnv("development", () =>
+      withEnv({ VAL_PROJECT: undefined }, () =>
+        initValMcp({ config, modules: [] }, config, {
+          oauth: { ...harness, project: "someone-else/site" },
+        }).valMcpAuthorize(
+          request({
+            host: "localhost:3000",
+            authorization: `Bearer ${harness.signToken()}`,
+          }),
+        ),
+      ),
+    );
+
+    expect(res.status).toBe("ok");
+  });
+
   test("a forged token is refused with invalid_token", async () => {
     const harness = oauthHarness();
     const other = oauthHarness();

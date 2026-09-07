@@ -217,13 +217,21 @@ export function initValMcp(
        * configured for.
        *
        * Built here rather than at `initValMcp` time because the project comes
-       * out of `initHandlerOptions`, which is resolved asynchronously. The
-       * app's own `oauth.project`, if it set one, is deliberately overridden:
-       * `val.config.ts` is the authority on which project this is.
+       * out of `initHandlerOptions`, which is resolved asynchronously.
+       *
+       * `project` is assigned **unconditionally**, so `val.config.ts` is the
+       * authority on which project this is and an app's own `oauth.project`
+       * can never survive. It was a conditional spread, which meant the
+       * override only happened when Val had a project — so in local filesystem
+       * mode, where `project` is optional, an app-supplied `oauth.project`
+       * passed straight through and turned on a check against a value the app
+       * chose. Writing `undefined` here is the point rather than an oversight:
+       * it is what explicitly disables the claim check when Val has no project
+       * to compare against.
        */
       const verified = await verifyValAccessToken(request, {
         ...oauth,
-        ...(setup.project === undefined ? {} : { project: setup.project }),
+        project: setup.project,
       });
       if (verified.status === "refused") {
         // 401 for a missing or bad token, 403 once the token is good but does
