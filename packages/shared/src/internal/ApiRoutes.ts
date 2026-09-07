@@ -373,61 +373,6 @@ export const Api = {
       }),
     },
   },
-  "/session": {
-    GET: {
-      req: {
-        cookies: { val_session: z.string().optional() },
-      },
-      res: z.union([
-        z.object({
-          status: z.literal(200),
-          json: z.object({
-            mode: z.union([z.literal("local"), z.literal("proxy")]),
-            enabled: z.boolean(),
-          }),
-        }),
-        z.object({
-          status: z.union([
-            // TODO: Remove the ones we don't need.
-            z.literal(400),
-            z.literal(401),
-            z.literal(403),
-            z.literal(404),
-            z.literal(500),
-            z.literal(501),
-          ]),
-          json: z.object({
-            message: z.string(),
-          }),
-        }),
-        z.object({
-          status: z.literal(401),
-          json: z.object({
-            message: z.string(),
-            details: z.union([
-              z.string(),
-              z.object({
-                reason: z.string(),
-              }),
-              z.object({
-                sub: z.string(),
-                exp: z.number(),
-                token: z.string(),
-                org: z.string(),
-                project: z.string(),
-              }),
-            ]),
-          }),
-        }),
-        z.object({
-          status: z.literal(500),
-          json: z.object({
-            message: z.string(),
-          }),
-        }),
-      ]),
-    },
-  },
   "/logout": {
     GET: {
       req: {
