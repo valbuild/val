@@ -2,8 +2,10 @@ import { execSync } from "child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import degit from "degit";
-import { input } from "@inquirer/prompts";
+import { confirm, input } from "@inquirer/prompts";
 import chalk from "chalk";
+import { applyFeatures, type Features } from "./features";
+import { parseFeatureFlags, reconcile } from "./featureFlags";
 import {
   foreignLockFiles,
   PACKAGE_MANAGER_COMMANDS,
@@ -50,6 +52,8 @@ ${chalk.bold("Options:")}
   --package-manager <${PACKAGE_MANAGERS.join(
     "|",
   )}> Same, spelled out (--pm also works)
+  --mcp, --no-mcp Serve Val's content tools over MCP, so coding agents can edit your content (asked if not given)
+  --image-uploads, --no-image-uploads Let those agents upload images. Adds sharp (asked if not given)
 
 ${chalk.dim(
   "By default the package manager that ran this command is used, so `pnpm create @valbuild` installs with pnpm.",
@@ -71,6 +75,7 @@ process.on("SIGINT", handleExit);
 // Timeline stepper logic
 const timelineSteps = [
   "Enter project name",
+  "Choose features",
   "Download template",
   "Install dependencies",
   "Complete!",
@@ -120,13 +125,24 @@ function displayValLogo() {
 function displaySuccessMessage(
   projectName: string,
   packageManager: PackageManager,
+  features: Features,
 ) {
   const commands = PACKAGE_MANAGER_COMMANDS[packageManager];
+  // Printed only when the endpoint is actually there, and with the URL rather
+  // than a pointer to the README: attaching an agent is one command, and a
+  // command someone can paste is the difference between using the feature and
+  // meaning to.
+  const mcpStep = features.mcp
+    ? `
+${chalk.bold("Attach a coding agent to your content:")}
+  ${chalk.cyan("claude mcp add --transport http val http://localhost:3000/api/mcp")}
+`
+    : "";
   const nextSteps = chalk.bold(`
 ${chalk.cyan("Next steps:")}
   ${chalk.cyan("cd")} ${chalk.white(projectName)}
   ${chalk.cyan(`${commands.run} dev`)}
-
+${mcpStep}
 ${chalk.bold("Optionally run:")}
   ${chalk.cyan(`${commands.valCli} connect`)}  
 ${chalk.bold("to connect your project to Val Build")}
@@ -139,6 +155,45 @@ ${chalk.green("Happy coding! 🚀")}
 `);
 
   process.stdout.write(nextSteps);
+}
+
+/**
+ * The two optional parts of the template, asked for unless a flag already said.
+ *
+ * Both default to yes. The MCP endpoint costs a project nothing it would notice
+ * — it refuses to serve on a deployed host in local filesystem mode, so the
+ * default is safe as well as useful — and an agent that can read a project's
+ * schemas is most of the value of having them. `sharp` is called out by name
+ * because it is the one answer with a cost a person might not want: a compiled
+ * binary per platform, in a project that may never upload an image.
+ */
+async function chooseFeatures(given: Partial<Features>): Promise<Features> {
+  const mcp =
+    given.mcp ??
+    (await confirm({
+      message: chalk.bold(
+        "Serve Val's content tools over MCP, so coding agents can read and edit your content?",
+      ),
+      default: true,
+    }));
+  const imageUploads = !mcp
+    ? // Not asked when there is no endpoint to serve it on. A flag that asked
+      // for it anyway is not ignored — `reconcile` says so below.
+      (given.imageUploads ?? false)
+    : (given.imageUploads ??
+      (await confirm({
+        message: chalk.bold(
+          `Let them upload images too? ${chalk.dim(
+            "(adds sharp, a native image library, to your dependencies)",
+          )}`,
+        ),
+        default: true,
+      })));
+  const reconciled = reconcile({ mcp, imageUploads });
+  if (reconciled.warning !== null) {
+    console.log(chalk.yellow(reconciled.warning));
+  }
+  return reconciled.features;
 }
 
 /** True, or the reason this is not a usable project name. */
@@ -227,10 +282,21 @@ async function main() {
       args.splice(rootIndex, 2);
     }
 
+    // Answers given on the command line, so the prompts below only ask what is
+    // still open. Taken out of `args` first, or the project name would be
+    // whichever of them came first.
+    const flags = parseFeatureFlags(args);
+    if (flags.contradiction !== null) {
+      console.error(
+        chalk.red(`❌ Error: ${flags.contradiction} cannot both be given.`),
+      );
+      process.exit(1);
+    }
+
     // Which package manager to install with: a flag if given, otherwise the
     // one that ran this command.
     const resolved = resolvePackageManager(
-      args,
+      flags.rest,
       process.env.npm_config_user_agent,
     );
     if (resolved.invalidFlag !== null) {
@@ -274,10 +340,12 @@ async function main() {
     currentStep++;
     renderTimeline(currentStep);
 
-    // Step 2: Select template
-    const selectedTemplate = TEMPLATES[0];
+    // Step 2: Which optional parts of the template to keep
+    const features = await chooseFeatures(flags.answers);
     currentStep++;
     renderTimeline(currentStep);
+
+    const selectedTemplate = TEMPLATES[0];
 
     // Step 3: Download template
     const projectPath = join(rootDir, projectName);
@@ -348,6 +416,10 @@ async function main() {
 
     // Process template files
     processTemplateFiles(projectPath, projectName);
+    // Before the install, because this is what decides which dependencies the
+    // install has to fetch — `sharp` in particular, which is a compiled binary
+    // and not something to download and then throw away.
+    applyFeatures(projectPath, features);
     pruneForeignLockFiles(projectPath, packageManager);
 
     // Change to project directory and install dependencies
@@ -383,7 +455,7 @@ async function main() {
       );
 
       // Show final success message
-      displaySuccessMessage(projectName, packageManager);
+      displaySuccessMessage(projectName, packageManager, features);
       process.stdout.write("\n");
       process.exit(0);
     } catch (error) {

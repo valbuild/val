@@ -42,7 +42,7 @@ import {
   useServerSourceAtPath,
   useSourceAtPath,
 } from "./ValFieldProvider";
-import { getFilenameFromRef, getRefParts } from "../utils/getFilenameFromRef";
+import { getFilenameFromRef, getRefParts } from "@valbuild/shared/internal";
 import {
   useCommittedPatches,
   useCurrentAuthorId,

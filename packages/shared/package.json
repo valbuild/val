@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/shared",
-  "version": "0.121.0",
+  "version": "0.123.0",
   "private": false,
   "description": "Val shared types and utilities",
   "repository": {
@@ -34,6 +34,7 @@
   },
   "dependencies": {
     "@valbuild/core": "workspace:*",
+    "flexsearch": "^0.8.212",
     "zod": "^4.4.3",
     "zod-validation-error": "^5.0.0"
   },

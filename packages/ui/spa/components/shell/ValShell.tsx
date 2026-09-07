@@ -47,7 +47,14 @@ import {
   VAL_ERRORS_ROUTE,
   scrollToStudioPath,
   useNavigation,
+  useHistoryParams,
 } from "../ValRouter";
+import { HistoryPane } from "../../history/HistoryPane";
+import { RestoreControls } from "../../history/RestoreControls";
+import { RestoreModeProvider } from "../../history/RestoreModeContext";
+import { useDirectedRestore } from "../../history/useDirectedRestore";
+import { HistorySplit } from "../../history/HistorySplit";
+import { useHistoricalCommit } from "../../history/useHistoricalCommit";
 import {
   useAllPatchErrors,
   useAuthenticationState,
@@ -147,6 +154,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const { isAIChatEnabled, setOpenAIChatImpl } = useAIChatActions();
   const insertFieldRef = useInsertFieldRef();
   const navigation = useNavigation();
+  const { history } = useHistoryParams();
+  const commitState = useHistoricalCommit(history.commitSha);
   const connectionStatus = useConnectionStatus();
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
   const { patchErrors } = useAllPatchErrors();
@@ -905,8 +914,82 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     <Module path={unlistedModulePath} showModuleGalleryChild={null} />
   ) : null;
 
+  /*
+   * History, when a commit is in the URL.
+   *
+   * The left half is the editor exactly as it is - the shell hands it back to
+   * us - so opening history changes what is BESIDE the Studio and nothing about
+   * the Studio itself. Under lock (the default) the right pane follows the
+   * editor's own path, which is what people want almost every time: they came
+   * to compare one field with its older self.
+   */
+  /*
+   * The restore being aimed, shared by both panes.
+   *
+   * Held here because it spans them: the value is picked on the right and the
+   * destination on the left, and neither pane can hold state the other needs.
+   * The URL is still the source of truth for WHICH stage we are at — the picked
+   * VALUE is carried alongside it because a path alone would mean re-reading the
+   * commit to answer every compatibility question.
+   */
+  const restore = useDirectedRestore(
+    commitState?.status === "success" ? commitState.patchSet : undefined,
+  );
+
+  const renderHistory = history.commitSha
+    ? (
+        editor: React.ReactNode,
+        breakpoint: "mobile" | "tablet" | "desktop",
+      ) => (
+        <HistorySplit
+          editor={
+            <RestoreModeProvider mode={restore.nowMode}>
+              {editor}
+            </RestoreModeProvider>
+          }
+          breakpoint={breakpoint}
+          commitLabel={`At ${history.commitSha?.slice(0, 7)}`}
+          history={
+            <HistoryPane
+              wrapModule={(module) => (
+                <RestoreModeProvider mode={restore.commitMode}>
+                  {module}
+                </RestoreModeProvider>
+              )}
+              restoreSlot={
+                <RestoreControls
+                  patchSet={
+                    commitState?.status === "success"
+                      ? commitState.patchSet
+                      : undefined
+                  }
+                  path={navigation.currentSourcePath as SourcePath | null}
+                  restore={restore}
+                />
+              }
+              patchSet={
+                commitState?.status === "success"
+                  ? commitState.patchSet
+                  : undefined
+              }
+              path={
+                history.locked
+                  ? (navigation.currentSourcePath as SourcePath | null)
+                  : history.rightPath
+              }
+              loading={commitState?.status === "loading"}
+              error={
+                commitState?.status === "error" ? commitState.message : null
+              }
+            />
+          }
+        />
+      )
+    : undefined;
+
   return (
     <Shell
+      renderHistory={renderHistory}
       data={data}
       theme={theme === "light" ? "light" : "dark"}
       onThemeChange={setTheme}

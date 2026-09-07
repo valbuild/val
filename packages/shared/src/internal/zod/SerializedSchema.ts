@@ -19,6 +19,7 @@ import {
   type SerializedColorSchema as SerializedColorSchemaT,
   type SerializedCodeSchema as SerializedCodeSchemaT,
   type SerializedImageSchema as SerializedImageSchemaT,
+  type SerializedSettingsSchema as SerializedSettingsSchemaT,
   CODE_LANGUAGES,
 } from "@valbuild/core";
 import { SourcePath } from "./SourcePath";
@@ -368,6 +369,26 @@ export const SerializedRouteSchema: z.ZodType<SerializedRouteSchemaT> =
     hidden: z.boolean().optional(),
   });
 
+// A settings module, and each section inside one, serialize as this - the
+// shape is recursive because `items` holds sections which are themselves
+// settings schemas. `s.settings()` never writes render/preview/customValidate
+// (see core/src/schema/settings.ts), but they are accepted here because they
+// are part of the declared type.
+export const SerializedSettingsSchema: z.ZodType<SerializedSettingsSchemaT> =
+  z.lazy(() => {
+    return z.object({
+      type: z.literal("settings"),
+      render: FieldRender,
+      preview: z.literal(true).optional(),
+      items: z.record(z.string(), SerializedSchema),
+      opt: z.boolean(),
+      customValidate: z.boolean().optional(),
+      readonly: z.boolean().optional(),
+      hidden: z.boolean().optional(),
+      description: z.string().optional(),
+    });
+  });
+
 export const SerializedSchema: z.ZodType<SerializedSchemaT> = z.union([
   SerializedStringSchema,
   SerializedLiteralSchema,
@@ -385,5 +406,6 @@ export const SerializedSchema: z.ZodType<SerializedSchemaT> = z.union([
   SerializedDateTimeSchema,
   SerializedColorSchema,
   SerializedCodeSchema,
+  SerializedSettingsSchema,
   SerializedImageSchema,
 ]);

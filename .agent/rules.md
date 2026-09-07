@@ -57,6 +57,12 @@ expensive to re-derive from the code:
 
 Val has a dual type system: **Source** types define data shape, **Selector** types is the user facing types.
 
+**Source is the data of a module** - JSON, the thing patches apply to. It is not
+the `.val.ts` file and not a description of it; a variable holding `.val.ts`
+text is text, not Source. See
+[`architecture/terminology.md`](../architecture/terminology.md) for that
+distinction and the path vocabulary that goes with it.
+
 ```
 Source (data)          →  Selector (access)
 ─────────────────────────────────────────────
@@ -227,6 +233,116 @@ darkMode: ["class", '[data-mode="dark"]'];
 
 Custom color tokens map to CSS variables (e.g., `bg-background` → `var(--background)`).
 
+## MCP
+
+`@valbuild/mcp` (`packages/mcp`) is Val's content tools for MCP hosts: the tool
+registry, the write path behind it, and the request guards and access-token
+verification that decide whether a call reaches a tool at all. **Nothing in it
+imports an MCP SDK** — the app owns the transport, and the SDK has reorganised
+itself once already. `@valbuild/next/server`'s `initValMcp` is a thin binding
+that supplies the Next version; `examples/next/app/api/mcp/route.ts` is the
+whole of what an app writes.
+
+`upload_image` is the one tool a host has to construct itself:
+
+```ts
+initValMcp(valModules, config, {
+  extraTools: createValImageTools(sharpImageProcessor(sharp)),
+});
+```
+
+`sharp` is passed in, never imported — it ships a compiled binary per platform,
+and a CMS should not put one in every project that installs it. The processor
+is typed structurally (`SharpLike`), so this package typechecks in a project
+that has never heard of sharp; `sharpImageProcessor.test.ts` assigns the real
+library to that type, which is what stops it drifting.
+
+Remote images (`s.image().remote()`, `s.images({ remote: true })`) work too, and
+the thing to know is that **nothing is uploaded to the content host when the
+image is added**. The bytes go into the patch store like any local pending file;
+the push to `remote.val.build` happens at publish, from
+`ValOpsFS.saveOrUploadFiles(mode: "upload-remote")`. All the tool does extra is
+build the ref — which needs the project's public id and a bucket, from
+`getSettings`.
+
+No credential comes from the MCP caller for that, in either mode:
+`resolveRemoteFileAuth` (shared with `ValServer`) uses the app's api key where
+there is one and otherwise, in fs mode, the developer's own `val login` token
+off disk. Same precondition `val validate --fix` has. See
+`docs/plans/mcp-remote-images.md`.
+
+Encoding is the Studio's decision table and nothing else: `encode` is off
+unless the schema asks, and when it asks, which images are converted, how far
+they are scaled and when the original wins are all in
+`encodeImageDecisions.ts`. The tool adds no rule of its own.
+
+Four things in there are load-bearing, and the first three were got wrong first:
+
+1. **Bytes go up before the patch is validated.** A `file` op carries a hash,
+   so validation asks the store where the bytes are — and rejects the write
+   that was about to put them there. `savePatch`'s `uploadFiles` hook returns
+   where it put them, and that merges over `fileLastUpdatedByPatchId`.
+2. **A gallery-backed field's gallery entry is written first.** `s.image(gallery)`
+   validates that the gallery HAS the path, so the field cannot go first. It
+   still reports one unresolved error afterwards, because the schema's copy of
+   the gallery is snapshotted at module evaluation and shows the _published_
+   gallery — that resolves when both patches publish, so it is reported rather
+   than refused.
+3. **A remote ref's validation hash is computed from a schema that has to
+   match what the validator will resolve.** For a gallery entry that is a
+   SYNTHESIZED `SerializedImageSchema` carrying the record's `accept` and
+   `directory` — `galleryEntryImageSchema`, which must stay identical to
+   `handleRemoteGalleryFileUpload`'s. Get it wrong and the file uploads and
+   then never validates, silently, because `validateRemoteFiles` is a stub.
+4. **`accept` is checked after the conversion, never before it.**
+   `s.image({ accept: "image/webp", encode: { type: "webp" } })` means "I store
+   webp and I will convert what you give me", so checking the SOURCE against
+   `accept` refuses the PNG the conversion existed to handle. The tool checks
+   it at all — which the Studio does not — because `ImageSchema` reports a
+   mismatch as `image:check-metadata`, and `partitionValidationErrors` treats
+   that as server-repairable and therefore non-blocking. The Studio does not
+   need the check: its file picker carries `accept`. An agent has no picker.
+
+`search_content` builds its index on every call and throws it away, and the
+measurement is why that is allowed rather than a shortcut. Indexing
+`valbuild/web` — a real production site, 20 modules and 206 KB of source JSON —
+takes **162 ms**; the cost is linear, so 2 MB is ~1.4 s and 10 MB is ~7.9 s, and
+the 10 s default deadline is not reached until roughly 13 MB. Searching the
+built index is another 0.2 ms, which is why none of those numbers are about
+searching. Loading the modules costs _more_ than indexing them (843 ms for the
+same 20), and every tool call already pays that in `loadState`. Re-run the
+benchmark before believing anything different: `searchIndex.perf.test.ts` in
+`@valbuild/shared` guards the linearity, not the stopwatch.
+
+The same ratio is why the tool takes a LIST of queries: everything expensive
+happens before the first query runs, so a second query against a built index is
+free next to a second call, which pays for `loadState` and the build again. One
+call, up to 20 queries, answered separately so a caller can tell which of its
+guesses found the thing. `limit` is per query and defaults to 100 — a model
+filters a long list more cheaply than it asks again.
+
+`performSearch` counts all the matches, not the page it returns. FlexSearch
+stops as soon as it has the ids it was asked for, so a `total` taken from a
+page-sized search is the page size wearing a count's name; it is counted
+separately up to `MAX_COUNTED_RESULTS`, and `totalIsLowerBound` says when that
+bound was reached instead of letting the number lie.
+
+Two things in the tool are load bearing:
+
+- **The module order is sorted.** Indexing stops at a deadline, so the order
+  decides what a partial answer contains. Sorted means the same call twice
+  gives the same partial answer, and that narrowing with `include` predictably
+  reaches what was dropped.
+- **The deadline is checked between modules, never inside one**, and the first
+  module is always indexed. `indexModule` is atomic — half a module in the index
+  is a module whose absent half looks like content that does not exist — and a
+  search that returned nothing because the clock had already run out is a worse
+  answer than a slow one.
+
+An excluded module is not an omission. `omittedModules` means the deadline was
+hit; a caller has to be able to tell "you told me not to" from "I ran out of
+time", because only one of them means retry.
+
 ## Testing
 
 Run tests from root dir with:
@@ -326,20 +442,27 @@ these bytes served from" and "what does the gallery know about this path".
 ### Re-encoding uploads (`encode`)
 
 `s.image({ encode: { type: "webp" } })` and `s.images({ encode })` convert an
-upload to WebP in the browser before it is uploaded. **Off by default.**
+upload to WebP before it is uploaded. **Off by default.**
 `quality` defaults to 0.8, `maxWidth`/`maxHeight` to 2560, and `encode: false`
 turns it off where a gallery turned it on.
 
-The implementation is `packages/ui/spa/utils/encodeImage.ts`, called from
-`readImageFromFile`. That is the only correct place for it: `createFilename`
-derives the extension from the data URL's mime type, so swapping the bytes
-before the hash makes the filename, `mimeType`, dimensions and remote validation
-hash all follow — and swapping them after makes every one of those describe a
-file that was never uploaded.
+There are two encoders and one set of decisions. The decisions —
+`resolveEncodeSettings`, `fitWithin`, `isSkippedSource`, `chooseEncoded` — are
+in `packages/shared/src/internal/media/encodeImageDecisions.ts`. The Studio's
+encoder is `packages/ui/spa/utils/encodeImage.ts` (a `<canvas>`, called from
+`readImageFromFile`); the MCP image tool's is `sharpImageProcessor` in
+`@valbuild/mcp/sharp`. Change what `encode` MEANS in the shared file, or the
+two drift.
+
+Either encoder runs before the hash, and that is the only correct place for it:
+`createFilename` derives the extension from the data URL's mime type, so
+swapping the bytes before the hash makes the filename, `mimeType`, dimensions
+and remote validation hash all follow — and swapping them after makes every one
+of those describe a file that was never uploaded.
 
 Things that will bite: `accept` beats `encode` (validation checks the stored
 mimeType against `accept`); a bigger WebP loses to the original unless the image
-was downscaled; SVG/GIF/AVIF are never converted; and `blob.type` must be
+was downscaled; SVG/GIF/AVIF are never converted; and the produced type must be
 checked because `canvas.toBlob` silently falls back to PNG. `encode` is stripped
 in `getValidationBasis` so it cannot re-validate published remote refs. See
 [architecture/media.md](../architecture/media.md).
@@ -555,6 +678,71 @@ until someone bumps it. So, once the new version is on npm:
    Studio loads and that an edit can be made and saved. Breakage from a release
    shows up here first, and this is the last place to catch it before it is what
    every new project starts from.
+
+### Publishing a package for the FIRST time
+
+A new package cannot be published by CI, and the failure looks like nothing to do
+with that:
+
+```
+@valbuild/mcp@0.123.0
+└ E404: Not Found - PUT https://registry.npmjs.org/@valbuild%2fmcp - Not found
+  The requested resource '@valbuild/mcp@0.123.0' could not be found or you do not
+  have permission to access it.
+```
+
+The Release workflow publishes with npm trusted publishing (OIDC), and a trusted
+publisher configuration is **per package** — so a package that has never been
+published has none, and the OIDC token has no permission to create it. npm answers
+a PUT it will not authorize with 404 rather than 403, which is why this reads as
+"missing" rather than "forbidden". There is no way to pre-register the name:
+npm has no reserve-a-name flow, and the org's Teams → Add package screen only
+enumerates packages the org already owns. Nothing is staged, so — unlike the
+E401 below — there is nothing to approve and the version number is not burned.
+
+`changeset publish` goes in dependency order and stops at the failure, so every
+package that depends on the new one is never attempted. Expect a half-published
+release: fix the new package, then re-run the job, and `changeset publish` picks
+up exactly what is missing.
+
+**Bootstrap it by hand, and use `pnpm publish`:**
+
+```bash
+pnpm install && pnpm run build     # `files` ships only dist/, so build first
+cd packages/<new-package>
+pnpm publish --access public --no-git-checks
+pnpm preconstruct dev              # back in the repo root, restore dev entries
+```
+
+`--access public` because a scoped package's first publish defaults to
+_restricted_, and a restricted package 404s for everyone else — indistinguishable
+from not existing. A brand-new package also takes up to a couple of minutes to
+become publicly readable, so a 404 right after a successful publish is usually
+just the read path catching up.
+
+**`pnpm publish`, never `npm publish`.** This is the one that cost a release.
+Every package here declares its siblings as `"@valbuild/x": "workspace:*"`, and
+that protocol is rewritten to a real version **at pack time by pnpm**. `npm
+publish` uploads the manifest verbatim, so the published package asks consumers
+to resolve `workspace:*` and cannot be installed by anything:
+
+```
+npm  → EUNSUPPORTEDPROTOCOL  Unsupported URL Type "workspace:": workspace:*
+pnpm → ERR_PNPM_WORKSPACE_PKG_NOT_FOUND
+```
+
+It is unfixable in place: npm versions are immutable, and unpublishing burns the
+number permanently rather than freeing it. Everything pinning that exact version
+— `@valbuild/next` pins its siblings exactly — is broken with it, so the recovery
+is a patch release of the bad package (changesets bumps the dependents for you),
+`npm deprecate` on both bad versions, and `npm dist-tag add <pkg>@<last good>
+latest` in the meantime so installs stop failing.
+
+Once the package exists, add its trusted publisher — the package page →
+Settings → Trusted publishing, organization `valbuild`, repository `val`,
+workflow `release.yml`, no environment, **`npm publish` ticked** — and CI handles
+it from then on, provenance included. The hand-published version is the only one
+without an attestation.
 
 ### The Release job fails with `E401 … Failed to generate Web Auth URLs`
 

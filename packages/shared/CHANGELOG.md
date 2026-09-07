@@ -1,5 +1,183 @@
 # @valbuild/shared
 
+## 0.123.0
+
+### Minor Changes
+
+- [#613](https://github.com/valbuild/val/pull/613) [`c5e7dfd`](https://github.com/valbuild/val/commit/c5e7dfd12aa1371195be642e1c2fb72b6f3e3ce2) Thanks [@freekh](https://github.com/freekh)! - Val's MCP endpoint moves to its own package, and can now upload images
+
+  Everything that serves Val's content tools over MCP — the tool registry, the
+  write path behind it, the request guards and the access-token verification —
+  now lives in **`@valbuild/mcp`** instead of being split between
+  `@valbuild/server` and `@valbuild/next`.
+
+  **Nothing changes for an app that already mounts it.** `initValMcp` is still
+  exported from `@valbuild/next/server` and behaves exactly as before; it is now a
+  ten-line binding over `@valbuild/mcp`, supplying the Next version that
+  `initHandlerOptions` asks for. A host that is not Next can call
+  `initValMcp` from `@valbuild/mcp` directly.
+
+  If you built your own host on `createValTools`, import it from `@valbuild/mcp`
+  rather than `@valbuild/server`; the tool types moved with it.
+
+  ## Image uploads
+
+  An agent can now add an image, with a new `upload_image` tool. It takes a path
+  to a file on the machine your app runs on, or the image inline as base64, and
+  puts it in an `s.image()` field or an `s.images()` gallery.
+
+  Uploads are converted **only where the Studio would convert them**: `encode` is
+  off unless the schema asks for it (`s.image({ encode: { type: "webp" } })`), and
+  when it does, which images are converted, how far they are scaled and when the
+  original wins are the same decisions the browser makes — the same code, now
+  shared. An upload to a schema without `encode` is stored exactly as it arrived,
+  whatever its size.
+
+  One thing the tool does that the Studio does not: it refuses an image the
+  schema's `accept` does not cover, checked on the bytes that would actually be
+  stored. The Studio does not need to — its file picker carries `accept` — and
+  validation reports a mismatch as server-repairable, so nothing downstream would
+  stop it. An agent has no picker. Note the ordering:
+  `s.image({ accept: "image/webp", encode: { type: "webp" } })` still takes a PNG,
+  because the conversion happens first and it is the result that is checked.
+
+  It is the one tool you construct yourself, because it needs an image library
+  and `sharp` ships a compiled binary per platform. Val does not put one in every
+  project that installs it, so you decide:
+
+  ```sh
+  npm install sharp
+  ```
+
+  ```ts
+  import sharp from "sharp";
+  import { createValImageTools } from "@valbuild/mcp";
+  import { sharpImageProcessor } from "@valbuild/mcp/sharp";
+
+  const { valMcpAuthorize, valMcpTools } = initValMcp(valModules, config, {
+    extraTools: createValImageTools(sharpImageProcessor(sharp)),
+  });
+  ```
+
+  Leave `extraTools` out and everything else works as before — the agent can read,
+  validate and edit content, it just cannot add an image. `sharp` is passed in
+  rather than imported, so you can supply another encoder: `ValImageProcessor` is
+  two functions, `read` and `encode`.
+
+  Remotely stored images work too — `s.image().remote()` and
+  `s.images({ remote: true })` — and they need nothing extra from the MCP client.
+  Adding one does not upload anything to Val's content host: the bytes go into the
+  patch store like any other unpublished change, and the push to
+  `remote.val.build` happens when you publish, exactly as it does for an image
+  added through the Studio. All the tool has to do first is ask the project which
+  bucket to name in the ref, and the credential for that is the one your app
+  already has — its API key when it has one, and in local development the
+  `val login` token in your project, the same one `val validate --fix` uses. If
+  you have not logged in, it says so and writes nothing.
+
+  ## `npm create @valbuild` asks
+
+  The starter template now ships the MCP endpoint, and `npm create @valbuild`
+  asks whether you want it — and, if you do, whether agents should be able to
+  upload images, saying that this adds `sharp`. Both default to yes, and both can
+  be answered up front for a scripted setup:
+
+  ```sh
+  pnpm create @valbuild my-app --mcp --no-image-uploads
+  ```
+
+- [#620](https://github.com/valbuild/val/pull/620) [`53f670c`](https://github.com/valbuild/val/commit/53f670c0cf2d7a03a6d068c78b7874ce77652c2a) Thanks [@freekh](https://github.com/freekh)! - MCP: `search_content` — full-text search across the project's content, unpublished changes included.
+
+  The same index the Studio's search box uses, moved into `@valbuild/shared` so both run it, and built fresh on every call. That was the part that looked expensive and is not: indexing `valbuild/web`, a real production site of 20 modules and 206 KB of source, takes 162 ms, and it scales linearly from there — the 10 s default deadline is not reached until roughly 13 MB of content. Loading the modules costs more than indexing them, and every tool call already pays that.
+
+  That ratio between building the index and querying it — 162 ms against 0.2 ms — is why `queries` is a list. Everything expensive happens before the first query runs, so up to 20 of them are answered from a single pass, separately, so a caller can tell which of its guesses found the thing. A bare string still works as one query.
+
+  It returns source paths, so `get_source` reads what it finds. The rest of the arguments narrow or bound the work:
+
+  - `include` / `exclude` — module file path globs, e.g. `["/content/blogs/**"]`. `exclude` is applied after `include`.
+  - `limit` — per query, defaulting to 100. A model filters a long list more cheaply than it asks again.
+  - `timeoutMs` — stop indexing and answer with what has been indexed so far. The result then carries `timedOut`, the paths of the modules that were not reached, and a hint pointing at `include`.
+
+  Every answer says what it actually searched (`searched: { modules, of }`), so each query's `total` can be read as a count over those modules rather than over the project. Modules you excluded are not reported as omissions — an omission always means the deadline, never your filter.
+
+  `performSearch` now counts all the matches rather than the page it returns, which the Studio's result count gets too: FlexSearch stops as soon as it has the ids it was asked for, so a total taken from a page-sized search was only ever the page size again.
+
+## 0.122.0
+
+### Minor Changes
+
+- [#563](https://github.com/valbuild/val/pull/563) [`be32261`](https://github.com/valbuild/val/commit/be32261af19db8018bc37b180d903416018c0b79) Thanks [@freekh](https://github.com/freekh)! - See how a module looked at any past commit, and restore from it by pointing at it
+
+  Val could publish edits but never look back. Now every commit is a durable
+  record you can open, and any part of it can be put back.
+
+  **Open a commit and the Studio splits in two.** The left half is the Studio
+  itself — same navigation, same fields, same everything, because it _is_ the
+  editor rather than a copy of it. The right half shows the project as that commit
+  left it. On a phone the two become one pane and a toggle.
+
+  **Restoring is directed: you point at the old value, then at where it goes.**
+  Val does not try to work out which of today's fields corresponds to which of the
+  commit's. It cannot be sure — array items splice, schemas move — and a restore
+  that guesses wrong writes into the wrong place and looks like it worked. Two
+  picks leave nothing to guess. You can restore across paths, so last month's
+  headline can become today's tagline.
+
+  Before you click, every field on the "now" side says whether it can hold the
+  value you picked, and a field that cannot explains why when you click it rather
+  than doing nothing. A changed union is not itself a blocker: what matters is
+  whether the value's own shape is still allowed, so a union that gained a case
+  restores fine and one that lost the case you are restoring does not.
+
+  Rich text can be restored but is marked "probably fits" rather than confirmed —
+  comparing every mark and block against the options a schema allows is not done
+  yet, and saying so is better than a confident answer we cannot back. It is
+  checked properly the moment you commit to it: before anything is staged, the old
+  value is checked against the field it is going into, and a value that cannot be
+  that field is refused with the reason. A value that is the right shape but
+  breaks a rule about its content — a name too short for its `minLength` — is
+  staged and then held at publish, the same as if you had typed it, because a
+  restore should not be stricter than typing.
+
+  **A whole module can be put back on its own**, from a commit that changed
+  several, without reverting the rest of the commit.
+
+  **Restores are staged, not applied.** They land in pending changes, are reviewed
+  beside every other edit, and go out with the next publish. There is also "put
+  everything back", for when a whole publish was the mistake.
+
+  To make this possible, publishing now records each changed module's data and the
+  schema it was written against. Not the `.val.ts` — git already keeps that, but
+  it is code, and turning code back into data means parsing it, which is
+  best-effort and stops working as TypeScript, your runtime and Val move on. The
+  schema is kept because a value on its own cannot be drawn: showing a module as it
+  was at a commit whose schema has since changed needs _that commit's_ schema, and
+  nothing in your current checkout has it.
+
+  Things it will not pretend about: a module the commit did not touch says so
+  rather than showing today's value; a module saved by a different version of Val
+  says the version differs and that nothing is lost; a commit made before Val
+  started recording history disables restore with the reason next to it. Images
+  and files are restored by re-uploading them, since the bytes at an old commit
+  may no longer be on your branch.
+
+  History requires the Val content service. In filesystem mode it reports
+  `not-supported-in-fs-mode` rather than faking it from git, which has the files
+  but not which of a commit's changes were one editor's work.
+
+### Patch Changes
+
+- [#618](https://github.com/valbuild/val/pull/618) [`da6794f`](https://github.com/valbuild/val/commit/da6794f3dbd77d49ccfe780b359bab1689ee1b11) Thanks [@freekh](https://github.com/freekh)! - Remove the unused `GET /api/val/session` endpoint.
+
+  Nothing called it. The Studio reads the profile id from `/stat`, and in proxy
+  mode the route proxied to `${VAL_BUILD_URL}/api/val/${project}/auth/session`,
+  an upstream route that no longer exists — so calling it by hand returned a 500
+  rather than a session. It is gone from both the route declarations in
+  `@valbuild/shared` and the implementation in `@valbuild/server`.
+
+  Session cookie handling itself is unchanged: `/authorize`, `/callback` and
+  `/logout` still set and clear `val_session` as before.
+
 ## 0.121.0
 
 ### Minor Changes

@@ -1,6 +1,7 @@
 import { ValOpsHttp } from "./ValOpsHttp";
+import { result } from "@valbuild/core/fp";
 import type { AuthorId } from "./ValOps";
-import type { PatchId } from "@valbuild/core";
+import type { ModuleFilePath, PatchId, SerializedSchema } from "@valbuild/core";
 
 /**
  * What `home` actually answers, run through the parsers that read it.
@@ -228,6 +229,169 @@ test("stage and unstage say who is asking", async () => {
   }
 });
 
+/**
+ * `home` — `Api["/commits/:commitSha/modules"]["GET"]["res"]`, copied from there.
+ *
+ * The reading half of the same contract the commit test pins the writing half
+ * of. Drift here is quieter than a 500: `ValOpsHttp` validates with zod, so a
+ * renamed field makes every commit read as unreadable — which looks exactly
+ * like a project with no history.
+ */
+const HOME_COMMIT_MODULES = {
+  commitSha: "a3f19c2",
+  parentCommitSha: "p1",
+  complete: true,
+  modules: [
+    {
+      moduleFilePath: "/content/landing.val.ts",
+      commitSha: "a3f19c2",
+      sourceSha: "aaaa",
+      schemaSha: "bbbb",
+      source: { heading: "Content as code" },
+      schema: { type: "object", items: {}, opt: false },
+      unavailable: false,
+    },
+  ],
+};
+
+test("a commit's stored modules parse, with the schema left unvalidated", async () => {
+  const { ops, restore } = opsAnswering(HOME_COMMIT_MODULES);
+  try {
+    const res = await ops.getCommitModules("a3f19c2");
+    if (result.isErr(res)) {
+      throw new Error(`did not parse: ${JSON.stringify(res.error)}`);
+    }
+    expect(res.value.modules).toHaveLength(1);
+    expect(res.value.modules[0].moduleFilePath).toBe("/content/landing.val.ts");
+    expect(res.value.modules[0].source).toEqual({
+      heading: "Content as code",
+    });
+    // The schema arrives unchecked ON PURPOSE. Validating it at the transport
+    // boundary would turn "written by a different version of Val" into a failed
+    // REQUEST instead of one module that cannot be shown.
+    expect(res.value.modules[0].schema).toBeDefined();
+  } finally {
+    restore();
+  }
+});
+
+test("an as-of read that history cannot cover whole says so", async () => {
+  // The trap this closes: `as_of` reads the project as a commit left it, but
+  // the index only has rows for commits made after history started being
+  // recorded. A module last edited before that is simply absent — and a
+  // whole-project revert would leave it untouched without telling anyone.
+  const { ops, restore } = opsAnswering({
+    ...HOME_COMMIT_MODULES,
+    complete: false,
+  });
+  try {
+    const res = await ops.getCommitModules("a3f19c2", { asOf: true });
+    if (result.isErr(res)) throw new Error("did not parse");
+    expect(res.value.complete).toBe(false);
+  } finally {
+    restore();
+  }
+});
+
+test("an older content server, which never had the flag, still parses", async () => {
+  const withoutFlag: Record<string, unknown> = { ...HOME_COMMIT_MODULES };
+  delete withoutFlag["complete"];
+  const { ops, restore } = opsAnswering(withoutFlag);
+  try {
+    const res = await ops.getCommitModules("a3f19c2");
+    if (result.isErr(res)) throw new Error("did not parse");
+    // It only ever answered "what this commit changed", and that is whole.
+    expect(res.value.complete).toBe(true);
+  } finally {
+    restore();
+  }
+});
+
+test("a module we hold a hash for but no object is unavailable, not empty", async () => {
+  const { ops, restore } = opsAnswering({
+    ...HOME_COMMIT_MODULES,
+    modules: [
+      { ...HOME_COMMIT_MODULES.modules[0], source: null, unavailable: true },
+    ],
+  });
+  try {
+    const res = await ops.getCommitModules("a3f19c2");
+    if (result.isErr(res)) throw new Error("did not parse");
+    expect(res.value.modules[0].unavailable).toBe(true);
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * `home` — the shape `postCommit.ts`'s `BodyDTO` parses out of `modules`.
+ *
+ * Copied from there, not invented here. `home` stores what it finds under this
+ * key and nothing else: a commit whose `modules` never arrives is a commit
+ * with no history to restore from, and it fails SILENTLY - the publish
+ * succeeds, the archive is written, and the omission only shows up months
+ * later as a commit the Studio cannot open.
+ */
+test("a commit carries each changed module's data and schema, under the key home reads", async () => {
+  const { ops, sent, restore } = opsAnswering({
+    updatedFiles: [],
+    commit: "abc1234",
+    branch: "main",
+  });
+  const bodies: unknown[] = [];
+  const originalFetch = global.fetch;
+  global.fetch = (async (url: string, init?: { body?: string }) => {
+    if (typeof url === "string" && url.endsWith("/commit") && init?.body) {
+      bodies.push(JSON.parse(init.body));
+    }
+    return originalFetch(url as string, init as RequestInit);
+  }) as typeof global.fetch;
+  try {
+    await ops.commit(
+      {
+        patchedSourceFiles: {},
+        patchedJsonEntries: {},
+        previousSourceFiles: {},
+        partiallyPatchedSourceFiles: {},
+        patchedBinaryFilesDescriptors: {},
+        appliedPatches: {},
+        hasErrors: false,
+        sourceFilePatchErrors: {},
+        binaryFilePatchErrors: {},
+        unappliablePatches: {},
+        skippedPatches: {},
+        triedPatches: {},
+        moduleVersions: {
+          ["/content/landing.val.ts" as ModuleFilePath]: {
+            source: { title: "Hello" },
+            schema: {
+              type: "object",
+              items: { title: { type: "string", opt: false } },
+              opt: false,
+            } as unknown as SerializedSchema,
+          },
+        },
+      },
+      "ship it",
+      PROFILE,
+      "/public/val",
+    );
+    const body = bodies[0] as {
+      modules?: Record<string, { source: unknown; schema: unknown }>;
+    };
+    expect(body.modules).toBeDefined();
+    const module = body.modules?.["/content/landing.val.ts"];
+    // The DATA, not the `.val.ts` text: text is code, and parsing code back
+    // into data is the thing this stopped depending on.
+    expect(module?.source).toEqual({ title: "Hello" });
+    expect(module?.schema).toMatchObject({ type: "object" });
+  } finally {
+    global.fetch = originalFetch;
+    restore();
+    void sent;
+  }
+});
+
 test("a commit says who is publishing, so home can check the group is theirs", async () => {
   const { ops, sent, restore } = opsAnswering({
     updatedFiles: [],
@@ -249,6 +413,7 @@ test("a commit says who is publishing, so home can check the group is theirs", a
         unappliablePatches: {},
         skippedPatches: {},
         triedPatches: {},
+        moduleVersions: {},
       },
       "ship it",
       PROFILE,

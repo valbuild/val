@@ -241,6 +241,17 @@ export type ShellProps = {
    * working — you can publish from the compare view, which is the point of it.
    */
   editorOverride?: ReactNode;
+  /**
+   * The past, beside the editor.
+   *
+   * A render prop rather than a node, because the shell is what knows the
+   * breakpoint - and on a phone the two panes become one pane and a toggle
+   * rather than two columns.
+   */
+  renderHistory?: (
+    editor: ReactNode,
+    breakpoint: "mobile" | "tablet" | "desktop",
+  ) => ReactNode;
   onPublish?: () => void;
   /**
    * The real publish control, when there is one. See `TopBarProps` — the app
@@ -391,6 +402,7 @@ export function Shell({
   renderEditor,
   renderSettings,
   editorOverride,
+  renderHistory,
   onPublish,
   publishSlot,
   onPreview,
@@ -767,6 +779,44 @@ export function Shell({
       />
     ) : undefined;
 
+  /**
+   * The editor column: whatever the main pane is showing right now.
+   *
+   * Named rather than inlined because history renders it as the LEFT half of a
+   * split - and the left half has to be the real editor, with its real
+   * navigation and its real pending-changes gate, not a second rendering of it
+   * that would drift.
+   */
+  const editorColumn = editorOverride ? (
+    editorOverride
+  ) : selection === null ? (
+    <EmptyEditorState />
+  ) : (
+    /*
+     * Held until the server's pending changes have landed — see
+     * `PendingChangesGate`. Around the fields only: the compare and errors
+     * views above are their own thing, and neither offers a field to type
+     * the wrong value into.
+     */
+    <PendingChangesGate
+      ready={pendingChangesLoaded}
+      progress={pendingChangesProgress ?? noProgress}
+      fetchError={pendingChangesError}
+    >
+      {renderEditor ? (
+        renderEditor(selection)
+      ) : (
+        <PageEditor
+          title={selection.title}
+          urlPath={selection.urlPath}
+          sourcePath={selection.sourcePath}
+          isDevMode={isDevMode}
+          hasDraft={selection.hasDraft}
+        />
+      )}
+    </PendingChangesGate>
+  );
+
   return (
     <ShellPanelProvider openPanel={openPanelFromLink}>
       <div
@@ -796,35 +846,15 @@ export function Shell({
           onAttachToChat={aiEnabled ? attachToChat : undefined}
           skipTransition={skipTransition}
         >
-          {editorOverride ? (
-            editorOverride
-          ) : selection === null ? (
-            <EmptyEditorState />
-          ) : (
-            /*
-             * Held until the server's pending changes have landed — see
-             * `PendingChangesGate`. Around the fields only: the compare and errors
-             * views above are their own thing, and neither offers a field to type
-             * the wrong value into.
-             */
-            <PendingChangesGate
-              ready={pendingChangesLoaded}
-              progress={pendingChangesProgress ?? noProgress}
-              fetchError={pendingChangesError}
-            >
-              {renderEditor ? (
-                renderEditor(selection)
-              ) : (
-                <PageEditor
-                  title={selection.title}
-                  urlPath={selection.urlPath}
-                  sourcePath={selection.sourcePath}
-                  isDevMode={isDevMode}
-                  hasDraft={selection.hasDraft}
-                />
-              )}
-            </PendingChangesGate>
-          )}
+          {/*
+           * The editor column, built once and then either rendered on its own
+           * or handed to `renderHistory` as the left half. Built once because
+           * the alternative - the same tree written twice, in two branches -
+           * is the shape where the two quietly stop matching.
+           */}
+          {renderHistory
+            ? renderHistory(editorColumn, breakpoint)
+            : editorColumn}
         </PageWorkspace>
 
         {breakpoint === "desktop" && (

@@ -51,12 +51,16 @@ import {
 import { fromError } from "zod-validation-error";
 import { ValOpsHttp } from "./ValOpsHttp";
 import { result } from "@valbuild/core/fp";
+import type { HistoryError } from "./history/HistoryError";
+import { historyErrorMessage } from "./history/HistoryError";
+import { getHistoricalPatchSet } from "./history/getHistoricalPatchSet";
+import { getModuleAtCommit } from "./history/getModuleAtCommit";
 import { getSettings } from "./getSettings";
-import { createValOps } from "./valServerConfig";
 import {
-  getPersonalAccessTokenPath,
-  parsePersonalAccessTokenFile,
-} from "./personalAccessTokens";
+  createValOps,
+  resolveRemoteFileAuth,
+  type RemoteFileAuth,
+} from "./valServerConfig";
 import path from "path";
 import {
   getErrorMessageFromUnknownJson,
@@ -305,11 +309,19 @@ export const ValServer = (
     };
   };
 
-  let remoteFileAuth: { apiKey: string } | { pat: string } | null = null;
+  let remoteFileAuth: RemoteFileAuth | null = null;
+  /**
+   * The credential for remote-file work, memoised for the life of the server.
+   *
+   * The rule itself is `resolveRemoteFileAuth` in `valServerConfig`, shared with
+   * the MCP image tool — what is left here is the memoisation and the shape the
+   * api routes answer in. Memoised because in fs mode it reads a file off disk,
+   * and every remote image in a gallery would otherwise read it again.
+   */
   const getRemoteFileAuth = async (): Promise<
     | {
         status: 200;
-        json: { remoteFileAuth: { apiKey: string } | { pat: string } };
+        json: { remoteFileAuth: RemoteFileAuth };
       }
     | {
         status: 400;
@@ -320,69 +332,17 @@ export const ValServer = (
       }
   > => {
     if (remoteFileAuth) {
-      return {
-        status: 200,
-        json: { remoteFileAuth },
-      };
+      return { status: 200, json: { remoteFileAuth } };
     }
-    if (options.apiKey) {
-      remoteFileAuth = {
-        apiKey: options.apiKey,
-      };
-    } else if (serverOps instanceof ValOpsFS) {
-      const projectRootDir = options.config.root || ".";
-      if (!projectRootDir) {
-        return {
-          status: 400,
-          json: {
-            errorCode: "project-not-configured",
-            message: "Root directory was empty",
-          },
-        };
-      }
-      const fs = await import("fs");
-      const patPath = getPersonalAccessTokenPath(path.join(process.cwd()));
-      let patFile;
-
-      try {
-        patFile = await fs.promises.readFile(patPath, "utf-8");
-      } catch (err) {
-        return {
-          status: 400,
-          json: {
-            errorCode: "pat-error",
-            message: "Could not read personal access token file",
-          },
-        };
-      }
-      const patRes = parsePersonalAccessTokenFile(patFile);
-      if (patRes.success) {
-        remoteFileAuth = {
-          pat: patRes.data.pat,
-        };
-      } else {
-        return {
-          status: 400,
-          json: {
-            errorCode: "pat-error",
-            message: "Could not parse personal access token file",
-          },
-        };
-      }
-    }
-    if (!remoteFileAuth) {
+    const resolved = await resolveRemoteFileAuth(options);
+    if (resolved.status === "error") {
       return {
         status: 400,
-        json: {
-          errorCode: "project-not-configured",
-          message: "Remote file auth is not configured",
-        },
+        json: { errorCode: resolved.errorCode, message: resolved.message },
       };
     }
-    return {
-      status: 200,
-      json: { remoteFileAuth },
-    };
+    remoteFileAuth = resolved.auth;
+    return { status: 200, json: { remoteFileAuth } };
   };
 
   return {
@@ -643,111 +603,6 @@ export const ValServer = (
           },
           redirectTo: callbackReqSuccess.redirect_uri || "/",
         };
-      },
-    },
-
-    "/session": {
-      GET: async (req) => {
-        const cookies = req.cookies;
-        if (serverOps instanceof ValOpsFS) {
-          return {
-            status: 200,
-            json: {
-              mode: "local",
-              enabled: await callbacks.isEnabled(),
-            },
-          };
-        }
-        if (!options.project) {
-          return {
-            status: 500,
-            json: {
-              message: "Project is not set",
-            },
-          };
-        }
-        if (!options.valSecret) {
-          return {
-            status: 500,
-            json: {
-              message: "Secret is not set",
-            },
-          };
-        }
-        return withAuth(options.valSecret, cookies, "session", async (data) => {
-          if (!options.valBuildUrl) {
-            return {
-              status: 500,
-              json: {
-                message: "Val is not correctly setup. Build url is missing",
-              },
-            };
-          }
-          const url = new URL(
-            `/api/val/${options.project}/auth/session`,
-            options.valBuildUrl,
-          );
-          const fetchRes = await fetch(url, {
-            headers: getAuthHeaders(data.token, "application/json"),
-          });
-          if (fetchRes.status === 200) {
-            const json = z
-              .object({
-                member_role: z
-                  .union([
-                    z.literal("owner"),
-                    z.literal("developer"),
-                    z.literal("editor"),
-                  ])
-                  .optional(),
-                id: z.string(),
-                full_name: z.string().optional(),
-                username: z.string().optional(),
-                avatar_url: z.string().optional(),
-              })
-              .safeParse(await fetchRes.json());
-            if (json.success) {
-              return {
-                status: fetchRes.status,
-                json: {
-                  mode: "proxy",
-                  enabled: await callbacks.isEnabled(),
-                  ...json.data,
-                },
-              };
-            } else {
-              const message = getErrorMessageFromUnknownJson(
-                json,
-                "Could not parse session response. Unexpected error (no error message). Status: " +
-                  fetchRes.status,
-              );
-              return {
-                status: 500,
-                json: {
-                  message: message,
-                  ...json,
-                },
-              };
-            }
-          } else {
-            const json = z
-              .object({
-                message: z.string(),
-              })
-              .safeParse(await fetchRes.json());
-            const message = getErrorMessageFromUnknownJson(
-              json,
-              "Unknown error",
-            );
-            return {
-              status: fetchRes.status as ValServerErrorStatus,
-              json: {
-                message: message,
-                ...json,
-              },
-            };
-          }
-        });
       },
     },
 
@@ -3083,22 +2938,24 @@ export const ValServer = (
                     },
                   };
                 }
-                const arrayBuffer = await binaryRes.arrayBuffer();
-                const base64 = Buffer.from(arrayBuffer).toString("base64");
-                const dataUrl = `data:${file.metadata.mimeType};base64,${base64}`;
+                // Bytes straight through. This used to base64 the buffer,
+                // wrap it in a data: URL, and hand that to a method whose first
+                // act was to unwrap it again - ceremony to satisfy a convention
+                // that no longer exists.
+                const bytes = Buffer.from(await binaryRes.arrayBuffer());
                 const type: "image" | "file" =
                   file.metadata.mimeType.startsWith("image/")
                     ? "image"
                     : "file";
-                const saveRes =
-                  await serverOps.saveBase64EncodedBinaryFileFromPatch(
-                    file.filePath,
-                    req.body.parentRef,
-                    req.body.patchId,
-                    dataUrl,
-                    type,
-                    file.metadata,
-                  );
+                const saveRes = await serverOps.saveBinaryFileFromPatch(
+                  file.filePath,
+                  req.body.parentRef,
+                  req.body.patchId,
+                  bytes,
+                  file.metadata.mimeType,
+                  type,
+                  file.metadata,
+                );
                 if (saveRes.error) {
                   return {
                     status: 500 as const,
@@ -3226,6 +3083,138 @@ export const ValServer = (
     },
 
     //#region files
+    // #region history
+    "/history/commits": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const res = await serverOps.listCommits(req.query.branch, {
+          limit: req.query.limit,
+          cursor: req.query.cursor,
+        });
+        if (result.isErr(res)) {
+          return historyErrorResponse(res.error);
+        }
+        return {
+          status: 200,
+          json: res.value,
+          // The head moves, so a listing is never reusable.
+          headers: { "Cache-Control": "no-store" },
+        };
+      },
+    },
+    "/history/commit": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const res = await getHistoricalPatchSet(
+          serverOps,
+          req.query.commit_sha,
+        );
+        if (result.isErr(res)) {
+          return historyErrorResponse(res.error);
+        }
+        /*
+         * Immutable ONLY when nothing in the answer was transient.
+         *
+         * What a commit recorded cannot change, so a clean answer is reusable
+         * forever - that is what makes comparing many commits cheap. But a
+         * module marked `unavailable` means a blob fetch failed, and a warning
+         * means an entry read against GitHub did; both can succeed on the next
+         * try. Cached for a year, one flaky read would become "nothing was
+         * recorded for this module" for the rest of the session and beyond.
+         *
+         * `private`, not `public`: this route is behind the session cookie, and
+         * a shared cache holding it would hand one project's module sources to
+         * whoever asked next. The browser's own cache is where the reuse was
+         * wanted anyway.
+         */
+        const settled =
+          res.value.warnings.length === 0 &&
+          Object.values(res.value.modules).every(
+            (module) => module.failures.length === 0,
+          );
+        return {
+          status: 200,
+          json: res.value,
+          headers: {
+            "Cache-Control": settled
+              ? "private, max-age=31536000, immutable"
+              : "no-store",
+          },
+        };
+      },
+    },
+    "/history/module": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const res = await getModuleAtCommit(
+          serverOps,
+          req.query.commit_sha,
+          req.query.module_file_path as ModuleFilePath,
+        );
+        if (result.isErr(res)) {
+          return historyErrorResponse(res.error);
+        }
+        // Immutable only when the answer settled — a module reported
+        // unavailable means a blob fetch failed and may succeed next time, and
+        // caching that for a year turns one flaky read into a permanent gap.
+        const settled = res.value === null || res.value.failures.length === 0;
+        return {
+          status: 200,
+          json: {
+            moduleFilePath: req.query.module_file_path,
+            module: res.value,
+          },
+          headers: {
+            "Cache-Control": settled
+              ? "private, max-age=31536000, immutable"
+              : "no-store",
+          },
+        };
+      },
+    },
+    "/history/files": {
+      GET: async (req) => {
+        // No auth, for the same reason /files has none: this is served to an
+        // <img> that the app's own backend may fetch during image
+        // optimisation, with no cookies. What it exposes is a file at a commit
+        // that is already in the repository.
+        const res = await serverOps.getFileAtCommit(
+          req.query.commit_sha,
+          req.query.path,
+          req.query.remote === "true",
+        );
+        if (result.isErr(res)) {
+          const response = historyErrorResponse(res.error);
+          // The stream branch of this route's response union has no json, so
+          // narrow to the shapes it does allow.
+          if (response.status === 401 || response.status === 404) {
+            return response;
+          }
+          return { status: 400, json: response.json };
+        }
+        return {
+          status: 200,
+          headers: {
+            "Content-Type":
+              guessMimeTypeFromPath(req.query.path) ??
+              "application/octet-stream",
+            // A file at a fixed commit cannot change.
+            "Cache-Control": "public, max-age=31536000, immutable",
+          },
+          body: bufferToReadableStream(res.value),
+        };
+      },
+    },
+    // #endregion history
     "/files": {
       GET: async (req) => {
         const query = req.query;
@@ -3847,6 +3836,34 @@ export const ENABLE_COOKIE_VALUE = {
   },
 } as const;
 const chunkSize = 1024 * 1024;
+
+/**
+ * Turn a HistoryError into the HTTP answer it deserves.
+ *
+ * The `kind` travels in the body alongside the message, because the Studio
+ * decides what to OFFER from it - "cannot restore this field" and "cannot
+ * restore this module at all" are different affordances, and a rendered string
+ * cannot be told apart.
+ */
+function historyErrorResponse(
+  error: HistoryError,
+):
+  | { status: 401; json: { message: string } }
+  | { status: 404; json: { message: string } }
+  | { status: 400; json: { message: string; kind?: string } }
+  | { status: 500; json: { message: string; kind?: string } } {
+  const message = historyErrorMessage(error);
+  switch (error.kind) {
+    case "commit-not-found":
+      return { status: 404, json: { message } };
+    case "not-supported-in-fs-mode":
+      // Not an error in the request - this deployment simply has no history
+      // service. 400 rather than 500 so it does not read as a bug.
+      return { status: 400, json: { message, kind: error.kind } };
+    default:
+      return { status: 500, json: { message, kind: error.kind } };
+  }
+}
 
 export function bufferToReadableStream(buffer: Buffer) {
   const stream = new ReadableStream({

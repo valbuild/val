@@ -96,11 +96,19 @@ defaulted. A field inherits its gallery's setting the way it inherits `accept`
 and `directory` — it has to, because `s.image(galleryVal)` serializes with
 **empty options** and has nothing of its own to read.
 
-It is one seam (`encodeImage`, called from `readImageFromFile`) because
+It is one seam — `encodeImage`, called from `readImageFromFile` — because
 `createFilename` derives the extension from the data URL's mime type rather
 than from the filename. Swap the bytes before the hash and the filename, the
 recorded `mimeType`, the dimensions and the remote validation hash all follow;
 swap them after and each of those describes a file nobody uploaded.
+
+There is now a **second** encoder at a second seam: the MCP `upload_image` tool
+runs the same conversion on `sharp`, server-side, before it hashes anything
+(`sharpImageProcessor` in `@valbuild/mcp/sharp`). Two encoders, but not two sets
+of rules — every decision below lives in
+`packages/shared/src/internal/media/encodeImageDecisions.ts` and both call it.
+Changing what `encode` means anywhere else changes it for one of them only, and
+the symptom is a project whose images differ by who uploaded them.
 
 Four rules, each of which is a bug if dropped:
 
