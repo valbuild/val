@@ -1,5 +1,12 @@
 # @valbuild/next
 
+## 0.123.1
+
+### Patch Changes
+
+- Updated dependencies [[`468f147`](https://github.com/valbuild/val/commit/468f147e62d1a96585890208921341959f118b6d)]:
+  - @valbuild/mcp@0.123.1
+
 ## 0.123.0
 
 ### Minor Changes
