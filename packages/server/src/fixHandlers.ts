@@ -41,6 +41,7 @@ import {
   ValidationFix,
 } from "@valbuild/core";
 import { extractJsonValuesEntry } from "./extractJsonValuesEntry";
+import { galleryEntryOf } from "./galleryEntryKey";
 import { getFileExt } from "./getFileExt";
 import {
   getPersonalAccessTokenPath,
@@ -629,15 +630,65 @@ export async function handleUniqueFolderCheck(
   return { success: true };
 }
 
-// Maps a gallery key to its on-disk local path. Remote galleries key uploaded
-// entries by a remote URL while keeping the file on disk; everything else is
-// already a local path and is returned unchanged.
-function remoteKeyToLocalPath(key: string): string {
-  const remoteRefRes = Internal.remote.splitRemoteRef(key);
-  if (remoteRefRes.status === "success") {
-    return `/${remoteRefRes.filePath}`;
+/**
+ * What is out of step between a gallery's entries and its directory.
+ *
+ * Two questions, and they treat a remote entry differently — which is the whole
+ * reason this is separate from the handler around it:
+ *
+ * - **Missing**: an entry with no bytes at its local path. Asked of LOCAL
+ *   entries only. A remote entry's bytes live on the content host, and nothing
+ *   puts a copy in the working tree: `saveOrUploadFiles` uploads the remote
+ *   descriptors and copies only the local ones into the tree, so a remote entry
+ *   added through the Studio (or over MCP) has no local file by design, and
+ *   demanding one would mean committing remote bytes to git — which is what
+ *   remote storage exists to avoid. Whether those bytes really are on the host
+ *   is a different check, `image:check-remote`, which already runs for exactly
+ *   these entries.
+ * - **Untracked**: a file in the directory that no entry claims. Asked of every
+ *   entry, remote included, and that is why they are normalised to their local
+ *   path: `val validate --fix` promotes a local file to a remote ref and leaves
+ *   the file where it was, so a remote entry can perfectly well have one.
+ */
+export function checkGalleryFiles(input: {
+  entryKeys: string[];
+  directory: string;
+  projectRoot: string;
+  fs: Pick<IValFSHost, "fileExists" | "readDirectory">;
+}): { missingTrackedFiles: string[]; untrackedFiles: string[] } {
+  const { directory, projectRoot, fs } = input;
+  const entries = input.entryKeys.map(galleryEntryOf);
+  const trackedFiles = new Set(entries.map((entry) => entry.localPath));
+
+  const missingTrackedFiles = entries
+    .filter(
+      (entry) =>
+        !entry.remote &&
+        !fs.fileExists(path.join(projectRoot, entry.localPath)),
+    )
+    .map((entry) => entry.localPath);
+
+  const filesInDir: string[] = [];
+  try {
+    const found = fs.readDirectory(
+      path.join(projectRoot, directory),
+      undefined,
+      undefined,
+      ["**/*"],
+    );
+    for (const entry of found) {
+      filesInDir.push(
+        "/" + path.relative(projectRoot, entry).split(path.sep).join("/"),
+      );
+    }
+  } catch {
+    // directory doesn't exist — no untracked files possible
   }
-  return key;
+
+  return {
+    missingTrackedFiles,
+    untrackedFiles: filesInDir.filter((f) => !trackedFiles.has(f)),
+  };
 }
 
 export async function handleCheckAllFiles(
@@ -661,17 +712,13 @@ export async function handleCheckAllFiles(
       errorMessage: `Could not get source for ${ctx.sourcePath}`,
     };
   }
-  // Gallery entries are keyed by their file path. Remote galleries key uploaded
-  // entries by a remote URL, but the file is kept on disk at its local path, so
-  // normalize remote-URL keys back to that local path for the on-disk checks.
-  const trackedFiles = new Set(
-    Object.keys(source as Record<string, unknown>).map(remoteKeyToLocalPath),
-  );
-
-  // Check that all tracked files exist on disk
-  const missingTrackedFiles = Array.from(trackedFiles).filter((f) => {
-    return !ctx.fs.fileExists(path.join(ctx.projectRoot, f));
+  const { missingTrackedFiles, untrackedFiles } = checkGalleryFiles({
+    entryKeys: Object.keys(source as Record<string, unknown>),
+    directory,
+    projectRoot: ctx.projectRoot,
+    fs: ctx.fs,
   });
+
   if (missingTrackedFiles.length > 0) {
     if (!ctx.fix) {
       return {
@@ -683,23 +730,6 @@ export async function handleCheckAllFiles(
     return { success: true, shouldApplyPatch: true };
   }
 
-  const dirPath = path.join(ctx.projectRoot, directory);
-
-  const filesInDir: string[] = [];
-  try {
-    const entries = ctx.fs.readDirectory(dirPath, undefined, undefined, [
-      "**/*",
-    ]);
-    for (const entry of entries) {
-      const relPath =
-        "/" + path.relative(ctx.projectRoot, entry).split(path.sep).join("/");
-      filesInDir.push(relPath);
-    }
-  } catch {
-    // directory doesn't exist — no untracked files possible
-  }
-
-  const untrackedFiles = filesInDir.filter((f) => !trackedFiles.has(f));
   if (untrackedFiles.length > 0) {
     return {
       success: false,
