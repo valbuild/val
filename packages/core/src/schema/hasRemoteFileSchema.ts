@@ -10,7 +10,7 @@ import type { SerializedSchema } from "./index";
  * The one answer to that question. There used to be two — `hasRemoteFileSchema`
  * in the server, gating whether `/save` demands remote credentials, and
  * `findRequiredRemoteFiles` in the Studio, gating the `/remote/settings` fetch —
- * and they disagreed about `s.images({ remote: true })`: the Studio's counted a
+ * and they disagreed about `s.images({ ... }).remote()`: the Studio's counted a
  * remote media record, the server's did not, because a media collection
  * serializes as a `record` of metadata rather than as an image schema.
  *

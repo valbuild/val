@@ -464,7 +464,7 @@ export async function handleRemoteFileUpload(
   );
 }
 
-// Gallery (s.images({ remote: true }) / s.files({ remote: true })) upload.
+// Gallery (s.images({ ... }).remote() / s.files({ ... }).remote()) upload.
 // Unlike a single image/file field, a gallery entry is keyed by its local file
 // path and the value is bare metadata (no FileSource), so we derive the file
 // ref from the key and synthesize the image/file schema from the record's

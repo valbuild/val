@@ -41,11 +41,6 @@ export type ImagesOptions<Accept extends `image/${string}`> = {
    */
   alt?: AltSchema;
   /**
-   * Whether remote images are allowed
-   * @default false
-   */
-  remote?: boolean;
-  /**
    * Re-encode uploads in the browser before they are uploaded.
    *
    * Off unless set. A field backed by this gallery (`s.image(galleryVal)`)
@@ -89,7 +84,7 @@ type ImagesItemSrc = {
  *
  * `directory` is required — it decides where uploads land, so it is not something
  * to be inferred. The rest defaults: any image type (`"image/*"`), nullable alt
- * text, remote disabled.
+ * text, remote disabled. Call `.remote()` on the result to allow remote images.
  *
  * @example
  * ```typescript
@@ -130,7 +125,7 @@ export const images = <Accept extends `image/${string}`>(
     type: "images",
     accept: options.accept ?? "image/*",
     directory,
-    remote: options.remote ?? false,
+    remote: false,
     altSchema,
     encode: options.encode,
   });
