@@ -35,9 +35,15 @@ export type GalleryEntryKey = {
   remote: boolean;
 };
 
-/** A key that names somewhere else, whether or not it is a ref we can read. */
+/**
+ * A key that names somewhere else, whether or not it is a ref we can read.
+ *
+ * Case-insensitive, because a scheme is (RFC 3986) — and because
+ * `splitRemoteRef`'s pattern is not, so `HTTPS://…` is precisely one of the
+ * spellings that arrives here unparsed and must not be mistaken for a path.
+ */
 function isRemoteUrl(key: string): boolean {
-  return key.startsWith("https://") || key.startsWith("http://");
+  return /^https?:\/\//i.test(key);
 }
 
 export function galleryEntryOf(key: string): GalleryEntryKey {

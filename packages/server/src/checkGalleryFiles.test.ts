@@ -68,6 +68,12 @@ describe("a remote key that does not parse", () => {
       "https://remote.val.build/file/p/pub-1/b/01/v/1.0.0/h/abcd/f/0123456789ab/p/elsewhere/x.png",
     ],
     ["not a ref at all", "https://example.com/x.png"],
+    [
+      // A scheme is case-insensitive, and `splitRemoteRef`'s pattern is not,
+      // so this arrives here unparsed like any other malformed ref.
+      "an upper-case scheme",
+      "HTTPS://remote.val.build/file/p/pub-1/b/01/v/1.0.0/h/abcd/f/0123456789ab/p/public/img/x.png",
+    ],
   ])("is never reported missing (%s)", (_why, key) => {
     const result = checkGalleryFiles({
       entryKeys: [key],
