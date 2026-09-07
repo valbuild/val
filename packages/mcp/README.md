@@ -17,6 +17,34 @@ const { valMcpAuthorize, valMcpTools, valMcpMetadata } = initValMcp(
 );
 ```
 
+## The tools
+
+Reading:
+
+| Tool                         |                                                           |
+| ---------------------------- | --------------------------------------------------------- |
+| `get_all_schema`             | every module's path and schema — where to start           |
+| `get_source`                 | the content at a source path, unpublished changes applied |
+| `get_record_keys`            | a record's keys without its values                        |
+| `count_entries`              | how big something is before asking for it                 |
+| `get_source_path_from_route` | the module behind a URL                                   |
+| `get_patches`                | what is edited but not yet published                      |
+| `validate_content`           | what the Studio would show as an error                    |
+
+Writing:
+
+| Tool                         |                                                     |
+| ---------------------------- | --------------------------------------------------- |
+| `create_patch`               | change a value at a path                            |
+| `duplicate_source`           | copy an array item or record entry                  |
+| `empty_at_path`              | build an empty value the schema accepts, to fill in |
+| `remove_image_gallery_entry` | drop an image from an `s.images()` gallery          |
+| `upload_image`               | add one — see below                                 |
+
+Every write is validated against the schema before it is stored, and refused
+rather than saved broken. A patch lands unpublished, exactly where the Studio
+puts an edit, so a human still reviews and publishes it.
+
 ## Image uploads need `sharp`
 
 The tool that uploads an image is not part of the default set, because reading
@@ -47,4 +75,4 @@ store, and the push happens at publish — so the only thing it needs is the
 project's bucket list, read with your app's own credential (its API key, or the
 `val login` token in your project during local development).
 
-See `docs/plans/mcp.md` in the repository for the design.
+The design notes are in [`docs/plans/mcp.md`](https://github.com/valbuild/val/blob/main/docs/plans/mcp.md).
