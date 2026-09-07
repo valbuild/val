@@ -2,7 +2,6 @@ import { expect, test } from "@playwright/test";
 import {
   mock,
   openHttpStudio,
-  peek,
   publishAll,
   sessionCookie,
   USERS,
@@ -358,17 +357,17 @@ test.describe("history in http mode", () => {
     page,
   }) => {
     await openHttpStudio(page);
-    const current = (await peek(page, MODULE)) as Record<
-      string,
-      Record<string, unknown>
-    >;
-    const schemaRes = await page.request.get("/api/val/schema");
-    expect(schemaRes.status()).toBe(200);
-    const schemas = (
-      (await schemaRes.json()) as {
-        schemas: Record<string, unknown>;
-      }
-    ).schemas;
+    // A real publish first, so the mock holds the module's schema and data as
+    // the Studio serialises them - the seed below reuses both rather than
+    // inventing a schema of its own.
+    await writePatch(page, MODULE, [
+      { op: "replace", path: ["freekh", "name"], value: "Second value" },
+    ]);
+    expect((await publishAll(page, "Base")).status).toBe("published");
+    const [base] = (await mock.state()).commits;
+    const recorded = (await mock.archive(base.commitSha))?.modules[MODULE];
+    expect(recorded, "the base publish recorded no module").toBeTruthy();
+    const current = recorded?.source as Record<string, Record<string, unknown>>;
     const seeded = { ...current, teddy: { ...current.teddy, name: "X" } };
     const seededRes = await fetch(
       `http://localhost:${MOCK_CONTENT_PORT}/v1/${MOCK_PROJECT}/commit`,
@@ -386,7 +385,7 @@ test.describe("history in http mode", () => {
           message: "A one-letter name",
           committer: USERS.ada.profileId,
           existingBranch: "main",
-          modules: { [MODULE]: { source: seeded, schema: schemas[MODULE] } },
+          modules: { [MODULE]: { source: seeded, schema: recorded?.schema } },
         }),
       },
     );
