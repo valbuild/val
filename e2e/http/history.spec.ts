@@ -2,10 +2,18 @@ import { expect, test } from "@playwright/test";
 import {
   mock,
   openHttpStudio,
+  peek,
   publishAll,
   sessionCookie,
+  USERS,
   writePatch,
 } from "./httpMode";
+import {
+  MOCK_API_KEY,
+  MOCK_CONTENT_PORT,
+  MOCK_PROJECT,
+  MOCK_ROOT,
+} from "./config";
 
 /**
  * History, end to end: a publish records what a later restore needs, and the
@@ -337,28 +345,57 @@ test.describe("history in http mode", () => {
    * A value that only breaks a RULE is still restorable.
    *
    * `name` has `minLength(2)`. A one-letter name is a valid string in an
-   * invalid state, and the gate is type compatibility, not validation: the
-   * restore stages, the Studio shows the validation error like any other edit,
-   * and it publishes. Refusing it would block a restore that is exactly what
-   * the editor asked for.
+   * invalid state, and the restore gate is type compatibility, not validation:
+   * the restore stages like any other edit. Publishing is a different gate -
+   * the Studio refuses to release content with validation errors - so the
+   * restore waits in pending changes until the value is fixed, and says why.
+   *
+   * The Studio cannot publish such a commit in the first place, for the same
+   * reason, so the commit is written straight to the content service - the way
+   * one from another tool, or from before a rule was tightened, would arrive.
    */
-  test("a value that fails validation but not the type is still restorable", async ({
+  test("a value that fails validation but not the type restores, and publish then waits for a fix", async ({
     page,
   }) => {
     await openHttpStudio(page);
-    await writePatch(page, MODULE, [
-      { op: "replace", path: ["teddy", "name"], value: "X" },
-    ]);
-    expect((await publishAll(page, "Too short")).status).toBe("published");
-    await writePatch(page, MODULE, [
-      { op: "replace", path: ["teddy", "name"], value: "Proper name" },
-    ]);
-    expect((await publishAll(page, "Fixed")).status).toBe("published");
-    const [first] = (await mock.state()).commits;
+    const current = (await peek(page, MODULE)) as Record<
+      string,
+      Record<string, unknown>
+    >;
+    const schemaRes = await page.request.get("/api/val/schema");
+    expect(schemaRes.status()).toBe(200);
+    const schemas = (
+      (await schemaRes.json()) as {
+        schemas: Record<string, unknown>;
+      }
+    ).schemas;
+    const seeded = { ...current, teddy: { ...current.teddy, name: "X" } };
+    const seededRes = await fetch(
+      `http://localhost:${MOCK_CONTENT_PORT}/v1/${MOCK_PROJECT}/commit`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${MOCK_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          patchedSourceFiles: {},
+          patchedBinaryFilesDescriptors: {},
+          appliedPatches: {},
+          root: MOCK_ROOT,
+          message: "A one-letter name",
+          committer: USERS.ada.profileId,
+          existingBranch: "main",
+          modules: { [MODULE]: { source: seeded, schema: schemas[MODULE] } },
+        }),
+      },
+    );
+    expect(seededRes.ok).toBe(true);
+    const { commit } = (await seededRes.json()) as { commit: string };
 
     await openHttpStudio(
       page,
-      `/val/~${MODULE}?p=%22teddy%22&commit=${first.commitSha}`,
+      `/val/~${MODULE}?p=%22teddy%22&commit=${commit}`,
     );
     const studio = page.locator("#val-shadow-root");
     await studio.getByRole("button", { name: "Restore from here" }).click();
@@ -371,6 +408,7 @@ test.describe("history in http mode", () => {
     const nameTarget = studio.locator(
       `[data-restore-role="target"]:has(> div[data-val-studio-path='${namePath}'])`,
     );
+    // Type-compatible, so offered - the rule it breaks is not the gate here.
     await expect(nameTarget).toHaveAttribute(
       "data-restore-status",
       "compatible",
@@ -380,10 +418,20 @@ test.describe("history in http mode", () => {
     await expect(
       studio.getByText("Staged. It is in your pending changes"),
     ).toBeVisible();
+    // Staged means a pending patch reached the content service.
+    await expect
+      .poll(
+        async () =>
+          (await mock.state()).patches.filter(
+            (patch) => patch.applied === null && patch.path === MODULE,
+          ).length,
+      )
+      .toBe(1);
 
+    // And release waits, with the reason, rather than shipping a broken value.
     const published = await publishAll(page, "Restore the short name");
-    expect(published.status, published.message ?? "").toBe("published");
-    expect(await mock.committedSource(MODULE)).toContain('name: "X"');
+    expect(published.status).toBe("refused");
+    expect(JSON.stringify(published)).toContain("validation-errors");
   });
 
   test("a commit Val did not make is a 404, not an empty answer", async ({
