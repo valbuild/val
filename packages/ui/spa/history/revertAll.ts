@@ -32,7 +32,7 @@ export type RevertPlan = {
  * media is: the schema is what decides how a value is stored, and a marker
  * object is not distinguishable from ordinary content by looking at it.
  */
-function containsJsonValues(schema: SerializedSchema): boolean {
+export function containsJsonValues(schema: SerializedSchema): boolean {
   if (schema.type === "record") {
     return schema.jsonValues === true || containsJsonValues(schema.item);
   }

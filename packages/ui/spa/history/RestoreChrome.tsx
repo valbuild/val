@@ -1,3 +1,4 @@
+import type { SerializedSchema, SourcePath } from "@valbuild/core";
 import { explainIncompatible } from "@valbuild/shared/internal";
 import { Check, CircleHelp, Lock } from "lucide-react";
 import { useState } from "react";
@@ -7,14 +8,27 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/designSystem/popover";
-import type { FieldRestoreRole } from "./RestoreModeContext";
+import {
+  useFieldRestoreRole,
+  useRestoreMode,
+  useRestorePick,
+  type FieldRestoreRole,
+} from "./RestoreModeContext";
 
 /**
  * The restore affordance around a field, or nothing at all.
  *
- * Wraps rather than replaces: when no restore is being aimed this renders its
- * children and adds not one element, so a field in the ordinary Studio is
- * untouched by this feature existing.
+ * Two components on purpose. This one reads the restore mode — a plain context
+ * read — and when none is running renders its children and adds not one
+ * element and not one hook. The hooks that cost something live in
+ * {@link ActiveRestoreChrome} below, which is mounted ONLY while a restore is
+ * being aimed, so the ordinary Studio has no history hooks in its tree at all.
+ *
+ * That split is the point rather than a tidiness: `Field` is mounted once per
+ * field, so anything unconditional here is paid project-wide on every render
+ * path. An earlier revision called the pick hook from `Field` directly and put
+ * a second source subscription on every field in the Studio with history
+ * closed — the render output added nothing, the subscriptions did.
  *
  * On the commit side every field is offered — a value at a commit is always a
  * legal value of the schema it was stored under. On the "now" side each field
@@ -24,19 +38,46 @@ import type { FieldRestoreRole } from "./RestoreModeContext";
  * is refused is the most useful thing we know.
  */
 export function RestoreChrome({
-  restore,
+  path,
+  schema,
   children,
 }: {
-  restore: { role: FieldRestoreRole; onPick: () => void } | null;
+  path: SourcePath;
+  schema: SerializedSchema | undefined;
+  children: React.ReactNode;
+}) {
+  const mode = useRestoreMode();
+  if (!mode) {
+    return <>{children}</>;
+  }
+  return (
+    <ActiveRestoreChrome path={path} schema={schema}>
+      {children}
+    </ActiveRestoreChrome>
+  );
+}
+
+function ActiveRestoreChrome({
+  path,
+  schema,
+  children,
+}: {
+  path: SourcePath;
+  schema: SerializedSchema | undefined;
   children: React.ReactNode;
 }) {
   const [explaining, setExplaining] = useState(false);
-  if (!restore) {
+  const role = useFieldRestoreRole(path, schema);
+  const onPick = useRestorePick(path, schema);
+  if (!role || !onPick) {
     return <>{children}</>;
   }
-  const { role, onPick } = restore;
   const refused =
     role.role === "target" && role.compatibility.status === "incompatible";
+  const pick = () => {
+    if (refused) setExplaining(true);
+    else onPick();
+  };
   return (
     <Popover open={explaining} onOpenChange={setExplaining}>
       <PopoverTrigger asChild>
@@ -54,14 +95,43 @@ export function RestoreChrome({
           )}
           onClick={(ev) => {
             // The field's own controls stay usable on the "now" side, which is
-            // still the live editor: only a click on the chrome itself picks.
+            // still the live editor: only a click on the chrome frame itself
+            // picks. The badge below is the primary target and handles its own
+            // click, so this is the secondary hit area, not the only one.
             if (ev.target !== ev.currentTarget) return;
-            if (refused) setExplaining(true);
-            else onPick();
+            pick();
           }}
         >
-          <div className="pointer-events-none absolute -top-2 left-3 z-10">
-            <RestoreBadge role={role} />
+          {/*
+           * The badge is a real button.
+           *
+           * It used to be `pointer-events-none` decoration, which left the
+           * six-pixel dashed frame as the only thing that picked a target on
+           * the live side. A person clicks the field, nothing happens, and the
+           * first click reads as broken — the e2e had to click at {x:3, y:3}
+           * to hit it, which was the tell.
+           */}
+          <div className="absolute -top-2 left-3 z-10">
+            <button
+              type="button"
+              onClick={(ev) => {
+                ev.stopPropagation();
+                pick();
+              }}
+              aria-label={
+                refused
+                  ? "Why this cannot be restored here"
+                  : role.role === "source"
+                    ? "Restore this value"
+                    : "Restore the picked value here"
+              }
+              className={cn(
+                "rounded",
+                refused ? "cursor-not-allowed" : "cursor-pointer",
+              )}
+            >
+              <RestoreBadge role={role} />
+            </button>
           </div>
           {/*
            * A click anywhere inside also picks, on the READ-ONLY commit pane

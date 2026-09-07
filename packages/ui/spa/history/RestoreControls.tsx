@@ -1,11 +1,12 @@
-import type { SourcePath } from "@valbuild/core";
+import type { ModuleFilePath, SourcePath } from "@valbuild/core";
+import { Internal } from "@valbuild/core";
 import type { HistoricalPatchSet } from "@valbuild/shared/internal";
 import { useHistoryParams } from "../components/ValRouter";
 import { Button } from "../components/designSystem/button";
 import { enterRestore, exitRestore } from "./historyParams";
 import type { DirectedRestore } from "./useDirectedRestore";
 import { restorability } from "./HistoryPane";
-import { planRevertAll } from "./revertAll";
+import { containsJsonValues, planRevertAll } from "./revertAll";
 import { useAddPatch } from "../components/ValFieldProvider";
 import { useState } from "react";
 
@@ -39,9 +40,72 @@ export function RestoreControls({
     return null;
   }
   const inRestoreMode = history.restore.mode !== "off";
+  const moduleFilePath =
+    path === null
+      ? null
+      : (Internal.splitModuleFilePathAndModulePath(path)[0] as ModuleFilePath);
+  /*
+   * The module on screen, if this commit recorded it.
+   *
+   * `null` on the modules-changed list (no module chosen) and on a module the
+   * commit did not change — the pane can show that one, because it asks how it
+   * looked as of the commit, but this commit has nothing of its own to restore
+   * from. Both cases matter below: they are what the module button is offered
+   * for and what "Put everything back" has to be honest about.
+   */
+  const moduleHere =
+    moduleFilePath !== null ? patchSet.modules[moduleFilePath] : undefined;
+  /*
+   * Whether this module can be put back WHOLE.
+   *
+   * The `.jsonValues()` exclusion is the same one `planRevertAll` makes, and
+   * for the same reason: a jsonValues record's entries are not in the module's
+   * Source. The Source holds `{ _type: "json" }` markers and the content lives
+   * in each entry's `*.val.json`, so a root `replace` with the recorded Source
+   * writes those markers into the `.val.ts` over the `c.json(() => import(…))`
+   * calls — and nothing downstream catches it, because `classifyJsonValuesOp`
+   * walks the op path to find a jsonValues record and an empty path never gets
+   * there. Restoring one FIELD of such a module is fine; it is the ROOT op that
+   * is not, so the exclusion belongs on this button and not on the chrome.
+   */
+  const restorableHere =
+    moduleHere !== undefined &&
+    moduleHere.schema !== null &&
+    moduleHere.source !== null &&
+    !containsJsonValues(moduleHere.schema);
+  /*
+   * What "Put everything back" would actually stage, asked of the plan itself.
+   *
+   * Counting the commit's modules here instead would give a number that drifts
+   * from the button the moment the plan excludes one — which it does, for the
+   * same jsonValues reason — and a scope note that overstates the scope is
+   * worse than none.
+   */
+  const revertPlan = planRevertAll(patchSet);
+  const revertCount = revertPlan.modules.length;
+  const revertTouchesThisModule =
+    moduleFilePath !== null &&
+    revertPlan.modules.some((entry) => entry.moduleFilePath === moduleFilePath);
+
+  const restoreWholeModule = () => {
+    if (
+      moduleFilePath === null ||
+      moduleHere === undefined ||
+      moduleHere.schema === null ||
+      moduleHere.source === null ||
+      !restorableHere
+    ) {
+      return;
+    }
+    restore.restoreWholeModule(
+      moduleFilePath,
+      moduleHere.source,
+      moduleHere.schema,
+    );
+  };
 
   const revertEverything = () => {
-    const plan = planRevertAll(patchSet);
+    const plan = revertPlan;
     for (const { moduleFilePath, patch } of plan.modules) {
       addModuleFilePatch(moduleFilePath, patch, "object");
     }
@@ -74,6 +138,18 @@ export function RestoreControls({
             Restore from here
           </Button>
         )}
+        {/*
+         * One module, from a commit that changed several.
+         *
+         * Only in restore mode and only before a value is picked: it is a
+         * source pick like any other, and the module root is the one value the
+         * field chrome cannot offer because the root is not a `Field`.
+         */}
+        {inRestoreMode && !restore.from && restorableHere && (
+          <Button variant="outline" size="sm" onClick={restoreWholeModule}>
+            Restore this whole module
+          </Button>
+        )}
         <Button
           variant="outline"
           size="sm"
@@ -83,6 +159,22 @@ export function RestoreControls({
           Put everything back
         </Button>
       </div>
+      {/*
+       * What "Put everything back" covers, said before the click.
+       *
+       * These controls sit above whatever module the editor navigated to, and
+       * that is often not a module this commit changed — the pane can still
+       * show it, because it asks how the module looked AS OF the commit. The
+       * button then reverts a set of modules that are not on screen, which it
+       * used to do without saying so.
+       */}
+      {canRestore && !revertTouchesThisModule && (
+        <p className="text-xs text-fg-tertiary">
+          {moduleFilePath === null
+            ? `“Put everything back” covers the ${revertCount} module${revertCount === 1 ? "" : "s"} this commit changed.`
+            : `“Put everything back” will not touch ${moduleFilePath} — it covers the ${revertCount} module${revertCount === 1 ? "" : "s"} this commit changed and can put back.`}
+        </p>
+      )}
       {inRestoreMode && (
         <p className="text-xs text-fg-secondary">
           {!restore.from
@@ -105,9 +197,17 @@ export function RestoreControls({
               ? "Staging…"
               : "Stage this restore"}
           </Button>
-          <Button variant="ghost" size="sm" onClick={restore.clearTarget}>
-            Pick a different place
-          </Button>
+          {/*
+           * Not offered for a whole-module restore: its destination is the
+           * module it came from, and "somewhere else" would mean writing a
+           * module's value into a field.
+           */}
+          {Internal.splitModuleFilePathAndModulePath(restore.from.path)[1] !==
+            "" && (
+            <Button variant="ghost" size="sm" onClick={restore.clearTarget}>
+              Pick a different place
+            </Button>
+          )}
         </div>
       )}
       {restore.stage.status === "staged" && (

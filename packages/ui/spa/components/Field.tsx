@@ -20,10 +20,6 @@ import { ShallowSource, useGetNavPath } from "./ValFieldProvider";
 import { useAIChatActions, useInsertFieldRef } from "./AIChatActionsContext";
 import { useFieldState } from "./useFieldState";
 import { useNavigation } from "./ValRouter";
-import {
-  useFieldRestoreRole,
-  useRestorePick,
-} from "../history/RestoreModeContext";
 import { RestoreChrome } from "../history/RestoreChrome";
 
 export function Field({
@@ -105,17 +101,13 @@ export function Field({
    * on both panes — and no field component has to learn that history exists,
    * which is the same rule the history pane's second store system follows.
    *
-   * `null` whenever restore mode is off, and then everything below renders
-   * exactly as it always did.
+   * `RestoreChrome` reads the mode itself and mounts its hooks only when one is
+   * running, so with history closed this line costs a context read and nothing
+   * else. It must stay that way: this component is mounted once per field, so a
+   * hook added here is a subscription added project-wide.
    */
-  const restoreRole = useFieldRestoreRole(path, schema);
-  const restorePick = useRestorePick(path, schema);
-  const restore =
-    restoreRole && restorePick
-      ? { role: restoreRole, onPick: restorePick }
-      : null;
   return (
-    <RestoreChrome restore={restore}>
+    <RestoreChrome path={path} schema={schema}>
       <div
         data-val-studio-path={path}
         className={classNames("border", {

@@ -44,8 +44,38 @@ export function HistoryPane({
    */
   wrapModule?: (module: React.ReactNode) => React.ReactNode;
 }) {
-  const system = useCommitSystem(patchSet);
   const unavailable = useMemo(() => unavailableModules(patchSet), [patchSet]);
+  const moduleFilePath = path
+    ? (Internal.splitModuleFilePathAndModulePath(path)[0] as ModuleFilePath)
+    : null;
+  /*
+   * A module the commit did not change, fetched as of that commit.
+   *
+   * Fetched HERE, above every early return, so the pane builds one system
+   * rather than one per module navigated to — see `useCommitSystem`'s second
+   * argument. `useModuleAtCommit` skips its own request when the commit already
+   * carries the module, which is what makes calling it unconditionally free.
+   */
+  const outsideCommit =
+    patchSet !== undefined &&
+    moduleFilePath !== null &&
+    !(moduleFilePath in patchSet.modules);
+  const outsideState = useModuleAtCommit(
+    patchSet?.commit.commitSha ?? null,
+    moduleFilePath,
+    !outsideCommit,
+  );
+  const outside = useMemo(
+    () =>
+      outsideState?.status === "success" && outsideState.module
+        ? {
+            moduleFilePath: moduleFilePath as ModuleFilePath,
+            module: outsideState.module,
+          }
+        : null,
+    [outsideState, moduleFilePath],
+  );
+  const system = useCommitSystem(patchSet, outside);
 
   if (error) {
     return <PaneNote title="This commit cannot be opened">{error}</PaneNote>;
@@ -53,10 +83,6 @@ export function HistoryPane({
   if (loading || !patchSet || !system) {
     return <PaneNote title="Loading this commit…">{null}</PaneNote>;
   }
-
-  const moduleFilePath = path
-    ? (Internal.splitModuleFilePathAndModulePath(path)[0] as ModuleFilePath)
-    : null;
 
   if (moduleFilePath === null) {
     return <ChangedModules patchSet={patchSet} unavailable={unavailable} />;
@@ -75,17 +101,34 @@ export function HistoryPane({
      * like it does now — it may have changed in a later commit. So the pane
      * asks how it looked at that point rather than guessing or refusing.
      */
-    return (
-      <>
-        {restoreSlot}
-        <OutsideCommit
-          commitSha={patchSet.commit.commitSha}
-          moduleFilePath={moduleFilePath}
-          path={path as SourcePath}
-          wrapModule={wrapModule}
-        />
-      </>
-    );
+    if (!outsideState || outsideState.status === "loading") {
+      return <PaneNote title="Loading this module…">{null}</PaneNote>;
+    }
+    if (outsideState.status === "error") {
+      return <PaneNote title="Not shown here">{outsideState.message}</PaneNote>;
+    }
+    if (outsideState.module === null) {
+      return (
+        <PaneNote title="Not recorded at this point">
+          History has no record of this module at or before this commit — it was
+          last edited before Val started recording, or has never been edited.
+        </PaneNote>
+      );
+    }
+    if (outsideState.module.schema === null) {
+      return (
+        <PaneNote title="Not shown here">
+          This module was saved with a different version of Val, so it cannot be
+          shown here. Nothing is lost.
+        </PaneNote>
+      );
+    }
+    /*
+     * Falls through to the ordinary render below: the module is in `system`
+     * already, laid on top of the seed by `useCommitSystem`. `restoreSlot` is
+     * told this is a module the commit did not change, so "Put everything
+     * back" can say what it would actually touch.
+     */
   }
 
   return (
@@ -108,67 +151,6 @@ export function HistoryPane({
         </PendingWriteHoldProvider>
       </ValSystemProvider>
     </>
-  );
-}
-
-/**
- * A module the commit did not change, fetched as of that commit.
- *
- * Its own component because it needs its own system, built from one module —
- * and because a hook cannot be called after the early returns above without
- * putting every render of this pane through it.
- */
-function OutsideCommit({
-  commitSha,
-  moduleFilePath,
-  path,
-  wrapModule,
-}: {
-  commitSha: string;
-  moduleFilePath: ModuleFilePath;
-  path: SourcePath;
-  wrapModule?: (module: React.ReactNode) => React.ReactNode;
-}) {
-  const state = useModuleAtCommit(commitSha, moduleFilePath, false);
-  const asPatchSet = useMemo(
-    () =>
-      state?.status === "success" && state.module
-        ? { modules: { [moduleFilePath]: state.module } }
-        : undefined,
-    [state, moduleFilePath],
-  );
-  const system = useCommitSystem(asPatchSet as HistoricalPatchSet | undefined);
-
-  if (!state || state.status === "loading") {
-    return <PaneNote title="Loading this module…">{null}</PaneNote>;
-  }
-  if (state.status === "error") {
-    return <PaneNote title="Not shown here">{state.message}</PaneNote>;
-  }
-  if (state.module === null) {
-    return (
-      <PaneNote title="Not recorded at this point">
-        History has no record of this module at or before this commit — it was
-        last edited before Val started recording, or has never been edited.
-      </PaneNote>
-    );
-  }
-  if (state.module.schema === null || !system) {
-    return (
-      <PaneNote title="Not shown here">
-        This module was saved with a different version of Val, so it cannot be
-        shown here. Nothing is lost.
-      </PaneNote>
-    );
-  }
-  return (
-    <ValSystemProvider system={system}>
-      <PendingWriteHoldProvider held>
-        {(wrapModule ?? ((node: React.ReactNode) => node))(
-          <Module path={path} showModuleGalleryChild={null} />,
-        )}
-      </PendingWriteHoldProvider>
-    </ValSystemProvider>
   );
 }
 

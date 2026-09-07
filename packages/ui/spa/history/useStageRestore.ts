@@ -38,6 +38,8 @@ export function useStageRestore(
     value: JSONValue;
     schema: SerializedSchema;
   }) => Promise<void>;
+  /** Refuse before staging, with the reason. See the gate in `confirm`. */
+  fail: (message: string) => void;
   reset: () => void;
 } {
   const [state, setState] = useState<StageState>({ status: "idle" });
@@ -133,6 +135,10 @@ export function useStageRestore(
     [to, apiBasePath, addAndUploadPatchWithFileOps, addModuleFilePatch],
   );
 
+  const fail = useCallback(
+    (message: string) => setState({ status: "error", message }),
+    [],
+  );
   const reset = useCallback(() => setState({ status: "idle" }), []);
-  return { state, stage, reset };
+  return { state, stage, fail, reset };
 }

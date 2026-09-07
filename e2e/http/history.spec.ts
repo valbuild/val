@@ -247,7 +247,7 @@ test.describe("history in http mode", () => {
     // Staged, not applied: the restore is a pending change until it is
     // published, exactly like any other edit.
     const published = await publishAll(page, "Put it back");
-    expect(published.status, published.message ?? "").toBe("published");
+    expect(published.status, JSON.stringify(published)).toBe("published");
 
     const committed = await mock.committedSource(MODULE);
     expect(committed).toContain("First value");
@@ -256,6 +256,93 @@ test.describe("history in http mode", () => {
     // Teddy's original is gone for good: the first commit changed it, and the
     // first commit is what was put back.
     expect(committed).not.toContain(ORIGINAL_TEDDY);
+  });
+
+  /**
+   * The directed restore, through the real Studio: point at an old value, point
+   * at where it goes, stage it, publish.
+   *
+   * The other restore test uses "Put everything back", which needs neither pick
+   * and so proves nothing about the flow this feature is named for. Everything
+   * here goes through the chrome a person actually clicks — the badge on a
+   * field — because the mechanism existing and the mechanism being reachable
+   * have already been two different things once in this PR.
+   *
+   * Both halves of the gate are asserted: a field that cannot hold the value is
+   * marked refused BEFORE any click, and the field that can is staged and
+   * lands in the commit.
+   */
+  test("one field can be pointed back at an older value", async ({ page }) => {
+    await openHttpStudio(page);
+    const { first } = await publishTwice(page);
+    // A third value, so restoring the FIRST commit's is observable: the first
+    // commit is what set "First value", so without this the restore would be a
+    // no-op that passes for the wrong reason.
+    await writePatch(page, MODULE, [
+      { op: "replace", path: ["teddy", "name"], value: "Third value" },
+    ]);
+    expect((await publishAll(page, "Third publish")).status).toBe("published");
+
+    await openHttpStudio(
+      page,
+      `/val/~${MODULE}?p=%22teddy%22&commit=${first.commitSha}`,
+    );
+    const studio = page.locator("#val-shadow-root");
+    await expect(
+      studio.getByRole("button", { name: "Restore from here" }),
+    ).toBeEnabled({ timeout: 30_000 });
+    await studio.getByRole("button", { name: "Restore from here" }).click();
+
+    /*
+     * The panes are told apart by the ROLE the chrome gives them, not by
+     * position: the right offers values (`source`) and the left takes them
+     * (`target`). That is the assignment under test, so naming it here is the
+     * point rather than a convenience.
+     */
+    /*
+     * The NEAREST chrome above a field, by xpath rather than by `:has(> …)`.
+     * The two panes do not nest identically — the commit side wraps its
+     * children in a click-anywhere div, because there is nothing else a click
+     * there could mean — so a direct-child selector matches one pane and misses
+     * the other.
+     */
+    const chromeAround = (path: string, side: "source" | "target") =>
+      studio
+        .locator(`[data-val-studio-path='${path}']`)
+        .locator("xpath=ancestor::*[@data-restore-role][1]")
+        .and(studio.locator(`[data-restore-role="${side}"]`));
+
+    const NAME = `${MODULE}?p="teddy"."name"`;
+    const commitName = chromeAround(NAME, "source");
+    await expect(commitName).toBeVisible();
+    await commitName
+      .getByRole("button", { name: "Restore this value" })
+      .click();
+
+    // Only now does the left have anything to answer about, so the marks
+    // appear after the pick rather than with the mode.
+    const IMAGE = `${MODULE}?p="teddy"."image"`;
+    await expect(chromeAround(IMAGE, "target")).toHaveAttribute(
+      "data-restore-status",
+      "incompatible",
+    );
+    const nowName = chromeAround(NAME, "target");
+    await expect(nowName).toHaveAttribute("data-restore-status", "compatible");
+    await nowName
+      .getByRole("button", { name: "Restore the picked value here" })
+      .click();
+
+    await studio.getByRole("button", { name: "Stage this restore" }).click();
+    await expect(studio.getByText("Staged.")).toBeVisible();
+
+    const published = await publishAll(page, "Point it back");
+    expect(published.status, JSON.stringify(published)).toBe("published");
+    const committed = await mock.committedSource(MODULE);
+    expect(committed).toContain("First value");
+    expect(committed).not.toContain("Third value");
+    // The rest of the module is untouched: a restore is one `replace` at the
+    // place that was pointed at, not a revert of the commit it came from.
+    expect(committed).toContain("Second value");
   });
 
   test("a commit Val did not make is a 404, not an empty answer", async ({

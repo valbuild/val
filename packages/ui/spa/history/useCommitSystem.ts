@@ -1,5 +1,8 @@
 import type { Json, ModuleFilePath, SerializedSchema } from "@valbuild/core";
-import type { HistoricalPatchSet } from "@valbuild/shared/internal";
+import type {
+  HistoricalModule,
+  HistoricalPatchSet,
+} from "@valbuild/shared/internal";
 import { useMemo } from "react";
 import { createReadOnlySystem } from "../stores/readOnlySystem";
 import { useValSystem } from "../stores/react/SystemContext";
@@ -22,6 +25,25 @@ import type { System } from "../stores/createSystem";
  */
 export function useCommitSystem(
   patchSet: HistoricalPatchSet | undefined,
+  /**
+   * One more module to lay on top, for a module the commit did not change.
+   *
+   * An argument rather than a second system built next door. The pane used to
+   * build a whole `createReadOnlySystem` per module navigated to — a fresh
+   * store graph, its bus, its validation debounce and its patch sync, for one
+   * module, discarded on the next navigation. Nothing was disposing them, and
+   * a dispose effect is not the fix either: `ValStoreProvider` has the incident
+   * note for what happens when a cleanup tears down a system built outside the
+   * effect (StrictMode runs it on a component that stays mounted, and the
+   * listeners attached at construction never come back).
+   *
+   * Folded in here instead, so a pane has exactly ONE system however far the
+   * editor navigates.
+   */
+  outside?: {
+    moduleFilePath: ModuleFilePath;
+    module: HistoricalModule;
+  } | null,
 ): System | null {
   const live = useValSystem();
   return useMemo(() => {
@@ -45,6 +67,17 @@ export function useCommitSystem(
      * entirely. What is left underneath is only the modules the commit did not
      * touch, and for those "as it is now" is the closest thing we know — and it
      * is what the field was pointing at anyway.
+     *
+     * Two things to be exact about, because the seed is easy to read as more
+     * than it is. `allSources()` is the live store's source WITH pending
+     * patches applied, so what shows through is today's DRAFT — including
+     * unpublished edits — not today's published state. That is the least
+     * surprising answer for a `keyOf` or a gallery reference, since it is what
+     * the editor sees on the left. And it is read ONCE, when this memo runs: an
+     * edit made on the left afterwards is not reflected on the right until the
+     * commit changes. Both are deliberate for a reference target and neither is
+     * right for a value being compared, which is why nothing compares against
+     * the seed.
      */
     const schemas: Record<ModuleFilePath, SerializedSchema | undefined> = {
       ...(live?.system.schemaStore.all() ?? {}),
@@ -78,12 +111,18 @@ export function useCommitSystem(
       schemas[moduleFilePath] = module.schema;
       sources[moduleFilePath] = module.source;
     }
+    // The module the editor navigated to, if the commit did not change it. Laid
+    // on last so it wins over the seed, exactly as the commit's own modules do.
+    if (outside && outside.module.schema !== null) {
+      schemas[outside.moduleFilePath] = outside.module.schema;
+      sources[outside.moduleFilePath] = outside.module.source;
+    }
     return createReadOnlySystem({
       schemas,
       sources,
       noServerReason: "This is how things were; there is nothing pending here",
     });
-  }, [patchSet, live]);
+  }, [patchSet, live, outside]);
 }
 
 /**

@@ -29,7 +29,16 @@ restores fine and one that lost the case you are restoring does not.
 
 Rich text can be restored but is marked "probably fits" rather than confirmed —
 comparing every mark and block against the options a schema allows is not done
-yet, and saying so is better than a confident answer we cannot back.
+yet, and saying so is better than a confident answer we cannot back. It is
+checked properly the moment you commit to it: before anything is staged, the old
+value is checked against the field it is going into, and a value that cannot be
+that field is refused with the reason. A value that is the right shape but
+breaks a rule about its content — a name too short for its `minLength` — is
+staged and then held at publish, the same as if you had typed it, because a
+restore should not be stricter than typing.
+
+**A whole module can be put back on its own**, from a commit that changed
+several, without reverting the rest of the commit.
 
 **Restores are staged, not applied.** They land in pending changes, are reviewed
 beside every other edit, and go out with the next publish. There is also "put

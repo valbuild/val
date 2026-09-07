@@ -1,6 +1,6 @@
 import { initVal } from "@valbuild/core";
 import type { HistoricalPatchSet } from "@valbuild/shared/internal";
-import { planRevertAll } from "./revertAll";
+import { containsJsonValues, planRevertAll } from "./revertAll";
 
 const { s } = initVal();
 
@@ -61,5 +61,51 @@ describe("reverting a `.jsonValues()` module", () => {
     );
     expect(plan.modules).toEqual([]);
     expect(plan.blocked).toHaveLength(1);
+  });
+});
+
+/**
+ * The same exclusion, asked directly.
+ *
+ * `planRevertAll` is not the only thing that writes a ROOT `replace` with a
+ * module's recorded Source: "Restore this whole module" does too, and it was
+ * added later. Both ask this one function, so the reasoning above cannot end up
+ * applying to one of them and not the other — which is exactly how the guard
+ * would come to be half true.
+ *
+ * The distinction it draws is root-vs-field, not module-vs-module: restoring one
+ * FIELD inside a jsonValues module is fine, because the op path then reaches the
+ * record and `classifyJsonValuesOp` can see it.
+ */
+describe("which schemas hold entries stored outside the module", () => {
+  test("a `.jsonValues()` record does", () => {
+    expect(
+      containsJsonValues(
+        s
+          .record(s.object({ title: s.string() }))
+          .jsonValues()
+          ["executeSerialize"](),
+      ),
+    ).toBe(true);
+  });
+
+  test("so does one nested inside an object", () => {
+    expect(
+      containsJsonValues(
+        s
+          .object({
+            pages: s.record(s.object({ title: s.string() })).jsonValues(),
+          })
+          ["executeSerialize"](),
+      ),
+    ).toBe(true);
+  });
+
+  test("an ordinary record does not", () => {
+    expect(
+      containsJsonValues(
+        s.record(s.object({ title: s.string() }))["executeSerialize"](),
+      ),
+    ).toBe(false);
   });
 });

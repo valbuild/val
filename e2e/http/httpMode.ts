@@ -666,10 +666,18 @@ export function chainLength(page: Page): Promise<number> {
  * Driven through the system rather than by clicking Publish so a failure reads as
  * a failure of the publish path, not of whatever the button was disabled by.
  */
+/**
+ * Publish everything the page holds.
+ *
+ * `reason` is in the return type because a refusal carries one and carries no
+ * `message` — `{status: "refused", reason: "unsaved-changes" | "head-moved" | …}`
+ * — so a test that reports only `message` on failure reports an empty string
+ * and says nothing about why. Assert with the whole object.
+ */
 export function publishAll(
   page: Page,
   message?: string,
-): Promise<{ status: string; message?: string }> {
+): Promise<{ status: string; message?: string; reason?: string }> {
   return page.evaluate(async (commitMessage) => {
     const bag = window as unknown as { __VAL_STORES__: StoreBag };
     const system = bag.__VAL_STORES__.system;

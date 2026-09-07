@@ -4,7 +4,7 @@ import {
   type Compatibility,
 } from "@valbuild/shared/internal";
 import React, { useContext, useMemo } from "react";
-import { useSourceAtPath } from "../components/ValFieldProvider";
+import { useValSystem } from "../stores/react/SystemContext";
 
 /**
  * What a field needs to know to take part in a restore.
@@ -94,27 +94,43 @@ export function useFieldRestoreRole(
 /**
  * The callbacks, for a field that has decided to act.
  *
- * `pick` reads the value with `useSourceAtPath`, NOT the shallow source the
- * field renders from. A shallow source summarises arrays and records rather
- * than carrying them, so picking one would restore a summary — a field that
- * looked right and wrote something that was never there.
+ * The picked value is READ WHEN CLICKED, not subscribed to. `useSourceAtPath`
+ * would be the obvious way to get it and is the wrong one here: it is `usePeek`
+ * plus `useEntryDemand`, so every field in the Studio would carry a second
+ * source listener and a second `useSyncExternalStore` for a value it is not
+ * showing and will almost certainly never be asked for. `sourceStore.get` is
+ * the same read, paid for once, by the one field that was clicked — and it
+ * loads a `.jsonValues()` entry on the way if the path needs one, which a peek
+ * would not.
+ *
+ * It has to be the DEEP value either way: the shallow source a field renders
+ * from summarises arrays and records rather than carrying them, so picking one
+ * would restore a summary — a field that looked right and wrote something that
+ * was never there.
  */
 export function useRestorePick(
   path: SourcePath,
   schema: SerializedSchema | undefined,
 ): (() => void) | null {
   const mode = useRestoreMode();
-  const deep = useSourceAtPath(path);
-  if (!mode || schema === undefined) {
-    return null;
-  }
-  if (mode.side === "commit") {
+  const val = useValSystem();
+  return useMemo<(() => void) | null>(() => {
+    if (!mode || schema === undefined) {
+      return null;
+    }
+    if (mode.side !== "commit") {
+      return () => mode.onPickTarget(path);
+    }
     return () => {
-      if (deep.status !== "success") {
+      if (val === null) {
         return;
       }
-      mode.onPickSource(path, deep.data, schema);
+      void val.system.sourceStore.get(path, null).then((read) => {
+        if (read.status !== "resolved-head") {
+          return;
+        }
+        mode.onPickSource(path, read.data, schema);
+      });
     };
-  }
-  return () => mode.onPickTarget(path);
+  }, [mode, val, path, schema]);
 }
