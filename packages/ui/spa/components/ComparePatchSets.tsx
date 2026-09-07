@@ -8,7 +8,7 @@ import {
 } from "@valbuild/core";
 import { HotspotMarker } from "./fields/HotspotMarker";
 import { deepEqual, ReadonlyJSONValue } from "@valbuild/core/patch";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { usePatchSetsWorker } from "../patchsets/usePatchSetsWorker";
 import classNames from "classnames";
 import {
@@ -77,6 +77,9 @@ import {
 import { useShellPanelLink } from "./shell/shellPanelLink";
 import { useNavLink } from "./navLink";
 import { refToUrl } from "./MediaPicker/refToUrl";
+import { StagingBulkActions, StagingToggle } from "./StagingToggle";
+import { splitTreesByStaging } from "../utils/splitTreesByStaging";
+import { usePatchStaging } from "./PatchStagingProvider";
 
 /**
  * ComparePatchSets renders a "review changes" view over a `SerializedPatchSet`.
@@ -315,17 +318,20 @@ export function ComparePatchSets({
           portalContainer={portalContainer}
         />
       )}
-      {changing.map((tree) => (
-        <ModuleGroup
-          key={`pending-${tree.sourcePath}`}
-          tree={tree}
-          profilesByAuthorIds={profilesByAuthorIds}
-          portalContainer={portalContainer}
-          mode={mode}
-          schemas={schemasData}
-          canDiscard={canDiscard}
-        />
-      ))}
+      {/*
+       * Only `changing` is split into Staged / Unstaged. A committed tree has
+       * already shipped and a reverted one has no net change to publish, so
+       * neither is something a person can stage or unstage — offering the
+       * choice there would be offering a control that cannot do anything.
+       */}
+      <StagedSections
+        trees={changing}
+        profilesByAuthorIds={profilesByAuthorIds}
+        portalContainer={portalContainer}
+        mode={mode}
+        schemas={schemasData}
+        canDiscard={canDiscard}
+      />
       {reverted.length > 0 && (
         <RevertedHistory count={revertedPatchIds.length}>
           {reverted.map((tree) => (
@@ -360,6 +366,143 @@ export function ComparePatchSets({
       ))}
     </div>
   );
+}
+
+type SectionProps = {
+  /** The trees with a real pending change — not committed, not reverted. */
+  trees: ChangeTreeNode[];
+  profilesByAuthorIds: Record<string, Profile>;
+  portalContainer: HTMLElement | null;
+  mode: "fs" | "http" | "unknown";
+  schemas: Record<ModuleFilePath, SerializedSchema> | undefined;
+  canDiscard: boolean;
+};
+
+/**
+ * The module list, split into what will publish and what is held back.
+ *
+ * Two sections only when staging is on. With it off — FS mode, or a content API
+ * without patch groups — this renders exactly the flat list it always did, which
+ * is the point: the section headers describe a choice that cannot be made there,
+ * and chrome for an absent feature is worse than no chrome.
+ *
+ * Staged first. It is what Publish will ship, so it is what a person opening this
+ * screen is deciding about; the held section is the exception below it.
+ *
+ * The deploy divider lives in the staged section. A committed patch has shipped,
+ * so it is not held by anyone and could not be — there is nothing to unstage.
+ */
+function StagedSections({
+  trees,
+  profilesByAuthorIds,
+  portalContainer,
+  mode,
+  schemas,
+  canDiscard,
+}: SectionProps) {
+  const staging = usePatchStaging();
+  const { staged, held } = useMemo(
+    () =>
+      staging.enabled
+        ? splitTreesByStaging(trees, staging.stateOf)
+        : { staged: trees, held: [] },
+    [trees, staging.enabled, staging.stateOf],
+  );
+
+  const renderTrees = (list: ChangeTreeNode[], side: "staged" | "held") =>
+    list.map((tree) => (
+      <ModuleGroup
+        key={`${side}-${tree.sourcePath}`}
+        tree={tree}
+        profilesByAuthorIds={profilesByAuthorIds}
+        portalContainer={portalContainer}
+        mode={mode}
+        schemas={schemas}
+        canDiscard={canDiscard}
+      />
+    ));
+
+  if (!staging.enabled) {
+    return <>{renderTrees(staged, "staged")}</>;
+  }
+
+  return (
+    <>
+      <SectionHeading
+        title="Staged"
+        detail="Publish ships these."
+        count={countRows(staged)}
+        actions={
+          <StagingBulkActions
+            patchIds={collectPatchIds(staged.flatMap(flattenChanges))}
+            profilesByAuthorIds={profilesByAuthorIds}
+            side="staged"
+          />
+        }
+      />
+      {staged.length === 0 ? (
+        <EmptySection>
+          Nothing is staged, so Publish has nothing to ship. Stage a change
+          below to publish it.
+        </EmptySection>
+      ) : (
+        renderTrees(staged, "staged")
+      )}
+      <SectionHeading
+        title="Unstaged"
+        detail="Held back. These stay pending and can be staged again — or published by someone else."
+        count={countRows(held)}
+        actions={
+          <StagingBulkActions
+            patchIds={collectPatchIds(held.flatMap(flattenChanges))}
+            profilesByAuthorIds={profilesByAuthorIds}
+            side="held"
+          />
+        }
+      />
+      {held.length === 0 ? (
+        <EmptySection>Nothing is held back.</EmptySection>
+      ) : (
+        renderTrees(held, "held")
+      )}
+    </>
+  );
+}
+
+function countRows(trees: ChangeTreeNode[]): number {
+  return trees.flatMap(flattenChanges).length;
+}
+
+function SectionHeading({
+  title,
+  detail,
+  count,
+  actions,
+}: {
+  title: string;
+  detail: string;
+  count: number;
+  /** Bulk stage/unstage for this section. Renders nothing when it is empty. */
+  actions?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 border-b border-border-primary pb-2">
+      <span className="text-sm font-medium text-fg-primary">{title}</span>
+      <span className="text-sm text-fg-tertiary tabular-nums">{count}</span>
+      <span className="text-xs text-fg-tertiary truncate">{detail}</span>
+      {/*
+       * `ml-auto` on the actions rather than a spacer, and `flex-wrap` above, so a
+       * narrow screen drops the buttons to their own line instead of squeezing the
+       * heading — the buttons are the widest thing here once there are per-author
+       * ones.
+       */}
+      <span className="ml-auto">{actions}</span>
+    </div>
+  );
+}
+
+function EmptySection({ children }: { children: ReactNode }) {
+  return <div className="text-xs text-fg-tertiary px-1">{children}</div>;
 }
 
 /**
@@ -1461,6 +1604,8 @@ function ListChangeRow({
         isRouterPageKey={isRouterPageKey}
         patchesByAuthorIds={patchesByAuthorIds}
         profilesByAuthorIds={profilesByAuthorIds}
+        patchIds={patchIds}
+        segmentLabel={lastSegment || modulePath || moduleFilePath}
         portalContainer={portalContainer}
         mode={mode}
         now={now}
@@ -1502,6 +1647,7 @@ function ChangeRow({
   parentMediaType?: "images" | "files";
 }) {
   const { deletePatches } = useDeletePatches();
+  const staging = usePatchStaging();
   const [now] = useState(() => new Date());
   const change = row.change;
   const [isExpanded, setIsExpanded] = useState(
@@ -1541,13 +1687,22 @@ function ChangeRow({
 
   const onDiscard = () => deletePatches(change.patchIds);
 
+  // A held row still has to be legible and re-stageable — if unstaging hid the
+  // change, unstaging would be a one-way trapdoor.
+  const stagingState = staging.stateOf(change.patchIds);
+  const isHeld = staging.enabled && stagingState === "held";
+
   return (
     <article
       data-val-studio-path={row.sourcePath}
+      data-val-staging={staging.enabled ? stagingState : undefined}
       className={classNames("px-5 py-5", {
         "opacity-60": isEqual,
         "bg-bg-error-secondary/30": change.changeType === "removed",
         "bg-bg-brand-primary/5": change.changeType === "added",
+        // Held: desaturated and struck through the rail, so it reads as "present
+        // but not going out" rather than as an error.
+        "opacity-50 grayscale": isHeld,
       })}
     >
       <ChangeRowHeader
@@ -1569,6 +1724,8 @@ function ChangeRow({
         canDiscard={canDiscard}
         hideExpand={isCommitted}
         parentMediaType={parentMediaType}
+        patchIds={change.patchIds}
+        segmentLabel={lastSegment || modulePath || moduleFilePath}
       />
       {/* No diff below the deploy line — see `RowProps.isCommitted`. */}
       {!isCommitted && (
@@ -1595,6 +1752,8 @@ function ChangeRowHeader({
   isRouterPageKey,
   patchesByAuthorIds,
   profilesByAuthorIds,
+  patchIds,
+  segmentLabel,
   portalContainer,
   mode,
   now,
@@ -1614,6 +1773,8 @@ function ChangeRowHeader({
   isRouterPageKey: boolean;
   patchesByAuthorIds: Record<string, AuthorPatchInfo[]>;
   profilesByAuthorIds: Record<string, Profile>;
+  patchIds: PatchId[];
+  segmentLabel: string;
   portalContainer: HTMLElement | null;
   mode: "fs" | "http" | "unknown";
   now: Date;
@@ -1639,6 +1800,19 @@ function ChangeRowHeader({
       />
       <ChangeTypeLabel changeType={changeType} isEqual={isEqual} />
       <div className="ml-auto flex items-center gap-2 shrink-0">
+        {/*
+         * NOT gated on `canDiscard`. That flag is about the DISCARD controls
+         * only (see this file's header) and it defaults to false, so gating
+         * staging on it hid the toggle everywhere it was not explicitly passed.
+         * `StagingToggle` already returns null unless the provider says staging
+         * is enabled, which is the condition that actually applies: choosing
+         * what YOU publish is a different capability from throwing work away.
+         */}
+        <StagingToggle
+          patchIds={patchIds}
+          profilesByAuthorIds={profilesByAuthorIds}
+          label={segmentLabel}
+        />
         {canDiscard && (
           <DiscardControl
             isEqual={isEqual}
@@ -2369,7 +2543,14 @@ function DiffSide({
 
 // #region AvatarStack
 
-function AvatarStack({
+/**
+ * Condensed author avatars, overflowing to a `+N` badge past nine.
+ *
+ * Exported for `PatchGroupWidenedToasts`, which answers the same question —
+ * "whose work is this?" — about the patches a write's closure pulled in. Two
+ * drawings of that would drift.
+ */
+export function AvatarStack({
   authorIds,
   profilesByAuthorIds,
   mode,

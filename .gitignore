@@ -21,3 +21,8 @@ blob-report/
 playwright/.cache/
 # Screenshots from e2e/screens.spec.ts: artifacts of a run, not a fixture.
 screens/
+
+# Written by ValOpsFS when a test runs in fs mode with the repo root as cwd.
+# The fixture copy under packages/cli/src/__fixtures__/ is deliberate, and a
+# root-anchored pattern leaves it alone.
+/.val/
