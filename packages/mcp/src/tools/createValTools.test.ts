@@ -2,7 +2,7 @@ import { initVal } from "@valbuild/core";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ValServerConfig } from "../ValServer";
+import type { ValServerConfig } from "@valbuild/server";
 import { createValTools } from "./createValTools";
 import { authorIdFromVerifiedSubject } from "./types";
 import type { ValToolContext, ValTools } from "./types";

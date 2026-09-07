@@ -51,6 +51,7 @@
   "dependencies": {
     "@valbuild/core": "workspace:*",
     "@valbuild/language-server": "workspace:*",
+    "@valbuild/mcp": "workspace:*",
     "@valbuild/react": "workspace:*",
     "@valbuild/server": "workspace:*",
     "@valbuild/shared": "workspace:*",

@@ -186,7 +186,15 @@ export function buildImageGalleryPatch(
     {
       op: "add" as const,
       path: [args.filePath],
-      value: { ...args.metadata },
+      value: {
+        ...args.metadata,
+        // `alt` is a REQUIRED field of a gallery entry (`s.images()` gives it a
+        // nullable string schema), so an entry written without one is invalid
+        // the moment it lands — and the caller that had no alt to give is the
+        // common case, not the odd one. Null is what the Studio's own upload
+        // writes there.
+        alt: args.metadata.alt ?? null,
+      },
     },
     {
       op: "file" as const,

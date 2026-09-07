@@ -3,7 +3,7 @@ import {
   VAL_SCOPE_READ,
   authorIdFromVerifiedSubject,
   type ValToolAuth,
-} from "@valbuild/server";
+} from "./tools";
 
 /**
  * Verifying an OAuth access token, which is the whole of what makes this app a
