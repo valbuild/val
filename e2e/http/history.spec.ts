@@ -258,6 +258,134 @@ test.describe("history in http mode", () => {
     expect(committed).not.toContain(ORIGINAL_TEDDY);
   });
 
+  /**
+   * The directed restore, through the real Studio: pick a field on the right,
+   * pick where it goes on the left, stage, publish.
+   *
+   * The scenario separates the two commits by FIELD so the result is
+   * unambiguous: the first commit set teddy's name, the second changed it
+   * again. Restoring teddy's name from the first commit has to bring the first
+   * value back and leave everything else as the second commit left it.
+   */
+  test("a single field can be restored from a commit and published", async ({
+    page,
+  }) => {
+    await openHttpStudio(page);
+    await writePatch(page, MODULE, [
+      { op: "replace", path: ["teddy", "name"], value: "First value" },
+    ]);
+    expect((await publishAll(page, "First publish")).status).toBe("published");
+    await writePatch(page, MODULE, [
+      { op: "replace", path: ["teddy", "name"], value: "Changed later" },
+      { op: "replace", path: ["freekh", "name"], value: "Second value" },
+    ]);
+    expect((await publishAll(page, "Second publish")).status).toBe("published");
+    const [first] = (await mock.state()).commits;
+
+    await openHttpStudio(
+      page,
+      `/val/~${MODULE}?p=%22teddy%22&commit=${first.commitSha}`,
+    );
+    const studio = page.locator("#val-shadow-root");
+    await studio.getByRole("button", { name: "Restore from here" }).click();
+
+    // The field, as `Field` labels it, on each pane. The right pane wraps the
+    // field in a click target of its own; the left pane's chrome is the field's
+    // direct parent.
+    const namePath = `${MODULE}?p="teddy"."name"`;
+    const sourceField = studio.locator(
+      `[data-restore-role="source"] > div > div[data-val-studio-path='${namePath}']`,
+    );
+    await expect(sourceField).toBeVisible({ timeout: 30_000 });
+    await sourceField.click();
+
+    // Marked before anything is clicked: a string can go where a string is.
+    const nameTarget = studio.locator(
+      `[data-restore-role="target"]:has(> div[data-val-studio-path='${namePath}'])`,
+    );
+    await expect(nameTarget).toHaveAttribute(
+      "data-restore-status",
+      "compatible",
+    );
+    // And a string cannot go where a date is, and says so without a click.
+    const birthdateTarget = studio.locator(
+      `[data-restore-role="target"]:has(> div[data-val-studio-path='${MODULE}?p="teddy"."birthdate"'])`,
+    );
+    await expect(birthdateTarget).toHaveAttribute(
+      "data-restore-status",
+      "incompatible",
+    );
+    // Only a click on the chrome itself picks on the live side, so the field's
+    // own controls stay usable. The border is the chrome.
+    await nameTarget.click({ position: { x: 3, y: 3 } });
+    await studio.getByRole("button", { name: "Stage this restore" }).click();
+    await expect(
+      studio.getByText("Staged. It is in your pending changes"),
+    ).toBeVisible();
+
+    const published = await publishAll(page, "Restore teddy");
+    expect(published.status, published.message ?? "").toBe("published");
+    const committed = await mock.committedSource(MODULE);
+    expect(committed).toContain("First value");
+    expect(committed).not.toContain("Changed later");
+    // The other field keeps what the second commit gave it: one field came
+    // back, not the commit.
+    expect(committed).toContain("Second value");
+  });
+
+  /**
+   * A value that only breaks a RULE is still restorable.
+   *
+   * `name` has `minLength(2)`. A one-letter name is a valid string in an
+   * invalid state, and the gate is type compatibility, not validation: the
+   * restore stages, the Studio shows the validation error like any other edit,
+   * and it publishes. Refusing it would block a restore that is exactly what
+   * the editor asked for.
+   */
+  test("a value that fails validation but not the type is still restorable", async ({
+    page,
+  }) => {
+    await openHttpStudio(page);
+    await writePatch(page, MODULE, [
+      { op: "replace", path: ["teddy", "name"], value: "X" },
+    ]);
+    expect((await publishAll(page, "Too short")).status).toBe("published");
+    await writePatch(page, MODULE, [
+      { op: "replace", path: ["teddy", "name"], value: "Proper name" },
+    ]);
+    expect((await publishAll(page, "Fixed")).status).toBe("published");
+    const [first] = (await mock.state()).commits;
+
+    await openHttpStudio(
+      page,
+      `/val/~${MODULE}?p=%22teddy%22&commit=${first.commitSha}`,
+    );
+    const studio = page.locator("#val-shadow-root");
+    await studio.getByRole("button", { name: "Restore from here" }).click();
+    const namePath = `${MODULE}?p="teddy"."name"`;
+    await studio
+      .locator(
+        `[data-restore-role="source"] > div > div[data-val-studio-path='${namePath}']`,
+      )
+      .click();
+    const nameTarget = studio.locator(
+      `[data-restore-role="target"]:has(> div[data-val-studio-path='${namePath}'])`,
+    );
+    await expect(nameTarget).toHaveAttribute(
+      "data-restore-status",
+      "compatible",
+    );
+    await nameTarget.click({ position: { x: 3, y: 3 } });
+    await studio.getByRole("button", { name: "Stage this restore" }).click();
+    await expect(
+      studio.getByText("Staged. It is in your pending changes"),
+    ).toBeVisible();
+
+    const published = await publishAll(page, "Restore the short name");
+    expect(published.status, published.message ?? "").toBe("published");
+    expect(await mock.committedSource(MODULE)).toContain('name: "X"');
+  });
+
   test("a commit Val did not make is a 404, not an empty answer", async ({
     page,
   }) => {
