@@ -679,6 +679,71 @@ until someone bumps it. So, once the new version is on npm:
    shows up here first, and this is the last place to catch it before it is what
    every new project starts from.
 
+### Publishing a package for the FIRST time
+
+A new package cannot be published by CI, and the failure looks like nothing to do
+with that:
+
+```
+@valbuild/mcp@0.123.0
+└ E404: Not Found - PUT https://registry.npmjs.org/@valbuild%2fmcp - Not found
+  The requested resource '@valbuild/mcp@0.123.0' could not be found or you do not
+  have permission to access it.
+```
+
+The Release workflow publishes with npm trusted publishing (OIDC), and a trusted
+publisher configuration is **per package** — so a package that has never been
+published has none, and the OIDC token has no permission to create it. npm answers
+a PUT it will not authorize with 404 rather than 403, which is why this reads as
+"missing" rather than "forbidden". There is no way to pre-register the name:
+npm has no reserve-a-name flow, and the org's Teams → Add package screen only
+enumerates packages the org already owns. Nothing is staged, so — unlike the
+E401 below — there is nothing to approve and the version number is not burned.
+
+`changeset publish` goes in dependency order and stops at the failure, so every
+package that depends on the new one is never attempted. Expect a half-published
+release: fix the new package, then re-run the job, and `changeset publish` picks
+up exactly what is missing.
+
+**Bootstrap it by hand, and use `pnpm publish`:**
+
+```bash
+pnpm install && pnpm run build     # `files` ships only dist/, so build first
+cd packages/<new-package>
+pnpm publish --access public --no-git-checks
+pnpm preconstruct dev              # back in the repo root, restore dev entries
+```
+
+`--access public` because a scoped package's first publish defaults to
+_restricted_, and a restricted package 404s for everyone else — indistinguishable
+from not existing. A brand-new package also takes up to a couple of minutes to
+become publicly readable, so a 404 right after a successful publish is usually
+just the read path catching up.
+
+**`pnpm publish`, never `npm publish`.** This is the one that cost a release.
+Every package here declares its siblings as `"@valbuild/x": "workspace:*"`, and
+that protocol is rewritten to a real version **at pack time by pnpm**. `npm
+publish` uploads the manifest verbatim, so the published package asks consumers
+to resolve `workspace:*` and cannot be installed by anything:
+
+```
+npm  → EUNSUPPORTEDPROTOCOL  Unsupported URL Type "workspace:": workspace:*
+pnpm → ERR_PNPM_WORKSPACE_PKG_NOT_FOUND
+```
+
+It is unfixable in place: npm versions are immutable, and unpublishing burns the
+number permanently rather than freeing it. Everything pinning that exact version
+— `@valbuild/next` pins its siblings exactly — is broken with it, so the recovery
+is a patch release of the bad package (changesets bumps the dependents for you),
+`npm deprecate` on both bad versions, and `npm dist-tag add <pkg>@<last good>
+latest` in the meantime so installs stop failing.
+
+Once the package exists, add its trusted publisher — the package page →
+Settings → Trusted publishing, organization `valbuild`, repository `val`,
+workflow `release.yml`, no environment, **`npm publish` ticked** — and CI handles
+it from then on, provenance included. The hand-published version is the only one
+without an attestation.
+
 ### The Release job fails with `E401 … Failed to generate Web Auth URLs`
 
 Symptom: `changeset publish` publishes some packages and then fails on one:
