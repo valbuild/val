@@ -1,5 +1,42 @@
 # @valbuild/next
 
+## 0.123.2
+
+### Patch Changes
+
+- [#629](https://github.com/valbuild/val/pull/629) [`04b6d4c`](https://github.com/valbuild/val/commit/04b6d4cbbecc131bbaf3c20633af9dad8c857310) Thanks [@freekh](https://github.com/freekh)! - Stop shipping zod to every visitor of a Val site (~113 KB)
+
+  `@valbuild/next`'s client code needed five things from
+  `@valbuild/shared/internal`, three of which are string constants like
+  `VAL_THEME_SESSION_STORAGE_KEY`. But preconstruct publishes each entrypoint as
+  a single bundled module, so importing a string constant pulled in the whole
+  entrypoint — including `ApiRoutes.ts` and its zod schemas. Measured on
+  val.build, that was 113 KB of zod in the initial JS of every page, for
+  visitors who never open the Studio.
+
+  Two changes:
+
+  - New `@valbuild/shared/client` entrypoint carrying the parts that are safe in
+    a browser bundle: the session-storage keys, the canvas protocol, and the
+    route-pattern helpers. Nothing reachable from it may import zod, and
+    `noZodInClientEntrypoint.test.ts` walks the source graph to enforce that —
+    one careless re-export would silently put the 113 KB back.
+  - `ValNextProvider` now imports `createValClient` on first use rather than at
+    module scope. It genuinely needs zod (it `safeParse`s every request and
+    response), but its only caller is the draft-mode poll, which returns early
+    unless the overlay is mounted. A visitor without the Val Enable cookie never
+    triggers the import.
+
+  No API change. `@valbuild/shared/internal` still exports everything it did.
+
+- Updated dependencies [[`04b6d4c`](https://github.com/valbuild/val/commit/04b6d4cbbecc131bbaf3c20633af9dad8c857310), [`8e58c34`](https://github.com/valbuild/val/commit/8e58c3495d1bf0f221a57082cb0a3045929722a1), [`3e93508`](https://github.com/valbuild/val/commit/3e93508b05d08b0c24947a97c6141a9ad8a3931e)]:
+  - @valbuild/shared@0.123.2
+  - @valbuild/server@0.123.2
+  - @valbuild/ui@0.123.2
+  - @valbuild/language-server@0.123.2
+  - @valbuild/mcp@0.123.2
+  - @valbuild/react@0.123.2
+
 ## 0.123.1
 
 ### Patch Changes

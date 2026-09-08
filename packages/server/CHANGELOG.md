@@ -1,5 +1,36 @@
 # @valbuild/server
 
+## 0.123.2
+
+### Patch Changes
+
+- [#619](https://github.com/valbuild/val/pull/619) [`8e58c34`](https://github.com/valbuild/val/commit/8e58c3495d1bf0f221a57082cb0a3045929722a1) Thanks [@freekh](https://github.com/freekh)! - Stop `val validate` reporting published remote gallery images as missing — and `--fix` deleting them
+
+  A remote gallery (`s.images({ remote: true })`) keys an uploaded entry by its
+  remote URL. Two separate checks read that key, normalised it back to the local
+  path it encodes, and then required a file to be sitting there:
+
+  - `val validate` reported _"Gallery … has tracked files that do not exist on
+    disk"_ for every published remote image;
+  - `val validate --fix` **removed the entry from the gallery**, silently deleting
+    the reference to a file that was safely on the content host.
+
+  Both were wrong for the same reason. Publishing uploads remote files to the
+  content host and copies only local ones into the working tree, so an image added
+  through the Studio — or over MCP — has no file in the repo by design. Putting one
+  there is exactly what remote storage exists to avoid.
+
+  Remote entries are now exempt from both the missing-file check and the
+  metadata-from-disk verification. Whether a remote entry is sound is
+  `image:check-remote`'s question, and it already asks it. Nothing changes for
+  local entries, or for a remote entry that does have a local file — `--fix`
+  promotes a local file to a remote ref and leaves the file where it was, and that
+  file is still counted as tracked rather than reported as untracked.
+
+- Updated dependencies [[`04b6d4c`](https://github.com/valbuild/val/commit/04b6d4cbbecc131bbaf3c20633af9dad8c857310), [`3e93508`](https://github.com/valbuild/val/commit/3e93508b05d08b0c24947a97c6141a9ad8a3931e)]:
+  - @valbuild/shared@0.123.2
+  - @valbuild/ui@0.123.2
+
 ## 0.123.0
 
 ### Minor Changes
