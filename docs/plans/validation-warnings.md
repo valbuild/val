@@ -76,13 +76,21 @@ a commit or historical patch-set view while being a warning everywhere else.
 
 > **The adjacent bug found here is fixed separately**, in
 > [#628](https://github.com/valbuild/val/pull/628): the mirror was dropping
-> `customValidate` and `description` on twelve and thirteen of the eighteen
-> schemas respectively, and `remote` / `referencedModule` on both media schemas
-> — with the same history-path exposure. That PR also collapses the fields every
-> schema shares into one `commonSchemaFields` object and adds a round-trip test
-> that fails with the path of any key that did not survive. **Land it first**:
-> the severity work edits the same eighteen declarations, and the round-trip
-> test is what will catch a `severity` forgotten on one of them.
+> five fields — `customValidate` and `description` on twelve and thirteen of the
+> eighteen schemas respectively, `remote` / `referencedModule` on both media
+> schemas, and the `message` on a `.regexp(pattern, message)` — all with the
+> same history-path exposure. That PR also collapses the fields every schema
+> shares into one `commonSchemaFields` object and adds a round-trip test that
+> fails with the path of any key that did not survive. **Land it first**: the
+> severity work edits the same eighteen declarations, and the round-trip test is
+> what will catch a `severity` forgotten on one of them.
+>
+> One lesson from it is worth carrying into step 3 below. The regexp `message`
+> was found by a reviewer, not by that round-trip test, because the test's
+> string case carried no regexp and so never reached the branch. The recursion
+> is exhaustive over what a case SERIALIZES, not over the schema types that
+> exist — so a `severity` added to `maxLength` needs a case that actually sets
+> `maxLength`, not merely a string case.
 
 ### A.2 Severity must not enter `schema.options` for image/file
 
