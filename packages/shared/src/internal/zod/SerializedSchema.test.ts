@@ -157,12 +157,17 @@ describe("SerializedSchema keeps every field the schema wrote", () => {
     {},
   );
   const cases: [string, Schema<SelectorSource>][] = [
+    // `render` and `preview` are the two fields that moved into
+    // `commonSchemaFields`, so one case has to actually SERIALIZE them or
+    // deleting either line from that object leaves this whole suite green.
     [
       "string",
       s
         .string()
         .validate(() => false)
-        .describe("d"),
+        .describe("d")
+        .render({ as: "inline" })
+        .preview(({ val }) => ({ title: val })),
     ],
     // The regexp MESSAGE is a separate branch of the parser from the pattern,
     // and the case above does not reach it — which is exactly how it stayed
