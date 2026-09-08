@@ -33,7 +33,7 @@ export type ShellPage = {
   /**
    * Whether Val tracks this route well enough to put it on a canvas.
    *
-   * Only a route Val resolves — a `next-app-router` page, not an arbitrary
+   * Only a route Val resolves — a page-router page, not an arbitrary
    * URL — can report the fields on it, so the canvas button appears only
    * where it would actually work.
    */

@@ -3,7 +3,12 @@ import {
   SerializedRecordSchema,
   SerializedSchema,
 } from "@valbuild/core";
-import { RoutePattern, parseRoutePattern } from "@valbuild/shared/internal";
+import {
+  getPageRouterSourceFolder,
+  getPatternFromModuleFilePath,
+  RoutePattern,
+  parseRoutePattern,
+} from "@valbuild/shared/internal";
 
 /** The id `s.router(externalPageRouter, ...)` serializes to. */
 const EXTERNAL_ROUTER_ID = "external-url-router";
@@ -13,7 +18,7 @@ const EXTERNAL_ROUTER_ID = "external-url-router";
  */
 export type CreatableRouter = {
   moduleFilePath: ModuleFilePath;
-  /** Router id, e.g. `next-app-router` or `external-url-router`. */
+  /** Router id, e.g. `next-app-router`, `tanstack-router` or `external-url-router`. */
   routerId: string;
   /** Parsed pattern of the route, for the key inputs. */
   routePattern: RoutePattern[];
@@ -65,14 +70,19 @@ export function routePatternOfRouterModule(
 }
 
 /**
- * A next-app-router module lives at the route it serves, so the route pattern is
- * the module path with the Val and Next.js file conventions stripped.
+ * A page-router module lives at the route it serves, so the route pattern is
+ * the module path with the framework's file conventions stripped.
+ *
+ * `getPatternFromModuleFilePath` knows both sets of conventions; the fallback
+ * is for a module that is under neither route folder, where stripping the Val
+ * suffix is the most that can honestly be said about it.
  */
 function routePatternSourceOf(moduleFilePath: ModuleFilePath): string {
-  return moduleFilePath
-    .replace(/^\/(src\/)?app/, "")
-    .replace(/\/page\.val\.[tj]sx?$/, "")
-    .replace(/\.val\.[tj]sx?$/, "");
+  const srcFolder = getPageRouterSourceFolder(moduleFilePath);
+  if (srcFolder) {
+    return getPatternFromModuleFilePath(moduleFilePath, srcFolder);
+  }
+  return moduleFilePath.replace(/\.val\.[tj]sx?$/, "");
 }
 
 /**

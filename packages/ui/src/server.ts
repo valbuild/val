@@ -14,7 +14,7 @@ import { VERSION } from ".";
 import { devServerFetch } from "./devServerFetch";
 
 export function createUIRequestHandler(): ValUIRequestHandler {
-  return async (path) => {
+  return async (path, url) => {
     const acceptType = getServerMimeType(path);
     let devPath = path;
     if (path === `${VERSION ? `/${VERSION}` : ""}${VAL_APP_PATH}`) {
@@ -22,12 +22,24 @@ export function createUIRequestHandler(): ValUIRequestHandler {
     } else if (path === `${VERSION ? `/${VERSION}` : ""}${VAL_CSS_PATH}`) {
       devPath = "/spa/index.css";
     }
+    /*
+     * The query goes with the path, because Vite's answer depends on it.
+     *
+     * `?import` is the one that matters: Vite serves a `.json` as raw JSON
+     * normally and as an ES module when a module graph asked for it, and the
+     * browser rejects the former with "Expected a JavaScript-or-Wasm module
+     * script but the server responded with a MIME type of application/json".
+     * Dropping the query here turned a `package.json` import inside
+     * `@valbuild/core` into a Studio that would not boot at all. `?v=` hashes
+     * and `?url` have the same shape of dependency.
+     */
+    const search = queryOf(url);
     // TODO: believe we can clean up and remove: api/val/static
     // Retried rather than fetched once: a dropped connection here serves the
     // Studio without its JavaScript, and the failure then surfaces wherever the
     // page is being waited on instead of here. See `devServerFetch`.
     const res = await devServerFetch(
-      `http://localhost:5173/api/val/static${devPath}`,
+      `http://localhost:5173/api/val/static${devPath}${search}`,
       acceptType ? { Accept: acceptType } : {},
     );
     const headersObj: Record<string, string> = {};
@@ -41,4 +53,14 @@ export function createUIRequestHandler(): ValUIRequestHandler {
       body: res.body,
     } as Awaited<ReturnType<ValUIRequestHandler>>;
   };
+}
+
+/** The `?...` of a URL, or "" — tolerant of a caller that passes a bare path. */
+function queryOf(url: string): string {
+  try {
+    return new URL(url).search;
+  } catch {
+    const index = url.indexOf("?");
+    return index === -1 ? "" : url.slice(index);
+  }
 }

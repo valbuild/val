@@ -4,6 +4,7 @@ import {
   ModulePath,
   ModuleFilePath,
   isInlineRender,
+  isPageRouter,
 } from "@valbuild/core";
 import * as React from "react";
 import { JSONValue } from "@valbuild/core/patch";
@@ -16,7 +17,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
 } from "./ValFieldProvider";
-import { useNextAppRouterSrcFolder } from "./ValProvider";
+import { usePageRouterSrcFolder } from "./ValProvider";
 import { useValPortal } from "./ValPortalProvider";
 import { useNavigation } from "./ValRouter";
 import {
@@ -65,7 +66,7 @@ export function ArrayAndRecordTools({
       ? last?.part
       : undefined,
   );
-  const srcFolder = useNextAppRouterSrcFolder();
+  const srcFolder = usePageRouterSrcFolder();
   /**
    * Memoised, because these arrays are PROPS that end up in a dependency list.
    *
@@ -233,7 +234,10 @@ function getRouterPattern(
   srcFolder: string,
   router: string,
 ): RoutePattern[] | null {
-  if (router === "next-app-router") {
+  // A page router's keys are routes of this site, so the module's own path says
+  // which segments a new key needs; an external router's keys are whole URLs of
+  // somewhere else and have no pattern to offer.
+  if (isPageRouter(router)) {
     const pattern = getPatternFromModuleFilePath(moduleFilePath, srcFolder);
     return parseRoutePattern(pattern);
   }

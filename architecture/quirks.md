@@ -687,3 +687,50 @@ route into dynamic rendering for everyone.
 including the two that differ ONLY in whether the gate was on for the deciding
 render. `e2e/uncommitted-routes.spec.ts` covers the path end to end; its
 single-module case is `test.fixme` for (3).
+
+## TanStack Start
+
+**A `*.val.ts` under `src/routes` is read as a route unless you say otherwise.**
+TanStack Router's generator scans every file in the routes folder and warns, on
+every run, that `posts.$postId.val.ts` exports no `Route` — while quietly
+treating it as `/posts/$postId/val`. The fix is one line in both the Vite plugin
+and `tsr.config.json`: `routeFileIgnorePattern: "\\.val\\.[tj]sx?$"`. Colocation
+is worth the line — the Val module is named after the route file it serves, and
+that naming is what `tanstackRouter` reads the URL pattern out of.
+
+**`suspend` must not be activated in the same effect flush that sets
+`mountOverlay`.** `useValStega` suspends on `draftModeReady`, and the only thing
+that resolves it is the `/draft/stat` poll — which does not start until
+`mountOverlay` is set. Activating the gate alongside it lets the tree suspend
+before that state has committed, and then it never does: React is left
+re-rendering a suspended tree in which `mountOverlay` is forever `undefined`, so
+the poll never runs, so the promise never resolves. The page hydrates and then
+stops — no overlay, no draft content, no error, and every state update in the
+provider silently discarded. `ValTanStackProvider` gates the activation on
+`mountOverlay` for exactly this reason. (`@valbuild/next` has not been observed
+to hit it; the ordering there is not obviously safe either.)
+
+**`suspend` needs a `<Suspense>` boundary you provide.** Next gives you one per
+route through `loading.tsx`; TanStack Start gives you none. With no boundary
+between a suspending component and the root, there is nowhere to show a fallback
+and the symptom is the one above — a tree that hydrates and stops.
+
+**A route `loader` runs in the browser too.** So importing the module that calls
+`initValContent` straight into a loader puts `@valbuild/server` — and `fs` — in
+the client bundle, and the page dies with "Module node:module has been
+externalized for browser compatibility". Server reads go through
+`createServerFn`, which the plugin compiles away on the client along with
+everything only its handler used.
+
+**Content read through a loader is not click-to-editable on a hard load.** The
+edit tags are attached as JSX is created, and `SET_AUTO_TAG_JSX_ENABLED(true)`
+only happens after hydration has established that the Studio is open — by which
+time the component has rendered its loader data once, and re-running the loader
+does not re-tag it. A client-side navigation to the same route tags it normally.
+Read with the hooks anything an editor should be able to click.
+
+**`require("../package.json")` returns `null` in an ESM bundle**, which is how
+`Internal.VERSION.core` came to be null under Vite — silently, because the read
+is wrapped in a `try`. It is not only a display value: it goes into every remote
+file ref, and proxy mode refuses to start without it. Every `version.ts` now
+uses a static JSON import, which preconstruct inlines at build time.
