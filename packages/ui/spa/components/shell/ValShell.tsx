@@ -51,6 +51,7 @@ import {
 } from "../ValRouter";
 import { HistoryPane } from "../../history/HistoryPane";
 import { CommitList } from "../../history/CommitList";
+import { PanelEmptyState } from "./FloatingPanel";
 import { useCommitList } from "../../history/useCommitList";
 import { useValConfig } from "../ValFieldProvider";
 import { RestoreControls } from "../../history/RestoreControls";
@@ -1126,7 +1127,24 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
 function CommitListSurface() {
   const config = useValConfig();
   const { history, setHistory } = useHistoryParams();
-  const { state, loadMore } = useCommitList(config?.gitBranch ?? null);
+  const branch = config?.gitBranch ?? null;
+  const { state, loadMore } = useCommitList(branch);
+  /*
+   * `gitBranch` is optional in ValConfig, and history is listed per branch, so
+   * without one there is nothing to ask for. Said out loud rather than left as
+   * a spinner: the hook has no request to make, so it would otherwise sit on
+   * "Reading the history…" forever. `config` being undefined is the different,
+   * transient case - it is still loading - and keeps the spinner.
+   */
+  if (config !== undefined && branch === null) {
+    return (
+      <PanelEmptyState>
+        This project has no <code>gitBranch</code> configured, and history is
+        listed per branch. Set one in <code>val.config</code> to see what has
+        been published.
+      </PanelEmptyState>
+    );
+  }
   return (
     <CommitList
       state={state}

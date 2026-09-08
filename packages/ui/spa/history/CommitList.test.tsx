@@ -24,6 +24,7 @@ const listOf = (...commits: HistoricalCommit[]): CommitListState => ({
   commits,
   nextCursor: null,
   loadingMore: false,
+  loadMoreError: null,
 });
 
 function renderList(
@@ -93,6 +94,7 @@ describe("the commit list", () => {
       commits: [commit()],
       nextCursor: "cursor-1",
       loadingMore: false,
+      loadMoreError: null,
     });
     fireEvent.click(screen.getByRole("button", { name: "Load more" }));
     expect(onLoadMore).toHaveBeenCalled();
@@ -134,5 +136,35 @@ describe("what a row says about a commit", () => {
   test("falls back to a placeholder for an empty message", () => {
     renderList(listOf(commit({ message: "   " })));
     expect(screen.getByRole("button", { name: /No message/ })).not.toBeNull();
+  });
+});
+
+describe("when a page fails to load", () => {
+  const failed: CommitListState = {
+    status: "success",
+    commits: [commit()],
+    nextCursor: "cursor-1",
+    loadingMore: false,
+    loadMoreError: "The archive host is unreachable.",
+  };
+
+  // Failing to fetch page three is not a reason to take pages one and two
+  // away, so this reports WITHOUT replacing the list.
+  test("keeps the commits already read", () => {
+    renderList(failed);
+    expect(
+      screen.getByRole("button", { name: /Fix the footer/ }),
+    ).not.toBeNull();
+  });
+
+  test("says why, instead of the button silently doing nothing", () => {
+    renderList(failed);
+    expect(screen.getByText("The archive host is unreachable.")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Try again" })).not.toBeNull();
+  });
+
+  test("hides the reason while a retry is in flight", () => {
+    renderList({ ...failed, loadingMore: true });
+    expect(screen.queryByText("The archive host is unreachable.")).toBeNull();
   });
 });

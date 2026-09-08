@@ -79,8 +79,22 @@ export function CommitList({
             disabled={state.loadingMore}
             className="w-full h-8 rounded-md text-xs text-fg-secondary border border-border-float hover:bg-bg-float-raised hover:text-fg-primary disabled:opacity-60"
           >
-            {state.loadingMore ? "Loading…" : "Load more"}
+            {state.loadingMore
+              ? "Loading…"
+              : state.loadMoreError !== null
+                ? "Try again"
+                : "Load more"}
           </button>
+          {/*
+           * A failed page is reported here rather than replacing the list: the
+           * commits already read are still good. Without this the button just
+           * stops working, which reads as the feature being broken.
+           */}
+          {state.loadMoreError !== null && !state.loadingMore && (
+            <p className="pt-2 text-[0.6875rem] text-fg-error-primary">
+              {state.loadMoreError}
+            </p>
+          )}
         </div>
       )}
     </>

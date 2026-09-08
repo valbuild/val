@@ -11,8 +11,19 @@ export type CommitListState =
       nextCursor: string | null;
       /** True while a `loadMore` is in flight, so the list can stay on screen. */
       loadingMore: boolean;
+      /**
+       * Why the last `loadMore` did not arrive, if it did not.
+       *
+       * Separate from the `error` status because the pages already read are
+       * still good: this reports a failure WITHOUT taking the list away.
+       */
+      loadMoreError: string | null;
     }
   | { status: "error"; message: string };
+
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 /**
  * The commits on a branch, newest first, a page at a time.
@@ -42,6 +53,18 @@ export function useCommitList(
    * dropped instead of appended to a list it does not belong to.
    */
   const requestId = useRef(0);
+  /*
+   * The current state, readable from an event handler.
+   *
+   * `loadMore` needs to know the cursor and whether a page is already in
+   * flight, and it must NOT learn them by starting the fetch inside a setState
+   * updater: an updater has to be pure, and StrictMode calls it twice to prove
+   * it - which fired two requests for the same cursor on every click. This
+   * codebase has been bitten by that enough times to have written it down (see
+   * ValStoreProvider and PageWorkspace).
+   */
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   useEffect(() => {
     if (branch === null) return;
@@ -58,6 +81,7 @@ export function useCommitList(
             commits: res.json.commits,
             nextCursor: res.json.nextCursor,
             loadingMore: false,
+            loadMoreError: null,
           });
         } else {
           setState({
@@ -71,61 +95,60 @@ export function useCommitList(
       })
       .catch((err: unknown) => {
         if (requestId.current !== id) return;
-        setState({
-          status: "error",
-          message: err instanceof Error ? err.message : String(err),
-        });
+        setState({ status: "error", message: messageOf(err) });
       });
   }, [client, branch, pageSize]);
 
   const loadMore = useCallback(() => {
     if (branch === null) return;
-    setState((current) => {
-      if (
-        current.status !== "success" ||
-        current.nextCursor === null ||
-        current.loadingMore
-      ) {
-        return current;
-      }
-      const id = ++requestId.current;
-      const cursor = current.nextCursor;
-      client("/history/commits", "GET", {
-        query: { branch, limit: pageSize, cursor },
-      })
-        .then((res) => {
-          if (requestId.current !== id) return;
-          if (res.status === 200) {
-            setState((previous) =>
-              previous.status === "success"
-                ? {
-                    status: "success",
-                    commits: [...previous.commits, ...res.json.commits],
-                    nextCursor: res.json.nextCursor,
-                    loadingMore: false,
-                  }
-                : previous,
-            );
-          } else {
-            // The pages already read stay on screen: failing to fetch page
-            // three is not a reason to take pages one and two away.
-            setState((previous) =>
-              previous.status === "success"
-                ? { ...previous, loadingMore: false }
-                : previous,
-            );
+    const current = stateRef.current;
+    if (
+      current.status !== "success" ||
+      current.nextCursor === null ||
+      current.loadingMore
+    ) {
+      return;
+    }
+    const id = ++requestId.current;
+    const cursor = current.nextCursor;
+    setState({ ...current, loadingMore: true, loadMoreError: null });
+    client("/history/commits", "GET", {
+      query: { branch, limit: pageSize, cursor },
+    })
+      .then((res) => {
+        if (requestId.current !== id) return;
+        setState((previous) => {
+          if (previous.status !== "success") return previous;
+          if (res.status !== 200) {
+            // The pages already read stay on screen - failing to fetch page
+            // three is not a reason to take pages one and two away - but the
+            // button has to say something, or it just stops working.
+            return {
+              ...previous,
+              loadingMore: false,
+              loadMoreError:
+                "message" in res.json
+                  ? res.json.message
+                  : "Could not load more commits.",
+            };
           }
-        })
-        .catch(() => {
-          if (requestId.current !== id) return;
-          setState((previous) =>
-            previous.status === "success"
-              ? { ...previous, loadingMore: false }
-              : previous,
-          );
+          return {
+            status: "success",
+            commits: [...previous.commits, ...res.json.commits],
+            nextCursor: res.json.nextCursor,
+            loadingMore: false,
+            loadMoreError: null,
+          };
         });
-      return { ...current, loadingMore: true };
-    });
+      })
+      .catch((err: unknown) => {
+        if (requestId.current !== id) return;
+        setState((previous) =>
+          previous.status === "success"
+            ? { ...previous, loadingMore: false, loadMoreError: messageOf(err) }
+            : previous,
+        );
+      });
   }, [client, branch, pageSize]);
 
   return { state, loadMore };
