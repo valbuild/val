@@ -5,7 +5,7 @@ import {
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
-import FlexSearch, { Index } from "flexsearch";
+import FlexSearch from "flexsearch";
 import { traverseSchemaSource, flattenRichText } from "./traverseSchemaSource";
 import { getRefParts } from "./getFilenameFromRef";
 
@@ -24,8 +24,36 @@ import { getRefParts } from "./getFilenameFromRef";
  * them — an agent and an editor searching the same project should find the same
  * things.
  */
+/**
+ * The parts of FlexSearch's `Index` this module uses.
+ *
+ * Structural, rather than importing flexsearch's own `Index`, because
+ * {@link SearchIndex} is EXPORTED — and a `.d.ts` that names `flexsearch` pulls
+ * that package's `declare module "flexsearch"` into every consumer's TypeScript
+ * program. Ambient module declarations are global to a program, so a consumer
+ * with its own flexsearch at another version then checks its OWN calls against
+ * the copy we dragged in, whichever of the two wins.
+ *
+ * That is not hypothetical: `@valbuild/shared` gained a flexsearch dependency
+ * in 0.123.0 for `search_content`, and valbuild/web — which pins flexsearch
+ * 0.7 and calls `new flexsearch.Document({ language: "en", … })` — stopped
+ * building on 0.123.2, because 0.8's `DocumentOptions` has no `language`. Its
+ * own resolved copy was still 0.7; only the types had been replaced.
+ *
+ * Three methods is all this module calls, and none of their signatures here is
+ * a guess: `add` and `remove` are used in `indexModule`/`removeModule`, and
+ * `search`'s result is only ever `.length`-ed, `.slice`-d and mapped over as
+ * ids. `FlexSearch.Index` is still constructed with the real library in
+ * {@link createSearchIndex} — a value import, which does not reach the `.d.ts`.
+ */
+type SearchableIndex = {
+  add(id: string, content: string): void;
+  remove(id: string): void;
+  search(query: string, options: { limit: number }): (string | number)[];
+};
+
 export type SearchIndex = {
-  index: Index;
+  index: SearchableIndex;
   pathToLabel: Map<string, string>;
   /**
    * Which document ids belong to which module, so one module can be re-indexed
