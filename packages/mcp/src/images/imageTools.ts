@@ -56,7 +56,7 @@ import {
  * that installs Val. So the host builds this one and hands it in — see
  * `createValTools`'s `extraTools`, and `@valbuild/mcp/sharp`.
  *
- * What it deliberately does NOT do: remote files. `s.image({ remote: true })`
+ * What it deliberately does NOT do: remote files. `s.image().remote()`
  * uploads straight to Val's content host through a presigned nonce, which is
  * the one path in local mode that needs a personal access token
  * (`docs/plans/mcp.md` D.1). Refused with a message that says so rather than
@@ -121,7 +121,7 @@ export function createValImageTools(
         name: "upload_image",
         title: "Upload an image",
         description:
-          "Upload an image file and put it in an image field, or add it to an image gallery module (one declared with s.imageset()). Give it either imageFilePath — a path to a file on the machine this app runs on — or imageBase64. The image is re-encoded first if the schema asks for that. Works for remotely stored images too (s.image({ remote: true })), which need the project to be connected to Val Build.",
+          "Upload an image file and put it in an image field, or add it to an image gallery module (one declared with s.imageset()). Give it either imageFilePath — a path to a file on the machine this app runs on — or imageBase64. The image is re-encoded first if the schema asks for that. Works for remotely stored images too (s.image().remote()), which need the project to be connected to Val Build.",
         inputSchema: z.object({
           moduleFilePath: ModuleFilePathSchema,
           path: z

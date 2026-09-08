@@ -79,7 +79,7 @@ async function load(
   if (!options.project) {
     return err(
       "unsupported",
-      "This Val project is not connected to Val Build, so there is nowhere to upload a remote image to. Set `project` in val.config (or the VAL_PROJECT environment variable), or use a schema without `remote: true`.",
+      "This Val project is not connected to Val Build, so there is nowhere to upload a remote image to. Set `project` in val.config (or the VAL_PROJECT environment variable), or use a schema without `.remote()`.",
     );
   }
   const auth = await resolveRemoteFileAuth(options);
