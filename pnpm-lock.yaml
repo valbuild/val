@@ -220,12 +220,21 @@ importers:
       '@valbuild/cli':
         specifier: workspace:*
         version: link:../../packages/cli
+      '@valbuild/eslint-plugin':
+        specifier: workspace:*
+        version: link:../../packages/eslint-plugin
       '@vitejs/plugin-react':
         specifier: ^6.0.1
         version: 6.1.1(vite@8.2.2(@types/node@26.4.0)(esbuild@0.28.2)(jiti@2.7.0)(less@4.5.1)(terser@5.46.0)(tsx@4.23.12)(yaml@2.9.0))
+      eslint:
+        specifier: ^10.9.1
+        version: 10.9.1(jiti@2.7.0)
       typescript:
         specifier: 6.0.3
         version: 6.0.3
+      typescript-eslint:
+        specifier: ^8.48.0
+        version: 8.68.0(eslint@10.9.1(jiti@2.7.0))(typescript@6.0.3)
       vite:
         specifier: ^8.0.0
         version: 8.2.2(@types/node@26.4.0)(esbuild@0.28.2)(jiti@2.7.0)(less@4.5.1)(terser@5.46.0)(tsx@4.23.12)(yaml@2.9.0)
@@ -13547,7 +13556,7 @@ snapshots:
       '@tanstack/virtual-file-routes': 1.162.0
       jiti: 2.7.0
       magic-string: 0.30.21
-      prettier: 3.8.5
+      prettier: 3.9.6
       zod: 4.4.3
     transitivePeerDependencies:
       - supports-color
@@ -14315,7 +14324,7 @@ snapshots:
 
   acorn-walk@8.3.4:
     dependencies:
-      acorn: 8.15.0
+      acorn: 8.18.0
 
   acorn@8.15.0: {}
 
@@ -19049,7 +19058,7 @@ snapshots:
   unplugin@2.3.11:
     dependencies:
       '@jridgewell/remapping': 2.3.5
-      acorn: 8.15.0
+      acorn: 8.18.0
       picomatch: 4.0.7
       webpack-virtual-modules: 0.6.2
 

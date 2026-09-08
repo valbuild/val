@@ -264,7 +264,7 @@ during the request. Two things to know:
 
 ```tsx
 const getDoc = createServerFn()
-  .inputValidator((params: { slug: string }) => params)
+  .validator((params: { slug: string }) => params)
   .handler(async ({ data }) => ({ doc: await fetchValRoute(pageVal, data) }));
 
 export const Route = createFileRoute("/_site/docs/$slug")({

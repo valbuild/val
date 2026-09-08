@@ -27,7 +27,7 @@ import pageVal from "./_site.docs.$.val";
  * has to decide on.
  */
 const getDoc = createServerFn()
-  .inputValidator((params: { _splat?: string }) => params)
+  .validator((params: { _splat?: string }) => params)
   .handler(async ({ data }) => {
     return { doc: await fetchValRoute(pageVal, data) };
   });

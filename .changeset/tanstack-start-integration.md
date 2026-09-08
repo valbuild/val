@@ -6,6 +6,8 @@
 "@valbuild/next": patch
 "@valbuild/mcp": patch
 "@valbuild/language-server": patch
+"@valbuild/cli": patch
+"@valbuild/eslint-plugin": patch
 ---
 
 Val now runs on TanStack Start.
@@ -57,3 +59,14 @@ bundle — it was read with `require("../package.json")` inside a `try`, so the
 failure was silent. That version goes into every remote file ref and proxy mode
 refuses to start without it. Every package now reads its version through a
 static JSON import, which is inlined at build time.
+
+Two smaller fixes that came out of running the whole toolchain against a
+TanStack project:
+
+- `val versions` reports `@valbuild/tanstack`, and `val debug` writes a snapshot
+  that names whichever framework package the captured project actually has.
+- `@valbuild/eslint-plugin` reads a `tsconfig.json` that has comments in it. A
+  tsconfig is JSONC, and `JSON.parse` is not — so on any project whose tsconfig
+  carries a comment (the TanStack starter's does) the
+  `module-in-val-modules` rule threw `Expected double-quoted property name in
+JSON` on the first file and took the whole lint run with it.
