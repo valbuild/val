@@ -80,8 +80,7 @@ export function PublishButton({
   compact?: boolean;
 }) {
   const [summaryOpen, setSummaryOpen] = useState(false);
-  const { publish, publishDisabled, isPublishing, summary } =
-    usePublishSummary();
+  const { publish, publishDisabled, isPublishing } = usePublishSummary();
   const allValidationErrors = useAllValidationErrors();
   const validationErrorPaths = Object.keys(allValidationErrors ?? {});
   const { patchErrors } = useAllPatchErrors();
@@ -270,12 +269,17 @@ export function PublishButton({
             onClose={() => {
               setSummaryOpen(false);
             }}
-            onPublish={() => {
+            onPublish={(summary) => {
               setSummaryOpen(false);
-              if (summary.type === "not-asked") {
+              // The text comes from the popover rather than from the summary
+              // state read here: publishing can be fired by the grace period,
+              // after an AI summary landed but before this component has
+              // re-rendered with it, and this render's copy would commit the
+              // text the user was no longer looking at.
+              const summaryText = summary.trim();
+              if (summaryText === "") {
                 return;
               }
-              const summaryText = summary.text.trim();
               publish(summaryText);
             }}
           />
