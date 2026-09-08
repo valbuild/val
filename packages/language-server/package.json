@@ -11,7 +11,7 @@
     "lsp",
     "language-server"
   ],
-  "version": "0.123.2",
+  "version": "0.123.3",
   "bin": {
     "val-language-server": "./bin.js"
   },
