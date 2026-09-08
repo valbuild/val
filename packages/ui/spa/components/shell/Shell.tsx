@@ -31,7 +31,8 @@ import {
 } from "./GlobalSearch";
 import { LeftRail } from "./LeftRail";
 import { MediaPanel } from "./MediaPanel";
-import { MobileBottomBar, MobileNavSwitcher } from "./MobileChrome";
+import { MobileBottomBar } from "./MobileChrome";
+import { NavSwitcher, needsNavSwitcher } from "./NavSwitcher";
 import { PendingChangesGate } from "./PendingChangesGate";
 import type { ChainProgress } from "../../utils/describePendingChangesStall";
 
@@ -770,14 +771,23 @@ export function Shell({
     [data, select, onOpenSearchResult],
   );
 
-  const navSwitcher =
-    breakpoint === "mobile" ? (
-      <MobileNavSwitcher
-        openPanel={openPanel}
-        onSelect={setOpenPanel}
-        destinations={destinations}
-      />
-    ) : undefined;
+  /**
+   * The destination switcher every navigation panel carries as its subheader.
+   *
+   * `undefined` on desktop, where the rail is the switcher and a second copy of
+   * it inside the panel would be two controls for one choice, and `undefined`
+   * for a project with only one destination, where there is nothing to switch
+   * between — see `needsNavSwitcher`. It has to be `undefined` rather than a
+   * switcher that renders nothing: `FloatingPanel` gives any subheader it is
+   * handed its own bordered band.
+   */
+  const navSwitcher = needsNavSwitcher(breakpoint, destinations) ? (
+    <NavSwitcher
+      openPanel={openPanel}
+      onSelect={setOpenPanel}
+      destinations={destinations}
+    />
+  ) : undefined;
 
   /**
    * The editor column: whatever the main pane is showing right now.
