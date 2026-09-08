@@ -5,6 +5,7 @@ import {
   Columns2,
   Eye,
   GitCompare,
+  History,
   Link2,
   Loader2,
   LucideIcon,
@@ -41,6 +42,15 @@ export type TopBarProps = {
    * hidden; a number — including 0 — means show it.
    */
   unreadNotifications?: number;
+  /**
+   * Whether to offer the history panel.
+   *
+   * False in FS mode: local dev has git, not a commit archive, so there is no
+   * published history to list and the endpoint answers
+   * `not-supported-in-fs-mode`. Better to not offer the button than to open a
+   * panel whose only content is an apology.
+   */
+  historyEnabled?: boolean;
   /** Absent until a profile loads, and in modes that have none. */
   user?: { name: string; avatarUrl?: string };
   onOpenSearch: () => void;
@@ -129,6 +139,7 @@ export function TopBar({
   onTogglePanel,
   onOpenMenu,
   unreadNotifications,
+  historyEnabled = false,
   user,
   onOpenSearch,
   onPreview,
@@ -196,6 +207,15 @@ export function TopBar({
             )}
             <BarDivider />
           </>
+        )}
+        {historyEnabled && (
+          <IconButton
+            label="History"
+            active={openPanel === "history"}
+            onClick={() => onTogglePanel("history")}
+          >
+            <History size={16} />
+          </IconButton>
         )}
         {aiEnabled && (
           <IconButton
