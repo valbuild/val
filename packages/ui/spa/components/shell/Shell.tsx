@@ -36,20 +36,7 @@ import { NavSwitcher, needsNavSwitcher } from "./NavSwitcher";
 import { PendingChangesGate } from "./PendingChangesGate";
 import type { ChainProgress } from "../../utils/describePendingChangesStall";
 
-/**
- * What the gate reports when nobody supplied diagnostics.
- *
- * `statSeen: true` with nothing outstanding, so the report reads as "slow"
- * rather than inventing a fault the caller never claimed.
- */
-const noProgress = (): ChainProgress => ({
-  total: 0,
-  settled: 0,
-  unfetched: [],
-  unapplied: [],
-  failed: [],
-  statSeen: true,
-});
+import { FloatingPanel } from "./FloatingPanel";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { PagesPanel } from "./PagesPanel";
 import { AccountPanel } from "./AccountPanel";
@@ -72,6 +59,21 @@ import {
   ShellPanel,
   ShellValidationError,
 } from "./types";
+
+/**
+ * What the gate reports when nobody supplied diagnostics.
+ *
+ * `statSeen: true` with nothing outstanding, so the report reads as "slow"
+ * rather than inventing a fault the caller never claimed.
+ */
+const noProgress = (): ChainProgress => ({
+  total: 0,
+  settled: 0,
+  unfetched: [],
+  unapplied: [],
+  failed: [],
+  statSeen: true,
+});
 
 /** What the editor canvas is currently showing. */
 export type ShellSelection = {
@@ -299,6 +301,16 @@ export type ShellProps = {
    */
   aiSlot?: ReactNode;
   /**
+   * The list of publishes, for the History panel.
+   *
+   * A slot for the same reason `aiSlot` is one: the list has to fetch commits
+   * and set `?commit=`, and the shell is deliberately free of Val hooks so it
+   * can be rendered from a story with mock data. Absent means Val has no
+   * published history here (FS mode), and the button is hidden with it — see
+   * `historyEnabled`.
+   */
+  historySlot?: ReactNode;
+  /**
    * Mention a source path in the assistant. From the canvas's field menu.
    *
    * The shell cannot do this itself: inserting a reference means reaching into
@@ -412,6 +424,7 @@ export function Shell({
   accountError,
   aiEnabled = false,
   aiSlot,
+  historySlot,
   onMentionField,
   pendingChangesLoaded = true,
   pendingChangesProgress,
@@ -609,6 +622,12 @@ export function Shell({
       setOpenPanel(null);
     }
   }, [openPanel, aiEnabled]);
+
+  useEffect(() => {
+    if (openPanel === "history" && historySlot === undefined) {
+      setOpenPanel(null);
+    }
+  }, [openPanel, historySlot]);
 
   const validationErrorCount = useMemo(
     () => data.validationErrors.reduce((sum, e) => sum + e.count, 0),
@@ -902,6 +921,7 @@ export function Shell({
           accountError={breakpoint === "desktop" ? undefined : accountError}
           isLoading={isLoading}
           aiEnabled={aiEnabled}
+          historyEnabled={historySlot !== undefined}
           onPreview={onPreview ?? (() => undefined)}
           previewHref={previewHref}
           onToggleCanvas={canCanvas ? togglePreview : undefined}
@@ -1134,6 +1154,19 @@ export function Shell({
           >
             {aiSlot ?? <NoAssistantConfigured />}
           </AIChatPanel>
+        )}
+
+        {openPanel === "history" && (
+          <FloatingPanel
+            side="right"
+            width={340}
+            title="History"
+            mobileVariant="bottom-sheet"
+            breakpoint={breakpoint}
+            onClose={closePanel}
+          >
+            {historySlot}
+          </FloatingPanel>
         )}
 
         {openPanel === "notifications" && (
