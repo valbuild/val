@@ -31,7 +31,8 @@ import {
 } from "./GlobalSearch";
 import { LeftRail } from "./LeftRail";
 import { MediaPanel } from "./MediaPanel";
-import { MobileBottomBar, MobileNavSwitcher } from "./MobileChrome";
+import { MobileBottomBar } from "./MobileChrome";
+import { NavSwitcher, needsNavSwitcher } from "./NavSwitcher";
 import { PendingChangesGate } from "./PendingChangesGate";
 import type { ChainProgress } from "../../utils/describePendingChangesStall";
 
@@ -770,14 +771,20 @@ export function Shell({
     [data, select, onOpenSearchResult],
   );
 
-  const navSwitcher =
-    breakpoint === "mobile" ? (
-      <MobileNavSwitcher
-        openPanel={openPanel}
-        onSelect={setOpenPanel}
-        destinations={destinations}
-      />
-    ) : undefined;
+  /**
+   * The destination switcher every navigation panel carries as its subheader.
+   *
+   * `undefined` on desktop, where the rail is the switcher and a second copy of
+   * it inside the panel would be two controls for one choice — see
+   * `needsNavSwitcher`.
+   */
+  const navSwitcher = needsNavSwitcher(breakpoint) ? (
+    <NavSwitcher
+      openPanel={openPanel}
+      onSelect={setOpenPanel}
+      destinations={destinations}
+    />
+  ) : undefined;
 
   /**
    * The editor column: whatever the main pane is showing right now.

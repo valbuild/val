@@ -231,6 +231,34 @@ test("light mode", async ({ page }) => {
   await shot(page, "16-light-shell");
 });
 
+/**
+ * The tablet, which is the width with no left rail and no bottom bar.
+ *
+ * Worth its own pictures because it is the layout that is neither of the two
+ * that get looked at: the destinations move into a switcher at the top of each
+ * panel, and that switcher is the only way across between 768px and 1200px.
+ */
+test("tablet", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await openStudio(page);
+  const studio = page.locator("#val-shadow-root");
+  await page.waitForTimeout(3000);
+  await shot(page, "21-tablet-resting");
+
+  // Pages, which is what the menu button opens, with the switcher above it.
+  await studio.getByRole("button", { name: "Open navigation" }).click();
+  await page.waitForTimeout(1500);
+  await shot(page, "22-tablet-pages");
+
+  // Data, reached the only way there is at this width.
+  await studio
+    .getByRole("tablist", { name: "Destinations" })
+    .getByRole("tab", { name: "Data" })
+    .click();
+  await page.waitForTimeout(1500);
+  await shot(page, "23-tablet-data");
+});
+
 test("mobile", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openStudio(page);
