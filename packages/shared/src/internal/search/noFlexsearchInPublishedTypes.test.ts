@@ -45,40 +45,75 @@ function sourceFiles(dir: string): string[] {
 
 describe("flexsearch in @valbuild/shared's types", () => {
   /**
-   * A default VALUE import is fine — it is erased from the declarations, since
-   * it is only ever called inside a function body. A named or type-only import
-   * is how the type reaches the `.d.ts`, and `Index` arrived exactly that way.
+   * One reviewed way to name flexsearch: a default VALUE import.
+   *
+   * That form is erased from the declarations, because the binding is only ever
+   * called inside a function body. Every other way of naming the module reaches
+   * the `.d.ts` — a named or type-only import (how `Index` arrived), a
+   * re-export (`export { Index } from`, `export * from`), or a type query
+   * (`import("flexsearch")`).
+   *
+   * So rather than enumerate the bad forms, the allowed one is stripped and
+   * anything still naming the module is an offender. Enumerating was the first
+   * attempt and it missed the re-exports and the type query.
    */
-  test("is imported only as a default value binding", () => {
+  test("is named only by a default value import", () => {
     const files = sourceFiles(SRC).filter(
       (file) => !file.endsWith("noFlexsearchInPublishedTypes.test.ts"),
     );
     expect(files.length).toBeGreaterThan(20); // the walk found the package
 
+    /** `import FlexSearch from "flexsearch"` — a bare default binding. */
+    const ALLOWED = /import\s+[A-Za-z_$][\w$]*\s+from\s*["']flexsearch["']/g;
+    /**
+     * flexsearch in a MODULE SPECIFIER position.
+     *
+     * Anchored on `from` / `import(` / `require(` rather than on the bare word,
+     * so prose may still discuss it: `searchIndex.ts` explains this very rule
+     * in a comment that quotes `declare module "flexsearch"`, and that is
+     * preceded by `module`, not by any of these.
+     */
+    const SPECIFIER =
+      /(?:\bfrom\b|\bimport\s*\(|\brequire\s*\()\s*["']flexsearch["']/g;
+
     const offenders: string[] = [];
     for (const file of files) {
       const source = fs.readFileSync(file, "utf-8");
-      // The clause may not itself contain `from`, or the match runs back
-      // through every earlier import in the file to reach this one.
-      const re =
-        /import\s+((?:(?!\bfrom\b)[\s\S])*?)\s+from\s*["']flexsearch["']/g;
-      let m: RegExpExecArray | null;
-      while ((m = re.exec(source)) !== null) {
-        const clause = m[1].trim();
-        // `FlexSearch` — a bare default binding — and nothing else.
-        if (!/^[A-Za-z_$][\w$]*$/.test(clause)) {
-          offenders.push(`${path.relative(SRC, file)}: import ${clause}`);
-        }
-      }
-      if (
-        /import\s+type\s+((?:(?!\bfrom\b)[\s\S])*?)\s+from\s*["']flexsearch["']/.test(
-          source,
-        )
-      ) {
-        offenders.push(`${path.relative(SRC, file)}: import type`);
+      const stripped = source.replace(ALLOWED, "");
+      for (const m of stripped.matchAll(SPECIFIER)) {
+        offenders.push(`${path.relative(SRC, file)}: ${m[0].trim()}`);
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  /**
+   * The stripping has to actually be load bearing.
+   *
+   * A typo in `ALLOWED` that made it match nothing would leave the real default
+   * import as an offender and fail the test above; a typo that made it match
+   * everything would pass it no matter what. This pins the middle: the allowed
+   * form is accepted, and each of the four leaking forms is caught.
+   */
+  test("catches every form that reaches a .d.ts", () => {
+    // Built per call: `test` on a /g/ regex carries `lastIndex` between calls,
+    // so a shared one would answer differently depending on call order.
+    const leaks = (source: string): boolean => {
+      const allowed = /import\s+[A-Za-z_$][\w$]*\s+from\s*["']flexsearch["']/g;
+      const specifier =
+        /(?:\bfrom\b|\bimport\s*\(|\brequire\s*\()\s*["']flexsearch["']/g;
+      return specifier.test(source.replace(allowed, ""));
+    };
+
+    expect(leaks('import FlexSearch from "flexsearch";')).toBe(false);
+    expect(leaks('// see declare module "flexsearch" for why')).toBe(false);
+
+    expect(leaks('import { Index } from "flexsearch";')).toBe(true);
+    expect(leaks('import type { Index } from "flexsearch";')).toBe(true);
+    expect(leaks('export { Index } from "flexsearch";')).toBe(true);
+    expect(leaks('export * from "flexsearch";')).toBe(true);
+    expect(leaks('type I = import("flexsearch").Index;')).toBe(true);
+    expect(leaks('const f = require("flexsearch");')).toBe(true);
   });
 
   /**
