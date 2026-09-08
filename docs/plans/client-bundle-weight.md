@@ -110,29 +110,34 @@ bundled module, a render-only entry that touches `Internal` for `mediaUrl` or
 
 ## Recommendation
 
-Do them in this order, and stop after whichever one pays.
+**Start with `@valbuild/shared/internal` (2). It is the one to do first.**
 
-1. **Give `@valbuild/core` real module boundaries first.** Add preconstruct
+It is worth 113 KB, it is independent of everything else here, and it is a
+file move rather than a redesign: pull the string constants and
+`isValCanvasFrame` out of the entrypoint that carries `ApiRoutes.ts`, so
+client code can import `VAL_SESSION_COOKIE` without importing zod. Of the
+three cuts it has by far the best ratio of bytes reclaimed to risk taken, and
+nothing else has to land first.
+
+Then, if the remaining 155 KB justifies it:
+
+1. **Give `@valbuild/core` real module boundaries.** Add preconstruct
    entrypoints — the package already does this for `./fp` and `./patch`, so
    the mechanism is in place and the release plumbing already understands it.
    The first cut worth trying is `@valbuild/core/schema` (classes, shapes,
    serialization) versus the validation machinery, with `Internal` broken into
-   the handful of namespaces that consumers actually use rather than one
-   object.
+   the handful of namespaces consumers actually use rather than one object.
 
-   Even before splitting validation, simply _having_ boundaries lets
-   `sideEffects: false` start working, which is currently a no-op.
+   Even before validation is split out, simply _having_ boundaries lets
+   `sideEffects: false` start working, which is currently a no-op. Set
+   `sideEffects` correctly across core, next and shared as part of this step —
+   not before, where it measures as noise and reads as a fix that did not work.
 
-2. **Then fix `@valbuild/shared/internal`.** Move the string constants and
-   `isValCanvasFrame` out of the entrypoint that contains `ApiRoutes.ts`. This
-   is much easier than (1), independent of it, and worth 113 KB — the best
-   ratio of the three. Consider doing it first for that reason.
+2. **Then add the render-only `@valbuild/next` entry**, which can only be
+   narrow once core has boundaries.
 
-3. **Then add the render-only `@valbuild/next` entry**, once (1) means it can
-   actually be narrow.
-
-Set `sideEffects` correctly across core, next and shared as part of (1) — not
-before, where it measures as noise and reads as a fix that did not work.
+Cut (A) is the big one but it is surgery on core's most load-bearing types, and
+(B) cannot pay off before it. Neither should block shipping the shared fix.
 
 ## How to verify a change
 
