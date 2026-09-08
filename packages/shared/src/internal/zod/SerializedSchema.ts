@@ -33,58 +33,79 @@ import { SourcePath } from "./SourcePath";
 const InlineRender = z.object({ as: z.literal("inline") });
 const FieldRender = InlineRender.optional();
 
+/**
+ * The fields EVERY serialized schema carries, in one place.
+ *
+ * Spread into each schema below rather than retyped, because retyping them is
+ * exactly how they went missing: `customValidate` and `description` were
+ * declared on six of the eighteen schemas and silently dropped by the other
+ * twelve. A field added to the base of `SerializedSchema` needs adding here and
+ * nowhere else.
+ *
+ * `type`, `opt` and whatever is particular to the schema stay at the call site
+ * - those differ per schema, so there is nothing to share.
+ */
+const commonSchemaFields = {
+  render: FieldRender,
+  preview: z.literal(true).optional(),
+  // Whether the schema declares a `.validate()`. The function cannot serialize,
+  // so this flag is what tells the Studio to run the custom validators on the
+  // main thread against the real instance - dropped, and they never run at all.
+  // See `hasCustomValidate` in `ui/spa/validation/customValidate.ts`.
+  customValidate: z.boolean().optional(),
+  readonly: z.boolean().optional(),
+  hidden: z.boolean().optional(),
+  description: z.string().optional(),
+};
+
 export const SerializedStringSchema: z.ZodType<SerializedStringSchemaT> =
   z.object({
+    ...commonSchemaFields,
     type: z.literal("string"),
-    render: FieldRender,
     // `.multiline()`. Stripped like any undeclared key if it goes missing here,
     // which is a single-line input where the author asked for a text box.
     multiline: z.boolean().optional(),
-    preview: z.literal(true).optional(),
     options: z
       .object({
         maxLength: z.number().optional(),
         minLength: z.number().optional(),
         regexp: z
           .object({
+            // `.regexp(re, message)`'s message. Written by
+            // `StringSchema.executeSerialize`, so omitting it here strips the
+            // author's own wording and leaves the generic "Expected string to
+            // match reg exp: …" in its place.
+            message: z.string().optional(),
             source: z.string(),
             flags: z.string(),
           })
           .optional(),
+        customValidate: z.boolean().optional(),
       })
       .optional(),
     opt: z.boolean(),
     raw: z.boolean(),
-    readonly: z.boolean().optional(),
-    hidden: z.boolean().optional(),
   });
 
 export const SerializedLiteralSchema: z.ZodType<SerializedLiteralSchemaT> =
   z.object({
+    ...commonSchemaFields,
     type: z.literal("literal"),
-    render: FieldRender,
-    preview: z.literal(true).optional(),
     value: z.string(),
     opt: z.boolean(),
-    readonly: z.boolean().optional(),
-    hidden: z.boolean().optional(),
   });
 
 export const SerializedBooleanSchema: z.ZodType<SerializedBooleanSchemaT> =
   z.object({
+    ...commonSchemaFields,
     type: z.literal("boolean"),
-    render: FieldRender,
-    preview: z.literal(true).optional(),
     opt: z.boolean(),
-    readonly: z.boolean().optional(),
-    hidden: z.boolean().optional(),
   });
 
 export const SerializedNumberSchema: z.ZodType<SerializedNumberSchemaT> =
   z.object({
+    ...commonSchemaFields,
     type: z.literal("number"),
-    render: FieldRender,
-    preview: z.literal(true).optional(),
     options: z
       .object({
         max: z.number().optional(),
@@ -92,33 +113,25 @@ export const SerializedNumberSchema: z.ZodType<SerializedNumberSchemaT> =
       })
       .optional(),
     opt: z.boolean(),
-    readonly: z.boolean().optional(),
-    hidden: z.boolean().optional(),
   });
 
 export const SerializedObjectSchema: z.ZodType<SerializedObjectSchemaT> =
   z.lazy(() => {
     return z.object({
+      ...commonSchemaFields,
       type: z.literal("object"),
-      render: FieldRender,
-      preview: z.literal(true).optional(),
       items: z.record(z.string(), SerializedSchema),
       opt: z.boolean(),
-      readonly: z.boolean().optional(),
-      hidden: z.boolean().optional(),
     });
   });
 
 export const SerializedArraySchema: z.ZodType<SerializedArraySchemaT> = z.lazy(
   () => {
     return z.object({
+      ...commonSchemaFields,
       type: z.literal("array"),
-      render: FieldRender,
-      preview: z.literal(true).optional(),
       item: SerializedSchema,
       opt: z.boolean(),
-      readonly: z.boolean().optional(),
-      hidden: z.boolean().optional(),
     });
   },
 );
@@ -127,24 +140,18 @@ export const SerializedUnionSchema: z.ZodType<SerializedUnionSchemaT> = z.lazy(
   () => {
     return z.union([
       z.object({
+        ...commonSchemaFields,
         type: z.literal("union"),
-        render: FieldRender,
-        preview: z.literal(true).optional(),
         key: SerializedLiteralSchema,
         items: z.array(SerializedLiteralSchema),
         opt: z.boolean(),
-        readonly: z.boolean().optional(),
-        hidden: z.boolean().optional(),
       }),
       z.object({
+        ...commonSchemaFields,
         type: z.literal("union"),
-        render: FieldRender,
-        preview: z.literal(true).optional(),
         key: z.string(),
         items: z.array(SerializedObjectSchema),
         opt: z.boolean(),
-        readonly: z.boolean().optional(),
-        hidden: z.boolean().optional(),
       }),
     ]);
   },
@@ -166,13 +173,15 @@ export const ImageOptions = z.object({
 });
 export const SerializedImageSchema: z.ZodType<SerializedImageSchemaT> =
   z.object({
+    ...commonSchemaFields,
     type: z.literal("image"),
-    render: FieldRender,
-    preview: z.literal(true).optional(),
     options: ImageOptions.optional(),
     opt: z.boolean(),
-    readonly: z.boolean().optional(),
-    hidden: z.boolean().optional(),
+    // `.remote()`, and the gallery a gallery-backed field reads its metadata
+    // from. Neither is cosmetic: dropped, a remote field looks local and a
+    // gallery-backed one looks like it holds its own dimensions.
+    remote: z.boolean().optional(),
+    referencedModule: z.string().optional(),
   });
 
 export const RichTextOptions: z.ZodType<SerializedRichTextOptionsT> = z.lazy(
@@ -202,22 +211,18 @@ export const RichTextOptions: z.ZodType<SerializedRichTextOptionsT> = z.lazy(
 );
 export const SerializedRichTextSchema: z.ZodType<SerializedRichTextSchemaT> =
   z.object({
+    ...commonSchemaFields,
     type: z.literal("richtext"),
-    render: FieldRender,
-    preview: z.literal(true).optional(),
     options: RichTextOptions.optional(),
     opt: z.boolean(),
-    readonly: z.boolean().optional(),
-    hidden: z.boolean().optional(),
   });
 
 export const SerializedRecordSchema: z.ZodType<SerializedRecordSchemaT> =
   z.lazy(() => {
     return z
       .object({
+        ...commonSchemaFields,
         type: z.literal("record"),
-        render: FieldRender,
-        preview: z.literal(true).optional(),
         item: SerializedSchema,
         opt: z.boolean(),
         // Optional gallery marker for files/images
@@ -233,8 +238,6 @@ export const SerializedRecordSchema: z.ZodType<SerializedRecordSchemaT> =
         moduleMetadata: z
           .record(z.string(), z.record(z.string(), z.any()))
           .optional(),
-        readonly: z.boolean().optional(),
-        hidden: z.boolean().optional(),
       })
       .passthrough();
   });
@@ -242,9 +245,8 @@ export const SerializedRecordSchema: z.ZodType<SerializedRecordSchemaT> =
 export const SerializedKeyOfSchema: z.ZodType<SerializedKeyOfSchemaT> = z.lazy(
   () => {
     return z.object({
+      ...commonSchemaFields,
       type: z.literal("keyOf"),
-      render: FieldRender,
-      preview: z.literal(true).optional(),
       path: SourcePath,
       schema: z
         .union([
@@ -258,8 +260,6 @@ export const SerializedKeyOfSchema: z.ZodType<SerializedKeyOfSchemaT> = z.lazy(
         .optional(),
       values: z.union([z.literal("string"), z.array(z.string())]),
       opt: z.boolean(),
-      readonly: z.boolean().optional(),
-      hidden: z.boolean().optional(),
     });
   },
 );
@@ -268,13 +268,14 @@ export const FileOptions = z.object({
   accept: z.string().optional(),
 });
 export const SerializedFileSchema: z.ZodType<SerializedFileSchemaT> = z.object({
+  ...commonSchemaFields,
   type: z.literal("file"),
-  render: FieldRender,
-  preview: z.literal(true).optional(),
   options: FileOptions.optional(),
   opt: z.boolean(),
-  readonly: z.boolean().optional(),
-  hidden: z.boolean().optional(),
+  // See `SerializedImageSchema` above: `.remote()` and the gallery a
+  // gallery-backed field reads from.
+  remote: z.boolean().optional(),
+  referencedModule: z.string().optional(),
 });
 
 export const DateOptions = z.object({
@@ -283,28 +284,18 @@ export const DateOptions = z.object({
 });
 
 export const SerializedDateSchema: z.ZodType<SerializedDateSchemaT> = z.object({
+  ...commonSchemaFields,
   type: z.literal("date"),
-  render: FieldRender,
-  preview: z.literal(true).optional(),
   options: DateOptions.optional(),
   opt: z.boolean(),
-  customValidate: z.boolean().optional(),
-  readonly: z.boolean().optional(),
-  hidden: z.boolean().optional(),
-  description: z.string().optional(),
 });
 
 export const SerializedDateTimeSchema: z.ZodType<SerializedDateTimeSchemaT> =
   z.object({
+    ...commonSchemaFields,
     type: z.literal("dateTime"),
-    render: FieldRender,
-    preview: z.literal(true).optional(),
     options: DateOptions.optional(),
     opt: z.boolean(),
-    customValidate: z.boolean().optional(),
-    readonly: z.boolean().optional(),
-    hidden: z.boolean().optional(),
-    description: z.string().optional(),
   });
 
 export const ColorOptions = z.object({
@@ -314,15 +305,10 @@ export const ColorOptions = z.object({
 
 export const SerializedColorSchema: z.ZodType<SerializedColorSchemaT> =
   z.object({
+    ...commonSchemaFields,
     type: z.literal("color"),
-    render: FieldRender,
-    preview: z.literal(true).optional(),
     options: ColorOptions.optional(),
     opt: z.boolean(),
-    customValidate: z.boolean().optional(),
-    readonly: z.boolean().optional(),
-    hidden: z.boolean().optional(),
-    description: z.string().optional(),
   });
 
 export const CodeOptions = z.object({
@@ -330,22 +316,16 @@ export const CodeOptions = z.object({
 });
 
 export const SerializedCodeSchema: z.ZodType<SerializedCodeSchemaT> = z.object({
+  ...commonSchemaFields,
   type: z.literal("code"),
-  render: FieldRender,
-  preview: z.literal(true).optional(),
   options: CodeOptions.optional(),
   opt: z.boolean(),
-  customValidate: z.boolean().optional(),
-  readonly: z.boolean().optional(),
-  hidden: z.boolean().optional(),
-  description: z.string().optional(),
 });
 
 export const SerializedRouteSchema: z.ZodType<SerializedRouteSchemaT> =
   z.object({
+    ...commonSchemaFields,
     type: z.literal("route"),
-    render: FieldRender,
-    preview: z.literal(true).optional(),
     options: z
       .object({
         include: z
@@ -364,9 +344,6 @@ export const SerializedRouteSchema: z.ZodType<SerializedRouteSchemaT> =
       })
       .optional(),
     opt: z.boolean(),
-    customValidate: z.boolean().optional(),
-    readonly: z.boolean().optional(),
-    hidden: z.boolean().optional(),
   });
 
 // A settings module, and each section inside one, serialize as this - the
@@ -377,15 +354,10 @@ export const SerializedRouteSchema: z.ZodType<SerializedRouteSchemaT> =
 export const SerializedSettingsSchema: z.ZodType<SerializedSettingsSchemaT> =
   z.lazy(() => {
     return z.object({
+      ...commonSchemaFields,
       type: z.literal("settings"),
-      render: FieldRender,
-      preview: z.literal(true).optional(),
       items: z.record(z.string(), SerializedSchema),
       opt: z.boolean(),
-      customValidate: z.boolean().optional(),
-      readonly: z.boolean().optional(),
-      hidden: z.boolean().optional(),
-      description: z.string().optional(),
     });
   });
 
