@@ -307,7 +307,9 @@ field.
 
 `filterBlockingValidationErrors` (`packages/shared/src/internal/validation/blockingValidationErrors.ts`)
 currently returns `partitionValidationErrors(resolved).surfaced` — its name says
-blocking, but four of its six callers use it for **display**. Splitting severity
+blocking, but half of what calls it wants **display**: nine call sites across
+six files, of which three files (`useValidationErrors`, `ValErrorProvider`,
+`readTools`) are showing or reporting rather than gating. Splitting severity
 here is the whole point of the change, so split the names too:
 
 - `filterSurfacedValidationErrors(errors, schemas, sources)` — resolve +
