@@ -6,6 +6,7 @@ import { useValSystem } from "../stores/react/SystemContext";
 import { PublishSummaryView, usePublishGrace } from "./PublishSummaryView";
 import {
   buildDefaultCommitSummary,
+  resolvePublishText,
   shouldAutoApplyAiSummary,
 } from "./publish/defaultCommitSummary";
 import {
@@ -61,7 +62,13 @@ export function PublishSummary({
   onPublish,
   onClose,
 }: {
-  onPublish?: () => void;
+  /**
+   * Publish, committing exactly this text. Passed rather than read back out of
+   * the summary state: publishing can be fired by the grace period after the
+   * AI summary landed, and a caller reading its own render's copy of the state
+   * would commit the text the box no longer shows.
+   */
+  onPublish?: (summary: string) => void;
   onClose: () => void;
 }) {
   const { summary, setSummary, publishDisabled, isPublishing, aiEnabled } =
@@ -188,10 +195,37 @@ export function PublishSummary({
     }
   }, [ai.state.status, isWaiting, skip]);
 
+  // Written on every render, read by callbacks that outlive the render that
+  // made them. The grace period holds the `publishNow` from the press that
+  // started it, and the whole point of the countdown is that the AI summary
+  // arrives after that — so the values that decide what gets committed cannot
+  // come from that closure.
+  const latest = useRef({
+    value,
+    hasEdited,
+    defaultSummary,
+    aiState: ai.state,
+  });
+  latest.current = { value, hasEdited, defaultSummary, aiState: ai.state };
+
   const publishNow = () => {
+    const current = latest.current;
+    const text = resolvePublishText({
+      hasEdited: current.hasEdited,
+      currentValue: current.value,
+      defaultSummary: current.defaultSummary,
+      aiText: current.aiState.status === "ready" ? current.aiState.text : null,
+    });
+    // The box has not necessarily re-rendered with the summary that is about to
+    // be committed — the effect that applies it and this one fire in the same
+    // flush. Setting it keeps the two in agreement, which matters if the
+    // publish fails and the user is left looking at what was sent.
+    if (text !== current.value) {
+      setSummary({ type: "ai", text });
+    }
     // Publishing means nobody is going to read the summary session any more.
     ai.cancel();
-    onPublish?.();
+    onPublish?.(text);
   };
 
   return (

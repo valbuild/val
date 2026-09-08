@@ -1,6 +1,7 @@
 import {
   buildDefaultCommitSummary,
   moduleDisplayName,
+  resolvePublishText,
   shouldAutoApplyAiSummary,
 } from "./defaultCommitSummary";
 
@@ -154,5 +155,58 @@ describe("shouldAutoApplyAiSummary", () => {
         defaultSummary,
       }),
     ).toBe(true);
+  });
+});
+
+describe("resolvePublishText", () => {
+  const defaultSummary = "Update Home";
+  const aiText = "Rewrite the hero to lead with the product name";
+
+  test("commits the summary that arrived while the countdown ran", () => {
+    // The bug this pins: pressing Publish while the AI was writing published
+    // the default, because the text was read from the closure the press
+    // created — the box had the AI's summary and the commit did not.
+    expect(
+      resolvePublishText({
+        hasEdited: false,
+        currentValue: defaultSummary,
+        defaultSummary,
+        aiText,
+      }),
+    ).toBe(aiText);
+  });
+
+  test("commits what the user wrote, whatever the AI came back with", () => {
+    expect(
+      resolvePublishText({
+        hasEdited: true,
+        currentValue: "Fix the typo in the footer",
+        defaultSummary,
+        aiText,
+      }),
+    ).toBe("Fix the typo in the footer");
+  });
+
+  test("commits the box when there is no finished summary", () => {
+    // No AI configured, still writing, or failed — all the same answer.
+    expect(
+      resolvePublishText({
+        hasEdited: false,
+        currentValue: defaultSummary,
+        defaultSummary,
+        aiText: null,
+      }),
+    ).toBe(defaultSummary);
+  });
+
+  test("does not re-apply a summary the box already holds", () => {
+    expect(
+      resolvePublishText({
+        hasEdited: false,
+        currentValue: aiText,
+        defaultSummary,
+        aiText,
+      }),
+    ).toBe(aiText);
   });
 });

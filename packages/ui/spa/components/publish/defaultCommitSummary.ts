@@ -92,3 +92,31 @@ export function shouldAutoApplyAiSummary(args: {
   }
   return args.currentValue.trim() === args.defaultSummary.trim();
 }
+
+/**
+ * The text to commit, decided at the moment publishing actually goes through.
+ *
+ * The box is React state, and publishing is not always triggered by the render
+ * that holds the newest of it: pressing Publish while the AI is still writing
+ * stores a callback, and the grace period fires that callback later — after the
+ * summary has arrived and been applied to the box, but from a closure created
+ * before either happened. Reading the text off that closure committed the
+ * default while the box on screen said the AI's summary.
+ *
+ * So the same rule `shouldAutoApplyAiSummary` applies to the box is applied
+ * once more here, against the latest values, and its answer is what gets
+ * committed. `aiText` is null whenever there is no finished summary — no AI
+ * configured, still writing, or failed — which is the case where the box is
+ * already the whole answer.
+ */
+export function resolvePublishText(args: {
+  hasEdited: boolean;
+  currentValue: string;
+  defaultSummary: string;
+  aiText: string | null;
+}): string {
+  if (args.aiText !== null && shouldAutoApplyAiSummary(args)) {
+    return args.aiText;
+  }
+  return args.currentValue;
+}
