@@ -67,6 +67,17 @@ describe("Review, Preview, Publish", () => {
     // Nothing pending: the button is invisible but still in the layout, so the
     // bar must not reflow when the first change lands. See `ReviewButton`.
     render(topBar({ pendingChanges: 0, reviewCount: 0 }));
+    /*
+     * By label, not by role, and this is the one query that works.
+     *
+     * With nothing pending the button carries `aria-hidden`, and the
+     * accessible NAME of an element hidden from the accessibility tree
+     * computes as the empty string — so
+     * `getByRole("button", { name: "Review changes", hidden: true })` matches
+     * nothing, `hidden: true` included: that option widens which elements are
+     * considered, not how their names are computed. `getByLabelText` reads the
+     * `aria-label` attribute itself, which is unaffected.
+     */
     const review = screen.getByLabelText("Review changes");
     expect(
       precedes(review, screen.getByRole("button", { name: "Preview" })),
