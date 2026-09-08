@@ -69,6 +69,17 @@ describe("SerializedSchema round-trips", () => {
 });
 
 /**
+ * Narrowing instead of asserting: the repo avoids type assertions, and one here
+ * would claim an arbitrary `unknown` is indexable rather than checking it.
+ * `droppedKeys` tests `Array.isArray` before calling this, which is what keeps
+ * an array - an object too, as far as `typeof` is concerned - out of the record
+ * branch.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
+}
+
+/**
  * Every key the serialized schema carried, or the paths of the ones that did
  * not survive.
  *
@@ -80,15 +91,6 @@ describe("SerializedSchema round-trips", () => {
  * Only checks that keys SURVIVE. A key the parser declares and the schema never
  * writes is not a bug, so extra keys on the parsed side are ignored.
  */
-/**
- * Narrowing instead of asserting: the repo avoids type assertions, and here one
- * would claim an arbitrary `unknown` is indexable rather than checking it. The
- * array branch below runs FIRST, so an array never reaches this.
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object";
-}
-
 function droppedKeys(before: unknown, after: unknown, path = ""): string[] {
   if (Array.isArray(before)) {
     if (!Array.isArray(after)) {
@@ -128,13 +130,20 @@ function expectNothingDropped(schema: Schema<SelectorSource>) {
 
 /**
  * The parser used to declare `customValidate` and `description` on six of the
- * eighteen schemas and drop them on the other twelve, and to drop `remote` and
- * `referencedModule` on both media schemas. It is a strip rather than a
- * rejection, so nothing failed and nothing said so: on the history path - the
- * one place a parsed schema is consumed rather than merely validated
+ * eighteen schemas and drop them on the other twelve, to drop `remote` and
+ * `referencedModule` on both media schemas, and to drop the `message` on a
+ * `.regexp(pattern, message)`. It is a strip rather than a rejection, so
+ * nothing failed and nothing said so: on the history path - the one place a
+ * parsed schema is consumed rather than merely validated
  * (`getModuleAtCommit`, `getHistoricalPatchSet`) - a historical `.validate()`
- * stopped existing, a remote image read as local, and a gallery-backed field
- * lost the gallery it reads its metadata from.
+ * stopped existing, a remote image read as local, a gallery-backed field lost
+ * the gallery it reads its metadata from, and a custom pattern message fell
+ * back to the generic one.
+ *
+ * Each of those five was missed the same way: no case in this suite reached
+ * the branch. That is the failure mode to keep in mind when adding a field -
+ * the recursion is exhaustive over what a case SERIALIZES, not over the schema
+ * types that exist.
  */
 describe("SerializedSchema keeps every field the schema wrote", () => {
   const gallery = c.define(
