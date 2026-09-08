@@ -142,7 +142,15 @@ export { findJsonEntryFilePath } from "./jsonEntryLocation";
 // which file an edit belongs in.
 export { classifyJsonValuesOp, rebaseContentOp } from "./patch/jsonValuesPatch";
 export type { JsonValuesOpClass } from "./patch/jsonValuesPatch";
-export { extractJsonValuesEntry } from "./extractJsonValuesEntry";
+// `extractJsonValuesEntry` writes both files; `planJsonValuesEntryExtraction`
+// works out the same two changes as text so the editor can hand them back as a
+// `WorkspaceEdit` instead. Same reasoning as the pair above: one implementation,
+// two ways of applying it.
+export {
+  extractJsonValuesEntry,
+  planJsonValuesEntryExtraction,
+} from "./extractJsonValuesEntry";
+export type { JsonValuesEntryExtraction } from "./extractJsonValuesEntry";
 export type { ModulePathMap } from "./modulePathMap";
 // Exposed for the CLI's `debug` command and the snapshot replay harness, which
 // need to drive the same ops the app's api routes drive.

@@ -45,6 +45,7 @@ import {
   createValCodeActions,
   createMissingModuleCodeAction,
   adjudicateGalleryCheck,
+  canCreateFiles as clientCanCreateFiles,
 } from "./codeActions";
 import { createValCompletions, resolveValCompletion } from "./completions";
 import { createValCommands, valCommandNames } from "./commands";
@@ -253,6 +254,7 @@ export function createValLanguageServer(connection: Connection): {
   const documents = new TextDocuments(TextDocument);
   let canRegisterWatchers = false;
   let canRenameFiles = false;
+  let canCreateFiles = false;
 
   /**
    * The editor's view of a file, by absolute path, or `undefined` when the file
@@ -434,6 +436,10 @@ export function createValLanguageServer(connection: Connection): {
     // A RenameFile sent to a client that did not announce resourceOperations is
     // silently dropped, which would rewrite the path and leave the file behind.
     canRenameFiles = clientCanRenameFiles(params.capabilities);
+    // Same reasoning for the extract-entry fix: it CREATES the `*.val.json` the
+    // rewritten `.val.ts` imports, so a client that drops the create would be
+    // left importing a file that is not there.
+    canCreateFiles = clientCanCreateFiles(params.capabilities);
 
     const clientCapabilities: ValClientCapabilities =
       (
@@ -695,6 +701,7 @@ export function createValLanguageServer(connection: Connection): {
           valRoot: project.valRoot,
           moduleFilePath,
           read: readOpenDocument,
+          allowCreateFiles: canCreateFiles,
         })),
       );
       return actions;

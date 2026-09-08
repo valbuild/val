@@ -55,10 +55,22 @@ export type LspCompletionItem = {
   data?: unknown;
 };
 
+/** A `documentChanges` entry: either a resource operation or a document's edits. */
+export type LspDocumentChange =
+  | { kind: "create" | "delete"; uri: string }
+  | { kind: "rename"; oldUri: string; newUri: string }
+  | {
+      textDocument: { uri: string; version: number | null };
+      edits: LspTextEdit[];
+    };
+
 export type LspCodeAction = {
   title: string;
   kind?: string;
-  edit?: { changes?: Record<string, LspTextEdit[]> };
+  edit?: {
+    changes?: Record<string, LspTextEdit[]>;
+    documentChanges?: LspDocumentChange[];
+  };
 };
 
 export type LspSession = {
@@ -95,7 +107,16 @@ const SHUTDOWN_DEADLINE_MS = 2_000;
 
 export async function startLspSession({
   valRoot = EXAMPLE_APP,
-}: { valRoot?: string } = {}): Promise<LspSession> {
+  capabilities = {},
+}: {
+  valRoot?: string;
+  /**
+   * `InitializeParams.capabilities`. Defaults to `{}` — the bare client a
+   * hand-written LSP config sends. Pass something here to exercise a fix that
+   * is gated on a capability, e.g. `workspace.workspaceEdit.resourceOperations`.
+   */
+  capabilities?: Record<string, unknown>;
+} = {}): Promise<LspSession> {
   let child: ChildProcessWithoutNullStreams | undefined = spawn(
     process.execPath,
     [BIN, "--stdio"],
@@ -137,7 +158,7 @@ export async function startLspSession({
   }>("initialize", {
     processId: process.pid,
     rootUri: `file://${valRoot}`,
-    capabilities: {},
+    capabilities,
     initializationOptions: {
       client: { name: "lsp-test-client", version: "0.0.0" },
       supportedProtocolVersions: { min: 1, max: PROTOCOL_VERSION },
