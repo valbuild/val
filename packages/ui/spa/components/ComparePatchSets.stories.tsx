@@ -1248,7 +1248,7 @@ const IMAGES_MODULE_FILE_PATH = "/content/images.val.ts" as ModuleFilePath;
  */
 const imagesModule = c.define(
   "/content/images.val.ts",
-  s.images({
+  s.imageset({
     accept: "image/jpeg",
     directory: "/public",
   }),

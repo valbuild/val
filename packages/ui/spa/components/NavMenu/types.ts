@@ -67,7 +67,7 @@ export type ExplorerItem = {
 };
 
 /**
- * A gallery module - `s.images()` or `s.files()` - shown under Media.
+ * A gallery module - `s.imageset()` or `s.fileset()` - shown under Media.
  *
  * These are records keyed by file path with a `mediaType` marker, so the useful
  * unit in the nav menu is the DIRECTORY they are constrained to rather than the
@@ -115,7 +115,7 @@ export type NavMenuData = {
   explorer?: ExplorerItem;
   /** External module (if external-url-router exists) */
   external?: ExternalModule;
-  /** `s.images()` / `s.files()` gallery modules, shown under Media. */
+  /** `s.imageset()` / `s.fileset()` gallery modules, shown under Media. */
   media?: MediaModule[];
   /**
    * The project's `s.settings()` module, when it has exactly one valid one.

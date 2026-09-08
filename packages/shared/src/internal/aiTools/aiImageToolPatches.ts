@@ -64,7 +64,7 @@ export type ResolveResult =
  * Walks `schema` along `path`, returning a structured result:
  * - `leaf`: walked the full path; resolved schema at the end.
  * - `richtext`: hit a richtext mid-walk; richtext is the resolved schema.
- * - `gallery-traversed`: hit an `s.images()` record and walked past it (i.e. the
+ * - `gallery-traversed`: hit an `s.imageset()` record and walked past it (i.e. the
  *   path tries to address an entry inside the gallery — a clue the AI should
  *   have used the gallery tool instead).
  * - `unresolved`: the path could not be walked.
@@ -188,7 +188,7 @@ export function buildImageGalleryPatch(
       path: [args.filePath],
       value: {
         ...args.metadata,
-        // `alt` is a REQUIRED field of a gallery entry (`s.images()` gives it a
+        // `alt` is a REQUIRED field of a gallery entry (`s.imageset()` gives it a
         // nullable string schema), so an entry written without one is invalid
         // the moment it lands — and the caller that had no alt to give is the
         // common case, not the odd one. Null is what the Studio's own upload

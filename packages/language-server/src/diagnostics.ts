@@ -511,7 +511,7 @@ function longestResolvedPrefixRange(
 /**
  * Gallery checks core emits unconditionally.
  *
- * `RecordSchema.validate` attaches these to every `s.images()` / `s.files()`
+ * `RecordSchema.validate` attaches these to every `s.imageset()` / `s.fileset()`
  * module whether or not anything is actually wrong (see
  * `packages/core/src/schema/record.ts`): they are placeholders asking someone to
  * go and look. `val validate` looks by running the matching fix handler, which

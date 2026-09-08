@@ -2,7 +2,7 @@ import { c, s } from "../val.config";
 
 export default c.define(
   "/content/basic-gallery-missing-tracked.val.ts",
-  s.images({
+  s.imageset({
     directory: "/public/val/images4",
     accept: "image/*",
   }),

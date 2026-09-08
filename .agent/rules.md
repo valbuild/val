@@ -10,7 +10,7 @@ expensive to re-derive from the code:
 - [`architecture/stores.md`](../architecture/stores.md) — the Studio's client
   state in one page: marks vs demand, the two realms, `peek`/`get`, and why
   reference stability is load-bearing.
-- [`architecture/media.md`](../architecture/media.md) — `s.images()` / `s.files()`
+- [`architecture/media.md`](../architecture/media.md) — `s.imageset()` / `s.fileset()`
   vs `s.image()` / `s.file()`, where uploaded bytes land, and how a file's URL is
   chosen (the rule that has been got wrong repeatedly).
 - [`architecture/patch-store.md`](../architecture/patch-store.md) — where
@@ -257,7 +257,7 @@ is typed structurally (`SharpLike`), so this package typechecks in a project
 that has never heard of sharp; `sharpImageProcessor.test.ts` assigns the real
 library to that type, which is what stops it drifting.
 
-Remote images (`s.image().remote()`, `s.images({ remote: true })`) work too, and
+Remote images (`s.image().remote()`, `s.imageset({...}).remote()`) work too, and
 the thing to know is that **nothing is uploaded to the content host when the
 image is added**. The bytes go into the patch store like any local pending file;
 the push to `remote.val.build` happens at publish, from
@@ -441,7 +441,7 @@ these bytes served from" and "what does the gallery know about this path".
 
 ### Re-encoding uploads (`encode`)
 
-`s.image({ encode: { type: "webp" } })` and `s.images({ encode })` convert an
+`s.image({ encode: { type: "webp" } })` and `s.imageset({ encode })` convert an
 upload to WebP before it is uploaded. **Off by default.**
 `quality` defaults to 0.8, `maxWidth`/`maxHeight` to 2560, and `encode: false`
 turns it off where a gallery turned it on.

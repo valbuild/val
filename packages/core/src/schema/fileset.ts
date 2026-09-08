@@ -5,9 +5,9 @@ import { ObjectSchema } from "./object";
 import { StringSchema } from "./string";
 
 /**
- * Options for s.files()
+ * Options for s.fileset()
  */
-export type FilesOptions = {
+export type FilesetOptions = {
   /**
    * The accepted mime type pattern (e.g., "application/pdf", "text/*", "*\/*")
    */
@@ -27,14 +27,14 @@ export type FilesOptions = {
 /**
  * Metadata for a file entry in the files record
  */
-export type FilesEntryMetadata = {
+export type FilesetEntryMetadata = {
   mimeType: string;
 };
 
-export type SerializedFilesSchema = SerializedRecordSchema;
+export type SerializedFilesetSchema = SerializedRecordSchema;
 
-type FilesItemProps = { mimeType: StringSchema<string> };
-type FilesItemSrc = { mimeType: string };
+type FilesetItemProps = { mimeType: StringSchema<string> };
+type FilesetItemSrc = { mimeType: string };
 
 /**
  * Define a collection of files.
@@ -43,7 +43,7 @@ type FilesItemSrc = { mimeType: string };
  *
  * @example
  * ```typescript
- * const schema = s.files({
+ * const schema = s.fileset({
  *   accept: "application/pdf",
  *   directory: "/public/val/documents",
  * });
@@ -54,15 +54,15 @@ type FilesItemSrc = { mimeType: string };
  * });
  * ```
  */
-export const files = (
-  options: FilesOptions,
+export const fileset = (
+  options: FilesetOptions,
 ): RecordSchema<
-  ObjectSchema<FilesItemProps, FilesItemSrc>,
+  ObjectSchema<FilesetItemProps, FilesetItemSrc>,
   Schema<string>,
-  Record<string, FilesEntryMetadata>
+  Record<string, FilesetEntryMetadata>
 > => {
   const directory = options.directory;
-  const itemSchema = new ObjectSchema<FilesItemProps, FilesItemSrc>(
+  const itemSchema = new ObjectSchema<FilesetItemProps, FilesetItemSrc>(
     { mimeType: new StringSchema({}, false) },
     false,
   );

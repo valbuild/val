@@ -429,7 +429,7 @@ test.describe("ai chat tools", () => {
   /**
    * Galleries take a different tool, and the model is told so.
    *
-   * `s.images()` keys its entries BY file path and stores the metadata as the
+   * `s.imageset()` keys its entries BY file path and stores the metadata as the
    * value, so the session-key sentinel has nowhere to go — `create_patch` refuses
    * rather than writing something malformed, and the refusal names the tool to
    * retry with. That name is what the model acts on, so it is worth asserting on

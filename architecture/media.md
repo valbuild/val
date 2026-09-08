@@ -1,17 +1,17 @@
-# Media: `s.images()`, `s.files()`, `s.image()`, `s.file()`
+# Media: `s.imageset()`, `s.fileset()`, `s.image()`, `s.file()`
 
 ## The four names are two pairs on different axes
 
-`s.images()` / `s.files()` are **whole-module collections**. `s.image()` /
+`s.imageset()` / `s.fileset()` are **whole-module collections**. `s.image()` /
 `s.file()` are **fields**. They are not variants of each other.
 
-|       | collection (is the module)               | field (lives at a path)                                      |
-| ----- | ---------------------------------------- | ------------------------------------------------------------ |
-| image | `s.images({ directory, accept?, alt? })` | `s.image({ directory, accept })` or `s.image(galleryModule)` |
-| file  | `s.files({ directory, accept })`         | `s.file({ accept })` or `s.file(collectionModule)`           |
+|       | collection (is the module)                 | field (lives at a path)                                      |
+| ----- | ------------------------------------------ | ------------------------------------------------------------ |
+| image | `s.imageset({ directory, accept?, alt? })` | `s.image({ directory, accept })` or `s.image(galleryModule)` |
+| file  | `s.fileset({ directory, accept })`         | `s.file({ accept })` or `s.file(collectionModule)`           |
 
-Remote is a **method, not an option**, everywhere: `s.images({...}).remote()`,
-`s.files({...}).remote()`, `s.image().remote()`, `s.file().remote()`. It used to
+Remote is a **method, not an option**, everywhere: `s.imageset({...}).remote()`,
+`s.fileset({...}).remote()`, `s.image().remote()`, `s.file().remote()`. It used to
 be `{ remote: true }` on the two collections and a `.remote()` on the two fields,
 which meant the same fact was spelled two ways depending on which of the four you
 were looking at.
@@ -21,9 +21,22 @@ which meant a gallery that had simply not said where it wanted its files shared 
 directory with every other one — and `images:check-unique-folder` (below) then
 failed on a collision the author never chose.
 
-This is why `s.images(galleryModule)` does not typecheck: `s.images()` _defines_ a
+This is why `s.imageset(galleryModule)` does not typecheck: `s.imageset()` _defines_ a
 collection, it does not reference one. A field backed by a gallery is
 `s.image(galleryModule)`.
+
+### What to call one
+
+The schema is `s.imageset()` / `s.fileset()`, so **imageset** and **fileset** are
+the names to use in new code and new prose. Two older words are still in the
+tree and mean the same thing: **gallery** (the UI components — `ModuleGallery`,
+`FileGallery` — and most existing comments) and **collection** (older prose,
+including parts of this file). The serialized `mediaType` is still `"images"` /
+`"files"`, because it is a wire value inside stored patches and renaming it
+needs a migration.
+
+Four words for one concept is exactly what `terminology.md` warns about.
+Converging them is worth doing; it is a separate change from the rename.
 
 A collection is a `RecordSchema` carrying a `mediaType` marker, **keyed by file
 path**, whose values are metadata — `{width, height, mimeType, alt}` for images,
@@ -32,7 +45,7 @@ path**, whose values are metadata — `{width, height, mimeType, alt}` for image
 ```ts
 export default c.define(
   "/content/gallery.val.ts",
-  s.images({ directory: "/public/img" }),
+  s.imageset({ directory: "/public/img" }),
   {},
 );
 ```
@@ -95,7 +108,7 @@ always produce the same ref.
 
 ## Re-encoding, and why it is a one-line seam
 
-`s.image({ encode })` / `s.images({ encode })` convert an upload to WebP in the
+`s.image({ encode })` / `s.imageset({ encode })` convert an upload to WebP in the
 **browser**, before it is uploaded. Off unless asked for; `{type: "webp"}` is
 the whole opt-in, with `quality` (0.8), `maxWidth` and `maxHeight` (2560)
 defaulted. A field inherits its gallery's setting the way it inherits `accept`
@@ -204,7 +217,7 @@ Collections carry checks a field does not:
 - `images:check-all-files` — the directory may hold files the gallery does not track.
 
 Both carry `fixes`, so `filterBlockingValidationErrors` keeps them out of the
-publish gate. A **required alt** (`s.images({ alt: s.string().minLength(4) })`) is
+publish gate. A **required alt** (`s.imageset({ alt: s.string().minLength(4) })`) is
 blocking, and upload sets `alt: null` — so such a gallery is unpublishable until
 someone types alt text. Correct, but it means uploading alone never reaches a
 publishable state there.
@@ -214,8 +227,8 @@ publishable state there.
 `examples/next/content/` has one module per shape, each gallery shipping one
 _committed_ entry so "can I see what is already there" is covered by the repo:
 
-- `mediaFixtures.val.ts` — `s.images({ directory: "/public/test/subdir" })`
-- `fileGallery.val.ts` — `s.files({ directory: "/public/test/files" })`
+- `mediaFixtures.val.ts` — `s.imageset({ directory: "/public/test/subdir" })`
+- `fileGallery.val.ts` — `s.fileset({ directory: "/public/test/files" })`
 - `mediaFields.val.ts` — `s.image()`, `s.image({ directory })`,
   `s.image(gallery)`, `s.file()`, and the same inside a union. Also the fixture
   the language server's media-path completion tests open as an unsaved buffer:

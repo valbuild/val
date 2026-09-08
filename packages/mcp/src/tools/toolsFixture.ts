@@ -96,7 +96,7 @@ import { s, c } from "val.config";
 
 export default c.define(
   "${GALLERY_PATH}",
-  s.images({ directory: "/public/val/test" }),
+  s.imageset({ directory: "/public/val/test" }),
   {}
 );
 `;
@@ -106,7 +106,7 @@ import { s, c } from "val.config";
 
 export default c.define(
   "${ENCODED_GALLERY_PATH}",
-  s.images({
+  s.imageset({
     directory: "/public/val/encoded",
     encode: { type: "webp", maxWidth: 8, maxHeight: 8 },
   }),
@@ -129,7 +129,7 @@ import { s, c } from "val.config";
 
 export default c.define(
   "${CONVERTING_GALLERY_PATH}",
-  s.images({
+  s.imageset({
     directory: "/public/val/converting",
     accept: "image/webp",
     encode: { type: "webp" },
@@ -143,7 +143,7 @@ import { s, c } from "val.config";
 
 export default c.define(
   "${STRICT_GALLERY_PATH}",
-  s.images({ directory: "/public/val/strict", accept: "image/png" }),
+  s.imageset({ directory: "/public/val/strict", accept: "image/png" }),
   {}
 );
 `;
@@ -151,7 +151,7 @@ export default c.define(
 /**
  * A gallery that insists on alt text.
  *
- * `s.images()` defaults `alt` to a nullable string, so an entry with none
+ * `s.imageset()` defaults `alt` to a nullable string, so an entry with none
  * stores `null` and is valid. Passing an alt schema of your own — as the
  * example app does — makes it required, and an upload with no `alt` cannot
  * satisfy it however the entry is written. Here because that is a difference
@@ -162,7 +162,7 @@ import { s, c } from "val.config";
 
 export default c.define(
   "${ALT_GALLERY_PATH}",
-  s.images({
+  s.imageset({
     directory: "/public/val/described",
     alt: s.string().minLength(4),
   }),
@@ -182,7 +182,7 @@ import { s, c } from "val.config";
 
 export default c.define(
   "${REMOTE_GALLERY_PATH}",
-  s.images({ directory: "/public/val/remote" }).remote(),
+  s.imageset({ directory: "/public/val/remote" }).remote(),
   {}
 );
 `;

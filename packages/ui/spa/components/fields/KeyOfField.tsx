@@ -512,7 +512,7 @@ export function KeyOfField({
   // link it.
   //
   // A RECORD only: an object's keys are its schema, so there is no key to add.
-  // A media record (`s.images()` / `s.files()`) is keyed by file path and needs
+  // A media record (`s.imageset()` / `s.fileset()`) is keyed by file path and needs
   // bytes rather than a key, so it is left to the gallery.
   const creatableRecordSchema =
     !readonly &&

@@ -17,7 +17,7 @@ import { ImageEntry, MediaEntry, MediaFolder } from "./types";
 /**
  * How the collection is being used right now.
  *
- * `manage` is the `s.images()` / `s.files()` module open in the editor:
+ * `manage` is the `s.imageset()` / `s.fileset()` module open in the editor:
  * everything is editable and nothing is being chosen. `browse` is the same
  * module opened from a field, where the point is to leave with one item.
  *

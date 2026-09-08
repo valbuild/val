@@ -214,7 +214,7 @@ describe("jsonValuesLoadRequirements", () => {
   test("file refs match the referenced gallery module", () => {
     const gallery = c.define(
       GALLERY,
-      s.images({ directory: "/public/val" }),
+      s.imageset({ directory: "/public/val" }),
       {},
     );
     const schemas = getSchemas([

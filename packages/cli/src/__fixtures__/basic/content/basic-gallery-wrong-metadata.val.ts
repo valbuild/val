@@ -2,7 +2,7 @@ import { c, s } from "../val.config";
 
 export default c.define(
   "/content/basic-gallery-wrong-metadata.val.ts",
-  s.images({
+  s.imageset({
     directory: "/public/val/images3",
     accept: "image/*",
   }),

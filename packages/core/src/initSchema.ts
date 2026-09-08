@@ -11,14 +11,14 @@ import { literal } from "./schema/literal";
 import { keyOf } from "./schema/keyOf";
 import { record } from "./schema/record";
 import { file } from "./schema/file";
-import { files } from "./schema/files";
+import { fileset } from "./schema/fileset";
 import { date } from "./schema/date";
 import { datetime } from "./schema/datetime";
 import { code } from "./schema/code";
 import { color } from "./schema/color";
 import { route } from "./schema/route";
 import { router } from "./schema/router";
-import { images } from "./schema/images";
+import { imageset } from "./schema/imageset";
 import { settings } from "./schema/settings";
 // import { i18n, I18n } from "./schema/future/i18n";
 // import { oneOf } from "./schema/future/oneOf";
@@ -271,7 +271,7 @@ export type InitSchema = {
    *
    * @example
    * ```typescript
-   * const schema = s.images({
+   * const schema = s.imageset({
    *   accept: "image/webp",
    *   directory: "/public/val/images",
    *   alt: s.string().minLength(4),
@@ -286,13 +286,13 @@ export type InitSchema = {
    * });
    * ```
    */
-  readonly images: typeof images;
+  readonly imageset: typeof imageset;
   /**
    * Define a collection of files.
    *
    * @example
    * ```typescript
-   * const schema = s.files({
+   * const schema = s.fileset({
    *   accept: "application/pdf",
    *   directory: "/public/val/documents",
    * });
@@ -303,7 +303,7 @@ export type InitSchema = {
    * });
    * ```
    */
-  readonly files: typeof files;
+  readonly fileset: typeof fileset;
   /**
    * Define the project's settings.
    *
@@ -349,14 +349,14 @@ export function initSchema() {
     keyOf,
     record,
     file,
-    files,
+    fileset,
     date,
     datetime,
     color,
     code,
     route,
     router,
-    images,
+    imageset,
     settings,
     // i18n: i18n(locales),
   };

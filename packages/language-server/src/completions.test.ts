@@ -499,7 +499,7 @@ export default c.define(
   });
 
   test("offers files from the gallery's own directory as record keys", async () => {
-    // media.val.ts is `s.images({ directory: "/public/val/images" })`, keyed by
+    // media.val.ts is `s.imageset({ directory: "/public/val/images" })`, keyed by
     // file reference. A key is described by its container, so the candidates come
     // from the record's declared directory -- not the project-wide files dir.
     const file = path.join(EXAMPLE_APP, "content", "media.val.ts");

@@ -14,7 +14,7 @@ describe("getReferencedFiles", () => {
   test("find image field referencing module", () => {
     const imagesModule = c.define(
       "/images.val.ts",
-      s.images({ accept: "image/*", directory: "/public/val" }),
+      s.imageset({ accept: "image/*", directory: "/public/val" }),
       {
         "/public/val/img.png": {
           width: 100,
@@ -43,7 +43,7 @@ describe("getReferencedFiles", () => {
   test("filter by fileRef (match)", () => {
     const imagesModule = c.define(
       "/images.val.ts",
-      s.images({ accept: "image/*", directory: "/public/val" }),
+      s.imageset({ accept: "image/*", directory: "/public/val" }),
       {
         "/public/val/img.png": {
           width: 100,
@@ -73,7 +73,7 @@ describe("getReferencedFiles", () => {
   test("filter by fileRef (no match)", () => {
     const imagesModule = c.define(
       "/images.val.ts",
-      s.images({ accept: "image/*", directory: "/public/val" }),
+      s.imageset({ accept: "image/*", directory: "/public/val" }),
       {
         "/public/val/img.png": {
           width: 100,
@@ -103,12 +103,12 @@ describe("getReferencedFiles", () => {
   test("no match when different module", () => {
     const imagesModule1 = c.define(
       "/images1.val.ts",
-      s.images({ accept: "image/*", directory: "/public/val" }),
+      s.imageset({ accept: "image/*", directory: "/public/val" }),
       {},
     );
     const imagesModule2 = c.define(
       "/images2.val.ts",
-      s.images({ accept: "image/*", directory: "/public/val" }),
+      s.imageset({ accept: "image/*", directory: "/public/val" }),
       {},
     );
     const pageModule = c.define(
@@ -134,7 +134,7 @@ describe("getReferencedFiles", () => {
   test("find file field referencing module", () => {
     const filesModule = c.define(
       "/files.val.ts",
-      s.files({ accept: "*/*", directory: "/public/val" }),
+      s.fileset({ accept: "*/*", directory: "/public/val" }),
       {
         "/public/val/doc.pdf": {
           mimeType: "application/pdf",
@@ -160,7 +160,7 @@ describe("getReferencedFiles", () => {
   test("find nested image field", () => {
     const imagesModule = c.define(
       "/images.val.ts",
-      s.images({ accept: "image/*", directory: "/public/val" }),
+      s.imageset({ accept: "image/*", directory: "/public/val" }),
       {
         "/public/val/img.png": {
           width: 100,

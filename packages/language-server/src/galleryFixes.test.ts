@@ -23,7 +23,7 @@ const GALLERY = `import { c, s } from "../val.config";
 
 export default c.define(
   "/content/g.val.ts",
-  s.images({ directory: "/public/img" }),
+  s.imageset({ directory: "/public/img" }),
   {
     "/public/img/a.png": { width: 8, height: 8, mimeType: "image/png", alt: null },
   },
@@ -42,7 +42,7 @@ describe("findRecordInsertion", () => {
   });
 
   test("inserts inside the braces of an empty record", () => {
-    const text = `export default c.define("/m.val.ts", s.images({}), {});\n`;
+    const text = `export default c.define("/m.val.ts", s.imageset({}), {});\n`;
     const insertion = findRecordInsertion(parse(text));
     expect(insertion?.hasProperties).toBe(false);
     expect(text.slice(insertion?.insertOffset)).toBe("});\n");
@@ -201,7 +201,7 @@ describe("createGalleryMembershipActions", () => {
 
 export default c.define(
   "/content/g.val.ts",
-  s.images({ directory: "/public/img" }),
+  s.imageset({ directory: "/public/img" }),
   {
     "/public/img/tracked.png": { width: 8, height: 8, mimeType: "image/png", alt: null },
   },

@@ -36,11 +36,11 @@ const nestedModule = serialize(
       byKey: s.record(item),
       body: s.richtext({ h1: true }),
       hero: s.image(),
-      gallery: s.images({
+      gallery: s.imageset({
         directory: "/public/val/images",
         accept: "image/png",
       }),
-      docs: s.files({
+      docs: s.fileset({
         directory: "/public/val/docs",
         accept: "application/pdf",
       }),

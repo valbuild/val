@@ -706,7 +706,7 @@ export class RecordSchema<
    * which lets the runtime, the Studio and validation work one entry at a time
    * so a record/router can scale to many thousands of entries.
    *
-   * Not supported on image/file galleries (`s.images()` / `s.files()`).
+   * Not supported on image/file galleries (`s.imageset()` / `s.fileset()`).
    *
    * Only supported on a module's ROOT record/router — a `.jsonValues()` record
    * nested inside an object/array/record is rejected at startup with a module
@@ -716,7 +716,7 @@ export class RecordSchema<
   jsonValues(): RecordSchema<T, K, JsonValuesRecordSrc<T, K>> {
     if (this.mediaOptions) {
       throw new Error(
-        ".jsonValues() cannot be used with image/file galleries (s.images()/s.files())",
+        ".jsonValues() cannot be used with image/file galleries (s.imageset()/s.fileset())",
       );
     }
     if (this.customValidateFunctions.length > 0) {
@@ -762,7 +762,7 @@ export class RecordSchema<
    * bucket — instead of in the module.
    *
    * Available on every record-derived schema, which is `s.record()`,
-   * `s.router()`, `s.images()` and `s.files()` alike: a router is a
+   * `s.router()`, `s.imageset()` and `s.fileset()` alike: a router is a
    * `RecordSchema` with a `ValRouter`, a gallery one with media options, so all
    * four get external storage from this one method.
    *

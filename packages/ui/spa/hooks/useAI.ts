@@ -173,7 +173,7 @@ const CREATE_PATCH_TOOL: AITool = {
     {"patch":[{"op":"add","path":["body","0","children","2"],"value":{"tag":"img","src":{"key":"abc","filePath":"/public/val/images/inline.png","_type":"ai_session_file","_tag":"image"}}}]}
 
     Multiple session keys can appear in a single patch.
-    For images-gallery modules (s.images()) you must use add_session_image_to_gallery instead — galleries don't fit this pattern.
+    For images-gallery modules (s.imageset()) you must use add_session_image_to_gallery instead — galleries don't fit this pattern.
     `,
   parameters: {
     type: "object",
@@ -210,7 +210,7 @@ const HOTSPOT_DESCRIPTION =
 const ADD_SESSION_IMAGE_TO_GALLERY_TOOL: AITool = {
   name: "add_session_image_to_gallery",
   description:
-    "Use when the user wants a session-uploaded image added to an images gallery (a module defined with s.images(), where each entry's key is the file path and the value is the image's metadata).",
+    "Use when the user wants a session-uploaded image added to an images gallery (a module defined with s.imageset(), where each entry's key is the file path and the value is the image's metadata).",
   parameters: {
     type: "object",
     properties: {
@@ -242,7 +242,7 @@ const ADD_SESSION_IMAGE_TO_GALLERY_TOOL: AITool = {
 const REMOVE_IMAGE_GALLERY_ENTRY_TOOL: AITool = {
   name: "remove_image_gallery_entry",
   description:
-    "Remove an existing image entry from an images gallery (a module defined with s.images()). " +
+    "Remove an existing image entry from an images gallery (a module defined with s.imageset()). " +
     "The system records the deletion as a 'file' patch op with value: null and removes the corresponding gallery record entry.",
   parameters: {
     type: "object",
@@ -2428,8 +2428,8 @@ Always call get_all_schema first unless the question clearly does not require it
 - search_content: find content by keyword across all modules.
 - validate_content: check for errors — call this after every change.
 - create_patch: change text, numbers, dates, booleans, and lists. Do NOT use for images, files, or rich text.
-- add_session_image_to_gallery: use this when the user refers to an image they uploaded in this session (visible as a chat attachment) and wants to add it as an entry in an images gallery (s.images()) — the file_path doubles as the entry key. Needs image_key, module_file_path, file_path, and (optionally) alt and hotspot. The system fetches dimensions and mime type from the server and constructs the correct patch shape from the schema. For plain image fields (s.image()) and inline images inside richtext, do NOT use this tool — use create_patch with a session-key value (see the create_patch description above for the sentinel format) instead.
-- remove_image_gallery_entry: remove an existing entry from an images gallery (s.images()). Provide module_file_path and the entry's file_path (the record key). Use get_source first if you need to look up the exact key.
+- add_session_image_to_gallery: use this when the user refers to an image they uploaded in this session (visible as a chat attachment) and wants to add it as an entry in an images gallery (s.imageset()) — the file_path doubles as the entry key. Needs image_key, module_file_path, file_path, and (optionally) alt and hotspot. The system fetches dimensions and mime type from the server and constructs the correct patch shape from the schema. For plain image fields (s.image()) and inline images inside richtext, do NOT use this tool — use create_patch with a session-key value (see the create_patch description above for the sentinel format) instead.
+- remove_image_gallery_entry: remove an existing entry from an images gallery (s.imageset()). Provide module_file_path and the entry's file_path (the record key). Use get_source first if you need to look up the exact key.
 - get_patches: list pending (unpublished) changes sorted by date. Use this to answer questions like "what changed recently?", "who made changes?", or "what's waiting to be published?". Returns author name and email when available. A pending change is a change that has not been successfully synced - there might be an error preventing it from syncing, or it might still be syncing. Always check the result of create_patch calls to confirm whether a change was successful or if there were errors.
 - navigate_to: move the user's view to a specific location. Use ONLY when the user asks to be shown something, or right after creating/modifying content. Never call it during information gathering. If not the user is most likely looking at their live application. When they are NOT in Val Studio (when get_current_context.pathname does not start with /val), DO NOT USE the navigate_to tool, unless user asks explicitly OR if they want to change the change arrays or records. When NOT in Val Studio always ask before using navigate_to. When they ARE in Val Studio, you can use navigate_to to guide them to the relevant content.
 - get_current_context: understand who the user is, what time it is, and where they are in the content tree and the site. Use this to inform your responses and actions. If the user is on a Next.js app-router page, the matching source path will be included in the context.

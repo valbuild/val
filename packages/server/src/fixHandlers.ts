@@ -465,7 +465,7 @@ export async function handleRemoteFileUpload(
   );
 }
 
-// Gallery (s.images({ ... }).remote() / s.files({ ... }).remote()) upload.
+// Gallery (s.imageset({ ... }).remote() / s.fileset({ ... }).remote()) upload.
 // Unlike a single image/file field, a gallery entry is keyed by its local file
 // path and the value is bare metadata (no FileSource), so we derive the file
 // ref from the key and synthesize the image/file schema from the record's
@@ -525,7 +525,7 @@ export async function handleRemoteGalleryFileUpload(
   // `accept`/`directory` come from the RECORD that holds the entry, resolved
   // from the entry's PARENT path - not from the module root, which is only the
   // record when the gallery is the whole module. A nested gallery
-  // (s.object({ gallery: s.images(...) })) would otherwise synthesize a schema
+  // (s.object({ gallery: s.imageset(...) })) would otherwise synthesize a schema
   // with no options and bake a validation hash into the remote ref that can
   // never validate, so a mismatch fails fast instead of uploading.
   const [, parentModulePath] = Internal.splitModuleFilePathAndModulePath(

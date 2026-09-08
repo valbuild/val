@@ -2,7 +2,7 @@ import { ModuleFilePath, SerializedSchema } from "@valbuild/core";
 import { MediaModule, NavItemErrors } from "./types";
 
 /**
- * Whether a module is an `s.images()` / `s.files()` gallery.
+ * Whether a module is an `s.imageset()` / `s.fileset()` gallery.
  *
  * Both are records with a `mediaType` marker on the SERIALIZED schema, so this
  * needs no sources and costs nothing per keystroke.

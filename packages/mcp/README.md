@@ -39,7 +39,7 @@ Writing:
 | `create_patch`               | change a value at a path                            |
 | `duplicate_source`           | copy an array item or record entry                  |
 | `empty_at_path`              | build an empty value the schema accepts, to fill in |
-| `remove_image_gallery_entry` | drop an image from an `s.images()` gallery          |
+| `remove_image_gallery_entry` | drop an image from an `s.imageset()` gallery        |
 | `upload_image`               | add one — see below                                 |
 
 Every write is validated against the schema before it is stored, and refused
@@ -70,7 +70,7 @@ const { valMcpAuthorize, valMcpTools } = initValMcp(valModules, config, {
 Leave `extraTools` out and everything else still works — an agent can then read,
 validate and edit content, but not add an image.
 
-Remotely stored images (`s.images({ remote: true })`) work through the same tool.
+Remotely stored images (`s.imageset({ remote: true })`) work through the same tool.
 Adding one uploads nothing to Val's content host — the bytes go into the patch
 store, and the push happens at publish — so the only thing it needs is the
 project's bucket list, read with your app's own credential (its API key, or the

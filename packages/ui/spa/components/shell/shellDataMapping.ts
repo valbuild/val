@@ -369,7 +369,7 @@ export function toAdminLinks(
  * a router with no entries yet is a site map to add the first page to.
  *
  * Media, Data and Settings hang off their own data, which is already exactly
- * the right question. `media` is the `s.images()`/`s.files()` modules, and an
+ * the right question. `media` is the `s.imageset()`/`s.fileset()` modules, and an
  * empty gallery still lists as a gallery — so an empty `media` means no gallery
  * module exists. `settings` is the project's `s.settings()` module, and an empty
  * settings module (`{}`, which is the normal starting point) still resolves —

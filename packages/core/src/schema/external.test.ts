@@ -75,11 +75,11 @@ describe("s.record().external()", () => {
   test("is available on every record-derived schema", () => {
     // A router is a RecordSchema with a ValRouter, a gallery one with media
     // options — so all of them get external storage from the one method.
-    const images = s.images({
+    const images = s.imageset({
       accept: "image/*",
       directory: "/public/val/gallery",
     });
-    const files = s.files({
+    const files = s.fileset({
       accept: "application/pdf",
       directory: "/public/val/docs",
     });
@@ -189,7 +189,7 @@ describe("hasMediaSchema", () => {
     // The case a walk over the item TYPE would miss: `item` is width/height/
     // mimeType metadata and the file is named by the record's key. Getting this
     // wrong once already committed remote refs with no bytes behind them.
-    const gallery = s.images({
+    const gallery = s.imageset({
       accept: "image/*",
       directory: "/public/val/g",
     });
