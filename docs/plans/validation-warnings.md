@@ -330,14 +330,14 @@ here is the whole point of the change, so split the names too:
 
 Then move each caller to the one it means:
 
-| Caller                                                                  | Use                                        | Why                                                                                                        |
-| ----------------------------------------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `useValidationErrorsAtPath` (`stores/react/useValidationErrors.ts:224`) | surfaced                                   | a field shows both, coloured by severity                                                                   |
-| `useAllValidationErrors` (`components/ValErrorProvider.tsx:122`)        | surfaced                                   | the shared map; consumers partition                                                                        |
-| `createSystem.publish` gate (`stores/createSystem.ts:2190`)             | **blocking**                               | the gate this feature exists to change                                                                     |
-| `useAI.ts` ×4 (1187, 1414, 1555, 1917)                                  | **blocking**                               | a warning must not make the assistant reject its own patch, for the same reason it does not stop a publish |
-| `mcp/tools/writePath.ts:227`                                            | **blocking** to refuse, surfaced to report | a warning must not refuse a write; it should still come back in the response                               |
-| `mcp/tools/readTools.ts:238`                                            | surfaced, with severity in the payload     | it is a report                                                                                             |
+| Caller                                                                                  | Use                                        | Why                                                                                                        |
+| --------------------------------------------------------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `useValidationErrorsAtPath` — `packages/ui/spa/stores/react/useValidationErrors.ts:224` | surfaced                                   | a field shows both, coloured by severity                                                                   |
+| `useAllValidationErrors` — `packages/ui/spa/components/ValErrorProvider.tsx:122`        | surfaced                                   | the shared map; consumers partition                                                                        |
+| `createSystem.publish` gate — `packages/ui/spa/stores/createSystem.ts:2190`             | **blocking**                               | the gate this feature exists to change                                                                     |
+| `packages/ui/spa/hooks/useAI.ts` ×4 — lines 1187, 1414, 1555, 1917                      | **blocking**                               | a warning must not make the assistant reject its own patch, for the same reason it does not stop a publish |
+| `packages/mcp/src/tools/writePath.ts:227`                                               | **blocking** to refuse, surfaced to report | a warning must not refuse a write; it should still come back in the response                               |
+| `packages/mcp/src/tools/readTools.ts:238`                                               | surfaced, with severity in the payload     | it is a report                                                                                             |
 
 `sameErrors` in `ValErrorProvider.tsx` compares by message only. Two errors
 differing solely in severity would compare equal and the UI would keep the stale
@@ -406,16 +406,23 @@ error. Needed:
 ### D.5 Everything else reading `useAllValidationErrors`
 
 Each of these needs a decision, not a mechanical edit — list them in the PR so
-none is missed:
+none is missed. Paths are from the repo root, because this is a work list and a
+path you cannot open is a path someone has to go and find:
 
-`useNavMenuData.ts:132` (`indexNavErrors` → the nav tree's badges; a
-warning-only subtree should badge amber and must not inflate the error count —
-this means severity has to reach `NavMenuData`), `ValShell.tsx:162`,
-`useShellData.ts:49`, `SortableList.tsx:249`, `FieldValidationError.tsx:38`,
-`fields/ModuleGallery.tsx:70`, `fields/RecordFields.tsx:53`,
-`DraftChanges.tsx:82,312` (does a warning mark a change as problematic in
-Review? Proposal: shown, amber, not blocking), `ValOverlay.tsx:1382`,
-`hooks/useAIValidation.ts:19`.
+- `packages/ui/spa/components/NavMenu/useNavMenuData.ts:132` — `indexNavErrors`
+  feeds the nav tree's badges. A warning-only subtree should badge amber and
+  must not inflate the error count, which means severity has to reach
+  `NavMenuData`. The most involved of these.
+- `packages/ui/spa/components/DraftChanges.tsx:82,312` — does a warning mark a
+  change as problematic in Review? Proposal: shown, amber, not blocking.
+- `packages/ui/spa/hooks/useAIValidation.ts:19`
+- `packages/ui/spa/components/shell/ValShell.tsx:162`
+- `packages/ui/spa/components/shell/useShellData.ts:49`
+- `packages/ui/spa/components/SortableList.tsx:249`
+- `packages/ui/spa/components/FieldValidationError.tsx:38`
+- `packages/ui/spa/components/fields/ModuleGallery.tsx:70`
+- `packages/ui/spa/components/fields/RecordFields.tsx:53`
+- `packages/ui/spa/components/ValOverlay.tsx:1382`
 
 ---
 
