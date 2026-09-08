@@ -5,10 +5,16 @@
 `s.images()` / `s.files()` are **whole-module collections**. `s.image()` /
 `s.file()` are **fields**. They are not variants of each other.
 
-|       | collection (is the module)                        | field (lives at a path)                                      |
-| ----- | ------------------------------------------------- | ------------------------------------------------------------ |
-| image | `s.images({ directory, accept?, alt?, remote? })` | `s.image({ directory, accept })` or `s.image(galleryModule)` |
-| file  | `s.files({ directory, accept, remote? })`         | `s.file({ accept })`                                         |
+|       | collection (is the module)               | field (lives at a path)                                      |
+| ----- | ---------------------------------------- | ------------------------------------------------------------ |
+| image | `s.images({ directory, accept?, alt? })` | `s.image({ directory, accept })` or `s.image(galleryModule)` |
+| file  | `s.files({ directory, accept })`         | `s.file({ accept })` or `s.file(collectionModule)`           |
+
+Remote is a **method, not an option**, everywhere: `s.images({...}).remote()`,
+`s.files({...}).remote()`, `s.image().remote()`, `s.file().remote()`. It used to
+be `{ remote: true }` on the two collections and a `.remote()` on the two fields,
+which meant the same fact was spelled two ways depending on which of the four you
+were looking at.
 
 A collection's `directory` is **required**. It used to default to `/public/val`,
 which meant a gallery that had simply not said where it wanted its files shared a
@@ -53,9 +59,9 @@ only a path outside `/public`** — `isRemoteMediaPath` is the whole test.
 writes the derived ones **one property at a time** rather than replacing the
 object.
 
-A **gallery-backed** field (`s.image(galleryModule)`) carries neither: the
-gallery has them, keyed by path, and repeating them is how two copies of one
-fact get to disagree. `s.image(galleryVal)` refuses them at author time, and
+A **gallery-backed** field (`s.image(galleryModule)`, and `s.file(collectionModule)`
+for the file pair) carries neither: the gallery has them, keyed by path, and
+repeating them is how two copies of one fact get to disagree. `s.image(galleryVal)` refuses them at author time, and
 validation refuses a path the gallery does not track. `fillFromGallery` supplies
 them at resolve time — including `alt`, but only when the field has none, so a
 per-image override wins. A gallery whose `alt` is a locale record holds an object

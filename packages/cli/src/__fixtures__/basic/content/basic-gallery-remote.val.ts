@@ -2,11 +2,12 @@ import { c, s } from "../val.config";
 
 export default c.define(
   "/content/basic-gallery-remote.val.ts",
-  s.images({
-    directory: "/public/val/images-remote",
-    accept: "image/*",
-    remote: true,
-  }),
+  s
+    .images({
+      directory: "/public/val/images-remote",
+      accept: "image/*",
+    })
+    .remote(),
 
   {
     "/public/val/images-remote/image.png": {

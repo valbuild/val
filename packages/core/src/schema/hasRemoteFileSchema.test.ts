@@ -280,10 +280,10 @@ describe("hasRemoteFileSchema", () => {
    * and the commit lands a remote ref with no bytes behind it.
    */
   describe("media collections", () => {
-    it("should return true for s.images({ remote: true })", () => {
+    it("should return true for a remote s.images()", () => {
       expect(
         hasRemoteFileSchema(
-          serialize(s.images({ directory: "/public/val", remote: true })),
+          serialize(s.images({ directory: "/public/val" }).remote()),
         ),
       ).toBe(true);
     });
@@ -294,11 +294,12 @@ describe("hasRemoteFileSchema", () => {
       expect(
         hasRemoteFileSchema(
           serialize(
-            s.files({
-              directory: "/public/val",
-              accept: "application/pdf",
-              remote: true,
-            }),
+            s
+              .files({
+                directory: "/public/val",
+                accept: "application/pdf",
+              })
+              .remote(),
           ),
         ),
       ).toBe(true);
@@ -320,21 +321,13 @@ describe("hasRemoteFileSchema", () => {
       ).toBe(false);
     });
 
-    it("should return false for s.images({ remote: false })", () => {
-      expect(
-        hasRemoteFileSchema(
-          serialize(s.images({ directory: "/public/val", remote: false })),
-        ),
-      ).toBe(false);
-    });
-
     it("should find a remote gallery nested in an object", () => {
       expect(
         hasRemoteFileSchema(
           serialize(
             s.object({
               title: s.string(),
-              gallery: s.images({ directory: "/public/val", remote: true }),
+              gallery: s.images({ directory: "/public/val" }).remote(),
             }),
           ),
         ),
@@ -353,7 +346,7 @@ describe("hasRemoteFileSchema", () => {
               }),
               s.object({
                 type: s.literal("images"),
-                images: s.images({ directory: "/public/val", remote: true }),
+                images: s.images({ directory: "/public/val" }).remote(),
               }),
             ),
           ),
