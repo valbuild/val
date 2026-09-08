@@ -62,12 +62,21 @@ end:
 | Client → server body    | `ValRouter.ts:371`                                 | **Yes** — `bodyRes.data`   |
 | Stored schema → history | `getModuleAtCommit`, `getHistoricalPatchSet`       | **Yes** — `schemaRes.data` |
 
-Both mirrors appear only in **responses** (`/schema` and `/sources/~`), so on the
-live path they are validators and nothing more: an undeclared key is neither
-stripped nor rejected, because `z.object` ignores unknown keys rather than
-erroring on them. A missing `severity` on `ValidationError` therefore costs
-nothing at runtime — declare it because the mirror is the contract, not because
-it breaks.
+Both mirrors appear only in **responses** (`/schema` and `/sources/~`), and the
+distinction that matters there is easy to state wrongly, so state it precisely.
+`z.object` **does** strip an undeclared key — always, that is its default, and
+the file's comment is right about it. What saves the live path is not zod: it is
+that neither response hop uses the parsed value. `ValRouter` validates and then
+returns `res`; `ValClient` validates and then returns the raw `json`. The
+stripped copy is computed and thrown away.
+
+So an undeclared key is stripped from a value nobody reads, and it is not
+rejected either, because stripping is not an error. A missing `severity` on
+`ValidationError` therefore costs nothing at runtime — declare it because the
+mirror is the contract, not because it breaks. But do not carry away the idea
+that the mirrors are lenient: the moment any caller starts reading
+`result.data`, every undeclared key on that path disappears, which is exactly
+what the history rows below are.
 
 `SerializedSchema` is different, and that is the one to get right. The history
 path parses a _stored_ schema and consumes `schemaRes.data`, so a `severity` not
