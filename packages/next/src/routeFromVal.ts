@@ -4,7 +4,7 @@ import {
   getPatternFromModuleFilePath,
   parseRoutePattern,
   RoutePattern,
-} from "@valbuild/shared/internal";
+} from "@valbuild/shared/client";
 
 /**
  * True when the module's schema is a `.jsonValues()` record/router — i.e. each

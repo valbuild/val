@@ -7,7 +7,7 @@ import {
   VAL_CANVAS_MESSAGE,
   ValCanvasElement,
   ValCanvasPageMessage,
-} from "@valbuild/shared/internal";
+} from "@valbuild/shared/client";
 
 /**
  * The colours Val outlines its content in.

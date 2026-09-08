@@ -15,13 +15,13 @@ import Script from "next/script";
 import React, { useEffect } from "react";
 import { ValExternalStore, ValOverlayProvider } from "./ValOverlayContext";
 import { SET_AUTO_TAG_JSX_ENABLED } from "@valbuild/react/stega";
-import { createValClient } from "@valbuild/shared/internal";
+import type { ValClient } from "@valbuild/shared/internal";
 import { useConfigStorageSave } from "./useConfigStorageSave";
 import { initSessionTheme } from "./initSessionTheme";
 import { cn, prefixStyles, valPrefixedClass } from "./cssUtils";
 import { hasValEnableCookie } from "./valEnableCookie";
 import { floatDarkBg, floatLightBg } from "./fallbackColors";
-import { isValCanvasFrame } from "@valbuild/shared/internal";
+import { isValCanvasFrame } from "@valbuild/shared/client";
 import { ValCanvasBridge } from "./ValCanvasBridge";
 import { shouldSafetyRefresh } from "./safetyRefresh";
 
@@ -141,14 +141,30 @@ export const ValNextProvider = (props: {
 }) => {
   // TODO: use config:
   const route = "/api/val";
-  const client = React.useMemo(
-    () =>
-      createValClient(route, {
-        ...props.config,
+  /**
+   * Loaded on first use, never at import time.
+   *
+   * `createValClient` validates every request and response against the zod
+   * schemas in `@valbuild/shared/internal`'s `ApiRoutes`, and preconstruct
+   * publishes that entrypoint as one module - so importing it statically put
+   * ~113 KB of zod in the bundle of every page of every Val site. The only
+   * caller is the draft-mode poll below, which returns early unless
+   * `mountOverlay` is set, so a visitor without the Val Enable cookie never
+   * triggers this import and never downloads that chunk.
+   */
+  const clientRef = React.useRef<ValClient | null>(null);
+  const configRef = React.useRef(props.config);
+  configRef.current = props.config;
+  const getClient = React.useCallback(async (): Promise<ValClient> => {
+    if (!clientRef.current) {
+      const { createValClient } = await import("@valbuild/shared/internal");
+      clientRef.current = createValClient(route, {
+        ...configRef.current,
         contentHostUrl: DEFAULT_CONTENT_HOST,
-      }),
-    [route, props.config],
-  );
+      });
+    }
+    return clientRef.current;
+  }, [route]);
 
   // TODO: move below into react package
   const valStore = React.useMemo(() => new ValExternalStore(), []);
@@ -448,7 +464,8 @@ export const ValNextProvider = (props: {
         }),
       );
       const pollDraftStatId = ++pollDraftStatIdRef.current;
-      client("/draft/stat", "GET", {})
+      getClient()
+        .then((client) => client("/draft/stat", "GET", {}))
         .then((res) => {
           if (pollDraftStatIdRef.current !== pollDraftStatId) {
             return;
