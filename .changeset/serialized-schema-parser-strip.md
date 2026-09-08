@@ -2,10 +2,10 @@
 "@valbuild/shared": patch
 ---
 
-Stop the serialized-schema parser dropping `customValidate`, `description`, `remote` and `referencedModule`
+Stop the serialized-schema parser dropping schema metadata
 
 `SerializedSchema` in `@valbuild/shared` is a zod mirror of the serialized
-schema type, and its `z.object`s strip keys they do not declare. Four fields
+schema type, and its `z.object`s strip keys they do not declare. Five fields
 were declared on some schemas and forgotten on others:
 
 - `customValidate` — missing on twelve of the eighteen schemas. This is the flag
@@ -16,6 +16,9 @@ were declared on some schemas and forgotten on others:
 - `remote` and `referencedModule` — missing on `s.image()` and `s.file()`, so a
   remote field read as local and a gallery-backed field lost the gallery it
   reads its dimensions and mime type from.
+- the `message` on a `.regexp(pattern, message)` — so a field with a custom
+  pattern message fell back to the generic "Expected string to match reg
+  exp: …".
 
 Because it strips rather than rejects, nothing failed and nothing said so. The
 live `/schema` route was unaffected — `ValClient` validates the response and

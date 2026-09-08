@@ -71,6 +71,11 @@ export const SerializedStringSchema: z.ZodType<SerializedStringSchemaT> =
         minLength: z.number().optional(),
         regexp: z
           .object({
+            // `.regexp(re, message)`'s message. Written by
+            // `StringSchema.executeSerialize`, so omitting it here strips the
+            // author's own wording and leaves the generic "Expected string to
+            // match reg exp: …" in its place.
+            message: z.string().optional(),
             source: z.string(),
             flags: z.string(),
           })

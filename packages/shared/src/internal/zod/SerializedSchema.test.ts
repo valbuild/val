@@ -80,6 +80,15 @@ describe("SerializedSchema round-trips", () => {
  * Only checks that keys SURVIVE. A key the parser declares and the schema never
  * writes is not a bug, so extra keys on the parsed side are ignored.
  */
+/**
+ * Narrowing instead of asserting: the repo avoids type assertions, and here one
+ * would claim an arbitrary `unknown` is indexable rather than checking it. The
+ * array branch below runs FIRST, so an array never reaches this.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
+}
+
 function droppedKeys(before: unknown, after: unknown, path = ""): string[] {
   if (Array.isArray(before)) {
     if (!Array.isArray(after)) {
@@ -89,24 +98,21 @@ function droppedKeys(before: unknown, after: unknown, path = ""): string[] {
       droppedKeys(item, after[i], `${path}[${i}]`),
     );
   }
-  if (before !== null && typeof before === "object") {
-    if (after === null || typeof after !== "object") {
+  if (isRecord(before)) {
+    if (!isRecord(after)) {
       return [`${path}: object became ${String(after)}`];
     }
-    const parsed = after as Record<string, unknown>;
-    return Object.entries(before as Record<string, unknown>).flatMap(
-      ([key, value]) => {
-        // `executeSerialize` writes `undefined` for absent optional fields, and
-        // JSON drops those in transit anyway - not something to hold the parser to.
-        if (value === undefined) {
-          return [];
-        }
-        if (!(key in parsed)) {
-          return [`${path}.${key} (was ${JSON.stringify(value)})`];
-        }
-        return droppedKeys(value, parsed[key], `${path}.${key}`);
-      },
-    );
+    return Object.entries(before).flatMap(([key, value]) => {
+      // `executeSerialize` writes `undefined` for absent optional fields, and
+      // JSON drops those in transit anyway - not something to hold the parser to.
+      if (value === undefined) {
+        return [];
+      }
+      if (!(key in after)) {
+        return [`${path}.${key} (was ${JSON.stringify(value)})`];
+      }
+      return droppedKeys(value, after[key], `${path}.${key}`);
+    });
   }
   return [];
 }
@@ -136,6 +142,11 @@ describe("SerializedSchema keeps every field the schema wrote", () => {
     s.images({ directory: "/public/val" }),
     {},
   );
+  const filesGallery = c.define(
+    "/test/files-gallery.val.ts",
+    s.files({ accept: "application/pdf", directory: "/public/val/files" }),
+    {},
+  );
   const cases: [string, Schema<SelectorSource>][] = [
     [
       "string",
@@ -144,6 +155,14 @@ describe("SerializedSchema keeps every field the schema wrote", () => {
         .validate(() => false)
         .describe("d"),
     ],
+    // The regexp MESSAGE is a separate branch of the parser from the pattern,
+    // and the case above does not reach it — which is exactly how it stayed
+    // stripped through the first round of this fix.
+    [
+      "string with a regexp message",
+      s.string().regexp(/^a/, "Must start with a"),
+    ],
+    ["string with a bare regexp", s.string().regexp(/^a/)],
     [
       "literal",
       s
@@ -237,6 +256,10 @@ describe("SerializedSchema keeps every field the schema wrote", () => {
         .validate(() => false)
         .describe("d"),
     ],
+    // `referencedModule` on FILE is its own parser line; without this case
+    // deleting that line would still typecheck and every other case would
+    // still pass.
+    ["gallery-backed file", s.file(filesGallery).describe("d")],
     [
       "remote file",
       s
@@ -314,6 +337,29 @@ describe("SerializedSchema keeps every field the schema wrote", () => {
     expect(parsed.success && parsed.data).toMatchObject({
       type: "image",
       remote: true,
+    });
+  });
+
+  test("a regexp keeps the author's own message", () => {
+    const parsed = SerializedSchema.safeParse(
+      serialize(s.string().regexp(/^\d+$/, "Digits only, please")),
+    );
+    expect(parsed.success && parsed.data).toMatchObject({
+      type: "string",
+      options: { regexp: { message: "Digits only, please" } },
+    });
+  });
+
+  test("a gallery-backed file keeps its gallery", () => {
+    const files = c.define(
+      "/test/backing-files.val.ts",
+      s.files({ accept: "application/pdf", directory: "/public/val/files" }),
+      {},
+    );
+    const parsed = SerializedSchema.safeParse(serialize(s.file(files)));
+    expect(parsed.success && parsed.data).toMatchObject({
+      type: "file",
+      referencedModule: "/test/backing-files.val.ts",
     });
   });
 
