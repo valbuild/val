@@ -1,5 +1,27 @@
 # @valbuild/server
 
+## 0.123.3
+
+### Patch Changes
+
+- [#623](https://github.com/valbuild/val/pull/623) [`4c9369b`](https://github.com/valbuild/val/commit/4c9369bad3f17e96868262e78a4f47361d85319e) Thanks [@freekh](https://github.com/freekh)! - Add the editor quick fix for a `.jsonValues()` entry written inline: **Val: move entry into its own .val.json**.
+
+  The language server already reported the problem — "Entry '…' is written inline … Run 'val validate --fix' to move it" — but offered no way to act on it, so the only remedy was to leave the editor and run the CLI. It now offers a quick fix that creates the `*.val.json` with the entry's content and rewrites the `.val.ts` to `c.json(() => import("./…"))`, in one undoable step.
+
+  The fix is computed from the same code `val validate --fix` runs, so the two write the same files, and it is computed against the buffer you are looking at rather than what is on disk — an unsaved module can be fixed without saving first. It refuses, rather than overwriting, when a file or an unsaved buffer already occupies the target path.
+
+  Requires an editor that honours file creation inside a workspace edit; VS Code does. In an editor that does not announce it, no action is offered rather than one that would rewrite the module to import a file that never got created.
+
+- [#621](https://github.com/valbuild/val/pull/621) [`fb1baff`](https://github.com/valbuild/val/commit/fb1baffead5228d8a86a51af65178b88738d5a64) Thanks [@freekh](https://github.com/freekh)! - Fix `.jsonValues()` validation being silently skipped when the CLI is run through `npx` / `pnpm dlx`.
+
+  `npx @valbuild/cli validate` reported a `.jsonValues()` module whose entries were still written inline in the `.val.ts` as **valid**, and `--fix` moved nothing into `*.val.json`. Running the CLI installed in the project (`./node_modules/.bin/val validate --fix`) worked, which made this look like a schema or path problem rather than a tooling one.
+
+  The cause: the project's `*.val.ts` are evaluated with a `require` rooted at the project, so their schemas come from the project's `@valbuild/core`, while `npx`/`dlx` runs the CLI's own second copy. The entry check guarded on `schema instanceof RecordSchema`, which is false across those two copies, and it failed open — the whole check returned "no errors". The guard is now structural, so it holds whichever copy built the schema. If you gate CI on `npx @valbuild/cli validate`, that gate was green for the wrong reason.
+
+- Updated dependencies [[`accf4f8`](https://github.com/valbuild/val/commit/accf4f852fe3400d762cc14e80316da741a69a9a), [`356eb11`](https://github.com/valbuild/val/commit/356eb11b5f6a0a02dfec80580c6fccac75d28402), [`aef45ce`](https://github.com/valbuild/val/commit/aef45ce3ef269f1b6221de44a56df0f6a0d9dbbd)]:
+  - @valbuild/shared@0.123.3
+  - @valbuild/ui@0.123.3
+
 ## 0.123.2
 
 ### Patch Changes
