@@ -123,13 +123,26 @@ function CommitRow({
     <li>
       <button
         type="button"
-        disabled={!openable}
-        onClick={() => onSelect(commit.commitSha)}
+        /*
+         * `aria-disabled`, not `disabled`.
+         *
+         * A `disabled` button fires no pointer events in most browsers and is
+         * out of the tab order, so the `title` saying WHY the row cannot be
+         * opened is the one thing nobody could reach - not by hovering, and
+         * not at all with a keyboard. `aria-disabled` announces the state and
+         * keeps the row focusable, so the explanation is reachable both ways;
+         * the click is guarded here instead of by the browser.
+         */
+        aria-disabled={!openable}
+        onClick={() => {
+          if (!openable) return;
+          onSelect(commit.commitSha);
+        }}
         aria-current={selected ? "true" : undefined}
         title={
           openable
             ? undefined
-            : "Made before Val started recording history, so there is nothing to compare against."
+            : "Made before Val started recording history, or pushed straight to the repository, so there is nothing to compare against."
         }
         className={cn(
           "flex gap-2.5 w-full px-4 py-2.5 text-left",

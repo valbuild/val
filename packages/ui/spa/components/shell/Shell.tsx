@@ -36,20 +36,6 @@ import { NavSwitcher, needsNavSwitcher } from "./NavSwitcher";
 import { PendingChangesGate } from "./PendingChangesGate";
 import type { ChainProgress } from "../../utils/describePendingChangesStall";
 
-/**
- * What the gate reports when nobody supplied diagnostics.
- *
- * `statSeen: true` with nothing outstanding, so the report reads as "slow"
- * rather than inventing a fault the caller never claimed.
- */
-const noProgress = (): ChainProgress => ({
-  total: 0,
-  settled: 0,
-  unfetched: [],
-  unapplied: [],
-  failed: [],
-  statSeen: true,
-});
 import { FloatingPanel } from "./FloatingPanel";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { PagesPanel } from "./PagesPanel";
@@ -73,6 +59,21 @@ import {
   ShellPanel,
   ShellValidationError,
 } from "./types";
+
+/**
+ * What the gate reports when nobody supplied diagnostics.
+ *
+ * `statSeen: true` with nothing outstanding, so the report reads as "slow"
+ * rather than inventing a fault the caller never claimed.
+ */
+const noProgress = (): ChainProgress => ({
+  total: 0,
+  settled: 0,
+  unfetched: [],
+  unapplied: [],
+  failed: [],
+  statSeen: true,
+});
 
 /** What the editor canvas is currently showing. */
 export type ShellSelection = {

@@ -65,9 +65,23 @@ describe("the commit list", () => {
       listOf(commit({ hasArchive: false, message: "Pushed by hand" })),
     );
     const row = screen.getByRole("button", { name: /Pushed by hand/ });
-    expect((row as HTMLButtonElement).disabled).toBe(true);
+    expect(row.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(row);
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  /*
+   * `aria-disabled` rather than `disabled`, so the title saying WHY is
+   * reachable. A `disabled` button fires no pointer events and is out of the
+   * tab order, which makes its own explanation the one thing nobody can get to.
+   */
+  test("keeps the reason it cannot be opened reachable", () => {
+    renderList(
+      listOf(commit({ hasArchive: false, message: "Pushed by hand" })),
+    );
+    const row = screen.getByRole("button", { name: /Pushed by hand/ });
+    expect((row as HTMLButtonElement).disabled).toBe(false);
+    expect(row.getAttribute("title")).toMatch(/nothing to compare against/);
   });
 
   test("offers a way out once a commit is open", () => {
