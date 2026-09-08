@@ -18,6 +18,10 @@
       "module": "./dist/valbuild-shared.esm.js",
       "default": "./dist/valbuild-shared.cjs.js"
     },
+    "./client": {
+      "module": "./client/dist/valbuild-shared-client.esm.js",
+      "default": "./client/dist/valbuild-shared-client.cjs.js"
+    },
     "./internal": {
       "module": "./internal/dist/valbuild-shared-internal.esm.js",
       "default": "./internal/dist/valbuild-shared-internal.cjs.js"
@@ -28,6 +32,7 @@
   "preconstruct": {
     "entrypoints": [
       "./index.ts",
+      "./client/index.ts",
       "./internal/index.ts"
     ],
     "exports": true
@@ -41,10 +46,13 @@
   "files": [
     "CHANGELOG.md",
     "dist",
+    "client/dist",
+    "client/package.json",
     "internal/dist",
     "internal/package.json"
   ],
   "devDependencies": {
     "typescript": "^6.0.3"
-  }
+  },
+  "sideEffects": false
 }

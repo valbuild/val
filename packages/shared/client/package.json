@@ -1,0 +1,4 @@
+{
+  "main": "dist/valbuild-shared-client.cjs.js",
+  "module": "dist/valbuild-shared-client.esm.js"
+}
