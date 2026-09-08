@@ -38,8 +38,18 @@ function switcher(props: Partial<Parameters<typeof NavSwitcher>[0]> = {}) {
   );
 }
 
-/** The Data panel as the shell renders it, switcher and all. */
-function dataPanel(breakpoint: ShellBreakpoint) {
+/**
+ * The Data panel as the shell renders it, switcher and all.
+ *
+ * The `navSwitcher` expression is `Shell`'s, copied rather than imported
+ * because `Shell` pulls in the whole editor tree — so the thing that has to
+ * stay true is that this is the same expression. It is the whole of the bug
+ * the empty-band tests below are about.
+ */
+function dataPanel(
+  breakpoint: ShellBreakpoint,
+  available: ShellDestination[] = destinations,
+) {
   return (
     <DataPanel
       breakpoint={breakpoint}
@@ -48,8 +58,8 @@ function dataPanel(breakpoint: ShellBreakpoint) {
       onSelect={() => undefined}
       onClose={() => undefined}
       navSwitcher={
-        needsNavSwitcher(breakpoint)
-          ? switcher({ openPanel: "data" })
+        needsNavSwitcher(breakpoint, available)
+          ? switcher({ openPanel: "data", destinations: available })
           : undefined
       }
     />
@@ -67,6 +77,42 @@ describe("which breakpoints need the switcher", () => {
 
   test("desktop does not - the rail is the switcher there", () => {
     expect(needsNavSwitcher("desktop")).toBe(false);
+  });
+
+  /**
+   * The predicate has to agree with what the switcher will actually render.
+   *
+   * `FloatingPanel` gives any subheader it is handed its own bordered band, so
+   * a `true` here for a project the switcher renders `null` for is an empty
+   * band under the panel header — a hairline and a row of padding around
+   * nothing.
+   */
+  test("a project with one destination does not - there is no choice", () => {
+    expect(needsNavSwitcher("tablet", ["data"])).toBe(false);
+    expect(needsNavSwitcher("mobile", ["data"])).toBe(false);
+  });
+
+  test("a project with no destinations at all does not either", () => {
+    expect(needsNavSwitcher("tablet", [])).toBe(false);
+  });
+
+  test("two is a choice, and gets one", () => {
+    expect(needsNavSwitcher("tablet", ["pages", "data"])).toBe(true);
+  });
+
+  test("agrees with the switcher on every project shape", () => {
+    const shapes: ShellDestination[][] = [
+      [],
+      ["data"],
+      ["pages", "data"],
+      ["pages", "media", "data", "settings"],
+    ];
+    for (const available of shapes) {
+      const { unmount } = render(switcher({ destinations: available }));
+      const rendersSomething = screen.queryByRole("tablist") !== null;
+      expect(needsNavSwitcher("tablet", available)).toBe(rendersSomething);
+      unmount();
+    }
   });
 });
 
@@ -118,5 +164,37 @@ describe("a navigation panel at tablet width", () => {
     render(dataPanel("desktop"));
     expect(screen.queryByRole("dialog", { name: "Data" })).not.toBeNull();
     expect(screen.queryByRole("tablist")).toBeNull();
+  });
+
+  /**
+   * No band where there is no switcher.
+   *
+   * A single-destination project has nothing to switch between, so the panel
+   * must be handed `undefined` rather than a switcher that renders `null`:
+   * `FloatingPanel` wraps whatever it is given in a bordered row, and that row
+   * around nothing is a hairline and some padding under the header.
+   */
+  test("leaves no empty band when there is only one destination", () => {
+    // Counted rather than named: the panel has hairlines of its own (its
+    // header, its filter), and the claim is that the switcher's band is not
+    // among them — so the number is the one the same panel has on desktop,
+    // where there is no subheader at all.
+    const bands = (view: HTMLElement) =>
+      view.querySelectorAll(".border-b.border-border-float").length;
+
+    const desktop = render(dataPanel("desktop"));
+    const withoutSubheader = bands(desktop.container);
+    desktop.unmount();
+
+    const single = render(dataPanel("tablet", ["data"]));
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(bands(single.container)).toBe(withoutSubheader);
+    single.unmount();
+
+    // And the band IS there when the switcher is, so the count above is
+    // measuring the thing it claims to.
+    const many = render(dataPanel("tablet"));
+    expect(screen.queryByRole("tablist")).not.toBeNull();
+    expect(bands(many.container)).toBe(withoutSubheader + 1);
   });
 });
