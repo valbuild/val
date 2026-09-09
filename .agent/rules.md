@@ -291,7 +291,7 @@ Four things in there are load-bearing, and the first three were got wrong first:
 3. **A remote ref's validation hash is computed from a schema that has to
    match what the validator will resolve.** For a gallery entry that is a
    SYNTHESIZED `SerializedImageSchema` carrying the record's `accept` and
-   `directory` — `galleryEntryImageSchema`, which must stay identical to
+   `dir` — `galleryEntryImageSchema`, which must stay identical to
    `handleRemoteGalleryFileUpload`'s. Get it wrong and the file uploads and
    then never validates, silently, because `validateRemoteFiles` is a stub.
 4. **`accept` is checked after the conversion, never before it.**

@@ -95,11 +95,11 @@ image from a gallery; nothing picks several. Adding it means a new schema type
 Three levels of precedence for a field:
 
 1. the field's own `dir` (`s.image({ dir })`),
-2. the `directory` of the gallery it references,
+2. the `dir` of the gallery it references,
 3. `/public/val` — the `createFilePatch` default.
 
-For a collection it is always the schema's `directory`. `s.file()` has no
-`directory` option at all (`FileOptions` is `{accept?}`), so a standalone file
+For a collection it is always the schema's `dir`. `s.file()` has no
+`dir` option at all (`FileOptions` is `{accept?}`), so a standalone file
 field can only use 2 or 3.
 
 The filename comes from `Internal.createFilename`: basename plus the first five

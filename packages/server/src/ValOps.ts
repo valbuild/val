@@ -1220,7 +1220,7 @@ export abstract class ValOps {
                   "dir" in validationError.value && validationError.value.dir;
                 if (typeof directory !== "string") {
                   addError({
-                    message: `Expected gallery validation error 'value' to have property 'directory' of type 'string'. Found: ${typeof directory}. ${TYPE_ERROR_MESSAGE}`,
+                    message: `Expected gallery validation error 'value' to have property 'dir' of type 'string'. Found: ${typeof directory}. ${TYPE_ERROR_MESSAGE}`,
                     typeError: true,
                   });
                 } else {

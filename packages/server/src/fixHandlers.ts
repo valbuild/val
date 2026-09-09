@@ -620,7 +620,7 @@ export async function handleUniqueFolderCheck(
   if (conflicts.length > 0) {
     return {
       success: false,
-      errorMessage: `Gallery dir '${dir}' in ${ctx.moduleFilePath} is also used by: ${conflicts.join(", ")}. Each gallery must use a unique dir.`,
+      errorMessage: `Gallery directory '${dir}' in ${ctx.moduleFilePath} is also used by: ${conflicts.join(", ")}. Each gallery must use a unique directory.`,
     };
   }
   return { success: true };

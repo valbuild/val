@@ -220,7 +220,7 @@ and it is right there in `deps.state.serializedSchemas`.
 
 For a **gallery** it is not. A gallery entry's schema is an `ObjectSchema`
 (width/height/mimeType/alt), and the validator compares against a _synthesized_
-`SerializedImageSchema` carrying the `accept` and `directory` of the **record
+`SerializedImageSchema` carrying the `accept` and `dir` of the **record
 that holds the entry** — resolved from the entry's parent path, not from the
 module root, because a nested gallery (`s.object({ gallery: s.imageset(…) })`)
 would otherwise synthesize empty options. `handleRemoteGalleryFileUpload`
