@@ -38,16 +38,27 @@ export type ShellUrlState = {
   locale: string | null;
 };
 
-const PANELS: ShellPanel[] = [
-  "pages",
-  "media",
-  "data",
-  "settings",
-  "account",
-  "utility",
-  "ai",
-  "notifications",
-];
+/*
+ * Every panel name, as an exhaustive record rather than an array.
+ *
+ * An array typed `ShellPanel[]` accepts a SUBSET of the union, so adding a
+ * panel and forgetting this list type-checks - and the symptom is a panel that
+ * opens fine and then silently fails to come back after a reload, because its
+ * name is not recognised on the way in. A record keyed by the union has to name
+ * every member, so the omission is a compile error instead.
+ */
+const PANEL_NAMES: Record<ShellPanel, true> = {
+  pages: true,
+  media: true,
+  data: true,
+  settings: true,
+  account: true,
+  utility: true,
+  ai: true,
+  notifications: true,
+  history: true,
+};
+const PANELS = Object.keys(PANEL_NAMES) as ShellPanel[];
 
 const PARAM = {
   panel: "panel",

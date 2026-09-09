@@ -7,6 +7,12 @@ import React, {
   useState,
 } from "react";
 import { VAL_AI_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
+import {
+  applyHistoryParams,
+  NO_HISTORY,
+  parseHistoryParams,
+  type HistoryParams,
+} from "../history/historyParams";
 
 export const VAL_COMPARE_ROUTE = "/val/compare";
 export const VAL_ERRORS_ROUTE = "/val/errors";
@@ -63,6 +69,17 @@ type ValRouterContextValue = {
   isCompareView: boolean;
   isErrorsView: boolean;
   errorFields: SourcePath[];
+  /**
+   * The history view's state, parsed from the query.
+   *
+   * On the context rather than read from `location` by whoever needs it,
+   * because the router is what re-renders on a navigation - a component reading
+   * `window.location` directly would show the previous commit until something
+   * else happened to re-render it.
+   */
+  history: HistoryParams;
+  /** Replace the history state, keeping everything else in the URL. */
+  setHistory: (next: HistoryParams, opts?: { replace?: boolean }) => void;
   /** Current value of the `?session=` query param, or null if absent. */
   sessionParam: string | null;
   /** Update the `?session=` query param. No-op when running in overlay mode. */
@@ -205,10 +222,19 @@ export function ValRouter({
       ? null
       : new URLSearchParams(window.location.search).get("session"),
   );
+  // Read synchronously on the first render, for the same reason as `session`:
+  // a deep link into a commit has to open ON that commit, not settle onto it
+  // after the first paint.
+  const [history, setHistoryState] = useState<HistoryParams>(() =>
+    typeof window === "undefined"
+      ? NO_HISTORY
+      : parseHistoryParams(window.location.search),
+  );
   const historyState = useRef<number[]>([]);
   useEffect(() => {
     const listener = () => {
       setSessionParamState(new URLSearchParams(location.search).get("session"));
+      setHistoryState(parseHistoryParams(location.search));
       if (
         location.pathname === VAL_COMPARE_ROUTE ||
         location.pathname === VAL_COMPARE_ROUTE + "/"
@@ -453,6 +479,21 @@ export function ValRouter({
     },
     [overlay, hrefOf],
   );
+  const setHistory = useCallback(
+    (next: HistoryParams, opts?: { replace?: boolean }) => {
+      setHistoryState(next);
+      if (overlay) return;
+      const url = new URL(window.location.href);
+      applyHistoryParams(url.searchParams, next);
+      const target = url.pathname + url.search + url.hash;
+      if (opts?.replace) {
+        window.history.replaceState(null, "", target);
+      } else {
+        window.history.pushState(null, "", target);
+      }
+    },
+    [overlay],
+  );
   const setSessionParam = useCallback(
     (id: string | null, opts?: { replace?: boolean }) => {
       // The selection is state either way. Only the URL write is skipped in
@@ -486,6 +527,8 @@ export function ValRouter({
         isCompareView,
         isErrorsView,
         errorFields,
+        history,
+        setHistory,
         sessionParam,
         setSessionParam,
       }}
@@ -525,6 +568,18 @@ export function useParams(): {
   return {
     sourcePath: ctx.currentSourcePath,
   };
+}
+
+/**
+ * The history view's state, and how to change it.
+ *
+ * Everything about a restore in progress lives here rather than in a store, so
+ * that every stage of it is a link - which is what makes a destructive action
+ * reviewable by someone other than the person doing it.
+ */
+export function useHistoryParams() {
+  const { history, setHistory } = useContext(ValRouterContext);
+  return { history, setHistory };
 }
 
 export function useSessionParam() {

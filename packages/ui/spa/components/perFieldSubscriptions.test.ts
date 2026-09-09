@@ -16,7 +16,6 @@ import path from "path";
  * - `useChainVersion` — every patch created, saved, dropped or fetched.
  * - `useLoadingStatus` — the WRITE QUEUE, so twice per save round trip.
  * - `useAllValidationErrors` — every validation result and invalidation.
- *
  * Any one of those is affordable in a whole-project view — Search, the errors
  * page, the nav tree. In a per-field component it makes a single edit
  * O(project), which is the cost the store layer exists to remove and which is
@@ -179,5 +178,41 @@ describe("the rich text editor config is a per-field hook", () => {
     test(`${allowed ? "may" : "does not"} call ${hook}()`, () => {
       expect(code(file).includes(`${hook}(`)).toBe(allowed);
     });
+  }
+});
+
+/**
+ * `Field` reads its own source once, and nothing bolted onto it reads it twice.
+ *
+ * A different cost from the one above: `useSourceAtPath` is a per-PATH read, so
+ * it never wakes for the project and belongs in most of the field components
+ * that call it. What it must not be is a SECOND read in a component that
+ * already has one. `Field` reads through `useFieldState`, and it is mounted
+ * once per field, so a second `usePeek` + `useEntryDemand` here is another
+ * store listener and another `useSyncExternalStore` on every field in the
+ * Studio.
+ *
+ * That is what the restore chrome did: `useRestorePick` called
+ * `useSourceAtPath` from `Field` unconditionally, for a deep value it was not
+ * showing and would only ever need if someone clicked — with history closed and
+ * no restore running. The render output added nothing; the subscriptions did.
+ * The value is now read from `sourceStore.get` in the click handler, by the one
+ * field that was clicked.
+ *
+ * Listed by hand because the rule is about these two files specifically: the
+ * wrapper every field mounts, and the hooks it reaches for.
+ */
+describe("the field wrapper does not read its source a second time", () => {
+  const SECOND_READ_HOOKS = ["useSourceAtPath", "useShallowSourceAtPath"];
+  const files = [
+    path.join(__dirname, "Field.tsx"),
+    path.join(__dirname, "..", "history", "RestoreModeContext.tsx"),
+  ];
+  for (const file of files) {
+    for (const hook of SECOND_READ_HOOKS) {
+      test(`${path.basename(file)} does not call ${hook}()`, () => {
+        expect(code(file).includes(`${hook}(`)).toBe(false);
+      });
+    }
   }
 });

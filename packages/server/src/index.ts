@@ -1,34 +1,48 @@
 export { createService, Service } from "./Service";
-export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
-// Val's tools, over ValOps rather than the Studio's browser stores — so an MCP
-// server, a stdio transport or anything else can drive Val content without a
-// browser. Nothing under `tools/` imports an MCP SDK, and the host that does
-// adapts `ValToolResult` at its own edge.
-export { createValTools } from "./tools";
-// The scope names and the one legitimate way to brand a verified subject: a
-// host that verifies an access token itself needs both, and neither should be
-// re-spelled at the edge where getting it wrong is a silent authorization bug.
+// The external-record adapter contract. Types plus the `ok`/`err` helpers; the
+// registry that executes them arrives with the read endpoints.
 export {
-  VAL_SCOPE_READ,
-  VAL_SCOPE_WRITE,
-  authorIdFromVerifiedSubject,
-} from "./tools";
+  defineExternal,
+  ok,
+  err,
+  isExternalResult,
+  EXTERNAL_RESULT,
+} from "./externalRecords";
 export type {
-  ValScope,
-  ValToolAuth,
-  ValToolContext,
-  ValToolDefinition,
-  ValToolDefinitionJson,
-  ValToolErrorCode,
-  ValToolResult,
-  ValTools,
-  ValToolsOptions,
-} from "./tools";
+  AdapterFor,
+  BoundExternalRecord,
+  ExternalAuthor,
+  ExternalBuilder,
+  ExternalCtx,
+  ExternalDefinition,
+  ExternalFile,
+  ExternalIssue,
+  ExternalKeyPage,
+  ExternalRecords,
+  ExternalResult,
+  ExternalSearchHit,
+  ExternalSearchPage,
+  ExternalSort,
+  ItemOfModule,
+  ReadonlyRecordHasNoWrites,
+  Returns,
+} from "./externalRecords";
+export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
 // Exported for a host that has to build the same config the API router builds:
 // two copies of this decision drift, and a registry that thinks it is in fs mode
 // while the Studio thinks it is in proxy mode reads different content from the
 // same project.
 export { initHandlerOptions, createValOps } from "./valServerConfig";
+// Which credential talks to the content host about remote files: the app's api
+// key, else the developer's own `val login` token off disk. Exported for
+// `@valbuild/mcp`'s image tool, which needs the same answer the Studio's api
+// routes get — two copies of this would let the MCP endpoint decide it cannot
+// upload remotely while the Studio in the same process can.
+export { resolveRemoteFileAuth } from "./valServerConfig";
+export type {
+  RemoteFileAuth,
+  ResolveRemoteFileAuthResult,
+} from "./valServerConfig";
 export { ValModuleLoader } from "./ValModuleLoader";
 export { getCompilerOptions } from "./getCompilerOptions";
 export { ValSourceFileHandler } from "./ValSourceFileHandler";
@@ -58,6 +72,7 @@ export {
   handleUniqueFolderCheck,
   handleCheckAllFiles,
   handleJsonValuesExtractEntry,
+  handleExternalUpload,
 } from "./fixHandlers";
 export type {
   FixHandler,
@@ -127,7 +142,15 @@ export { findJsonEntryFilePath } from "./jsonEntryLocation";
 // which file an edit belongs in.
 export { classifyJsonValuesOp, rebaseContentOp } from "./patch/jsonValuesPatch";
 export type { JsonValuesOpClass } from "./patch/jsonValuesPatch";
-export { extractJsonValuesEntry } from "./extractJsonValuesEntry";
+// `extractJsonValuesEntry` writes both files; `planJsonValuesEntryExtraction`
+// works out the same two changes as text so the editor can hand them back as a
+// `WorkspaceEdit` instead. Same reasoning as the pair above: one implementation,
+// two ways of applying it.
+export {
+  extractJsonValuesEntry,
+  planJsonValuesEntryExtraction,
+} from "./extractJsonValuesEntry";
+export type { JsonValuesEntryExtraction } from "./extractJsonValuesEntry";
 export type { ModulePathMap } from "./modulePathMap";
 // Exposed for the CLI's `debug` command and the snapshot replay harness, which
 // need to drive the same ops the app's api routes drive.
@@ -148,6 +171,20 @@ export type {
   PatchSourceError,
   PreparedCommit,
 } from "./ValOps";
+// The data layer itself, and the shapes it hands back. Exported for
+// `@valbuild/mcp`, whose tool registry runs against `ValOps` rather than the
+// Studio's browser stores: the tools moved out of this package, but the layer
+// they are written against did not, and re-declaring these there would be a
+// second description of one contract.
+export type { ValOps } from "./ValOps";
+export type {
+  AuthorId,
+  BinaryFileType,
+  MetadataOfType,
+  Schemas,
+  Sources,
+} from "./ValOps";
+export type { ValServerConfig } from "./ValServer";
 
 /**
  * The local-dev patch store, exported so the CLI's debug tooling can read a

@@ -249,10 +249,53 @@ export type MockState = {
   deployments: MockDeployment[];
   repoOverlay: string[];
   remoteFiles: string[];
+  /**
+   * The shas of commits the mock recorded an archive for — what history can
+   * read in full. A commit made through `mock.pushCommit` is never in here.
+   */
+  archives: string[];
   headCommitSha: string;
   subscribers: number;
   /** How many sockets the mock has ever accepted. Only ever increases. */
   socketsAccepted: number;
+};
+
+/**
+ * What one commit was recorded with, as `home` would have archived it.
+ *
+ * The boundary history reads from. Asserting on it separates "the client never
+ * sent the pre-commit text" from "the server never stored it", which the app's
+ * own `/history/commit` cannot tell apart.
+ */
+export type MockCommitArchive = {
+  commitSha: string;
+  parentCommitSha: string;
+  baseSha: string;
+  seqNum: number;
+  patches: {
+    patchId: string;
+    path: string;
+    patch: unknown;
+    coreVersion: string;
+  }[];
+  /**
+   * Each changed module's Source after the commit, as data, with the schema it
+   * was written under — what the client sent as `modules`. `source: null` is a
+   * module the commit deleted.
+   */
+  modules: Record<string, { source: unknown; schema: unknown }>;
+  affectedFiles: (
+    | {
+        kind: "module-source" | "json-entry" | "binary";
+        gitPath: string;
+        change: "added" | "modified" | "deleted";
+      }
+    | {
+        kind: "remote-binary";
+        ref: string;
+        change: "added" | "modified" | "deleted";
+      }
+  )[];
 };
 
 /**
@@ -397,6 +440,19 @@ export const mock = {
       method: "POST",
       body,
     });
+  },
+
+  /**
+   * The archive a publish left behind for one commit, or null if none.
+   *
+   * Null is a real answer: a commit from `pushCommit` has no archive on
+   * purpose, standing in for a commit from before archiving shipped.
+   */
+  async archive(commitSha: string): Promise<MockCommitArchive | null> {
+    const res = await control<{ archive: MockCommitArchive | null }>(
+      `archive?commit=${encodeURIComponent(commitSha)}`,
+    );
+    return res.archive;
   },
 
   /** Someone pushed a commit that did not come from the Studio. */
@@ -610,10 +666,18 @@ export function chainLength(page: Page): Promise<number> {
  * Driven through the system rather than by clicking Publish so a failure reads as
  * a failure of the publish path, not of whatever the button was disabled by.
  */
+/**
+ * Publish everything the page holds.
+ *
+ * `reason` is in the return type because a refusal carries one and carries no
+ * `message` — `{status: "refused", reason: "unsaved-changes" | "head-moved" | …}`
+ * — so a test that reports only `message` on failure reports an empty string
+ * and says nothing about why. Assert with the whole object.
+ */
 export function publishAll(
   page: Page,
   message?: string,
-): Promise<{ status: string; message?: string }> {
+): Promise<{ status: string; message?: string; reason?: string }> {
   return page.evaluate(async (commitMessage) => {
     const bag = window as unknown as { __VAL_STORES__: StoreBag };
     const system = bag.__VAL_STORES__.system;

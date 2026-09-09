@@ -20,8 +20,9 @@ export type FloatingPanelProps = {
   /** Rendered to the right of the title, e.g. a "New" button. */
   headerAction?: ReactNode;
   /**
-   * Rendered directly below the header, above `sticky`. Used on mobile to
-   * carry the destination switcher, since there is no left rail there.
+   * Rendered directly below the header, above `sticky`. Used below the desktop
+   * breakpoint to carry the destination switcher, since there is no left rail
+   * there — see `NavSwitcher`.
    */
   subheader?: ReactNode;
   /** Pinned below the header, outside the scroll area, e.g. a search field. */

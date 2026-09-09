@@ -27,6 +27,7 @@ import {
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import { extractFileMetadata, extractImageMetadata } from "@valbuild/server";
 import type { GalleryMembership } from "./diagnostics";
+import { supportsResourceOperation } from "./clientCapabilities";
 import { pathToUri } from "./uri";
 
 /**
@@ -37,17 +38,7 @@ import { pathToUri } from "./uri";
  * was — worse than not offering the fix.
  */
 export function canRenameFiles(capabilities: unknown): boolean {
-  const workspace = (
-    capabilities as
-      | {
-          workspace?: {
-            workspaceEdit?: { resourceOperations?: unknown };
-          };
-        }
-      | undefined
-  )?.workspace;
-  const operations = workspace?.workspaceEdit?.resourceOperations;
-  return Array.isArray(operations) && operations.includes("rename");
+  return supportsResourceOperation(capabilities, "rename");
 }
 
 export async function createGalleryMembershipActions({

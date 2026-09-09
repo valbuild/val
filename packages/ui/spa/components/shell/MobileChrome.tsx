@@ -1,58 +1,7 @@
 import { Info, PanelRight } from "lucide-react";
 import { ReactNode } from "react";
-import { cn } from "../designSystem/cn";
 import { PreviewButton, PublishButton } from "./TopBar";
-import { visibleRailItems } from "./LeftRail";
-import { ShellDestination, ShellPanel } from "./types";
 import { LocaleFilter } from "./LocaleFilter";
-
-/**
- * The destination switcher shown at the top of every navigation sheet on
- * mobile, standing in for the left rail.
- */
-export function MobileNavSwitcher({
-  openPanel,
-  onSelect,
-  destinations,
-}: {
-  openPanel: ShellPanel | null;
-  onSelect: (panel: ShellPanel) => void;
-  /** The destinations this project has content for. See `LeftRailProps`. */
-  destinations?: readonly ShellDestination[];
-}) {
-  const items = visibleRailItems(destinations);
-  if (items.length < 2) {
-    // One destination is not a choice, and a tab strip with a single tab in it
-    // just takes a row off the top of every sheet.
-    return null;
-  }
-  return (
-    <div
-      role="tablist"
-      aria-label="Destinations"
-      className="flex gap-0.5 p-0.5 rounded-md bg-bg-float-raised"
-    >
-      {items.map(({ panel, label, icon: Icon }) => (
-        <button
-          key={panel}
-          type="button"
-          role="tab"
-          aria-selected={openPanel === panel}
-          onClick={() => onSelect(panel)}
-          className={cn(
-            "flex-1 inline-flex items-center justify-center gap-1.5 h-7 rounded text-[0.6875rem]",
-            openPanel === panel
-              ? "bg-bg-float text-fg-primary shadow-sm font-medium"
-              : "text-fg-secondary",
-          )}
-        >
-          <Icon size={13} />
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 /**
  * The sticky mobile bottom bar. Preview and Publish are always reachable

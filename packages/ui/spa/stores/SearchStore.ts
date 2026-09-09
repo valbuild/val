@@ -10,7 +10,7 @@ import {
   performSearch,
   removeModule,
   type SearchIndex,
-} from "../search/searchIndex";
+} from "@valbuild/shared/internal";
 import { StoreBus } from "./StoreBus";
 import type { SystemEvent } from "./types";
 import { noopActivity, type ActivitySink } from "./activity";

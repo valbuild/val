@@ -31,24 +31,12 @@ import {
 } from "./GlobalSearch";
 import { LeftRail } from "./LeftRail";
 import { MediaPanel } from "./MediaPanel";
-import { MobileBottomBar, MobileNavSwitcher } from "./MobileChrome";
+import { MobileBottomBar } from "./MobileChrome";
+import { NavSwitcher, needsNavSwitcher } from "./NavSwitcher";
 import { PendingChangesGate } from "./PendingChangesGate";
 import type { ChainProgress } from "../../utils/describePendingChangesStall";
 
-/**
- * What the gate reports when nobody supplied diagnostics.
- *
- * `statSeen: true` with nothing outstanding, so the report reads as "slow"
- * rather than inventing a fault the caller never claimed.
- */
-const noProgress = (): ChainProgress => ({
-  total: 0,
-  settled: 0,
-  unfetched: [],
-  unapplied: [],
-  failed: [],
-  statSeen: true,
-});
+import { FloatingPanel } from "./FloatingPanel";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { PagesPanel } from "./PagesPanel";
 import { AccountPanel } from "./AccountPanel";
@@ -71,6 +59,21 @@ import {
   ShellPanel,
   ShellValidationError,
 } from "./types";
+
+/**
+ * What the gate reports when nobody supplied diagnostics.
+ *
+ * `statSeen: true` with nothing outstanding, so the report reads as "slow"
+ * rather than inventing a fault the caller never claimed.
+ */
+const noProgress = (): ChainProgress => ({
+  total: 0,
+  settled: 0,
+  unfetched: [],
+  unapplied: [],
+  failed: [],
+  statSeen: true,
+});
 
 /** What the editor canvas is currently showing. */
 export type ShellSelection = {
@@ -259,6 +262,17 @@ export type ShellProps = {
    * working — you can publish from the compare view, which is the point of it.
    */
   editorOverride?: ReactNode;
+  /**
+   * The past, beside the editor.
+   *
+   * A render prop rather than a node, because the shell is what knows the
+   * breakpoint - and on a phone the two panes become one pane and a toggle
+   * rather than two columns.
+   */
+  renderHistory?: (
+    editor: ReactNode,
+    breakpoint: "mobile" | "tablet" | "desktop",
+  ) => ReactNode;
   onPublish?: () => void;
   /**
    * The real publish control, when there is one. See `TopBarProps` — the app
@@ -304,6 +318,16 @@ export type ShellProps = {
    * rather than offering a composer with nothing behind it.
    */
   aiSlot?: ReactNode;
+  /**
+   * The list of publishes, for the History panel.
+   *
+   * A slot for the same reason `aiSlot` is one: the list has to fetch commits
+   * and set `?commit=`, and the shell is deliberately free of Val hooks so it
+   * can be rendered from a story with mock data. Absent means Val has no
+   * published history here (FS mode), and the button is hidden with it — see
+   * `historyEnabled`.
+   */
+  historySlot?: ReactNode;
   /**
    * Mention a source path in the assistant. From the canvas's field menu.
    *
@@ -412,6 +436,7 @@ export function Shell({
   renderEditor,
   renderSettings,
   editorOverride,
+  renderHistory,
   onPublish,
   publishSlot,
   onPreview,
@@ -420,6 +445,7 @@ export function Shell({
   accountError,
   aiEnabled = false,
   aiSlot,
+  historySlot,
   onMentionField,
   pendingChangesLoaded = true,
   pendingChangesProgress,
@@ -618,6 +644,12 @@ export function Shell({
     }
   }, [openPanel, aiEnabled]);
 
+  useEffect(() => {
+    if (openPanel === "history" && historySlot === undefined) {
+      setOpenPanel(null);
+    }
+  }, [openPanel, historySlot]);
+
   const validationErrorCount = useMemo(
     () => data.validationErrors.reduce((sum, e) => sum + e.count, 0),
     [data.validationErrors],
@@ -779,14 +811,61 @@ export function Shell({
     [data, select, onOpenSearchResult],
   );
 
-  const navSwitcher =
-    breakpoint === "mobile" ? (
-      <MobileNavSwitcher
-        openPanel={openPanel}
-        onSelect={setOpenPanel}
-        destinations={destinations}
-      />
-    ) : undefined;
+  /**
+   * The destination switcher every navigation panel carries as its subheader.
+   *
+   * `undefined` on desktop, where the rail is the switcher and a second copy of
+   * it inside the panel would be two controls for one choice, and `undefined`
+   * for a project with only one destination, where there is nothing to switch
+   * between — see `needsNavSwitcher`. It has to be `undefined` rather than a
+   * switcher that renders nothing: `FloatingPanel` gives any subheader it is
+   * handed its own bordered band.
+   */
+  const navSwitcher = needsNavSwitcher(breakpoint, destinations) ? (
+    <NavSwitcher
+      openPanel={openPanel}
+      onSelect={setOpenPanel}
+      destinations={destinations}
+    />
+  ) : undefined;
+
+  /**
+   * The editor column: whatever the main pane is showing right now.
+   *
+   * Named rather than inlined because history renders it as the LEFT half of a
+   * split - and the left half has to be the real editor, with its real
+   * navigation and its real pending-changes gate, not a second rendering of it
+   * that would drift.
+   */
+  const editorColumn = editorOverride ? (
+    editorOverride
+  ) : selection === null ? (
+    <EmptyEditorState />
+  ) : (
+    /*
+     * Held until the server's pending changes have landed — see
+     * `PendingChangesGate`. Around the fields only: the compare and errors
+     * views above are their own thing, and neither offers a field to type
+     * the wrong value into.
+     */
+    <PendingChangesGate
+      ready={pendingChangesLoaded}
+      progress={pendingChangesProgress ?? noProgress}
+      fetchError={pendingChangesError}
+    >
+      {renderEditor ? (
+        renderEditor(selection)
+      ) : (
+        <PageEditor
+          title={selection.title}
+          urlPath={selection.urlPath}
+          sourcePath={selection.sourcePath}
+          isDevMode={isDevMode}
+          hasDraft={selection.hasDraft}
+        />
+      )}
+    </PendingChangesGate>
+  );
 
   return (
     <ShellPanelProvider openPanel={openPanelFromLink}>
@@ -817,35 +896,15 @@ export function Shell({
           onAttachToChat={aiEnabled ? attachToChat : undefined}
           skipTransition={skipTransition}
         >
-          {editorOverride ? (
-            editorOverride
-          ) : selection === null ? (
-            <EmptyEditorState />
-          ) : (
-            /*
-             * Held until the server's pending changes have landed — see
-             * `PendingChangesGate`. Around the fields only: the compare and errors
-             * views above are their own thing, and neither offers a field to type
-             * the wrong value into.
-             */
-            <PendingChangesGate
-              ready={pendingChangesLoaded}
-              progress={pendingChangesProgress ?? noProgress}
-              fetchError={pendingChangesError}
-            >
-              {renderEditor ? (
-                renderEditor(selection)
-              ) : (
-                <PageEditor
-                  title={selection.title}
-                  urlPath={selection.urlPath}
-                  sourcePath={selection.sourcePath}
-                  isDevMode={isDevMode}
-                  hasDraft={selection.hasDraft}
-                />
-              )}
-            </PendingChangesGate>
-          )}
+          {/*
+           * The editor column, built once and then either rendered on its own
+           * or handed to `renderHistory` as the left half. Built once because
+           * the alternative - the same tree written twice, in two branches -
+           * is the shape where the two quietly stop matching.
+           */}
+          {renderHistory
+            ? renderHistory(editorColumn, breakpoint)
+            : editorColumn}
         </PageWorkspace>
 
         {breakpoint === "desktop" && (
@@ -886,6 +945,7 @@ export function Shell({
           accountError={breakpoint === "desktop" ? undefined : accountError}
           isLoading={isLoading}
           aiEnabled={aiEnabled}
+          historyEnabled={historySlot !== undefined}
           onPreview={onPreview ?? (() => undefined)}
           previewHref={previewHref}
           onToggleCanvas={canCanvas ? togglePreview : undefined}
@@ -1121,6 +1181,19 @@ export function Shell({
           >
             {aiSlot ?? <NoAssistantConfigured />}
           </AIChatPanel>
+        )}
+
+        {openPanel === "history" && (
+          <FloatingPanel
+            side="right"
+            width={340}
+            title="History"
+            mobileVariant="bottom-sheet"
+            breakpoint={breakpoint}
+            onClose={closePanel}
+          >
+            {historySlot}
+          </FloatingPanel>
         )}
 
         {openPanel === "notifications" && (

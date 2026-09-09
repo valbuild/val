@@ -15,6 +15,7 @@ import {
 } from "@valbuild/core/patch";
 import fs from "fs";
 import { extractFileMetadata, extractImageMetadata } from "./extractMetadata";
+import { galleryEntryOf } from "./galleryEntryKey";
 import { getValidationErrorFileRef } from "./getValidationErrorFileRef";
 import path from "path";
 import { checkRemoteRef, downloadFileFromRemote } from "./checkRemoteRef";
@@ -26,14 +27,6 @@ import { checkRemoteRef, downloadFileFromRemote } from "./checkRemoteRef";
 export type FixPatchRemainingError = ValidationError & {
   sourcePath?: SourcePath;
 };
-
-// Gallery entries are keyed by their file path. Remote galleries key uploaded
-// entries by a remote URL while keeping the file on disk at its local path, so
-// normalize a remote-URL key back to that local path for on-disk reads.
-function galleryKeyToLocalPath(key: string): string {
-  const res = Internal.remote.splitRemoteRef(key);
-  return res.status === "success" ? `/${res.filePath}` : key;
-}
 
 // Patch path of the record that holds a media entry. Media keys are file paths
 // that can contain dots, which sourceToPatchPath cannot round-trip, so strip
@@ -397,10 +390,18 @@ export async function createFixPatch(
       }
       const gallerySource = moduleSource as Record<string, unknown>;
       for (const [entryKey, storedEntry] of Object.entries(gallerySource)) {
-        const filename = path.join(
-          config.projectRoot,
-          galleryKeyToLocalPath(entryKey),
-        );
+        const entry = galleryEntryOf(entryKey);
+        if (entry.remote) {
+          // A remote entry's bytes are on the content host, so there may be no
+          // local file to re-derive its metadata from — and where there is one,
+          // rewriting the metadata from it would invalidate the ref, which has
+          // that metadata baked into its validation hash. Whether a remote
+          // entry is sound is `image:check-remote`'s question, and it already
+          // asks it. Reading the file here reported every published remote
+          // image as unreadable, and with `--fix` REMOVED it from the gallery.
+          continue;
+        }
+        const filename = path.join(config.projectRoot, entry.localPath);
         let buffer: Buffer;
         try {
           buffer = fs.readFileSync(filename);

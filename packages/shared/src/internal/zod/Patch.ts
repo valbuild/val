@@ -8,7 +8,13 @@ import type {
 import type { PatchId as PatchIdT } from "@valbuild/core";
 import { z } from "zod";
 
-const JSONValue: z.ZodType<JSONValueT> = z.lazy(() =>
+/**
+ * JSON, recursively — the shape of a Source over the wire.
+ *
+ * Exported because history reads stored Sources back and needs the same
+ * definition; a second copy is a second thing to keep in step.
+ */
+export const JSONValue: z.ZodType<JSONValueT> = z.lazy(() =>
   z.union([
     z.string(),
     z.number(),

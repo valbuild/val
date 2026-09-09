@@ -23,13 +23,20 @@ import {
   SaveSourceFilePatchResult,
   type PatchGroupMembership,
   SchemaSha,
-  bufferFromDataUrl,
   OrderedPatchesMetadata,
   OrderedPatches,
   SourcesSha,
 } from "./ValOps";
 import { z } from "zod";
 import { fromError } from "zod-validation-error";
+import type { HistoryError } from "./history/HistoryError";
+import type {
+  AffectedFile,
+  StoredModuleVersion,
+  CommitPage,
+  CommitPatch,
+  HistoricalCommit,
+} from "./history/types";
 import {
   ParentRef,
   Patch,
@@ -37,6 +44,7 @@ import {
   ValDeployment,
   PatchGroup,
   type PatchGroupT,
+  JSONValue as JSONValueSchema,
 } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
 import {
@@ -176,6 +184,123 @@ const CommitResponse = z.object({
   commit: CommitSha,
   branch: z.string(),
 });
+// #region history wire schemas
+//
+// Validated on arrival rather than trusted: these come from a service that
+// versions separately, and a silently mis-shaped commit record reads as "this
+// commit changed nothing", which is indistinguishable from a real answer.
+const HistoricalCommitResponse = z.object({
+  commitSha: z.string(),
+  parentCommitSha: z.string(),
+  clientCommitSha: z.string(),
+  branch: z.string(),
+  createdBranch: z.string().nullable(),
+  creator: z.string().nullable(),
+  message: z.string().nullable(),
+  createdAt: z.string(),
+  seqNum: z.string(),
+  patchCount: z.number(),
+  hasArchive: z.boolean(),
+});
+
+const ListCommitsResponse = z.object({
+  commits: z.array(HistoricalCommitResponse),
+  nextCursor: z.string().nullable(),
+});
+
+const CommitPatchesResponse = z.object({
+  commitSha: z.string(),
+  commit: z.object({
+    commitSha: z.string(),
+    parentCommitSha: z.string(),
+    clientCommitSha: z.string(),
+    branch: z.string(),
+    createdBranch: z.string().nullable(),
+    creator: z.string().nullable(),
+    message: z.string().nullable(),
+    createdAt: z.string(),
+    seqNum: z.string(),
+    hasArchive: z.boolean(),
+  }),
+  patches: z.array(
+    z.object({
+      patchId: z.string(),
+      path: z.string(),
+      patch: z.unknown(),
+      authorId: z.string().nullable(),
+      createdAt: z.string(),
+      baseSha: z.string(),
+      coreVersion: z.string(),
+    }),
+  ),
+});
+
+/**
+ * `home` — `Api["/commits/:commitSha/modules"]["GET"]["res"]`.
+ *
+ * `schema` stays `unknown` here on purpose. The content service stores it
+ * opaquely and cannot vouch for it, so validating it at the transport boundary
+ * would turn "a schema written by a different version of Val" into a failed
+ * REQUEST rather than one module that cannot be shown. It is checked in
+ * `getHistoricalPatchSet`, per module, where a failure degrades that module and
+ * leaves the commit readable.
+ */
+const CommitModulesResponse = z.object({
+  commitSha: z.string(),
+  parentCommitSha: z.string(),
+  /**
+   * Whether an `asOf` read covered the whole project.
+   *
+   * Optional so an older content server still parses. False means modules last
+   * edited before history started being recorded are missing from the answer -
+   * which a whole-project revert has to say out loud rather than silently skip.
+   */
+  complete: z.boolean().optional(),
+  modules: z.array(
+    z.object({
+      moduleFilePath: z.string(),
+      commitSha: z.string(),
+      sourceSha: z.string().nullable(),
+      schemaSha: z.string(),
+      // Validated, because a Source IS just JSON and this side knows that much.
+      source: JSONValueSchema.nullable(),
+      schema: z.unknown(),
+      unavailable: z.boolean(),
+    }),
+  ),
+});
+
+const CommitAffectedFilesResponse = z.object({
+  commitSha: z.string(),
+  files: z.array(
+    z.union([
+      z.object({
+        kind: z.union([
+          z.literal("module-source"),
+          z.literal("json-entry"),
+          z.literal("binary"),
+        ]),
+        gitPath: z.string(),
+        change: z.union([
+          z.literal("added"),
+          z.literal("modified"),
+          z.literal("deleted"),
+        ]),
+      }),
+      z.object({
+        kind: z.literal("remote-binary"),
+        ref: z.string(),
+        change: z.union([
+          z.literal("added"),
+          z.literal("modified"),
+          z.literal("deleted"),
+        ]),
+      }),
+    ]),
+  ),
+});
+// #endregion history wire schemas
+
 /*
  * The shared schema, not a copy of it.
  *
@@ -1519,7 +1644,12 @@ export class ValOpsHttp extends ValOps {
     if (!file) {
       return null;
     }
-    return bufferFromDataUrl(file.value) ?? null;
+    // Plain base64, the same as the `repo` branch of getBinaryFile above.
+    //
+    // `value` used to be a data: URL here and plain base64 there - two
+    // encodings in one field, told apart only by which branch produced them.
+    // The content service answers base64 for both now.
+    return Buffer.from(file.value, "base64");
   }
 
   protected override async getBase64EncodedBinaryFileMetadataFromPatch<
@@ -1757,6 +1887,19 @@ export class ValOpsHttp extends ValOps {
           patchedSourceFiles: prepared.patchedSourceFiles,
           patchedBinaryFilesDescriptors: prepared.patchedBinaryFilesDescriptors,
           appliedPatches: prepared.appliedPatches,
+          /*
+           * What each changed module IS after this commit, as DATA, with the
+           * schema it is under.
+           *
+           * The half git cannot give back. Git keeps the `.val.ts`, but that is
+           * code: turning it back into data means parsing it, which is
+           * best-effort and rots across TypeScript, runtime and Val versions -
+           * so a commit that reads today can quietly stop reading later. And
+           * git has no copy at all of the SCHEMA a commit was written under,
+           * which is what showing a module as it was needs once the schema has
+           * moved on.
+           */
+          modules: prepared.moduleVersions,
           commit: this.commitSha,
           root: this.root,
           filesDirectory,
@@ -1825,4 +1968,223 @@ export class ValOpsHttp extends ValOps {
       };
     }
   }
+
+  // #region history
+
+  /**
+   * One GET against the content service, parsed and Result-typed.
+   *
+   * Every history read has the same three failure modes - could not reach the
+   * service, the commit is not there, the answer was not what was expected -
+   * and each of them means something different to a caller deciding whether to
+   * offer a restore. Doing it once here is what keeps that consistent across
+   * the five endpoints.
+   */
+  private async getHistory<T>(
+    path: string,
+    schema: z.ZodType<T>,
+    commitShaForErrors: string,
+  ): Promise<result.Result<T, HistoryError>> {
+    let res: Response;
+    try {
+      res = await fetch(`${this.contentUrl}/v1/${this.project}${path}`, {
+        headers: { ...this.authHeaders, "Content-Type": "application/json" },
+      });
+    } catch (err) {
+      return result.err({
+        kind: "transport",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+    if (res.status === 404) {
+      return result.err({
+        kind: "commit-not-found",
+        commitSha: commitShaForErrors,
+      });
+    }
+    if (!res.ok) {
+      let message = `${res.status} ${res.statusText}`;
+      if (res.headers.get("Content-Type")?.includes("application/json")) {
+        message = getErrorMessageFromUnknownJson(await res.json(), message);
+      }
+      // A 5xx from the service reading a record it says it has is a real
+      // failure of that record, not a network problem - keep them apart.
+      return result.err({
+        kind: "archive-unreadable",
+        commitSha: commitShaForErrors,
+        message,
+      });
+    }
+    // A 200 is not a promise of JSON: a proxy or gateway in front of the
+    // service answers HTML, and an unguarded `.json()` would reject straight
+    // out of this Result-typed API and 500 the route.
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch (err) {
+      return result.err({
+        kind: "archive-unreadable",
+        commitSha: commitShaForErrors,
+        message: `response was not JSON: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      });
+    }
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) {
+      return result.err({
+        kind: "archive-unreadable",
+        commitSha: commitShaForErrors,
+        message: `unexpected response shape: ${fromError(parsed.error)}`,
+      });
+    }
+    return result.ok(parsed.data);
+  }
+
+  override async listCommits(
+    branch: string,
+    options?: { limit?: number; cursor?: string },
+  ): Promise<result.Result<CommitPage, HistoryError>> {
+    const params = new URLSearchParams({ branch });
+    if (options?.limit !== undefined) {
+      params.set("limit", String(options.limit));
+    }
+    if (options?.cursor !== undefined) {
+      params.set("cursor", options.cursor);
+    }
+    const res = await this.getHistory(
+      `/commits?${params}`,
+      ListCommitsResponse,
+      branch,
+    );
+    if (result.isErr(res)) {
+      return res;
+    }
+    return result.ok({
+      commits: res.value.commits,
+      nextCursor: res.value.nextCursor,
+    });
+  }
+
+  override async getCommitPatches(
+    commitSha: string,
+  ): Promise<
+    result.Result<
+      { commit: HistoricalCommit; patches: CommitPatch[] },
+      HistoryError
+    >
+  > {
+    // One request. The endpoint returns the commit's own summary alongside its
+    // patches, because it already has the row - this used to page the commit
+    // LISTING until the sha turned up, which cost up to twenty requests to open
+    // an old commit and could not find one on another branch at all.
+    const patchesRes = await this.getHistory(
+      `/commits/${commitSha}/patches`,
+      CommitPatchesResponse,
+      commitSha,
+    );
+    if (result.isErr(patchesRes)) {
+      return patchesRes;
+    }
+    return result.ok({
+      commit: {
+        ...patchesRes.value.commit,
+        patchCount: patchesRes.value.patches.length,
+      },
+      patches: patchesRes.value.patches.map((patch) => ({
+        patchId: patch.patchId as PatchId,
+        moduleFilePath: patch.path as ModuleFilePath,
+        patch: patch.patch,
+        authorId: patch.authorId,
+        createdAt: patch.createdAt,
+        baseSha: patch.baseSha,
+        coreVersion: patch.coreVersion,
+      })),
+    });
+  }
+
+  override async getCommitModules(
+    commitSha: string,
+    options?: { asOf?: boolean; moduleFilePath?: ModuleFilePath },
+  ): Promise<
+    result.Result<
+      { modules: StoredModuleVersion[]; complete: boolean },
+      HistoryError
+    >
+  > {
+    const query = new URLSearchParams();
+    if (options?.asOf) {
+      query.set("as_of", "1");
+    }
+    if (options?.moduleFilePath) {
+      query.set("path", options.moduleFilePath);
+    }
+    const search = query.toString();
+    const res = await this.getHistory(
+      `/commits/${commitSha}/modules${search ? `?${search}` : ""}`,
+      CommitModulesResponse,
+      commitSha,
+    );
+    if (result.isErr(res)) {
+      return res;
+    }
+    return result.ok({
+      modules: res.value.modules.map((module) => ({
+        ...module,
+        moduleFilePath: module.moduleFilePath as ModuleFilePath,
+      })),
+      // Absent from an older content server, which only ever answered "what
+      // this commit changed" - and that answer is always whole.
+      complete: res.value.complete ?? !options?.asOf,
+    });
+  }
+
+  override async getCommitAffectedFiles(
+    commitSha: string,
+  ): Promise<result.Result<AffectedFile[], HistoryError>> {
+    const res = await this.getHistory(
+      `/commits/${commitSha}/affected-files`,
+      CommitAffectedFilesResponse,
+      commitSha,
+    );
+    if (result.isErr(res)) {
+      return res;
+    }
+    return result.ok(res.value.files);
+  }
+
+  override async getFileAtCommit(
+    commitSha: string,
+    filePath: string,
+    remote: boolean,
+  ): Promise<result.Result<Buffer, HistoryError>> {
+    const params = new URLSearchParams({ path: filePath });
+    if (remote) {
+      params.set("remote", "true");
+    }
+    let res: Response;
+    try {
+      res = await fetch(
+        `${this.contentUrl}/v1/${this.project}/commits/${commitSha}/file?${params}`,
+        { headers: { ...this.authHeaders } },
+      );
+    } catch (err) {
+      return result.err({
+        kind: "transport",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+    if (!res.ok) {
+      // A missing file is about the FILE, not the commit: the commit may be
+      // perfectly readable and this one blob gone. Saying "commit not found"
+      // here would send a caller looking in the wrong place.
+      return result.err({
+        kind: "file-unavailable",
+        gitPath: filePath,
+        message: `${res.status} ${res.statusText}`,
+      });
+    }
+    return result.ok(Buffer.from(await res.arrayBuffer()));
+  }
+  // #endregion history
 }

@@ -1,5 +1,282 @@
 # @valbuild/server
 
+## 0.123.3
+
+### Patch Changes
+
+- [#623](https://github.com/valbuild/val/pull/623) [`4c9369b`](https://github.com/valbuild/val/commit/4c9369bad3f17e96868262e78a4f47361d85319e) Thanks [@freekh](https://github.com/freekh)! - Add the editor quick fix for a `.jsonValues()` entry written inline: **Val: move entry into its own .val.json**.
+
+  The language server already reported the problem — "Entry '…' is written inline … Run 'val validate --fix' to move it" — but offered no way to act on it, so the only remedy was to leave the editor and run the CLI. It now offers a quick fix that creates the `*.val.json` with the entry's content and rewrites the `.val.ts` to `c.json(() => import("./…"))`, in one undoable step.
+
+  The fix is computed from the same code `val validate --fix` runs, so the two write the same files, and it is computed against the buffer you are looking at rather than what is on disk — an unsaved module can be fixed without saving first. It refuses, rather than overwriting, when a file or an unsaved buffer already occupies the target path.
+
+  Requires an editor that honours file creation inside a workspace edit; VS Code does. In an editor that does not announce it, no action is offered rather than one that would rewrite the module to import a file that never got created.
+
+- [#621](https://github.com/valbuild/val/pull/621) [`fb1baff`](https://github.com/valbuild/val/commit/fb1baffead5228d8a86a51af65178b88738d5a64) Thanks [@freekh](https://github.com/freekh)! - Fix `.jsonValues()` validation being silently skipped when the CLI is run through `npx` / `pnpm dlx`.
+
+  `npx @valbuild/cli validate` reported a `.jsonValues()` module whose entries were still written inline in the `.val.ts` as **valid**, and `--fix` moved nothing into `*.val.json`. Running the CLI installed in the project (`./node_modules/.bin/val validate --fix`) worked, which made this look like a schema or path problem rather than a tooling one.
+
+  The cause: the project's `*.val.ts` are evaluated with a `require` rooted at the project, so their schemas come from the project's `@valbuild/core`, while `npx`/`dlx` runs the CLI's own second copy. The entry check guarded on `schema instanceof RecordSchema`, which is false across those two copies, and it failed open — the whole check returned "no errors". The guard is now structural, so it holds whichever copy built the schema. If you gate CI on `npx @valbuild/cli validate`, that gate was green for the wrong reason.
+
+- Updated dependencies [[`accf4f8`](https://github.com/valbuild/val/commit/accf4f852fe3400d762cc14e80316da741a69a9a), [`356eb11`](https://github.com/valbuild/val/commit/356eb11b5f6a0a02dfec80580c6fccac75d28402), [`aef45ce`](https://github.com/valbuild/val/commit/aef45ce3ef269f1b6221de44a56df0f6a0d9dbbd)]:
+  - @valbuild/shared@0.123.3
+  - @valbuild/ui@0.123.3
+
+## 0.123.2
+
+### Patch Changes
+
+- [#619](https://github.com/valbuild/val/pull/619) [`8e58c34`](https://github.com/valbuild/val/commit/8e58c3495d1bf0f221a57082cb0a3045929722a1) Thanks [@freekh](https://github.com/freekh)! - Stop `val validate` reporting published remote gallery images as missing — and `--fix` deleting them
+
+  A remote gallery (`s.images({ remote: true })`) keys an uploaded entry by its
+  remote URL. Two separate checks read that key, normalised it back to the local
+  path it encodes, and then required a file to be sitting there:
+
+  - `val validate` reported _"Gallery … has tracked files that do not exist on
+    disk"_ for every published remote image;
+  - `val validate --fix` **removed the entry from the gallery**, silently deleting
+    the reference to a file that was safely on the content host.
+
+  Both were wrong for the same reason. Publishing uploads remote files to the
+  content host and copies only local ones into the working tree, so an image added
+  through the Studio — or over MCP — has no file in the repo by design. Putting one
+  there is exactly what remote storage exists to avoid.
+
+  Remote entries are now exempt from both the missing-file check and the
+  metadata-from-disk verification. Whether a remote entry is sound is
+  `image:check-remote`'s question, and it already asks it. Nothing changes for
+  local entries, or for a remote entry that does have a local file — `--fix`
+  promotes a local file to a remote ref and leaves the file where it was, and that
+  file is still counted as tracked rather than reported as untracked.
+
+- Updated dependencies [[`04b6d4c`](https://github.com/valbuild/val/commit/04b6d4cbbecc131bbaf3c20633af9dad8c857310), [`3e93508`](https://github.com/valbuild/val/commit/3e93508b05d08b0c24947a97c6141a9ad8a3931e)]:
+  - @valbuild/shared@0.123.2
+  - @valbuild/ui@0.123.2
+
+## 0.123.0
+
+### Minor Changes
+
+- [#613](https://github.com/valbuild/val/pull/613) [`c5e7dfd`](https://github.com/valbuild/val/commit/c5e7dfd12aa1371195be642e1c2fb72b6f3e3ce2) Thanks [@freekh](https://github.com/freekh)! - Val's MCP endpoint moves to its own package, and can now upload images
+
+  Everything that serves Val's content tools over MCP — the tool registry, the
+  write path behind it, the request guards and the access-token verification —
+  now lives in **`@valbuild/mcp`** instead of being split between
+  `@valbuild/server` and `@valbuild/next`.
+
+  **Nothing changes for an app that already mounts it.** `initValMcp` is still
+  exported from `@valbuild/next/server` and behaves exactly as before; it is now a
+  ten-line binding over `@valbuild/mcp`, supplying the Next version that
+  `initHandlerOptions` asks for. A host that is not Next can call
+  `initValMcp` from `@valbuild/mcp` directly.
+
+  If you built your own host on `createValTools`, import it from `@valbuild/mcp`
+  rather than `@valbuild/server`; the tool types moved with it.
+
+  ## Image uploads
+
+  An agent can now add an image, with a new `upload_image` tool. It takes a path
+  to a file on the machine your app runs on, or the image inline as base64, and
+  puts it in an `s.image()` field or an `s.images()` gallery.
+
+  Uploads are converted **only where the Studio would convert them**: `encode` is
+  off unless the schema asks for it (`s.image({ encode: { type: "webp" } })`), and
+  when it does, which images are converted, how far they are scaled and when the
+  original wins are the same decisions the browser makes — the same code, now
+  shared. An upload to a schema without `encode` is stored exactly as it arrived,
+  whatever its size.
+
+  One thing the tool does that the Studio does not: it refuses an image the
+  schema's `accept` does not cover, checked on the bytes that would actually be
+  stored. The Studio does not need to — its file picker carries `accept` — and
+  validation reports a mismatch as server-repairable, so nothing downstream would
+  stop it. An agent has no picker. Note the ordering:
+  `s.image({ accept: "image/webp", encode: { type: "webp" } })` still takes a PNG,
+  because the conversion happens first and it is the result that is checked.
+
+  It is the one tool you construct yourself, because it needs an image library
+  and `sharp` ships a compiled binary per platform. Val does not put one in every
+  project that installs it, so you decide:
+
+  ```sh
+  npm install sharp
+  ```
+
+  ```ts
+  import sharp from "sharp";
+  import { createValImageTools } from "@valbuild/mcp";
+  import { sharpImageProcessor } from "@valbuild/mcp/sharp";
+
+  const { valMcpAuthorize, valMcpTools } = initValMcp(valModules, config, {
+    extraTools: createValImageTools(sharpImageProcessor(sharp)),
+  });
+  ```
+
+  Leave `extraTools` out and everything else works as before — the agent can read,
+  validate and edit content, it just cannot add an image. `sharp` is passed in
+  rather than imported, so you can supply another encoder: `ValImageProcessor` is
+  two functions, `read` and `encode`.
+
+  Remotely stored images work too — `s.image().remote()` and
+  `s.images({ remote: true })` — and they need nothing extra from the MCP client.
+  Adding one does not upload anything to Val's content host: the bytes go into the
+  patch store like any other unpublished change, and the push to
+  `remote.val.build` happens when you publish, exactly as it does for an image
+  added through the Studio. All the tool has to do first is ask the project which
+  bucket to name in the ref, and the credential for that is the one your app
+  already has — its API key when it has one, and in local development the
+  `val login` token in your project, the same one `val validate --fix` uses. If
+  you have not logged in, it says so and writes nothing.
+
+  ## `npm create @valbuild` asks
+
+  The starter template now ships the MCP endpoint, and `npm create @valbuild`
+  asks whether you want it — and, if you do, whether agents should be able to
+  upload images, saying that this adds `sharp`. Both default to yes, and both can
+  be answered up front for a scripted setup:
+
+  ```sh
+  pnpm create @valbuild my-app --mcp --no-image-uploads
+  ```
+
+### Patch Changes
+
+- Updated dependencies [[`c5e7dfd`](https://github.com/valbuild/val/commit/c5e7dfd12aa1371195be642e1c2fb72b6f3e3ce2), [`53f670c`](https://github.com/valbuild/val/commit/53f670c0cf2d7a03a6d068c78b7874ce77652c2a)]:
+  - @valbuild/shared@0.123.0
+  - @valbuild/ui@0.123.0
+
+## 0.122.0
+
+### Minor Changes
+
+- [#563](https://github.com/valbuild/val/pull/563) [`be32261`](https://github.com/valbuild/val/commit/be32261af19db8018bc37b180d903416018c0b79) Thanks [@freekh](https://github.com/freekh)! - See how a module looked at any past commit, and restore from it by pointing at it
+
+  Val could publish edits but never look back. Now every commit is a durable
+  record you can open, and any part of it can be put back.
+
+  **Open a commit and the Studio splits in two.** The left half is the Studio
+  itself — same navigation, same fields, same everything, because it _is_ the
+  editor rather than a copy of it. The right half shows the project as that commit
+  left it. On a phone the two become one pane and a toggle.
+
+  **Restoring is directed: you point at the old value, then at where it goes.**
+  Val does not try to work out which of today's fields corresponds to which of the
+  commit's. It cannot be sure — array items splice, schemas move — and a restore
+  that guesses wrong writes into the wrong place and looks like it worked. Two
+  picks leave nothing to guess. You can restore across paths, so last month's
+  headline can become today's tagline.
+
+  Before you click, every field on the "now" side says whether it can hold the
+  value you picked, and a field that cannot explains why when you click it rather
+  than doing nothing. A changed union is not itself a blocker: what matters is
+  whether the value's own shape is still allowed, so a union that gained a case
+  restores fine and one that lost the case you are restoring does not.
+
+  Rich text can be restored but is marked "probably fits" rather than confirmed —
+  comparing every mark and block against the options a schema allows is not done
+  yet, and saying so is better than a confident answer we cannot back. It is
+  checked properly the moment you commit to it: before anything is staged, the old
+  value is checked against the field it is going into, and a value that cannot be
+  that field is refused with the reason. A value that is the right shape but
+  breaks a rule about its content — a name too short for its `minLength` — is
+  staged and then held at publish, the same as if you had typed it, because a
+  restore should not be stricter than typing.
+
+  **A whole module can be put back on its own**, from a commit that changed
+  several, without reverting the rest of the commit.
+
+  **Restores are staged, not applied.** They land in pending changes, are reviewed
+  beside every other edit, and go out with the next publish. There is also "put
+  everything back", for when a whole publish was the mistake.
+
+  To make this possible, publishing now records each changed module's data and the
+  schema it was written against. Not the `.val.ts` — git already keeps that, but
+  it is code, and turning code back into data means parsing it, which is
+  best-effort and stops working as TypeScript, your runtime and Val move on. The
+  schema is kept because a value on its own cannot be drawn: showing a module as it
+  was at a commit whose schema has since changed needs _that commit's_ schema, and
+  nothing in your current checkout has it.
+
+  Things it will not pretend about: a module the commit did not touch says so
+  rather than showing today's value; a module saved by a different version of Val
+  says the version differs and that nothing is lost; a commit made before Val
+  started recording history disables restore with the reason next to it. Images
+  and files are restored by re-uploading them, since the bytes at an old commit
+  may no longer be on your branch.
+
+  History requires the Val content service. In filesystem mode it reports
+  `not-supported-in-fs-mode` rather than faking it from git, which has the files
+  but not which of a commit's changes were one editor's work.
+
+- [#597](https://github.com/valbuild/val/pull/597) [`5d14612`](https://github.com/valbuild/val/commit/5d14612f612d657a37338136188f2b3c02b28fe7) Thanks [@freekh](https://github.com/freekh)! - MCP: remove personal access token auth. The endpoint now needs an `oauth`
+  config, or local filesystem mode.
+
+  Until now, an MCP endpoint with no `oauth` config accepted whatever bearer token
+  a caller presented and relayed it to the Val content backend unread. The
+  reasoning was that without an issuer the app has no key to check a token
+  against, so it should not pretend to be the authority on what that token may
+  do — and that much was right. The shape was not: a credential the app cannot
+  check is one it cannot refuse either, so "a deployed endpoint that authenticates
+  nobody" was a supported configuration, and an app could serve content-rewriting
+  tools without ever being told where its callers should authorize.
+
+  **If you run Val in proxy mode**, MCP now requires the `oauth` config that
+  shipped in `0.120.0`. Callers authorize as themselves against the Val
+  authorization server, this app verifies the token's signature, issuer, audience
+  and expiry itself, and patches carry the verified profile as their author:
+
+  ```ts
+  initValMcp(valModules, config, {
+    oauth: {
+      issuer: "https://admin.val.build",
+      resource: "https://your-app.com/api/mcp",
+    },
+  });
+  ```
+
+  Leave it out and the endpoint answers `500` naming the missing config, rather
+  than serving the request.
+
+  **If you run Val in local filesystem mode**, nothing changes. Local development
+  still needs no `oauth` config and no authorization server: there is no backend
+  to authenticate to, and patches are written with no author. A token presented
+  to such a project is still refused rather than ignored — the endpoint answers
+  `400` and says to take the credential out of the client's configuration, since
+  what it reached was a working tree with no permission check in front of it.
+
+  Two API changes if you built your own host on `createValTools`:
+
+  - `ValToolContext.auth` no longer has a `{ type: "pat", pat }` variant.
+    `{ type: "verified-profile", profileId, scopes }` is the only credential the
+    registry accepts, and `null` still means local filesystem mode.
+  - `createValOps` no longer takes an `auth` argument. `ValOpsHttp` still accepts
+    a personal access token directly — that is how `val debug` uses the token from
+    `val login` — but no server request builds one.
+
+  Proxy mode also stops keeping one data layer per credential. Each personal
+  access token needed its own `ValOpsHttp` to hold it, each of those cached the
+  project's evaluated modules, and the bounded cache that kept the memory in
+  check turned an eviction into a re-evaluation of every module on the next call.
+  Verified callers all share one instance, because they all reach the backend
+  under the app's own API key.
+
+### Patch Changes
+
+- [#618](https://github.com/valbuild/val/pull/618) [`da6794f`](https://github.com/valbuild/val/commit/da6794f3dbd77d49ccfe780b359bab1689ee1b11) Thanks [@freekh](https://github.com/freekh)! - Remove the unused `GET /api/val/session` endpoint.
+
+  Nothing called it. The Studio reads the profile id from `/stat`, and in proxy
+  mode the route proxied to `${VAL_BUILD_URL}/api/val/${project}/auth/session`,
+  an upstream route that no longer exists — so calling it by hand returned a 500
+  rather than a session. It is gone from both the route declarations in
+  `@valbuild/shared` and the implementation in `@valbuild/server`.
+
+  Session cookie handling itself is unchanged: `/authorize`, `/callback` and
+  `/logout` still set and clear `val_session` as before.
+
+- Updated dependencies [[`be32261`](https://github.com/valbuild/val/commit/be32261af19db8018bc37b180d903416018c0b79), [`da6794f`](https://github.com/valbuild/val/commit/da6794f3dbd77d49ccfe780b359bab1689ee1b11), [`1c8b7fd`](https://github.com/valbuild/val/commit/1c8b7fda1e84cd8bd32a03a85d2789598b98c3fb)]:
+  - @valbuild/shared@0.122.0
+  - @valbuild/ui@0.122.0
+
 ## 0.121.0
 
 ### Minor Changes
