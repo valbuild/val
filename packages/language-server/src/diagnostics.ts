@@ -678,7 +678,7 @@ export type GalleryMembership = {
   /** Module path of the gallery this field points at. */
   referencedModule: string;
   /** The gallery's directory, when it declares one. */
-  directory?: string;
+  dir?: string;
   /** The path the field currently holds. */
   path: string;
   /** `image` or `file`, for wording and for which metadata to read. */
@@ -731,11 +731,11 @@ export function galleryMembershipAt({
     return undefined;
   }
   const gallery = snapshot?.schemas[referencedModule as never] as
-    | { type?: string; directory?: unknown }
+    | { type?: string; dir?: unknown }
     | undefined;
-  const directory =
-    gallery?.type === "record" && typeof gallery.directory === "string"
-      ? gallery.directory
+  const dir =
+    gallery?.type === "record" && typeof gallery.dir === "string"
+      ? gallery.dir
       : undefined;
   // Core emits TWO fixless errors on a gallery-backed field: this one, and "an
   // image from a gallery must not carry its own width, height...". Both look
@@ -756,7 +756,7 @@ export function galleryMembershipAt({
   }
   return {
     referencedModule,
-    ...(directory !== undefined ? { directory } : {}),
+    ...(dir !== undefined ? { dir } : {}),
     path: currentPath,
     mediaType: schema.type,
   };

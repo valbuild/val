@@ -126,8 +126,8 @@ export function useShellData(): ShellDataState {
         media: (navData?.media ?? []).map(
           (entry, index): ShellMediaGallery => ({
             id: entry.moduleFilePath,
-            name: directoryName(entry.directory),
-            directory: entry.directory,
+            name: directoryName(entry.dir),
+            dir: entry.dir,
             moduleFilePath: entry.moduleFilePath,
             mediaType: entry.mediaType,
             itemCount: countKeys(mediaRecords[index]),

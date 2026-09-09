@@ -124,7 +124,7 @@ export function ModuleGallery({
       : null;
 
   const imageMode = schema?.mediaType === "images";
-  const directory = schema?.directory ?? "/public/val";
+  const directory = schema?.dir ?? "/public/val";
   const accept = schema?.accept;
   /**
    * A gallery has no field to override it, so the gallery's own option is the

@@ -78,7 +78,7 @@ export type ShellMediaGallery = {
   id: string;
   name: string;
   /** Directory the gallery is constrained to, e.g. "/public/val/images". */
-  directory: string;
+  dir: string;
   /**
    * The gallery module itself. Selecting a gallery opens this module, which
    * is what renders the grid of files.

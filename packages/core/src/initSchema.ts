@@ -273,7 +273,7 @@ export type InitSchema = {
    * ```typescript
    * const schema = s.imageset({
    *   accept: "image/webp",
-   *   directory: "/public/val/images",
+   *   dir: "/public/val/images",
    *   alt: s.string().minLength(4),
    * });
    * export default c.define("/content/images.val.ts", schema, {
@@ -294,7 +294,7 @@ export type InitSchema = {
    * ```typescript
    * const schema = s.fileset({
    *   accept: "application/pdf",
-   *   directory: "/public/val/documents",
+   *   dir: "/public/val/documents",
    * });
    * export default c.define("/content/documents.val.ts", schema, {
    *   "/public/val/documents/report.pdf": {

@@ -23,7 +23,7 @@ describe("buildRemoveImageGalleryEntryPatch", () => {
     const { schema, source } = serialize(
       c.define(
         "/content/media.val.ts",
-        s.imageset({ directory: "/public/val/images", accept: "image/png" }),
+        s.imageset({ dir: "/public/val/images", accept: "image/png" }),
         {
           "/public/val/images/foo.png": {
             width: 100,
@@ -57,7 +57,7 @@ describe("buildRemoveImageGalleryEntryPatch", () => {
     const { schema, source } = serialize(
       c.define(
         "/content/media.val.ts",
-        s.imageset({ directory: "/public/val/images", accept: "image/png" }),
+        s.imageset({ dir: "/public/val/images", accept: "image/png" }),
         {
           "/public/val/images/foo.png": {
             width: 1,
@@ -85,7 +85,7 @@ describe("buildImageGalleryPatch", () => {
     const { schema } = serialize(
       c.define(
         "/content/media.val.ts",
-        s.imageset({ directory: "/public/val/images", accept: "image/png" }),
+        s.imageset({ dir: "/public/val/images", accept: "image/png" }),
         {},
       ),
     );

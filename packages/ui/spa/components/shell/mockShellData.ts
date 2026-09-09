@@ -220,11 +220,11 @@ export const mockExternalPages: ShellExternalPage[] = [
  */
 function galleryFiles(
   moduleFilePath: string,
-  directory: string,
+  dir: string,
   names: string[],
 ): ShellMediaFile[] {
   return names.map((name) => {
-    const ref = `${directory}/${name}`;
+    const ref = `${dir}/${name}`;
     return { ref, sourcePath: `${moduleFilePath}?p=${JSON.stringify(ref)}` };
   });
 }
@@ -249,14 +249,14 @@ const IMAGE_NAMES: string[] = [
 
 /**
  * Galleries, keyed by their module. The label is the last segment of the
- * directory the gallery is constrained to, which is what `directoryName`
- * produces — so it is lowercase, like the directory itself.
+ * dir the gallery is constrained to, which is what `directoryName`
+ * produces — so it is lowercase, like the dir itself.
  */
 export const mockMedia: ShellMediaGallery[] = [
   {
     id: "/content/media.val.ts",
     name: "images",
-    directory: "/public/val/images",
+    dir: "/public/val/images",
     moduleFilePath: "/content/media.val.ts",
     itemCount: IMAGE_NAMES.length,
     mediaType: "images",
@@ -269,7 +269,7 @@ export const mockMedia: ShellMediaGallery[] = [
   {
     id: "/content/illustrations.val.ts",
     name: "illustrations",
-    directory: "/public/val/illustrations",
+    dir: "/public/val/illustrations",
     moduleFilePath: "/content/illustrations.val.ts",
     itemCount: 3,
     mediaType: "images",
@@ -282,7 +282,7 @@ export const mockMedia: ShellMediaGallery[] = [
   {
     id: "/content/people.val.ts",
     name: "people",
-    directory: "/public/val/people",
+    dir: "/public/val/people",
     moduleFilePath: "/content/people.val.ts",
     itemCount: 0,
     mediaType: "images",
@@ -293,7 +293,7 @@ export const mockMedia: ShellMediaGallery[] = [
   {
     id: "/content/documents.val.ts",
     name: "docs",
-    directory: "/public/val/docs",
+    dir: "/public/val/docs",
     moduleFilePath: "/content/documents.val.ts",
     itemCount: 4,
     mediaType: "files",
@@ -322,8 +322,8 @@ function dataModule(
 
 /**
  * The Data panel is a tree, so the mock is a tree: modules at the top of a
- * directory, modules nested a couple of levels down, and more than one
- * top-level directory. A project that keeps everything in one flat `/content`
+ * dir, modules nested a couple of levels down, and more than one
+ * top-level dir. A project that keeps everything in one flat `/content`
  * would never show the panel doing its job — and it is exactly the projects
  * that do organise their content that the tree exists for.
  */

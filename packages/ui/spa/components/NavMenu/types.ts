@@ -77,7 +77,7 @@ export type MediaModule = {
   /** Module file path of the gallery module. */
   moduleFilePath: ModuleFilePath;
   /** The directory the gallery is constrained to, e.g. `/public/val/images`. */
-  directory: string;
+  dir: string;
   /** Whether this gallery holds images or arbitrary files. */
   mediaType: "files" | "images";
   /** Validation errors attributable to this module. */

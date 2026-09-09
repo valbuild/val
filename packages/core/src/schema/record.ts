@@ -34,7 +34,7 @@ import type { ImageEncodeOption } from "./image";
 type MediaOptions = {
   type: "files" | "images";
   accept: string;
-  directory: string;
+  dir: string;
   remote: boolean;
   altSchema?: Schema<SelectorSource>;
   /** Images only: how uploads are re-encoded in the browser. See `image.ts`. */
@@ -59,7 +59,7 @@ export type SerializedRecordSchema = {
   // Optional media collection marker for files/images that are backed by a record
   mediaType?: "files" | "images";
   accept?: string;
-  directory?: string;
+  dir?: string;
   remote?: boolean;
   encode?: ImageEncodeOption;
   alt?: SerializedSchema;
@@ -235,9 +235,9 @@ export class RecordSchema<
           ? ("images:check-unique-folder" as const)
           : ("files:check-unique-folder" as const);
       const uniqueCheckError: ValidationError = {
-        message: `Gallery directory '${this.mediaOptions.directory}' must be unique across all galleries`,
+        message: `Gallery directory '${this.mediaOptions.dir}' must be unique across all galleries`,
         value: {
-          directory: this.mediaOptions.directory,
+          dir: this.mediaOptions.dir,
           type: this.mediaOptions.type,
         },
         fixes: [checkFix],
@@ -256,9 +256,9 @@ export class RecordSchema<
           ? ("images:check-all-files" as const)
           : ("files:check-all-files" as const);
       const allFilesCheckError: ValidationError = {
-        message: `Directory '${this.mediaOptions.directory}' may have files not tracked by this gallery`,
+        message: `Directory '${this.mediaOptions.dir}' may have files not tracked by this gallery`,
         value: {
-          directory: this.mediaOptions.directory,
+          dir: this.mediaOptions.dir,
           type: this.mediaOptions.type,
         },
         fixes: [allFilesCheckFix],
@@ -347,13 +347,13 @@ export class RecordSchema<
     if (!this.mediaOptions) {
       return false;
     }
-    const { directory, remote: isRemote, type } = this.mediaOptions;
+    const { dir, remote: isRemote, type } = this.mediaOptions;
     const mediaLabel = type === "images" ? "images" : "files";
     const checkRemoteFix =
       type === "images" ? "images:check-remote" : "files:check-remote";
 
     const isRemoteUrl = this.isRemoteUrl(key);
-    const isLocalPath = key === directory || key.startsWith(directory + "/");
+    const isLocalPath = key === dir || key.startsWith(dir + "/");
 
     if (isRemote) {
       // When remote is enabled, accept either remote URLs or local paths
@@ -373,14 +373,11 @@ export class RecordSchema<
         }
         // Check that the file path in the remote URL matches our directory constraint
         const remotePath = "/" + remoteResult.filePath;
-        if (
-          remotePath !== directory &&
-          !remotePath.startsWith(directory + "/")
-        ) {
+        if (remotePath !== dir && !remotePath.startsWith(dir + "/")) {
           return {
             [path]: [
               {
-                message: `Remote file path '${remotePath}' is not in expected directory '${directory}'. Use Val tooling to upload ${mediaLabel} to the correct directory.`,
+                message: `Remote file path '${remotePath}' is not in expected directory '${dir}'. Use Val tooling to upload ${mediaLabel} to the correct directory.`,
                 value: key,
                 fixes: [checkRemoteFix],
               },
@@ -393,7 +390,7 @@ export class RecordSchema<
         return {
           [path]: [
             {
-              message: `Expected a remote URL (https://...) or a local path starting with ${directory}/. Got: ${key}`,
+              message: `Expected a remote URL (https://...) or a local path starting with ${dir}/. Got: ${key}`,
               value: key,
             },
           ],
@@ -432,7 +429,7 @@ export class RecordSchema<
         return {
           [path]: [
             {
-              message: `File path must be within the ${directory}/ directory. Got: ${key}`,
+              message: `File path must be within the ${dir}/ directory. Got: ${key}`,
               value: key,
             },
           ],
@@ -956,7 +953,7 @@ export class RecordSchema<
     if (this.mediaOptions) {
       result.mediaType = this.mediaOptions.type;
       result.accept = this.mediaOptions.accept;
-      result.directory = this.mediaOptions.directory;
+      result.dir = this.mediaOptions.dir;
       result.remote = this.mediaOptions.remote;
       if (this.mediaOptions.encode !== undefined) {
         result.encode = this.mediaOptions.encode;

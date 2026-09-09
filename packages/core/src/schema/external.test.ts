@@ -77,11 +77,11 @@ describe("s.record().external()", () => {
     // options — so all of them get external storage from the one method.
     const images = s.imageset({
       accept: "image/*",
-      directory: "/public/val/gallery",
+      dir: "/public/val/gallery",
     });
     const files = s.fileset({
       accept: "application/pdf",
-      directory: "/public/val/docs",
+      dir: "/public/val/docs",
     });
 
     expect(
@@ -191,7 +191,7 @@ describe("hasMediaSchema", () => {
     // wrong once already committed remote refs with no bytes behind them.
     const gallery = s.imageset({
       accept: "image/*",
-      directory: "/public/val/g",
+      dir: "/public/val/g",
     });
     expect(hasMediaSchema(gallery["executeSerialize"]())).toBe(true);
   });

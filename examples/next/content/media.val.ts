@@ -4,7 +4,7 @@ export default c.define(
   "/content/media.val.ts",
   s.imageset({
     accept: "image/*",
-    directory: "/public/val/images",
+    dir: "/public/val/images",
     alt: s.string().minLength(4),
   }),
   {

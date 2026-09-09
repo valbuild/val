@@ -59,7 +59,7 @@ export type GalleryImageOptions = {
 };
 
 export type ImageOptions = {
-  directory?: string;
+  dir?: string;
   accept?: string;
   encode?: ImageEncodeOption;
 };

@@ -3,7 +3,7 @@ import { c, s } from "../val.config";
 export default c.define(
   "/content/basic-gallery-2.val.ts",
   s.imageset({
-    directory: "/public/val/images2",
+    dir: "/public/val/images2",
     accept: "image/*",
   }),
   {

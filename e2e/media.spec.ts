@@ -22,9 +22,9 @@ import {
  *
  * The fixtures are in `examples/next/content/`:
  *
- * - `mediaFixtures.val.ts`  `s.imageset({ directory: "/public/test/subdir" })`
- * - `fileGallery.val.ts`    `s.fileset({ directory: "/public/test/files" })`
- * - `mediaFields.val.ts`    `s.image()`, `s.image({ directory })`,
+ * - `mediaFixtures.val.ts`  `s.imageset({ dir: "/public/test/subdir" })`
+ * - `fileGallery.val.ts`    `s.fileset({ dir: "/public/test/files" })`
+ * - `mediaFields.val.ts`    `s.image()`, `s.image({ dir })`,
  *                           `s.image(gallery)`, `s.file()`, and the same inside
  *                           a union
  *
@@ -368,7 +368,7 @@ test.describe("single media fields", () => {
    * of a referenced module, so this silently wrote to `/public/val` — outside the
    * directory the schema allows, which then failed validation.
    */
-  test("s.image({ directory }) stores where the field says", async ({
+  test("s.image({ dir }) stores where the field says", async ({
     page,
     request,
   }) => {

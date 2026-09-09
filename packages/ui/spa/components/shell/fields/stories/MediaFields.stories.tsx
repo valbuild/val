@@ -269,7 +269,7 @@ function CollectionHarness({
   entries: initial,
   name,
   moduleFilePath,
-  directory,
+  dir,
   accept,
   folders,
 }: {
@@ -277,7 +277,7 @@ function CollectionHarness({
   entries: MediaEntry[];
   name: string;
   moduleFilePath: string;
-  directory: string;
+  dir: string;
   accept: string;
   folders?: typeof mockImageFolders;
 }) {
@@ -295,7 +295,7 @@ function CollectionHarness({
         name={name}
         entries={entries}
         folders={folders}
-        directory={directory}
+        dir={dir}
         accept={accept}
         mode={mode}
         selectedRef={selectedRef}
@@ -330,7 +330,7 @@ export const ImagesCollection: Story = {
       entries={mockImages}
       name="Media"
       moduleFilePath="/content/media.val.ts"
-      directory="/public/val/images"
+      dir="/public/val/images"
       accept="image/*"
       folders={mockImageFolders}
     />
@@ -345,7 +345,7 @@ export const ImagesCollectionBrowsing: Story = {
       entries={mockImages}
       name="Media"
       moduleFilePath="/content/media.val.ts"
-      directory="/public/val/images"
+      dir="/public/val/images"
       accept="image/*"
       folders={mockImageFolders}
     />
@@ -360,7 +360,7 @@ export const FilesCollection: Story = {
       entries={mockFiles}
       name="Documents"
       moduleFilePath="/content/documents.val.ts"
-      directory="/public/val/files"
+      dir="/public/val/files"
       accept="application/*"
       folders={mockFileFolders}
     />
@@ -374,7 +374,7 @@ export const FilesCollectionBrowsing: Story = {
       entries={mockFiles}
       name="Documents"
       moduleFilePath="/content/documents.val.ts"
-      directory="/public/val/files"
+      dir="/public/val/files"
       accept="application/*"
     />
   ),
@@ -388,7 +388,7 @@ export const CollectionEmpty: Story = {
       entries={[]}
       name="Media"
       moduleFilePath="/content/media.val.ts"
-      directory="/public/val/images"
+      dir="/public/val/images"
       accept="image/*"
     />
   ),

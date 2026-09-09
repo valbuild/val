@@ -283,7 +283,7 @@ describe("hasRemoteFileSchema", () => {
     it("should return true for a remote s.imageset()", () => {
       expect(
         hasRemoteFileSchema(
-          serialize(s.imageset({ directory: "/public/val" }).remote()),
+          serialize(s.imageset({ dir: "/public/val" }).remote()),
         ),
       ).toBe(true);
     });
@@ -296,7 +296,7 @@ describe("hasRemoteFileSchema", () => {
           serialize(
             s
               .fileset({
-                directory: "/public/val",
+                dir: "/public/val",
                 accept: "application/pdf",
               })
               .remote(),
@@ -307,9 +307,7 @@ describe("hasRemoteFileSchema", () => {
 
     it("should return false for a local s.imageset()", () => {
       expect(
-        hasRemoteFileSchema(
-          serialize(s.imageset({ directory: "/public/val" })),
-        ),
+        hasRemoteFileSchema(serialize(s.imageset({ dir: "/public/val" }))),
       ).toBe(false);
     });
 
@@ -317,7 +315,7 @@ describe("hasRemoteFileSchema", () => {
       expect(
         hasRemoteFileSchema(
           serialize(
-            s.fileset({ directory: "/public/val", accept: "application/pdf" }),
+            s.fileset({ dir: "/public/val", accept: "application/pdf" }),
           ),
         ),
       ).toBe(false);
@@ -329,7 +327,7 @@ describe("hasRemoteFileSchema", () => {
           serialize(
             s.object({
               title: s.string(),
-              gallery: s.imageset({ directory: "/public/val" }).remote(),
+              gallery: s.imageset({ dir: "/public/val" }).remote(),
             }),
           ),
         ),
@@ -348,7 +346,7 @@ describe("hasRemoteFileSchema", () => {
               }),
               s.object({
                 type: s.literal("images"),
-                images: s.imageset({ directory: "/public/val" }).remote(),
+                images: s.imageset({ dir: "/public/val" }).remote(),
               }),
             ),
           ),

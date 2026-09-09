@@ -23,7 +23,7 @@ const GALLERY = `import { c, s } from "../val.config";
 
 export default c.define(
   "/content/g.val.ts",
-  s.imageset({ directory: "/public/img" }),
+  s.imageset({ dir: "/public/img" }),
   {
     "/public/img/a.png": { width: 8, height: 8, mimeType: "image/png", alt: null },
   },
@@ -174,7 +174,7 @@ describe("gallery membership over LSP", () => {
     expect(membership!.data?.gallery?.referencedModule).toBe(
       "/content/mediaFixtures.val.ts",
     );
-    expect(membership!.data?.gallery?.directory).toBe("/public/test/subdir");
+    expect(membership!.data?.gallery?.dir).toBe("/public/test/subdir");
     expect(membership!.data?.gallery?.path).toBe("/public/val/images/logo.png");
     expect(membership!.data?.gallery?.mediaType).toBe("image");
 
@@ -201,7 +201,7 @@ describe("createGalleryMembershipActions", () => {
 
 export default c.define(
   "/content/g.val.ts",
-  s.imageset({ directory: "/public/img" }),
+  s.imageset({ dir: "/public/img" }),
   {
     "/public/img/tracked.png": { width: 8, height: 8, mimeType: "image/png", alt: null },
   },
@@ -245,7 +245,7 @@ export default c.define(
       document: fieldDocument("/public/img/untracked.png"),
       gallery: {
         referencedModule: "/content/g.val.ts",
-        directory: "/public/img",
+        dir: "/public/img",
         path: "/public/img/untracked.png",
         mediaType: "image",
       },
@@ -285,7 +285,7 @@ export default c.define(
       document: fieldDocument("/public/elsewhere/stray.png"),
       gallery: {
         referencedModule: "/content/g.val.ts",
-        directory: "/public/img",
+        dir: "/public/img",
         path: "/public/elsewhere/stray.png",
         mediaType: "image",
       },
@@ -319,7 +319,7 @@ export default c.define(
       document: fieldDocument("/public/img/ghost.png"),
       gallery: {
         referencedModule: "/content/g.val.ts",
-        directory: "/public/img",
+        dir: "/public/img",
         path: "/public/img/ghost.png",
         mediaType: "image",
       },
@@ -337,7 +337,7 @@ export default c.define(
       document: fieldDocument("/public/elsewhere/stray.png"),
       gallery: {
         referencedModule: "/content/g.val.ts",
-        directory: "/public/img",
+        dir: "/public/img",
         path: "/public/elsewhere/stray.png",
         mediaType: "image",
       },

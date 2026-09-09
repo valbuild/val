@@ -88,7 +88,7 @@ describe("c.json + .jsonValues()", () => {
   });
 
   test(".jsonValues() throws on image galleries", () => {
-    expect(() => imageset({ directory: "/public/val" }).jsonValues()).toThrow(
+    expect(() => imageset({ dir: "/public/val" }).jsonValues()).toThrow(
       /jsonValues/,
     );
   });

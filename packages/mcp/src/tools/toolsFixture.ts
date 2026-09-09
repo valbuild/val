@@ -96,7 +96,7 @@ import { s, c } from "val.config";
 
 export default c.define(
   "${GALLERY_PATH}",
-  s.imageset({ directory: "/public/val/test" }),
+  s.imageset({ dir: "/public/val/test" }),
   {}
 );
 `;
@@ -107,7 +107,7 @@ import { s, c } from "val.config";
 export default c.define(
   "${ENCODED_GALLERY_PATH}",
   s.imageset({
-    directory: "/public/val/encoded",
+    dir: "/public/val/encoded",
     encode: { type: "webp", maxWidth: 8, maxHeight: 8 },
   }),
   {}
@@ -130,7 +130,7 @@ import { s, c } from "val.config";
 export default c.define(
   "${CONVERTING_GALLERY_PATH}",
   s.imageset({
-    directory: "/public/val/converting",
+    dir: "/public/val/converting",
     accept: "image/webp",
     encode: { type: "webp" },
   }),
@@ -143,7 +143,7 @@ import { s, c } from "val.config";
 
 export default c.define(
   "${STRICT_GALLERY_PATH}",
-  s.imageset({ directory: "/public/val/strict", accept: "image/png" }),
+  s.imageset({ dir: "/public/val/strict", accept: "image/png" }),
   {}
 );
 `;
@@ -163,7 +163,7 @@ import { s, c } from "val.config";
 export default c.define(
   "${ALT_GALLERY_PATH}",
   s.imageset({
-    directory: "/public/val/described",
+    dir: "/public/val/described",
     alt: s.string().minLength(4),
   }),
   {}
@@ -182,7 +182,7 @@ import { s, c } from "val.config";
 
 export default c.define(
   "${REMOTE_GALLERY_PATH}",
-  s.imageset({ directory: "/public/val/remote" }).remote(),
+  s.imageset({ dir: "/public/val/remote" }).remote(),
   {}
 );
 `;
@@ -204,7 +204,7 @@ export default c.define(
     hero: s.image().nullable(),
     thumbnail: s.image(gallery).nullable(),
     remoteHero: s
-      .image({ directory: "/public/val/remote" })
+      .image({ dir: "/public/val/remote" })
       .remote()
       .nullable(),
   }),

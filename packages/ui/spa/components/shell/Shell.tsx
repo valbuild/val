@@ -1041,7 +1041,7 @@ export function Shell({
                 // the whole gallery.
                 id: file.sourcePath,
                 title: file.ref.split("/").pop() ?? file.ref,
-                urlPath: servedPath(gallery.directory),
+                urlPath: servedPath(gallery.dir),
                 sourcePath: file.sourcePath,
               })
             }
@@ -1266,7 +1266,7 @@ function toMediaSelection(gallery: ShellMediaGallery): ShellSelection {
     title: gallery.name,
     // Where its files are served from, not where they are stored: `/public` is
     // the web root, so the ref and the URL differ by exactly that prefix.
-    urlPath: servedPath(gallery.directory),
+    urlPath: servedPath(gallery.dir),
     sourcePath: gallery.moduleFilePath,
   };
 }

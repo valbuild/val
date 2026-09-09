@@ -88,7 +88,7 @@ export function collectSearchResults(data: ShellData): SearchResult[] {
       id: gallery.id,
       kind: "media",
       label: gallery.name,
-      detail: gallery.directory,
+      detail: gallery.dir,
     });
   }
   for (const page of data.externalPages) {

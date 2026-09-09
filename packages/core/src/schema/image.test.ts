@@ -55,8 +55,8 @@ describe("ImageSchema encode option", () => {
    */
   test("serialize: says nothing when the schema said nothing", () => {
     expect(optionsOf(image())).toEqual({});
-    expect(optionsOf(image({ directory: "/public/val" }))).toEqual({
-      directory: "/public/val",
+    expect(optionsOf(image({ dir: "/public/val" }))).toEqual({
+      dir: "/public/val",
     });
   });
 });

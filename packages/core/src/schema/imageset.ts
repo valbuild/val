@@ -32,7 +32,7 @@ export type ImagesetOptions<Accept extends `image/${string}`> = {
    * gallery that had simply not said where it wanted its files silently shared a
    * directory with every other one.
    */
-  directory: "/public" | `/public/${string}`;
+  dir: "/public" | `/public/${string}`;
   /**
    * Alt text schema. Can be:
    * - s.string() for required alt text
@@ -90,7 +90,7 @@ type ImagesetItemSrc = {
  * ```typescript
  * const schema = s.imageset({
  *   accept: "image/webp",
- *   directory: "/public/val/images",
+ *   dir: "/public/val/images",
  *   alt: s.string().minLength(4),
  * });
  * export default c.define("/content/images.val.ts", schema, {
@@ -110,7 +110,7 @@ export const imageset = <Accept extends `image/${string}`>(
   Schema<string>,
   Record<string, ImagesetEntryMetadata>
 > => {
-  const directory = options.directory;
+  const dir = options.dir;
   const altSchema = options.alt ?? string().nullable();
   const itemSchema = new ObjectSchema(
     {
@@ -124,7 +124,7 @@ export const imageset = <Accept extends `image/${string}`>(
   return new RecordSchema(itemSchema, false, [], null, null, {
     type: "images",
     accept: options.accept ?? "image/*",
-    directory,
+    dir,
     remote: false,
     altSchema,
     encode: options.encode,

@@ -188,7 +188,7 @@ function deserializeSchemaImpl(
           ? {
               type: serialized.mediaType,
               accept: serialized.accept ?? "*/*",
-              directory: serialized.directory ?? "/public/val",
+              dir: serialized.dir ?? "/public/val",
               remote: serialized.remote ?? false,
               altSchema: serialized.alt
                 ? deserializeSchema(serialized.alt)

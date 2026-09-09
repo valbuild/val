@@ -150,7 +150,7 @@ describe("a remote gallery", () => {
     const expected: SerializedImageSchema = {
       type: "image",
       opt: false,
-      options: { accept: "image/*", directory: "/public/val/remote" },
+      options: { accept: "image/*", dir: "/public/val/remote" },
     };
     expect(split.validationHash).toBe(
       Internal.remote.getValidationHash(

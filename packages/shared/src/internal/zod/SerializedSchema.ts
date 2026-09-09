@@ -167,7 +167,7 @@ export const ImageEncodeOption = z.union([
   }),
 ]);
 export const ImageOptions = z.object({
-  directory: z.string().optional(),
+  dir: z.string().optional(),
   accept: z.string().optional(),
   encode: ImageEncodeOption.optional(),
 });
@@ -231,7 +231,7 @@ export const SerializedRecordSchema: z.ZodType<SerializedRecordSchemaT> =
           .optional(),
         // Optional legacy gallery metadata
         accept: z.string().optional(),
-        directory: z.string().optional(),
+        dir: z.string().optional(),
         remote: z.boolean().optional(),
         encode: ImageEncodeOption.optional(),
         alt: SerializedSchema.optional(),

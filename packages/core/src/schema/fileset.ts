@@ -21,7 +21,7 @@ export type FilesetOptions = {
    * collection that had simply not said where it wanted its files silently shared
    * a directory with every other one.
    */
-  directory: "/public" | `/public/${string}`;
+  dir: "/public" | `/public/${string}`;
 };
 
 /**
@@ -45,7 +45,7 @@ type FilesetItemSrc = { mimeType: string };
  * ```typescript
  * const schema = s.fileset({
  *   accept: "application/pdf",
- *   directory: "/public/val/documents",
+ *   dir: "/public/val/documents",
  * });
  * export default c.define("/content/documents.val.ts", schema, {
  *   "/public/val/documents/report.pdf": {
@@ -61,7 +61,7 @@ export const fileset = (
   Schema<string>,
   Record<string, FilesetEntryMetadata>
 > => {
-  const directory = options.directory;
+  const dir = options.dir;
   const itemSchema = new ObjectSchema<FilesetItemProps, FilesetItemSrc>(
     { mimeType: new StringSchema({}, false) },
     false,
@@ -69,7 +69,7 @@ export const fileset = (
   return new RecordSchema(itemSchema, false, [], null, null, {
     type: "files",
     accept: options.accept,
-    directory,
+    dir,
     remote: false,
   });
 };

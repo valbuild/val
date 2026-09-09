@@ -35,12 +35,12 @@ export function collectMediaModules(
       moduleFilePath,
       // A gallery without an explicit directory is still a gallery; fall back to
       // the module path so the row has something to identify it by.
-      directory: schema.directory ?? moduleFilePath,
+      dir: schema.dir ?? moduleFilePath,
       mediaType: schema.mediaType,
       errors: collectErrors(moduleFilePath),
     });
   }
-  return media.sort((a, b) => a.directory.localeCompare(b.directory));
+  return media.sort((a, b) => a.dir.localeCompare(b.dir));
 }
 
 /**

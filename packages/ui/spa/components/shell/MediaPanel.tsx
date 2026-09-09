@@ -118,7 +118,7 @@ export function MediaPanel({
       .map((gallery) => {
         const galleryMatches =
           gallery.name.toLowerCase().includes(q) ||
-          gallery.directory.toLowerCase().includes(q);
+          gallery.dir.toLowerCase().includes(q);
         const files = (gallery.files ?? []).filter((file) =>
           file.ref.toLowerCase().includes(q),
         );
@@ -186,7 +186,7 @@ export function MediaPanel({
                 <PanelRow
                   selected={selectedId === gallery.id}
                   // The module, because that is what the row is about; the
-                  // directory is the row's meta.
+                  // the directory is the row's meta.
                   title={gallery.moduleFilePath}
                   expanded={open}
                   /*
@@ -237,7 +237,7 @@ export function MediaPanel({
                   label={gallery.name}
                   // The served path, not the ref: `/public` is the web root, so
                   // `/val/images` is what a URL to anything in here looks like.
-                  meta={servedPath(gallery.directory)}
+                  meta={servedPath(gallery.dir)}
                   trailing={
                     <span className="text-[0.6875rem] tabular-nums text-fg-secondary-alt">
                       {gallery.itemCount}
@@ -300,17 +300,17 @@ function GalleryFiles({
 
   const visible = files.slice(0, shown);
   const remaining = files.length - visible.length;
-  const groups = groupByDirectory(visible, gallery.directory);
+  const groups = groupByDirectory(visible, gallery.dir);
 
   return (
     <div>
       {groups.map((group) => (
-        <div key={group.directory}>
+        <div key={group.dir}>
           {/* Only when there is more than one: a heading repeating the
               gallery's own directory on every row says nothing. */}
           {groups.length > 1 && (
             <p
-              title={servedPath(group.directory)}
+              title={servedPath(group.dir)}
               className="truncate pl-8 pr-3 pt-1.5 pb-0.5 text-[0.625rem] uppercase tracking-wide text-fg-secondary-alt"
             >
               {group.label}
@@ -445,7 +445,7 @@ function baseName(ref: string): string {
  * neither of them is how a PDF ends up in the images folder.
  *
  * With one gallery there is no choice to make, so the button uploads straight
- * into it — but it still says which directory, for the same reason.
+ * into it — but it still says which dir, for the same reason.
  */
 function UploadMenu({
   media,
@@ -467,7 +467,7 @@ function UploadMenu({
         aria-expanded={only ? undefined : isOpen}
         title={
           only
-            ? `Upload into ${servedPath(only.directory)}`
+            ? `Upload into ${servedPath(only.dir)}`
             : "Choose where to upload"
         }
         onClick={() => (only ? onUpload(only) : setIsOpen((open) => !open))}
@@ -500,7 +500,7 @@ function UploadMenu({
               )}
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-xs">
-                  {servedPath(gallery.directory)}
+                  {servedPath(gallery.dir)}
                 </span>
                 <span className="block text-[0.6875rem] text-fg-secondary-alt">
                   {gallery.mediaType === "images" ? "Images" : "Files"}
@@ -517,41 +517,38 @@ function UploadMenu({
 /**
  * Files grouped by the directory they are in, relative to the gallery's own.
  *
- * Relative because the gallery's directory is on the row above and repeating it
+ * Relative because the gallery's dir is on the row above and repeating it
  * on every group heading pushes the part that differs off the end.
  */
 export function groupByDirectory(
   files: ShellMediaFile[],
   galleryDirectory: string,
-): { directory: string; label: string; files: ShellMediaFile[] }[] {
+): { dir: string; label: string; files: ShellMediaFile[] }[] {
   const groups = new Map<string, ShellMediaFile[]>();
   for (const file of files) {
-    const directory = file.ref.slice(0, file.ref.lastIndexOf("/")) || "/";
-    const existing = groups.get(directory);
+    const dir = file.ref.slice(0, file.ref.lastIndexOf("/")) || "/";
+    const existing = groups.get(dir);
     if (existing) existing.push(file);
-    else groups.set(directory, [file]);
+    else groups.set(dir, [file]);
   }
   return Array.from(groups.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([directory, groupFiles]) => ({
-      directory,
-      label: relativeDirectory(directory, galleryDirectory),
+    .map(([dir, groupFiles]) => ({
+      dir,
+      label: relativeDirectory(dir, galleryDirectory),
       files: groupFiles,
     }));
 }
 
-function relativeDirectory(
-  directory: string,
-  galleryDirectory: string,
-): string {
-  if (directory === galleryDirectory) return "In this folder";
+function relativeDirectory(dir: string, galleryDirectory: string): string {
+  if (dir === galleryDirectory) return "In this folder";
 
   const prefix = galleryDirectory.endsWith("/")
     ? galleryDirectory
     : `${galleryDirectory}/`;
-  return directory.startsWith(prefix)
-    ? directory.slice(prefix.length)
+  return dir.startsWith(prefix)
+    ? dir.slice(prefix.length)
     : // Not under the gallery at all, so there is nothing to make it relative
       // to and the whole path is shown — as it is served, like everywhere else.
-      servedPath(directory);
+      servedPath(dir);
 }

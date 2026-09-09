@@ -218,7 +218,7 @@ export function createValImageTools(
         // Where the bytes live, always: a `/public/...` path in the patch
         // store. For a remote image the CONTENT points somewhere else, but the
         // bytes still land here and stay here until publish pushes them.
-        const storedPath = `${target.directory}/${generated}`;
+        const storedPath = `${target.dir}/${generated}`;
         const resolvedRef = await resolveRef(target, settingsFor(deps.config), {
           bytes: prepared.bytes,
           storedPath,
@@ -307,7 +307,7 @@ async function resolveRef(
     return err(
       "invalid-args",
       `A remote image has to be stored under /public, and this schema's directory is ${JSON.stringify(
-        target.directory,
+        target.dir,
       )}.`,
     );
   }
@@ -342,7 +342,7 @@ type ImageTarget =
       status: "ok";
       kind: "gallery";
       gallerySchema: SerializedSchema;
-      directory: string;
+      dir: string;
       accept: string | undefined;
       encode: EncodeSettings | null;
       altRequired: boolean;
@@ -353,7 +353,7 @@ type ImageTarget =
       kind: "field";
       referencedModule: string | undefined;
       galleryBacked: boolean;
-      directory: string;
+      dir: string;
       accept: string | undefined;
       encode: EncodeSettings | null;
       altRequired: boolean;
@@ -393,7 +393,7 @@ function resolveTarget(
       status: "ok",
       kind: "gallery",
       gallerySchema: moduleSchema,
-      directory: moduleSchema.directory ?? DEFAULT_DIRECTORY,
+      dir: moduleSchema.dir ?? DEFAULT_DIRECTORY,
       accept: moduleSchema.accept,
       encode: resolveEncodeSettings(undefined, moduleSchema.encode),
       altRequired: altIsRequired(moduleSchema),
@@ -463,10 +463,7 @@ function resolveTarget(
     kind: "field",
     referencedModule,
     galleryBacked: referencedModule !== undefined,
-    directory:
-      schema.options?.directory ??
-      galleryRecord?.directory ??
-      DEFAULT_DIRECTORY,
+    dir: schema.options?.dir ?? galleryRecord?.dir ?? DEFAULT_DIRECTORY,
     accept: schema.options?.accept ?? galleryRecord?.accept,
     encode: resolveEncodeSettings(
       schema.options?.encode,
@@ -498,7 +495,7 @@ function galleryEntryImageSchema(
     opt: false,
     options: {
       ...(gallery.accept ? { accept: gallery.accept } : {}),
-      ...(gallery.directory ? { directory: gallery.directory } : {}),
+      ...(gallery.dir ? { dir: gallery.dir } : {}),
     },
   };
 }

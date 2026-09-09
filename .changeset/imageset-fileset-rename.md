@@ -11,12 +11,13 @@ s.images({ directory: "/public/val/images" });
 s.files({ accept: "application/pdf", directory: "/public/val/docs" });
 
 // after
-s.imageset({ directory: "/public/val/images" });
-s.fileset({ accept: "application/pdf", directory: "/public/val/docs" });
+s.imageset({ dir: "/public/val/images" });
+s.fileset({ accept: "application/pdf", dir: "/public/val/docs" });
 ```
 
-Nothing about their behaviour changed — same options, same `.remote()`, same
-record-of-metadata content keyed by file path.
+Nothing about their behaviour changed — same `.remote()`, same
+record-of-metadata content keyed by file path. (`directory` is renamed to
+`dir` in the same release; see the separate note.)
 
 The old names were a trap. `s.images()` and `s.image()` differ by one letter,
 which reads as "the same thing, but several" — while the real difference is that
@@ -35,7 +36,7 @@ the combined migration is:
 s.images({ directory: "/public/val/images", remote: true });
 
 // after
-s.imageset({ directory: "/public/val/images" }).remote();
+s.imageset({ dir: "/public/val/images" }).remote();
 ```
 
 The rename is a hard error rather than a silent one: `s.images` no longer

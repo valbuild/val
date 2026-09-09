@@ -522,7 +522,7 @@ export async function handleRemoteGalleryFileUpload(
   // synthesize the serialized image/file schema (matching how single fields
   // serialize) for the remote ref's validation hash.
   //
-  // `accept`/`directory` come from the RECORD that holds the entry, resolved
+  // `accept`/`dir` come from the RECORD that holds the entry, resolved
   // from the entry's PARENT path - not from the module root, which is only the
   // record when the gallery is the whole module. A nested gallery
   // (s.object({ gallery: s.imageset(...) })) would otherwise synthesize a schema
@@ -544,7 +544,7 @@ export async function handleRemoteGalleryFileUpload(
       }`,
     };
   }
-  const { accept, directory } = recordSchema;
+  const { accept, dir } = recordSchema;
   const schema: SerializedImageSchema | SerializedFileSchema =
     mediaType === "image"
       ? {
@@ -552,7 +552,7 @@ export async function handleRemoteGalleryFileUpload(
           opt: false,
           options: {
             ...(accept ? { accept } : {}),
-            ...(directory ? { directory } : {}),
+            ...(dir ? { dir } : {}),
           },
         }
       : {
@@ -592,15 +592,15 @@ export async function handleUniqueFolderCheck(
   ctx: FixHandlerContext,
 ): Promise<FixHandlerResult> {
   const value = ctx.validationError.value as
-    | { directory: string; type: string }
+    | { dir: string; type: string }
     | undefined;
-  if (!value || typeof value.directory !== "string") {
+  if (!value || typeof value.dir !== "string") {
     return {
       success: false,
       errorMessage: `Unexpected value in unique folder check for ${ctx.sourcePath}`,
     };
   }
-  const { directory } = value;
+  const { dir } = value;
   const conflicts: string[] = [];
   for (const file of ctx.valFiles) {
     const otherModuleFilePath = `/${file}` as ModuleFilePath;
@@ -611,20 +611,16 @@ export async function handleUniqueFolderCheck(
       { validate: false },
     );
     const schema = otherModule.schema as
-      | { type?: string; directory?: string; mediaType?: string }
+      | { type?: string; dir?: string; mediaType?: string }
       | undefined;
-    if (
-      schema?.type === "record" &&
-      schema.directory === directory &&
-      schema.mediaType
-    ) {
+    if (schema?.type === "record" && schema.dir === dir && schema.mediaType) {
       conflicts.push(otherModuleFilePath);
     }
   }
   if (conflicts.length > 0) {
     return {
       success: false,
-      errorMessage: `Gallery directory '${directory}' in ${ctx.moduleFilePath} is also used by: ${conflicts.join(", ")}. Each gallery must use a unique directory.`,
+      errorMessage: `Gallery dir '${dir}' in ${ctx.moduleFilePath} is also used by: ${conflicts.join(", ")}. Each gallery must use a unique dir.`,
     };
   }
   return { success: true };
@@ -652,11 +648,11 @@ export async function handleUniqueFolderCheck(
  */
 export function checkGalleryFiles(input: {
   entryKeys: string[];
-  directory: string;
+  dir: string;
   projectRoot: string;
   fs: Pick<IValFSHost, "fileExists" | "readDirectory">;
 }): { missingTrackedFiles: string[]; untrackedFiles: string[] } {
-  const { directory, projectRoot, fs } = input;
+  const { dir, projectRoot, fs } = input;
   const entries = input.entryKeys.map(galleryEntryOf);
   const trackedFiles = new Set(entries.map((entry) => entry.localPath));
 
@@ -671,7 +667,7 @@ export function checkGalleryFiles(input: {
   const filesInDir: string[] = [];
   try {
     const found = fs.readDirectory(
-      path.join(projectRoot, directory),
+      path.join(projectRoot, dir),
       undefined,
       undefined,
       ["**/*"],
@@ -695,15 +691,15 @@ export async function handleCheckAllFiles(
   ctx: FixHandlerContext,
 ): Promise<FixHandlerResult> {
   const value = ctx.validationError.value as
-    | { directory: string; type: string }
+    | { dir: string; type: string }
     | undefined;
-  if (!value || typeof value.directory !== "string") {
+  if (!value || typeof value.dir !== "string") {
     return {
       success: false,
       errorMessage: `Unexpected value in check-all-files for ${ctx.sourcePath}`,
     };
   }
-  const { directory } = value;
+  const { dir } = value;
 
   const source = ctx.valModule.source;
   if (!source || typeof source !== "object" || Array.isArray(source)) {
@@ -714,7 +710,7 @@ export async function handleCheckAllFiles(
   }
   const { missingTrackedFiles, untrackedFiles } = checkGalleryFiles({
     entryKeys: Object.keys(source as Record<string, unknown>),
-    directory,
+    dir,
     projectRoot: ctx.projectRoot,
     fs: ctx.fs,
   });

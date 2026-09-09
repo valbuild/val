@@ -4,7 +4,7 @@ export default c.define(
   "/content/basic-gallery-remote.val.ts",
   s
     .imageset({
-      directory: "/public/val/images-remote",
+      dir: "/public/val/images-remote",
       accept: "image/*",
     })
     .remote(),

@@ -3,7 +3,7 @@ import { c, s } from "../val.config";
 export default c.define(
   "/content/basic-files.val.ts",
   s.fileset({
-    directory: "/public/val/files",
+    dir: "/public/val/files",
     accept: "*/*",
   }),
   {

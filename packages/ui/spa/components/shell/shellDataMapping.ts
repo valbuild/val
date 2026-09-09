@@ -302,9 +302,9 @@ export function countKeys(
 }
 
 /** `/public/val/images` -> `images` */
-export function directoryName(directory: string): string {
-  const segments = directory.split("/").filter(Boolean);
-  return segments[segments.length - 1] ?? directory;
+export function directoryName(dir: string): string {
+  const segments = dir.split("/").filter(Boolean);
+  return segments[segments.length - 1] ?? dir;
 }
 
 /** `/content/products.val.ts` -> `products` */

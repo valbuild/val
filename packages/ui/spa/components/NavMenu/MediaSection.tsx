@@ -86,7 +86,7 @@ export function MediaSection({
                   title={entry.moduleFilePath}
                 >
                   <Icon size={14} className="shrink-0" />
-                  <span className="truncate flex-1">{entry.directory}</span>
+                  <span className="truncate flex-1">{entry.dir}</span>
                   {entry.errors && entry.errors.ownCount > 0 && (
                     <ErrorBadge
                       count={entry.errors.ownCount}

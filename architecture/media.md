@@ -5,10 +5,10 @@
 `s.imageset()` / `s.fileset()` are **whole-module collections**. `s.image()` /
 `s.file()` are **fields**. They are not variants of each other.
 
-|       | collection (is the module)                 | field (lives at a path)                                      |
-| ----- | ------------------------------------------ | ------------------------------------------------------------ |
-| image | `s.imageset({ directory, accept?, alt? })` | `s.image({ directory, accept })` or `s.image(galleryModule)` |
-| file  | `s.fileset({ directory, accept })`         | `s.file({ accept })` or `s.file(collectionModule)`           |
+|       | collection (is the module)           | field (lives at a path)                                |
+| ----- | ------------------------------------ | ------------------------------------------------------ |
+| image | `s.imageset({ dir, accept?, alt? })` | `s.image({ dir, accept })` or `s.image(galleryModule)` |
+| file  | `s.fileset({ dir, accept })`         | `s.file({ accept })` or `s.file(collectionModule)`     |
 
 Remote is a **method, not an option**, everywhere: `s.imageset({...}).remote()`,
 `s.fileset({...}).remote()`, `s.image().remote()`, `s.file().remote()`. It used to
@@ -45,7 +45,7 @@ path**, whose values are metadata — `{width, height, mimeType, alt}` for image
 ```ts
 export default c.define(
   "/content/gallery.val.ts",
-  s.imageset({ directory: "/public/img" }),
+  s.imageset({ dir: "/public/img" }),
   {},
 );
 ```
@@ -94,7 +94,7 @@ image from a gallery; nothing picks several. Adding it means a new schema type
 
 Three levels of precedence for a field:
 
-1. the field's own `directory` (`s.image({ directory })`),
+1. the field's own `dir` (`s.image({ dir })`),
 2. the `directory` of the gallery it references,
 3. `/public/val` — the `createFilePatch` default.
 
@@ -112,7 +112,7 @@ always produce the same ref.
 **browser**, before it is uploaded. Off unless asked for; `{type: "webp"}` is
 the whole opt-in, with `quality` (0.8), `maxWidth` and `maxHeight` (2560)
 defaulted. A field inherits its gallery's setting the way it inherits `accept`
-and `directory` — it has to, because `s.image(galleryVal)` serializes with
+and `dir` — it has to, because `s.image(galleryVal)` serializes with
 **empty options** and has nothing of its own to read.
 
 It is one seam — `encodeImage`, called from `readImageFromFile` — because
@@ -227,9 +227,9 @@ publishable state there.
 `examples/next/content/` has one module per shape, each gallery shipping one
 _committed_ entry so "can I see what is already there" is covered by the repo:
 
-- `mediaFixtures.val.ts` — `s.imageset({ directory: "/public/test/subdir" })`
-- `fileGallery.val.ts` — `s.fileset({ directory: "/public/test/files" })`
-- `mediaFields.val.ts` — `s.image()`, `s.image({ directory })`,
+- `mediaFixtures.val.ts` — `s.imageset({ dir: "/public/test/subdir" })`
+- `fileGallery.val.ts` — `s.fileset({ dir: "/public/test/files" })`
+- `mediaFields.val.ts` — `s.image()`, `s.image({ dir })`,
   `s.image(gallery)`, `s.file()`, and the same inside a union. Also the fixture
   the language server's media-path completion tests open as an unsaved buffer:
   those completions are schema-driven now, so they need a module `val.modules`
