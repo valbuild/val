@@ -342,6 +342,349 @@ is a plan. So either that lands first, or these ship Studio-only as non-blocking
 hints on the offending row. What must not happen is shipping them as errors in
 the meantime.
 
+## Worked examples
+
+All proposed API. Locale examples assume #608.
+
+### Settings
+
+Two tiers — everyone edits, one person ships:
+
+```ts
+permissions: {
+  roles: {
+    editor: ["content:write", "assistant:use"],
+    publisher: ["content:write", "content:discard", "publish", "assistant:use"],
+  },
+  members: { usr_7f3a91: ["publisher"] },
+  default: ["editor"],
+}
+```
+
+A locked settings panel — only Erik sees Access at all:
+
+```ts
+permissions: {
+  roles: {
+    editor: ["content:write", "assistant:use"],
+    publisher: ["publish", "content:discard"],
+    admin: ["settings:read", "settings:write"],
+  },
+  members: { usr_a1: ["publisher"], usr_e2: ["publisher", "admin"] },
+  default: ["editor"],
+}
+```
+
+Agency and client — the client writes, the agency ships:
+
+```ts
+permissions: {
+  roles: {
+    "client-editor": ["content:write"],
+    agency: ["content:write", "content:discard", "publish",
+             "settings:read", "settings:write", "assistant:use"],
+  },
+  members: { usr_dev: ["agency"], usr_pm: ["agency"] },
+  default: ["client-editor"],
+}
+```
+
+Locale teams — the shape locale scope exists for:
+
+```ts
+permissions: {
+  roles: {
+    translator: ["content:write", "assistant:use"],
+    lead: ["content:write", "content:discard", "publish"],
+  },
+  members: {
+    usr_ola: { roles: ["translator"], locales: { read: ["en-US", "nb-NO"], write: ["nb-NO"] } },
+    usr_marie: { roles: ["translator"], locales: { read: ["en-US", "fr-FR"], write: ["fr-FR"] } },
+    usr_sam: ["lead"],
+  },
+  default: [],
+}
+```
+
+Restricted content, with permissions the project invented:
+
+```ts
+permissions: {
+  roles: {
+    editor: ["content:write"],
+    hr: ["hr:read", "hr:write"],
+    finance: ["salary:read"],
+  },
+  members: { usr_hrlead: ["hr"], usr_cfo: ["finance", "hr"] },
+  default: ["editor"],
+}
+```
+
+Bootstrapping, before anyone has logged in — email keys are for exactly this:
+
+```ts
+permissions: {
+  roles: { admin: ["settings:read", "settings:write", "publish", "content:write"] },
+  members: { "erik@company.com": ["admin"] },
+  default: ["editor"],
+}
+```
+
+A viewer is a role that grants nothing:
+
+```ts
+roles: { viewer: [], editor: ["content:write"] },
+members: { usr_intern: ["viewer"] },
+default: ["editor"],
+```
+
+`usr_intern` still gets `editor` from `default` — union, remember. To make a
+real viewer, drop the baseline:
+
+```ts
+roles: { editor: ["content:write"] },
+members: { usr_intern: [], usr_anna: ["editor"] },
+default: [],
+```
+
+### Schema annotations
+
+The basics:
+
+```ts
+s.object({
+  title: s.string(),
+  price: s.number().readonly({ unless: "pricing:edit" }),
+  internalNotes: s.string().hidden({ unless: "staff:read" }),
+});
+```
+
+Any one of several is enough:
+
+```ts
+salary: s.number().hidden({ unless: ["hr:read", "finance:read"] }),
+```
+
+A built-in as the permission — only people who can ship may backdate:
+
+```ts
+publishedAt: s.date().readonly({ unless: "publish" }),
+```
+
+A whole section, with a hole punched in it by a child:
+
+```ts
+s.object({
+  public: s.object({ title: s.string(), body: s.richtext({}) }),
+  hr: s
+    .object({
+      salaryBand: s.string(),
+      reviewNotes: s.richtext({}),
+      jobTitle: s.string().hidden(false), // everyone sees this one
+    })
+    .hidden({ unless: "hr:read" }),
+});
+```
+
+A locked section with one editable field — the same rule, and the case it is
+most obviously for:
+
+```ts
+s.object({
+  generated: s
+    .object({
+      buildSha: s.string(),
+      builtAt: s.date(),
+      note: s.string().readonly(false), // a human may annotate
+    })
+    .readonly(),
+});
+```
+
+Three levels, nearest wins:
+
+```ts
+s.object({
+  a: s
+    .object({
+      b: s.object({
+        c: s.string(), // hidden: inherits from `a`
+        d: s.string().hidden(false), // visible: `d` is nearest
+      }),
+    })
+    .hidden({ unless: "hr:read" }),
+});
+```
+
+Chaining, which is the same rule along the other axis:
+
+```ts
+s.string().hidden().hidden(false); // visible — last call wins
+s.string().hidden({ unless: "a" }).hidden({ unless: "b" }); // "b" wins
+```
+
+Items of a record or an array:
+
+```ts
+tiers: s.record(s.object({ name: s.string(), amount: s.number() }))
+  .readonly({ unless: "pricing:edit" }),
+
+authors: s.array(s.object({
+  name: s.string(),
+  email: s.string().hidden({ unless: "staff:read" }),
+})),
+```
+
+Media and route:
+
+```ts
+heroImage: s.image().readonly({ unless: "design:edit" }),
+slug: s.route("/blog/[slug]").readonly({ unless: "publish" }),
+```
+
+Both on one field:
+
+```ts
+legalText: s.richtext({})
+  .readonly({ unless: "legal:edit" })
+  .hidden({ unless: "legal:read" }),
+```
+
+### Locale scope
+
+The content shape it applies to — a locale-keyed record opens one scope per
+language, and `slug` is outside every scope:
+
+```ts
+s.object({
+  slug: s.string(),
+  content: s.record(
+    s.locale(),
+    s.object({ title: s.string(), body: s.richtext({}) }),
+  ),
+});
+```
+
+For `usr_ola`, `{ read: ["en-US", "nb-NO"], write: ["nb-NO"] }`:
+
+| Path                    | `localeAt` | Ola sees   |
+| ----------------------- | ---------- | ---------- |
+| `content."nb-NO".title` | nb-NO      | edits      |
+| `content."en-US".title` | en-US      | reads only |
+| `content."fr-FR".title` | fr-FR      | not listed |
+| `slug`                  | none       | reads only |
+
+An object with a `locale` field, where each array item is its own scope:
+
+```ts
+announcements: s.array(s.object({ locale: s.locale(), headline: s.string() }));
+```
+
+Grants and what they mean:
+
+```ts
+{ roles: ["translator"] }
+// every locale, read and write
+
+{ roles: ["translator"], locales: { read: ["en-US", "nb-NO"] } }
+// write defaults to read: reads and writes both, nothing else
+
+{ roles: ["translator"], locales: { write: ["nb-NO"] } }
+// reads everything, writes Norwegian
+
+{ roles: ["translator"], locales: { read: ["nb-NO"], write: ["nb-NO", "fr-FR"] } }
+// ERROR: write is not a subset of read
+```
+
+### Resolution
+
+Given:
+
+```ts
+roles:   { editor: ["content:write"], publisher: ["publish", "content:discard"] },
+members: { usr_boss: ["publisher"], "boss@company.com": ["admin"] },
+default: ["editor"],
+```
+
+| User                      | Roles                      | Effective permissions                            |
+| ------------------------- | -------------------------- | ------------------------------------------------ |
+| unlisted                  | editor                     | `content:write`                                  |
+| `usr_boss` (a.k.a. boss@) | editor + publisher + admin | `content:write`, `publish`, `content:discard`, … |
+
+Both entries match the same person, so they union — and the Studio warns,
+because `/profiles` gives it the email for `usr_boss`.
+
+### Staged content
+
+Field: `notes: s.string().hidden({ unless: "hr:read" })`.
+
+| Situation                                 | A user without `hr:read` sees                              |
+| ----------------------------------------- | ---------------------------------------------------------- |
+| No pending patch                          | nothing                                                    |
+| HR has edited it, unpublished             | the field, marked as showing because of the pending change |
+| …and they publish                         | nothing again                                              |
+| The field is `readonly` for them too      | the field, not typeable, discardable                       |
+| A patched field inside a hidden container | the container as a shell, holding it                       |
+| A patch in a locale they cannot read      | the entry, same rule                                       |
+
+The last three are why the rule is stated once over all the axes rather than
+per annotation.
+
+### Validation
+
+Errors — self-contained in the settings module:
+
+```ts
+members: { usr_x: ["shipper"] }
+// `shipper` is not a role. Defined roles: editor, publisher, admin.
+
+locales: { read: ["nb-NOO"] }
+// `nb-NOO` is not one of the project's languages.
+
+locales: { read: ["nb-NO"], write: ["fr-FR"] }
+// `write` must be a subset of `read`: fr-FR is not readable.
+```
+
+Warnings — the other half lives in code:
+
+```ts
+roles: {
+  hr: ["hr:raed"];
+}
+// `hr:raed` is not a permission. No schema requires it and it is not one of
+// Val's own. Did you mean `hr:read`?
+
+// nothing grants `pricing:edit`
+// `price` is read-only for every user. Add `pricing:edit` to a role.
+
+members: {
+  usr_deleted: ["editor"];
+}
+// no profile found for `usr_deleted`.
+```
+
+### Edge cases
+
+```ts
+// No section: everyone has everything. Existing projects unchanged.
+export default c.define("/settings.val.ts", s.settings(), {});
+
+// Empty section: also everyone has everything. Not a statement that nobody
+// may do anything.
+permissions: {
+}
+
+// Roles defined, nobody listed, no default: every user gets []. Legal, and
+// almost certainly a mistake.
+permissions: {
+  roles: {
+    editor: ["content:write"];
+  }
+}
+
+// Local (fs) mode: every permission, no identity to resolve.
+```
+
 ## Open questions
 
 - **Should the Studio refuse a settings patch that leaves nobody with
