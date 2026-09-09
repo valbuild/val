@@ -18,7 +18,7 @@ jest.mock("../components/ValFieldProvider", () => ({
 
 import { useWriteSettingsSection } from "./useWriteSettingsSection";
 
-const FIELDS = ["available", "default"] as const;
+const FIELDS = ["enabled", "context", "tone"] as const;
 
 function write(): (
   changes: Partial<Record<(typeof FIELDS)[number], JSONValue>>,
@@ -26,7 +26,7 @@ function write(): (
   const { result } = renderHook(() =>
     useWriteSettingsSection(
       "/settings.val.ts" as ModuleFilePath,
-      "locales",
+      "assistant",
       FIELDS,
     ),
   );
@@ -48,48 +48,52 @@ describe("useWriteSettingsSection", () => {
   test("an absent section is created, with its other fields explicitly unset", () => {
     // A `replace` inside a section that does not exist has nothing to replace
     // a key in, and `{}` is the normal state of a fresh settings module.
-    write()({ default: "en-US" });
+    write()({ tone: "Plain and short" });
     expect(onePatch()).toEqual([
       {
         op: "add",
-        path: ["locales"],
-        value: { available: null, default: "en-US" },
+        path: ["assistant"],
+        value: { enabled: null, context: null, tone: "Plain and short" },
       },
     ]);
   });
 
   test("two fields written together are ONE patch, so neither loses the other", () => {
-    // The bug this hook's shape exists for. Adding the first language sets
-    // `available` and `default` at once; as two calls the second would rebuild
-    // the section — `hasSection` is read from the store, so it is still false
-    // when the second call is made — and write `available: null` over the
-    // language just added.
-    write()({ available: ["nb-NO"], default: "nb-NO" });
+    // The bug this hook's shape exists for. Turning the assistant on with a
+    // house tone writes `enabled` and `tone` at once; as two calls the second
+    // would rebuild the section — `hasSection` is read from the store, so it is
+    // still false when the second call is made — and write `enabled: null` over
+    // the switch just flipped.
+    write()({ enabled: true, tone: "Plain and short" });
     expect(onePatch()).toEqual([
       {
         op: "add",
-        path: ["locales"],
-        value: { available: ["nb-NO"], default: "nb-NO" },
+        path: ["assistant"],
+        value: { enabled: true, context: null, tone: "Plain and short" },
       },
     ]);
   });
 
   test("an existing section is written key by key, so a sibling is not touched", () => {
-    mockSectionSource = { status: "success", data: { available: ["nb-NO"] } };
-    write()({ default: "nb-NO" });
+    mockSectionSource = { status: "success", data: { enabled: true } };
+    write()({ tone: "Plain and short" });
     expect(onePatch()).toEqual([
-      { op: "add", path: ["locales", "default"], value: "nb-NO" },
+      { op: "add", path: ["assistant", "tone"], value: "Plain and short" },
     ]);
   });
 
   test("an existing section takes several fields in one patch too", () => {
-    mockSectionSource = { status: "success", data: { available: ["nb-NO"] } };
-    write()({ default: null, available: ["nb-NO", "en-US"] });
+    mockSectionSource = { status: "success", data: { enabled: true } };
+    write()({ tone: null, context: "A shop that sells jackets" });
     // In the declared order rather than the caller's, which is what makes the
     // patch the same however the caller happened to build the object.
     expect(onePatch()).toEqual([
-      { op: "add", path: ["locales", "available"], value: ["nb-NO", "en-US"] },
-      { op: "add", path: ["locales", "default"], value: null },
+      {
+        op: "add",
+        path: ["assistant", "context"],
+        value: "A shop that sells jackets",
+      },
+      { op: "add", path: ["assistant", "tone"], value: null },
     ]);
   });
 

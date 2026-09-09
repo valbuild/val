@@ -35,7 +35,7 @@ function project(
   valModules: ValModule<Source>[],
 ): SchemaSourceSnapshot {
   const settings = c.define("/settings.val.ts", s.settings(), {
-    locales: { available, default: available[0] ?? null },
+    locales: { available },
   });
   return snapshotOf([settings, ...valModules]);
 }

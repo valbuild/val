@@ -361,30 +361,32 @@ export function NoSettingsModule() {
 export type LocalesSettingsValue = {
   /** The declared languages, in the project's own order. */
   available: string[];
-  /** One of `available`, or `null` where nothing has been chosen. */
-  default: string | null;
 };
 
 export type LocalesSettingsFieldsProps = {
   value: LocalesSettingsValue;
   onChange: (next: LocalesSettingsValue) => void;
   /**
-   * What validation says, by language tag and about the default.
+   * What validation says about each language.
    *
    * Keyed by tag rather than by index so a row keeps its message when the row
    * above it is removed — the source has not been re-validated yet at that
    * point, and an index would shift the message onto its neighbour.
    */
-  errors?: { byTag?: Record<string, string>; default?: string };
+  errors?: { byTag?: Record<string, string> };
   readonly?: boolean;
 };
 
 /**
- * The languages a project publishes, and which one it writes in first.
+ * The languages a project publishes.
  *
  * The list is the project's own order, and it is kept rather than sorted: it
  * decides the order of the locale picker and of the rows in a locale-keyed
  * record, so a team that works in Norwegian can put Norwegian at the top.
+ *
+ * There is no default. Every locale-specific field asks which language it is
+ * in, and a default is exactly the answer that lets that question go
+ * unanswered — content ends up filed under a language nobody chose.
  *
  * Each language is named as well as tagged. `Intl.DisplayNames` is asked in the
  * language's OWN language, so Norwegian reads "norsk bokmål" rather than
@@ -403,22 +405,11 @@ export function LocalesSettingsFields({
       setDraft("");
       return;
     }
-    onChange({
-      available: [...value.available, tag],
-      // The first language declared is the one a project writes in until it
-      // says otherwise, which saves a second decision on the common path.
-      default: value.default ?? tag,
-    });
+    onChange({ available: [...value.available, tag] });
     setDraft("");
   };
   const remove = (tag: string) => {
-    const available = value.available.filter((each) => each !== tag);
-    onChange({
-      available,
-      // A default that has just been removed is not a default any more. Left
-      // alone it would be a dangling tag that every check then complains about.
-      default: value.default === tag ? (available[0] ?? null) : value.default,
-    });
+    onChange({ available: value.available.filter((each) => each !== tag) });
   };
   return (
     <SettingsSection description="The languages this project publishes. Content is checked against this list, so removing a language reports every piece of content still written in it.">
@@ -432,10 +423,8 @@ export function LocalesSettingsFields({
           <LocaleRow
             key={tag}
             tag={tag}
-            isDefault={value.default === tag}
             error={errors?.byTag?.[tag]}
             readonly={readonly}
-            onMakeDefault={() => onChange({ ...value, default: tag })}
             onRemove={() => remove(tag)}
           />
         ))}
@@ -470,11 +459,6 @@ export function LocalesSettingsFields({
             Add
           </button>
         </span>
-        {errors?.default && (
-          <span className="mt-1 block text-[0.6875rem] text-fg-error-on-surface leading-relaxed">
-            {errors.default}
-          </span>
-        )}
       </label>
     </SettingsSection>
   );
@@ -482,17 +466,13 @@ export function LocalesSettingsFields({
 
 function LocaleRow({
   tag,
-  isDefault,
   error,
   readonly,
-  onMakeDefault,
   onRemove,
 }: {
   tag: string;
-  isDefault: boolean;
   error?: string;
   readonly?: boolean;
-  onMakeDefault: () => void;
   onRemove: () => void;
 }) {
   const name = localeName(tag);
@@ -509,20 +489,6 @@ function LocaleRow({
             </span>
           )}
         </span>
-        {isDefault ? (
-          <span className="shrink-0 rounded px-1.5 py-0.5 text-[0.625rem] font-medium bg-bg-float-raised text-fg-secondary">
-            Written in first
-          </span>
-        ) : (
-          <button
-            type="button"
-            disabled={readonly}
-            onClick={onMakeDefault}
-            className="shrink-0 text-[0.6875rem] text-fg-secondary hover:text-fg-primary disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Write in this first
-          </button>
-        )}
         <button
           type="button"
           disabled={readonly}

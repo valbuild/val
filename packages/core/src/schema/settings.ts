@@ -73,9 +73,11 @@ export type SerializedSettingsSchema = {
 };
 
 /**
- * A rule about a section that needs more than one of its keys.
+ * A rule about a section that its individual fields cannot state.
  *
- * Paths are WITHIN the section, so an error lands on the key it is about.
+ * Paths are WITHIN the section, so an error lands on the value it is about —
+ * including a row of a list, which is what makes this different from a
+ * `.validate()` on the field.
  */
 type SectionValidate = (
   src: Record<string, unknown>,
@@ -117,11 +119,11 @@ export class SettingsSchema<
      *
      * Not the `validate` the class deliberately does not offer: that one is the
      * schema author's, and `s.settings()` takes no arguments to declare it
-     * with. This names a rule Val states about a shape Val owns —
-     * `locales.default` having to be one of `locales.available` is true of
-     * every project, and there is nowhere else it can be said. A single field's
-     * rules stay on that field's own schema; this is only for the ones that
-     * need a sibling.
+     * with. This names a rule Val states about a shape Val owns — no language
+     * declared twice in `locales.available` is true of every project, and
+     * there is nowhere else it can be said. A single value's rules stay on its
+     * own schema; this is for the ones that need to see more than one value,
+     * or to report on a row of a list.
      *
      * A NAME rather than the function, so it survives serialization: the schema
      * reaches the Studio's validation worker as JSON, and a closure would be
@@ -136,8 +138,8 @@ export class SettingsSchema<
    * This section's rules, or `undefined` where there are none to run.
    *
    * A name this Val does not know means a schema written by a newer one. Its
-   * per-key validation still runs; only the cross-key rule is missed, which is
-   * the mild half of the failure and better than refusing the schema.
+   * per-field validation still runs; only the section's own rule is missed,
+   * which is the mild half of the failure and better than refusing the schema.
    */
   private sectionValidate(): SectionValidate | undefined {
     return this.section === undefined
@@ -411,12 +413,7 @@ export function settings(): SettingsSchema<SettingsSource> {
         available: array(string())
           .nullable()
           .describe(
-            "The languages this project publishes, as BCP 47 tags: en-US, nb-NO. The first is where the Studio starts.",
-          ),
-        default: string()
-          .nullable()
-          .describe(
-            "The language content is written in first, and the one translations are made from.",
+            "The languages this project publishes, as BCP 47 tags: en-US, nb-NO. The order is kept: it is the order of the Studio's picker and of a locale-keyed record's rows.",
           ),
       },
       false,
@@ -429,11 +426,14 @@ export function settings(): SettingsSchema<SettingsSource> {
 }
 
 /**
- * The rules about `locales` that need more than one of its keys.
+ * The rules about `locales` that need to see the whole list.
  *
- * Each tag's own spelling is checked by the field (see `localeTagError`); this
- * is what is left: a default has to name a language the project actually has,
- * and a language cannot be declared twice.
+ * Two of them, and both report on the ENTRY rather than the list: a tag has to
+ * be spelled canonically, and a language cannot be declared twice. Neither can
+ * live on the item schema — the item sees one string, and "twice" is a fact
+ * about its siblings — and neither can be a `.validate()` on the array either,
+ * since that reports one message on the array itself rather than on the row to
+ * delete.
  *
  * Reads defensively rather than asserting the source's type. A settings module
  * is a file someone edits by hand, and validation runs against whatever is in
@@ -463,18 +463,6 @@ function localesSectionErrors(
       });
     }
     seen.add(tag);
-  }
-  const fallback = src["default"];
-  if (typeof fallback === "string" && !seen.has(fallback)) {
-    errors.push({
-      path: ["default"],
-      message:
-        available.length === 0
-          ? `'${fallback}' is not one of this project's languages, because none are declared`
-          : `'${fallback}' is not one of this project's languages: ${available
-              .map((tag) => `'${tag}'`)
-              .join(", ")}`,
-    });
   }
   return errors;
 }

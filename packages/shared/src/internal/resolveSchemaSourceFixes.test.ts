@@ -351,7 +351,7 @@ describe("record:fill-keys", () => {
   /** A project whose settings declare `available`. */
   function project(available: string[]) {
     const settings = c.define("/settings.val.ts", s.settings(), {
-      locales: { available, default: available[0] ?? null },
+      locales: { available },
     });
     return getTestData([settings]);
   }

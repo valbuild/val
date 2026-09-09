@@ -55,11 +55,11 @@ type HarnessProps = {
   breakpoint: ShellBreakpoint;
   /** The settings module's `locales` section, as source. */
   initial?: LocalesSettingsValue;
-  errors?: { byTag?: Record<string, string>; default?: string };
+  errors?: { byTag?: Record<string, string> };
   readonly?: boolean;
 };
 
-const NONE: LocalesSettingsValue = { available: [], default: null };
+const NONE: LocalesSettingsValue = { available: [] };
 
 function LocalesSettingsHarness({
   breakpoint,
@@ -100,22 +100,19 @@ type Story = StoryObj<typeof LocalesSettingsHarness>;
  *
  * Where every project starts, and where it stays unless someone comes here — so
  * the empty state has to explain what adding one does rather than merely say the
- * list is empty. Adding the first language is also what picks the default:
- * there is no second decision to make on the common path.
+ * list is empty.
  */
 export const NoLanguages: Story = {};
 
 /**
- * Three languages, English written first.
+ * Three languages.
  *
- * "Written in first" is the default: the language the assistant translates FROM,
- * and the one a new entry is created in. It is a property of the project, not of
- * a field, which is why it lives beside the list.
+ * There is no default among them, deliberately: every locale-specific field
+ * asks which language it is in, and a default is the answer that lets that
+ * question go unanswered.
  */
 export const Filled: Story = {
-  args: {
-    initial: { available: ["en-US", "nb-NO", "fr-FR"], default: "en-US" },
-  },
+  args: { initial: { available: ["en-US", "nb-NO", "fr-FR"] } },
 };
 
 /**
@@ -125,9 +122,7 @@ export const Filled: Story = {
  * list is not sorted.
  */
 export const NorwegianFirst: Story = {
-  args: {
-    initial: { available: ["nb-NO", "en-US", "fr-FR"], default: "nb-NO" },
-  },
+  args: { initial: { available: ["nb-NO", "en-US", "fr-FR"] } },
 };
 
 /**
@@ -136,7 +131,7 @@ export const NorwegianFirst: Story = {
  * Worth having even alone — it is what `<html lang>` and the assistant read.
  */
 export const OneLanguage: Story = {
-  args: { initial: { available: ["nb-NO"], default: "nb-NO" } },
+  args: { initial: { available: ["nb-NO"] } },
 };
 
 /**
@@ -153,7 +148,7 @@ export const OneLanguage: Story = {
  */
 export const BadTags: Story = {
   args: {
-    initial: { available: ["en-US", "nb_NO", "fr-fr"], default: "en-US" },
+    initial: { available: ["en-US", "nb_NO", "fr-fr"] },
     errors: {
       byTag: {
         nb_NO:
@@ -164,23 +159,10 @@ export const BadTags: Story = {
   },
 };
 
-/**
- * A default that is not in the list.
- *
- * Reachable by hand-editing the settings module — the section itself keeps them
- * consistent, moving the default when the language it names is removed.
- */
-export const DanglingDefault: Story = {
-  args: {
-    initial: { available: ["en-US", "nb-NO"], default: "sv-SE" },
-    errors: { default: "'sv-SE' is not one of this project's languages" },
-  },
-};
-
 /** `s.settings().readonly()`, or an editor without write access. */
 export const Readonly: Story = {
   args: {
-    initial: { available: ["en-US", "nb-NO", "fr-FR"], default: "en-US" },
+    initial: { available: ["en-US", "nb-NO", "fr-FR"] },
     readonly: true,
   },
 };
@@ -189,7 +171,7 @@ export const Readonly: Story = {
 export const Mobile: Story = {
   args: {
     breakpoint: "mobile",
-    initial: { available: ["en-US", "nb-NO", "fr-FR"], default: "en-US" },
+    initial: { available: ["en-US", "nb-NO", "fr-FR"] },
   },
   parameters: { viewport: { defaultViewport: "mobile1" } },
 };

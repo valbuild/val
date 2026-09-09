@@ -30,6 +30,6 @@ describe("settingsFieldLabel", () => {
   test("an unknown path has no label, rather than an invented one", () => {
     // A section from a newer Val than this Studio: the caller falls back to the
     // generic prettifier instead of guessing.
-    expect(settingsFieldLabel(path('"locales"."default"'))).toBe(null);
+    expect(settingsFieldLabel(path('"publishing"."schedule"'))).toBe(null);
   });
 });

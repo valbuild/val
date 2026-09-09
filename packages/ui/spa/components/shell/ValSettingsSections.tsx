@@ -115,20 +115,7 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
             <LocalesSettingsFields
               value={localesValue}
               onChange={(next) => {
-                // Only what changed, and both in ONE call. Writing a field that
-                // did not move would put an identical value in the publish
-                // diff; writing the two that did as two calls would lose the
-                // first, since adding the first language creates the section
-                // and sets `default` in the same breath. See
-                // `useWriteSettingsSection`.
-                writeLocalesSetting({
-                  ...(next.available !== localesValue.available && {
-                    available: next.available,
-                  }),
-                  ...(next.default !== localesValue.default && {
-                    default: next.default,
-                  }),
-                });
+                writeLocalesSetting({ available: next.available });
               }}
               errors={localesErrors}
               readonly={readonly}
@@ -141,7 +128,7 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
 }
 
 /** Every field the locales section has. See `useWriteSettingsSection`. */
-const LOCALES_FIELDS = ["available", "default"] as const;
+const LOCALES_FIELDS = ["available"] as const;
 
 /**
  * The locales section, as the panel needs it.
@@ -154,10 +141,6 @@ function useLocalesSection(localesPath: SourcePath): LocalesSettingsValue {
   const availableSource = useSourceAtPath(
     sourcePathOfItem(localesPath, "available"),
   );
-  const defaultSource = useShallowSourceAtPath(
-    sourcePathOfItem(localesPath, "default"),
-    "string",
-  );
   return useMemo<LocalesSettingsValue>(() => {
     const raw =
       "data" in availableSource && Array.isArray(availableSource.data)
@@ -165,30 +148,23 @@ function useLocalesSection(localesPath: SourcePath): LocalesSettingsValue {
         : [];
     return {
       available: raw.filter((tag): tag is string => typeof tag === "string"),
-      default:
-        "data" in defaultSource && typeof defaultSource.data === "string"
-          ? defaultSource.data
-          : null,
     };
-  }, [availableSource, defaultSource]);
+  }, [availableSource]);
 }
 
 /**
  * Validation for the locales section, arranged the way the fields want it.
  *
- * Errors arrive per source path — `available.2`, `default` — and the component
- * takes them per TAG, so a row keeps its message when the row above it is
- * removed. Resolving the index against the list is what connects the two.
+ * Errors arrive per source path — `available.2` — and the component takes them
+ * per TAG, so a row keeps its message when the row above it is removed.
+ * Resolving the index against the list is what connects the two.
  */
 function useLocalesErrors(
   localesPath: SourcePath,
   available: string[],
-): { byTag?: Record<string, string>; default?: string } {
+): { byTag?: Record<string, string> } {
   const availablePath = sourcePathOfItem(localesPath, "available");
   const allErrors = useAllValidationErrors() || {};
-  const defaultErrors = useValidationErrors(
-    sourcePathOfItem(localesPath, "default"),
-  );
   return useMemo(() => {
     const byTag: Record<string, string> = {};
     for (let i = 0; i < available.length; i++) {
@@ -197,8 +173,8 @@ function useLocalesErrors(
         byTag[available[i]] = errors[0].message;
       }
     }
-    return { byTag, default: defaultErrors[0]?.message };
-  }, [allErrors, availablePath, available, defaultErrors]);
+    return { byTag };
+  }, [allErrors, availablePath, available]);
 }
 
 /**

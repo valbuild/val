@@ -18,11 +18,11 @@ import { sourcePathOfItem } from "../utils/sourcePathOfItem";
  * to the schema too.
  *
  * Takes a SET of fields rather than one, because "the section does not exist
- * yet" and "two fields changed together" meet: adding the first language sets
- * `available` and `default` at once, and as two calls the second would rebuild
- * the section — `hasSection` is read from the store, so it is still false when
- * the second call is made — and write `available: null` over the language just
- * added. One call is one patch, so there is nothing to race.
+ * yet" and "two fields changed together" meet: turning the assistant on with a
+ * house tone writes `enabled` and `tone` at once, and as two calls the second
+ * would rebuild the section — `hasSection` is read from the store, so it is
+ * still false when the second call is made — and write `enabled: null` over the
+ * switch just flipped. One call is one patch, so there is nothing to race.
  *
  * Generic over the section because it is true of every one of them. The
  * assistant needed it first and the locales section needs exactly the same

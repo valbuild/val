@@ -257,7 +257,7 @@ describe("the locales section", () => {
   test("canonical tags pass", () => {
     expect(
       validate({
-        locales: { available: ["en-US", "fr-FR", "nb-NO"], default: "en-US" },
+        locales: { available: ["en-US", "fr-FR", "nb-NO"] },
       }),
     ).toEqual({});
   });
@@ -282,29 +282,6 @@ describe("the locales section", () => {
     ]);
   });
 
-  test("a default that is not one of the languages is reported on the default", () => {
-    expect(
-      validate({
-        locales: { available: ["en-US", "nb-NO"], default: "fr-FR" },
-      }),
-    ).toEqual({
-      '/settings.val.ts?p="locales"."default"':
-        // Named on `default` rather than on the section: that is the field the
-        // editor has to change.
-        ["'fr-FR' is not one of this project's languages: 'en-US', 'nb-NO'"],
-    });
-  });
-
-  test("a default with nothing declared says so, rather than listing an empty set", () => {
-    expect(
-      validate({ locales: { default: "en-US" } })[
-        '/settings.val.ts?p="locales"."default"'
-      ],
-    ).toEqual([
-      "'en-US' is not one of this project's languages, because none are declared",
-    ]);
-  });
-
   test("a language declared twice is reported on the repeat, not on the list", () => {
     // The second `en-US` is the one to delete, so that is the row that carries
     // the error — a message on the list itself would not say which.
@@ -322,9 +299,7 @@ describe("the locales section", () => {
     // per-key pass is reporting in the same breath. The cross-key rule must not
     // throw on its way past them.
     expect(() => validate({ locales: { available: "en-US" } })).not.toThrow();
-    expect(() =>
-      validate({ locales: { available: [1, null], default: 2 } }),
-    ).not.toThrow();
+    expect(() => validate({ locales: { available: [1, null] } })).not.toThrow();
   });
 
   test("the rules survive serialization, so the Studio runs them too", () => {
@@ -338,16 +313,14 @@ describe("the locales section", () => {
     });
     const errors = deserializeSchema(serialized)["executeValidate"](
       "/settings.val.ts" as SourcePath,
-      { locales: { available: ["en-US", "nb-NO"], default: "fr-FR" } },
+      { locales: { available: ["en-US", "nb-NO", "en-US"] } },
     );
     expect(
       errors &&
-        errors['/settings.val.ts?p="locales"."default"' as SourcePath].map(
+        errors['/settings.val.ts?p="locales"."available".2' as SourcePath].map(
           (error) => error.message,
         ),
-    ).toEqual([
-      "'fr-FR' is not one of this project's languages: 'en-US', 'nb-NO'",
-    ]);
+    ).toEqual(["'en-US' is declared twice"]);
   });
 
   test("a section name this Val does not know leaves the rest of the schema working", () => {
@@ -368,7 +341,7 @@ describe("the locales section", () => {
     });
     expect(
       schema["executeValidate"]("/settings.val.ts" as SourcePath, {
-        locales: { available: ["en-US"], default: "fr-FR" },
+        locales: { available: ["en-US", "en-US"] },
       }),
     ).toEqual(false);
     const errors = schema["executeValidate"]("/settings.val.ts" as SourcePath, {
@@ -380,7 +353,7 @@ describe("the locales section", () => {
           (error) => error.message,
         ),
     ).toEqual([
-      "Unknown settings key: 'availabel'. Expected one of: 'available', 'default'",
+      "Unknown settings key: 'availabel'. Expected one of: 'available'",
     ]);
   });
 
@@ -389,7 +362,7 @@ describe("the locales section", () => {
       "/settings.val.ts" as ModuleFilePath,
       s.settings(),
       {
-        locales: { available: ["en-US", "nb-NO"], default: "en-US" },
+        locales: { available: ["en-US", "nb-NO"] },
       },
     );
     expect(module).toBeDefined();

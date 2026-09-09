@@ -43,6 +43,11 @@ export type SettingsSource = {
  * filled in. That is the intended behaviour — a language that is declared and
  * missing everywhere is worth being told about — but it is why the Studio warns
  * before saving a removal rather than treating this as an ordinary field.
+ *
+ * There is no default language, deliberately. Every locale-specific field asks
+ * which language it is in, and a default is exactly the answer that lets that
+ * question go unanswered — content ends up filed under a language nobody chose,
+ * which is the state translation is meant to make visible.
  */
 export type LocalesSettingsSource = {
   /**
@@ -53,18 +58,6 @@ export type LocalesSettingsSource = {
    * put the language it works in first.
    */
   available?: string[] | null;
-  /**
-   * The language content is written in first.
-   *
-   * Where the Studio starts, and what a translation is made FROM — never the
-   * locale that happens to be on screen, so that the same button on the same
-   * field asks the same thing whatever is being looked at.
-   *
-   * Must be one of `available`. Unset where nothing has been declared, or where
-   * a project genuinely has no primary language, in which case nothing offers
-   * to translate.
-   */
-  default?: string | null;
 };
 
 /**
