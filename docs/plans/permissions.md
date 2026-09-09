@@ -303,32 +303,47 @@ the Studio with `schemas.data` (as `useNavMenuData.ts` does) and by the server
 from `validateSources(schemas, sources)`. One implementation, so the CLI and the
 Studio cannot disagree.
 
-What is checked:
+### Which severity, and why it splits that way
+
+Validation errors block publish, so severity is a question about **who can
+clear the block**, not about how wrong the configuration is.
+
+> An inconsistency **inside** the settings module is an error: whoever is
+> looking at it can fix it, there and then. An inconsistency **between settings
+> and code** is a warning: the person who broke it is not the person who can fix
+> it, and blocking publish punishes the whole project for it.
+
+Errors — self-contained, fixable in the file being edited:
+
+- A member references a role that `roles` does not define.
+- `locales.read` / `locales.write` name a language not in `locales.available`.
+- `write` is not a subset of `read`.
+
+Warnings — one half of the statement lives in code:
 
 - A role grants a permission nothing declares → _"`hr:raed` is not a permission.
   No schema requires it and it is not one of Val's own. Did you mean
   `hr:read`?"_
-- A member references a role that does not exist.
-- `locales.read` / `locales.write` name a language not in `locales.available`.
-- `write` is not a subset of `read`.
 - A schema requires a permission no role grants → the field is restricted for
-  everyone. A **warning**, never an error: it is a legitimate intermediate state
-  between the annotation shipping and an admin granting the role.
+  everyone. A legitimate intermediate state between the annotation shipping and
+  an admin granting the role.
+- A member id resolves to no profile — that needs a network call the CLI may not
+  be able to make.
 
-### Why these should be warnings, not errors
+The second warning is the one that decides it. Consider a developer deleting the
+one field carrying `.hidden({ unless: "hr:read" })`: the permission stops
+existing, every role granting it becomes invalid, and as an error that would
+**block publishing project-wide** until an admin edits the roles — because
+someone removed a field. Meanwhile the dangling grant is harmless: it is
+permission to do a thing nothing checks.
 
-Validation errors block publish. Consider a developer deleting the one field
-carrying `.hidden({ unless: "hr:read" })`: the permission stops existing, every
-role granting it is invalid, and **publishing is blocked project-wide** until an
-admin edits the roles — because someone removed a field.
-
-A dangling permission in settings is otherwise harmless: it is a grant nothing
-checks. So this wants `docs/plans/validation-warnings.md` to land first, or to
-ship Studio-only as a non-blocking hint on the offending role row.
+**Sequencing.** Warnings do not exist yet — `docs/plans/validation-warnings.md`
+is a plan. So either that lands first, or these ship Studio-only as non-blocking
+hints on the offending row. What must not happen is shipping them as errors in
+the meantime.
 
 ## Open questions
 
-- **Error or warning** for an unknown permission in settings, per above.
 - **Should the Studio refuse a settings patch that leaves nobody with
   `settings:write`?** Recoverable by editing the file, so not fatal, but the
   same class of mistake as discarding someone else's work.
