@@ -60,7 +60,7 @@ export default c.define("/settings.val.ts", s.settings(), {
   permissions: {
     roles: {
       editor: ["content:write", "assistant:use"],
-      publisher: ["content:write", "content:discard", "publish"],
+      publisher: ["content:write", "publish"],
       translator: ["content:write", "assistant:use"],
       admin: ["settings:read", "settings:write"],
     },
@@ -128,7 +128,6 @@ resolving it needs a network call the CLI may not be able to make.
 ```ts
 export type ValPermission =
   | "content:write" // PUT /patches, POST /upload/patches, patch groups
-  | "content:discard" // DELETE /patches — including other people's work
   | "publish" // POST /save
   | "settings:read" // the Settings section appears at all
   | "settings:write" // its fields are editable
@@ -144,6 +143,27 @@ _fields_ are involved is the schema's business.
 `publish` carries no resource prefix because it does not act on a resource: one
 commit ships content and settings together, so a `settings:publish` cannot
 exist.
+
+### Discarding is not a permission
+
+`DELETE /patches` has no permission of its own. **The discard controls appear if
+you have `content:write` or `publish`** — write, because adding to the pending
+queue and taking your own contribution back out are one capability; publish,
+because reviewing means being able to reject as well as ship.
+
+It was a sixth permission for a while, on the grounds that discard reaches other
+people's unpublished work. Splitting it out creates a worse state than the one it
+guards against. A role of `["content:write"]` alone is an editor who can make
+pending changes and cannot undo them: the queue is theirs to fill and nobody's to
+empty, and "edit the value back" leaves the junk patch in it. Worse, an invalid
+patch blocks publish for the whole project and the remedy Val offers is to
+discard it — `PatchErrorsDialog` has no other button (`PatchErrorsDialog.tsx:142`).
+So the editor who most needs discard is the one who just made a mistake, and that
+is precisely who the split disarmed.
+
+If a project ever genuinely wants "may draft, may not withdraw", that is a review
+workflow — drafts that need approval to retract — and not something a permission
+flag can express honestly.
 
 Not included, and each easy to add when someone asks: `content:read` (under
 UI-only enforcement it would only mean "may open the Studio", which the session
@@ -224,7 +244,7 @@ containing a patched field must be reachable, so a path is visible if it or any
 descendant is patched.
 
 This is the rule that would be indefensible in a security model and is right
-here. Publishing is not locale-gated and `content:discard` throws away other
+here. Publishing is not locale-gated and discarding throws away other
 people's work, so an editor can ship and can destroy changes they cannot
 otherwise see. Being unable to look at what you are about to publish is exactly
 the mistake this feature exists to prevent.
@@ -233,7 +253,8 @@ It follows that a field can appear, be published, and disappear again. That is
 correct, and worth a marker in the UI saying why it is showing.
 
 `readonly` is not overridden — the field is shown and still not typeable.
-Discarding it is a different action, governed by `content:discard`.
+Discarding it is a different action, and one anyone who may write or publish
+can take.
 
 ### Permissions are read from the published source
 
@@ -307,7 +328,7 @@ Read and write are separate because a translator who cannot see the source
 language cannot translate: Ola reads English to write Norwegian.
 
 **Locale scope narrows exactly one thing: where you can type.** `content:write`
-is checked against it; `publish`, `content:discard`, `settings:read`,
+is checked against it; `publish`, `settings:read`,
 `settings:write` and `assistant:use` are not, and none of them ever will be by
 this mechanism. That is worth stating as a rule rather than leaving as an
 accident of which cases came up, because it is what keeps the model small: a
@@ -323,8 +344,9 @@ simply subsumes the narrower. Member-level scope is enough.
 
 ### Discard is never locale-scoped
 
-Every user sees every pending change and can discard any of them, whatever their
-locales. This is deliberate, and it is not a compromise:
+Every user sees every pending change, and anyone who may write or publish can
+discard any of them, whatever their locales. This is deliberate, and it is not a
+compromise:
 
 - **A user legitimately holds patches outside their own locales.** Patches
   arrive in the same patch set as ones they did make; a settings change can
@@ -437,7 +459,7 @@ Two tiers — everyone edits, one person ships:
 permissions: {
   roles: {
     editor: ["content:write", "assistant:use"],
-    publisher: ["content:write", "content:discard", "publish", "assistant:use"],
+    publisher: ["content:write", "publish", "assistant:use"],
   },
   members: { usr_7f3a91: ["publisher"] },
   default: ["editor"],
@@ -450,7 +472,7 @@ A locked settings panel — only Erik sees Access at all:
 permissions: {
   roles: {
     editor: ["content:write", "assistant:use"],
-    publisher: ["publish", "content:discard"],
+    publisher: ["publish"],
     admin: ["settings:read", "settings:write"],
   },
   members: { usr_a1: ["publisher"], usr_e2: ["publisher", "admin"] },
@@ -464,7 +486,7 @@ Agency and client — the client writes, the agency ships:
 permissions: {
   roles: {
     "client-editor": ["content:write"],
-    agency: ["content:write", "content:discard", "publish",
+    agency: ["content:write", "publish",
              "settings:read", "settings:write", "assistant:use"],
   },
   members: { usr_dev: ["agency"], usr_pm: ["agency"] },
@@ -478,7 +500,7 @@ Locale teams — the shape locale scope exists for:
 permissions: {
   roles: {
     translator: ["content:write", "assistant:use"],
-    lead: ["content:write", "content:discard", "publish"],
+    lead: ["content:write", "publish"],
   },
   members: {
     usr_ola: { roles: ["translator"], locales: { read: ["en-US", "nb-NO"], write: ["nb-NO"] } },
@@ -684,15 +706,15 @@ Grants and what they mean:
 Given:
 
 ```ts
-roles:   { editor: ["content:write"], publisher: ["publish", "content:discard"] },
+roles:   { editor: ["content:write"], publisher: ["publish"] },
 members: { usr_boss: ["publisher"], "boss@company.com": ["admin"] },
 default: ["editor"],
 ```
 
-| User                      | Roles                      | Effective permissions                            |
-| ------------------------- | -------------------------- | ------------------------------------------------ |
-| unlisted                  | editor                     | `content:write`                                  |
-| `usr_boss` (a.k.a. boss@) | editor + publisher + admin | `content:write`, `publish`, `content:discard`, … |
+| User                      | Roles                      | Effective permissions                    |
+| ------------------------- | -------------------------- | ---------------------------------------- |
+| unlisted                  | editor                     | `content:write`                          |
+| `usr_boss` (a.k.a. boss@) | editor + publisher + admin | `content:write`, `publish`, `settings:*` |
 
 Both entries match the same person, so they union — and the Studio warns,
 because `/profiles` gives it the email for `usr_boss`.
