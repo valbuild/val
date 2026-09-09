@@ -3183,10 +3183,27 @@ export const ValServer = (
     },
     "/history/files": {
       GET: async (req) => {
-        // No auth, for the same reason /files has none: this is served to an
-        // <img> that the app's own backend may fetch during image
-        // optimisation, with no cookies. What it exposes is a file at a commit
-        // that is already in the repository.
+        /*
+         * Authenticated, unlike /files.
+         *
+         * This used to reason "same as /files" and that was wrong twice over.
+         * /files is open because a `patch_id` is an unguessable UUID standing
+         * in for a credential, and because it HAS to be: a draft image is
+         * fetched by the app's own backend during Next image optimisation,
+         * backend-to-backend, with no cookies to send.
+         *
+         * A commit sha is not a secret - it is in `git log`, in the GitHub UI,
+         * on every PR - so the first argument does not transfer. And nothing
+         * fetches this server-side; both callers are the Studio in a browser
+         * that has the session cookie (the history pane's <img>, and
+         * stageRestore's fetch, both same-origin so the cookie goes). So the
+         * second does not either, and there is nothing to trade away by
+         * asking.
+         */
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
         const res = await serverOps.getFileAtCommit(
           req.query.commit_sha,
           req.query.path,
@@ -3228,6 +3245,11 @@ export const ValServer = (
         //     3) the benefit an attacker would get is an image that is not yet published (i.e. most cases: not very interesting)
         // Thus: attack surface + ease of attack + benefit = low probability of attack
         // If we couldn't argue that patch ids are secret enough, then this would be a problem.
+        // Note that /history/files, which looks like the same endpoint, IS
+        // authenticated: its token is a commit sha, which is published, and
+        // nothing fetches it backend-to-backend. Neither half of the argument
+        // above transfers. See architecture/media.md, "Why /files has no auth,
+        // and /history/files does".
         let fileBuffer;
         let mimeType: string | undefined;
         const remote = query.remote === "true";
