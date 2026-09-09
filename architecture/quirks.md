@@ -612,42 +612,53 @@ is a whole-route request avoided, and in development that is a page re-render.
 If you find yourself adding a refresh somewhere, check whether this net already
 covers it.
 
-## A preview with no background shows the Studio's WHITE artboard
+## A preview with no background shows the Studio's artboard — or does not
 
 `CanvasFrame` paints a hardcoded `bg-white` artboard behind the preview iframe.
-A site that sets no background of its own therefore renders as a white sheet
+A site that sets no background of its own can therefore render as a white sheet
 inside a dark editor, which reads as the preview being broken.
 
-The surprising half is that the same page is NOT white as a top-level document.
-`color-scheme: light dark` with a dark browser preference gets the UA's dark
-canvas — `rgb(18,18,18)` in Chromium — so the site looks right everywhere except
-the Studio. It is tempting to explain that as "the browser paints its default
-white inside an iframe". It does not. Measured in Chromium 1194, with the
-browser in dark mode and the embedded page declaring `color-scheme: light dark`:
+The rule that decides whether the artboard is visible at all is not "iframes get
+the browser's default white". It is CSS Color Adjust's opaque-canvas rule:
 
-| embedder              | artboard | embedded page renders |
-| --------------------- | -------- | --------------------- |
-| no `color-scheme`     | red      | `rgb(18,18,18)`       |
-| `color-scheme: light` | red      | `rgb(18,18,18)`       |
-| `color-scheme: dark`  | red      | **red**               |
-| `color-scheme: dark`  | white    | **white**             |
+> When an element's used color scheme differs from its parent's — or, for the
+> root of an embedded document, from the **embedder's** — the UA paints an
+> opaque canvas in that scheme's Canvas colour. When they match, the canvas
+> stays transparent and the embedder shows through.
 
-An embedded document normally gets its own opaque dark UA canvas. It is left
-genuinely transparent — the embedder showing through — only when the EMBEDDER's
-used color scheme is already dark. So the artboard is visible exactly when the
-Studio page itself resolves to a dark color scheme.
+Measured across the full matrix in Chromium 1194 (4 embedder declarations x 4
+embedded declarations x both browser preferences, 32/32 cells): Canvas is
+`#ffffff` for light and `rgb(18,18,18)` for dark. `prefers-color-scheme` inside
+the iframe follows the BROWSER, not the embedder — the embedder only decides
+match versus differ, so nothing here misreports the site's own media queries.
 
-Which it does whenever the app puts one stylesheet on every route. In
-`examples/tanstack`, `__root.tsx` is the shell for `/val` too and links
-`styles.css`, so the Studio document carried the site's
-`:root { color-scheme: light dark }` and went dark with the OS preference — and
-that is what made the iframe transparent and the white artboard show. Nothing in
-`@valbuild/ui` declares `color-scheme`; the only occurrence in the built CSS is
-`DateTimeField`'s picker utility.
+For a background-less site previewed on the white artboard, that collapses to:
+
+| Studio's used scheme | site's used scheme | preview shows        |
+| -------------------- | ------------------ | -------------------- |
+| same as site         | —                  | the artboard (white) |
+| differs, site light  | light              | opaque white         |
+| differs, site dark   | dark               | `rgb(18,18,18)`      |
+
+So the preview is dark for exactly one combination: the site resolves dark while
+the Studio page resolves light. Nothing in `@valbuild/ui` declares
+`color-scheme` — the only occurrence in the built CSS is `DateTimeField`'s
+picker utility — so the Studio page resolves light unless the app puts one on
+it. In `examples/tanstack` it does: `__root.tsx` is the shell for `/val` too and
+links `styles.css`, so the Studio inherited the site's
+`:root { color-scheme: light dark }`, always matched the site, and the preview
+was deterministically white. A Next app whose `/val` route does NOT share the
+site stylesheet gets the split instead — white for a light-mode editor,
+`rgb(18,18,18)` for a dark-mode one, on the same site.
+
+The artboard stays white on purpose. Making it follow the Studio theme would
+make the preview depend on the editor's theme, and there is no single correct
+answer to paint instead: a site with no background genuinely has none, and a
+real visitor sees white or `#121212` depending on their own preference.
 
 The fix is on the site, not the Studio: set an explicit background on `body`.
 A page that paints its own background is opaque in both contexts and none of
-the above applies.
+the above applies. Neither Tailwind v3 nor v4 preflight sets one for you.
 
 ## `suspend` is three waits, and a route only gets one chance
 
