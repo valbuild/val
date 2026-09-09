@@ -24,9 +24,15 @@ Same meaning: where uploads for that schema land. Still required on
 project-wide files directory, a different option with a different scope, and it
 keeps its name.
 
-One consequence worth knowing: `dir` is part of the serialized schema, and the
-serialized schema is what a remote file's validation hash is computed from. So
-already-published remote files that came from a schema setting this option get
-one re-validation on upgrade — Val re-downloads, re-checks and rewrites the ref
-with the new hash. This is the same path a core version bump already takes, and
-it needs no action.
+`dir` is the serialized name too, and two things follow from that. Neither
+needs any action, but both are worth knowing:
+
+- **History still reads pre-rename commits.** A commit record stores the schema
+  each module was under, so commits from before this release carry `directory`.
+  The serialized-schema parser accepts that key and reads it as `dir`, which is
+  what keeps a historical gallery from showing up with no directory at all.
+- **Published remote files re-validate once.** The serialized schema is what a
+  remote file's validation hash is computed from, so a file uploaded under a
+  schema that sets this option gets one re-download and re-check, after which
+  the ref is rewritten with the new hash. This is the same self-healing path a
+  core version bump already takes.

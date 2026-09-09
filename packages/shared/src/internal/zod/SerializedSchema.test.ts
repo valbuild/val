@@ -389,4 +389,52 @@ describe("SerializedSchema keeps every field the schema wrote", () => {
       referencedModule: "/test/backing-gallery.val.ts",
     });
   });
+
+  /**
+   * Serialized schemas are not only computed from live code: a commit record
+   * stores the schema each module was under, and the history view parses those
+   * back. Commits from before `directory` became `dir` still carry the old key,
+   * so the parser has to read it — otherwise a historical gallery shows no
+   * directory at all, and nothing errors to say why.
+   */
+  describe("the pre-rename `directory` key", () => {
+    test("is read as `dir` on an image schema's options", () => {
+      const parsed = SerializedSchema.safeParse({
+        type: "image",
+        opt: false,
+        options: { directory: "/public/val/legacy", accept: "image/*" },
+      });
+      expect(parsed.success && parsed.data).toMatchObject({
+        type: "image",
+        options: { dir: "/public/val/legacy", accept: "image/*" },
+      });
+    });
+
+    test("is read as `dir` on a gallery record", () => {
+      const parsed = SerializedSchema.safeParse({
+        type: "record",
+        opt: false,
+        item: { type: "string", opt: false, raw: false },
+        mediaType: "images",
+        accept: "image/*",
+        directory: "/public/val/legacy-gallery",
+      });
+      expect(parsed.success && parsed.data).toMatchObject({
+        type: "record",
+        mediaType: "images",
+        dir: "/public/val/legacy-gallery",
+      });
+    });
+
+    test("does not override a schema that already carries `dir`", () => {
+      const parsed = SerializedSchema.safeParse({
+        type: "image",
+        opt: false,
+        options: { dir: "/public/val/current", directory: "/public/val/old" },
+      });
+      expect(parsed.success && parsed.data).toMatchObject({
+        options: { dir: "/public/val/current" },
+      });
+    });
+  });
 });
