@@ -241,6 +241,49 @@ Settings are content, so a user can patch the permissions section. Resolving
 against the patched source would let someone unlock their own Studio from an
 unpublished draft. `/sources` already takes `exclude_patches`.
 
+One consequence to keep in mind for the guards below: an edit to the permissions
+section does not take effect until it is published. An admin who removes their
+own access keeps working until someone publishes, and finds out afterwards.
+
+### Editing the permissions section: one refusal and one warning
+
+Editing permissions is the one edit that can take away the ability to make the
+next one. Two guards, and the line between them is the same one that decides
+error from warning:
+
+> **Refuse when nothing in the Studio can undo it. Warn when someone else can.**
+
+**Refuse: an edit that leaves nobody with `settings:write`.** The Studio will not
+write the patch — not a dialog to confirm through, a refusal that says which edit
+would do it. The state is recoverable (edit the `.val.ts` by hand, or open the
+project locally, where every permission is granted), so this is not about an
+unrecoverable project. It is about not turning an admin's afternoon into an
+errand for a developer.
+
+Computing "nobody" has three parts that are easy to get wrong:
+
+- Resolve against the source **as the patch would leave it**, not as it is.
+- `default` counts. If `default` grants `settings:write` then everyone has it and
+  no member edit can be the last one — and conversely, **editing `default` is the
+  dangerous edit**, because one field can remove it from everybody at once. A
+  guard that only watches `members` misses the case that matters most.
+- Union id and email entries first, so one person listed both ways counts once
+  and removing one of their two entries is not read as removing the last admin.
+
+The Studio is not the only way in, so the same condition is also a validation
+**error** — that is the backstop for a hand-edited `.val.ts`, and it belongs on
+the error side of the severity rule: it is contained in the settings module, and
+whoever is looking at it can fix it.
+
+**Warn: an edit that lowers your own permissions.** Diff your own effective set
+before and after; if the edit would take anything away, say what. Losing your own
+`settings:write` is the case worth naming in the message, but it is a warning
+rather than a refusal for exactly one reason — another admin can put it back.
+
+Deliberately not a refusal: stepping down from admin is a legitimate thing to do,
+and the mistake it guards against is doing it by accident while editing a role
+that happens to be yours.
+
 ## Locale scope
 
 Depends on #608, which introduces the concept this reuses:
@@ -687,9 +730,6 @@ permissions: {
 
 ## Open questions
 
-- **Should the Studio refuse a settings patch that leaves nobody with
-  `settings:write`?** Recoverable by editing the file, so not fatal, but the
-  same class of mistake as discarding someone else's work.
 - **Scope on the assignment or on the member?** Currently on the assignment,
   which cannot express "Norwegian editor, and also a global reviewer". Probably
   rare enough to leave.
