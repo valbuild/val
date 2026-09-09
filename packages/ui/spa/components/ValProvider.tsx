@@ -50,6 +50,7 @@ import { LocalModulesErrorBanner } from "./LocalModulesErrorBanner";
 import { useSchemas } from "./ValFieldProvider";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
+import { ProjectLocalesProvider } from "../hooks/ProjectLocalesProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
 import { ValFieldProvider } from "./ValFieldProvider";
 import { ValStoreProvider } from "../stores/react/ValStoreProvider";
@@ -864,7 +865,9 @@ export function ValProvider({
                         */}
                           <ValOverlayEmitter enabled={dispatchValEvents} />
                           <LocalModulesErrorBanner />
-                          {children}
+                          <ProjectLocalesProvider>
+                            {children}
+                          </ProjectLocalesProvider>
                           <SchemaOutOfDateGate />
                         </ValFieldProvider>
                       </ValRemoteProvider>

@@ -50,7 +50,8 @@ const FIELDS_DIR = path.join(__dirname, "fields");
  * because both were exactly that — the languages a project declares live in the
  * settings module, so reading them from source means `useSchemas` plus the
  * module, and every field and every filtered row asks. They read a context now;
- * the shell does the reading (see `useLocalesFromSettings`).
+ * `ValProvider` does the reading, once, in `ProjectLocalesProvider` — which is
+ * a separate file precisely so that listing this one stays a true statement.
  */
 const EXTRA_FILES = [
   "Field.tsx",

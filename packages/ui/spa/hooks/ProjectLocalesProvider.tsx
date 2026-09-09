@@ -1,14 +1,34 @@
 import { Json, SourcePath } from "@valbuild/core";
-import { useMemo } from "react";
+import { ReactNode, useMemo } from "react";
 import { useSchemas, useSourceAtPath } from "../components/ValFieldProvider";
 import { settingsModuleFilePath } from "./assistantSettings";
 import { sourcePathOfItem } from "../utils/sourcePathOfItem";
+import { ProjectLocalesContext } from "./useProjectLocales";
+
+/**
+ * Read the project's languages once, and put them where fields can see them.
+ *
+ * Mounted by `ValProvider`, inside `ValFieldProvider` — not by the roots. There
+ * are two of those (the Studio shell and the on-page overlay) and each renders
+ * its own field tree, so a provider mounted per root is a provider a root can
+ * be written without: the overlay was, and every locale field in it offered no
+ * languages while `emptyOf` wrote locale-keyed records with no keys. One mount,
+ * below everything that supplies the store and above everything that draws a
+ * field, is the position where that cannot happen again.
+ */
+export function ProjectLocalesProvider({ children }: { children: ReactNode }) {
+  const locales = useLocalesFromSettings();
+  return (
+    <ProjectLocalesContext.Provider value={locales}>
+      {children}
+    </ProjectLocalesContext.Provider>
+  );
+}
 
 /**
  * The languages this project publishes, read from its settings module.
  *
- * Called ONCE, by the shell, and handed down through
- * {@link ProjectLocalesProvider}. Everything else asks
+ * Called ONCE, by {@link ProjectLocalesProvider} above. Everything else asks
  * {@link useProjectLocales}, which is a context read. That split is the whole
  * point of this file existing separately: the read below is a whole-project
  * subscription — `useSchemas` wakes on every schema change, `useSourceAtPath`
@@ -26,7 +46,7 @@ import { sourcePathOfItem } from "../utils/sourcePathOfItem";
  * field that refused to render until it was well-formed would disappear exactly
  * when someone was fixing it.
  */
-export function useLocalesFromSettings(): string[] {
+function useLocalesFromSettings(): string[] {
   const schemas = useSchemas();
   const moduleFilePath =
     schemas.status === "success" ? settingsModuleFilePath(schemas.data) : null;

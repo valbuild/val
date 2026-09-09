@@ -258,9 +258,11 @@ export function BlockList({
           disabled={readonly}
         >
           <div className="flex flex-col gap-1 w-full">
+            {/* `empty:hidden` — see `SortableList`, same wrapper, same reason. */}
             {items.map((item, index) => (
               <div
                 key={item.id}
+                className="empty:hidden"
                 style={{ opacity: item.id === activeId ? 0.3 : undefined }}
               >
                 {renderRow(item, index)}

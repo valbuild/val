@@ -1,5 +1,5 @@
 import type { SerializedSchema, Source } from "@valbuild/core";
-import { emptyOf } from "../emptyOf";
+import { emptyOf, type EmptyOfContext } from "../emptyOf";
 import {
   getSourceAt,
   resolveSerializedSchemaAtPath,
@@ -208,6 +208,12 @@ export function buildEmptyAtPathPatch(
   // standing between "scaffold an entry" and "delete the entry that was there",
   // and an optional argument is one a caller forgets.
   moduleSource: Source | undefined,
+  // The project's languages, for a locale-keyed record: its entries ARE the
+  // languages, and they are declared in another module, so an empty one built
+  // without them is `{}` — which the completeness rule then reports as every
+  // language missing. Both callers can answer: the Studio from the context, the
+  // MCP tools from the snapshot they already hold. See `EmptyOfContext`.
+  context?: EmptyOfContext,
 ): BuildResult {
   let destinationSchema: SerializedSchema;
   if (args.destinationPath.length === 0) {
@@ -262,7 +268,7 @@ export function buildEmptyAtPathPatch(
   if (occupied) {
     return occupied;
   }
-  const value = emptyOf(destinationSchema);
+  const value = emptyOf(destinationSchema, context);
   return safeParsePatch([
     {
       op: decision.op,

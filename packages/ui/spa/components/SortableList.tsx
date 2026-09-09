@@ -131,9 +131,20 @@ export function SortableContainer({
         disabled={disabled}
       >
         <div className={className ?? "flex flex-col gap-y-4 w-full"}>
+          {/*
+           * `empty:hidden` so a row that draws nothing takes no gap.
+           *
+           * Whether a row renders is decided INSIDE it — `LocaleFiltered`
+           * returns null under the locale filter, and a hidden item schema
+           * does the same — so this wrapper cannot ask before rendering, and
+           * a flex child with no content still gets its share of the `gap`.
+           * The result was a blank slot per hidden row. `:empty` is the one
+           * test that runs after the child has decided.
+           */}
           {items.map(({ path, id }, index) => (
             <div
               key={id}
+              className="empty:hidden"
               style={{ opacity: id === activeId ? 0.3 : undefined }}
             >
               {renderItem({ path, id, index })}

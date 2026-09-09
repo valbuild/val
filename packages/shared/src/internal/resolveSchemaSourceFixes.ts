@@ -313,7 +313,7 @@ export type ResolvedFix =
  * these has to resolve all of them, and the two that leaked did so by adding a
  * fix here and not to a condition somewhere else.
  */
-const SCHEMA_SOURCE_FIXES: ValidationFix[] = [
+export const SCHEMA_SOURCE_FIXES: ValidationFix[] = [
   "keyof:check-keys",
   "router:check-route",
   "locale:check-locale",
