@@ -1410,6 +1410,10 @@ export class ValOpsFS extends ValOps {
   > {
     return result.err({ kind: "not-supported-in-fs-mode" });
   }
+
+  override gitPathOfModule(): result.Result<string, HistoryError> {
+    return result.err({ kind: "not-supported-in-fs-mode" });
+  }
   // #endregion history
 }
 

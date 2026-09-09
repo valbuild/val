@@ -55,6 +55,7 @@ import type { HistoryError } from "./history/HistoryError";
 import { historyErrorMessage } from "./history/HistoryError";
 import { getHistoricalPatchSet } from "./history/getHistoricalPatchSet";
 import { getModuleAtCommit } from "./history/getModuleAtCommit";
+import { getJsonEntryAtCommit } from "./history/getJsonEntryAtCommit";
 import { getSettings } from "./getSettings";
 import {
   createValOps,
@@ -3177,6 +3178,32 @@ export const ValServer = (
             "Cache-Control": settled
               ? "private, max-age=31536000, immutable"
               : "no-store",
+          },
+        };
+      },
+    },
+    "/history/json": {
+      GET: async (req) => {
+        // Authenticated, for the reasons on /history/files below.
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const res = await getJsonEntryAtCommit(
+          serverOps,
+          req.query.commit_sha,
+          req.query.path as ModuleFilePath,
+          req.query.key,
+        );
+        if (result.isErr(res)) {
+          return historyErrorResponse(res.error);
+        }
+        return {
+          status: 200,
+          json: {
+            path: req.query.path as ModuleFilePath,
+            key: req.query.key,
+            content: res.value,
           },
         };
       },
