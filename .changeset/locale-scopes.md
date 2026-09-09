@@ -39,9 +39,7 @@ whole tree — an unrelated typo in a `.val.ts` would print pages.
 `localeAt(path, snapshot)` (from `@valbuild/shared/internal`) answers which
 language governs a path, and is the one implementation of that question, so the
 Studio, the server and the validation worker cannot disagree. It returns the
-**canonical tag** rather than the stored spelling: with
-`.aliases({ "nb-NO": "no" })` a key reads `no` and `localeAt` says `nb-NO`,
-which is what `<html lang>`, `Intl` and `locales.available` all want.
+tag, which is what `<html lang>`, `Intl` and `locales.available` all want.
 
 It answers `null` where no scope governs the path, where the project has
 declared no languages, and where a locale field holds something that is not one

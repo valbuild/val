@@ -101,11 +101,7 @@ export function LocaleFiltered({
     // vanishes as its content arrives is the other one.
     return <>{children}</>;
   }
-  const locale = localeOfValue(
-    value,
-    projectLocales,
-    localeFieldAliases(schema, localeField),
-  );
+  const locale = localeOfValue(value, projectLocales);
   if (locale !== null && locale !== filter) {
     return null;
   }
@@ -132,18 +128,6 @@ function localeFieldNameOf(schema: SerializedSchema): string | null {
     }
   }
   return null;
-}
-
-/** That field's alias table, so a stored `no` reads back as `nb-NO`. */
-function localeFieldAliases(
-  schema: SerializedSchema | undefined,
-  field: string,
-): Record<string, string[]> | undefined {
-  if (schema?.type !== "object") {
-    return undefined;
-  }
-  const item = schema.items[field];
-  return item?.type === "locale" ? item.aliases : undefined;
 }
 
 /** A node a list is about to draw, as much of it as the list already has. */
@@ -205,7 +189,7 @@ function localeScopeOf(
   projectLocales: string[],
 ): string | null {
   if (node.keySchema?.type === "locale" && node.key !== undefined) {
-    return localeOfValue(node.key, projectLocales, node.keySchema.aliases);
+    return localeOfValue(node.key, projectLocales);
   }
   const source = node.source;
   if (!isRecord(source)) {
@@ -235,7 +219,7 @@ function localeScopeOf(
       // listed — hiding it would hide the field someone has to fill in.
       return null;
     }
-    return localeOfValue(value, projectLocales, item.aliases);
+    return localeOfValue(value, projectLocales);
   }
   return null;
 }

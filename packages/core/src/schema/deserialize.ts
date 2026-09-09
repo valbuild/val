@@ -227,7 +227,6 @@ function deserializeSchemaImpl(
       );
     case "locale": {
       return new LocaleSchema(
-        serialized.aliases,
         serialized.opt,
         [],
         false,

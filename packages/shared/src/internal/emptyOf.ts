@@ -3,7 +3,6 @@ import {
   Json,
   Internal,
   DEFAULT_COLOR_FORMAT,
-  acceptedLocaleValues,
   declaredKeySetOf,
 } from "@valbuild/core";
 
@@ -161,8 +160,6 @@ function emptyRecord(
     return {};
   }
   const keys =
-    declared.kind === "literals"
-      ? declared.keys
-      : acceptedLocaleValues(context?.locales ?? [], declared.aliases);
+    declared.kind === "literals" ? declared.keys : (context?.locales ?? []);
   return Object.fromEntries(keys.map((key) => [key, null]));
 }

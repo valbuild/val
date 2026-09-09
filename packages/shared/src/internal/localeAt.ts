@@ -25,11 +25,6 @@ import {
  * One implementation, so the Studio, the server and the validation worker cannot
  * disagree about what language a piece of content is in.
  *
- * The answer is the canonical tag, never the stored spelling. With
- * `.aliases({ "nb-NO": "no" })` a key reads `no` and this returns `nb-NO`,
- * because that is what goes into `<html lang>`, into `Intl` and into a
- * comparison against `locales.available`.
- *
  * `null` means no scope governs the path — which is the answer for most content
  * in most projects, and for every project that has not declared any languages.
  */
@@ -85,11 +80,7 @@ function walk(
       if (currentSchema.key?.type === "locale") {
         // In a locale-keyed record the KEY is the language, so the segment we
         // are about to take is the answer.
-        const resolved = localeOfValue(
-          segment,
-          available,
-          currentSchema.key.aliases,
-        );
+        const resolved = localeOfValue(segment, available);
         if (resolved !== null) {
           locale = resolved;
         }
@@ -165,7 +156,7 @@ function localeOfObjectField(
     if (typeof value !== "string") {
       return null;
     }
-    return localeOfValue(value, available, item.aliases);
+    return localeOfValue(value, available);
   }
   return null;
 }

@@ -21,16 +21,10 @@ describe("declaredKeySetOf", () => {
     });
   });
 
-  test("a locale defers to the settings module, carrying its aliases", () => {
+  test("a locale defers to the settings module for its keys", () => {
     expect(declaredKeySetOf(s.locale()["executeSerialize"]())).toEqual({
       kind: "locale",
-      aliases: undefined,
     });
-    expect(
-      declaredKeySetOf(
-        s.locale().aliases({ "nb-NO": "no" })["executeSerialize"](),
-      ),
-    ).toEqual({ kind: "locale", aliases: { "nb-NO": ["no"] } });
   });
 
   test("an open key schema declares nothing", () => {
@@ -78,7 +72,6 @@ describe("a record with a declared key set", () => {
     expect(fix?.value).toEqual({
       present: ["a"],
       declared: ["a", "b"],
-      aliases: undefined,
     });
   });
 
@@ -90,7 +83,6 @@ describe("a record with a declared key set", () => {
     expect(fix?.value).toEqual({
       present: ["nb-NO"],
       declared: null,
-      aliases: undefined,
     });
   });
 

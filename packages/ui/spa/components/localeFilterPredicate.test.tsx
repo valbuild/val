@@ -34,10 +34,6 @@ function predicateUnder(locale: string | null) {
  */
 describe("the locale filter predicate", () => {
   const localeKey = s.locale()["executeSerialize"]();
-  const aliasedKey = s
-    .locale()
-    .aliases({ "nb-NO": "no" })
-    ["executeSerialize"]();
   const stringKey = s.string()["executeSerialize"]();
   const scopedObject = s
     .object({ locale: s.locale(), title: s.string() })
@@ -70,14 +66,6 @@ describe("the locale filter predicate", () => {
   test("an ordinary record is untouched: its keys say nothing about language", () => {
     const matches = predicateUnder("nb-NO");
     expect(matches({ key: "winter-jacket", keySchema: stringKey })).toBe(true);
-  });
-
-  test("aliases are resolved, so a '/no/…' key is Norwegian", () => {
-    const matches = predicateUnder("nb-NO");
-    expect(matches({ key: "no", keySchema: aliasedKey })).toBe(true);
-    expect(matches({ key: "en", keySchema: aliasedKey })).toBe(true);
-    // 'en' is not aliased in this map, so it resolves to no language at all —
-    // and something in no language is always shown.
   });
 
   test("an object with a locale field is filtered by that field's value", () => {

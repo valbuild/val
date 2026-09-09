@@ -1,5 +1,4 @@
 import { SourcePath } from "@valbuild/core";
-import { acceptedLocaleValues, localeOfValue } from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
@@ -29,10 +28,6 @@ import { localeName } from "../../utils/localeName";
  * The options come from `locales.available` in the settings module, not from the
  * schema — which is the whole design: a project adds a language once, there, and
  * every locale field in the project offers it.
- *
- * With `.aliases()` the options are the field's own spellings instead, since
- * those are what this field stores. Each is labelled with the language it means,
- * so `no` reads as "norsk bokmål" and not as a mystery.
  */
 export function LocaleField({
   path,
@@ -82,7 +77,7 @@ export function LocaleField({
   const content = (
     <div id={path}>
       <LocalePicker
-        options={localeOptionsOf(projectLocales, schemaAtPath.data.aliases)}
+        options={projectLocales}
         value={sourceAtPath.data ?? null}
         readonly={readonly}
         portalContainer={portalContainer}
@@ -99,38 +94,11 @@ export function LocaleField({
 }
 
 /**
- * One choice the picker offers: what is stored, and the language it means.
- *
- * `locale` is `null` only where the stored value resolves to no language, which
- * an option built by `localeOptionsOf` never is — it is in the type so the
- * label can be reused for a value read back out of content, which can be.
- */
-export type LocaleOption = { value: string; locale: string | null };
-
-/**
- * The project's languages as choices, spelled the way this field stores them.
- *
- * Without aliases the value and the language are the same tag. With them the
- * value is the field's own spelling, and the language is what it means — which
- * is why both travel together rather than the picker being handed bare strings.
- */
-export function localeOptionsOf(
-  projectLocales: string[],
-  aliases: Record<string, string[]> | undefined,
-): LocaleOption[] {
-  return acceptedLocaleValues(projectLocales, aliases).map((value) => ({
-    value,
-    locale: localeOfValue(value, projectLocales, aliases),
-  }));
-}
-
-/**
  * The picker itself, with nothing behind it.
  *
  * Split from `LocaleField` so the design can be seen without a store: this is
  * the part with states worth looking at — a project that has declared no
- * languages, a field that has not been set, aliases that make the value and the
- * language differ. See `LocaleField.stories.tsx`.
+ * languages, and a field that has not been set. See `LocaleField.stories.tsx`.
  */
 export function LocalePicker({
   options,
@@ -139,7 +107,8 @@ export function LocalePicker({
   onChange,
   portalContainer,
 }: {
-  options: LocaleOption[];
+  /** The project's languages, in the order it declared them. */
+  options: string[];
   value: string | null;
   readonly?: boolean;
   onChange: (next: string) => void;
@@ -165,8 +134,8 @@ export function LocalePicker({
       </SelectTrigger>
       <SelectContent container={portalContainer}>
         {options.map((option) => (
-          <SelectItem key={option.value} value={option.value}>
-            <LocaleOptionLabel value={option.value} locale={option.locale} />
+          <SelectItem key={option} value={option}>
+            <LocaleOptionLabel locale={option} />
           </SelectItem>
         ))}
       </SelectContent>
@@ -195,26 +164,22 @@ export function LocalePreview({ path }: { path: SourcePath }) {
 }
 
 /**
- * One option: the language, and the value it is stored as where those differ.
+ * One option: the language's name, and the tag under it.
  *
- * Without aliases they are the same string and showing it twice would be noise,
- * so the tag is only drawn when it is not the stored value.
+ * The tag as well as the name because the tag is what is stored, and a list of
+ * language names alone leaves an editor guessing which string a `.val.ts` will
+ * hold. `Intl.DisplayNames` does not know every tag, so a name is not always
+ * available — then the tag is the whole label rather than a blank row.
  */
-function LocaleOptionLabel({
-  value,
-  locale,
-}: {
-  value: string;
-  locale: string | null;
-}) {
-  const name = locale === null ? undefined : localeName(locale);
+function LocaleOptionLabel({ locale }: { locale: string }) {
+  const name = localeName(locale);
   if (name === undefined) {
-    return <span>{value}</span>;
+    return <span>{locale}</span>;
   }
   return (
     <span className="flex items-baseline gap-2">
       <span>{name}</span>
-      <span className="text-fg-secondary-alt tabular-nums">{value}</span>
+      <span className="text-fg-secondary-alt tabular-nums">{locale}</span>
     </span>
   );
 }

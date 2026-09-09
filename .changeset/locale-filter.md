@@ -23,8 +23,7 @@ scope rule: only a node that OPENS a locale scope is ever filtered, and content
 inside a scope is reachable only through the node that opened it — so hiding
 that node takes its subtree with it. Two of the three ways a scope opens are
 answerable from what a list already has: an entry of a locale-keyed record (the
-key IS the language, aliases resolved, so a `/no/…` key is Norwegian) and an
-object with a `locale` field.
+key IS the language) and an object with a `locale` field.
 
 The filter reaches record entries, array items and blocks. A locale-keyed record
 filters its KEYS, so a row in another language is never rendered at all; every

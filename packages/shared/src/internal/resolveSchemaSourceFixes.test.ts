@@ -360,7 +360,6 @@ describe("record:fill-keys", () => {
   function unresolved(value: {
     present: string[];
     declared: string[] | null;
-    aliases?: Record<string, string[]>;
   }): Record<SourcePath, ValidationError[]> {
     return {
       [at]: [
@@ -418,18 +417,6 @@ describe("record:fill-keys", () => {
     expect(result[at][0].message).toContain("Missing key: 'nb-NO'");
   });
 
-  test("with aliases the required keys are the spellings, not the tags", () => {
-    const result = resolveSchemaSourceFixes(
-      unresolved({
-        present: ["en"],
-        declared: null,
-        aliases: { "en-US": ["en"], "nb-NO": ["no"] },
-      }),
-      project(["en-US", "nb-NO"]),
-    );
-    expect(result[at][0].message).toContain("Missing key: 'no'");
-  });
-
   test("a project with no languages requires nothing of a locale record", () => {
     // The locale field's own check already says the project has declared none.
     // Demanding entries for a list that does not exist would be a second error
@@ -474,10 +461,7 @@ describe("locale:check-locale", () => {
   }
 
   /** The error a locale field raises, before it is resolved. */
-  function unresolved(
-    locale: string,
-    aliases?: Record<string, string[]>,
-  ): Record<SourcePath, ValidationError[]> {
+  function unresolved(locale: string): Record<SourcePath, ValidationError[]> {
     return {
       ['/content/page.val.ts?p="locale"' as SourcePath]: [
         {
@@ -486,7 +470,6 @@ describe("locale:check-locale", () => {
           value: {
             locale,
             sourcePath: '/content/page.val.ts?p="locale"',
-            aliases,
           },
         },
       ],
@@ -530,70 +513,6 @@ describe("locale:check-locale", () => {
     expect(result[at][0].message).toContain(
       "Declare them under 'locales.available'",
     );
-  });
-
-  test("with aliases, a spelling resolves and the tag does not", () => {
-    const snapshot = project(["en-US", "nb-NO"]);
-    expect(
-      resolveSchemaSourceFixes(unresolved("no", { "nb-NO": ["no"] }), snapshot),
-    ).toEqual({});
-    // The tag itself is no longer a value of this field — that is what makes
-    // one page one URL.
-    const rejected = resolveSchemaSourceFixes(
-      unresolved("nb-NO", { "nb-NO": ["no"] }),
-      snapshot,
-    );
-    expect(rejected[at][0].message).toBe(
-      "'nb-NO' is not one of this field's locales: 'no'",
-    );
-  });
-
-  test("a partial alias map is a subset of the project's languages", () => {
-    const rejected = resolveSchemaSourceFixes(
-      unresolved("fr", { "en-US": ["en"] }),
-      project(["en-US", "fr-FR"]),
-    );
-    expect(rejected[at][0].message).toBe(
-      "'fr' is not one of this field's locales: 'en'",
-    );
-  });
-
-  test("an alias for a language the project does not have names the schema's mistake", () => {
-    // The value stored here is fine — 'en' is a spelling this field accepts. It
-    // is the map that is wrong, and saying so is the whole point: the previous
-    // behaviour accepted '/de/…' as German on a site with no German.
-    const rejected = resolveSchemaSourceFixes(
-      unresolved("en", { "en-US": ["en"], "de-DE": ["de"] }),
-      project(["en-US", "nb-NO"]),
-    );
-    expect(rejected[at][0].message).toBe(
-      ".aliases() names 'de-DE', which is not one of this project's languages: " +
-        "'en-US', 'nb-NO'. Add it under 'locales.available' in the settings " +
-        "module, or drop it from the alias map.",
-    );
-    expect(rejected[at][0].fixes).toBeUndefined();
-  });
-
-  test("several undeclared aliases are named together, and read as a plural", () => {
-    const rejected = resolveSchemaSourceFixes(
-      unresolved("en", { "en-US": ["en"], "de-DE": ["de"], "sv-SE": ["sv"] }),
-      project(["en-US"]),
-    );
-    expect(rejected[at][0].message).toBe(
-      ".aliases() names 'de-DE', 'sv-SE', which are not among this project's " +
-        "languages: 'en-US'. Add them under 'locales.available' in the settings " +
-        "module, or drop them from the alias map.",
-    );
-  });
-
-  test("an undeclared alias does not lend its spellings to the field", () => {
-    // The same map, with the German spelling stored. Without the narrowing in
-    // `acceptedLocaleValues` this resolved, and '/de/…' became a German page.
-    const rejected = resolveSchemaSourceFixes(
-      unresolved("de", { "en-US": ["en"], "de-DE": ["de"] }),
-      project(["en-US"]),
-    );
-    expect(rejected[at][0].message).toContain(".aliases() names 'de-DE'");
   });
 
   test("a settings module of the wrong shape reads as no languages", () => {

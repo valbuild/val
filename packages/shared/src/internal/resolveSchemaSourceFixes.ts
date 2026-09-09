@@ -1,11 +1,8 @@
 import {
   Internal,
-  acceptedLocaleValues,
   missingDeclaredKeys,
-  undeclaredAliasedLocales,
   resolveSettingsModule,
   type Json,
-  type LocaleAliases,
   type ModuleFilePath,
   type SerializedSchema,
   type SourcePath,
@@ -408,10 +405,7 @@ export function resolveSchemaSourceFixForError(
         },
       };
     }
-    const { locale, aliases } = value as {
-      locale?: unknown;
-      aliases?: LocaleAliases;
-    };
+    const { locale } = value as { locale?: unknown };
     if (typeof locale !== "string") {
       return {
         status: "remaining",
@@ -436,49 +430,16 @@ export function resolveSchemaSourceFixForError(
         },
       };
     }
-    const undeclared = undeclaredAliasedLocales(available, aliases);
-    if (undeclared.length > 0) {
-      return {
-        status: "remaining",
-        error: {
-          ...error,
-          // Reported before the value is looked at, and reported even when the
-          // value happens to be fine: the mistake is in the schema, so a field
-          // that only ever stores 'en' would otherwise never mention that the
-          // German it also aliases does not exist.
-          message: `.aliases() names ${undeclared
-            .map((each) => `'${each}'`)
-            .join(", ")}, which ${
-            undeclared.length === 1 ? "is not one of" : "are not among"
-          } this project's languages: ${available
-            .map((each) => `'${each}'`)
-            .join(", ")}. Add ${
-            undeclared.length === 1 ? "it" : "them"
-          } under 'locales.available' in the settings module, or drop ${
-            undeclared.length === 1 ? "it" : "them"
-          } from the alias map.`,
-          fixes: undefined,
-        },
-      };
-    }
-    const accepted = acceptedLocaleValues(available, aliases);
-    if (accepted.includes(locale)) {
+    if (available.includes(locale)) {
       return { status: "resolved" };
     }
     return {
       status: "remaining",
       error: {
         ...error,
-        message:
-          aliases === undefined
-            ? `'${locale}' is not one of this project's languages: ${accepted
-                .map((each) => `'${each}'`)
-                .join(", ")}`
-            : // With aliases the tag itself is NOT a value, so naming the
-              // languages would be naming things this field does not accept.
-              `'${locale}' is not one of this field's locales: ${accepted
-                .map((each) => `'${each}'`)
-                .join(", ")}`,
+        message: `'${locale}' is not one of this project's languages: ${available
+          .map((each) => `'${each}'`)
+          .join(", ")}`,
         fixes: undefined,
       },
     };
@@ -497,10 +458,9 @@ export function resolveSchemaSourceFixForError(
         },
       };
     }
-    const { present, declared, aliases } = value as {
+    const { present, declared } = value as {
       present?: unknown;
       declared?: unknown;
-      aliases?: Record<string, string[]>;
     };
     if (!Array.isArray(present)) {
       return {
@@ -521,7 +481,7 @@ export function resolveSchemaSourceFixForError(
     // resolved here rather than in the schema.
     const declaredKeys = Array.isArray(declared)
       ? declared.filter((key): key is string => typeof key === "string")
-      : acceptedLocaleValues(declaredLocales(snapshot), aliases);
+      : declaredLocales(snapshot);
     if (declaredKeys.length === 0) {
       // A locale record on a project that has declared no languages. There is
       // nothing to require, and the locale field's own check already says the

@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
-import { LocaleOption, LocalePicker, localeOptionsOf } from "../LocaleField";
+import { LocalePicker } from "../LocaleField";
 
 /**
  * `s.locale()` as an editor meets it: a picker over the project's languages.
@@ -11,12 +11,6 @@ import { LocaleOption, LocalePicker, localeOptionsOf } from "../LocaleField";
  * rather than a deploy per field. That is why `NoLanguages` is a real state
  * worth designing and not an error: the field is fine, the project simply has
  * not said it is translated yet, and the place to fix it is elsewhere.
- *
- * `.aliases()` is the other thing to look at. It changes what is STORED, not
- * merely what is accepted, so a field can hold `no` rather than `nb-NO` and a
- * page can live at `/no/vinterjakke`. Each option is then labelled with the
- * language it means, so a list of `us-sales` and `us-support` still reads as
- * English.
  *
  * Presentational: these move local state and save nothing.
  */
@@ -31,8 +25,6 @@ export default meta;
 type HarnessProps = {
   /** What the settings module declares under `locales.available`. */
   projectLocales: string[];
-  /** The field's own `.aliases()` map, if it has one. */
-  aliases?: Record<string, string[]>;
   initial?: string | null;
   readonly?: boolean;
 };
@@ -40,17 +32,15 @@ type HarnessProps = {
 /**
  * The field on the canvas it is edited over, in the shell's dark mode.
  *
- * The stored value is shown under the picker because it is the thing aliases
- * make non-obvious: with them, what is in the content is not the tag.
+ * The stored value is shown under the picker because it is what ends up in the
+ * content, and the row above it reads as a language name rather than a tag.
  */
 function LocalePickerHarness({
   projectLocales,
-  aliases,
   initial = null,
   readonly,
 }: HarnessProps) {
   const [value, setValue] = useState<string | null>(initial);
-  const options: LocaleOption[] = localeOptionsOf(projectLocales, aliases);
   return (
     <div
       data-mode="dark"
@@ -59,7 +49,7 @@ function LocalePickerHarness({
       <div className="mx-auto flex max-w-[360px] flex-col gap-3">
         <label className="text-[0.8125rem] font-medium">Language</label>
         <LocalePicker
-          options={options}
+          options={projectLocales}
           value={value}
           readonly={readonly}
           onChange={setValue}
@@ -99,49 +89,6 @@ export const Chosen: Story = {
  */
 export const NoLanguages: Story = {
   args: { projectLocales: [] },
-};
-
-/**
- * `s.locale().aliases({ "en-US": "en", "nb-NO": "no" })`.
- *
- * The stored value is the short segment, and the tag is no longer accepted at
- * all — if both were, one page could exist at `/no/foo` and at `/nb-NO/foo`.
- * The label carries the language so the short form is still readable.
- */
-export const ShortUrlSegments: Story = {
-  args: {
-    projectLocales: ["en-US", "nb-NO"],
-    aliases: { "en-US": ["en"], "nb-NO": ["no"] },
-    initial: "no",
-  },
-};
-
-/**
- * Two spellings of one language: two divisions, both writing American English.
- *
- * This is the case a union type could not express and the reason aliases are a
- * map to many rather than a rename. Both options read as English; what differs
- * is which division's content this is.
- */
-export const CustomSpellings: Story = {
-  args: {
-    projectLocales: ["en-US", "nb-NO"],
-    aliases: { "en-US": ["us-sales", "us-support"], "nb-NO": ["no"] },
-    initial: "us-support",
-  },
-};
-
-/**
- * A partial map is a subset: this field has no French, though the project does.
- *
- * How a bilingual section of an otherwise trilingual site says so.
- */
-export const ASubsetOfTheProject: Story = {
-  args: {
-    projectLocales: ["en-US", "nb-NO", "fr-FR"],
-    aliases: { "en-US": ["en"], "nb-NO": ["no"] },
-    initial: "en",
-  },
 };
 
 /** `s.locale().readonly()` — shown, and not editable. */

@@ -10,12 +10,6 @@ const PROJECT_LOCALES = ["en-US", "nb-NO"];
 const scoped = s
   .object({ locale: s.locale(), title: s.string() })
   ["executeSerialize"]();
-const aliased = s
-  .object({
-    locale: s.locale().aliases({ "nb-NO": "no" }),
-    title: s.string(),
-  })
-  ["executeSerialize"]();
 const plain = s.object({ title: s.string() })["executeSerialize"]();
 const blocks = s
   .union(
@@ -110,12 +104,6 @@ describe("a row under the locale filter", () => {
 
   test("a row with no locale field is always drawn", () => {
     rows["/c.val.ts?p=0"] = { schema: plain };
-    renderRow("/c.val.ts?p=0", "nb-NO");
-    expect(screen.getByTestId("row")).toBeDefined();
-  });
-
-  test("aliases resolve, so a stored 'no' is Norwegian", () => {
-    rows["/c.val.ts?p=0"] = { schema: aliased, locale: "no" };
     renderRow("/c.val.ts?p=0", "nb-NO");
     expect(screen.getByTestId("row")).toBeDefined();
   });

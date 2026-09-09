@@ -11,13 +11,13 @@ import { SerializedSchema } from ".";
  *
  * Two key schemas enumerate. A union of literals does it locally, so its keys
  * are here. `s.locale()` does it in the settings module, which is another file
- * and so cannot be read from a serialized schema — those carry the alias table
- * instead and are resolved against `locales.available` by
+ * and so cannot be read from a serialized schema — that case says only which
+ * kind it is, and is resolved against `locales.available` by
  * `resolveSchemaSourceFixes`, the same crossing `keyOf` and `route` make.
  */
 export type DeclaredKeySet =
   | { kind: "literals"; keys: string[] }
-  | { kind: "locale"; aliases?: Record<string, string[]> };
+  | { kind: "locale" };
 
 /**
  * What `key` requires a record to hold, or `null` where it requires nothing.
@@ -55,7 +55,7 @@ export function declaredKeySetOf(
     };
   }
   if (key.type === "locale") {
-    return { kind: "locale", aliases: key.aliases };
+    return { kind: "locale" };
   }
   return null;
 }

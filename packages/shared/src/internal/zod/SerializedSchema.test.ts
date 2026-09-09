@@ -324,10 +324,6 @@ describe("SerializedSchema keeps every field the schema wrote", () => {
         .validate(() => false)
         .describe("d"),
     ],
-    // `.aliases()` is a separate branch from the bare schema, and nothing else
-    // in this suite serializes an alias table. Without this case the whole of
-    // `aliases` could be dropped and every test here stay green.
-    ["locale with aliases", s.locale().aliases({ "nb-NO": "no" })],
     ["settings", s.settings()],
   ];
 

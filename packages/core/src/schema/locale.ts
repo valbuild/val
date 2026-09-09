@@ -1,5 +1,4 @@
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
-import { LocaleAliases } from "../locale";
 import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
 import { FieldRender } from "../render";
 import { SourcePath } from "../val";
@@ -10,14 +9,6 @@ import {
 
 export type SerializedLocaleSchema = {
   type: "locale";
-  /**
-   * How this field's locales are spelled where they are stored.
-   *
-   * Carried in the serialization because the Studio and the validation worker
-   * both need it and neither has the schema instance — which is also why it is
-   * a table rather than a function. See `LocaleAliases`.
-   */
-  aliases?: Record<string, string[]>;
   /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
   render?: FieldRender;
   /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
@@ -56,7 +47,6 @@ export class LocaleSchema<Src extends string | null> extends Schema<Src> {
   declare readonly __declaresRecordKeys: true;
 
   constructor(
-    private readonly aliasMap?: LocaleAliases,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: ((
       src: Src,
@@ -70,42 +60,8 @@ export class LocaleSchema<Src extends string | null> extends Schema<Src> {
     super();
   }
 
-  /**
-   * Spell these locales differently where this field's value is stored.
-   *
-   * ```typescript
-   * s.locale().aliases({ "en-US": "en", "nb-NO": "no" })      // stored: "en" | "no"
-   * s.locale().aliases({ "en-US": ["us-sales", "us-support"] }) // several, one locale
-   * ```
-   *
-   * The aliases REPLACE the tag rather than adding to it: with the first of
-   * those, `"nb-NO"` is no longer a value this field accepts. If both were
-   * accepted, one page could exist at `/no/foo` and at `/nb-NO/foo` — two keys
-   * for one language, and duplicate content nobody would notice.
-   *
-   * A partial map is a subset. Saying nothing about `fr-FR` means this field has
-   * no French, which is how a router for a bilingual section says so.
-   *
-   * Every locale named here should be one of `locales.available`; aliasing a
-   * language the project does not have is how `/de/…` quietly becomes German on
-   * a site with no German.
-   */
-  aliases<const M extends LocaleAliases>(map: M): LocaleSchema<Src> {
-    return new LocaleSchema<Src>(
-      map,
-      this.opt,
-      this.customValidateFunctions,
-      this.isReadonly,
-      this.isHidden,
-      this.description,
-      this.renderInput,
-      this.previewInput,
-    );
-  }
-
   describe(description: string | null): LocaleSchema<Src> {
     return new LocaleSchema<Src>(
-      this.aliasMap,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
@@ -120,7 +76,6 @@ export class LocaleSchema<Src extends string | null> extends Schema<Src> {
     validationFunction: (src: Src) => false | string,
   ): LocaleSchema<Src> {
     return new LocaleSchema<Src>(
-      this.aliasMap,
       this.opt,
       this.customValidateFunctions.concat(validationFunction),
       this.isReadonly,
@@ -160,7 +115,6 @@ export class LocaleSchema<Src extends string | null> extends Schema<Src> {
           value: {
             locale: src,
             sourcePath: path,
-            aliases: this.serializedAliases(),
           },
         },
       ],
@@ -195,7 +149,6 @@ export class LocaleSchema<Src extends string | null> extends Schema<Src> {
     // widens by `null` while the caller's validators and preview stay typed
     // against the value, and `executeValidate` returns before either sees one.
     return new LocaleSchema(
-      this.aliasMap,
       true,
       this.customValidateFunctions,
       this.isReadonly,
@@ -208,7 +161,6 @@ export class LocaleSchema<Src extends string | null> extends Schema<Src> {
 
   readonly(): LocaleSchema<Src> {
     return new LocaleSchema<Src>(
-      this.aliasMap,
       this.opt,
       this.customValidateFunctions,
       true,
@@ -221,7 +173,6 @@ export class LocaleSchema<Src extends string | null> extends Schema<Src> {
 
   hidden(): LocaleSchema<Src> {
     return new LocaleSchema<Src>(
-      this.aliasMap,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
@@ -253,7 +204,6 @@ export class LocaleSchema<Src extends string | null> extends Schema<Src> {
    */
   render(input: FieldRender): LocaleSchema<Src> {
     return new LocaleSchema<Src>(
-      this.aliasMap,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
@@ -270,7 +220,6 @@ export class LocaleSchema<Src extends string | null> extends Schema<Src> {
    */
   preview(select: ItemPreviewInput<Src>): LocaleSchema<Src> {
     return new LocaleSchema<Src>(
-      this.aliasMap,
       this.opt,
       this.customValidateFunctions,
       this.isReadonly,
@@ -294,23 +243,9 @@ export class LocaleSchema<Src extends string | null> extends Schema<Src> {
     return this.previewInput !== null;
   }
 
-  /** The alias table as JSON: every locale's spellings, as an array. */
-  private serializedAliases(): Record<string, string[]> | undefined {
-    if (this.aliasMap === undefined) {
-      return undefined;
-    }
-    const serialized: Record<string, string[]> = {};
-    for (const [locale, spellings] of Object.entries(this.aliasMap)) {
-      serialized[locale] =
-        typeof spellings === "string" ? [spellings] : [...spellings];
-    }
-    return serialized;
-  }
-
   protected executeSerialize(): SerializedSchema {
     return {
       type: "locale",
-      aliases: this.serializedAliases(),
       render: this.renderInput ?? undefined,
       preview: this.previewInput ? true : undefined,
       opt: this.opt,
@@ -339,9 +274,6 @@ export class LocaleSchema<Src extends string | null> extends Schema<Src> {
  *
  * @example // a key: one entry per language
  * const schema = s.record(s.locale(), s.object({ title: s.string() }));
- *
- * @example // stored as a short URL segment instead of the tag
- * const schema = s.locale().aliases({ "en-US": "en", "nb-NO": "no" });
  */
 export const locale = (): LocaleSchema<string> => {
   return new LocaleSchema<string>();

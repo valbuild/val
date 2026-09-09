@@ -384,7 +384,6 @@ export class RecordSchema<
           value: {
             present: Object.keys(src),
             declared: declared.kind === "literals" ? declared.keys : null,
-            aliases: declared.kind === "locale" ? declared.aliases : undefined,
           },
         },
       ],

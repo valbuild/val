@@ -38,16 +38,6 @@ describe("emptyOf, for a record with a declared key set", () => {
     ).toEqual({ "en-US": null, "nb-NO": null });
   });
 
-  test("with aliases the keys are the spellings this field stores", () => {
-    const schema = s.record(
-      s.locale().aliases({ "en-US": "en", "nb-NO": "no" }),
-      s.string(),
-    );
-    expect(
-      emptyOf(schema["executeSerialize"](), { locales: ["en-US", "nb-NO"] }),
-    ).toEqual({ en: null, no: null });
-  });
-
   test("without the languages it is empty, which validation then reports", () => {
     // Honest rather than wrong: a caller that has not been given the project's
     // languages has not been given them, and inventing keys would be worse.

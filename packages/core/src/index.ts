@@ -176,15 +176,7 @@ export {
   isRootModuleFilePath,
   resolveSettingsModule,
 } from "./settingsModule";
-export {
-  type Locale,
-  type LocaleAliases,
-  localeTagError,
-  spellingsOf,
-  acceptedLocaleValues,
-  undeclaredAliasedLocales,
-  localeOfValue,
-} from "./locale";
+export { type Locale, localeTagError, localeOfValue } from "./locale";
 export { type SerializedLocaleSchema, LocaleSchema } from "./schema/locale";
 export {
   type DeclaredKeySet,

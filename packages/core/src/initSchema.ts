@@ -253,9 +253,6 @@ export type InitSchema = {
    *
    * @example // a key: one entry per language
    * const schema = s.record(s.locale(), s.object({ title: s.string() }));
-   *
-   * @example // stored as a short URL segment rather than the tag
-   * const schema = s.locale().aliases({ "en-US": "en", "nb-NO": "no" });
    */
   readonly locale: typeof locale;
   readonly route: typeof route;

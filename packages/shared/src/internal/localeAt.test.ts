@@ -80,23 +80,6 @@ describe("localeAt", () => {
     ).toBe("en-US");
   });
 
-  test("the answer is the canonical tag, not the spelling the key uses", () => {
-    // `<html lang>`, `Intl` and a comparison against `locales.available` all
-    // want the tag; the key is `/no/…` because that is the URL.
-    const page = c.define(
-      "/content/page.val.ts",
-      s.record(
-        s.locale().aliases({ "en-US": "en", "nb-NO": "no" }),
-        s.object({ title: s.string() }),
-      ),
-      { no: { title: "Vinterjakke" }, en: { title: "Jacket" } },
-    );
-    const snapshot = project(["en-US", "nb-NO"], [page]);
-    expect(localeAt(AT('/content/page.val.ts?p="no"."title"'), snapshot)).toBe(
-      "nb-NO",
-    );
-  });
-
   test("content outside any scope has no locale", () => {
     const page = c.define(
       "/content/page.val.ts",

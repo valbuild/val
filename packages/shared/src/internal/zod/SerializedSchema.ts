@@ -326,10 +326,6 @@ export const SerializedCodeSchema: z.ZodType<SerializedCodeSchemaT> = z.object({
 export const SerializedLocaleSchema: z.ZodType<SerializedLocaleSchemaT> =
   z.object({
     type: z.literal("locale"),
-    // The alias table travels with the schema: the Studio and the validation
-    // worker both resolve a stored spelling back to a language, and neither has
-    // the schema instance. See `LocaleAliases`.
-    aliases: z.record(z.string(), z.array(z.string())).optional(),
     render: FieldRender,
     preview: z.literal(true).optional(),
     opt: z.boolean(),

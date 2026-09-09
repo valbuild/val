@@ -24,22 +24,11 @@ and `route` are checked against what they point at. An undeclared language names
 the ones the project has; a project that has declared none is told to declare
 them rather than told the value is wrong.
 
-**Aliases** spell a locale differently where it is stored, which is what a URL
-segment needs:
-
-```typescript
-s.locale().aliases({ "en-US": "en", "nb-NO": "no" }); // stored: "en" | "no"
-s.locale().aliases({ "en-US": ["us-sales", "us-support"] }); // several spellings, one language
-```
-
-The aliases **replace** the tag rather than adding to it: with the first of
-those, `nb-NO` is no longer a value that field accepts. If both were accepted one
-page could exist at `/no/foo` and at `/nb-NO/foo` — two keys for one language,
-and duplicate content nobody would notice. A partial map is a subset, so a map
-that says nothing about `fr-FR` is how a field says it has no French — and it
-cannot be a superset: aliasing a language the project has not declared is
-reported against the schema, naming the tag, rather than silently making
-`/de/…` a German page on a site with no German.
+A locale is stored as the tag itself — the value in content is `nb-NO`, and a
+record keyed by `s.locale()` has `nb-NO` as its key. Spelling one differently
+where it is stored (`/no/…` as a URL segment) is a real need and is deliberately
+not in this release: it changes what is accepted as well as what is shown, so it
+is being designed on its own rather than folded in here.
 
 A locale is **never stega encoded**: it ends up in `<html lang>`, in `hreflang`
 and in `Intl` constructors, none of which survive invisible characters.
