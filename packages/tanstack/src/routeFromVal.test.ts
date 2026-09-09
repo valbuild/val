@@ -69,6 +69,22 @@ describe("getValRouteUrlFromVal with the TanStack router", () => {
         source,
       ),
     ).toBe("/docs/a/b");
+    /*
+     * The shape `useParams()` actually returns on a `$` route: BOTH names for
+     * the same value. Neither may be reported as an unconsumed parameter.
+     */
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+    expect(
+      getValRouteUrlFromVal(
+        { _splat: "a/b", "*": "a/b" },
+        "useValRoute",
+        path,
+        schema,
+        source,
+      ),
+    ).toBe("/docs/a/b");
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
     // TanStack hands `_splat` as a string; an array is accepted too.
     expect(
       getValRouteUrlFromVal(

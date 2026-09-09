@@ -139,6 +139,19 @@ export function getValRouteUrlFromVal(
     !Array.isArray(resolvedParams)
       ? { ...resolvedParams }
       : {};
+  /*
+   * TanStack names a splat twice, and only one of the names is Val's.
+   *
+   * `useParams()` on a `$` route returns BOTH `_splat` and `*`, set to the same
+   * value — see `interpolatePath` in `@tanstack/router-core`. Val's pattern has
+   * one param for it, so the other name was left over at the end of the loop
+   * below and reported as a parameter that is not in the path: a console error
+   * on every render of a working splat route. Dropping it here rather than
+   * special-casing the report keeps "what was left over" meaning what it says.
+   */
+  if ("*" in missingParamKeys && "_splat" in missingParamKeys) {
+    delete missingParamKeys["*"];
+  }
   for (const part of parsedPattern ?? []) {
     if (part.type === "literal") {
       fullPathParts.push(part.name);

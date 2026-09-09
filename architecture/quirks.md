@@ -734,3 +734,32 @@ Read with the hooks anything an editor should be able to click.
 is wrapped in a `try`. It is not only a display value: it goes into every remote
 file ref, and proxy mode refuses to start without it. Every `version.ts` now
 uses a static JSON import, which preconstruct inlines at build time.
+
+**A page that reads media from the client store shows draft images at their
+published URL.** The Studio's own store never carries `patch_id` — the server
+sets it on the sources IT serves, and the editor's fields get it from
+`patchStore.filePatchIds()` separately — so the source the overlay emitter hands
+the host page had a freshly uploaded image pointing at `/public/...`, where
+nothing is written until publish. The image then fails to load with no error at
+all: in a TanStack app `/val/...` is the Studio route, so the request 200s with
+the Studio's HTML and the `<img>` simply decodes nothing. `withFilePatchIds` in
+`ValOverlayEmitter` stamps it now. Next hides this because its pages usually read
+through `fetchVal` in an RSC, which reads `/sources/~` server-side where the
+stamp is already there.
+
+**`notFound()` thrown from a COMPONENT is not caught by
+`defaultNotFoundComponent`.** It escapes to the error boundary instead: the
+right page still renders, but every miss logs `Error in renderToReadableStream`
+and React's "the above error occurred in <Page>" during server rendering, and
+before a not-found component exists at all it also aborts the response — which
+surfaces as an `AbortError` from srvx and reads like a server crash. A
+route-level `notFoundComponent` does catch it; `defaultNotFoundComponent` only
+covers a `notFound()` thrown from a loader. Reading content in the component is
+Val's normal path, so a page with no entry should RETURN the not-found UI rather
+than throw.
+
+**TanStack names a splat parameter twice.** `useParams()` on a `$` route returns
+both `_splat` and `*`, set to the same value. Val's route pattern has one param
+for it, so the other was left over and reported as "parameters ... where not
+found in the path" — a console error on every render of a working splat route.
+`getValRouteUrlFromVal` drops `*` when `_splat` is present.

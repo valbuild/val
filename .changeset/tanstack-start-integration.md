@@ -70,3 +70,19 @@ TanStack project:
   carries a comment (the TanStack starter's does) the
   `module-in-val-modules` rule threw `Expected double-quoted property name in
 JSON` on the first file and took the whole lint run with it.
+
+Three fixes found by driving the Studio against a real TanStack app:
+
+- **A draft image now loads on the page.** The source the Studio pushes to the
+  host page carries `patch_id` for any file whose bytes are still in a patch, so
+  the page asks `/api/val/files/...?patch_id=` rather than a `/public` path that
+  nothing has written yet. This was silent — the image just did not appear — and
+  it affects any page that reads media through the hooks rather than on the
+  server, `@valbuild/next` included.
+- **A splat route no longer logs an error on every render.** TanStack returns
+  both `_splat` and `*` for the same parameter; Val reported the second as a
+  parameter it could not place in the path.
+- The TanStack example and starter render a 404 page instead of throwing
+  `notFound()` from a component, which escaped to the error boundary and logged
+  `Error in renderToReadableStream` (and, with no not-found component
+  configured, aborted the response) on every miss.

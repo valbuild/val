@@ -1,5 +1,15 @@
 :root {
   color-scheme: light dark;
+  /*
+   * An explicit background, because the Studio's canvas is an iframe.
+   *
+   * With none set, the browser paints its own default — white — and the page
+   * renders as a white sheet inside a dark editor, which reads as the preview
+   * being broken rather than as the site having no background of its own.
+   */
+  --bg: #ffffff;
+  --fg: #14161a;
+  --muted: #5b6472;
   font-family:
     ui-sans-serif,
     system-ui,
@@ -10,8 +20,23 @@
   line-height: 1.6;
 }
 
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0d10;
+    --fg: #e7eaee;
+    --muted: #9aa4b2;
+  }
+}
+
 body {
   margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+aside,
+footer {
+  color: var(--muted);
 }
 
 main {

@@ -1,5 +1,6 @@
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen";
+import { NotFound } from "./components/NotFound";
 
 export function getRouter() {
   return createTanStackRouter({
@@ -15,6 +16,19 @@ export function getRouter() {
      * which looks exactly like an edit that did not save.
      */
     defaultPreloadStaleTime: 0,
+    /*
+     * A page a route serves no content for is a 404, and it has to be one the
+     * app renders.
+     *
+     * Val's route modules make this ordinary rather than exceptional: a key
+     * that is not in the record is a page that does not exist, and the
+     * component says so by throwing `notFound()`. Without a handler that throw
+     * reaches the root, where TanStack logs "a notFoundError was encountered on
+     * the route with ID __root__" and renders its own bare fallback — and
+     * during server rendering it also aborts the response, which surfaces as an
+     * `AbortError` from the node adapter rather than as a 404.
+     */
+    defaultNotFoundComponent: NotFound,
   });
 }
 

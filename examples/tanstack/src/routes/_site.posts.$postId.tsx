@@ -1,6 +1,7 @@
-import { createFileRoute, notFound } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { ValRichText } from "@valbuild/tanstack";
 import { useVal, useValRoute } from "../val/client";
+import { NotFound } from "../components/NotFound";
 import pageVal from "./_site.posts.$postId.val";
 import authorsVal from "../content/authors.val";
 
@@ -13,8 +14,9 @@ function Post() {
   // record key by way of the module's file name.
   const post = useValRoute(pageVal, Route.useParams());
   const authors = useVal(authorsVal);
+  // Returned rather than thrown — see the note in _site.index.tsx.
   if (post === null) {
-    throw notFound();
+    return <NotFound />;
   }
   const author = authors[post.author];
   return (
