@@ -612,6 +612,43 @@ is a whole-route request avoided, and in development that is a page re-render.
 If you find yourself adding a refresh somewhere, check whether this net already
 covers it.
 
+## A preview with no background shows the Studio's WHITE artboard
+
+`CanvasFrame` paints a hardcoded `bg-white` artboard behind the preview iframe.
+A site that sets no background of its own therefore renders as a white sheet
+inside a dark editor, which reads as the preview being broken.
+
+The surprising half is that the same page is NOT white as a top-level document.
+`color-scheme: light dark` with a dark browser preference gets the UA's dark
+canvas — `rgb(18,18,18)` in Chromium — so the site looks right everywhere except
+the Studio. It is tempting to explain that as "the browser paints its default
+white inside an iframe". It does not. Measured in Chromium 1194, with the
+browser in dark mode and the embedded page declaring `color-scheme: light dark`:
+
+| embedder              | artboard | embedded page renders |
+| --------------------- | -------- | --------------------- |
+| no `color-scheme`     | red      | `rgb(18,18,18)`       |
+| `color-scheme: light` | red      | `rgb(18,18,18)`       |
+| `color-scheme: dark`  | red      | **red**               |
+| `color-scheme: dark`  | white    | **white**             |
+
+An embedded document normally gets its own opaque dark UA canvas. It is left
+genuinely transparent — the embedder showing through — only when the EMBEDDER's
+used color scheme is already dark. So the artboard is visible exactly when the
+Studio page itself resolves to a dark color scheme.
+
+Which it does whenever the app puts one stylesheet on every route. In
+`examples/tanstack`, `__root.tsx` is the shell for `/val` too and links
+`styles.css`, so the Studio document carried the site's
+`:root { color-scheme: light dark }` and went dark with the OS preference — and
+that is what made the iframe transparent and the white artboard show. Nothing in
+`@valbuild/ui` declares `color-scheme`; the only occurrence in the built CSS is
+`DateTimeField`'s picker utility.
+
+The fix is on the site, not the Studio: set an explicit background on `body`.
+A page that paints its own background is opaque in both contexts and none of
+the above applies.
+
 ## `suspend` is three waits, and a route only gets one chance
 
 `suspend` on `ValProvider` exists for one situation: a route that exists only in
