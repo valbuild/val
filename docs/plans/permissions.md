@@ -306,6 +306,46 @@ drift.
 Read and write are separate because a translator who cannot see the source
 language cannot translate: Ola reads English to write Norwegian.
 
+**Locale scope narrows exactly one thing: where you can type.** `content:write`
+is checked against it; `publish`, `content:discard`, `settings:read`,
+`settings:write` and `assistant:use` are not, and none of them ever will be by
+this mechanism. That is worth stating as a rule rather than leaving as an
+accident of which cases came up, because it is what keeps the model small: a
+member has a permission set and, separately, a pair of locale sets, and only one
+permission consults them.
+
+It also closes a question that looked open. Scope hangs off the member's entry
+and so covers every role in it at once, which cannot say "Norwegian editor, and
+also a global reviewer" — but since `content:write` is the only scoped
+permission, the only configuration that needs per-role scope is one person
+holding `content:write` at two different extents, and there the wider grant
+simply subsumes the narrower. Member-level scope is enough.
+
+### Discard is never locale-scoped
+
+Every user sees every pending change and can discard any of them, whatever their
+locales. This is deliberate, and it is not a compromise:
+
+- **A user legitimately holds patches outside their own locales.** Patches
+  arrive in the same patch set as ones they did make; a settings change can
+  narrow someone's locales after the fact. Their own queue would then contain
+  work they could not clear.
+- **Scoping it can orphan a patch.** A patch is deleted whole — `deletePatches`
+  has no partial mode — so a patch spanning two locales needs someone who covers
+  both, and a patch in a locale nobody currently holds could be discardable by
+  nobody at all. A pending queue that cannot be emptied is a worse failure than
+  an accidental discard.
+- **Aggregate discards would have to lie.** "Discard all" and the per-module
+  button cover patches in several locales at once. Scoped, they would silently
+  mean "discard some", and the count on the button reached in a hurry is the
+  last place to be approximate.
+
+The accident this leaves open — discarding a colleague's work in a language you
+do not work on — is handled where it belongs, at the moment of the action rather
+than in settings: the confirm already names whose work would go
+(`discardAuthorNames`, `ValShell.tsx:222`). That is the conscience mechanism
+working at the right layer.
+
 Defaults and rules:
 
 - `locales` absent — every locale, read and write.
@@ -727,12 +767,6 @@ permissions: {
 
 // Local (fs) mode: every permission, no identity to resolve.
 ```
-
-## Open questions
-
-- **Scope on the assignment or on the member?** Currently on the assignment,
-  which cannot express "Norwegian editor, and also a global reviewer". Probably
-  rare enough to leave.
 
 ## Not in this plan
 
