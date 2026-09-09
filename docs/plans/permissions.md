@@ -65,7 +65,7 @@ export default c.define("/settings.val.ts", s.settings(), {
       admin: ["settings:read", "settings:write"],
     },
     members: {
-      "erik@company.com": ["publisher", "admin"],
+      usr_7f3a91: ["publisher", "admin"],
       "ola@company.com": {
         roles: ["translator"],
         locales: { read: ["en-US", "nb-NO"], write: ["nb-NO"] },
@@ -79,15 +79,49 @@ export default c.define("/settings.val.ts", s.settings(), {
 - `roles` — a record of role name to permission strings. A bare array: a role
   needs no other fields, and the Studio derives its label from the key with
   `fixCapitalization`, the way it already does elsewhere.
-- `members` — keyed by email. A bare array of role names for the common case, or
-  an object when the assignment carries scope.
-- `default` — roles for users the member list does not name.
+- `members` — keyed by profile id or email. A bare array of role names for the
+  common case, or an object when the assignment carries scope.
+- `default` — roles every user gets, **union**ed with whatever their own entry
+  grants. Not a fallback for unlisted users: listing someone must never take
+  something away, or `members: { boss: ["publisher"] }` over
+  `default: ["editor"]` silently means the boss cannot edit.
 
-Keyed by email rather than a list of `{ email, roles }` objects for three
-reasons: each member is a stable patch path, so two admins editing different
-people do not collide and the review view names the person rather than
-`members[2]`; duplicates cannot be expressed; and it is the same shape as
-`roles`.
+A record rather than a list of `{ email, roles }` objects for three reasons:
+each member is a stable patch path, so two admins editing different people do
+not collide and the review view names the person rather than `members[2]`;
+duplicates cannot be expressed; and it is the same shape as `roles`.
+
+### Prefer profile ids over emails
+
+**A member key may be a profile id or an email, and the Studio writes ids.**
+
+The settings module is content, and content reaches the browser: `val.modules.ts`
+registers each module as `{ def: () => import("./x.val") }`, and
+`ValModulesClient` — a `"use client"` component in the root layout — puts that
+registry on `window.__VAL_MODULES__`. The closures are in the initial bundle;
+the module bodies are separate chunks fetched when the Studio opens. So a member
+list is not page weight, but it IS an unauthenticated static asset, and it is in
+git besides. A list of employee email addresses does not belong there.
+
+There is no way around shipping it: the Access panel has to render the member
+list in the browser, and under UI-only enforcement there is nothing to gate that
+on. Ids make what ships harmless — opaque strings and role names.
+
+The identifier already exists and is already resolved for display:
+
+- `profileId`, typed `AuthorId` (`ValOps.ts:219`) — the same brand patches carry
+  as `author`.
+- `useCurrentAuthorId()` returns it for the current user (`ValProvider.tsx:2384`).
+- `useProfilesByAuthorId()` maps it to a name and avatar from `/profiles`, which
+  is how the review UI already names patch authors. `/profiles` is authenticated,
+  so names never enter a chunk.
+
+Emails stay legal because an id is unknowable until the person has logged in:
+bootstrapping "give erik@ admin" in a hand-written `.val.ts` needs one. Two rules
+follow — if a person matches both an id entry and an email entry the grants
+**union**, and the Studio warns, since `/profiles` gives it the email for the id;
+and an id that resolves to no profile is a warning, never an error, because
+resolving it needs a network call the CLI may not be able to make.
 
 ### Built-in permissions
 
@@ -138,18 +172,41 @@ having both means every field's visibility is a set operation computed in the
 reader's head.
 
 Today's forms are untouched: `hidden()`, `hidden(false)`, `readonly()` all keep
-their meaning. `hidden()` combined with `hidden({ unless })` on the same field
-is a contradiction and should be rejected by the schema.
+their meaning.
 
-**Nesting is most-restrictive-wins.** A field inside a hidden container is
-hidden whatever its own annotation says; a readonly container makes every
-descendant readonly. A child cannot re-widen what a parent restricted.
+**The nearest explicit annotation wins — along the chain and down the tree.**
+These are the same rule seen from two directions, and the builder already
+commits to it: `hidden()` followed by `hidden(false)` is not a contradiction to
+reject, it is an override, because each call replaces the flag on the schema it
+returns. Last call wins on one field; deepest annotation wins along a path.
+
+So walking from the module root to a field, the effective value is the one from
+the deepest node that says anything. Nodes that say nothing inherit from above,
+and `hidden(false)` / `readonly(false)` say something: they are how a child
+re-widens what an ancestor restricted.
+
+```ts
+s.object({
+  band: s.string(),
+  jobTitle: s.string().hidden(false), // visible to everyone
+}).hidden({ unless: "hr:read" });
+```
+
+For `readonly` this is plainly useful — a locked section with one editable
+field. For `hidden` it means rendering a container that is itself hidden, as a
+shell holding only the children that override it. That is the same mechanism the
+staged-content rule below already needs, so it is one piece of machinery with two
+callers rather than a new one.
+
+The cost is that a hole can be punched in a restricted container from a child,
+and nothing about the container says so. It is explicit in the code and it goes
+through review, which is enough for a conscience mechanism.
 
 ## Resolution
 
 A user's effective permissions are the union of the permissions of every role
-they hold. Their roles come from `members[email]`, or from `default` if they are
-not listed.
+they hold. Their roles are `default` plus whatever their own `members` entry
+grants — matched on profile id or email, and unioned when both match.
 
 Two rules that override everything above:
 
@@ -252,8 +309,7 @@ What is checked:
   No schema requires it and it is not one of Val's own. Did you mean
   `hr:read`?"_
 - A member references a role that does not exist.
-- `locales.read` / `locales.write` name a language not in `locales.available`,
-  reusing the check #608 already does for `locales.default`.
+- `locales.read` / `locales.write` name a language not in `locales.available`.
 - `write` is not a subset of `read`.
 - A schema requires a permission no role grants → the field is restricted for
   everyone. A **warning**, never an error: it is a legitimate intermediate state
@@ -272,12 +328,6 @@ ship Studio-only as a non-blocking hint on the offending role row.
 
 ## Open questions
 
-- **`default`: union or fallback?** Union means member roles are additive on top
-  of `default`; fallback means `default` applies only to unlisted users. Fallback
-  has a trap — `members: { boss: ["publisher"] }` over `default: ["editor"]`
-  silently means the boss cannot edit — but it makes a member's row the whole
-  truth, and `locales.default` in the sibling section is unambiguously a
-  fallback, so two sibling keys spelled `default` would mean different things.
 - **Error or warning** for an unknown permission in settings, per above.
 - **Should the Studio refuse a settings patch that leaves nobody with
   `settings:write`?** Recoverable by editing the file, so not fatal, but the
