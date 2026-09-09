@@ -324,8 +324,9 @@ drift.
 }
 ```
 
-Read and write are separate because a translator who cannot see the source
-language cannot translate: Ola reads English to write Norwegian.
+Read is wider than write, not separate from it: a translator who cannot see the
+source language cannot translate, so Ola reads English in order to write
+Norwegian. `read` is there to say what he may see BEYOND what he may change.
 
 **Locale scope narrows exactly one thing: where you can type.** `content:write`
 is checked against it; `publish`, `settings:read`,
@@ -368,13 +369,22 @@ than in settings: the confirm already names whose work would go
 (`discardAuthorNames`, `ValShell.tsx:222`). That is the conscience mechanism
 working at the right layer.
 
-Defaults and rules:
+**Write includes read.** What a member may read is `read ∪ write`, always — a
+locale you may type into is a locale you may look at, and there is no
+configuration in which that is not so. So `write` is not checked against `read`
+and cannot contradict it; `{ read: ["nb-NO"], write: ["fr-FR"] }` is a member who
+reads both and writes French, not an error to report. Read is derived from write,
+never denied against it.
+
+That is the general shape rather than a locale rule: every narrowing of reading
+in this plan is a narrowing of reading ALONE. Nothing anywhere grants a write
+without the matching read.
+
+Defaults:
 
 - `locales` absent — every locale, read and write.
 - `locales.read` absent — every locale readable.
 - `locales.write` absent — defaults to `read`.
-- **`write` must be a subset of `read`.** Writing what you cannot see is not a
-  configuration, it is a mistake. Validation error.
 - Content outside any locale scope — shared images, non-localized fields — is
   **readable and not writable** by a locale-scoped member. This is the
   translator semantic and the safe default; it may prove too strict for someone
@@ -422,7 +432,6 @@ Errors — self-contained, fixable in the file being edited:
 
 - A member references a role that `roles` does not define.
 - `locales.read` / `locales.write` name a language not in `locales.available`.
-- `write` is not a subset of `read`.
 
 Warnings — one half of the statement lives in code:
 
@@ -698,7 +707,7 @@ Grants and what they mean:
 // reads everything, writes Norwegian
 
 { roles: ["translator"], locales: { read: ["nb-NO"], write: ["nb-NO", "fr-FR"] } }
-// ERROR: write is not a subset of read
+// reads and writes both: write is added to read, never checked against it
 ```
 
 ### Resolution
@@ -740,14 +749,15 @@ per annotation.
 Errors — self-contained in the settings module:
 
 ```ts
-members: { usr_x: ["shipper"] }
+members: {
+  usr_x: ["shipper"];
+}
 // `shipper` is not a role. Defined roles: editor, publisher, admin.
 
-locales: { read: ["nb-NOO"] }
+locales: {
+  read: ["nb-NOO"];
+}
 // `nb-NOO` is not one of the project's languages.
-
-locales: { read: ["nb-NO"], write: ["fr-FR"] }
-// `write` must be a subset of `read`: fr-FR is not readable.
 ```
 
 Warnings — the other half lives in code:
