@@ -24,7 +24,9 @@ describe("TEMPLATES", () => {
   });
 
   it("covers both frameworks we ship", () => {
-    expect(FRAMEWORKS.sort()).toEqual(["nextjs", "tanstack"]);
+    // Copied before sorting: `sort` is in-place, and `FRAMEWORKS` is an
+    // exported singleton the CLI reads for its help text and error messages.
+    expect([...FRAMEWORKS].sort()).toEqual(["nextjs", "tanstack"]);
   });
 
   it("has a default that is one of them", () => {
