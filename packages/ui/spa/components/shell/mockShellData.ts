@@ -531,6 +531,24 @@ export const mockDeployments: ShellDeployment[] = [
     updatedAt: mockMinutesAgo(60),
     isLive: false,
   },
+  /*
+   * A deployment nobody published from Val: a developer's push, a merged pull
+   * request, a revert. On most projects these are the majority of the feed.
+   *
+   * No `author`, because there is no Val commit and therefore no profile to
+   * resolve - and the message is the SUBJECT of a git message, which is what
+   * `commitSubject` leaves of one that has a body. The row is a single
+   * truncated line, so a body rendered into it arrives as "Subject The body
+   * went on like this…".
+   */
+  {
+    commitSha: "7d4e1b0c58a2946fbb31e70d5c8f2a6391e4c0af",
+    state: "success",
+    message: "Move the pricing table into its own component",
+    timestamp: "3 hours ago",
+    updatedAt: mockMinutesAgo(180),
+    isLive: true,
+  },
 ];
 
 /**

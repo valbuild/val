@@ -572,7 +572,18 @@ export function ValProvider({
   const deploymentsFingerprint =
     "data" in stat && stat.data?.deployments
       ? stat.data.deployments
-          .map((d) => `${d.deploymentId}:${d.deploymentState}:${d.updatedAt}`)
+          .map(
+            (d) =>
+              // The message is part of what a poll can CHANGE, not just of what
+              // it carries: a content service that learns a deployment's git
+              // message after the fact - the webhook resolves it from GitHub,
+              // and that call can fail and be retried - sends the same
+              // deployment, in the same state, at the same instant, with a
+              // message where there was none. Left out of the fingerprint, that
+              // update reached `stat` and stopped there, and the row stayed on
+              // its short sha until something else moved.
+              `${d.deploymentId}:${d.deploymentState}:${d.updatedAt}:${d.commitMessage ?? ""}`,
+          )
           .join(",")
       : "";
   const commitsFingerprint =

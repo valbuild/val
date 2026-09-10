@@ -63,7 +63,10 @@ import {
   SheetTrigger,
 } from "./designSystem/sheet";
 import * as RadixAccordion from "@radix-ui/react-accordion";
-import { ValEnrichedDeployment } from "../utils/mergeCommitsAndDeployments";
+import {
+  commitSubject,
+  ValEnrichedDeployment,
+} from "../utils/mergeCommitsAndDeployments";
 import {
   Tooltip,
   TooltipContent,
@@ -583,8 +586,14 @@ function Deployment({
         <Tooltip>
           <TooltipPortal container={portalContainer} />
           <TooltipTrigger>
+            {/*
+              The subject line only: this row is one truncated line, and
+              `truncate` collapses a git message's newlines into spaces - so a
+              message with a body arrived as "Subject The body went on like
+              this…". The tooltip below still has the whole of it.
+            */}
             <div className="max-w-[180px] overflow-clip font-light truncate">
-              {deployment.commitMessage}
+              {commitSubject(deployment.commitMessage)}
             </div>
           </TooltipTrigger>
           <TooltipContent className="max-w-[320px]">

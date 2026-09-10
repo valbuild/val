@@ -2,7 +2,10 @@ import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { ExplorerItem, SitemapItem } from "../NavMenu/types";
 import { AvailableRoute } from "../NavMenu/NewPageForm";
 import { routePatternToString } from "../NavMenu/SitemapItem";
-import { ValEnrichedDeployment } from "../../utils/mergeCommitsAndDeployments";
+import {
+  commitSubject,
+  ValEnrichedDeployment,
+} from "../../utils/mergeCommitsAndDeployments";
 import { deploymentProgress, describeDeploymentState } from "./Deployments";
 import {
   ShellActivityEntry,
@@ -300,7 +303,7 @@ export function toDeployments(
     (deployment): ShellDeployment => ({
       commitSha: deployment.commitSha,
       state: deployment.deploymentState,
-      message: deployment.commitMessage,
+      message: commitSubject(deployment.commitMessage),
       author: deployment.creator
         ? profilesByAuthorId[deployment.creator]?.fullName
         : undefined,

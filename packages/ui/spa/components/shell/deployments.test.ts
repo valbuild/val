@@ -183,6 +183,40 @@ describe("toDeployments", () => {
     ).toBe(true);
   });
 
+  /**
+   * A git message is a subject, a blank line and a body. Val's own messages are
+   * one line, so this only shows up on the deployments Val did not publish -
+   * and the rows truncate, so the whole body arrived as one long line with the
+   * subject lost at the front of it.
+   */
+  test("shows the subject line of a multi-line git message", () => {
+    const [row] = toDeployments(
+      [
+        {
+          ...enriched,
+          commitMessage:
+            "Bump the dependency\n\nThe old one pinned a transitive package we\nno longer use.",
+        },
+      ],
+      new Set(),
+      {},
+      now,
+    );
+    expect(row.message).toBe("Bump the dependency");
+  });
+
+  test("a message that is only whitespace is no message", () => {
+    // Which is what makes the row fall back to the short sha rather than
+    // rendering an empty title.
+    const [row] = toDeployments(
+      [{ ...enriched, commitMessage: "  \n\n" }],
+      new Set(),
+      {},
+      now,
+    );
+    expect(row.message).toBeNull();
+  });
+
   test("keeps the feed short enough to read", () => {
     const many = Array.from({ length: 25 }, (_, index) => ({
       ...enriched,
