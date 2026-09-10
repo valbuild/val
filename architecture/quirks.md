@@ -83,6 +83,20 @@ user's file. Studio media edits are per-property for the same reason.
 
 ## React in the Studio
 
+**There are three nested `[data-mode]` elements, and the outermost is not the
+themed one.** `App.tsx` wraps the Studio in one, `Shell.tsx` draws its own
+inside that, and `ValPortalProvider` adds a third for everything portalled.
+Since `s.settings()` gained a `theme.accent`, the project's accent rides on the
+same elements as `data-mode` (`ValThemeProvider` hands out `themeStyle`) — but
+NOT on `App.tsx`'s, which is outside `ValProvider` and has no store to read
+settings from. It does not need it: it only sets a neutral background and text
+colour. The consequence is for debugging.
+`shadowRoot.querySelector("[data-mode]")` returns App's, whose
+`--colors-brand-green-500` is Val's green no matter what the project set — so a
+probe written the obvious way reports the feature as broken while the screen in
+front of you is plainly violet. Take the LAST match, or read the element that
+has a `style` attribute.
+
 **`useValConfig()` returns a ref, filled by an effect.** So the render where config
 arrives still sees `undefined`; only the render _after_ that sees it. This makes
 config-dependent early returns a hook-order trap, and makes reproducing one in a

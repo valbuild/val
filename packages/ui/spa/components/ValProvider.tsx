@@ -62,6 +62,7 @@ import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
 import { AIChatActionsProvider } from "./AIChatActionsContext";
 import { useAssistantAvailabilityOf } from "../hooks/useAssistantAvailability";
+import { useThemeSettingsOf } from "../hooks/useThemeSettings";
 import {
   useAIWebSocket,
   type AIMessageHandler,
@@ -540,6 +541,11 @@ export function ValProvider({
    * subscriptions are the same ones every other reader gets.
    */
   const assistant = useAssistantAvailabilityOf(system);
+  /**
+   * The project's `theme` section, read here for the same reason and handed to
+   * `ValThemeProvider` below. See `useThemeSettingsOf`.
+   */
+  const settingsTheme = useThemeSettingsOf(system);
   useEffect(() => {
     if (statMode === "fs" || statMode === "http") {
       system.setMode(statMode);
@@ -841,6 +847,7 @@ export function ValProvider({
               theme={theme}
               setTheme={setTheme}
               config={runtimeConfig}
+              settingsTheme={settingsTheme}
             >
               <ValStoreProvider
                 system={system}

@@ -1,5 +1,15 @@
 import fs from "fs";
 import path from "path";
+import {
+  AA_LARGE,
+  AA_TEXT,
+  BRAND_CONTRAST_PAIRS,
+  contrastRatio,
+  RAMP_STEPS,
+  RampStep,
+  resolvePairGround,
+  VAL_GREEN_RAMP,
+} from "@valbuild/shared/internal";
 
 /**
  * Contrast guarantees for the CMS chrome.
@@ -13,11 +23,6 @@ import path from "path";
  */
 
 const CSS = fs.readFileSync(path.join(__dirname, "index.css"), "utf8");
-
-/** WCAG AA for body text. */
-const AA_TEXT = 4.5;
-/** WCAG AA for large text (>=18.66px bold or >=24px) and UI components. */
-const AA_LARGE = 3;
 
 type Mode = "light" | "dark";
 
@@ -68,21 +73,15 @@ function resolve(token: string, mode: Mode): string {
   }
 }
 
-/** WCAG relative luminance. */
-function luminance(hex: string): number {
-  const channels = [1, 3, 5].map((i) => {
-    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
-    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-  });
-  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
-}
-
-function contrast(fg: string, bg: string): number {
-  const a = luminance(fg);
-  const b = luminance(bg);
-  const [hi, lo] = a > b ? [a, b] : [b, a];
-  return (hi + 0.05) / (lo + 0.05);
-}
+/**
+ * The ratio maths comes from `@valbuild/shared` rather than living here.
+ *
+ * There used to be a copy in this file, and a themed accent needs the same
+ * maths applied to a ramp that is not in this stylesheet at all — two copies of
+ * a threshold is how a guarantee quietly stops being one. `AA_TEXT` and
+ * `AA_LARGE` come from there for the same reason.
+ */
+const contrast = contrastRatio;
 
 /** `[foreground token, background token, minimum ratio, what renders it]` */
 type Pair = [string, string, number, string];
@@ -173,6 +172,35 @@ describe("the selection outline drawn on the user's page", () => {
   test("does not flip with the theme", () => {
     expect(resolve("--bg-page-selection", "light")).toBe(
       resolve("--bg-page-selection", "dark"),
+    );
+  });
+});
+
+describe("the brand ramp a themed accent replaces", () => {
+  // `@valbuild/shared` cannot read this stylesheet, so `accentRamp` holds its
+  // own copy of the green ramp and borrows its LIGHTNESS per step to build a
+  // ramp for any accent. If the two drift, every generated ramp is built from a
+  // lightness profile the Studio no longer uses — and nothing else would say
+  // so, because both halves would keep passing their own tests.
+  test.each([...RAMP_STEPS])("step %s matches index.css", (step: RampStep) => {
+    expect(VAL_GREEN_RAMP[step]).toBe(
+      resolve(`--colors-brand-green-${step}`, "light"),
+    );
+  });
+
+  // The other half of "one table, two checks": `BRAND_CONTRAST_PAIRS` is run
+  // over generated ramps in `accentRamp.test.ts`, and over Val's own green
+  // here. A pair added to the table is therefore held against both, and Val's
+  // green cannot be nudged past AA either.
+  test.each(
+    BRAND_CONTRAST_PAIRS.map(
+      (pair) => [`${pair.mode} · ${pair.what}`, pair] as const,
+    ),
+  )("%s meets its minimum on Val's own green", (_name, pair) => {
+    const fg = resolvePairGround(pair.fg, VAL_GREEN_RAMP);
+    const bg = resolvePairGround(pair.bg, VAL_GREEN_RAMP);
+    expect(Number(contrast(fg, bg).toFixed(2))).toBeGreaterThanOrEqual(
+      pair.min,
     );
   });
 });

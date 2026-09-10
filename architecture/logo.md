@@ -39,12 +39,20 @@ The inversion is the whole point, and it only lands if the light is green.
 
 ## The rules
 
-**Always green, in both themes.** The mark does not take `currentColor` and does
-not invert. `--colors-brand-green-400` is a fixed brand value declared once
-outside the light and dark blocks, so it is the same green on dark chrome and on
-light. The mark it replaced drew its frame in `currentColor`, which made the logo
-a different colour on every surface it appeared on — a brand mark should not
-restyle per surface.
+**Always green, in both themes.** The mark does not take `currentColor`, does
+not invert, and does not follow the project's accent. `--brand-val-green` is
+declared once outside the light and dark blocks, so it is the same green on dark
+chrome and on light. The mark it replaced drew its frame in `currentColor`, which
+made the logo a different colour on every surface it appeared on — a brand mark
+should not restyle per surface.
+
+It has its own token rather than naming a step of the brand ramp, and that is
+the second half of the same rule. `s.settings()`'s `theme.accent` regenerates
+`--colors-brand-green-100` … `-1000` (see `accentRamp` in `@valbuild/shared`),
+so while the mark named `--colors-brand-green-400` it turned blue in a
+blue-accented Studio — which read as coherent, and was nobody's decision. The
+value is a copy of green-400 and deliberately not a `var()` into it: a var would
+be overridden with the ramp, which is the thing being avoided.
 
 **Blink only while loading.** `blinking` animates the caret on and off the way a
 terminal cursor does, in SMIL (`calcMode="discrete"` — a cursor is on or off,

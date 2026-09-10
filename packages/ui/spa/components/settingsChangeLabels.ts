@@ -41,4 +41,11 @@ const LABELS: Record<string, string> = {
   "assistant.enabled": "Assistant · Enabled",
   "assistant.context": "Assistant · Context",
   "assistant.tone": "Assistant · Tone of voice",
+  theme: "Appearance",
+  // Named after the words on the panel, not after the keys: the section is
+  // "Appearance" there because "theme" is already taken by light and dark,
+  // which this is not.
+  "theme.accent": "Appearance · Accent",
+  "theme.radius": "Appearance · Corners",
+  "theme.mode": "Appearance · Opens in",
 };

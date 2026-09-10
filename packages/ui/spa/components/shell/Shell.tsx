@@ -1,4 +1,5 @@
 import {
+  CSSProperties,
   ReactNode,
   useCallback,
   useEffect,
@@ -107,6 +108,14 @@ export type ShellProps = {
   /** Open the global search on mount. */
   initialSearchOpen?: boolean;
   theme: "dark" | "light";
+  /**
+   * The project's theme, as CSS custom properties — see `ValThemeProvider`.
+   *
+   * A prop rather than a `useTheme()` call, so that a story can set an accent:
+   * the shell is the presentational half, and every other thing that decides
+   * how it looks arrives the same way.
+   */
+  themeStyle?: CSSProperties;
   onThemeChange: (theme: "dark" | "light") => void;
   /** How Val is running. See `StatusBarProps`. */
   mode?: StatusBarProps["mode"];
@@ -384,6 +393,7 @@ export function Shell({
   initialSelectionId = null,
   initialSearchOpen = false,
   theme,
+  themeStyle,
   onThemeChange,
   mode,
   saveState = "saved",
@@ -851,7 +861,9 @@ export function Shell({
       <div
         data-mode={theme}
         className="relative w-full overflow-hidden bg-bg-canvas text-fg-primary font-sans"
-        style={{ height: "100svh" }}
+        // The theme travels with `data-mode`: everything below draws its brand
+        // tokens out of these custom properties. See `ValThemeProvider`.
+        style={{ height: "100svh", ...themeStyle }}
       >
         <PageWorkspace
           breakpoint={breakpoint}

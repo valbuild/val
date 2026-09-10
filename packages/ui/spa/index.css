@@ -99,6 +99,20 @@
        customer's page in green. */
     --bg-page-selection-soft: rgba(7, 148, 85, 0.4);
 
+    /* The one colour in the Val mark, and the only brand value that a
+       project's own accent does NOT move.
+
+       `s.settings()`'s `theme.accent` regenerates the whole
+       `--colors-brand-green-*` ramp (see `accentRamp` in @valbuild/shared), so
+       the mark named a step of that ramp and recoloured with the chrome — by
+       accident rather than by decision. It has its own token now, declared
+       here beside the other values that never flip, so that "always green, in
+       both themes" (architecture/logo.md) is true because something says so.
+
+       Same value as green-400, and not `var()` into it: a var would be
+       overridden along with the ramp, which is the whole thing this avoids. */
+    --brand-val-green: #47cd89;
+
     --radius: 0.5rem;
 
     /* (Text) Selection colors */

@@ -136,7 +136,7 @@ export function ValShell() {
  * behind the login dialog.
  */
 function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme, themeStyle } = useTheme();
   const mode = useValMode();
   /**
    * Why there is no profile, when the studio expected one.
@@ -995,7 +995,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     <Shell
       renderHistory={renderHistory}
       data={data}
-      theme={theme === "light" ? "light" : "dark"}
+      theme={resolvedTheme}
+      themeStyle={themeStyle}
       onThemeChange={setTheme}
       mode={mode}
       selectionId={overrideEditor ? null : selectionId}

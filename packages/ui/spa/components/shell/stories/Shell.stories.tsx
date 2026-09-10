@@ -17,9 +17,17 @@ import {
   AssistantSettingsFields,
   AssistantSettingsValue,
   SettingsTabs,
+  ThemeSettingsFields,
+  ThemeSettingsValue,
 } from "../SettingsPanel";
-import { Sparkles } from "lucide-react";
-import { ASSISTANT_SETTINGS_MAX_LENGTH } from "@valbuild/core";
+import { Palette, Sparkles } from "lucide-react";
+import {
+  ASSISTANT_SETTINGS_MAX_LENGTH,
+  THEME_RADIUS_LENGTHS,
+  THEME_RADIUS_STEPS,
+  ThemeRadius,
+} from "@valbuild/core";
+import { themeCustomProperties } from "@valbuild/shared/internal";
 
 /**
  * The whole shell in one story.
@@ -42,6 +50,14 @@ const meta: Meta<typeof ShellHarness> = {
     backgrounds: { disable: true },
   },
   argTypes: {
+    accent: {
+      control: "text",
+      description: "A hex accent. Empty for Val's own green.",
+    },
+    radius: {
+      control: "inline-radio",
+      options: [...THEME_RADIUS_STEPS],
+    },
     openPanel: {
       control: "select",
       options: [
@@ -150,6 +166,10 @@ type HarnessProps = {
   searchOpen: boolean;
   aiEnabled: boolean;
   theme: "dark" | "light";
+  /** The project's accent, as `s.settings()`'s `theme.accent`. Empty for Val's green. */
+  accent: string;
+  /** The project's corner radius, as `s.settings()`'s `theme.radius`. */
+  radius: ThemeRadius;
   publishState: PublishState;
   saveState: SaveState;
   mode: StatusBarProps["mode"];
@@ -210,12 +230,25 @@ function deploymentsFor(
  * something here the Settings panel in this story would be the empty-project
  * state, which is not what the panel normally looks like.
  */
+/**
+ * Both sections, with local state where the store would be.
+ *
+ * The Appearance tab edits its own copy rather than the story's `accent` arg,
+ * so picking a colour here does NOT restyle the shell around it — in the app it
+ * would, because the theme is content and the draft is what the Studio reads.
+ * `Shell/SettingsPanel`'s `AppearanceThemed` story shows that half.
+ */
 function MockSettingsSections() {
   const [value, setValue] = useState<AssistantSettingsValue>({
     enabled: true,
     context:
       "A CMS for developers, run by a team of four in Oslo. The product is Val, never VAL.",
     tone: "Plain and direct. British English, sentence case in headings, and no exclamation marks.",
+  });
+  const [theme, setTheme] = useState<ThemeSettingsValue>({
+    accent: null,
+    radius: null,
+    mode: null,
   });
   return (
     <SettingsTabs
@@ -234,6 +267,19 @@ function MockSettingsSections() {
             />
           ),
         },
+        {
+          id: "theme",
+          label: "Appearance",
+          icon: Palette,
+          content: (
+            <ThemeSettingsFields
+              value={theme}
+              onChange={(field, next) =>
+                setTheme((current) => ({ ...current, [field]: next }))
+              }
+            />
+          ),
+        },
       ]}
     />
   );
@@ -247,6 +293,8 @@ function ShellHarness({
   aiEnabled,
   searchOpen,
   theme,
+  accent,
+  radius,
   publishState,
   saveState,
   mode,
@@ -293,6 +341,16 @@ function ShellHarness({
       initialSearchOpen={searchOpen}
       aiEnabled={aiEnabled}
       theme={currentTheme}
+      /*
+       * What `ValThemeProvider` computes in the app. Passed as a prop so a
+       * story can show the whole chrome under a project's own accent — which is
+       * the only way to see all of it at once, since the accent lands on the
+       * rail, the top bar, the fields and the canvas outlines.
+       */
+      themeStyle={themeCustomProperties({
+        accent: accent || null,
+        radius: THEME_RADIUS_LENGTHS[radius],
+      })}
       onThemeChange={setCurrentTheme}
       pendingChanges={empty ? 0 : 12}
       publishState={publishState}
@@ -368,6 +426,8 @@ export const Default: Story = {
     searchOpen: false,
     aiEnabled: true,
     theme: "dark",
+    accent: "",
+    radius: "default",
     publishState: "idle",
     saveState: "saved",
     mode: "fs",
@@ -770,5 +830,76 @@ export const CanvasOnMobile: Story = {
     ...Default.args,
     selectionId: mockSelectionIds.home,
     canvasOpen: true,
+  },
+};
+
+/**
+ * The whole chrome under a project's own accent.
+ *
+ * `s.settings()`'s `theme.accent` is one hex, and the ramp the Studio draws
+ * from is generated out of it — so this is not a recoloured button but every
+ * brand token at once: Publish, the active rail item, the focus rings, the
+ * switch, the caret in the rich text field. The accent and the corner radius
+ * are both live controls on this story.
+ *
+ * The Val mark does NOT follow, and that is the one deliberate exception —
+ * see `architecture/logo.md`.
+ */
+export const ThemedStudio: Story = {
+  args: {
+    ...Default.args,
+    accent: "#2563eb",
+    radius: "tight",
+    selectionId: mockSelectionIds.home,
+  },
+};
+
+/**
+ * The same accent in light mode, from the same single value.
+ *
+ * Worth having as its own story because it is the property that makes one
+ * accent enough: the semantic tokens pick different STEPS of the ramp per mode
+ * (a tinted surface is step 200 in light and 800 in dark), so there is no light
+ * accent and dark accent to keep in step with each other.
+ */
+export const ThemedStudioLight: Story = {
+  args: {
+    ...ThemedStudio.args,
+    theme: "light",
+    openPanel: "pages",
+  },
+};
+
+/**
+ * A project that wants the chrome to say nothing at all.
+ *
+ * A grey accent is a legitimate answer, and cheaper than an "off" switch of its
+ * own: the ramp generator scales chroma, so a colour with none produces a ramp
+ * with none. Square corners with it, since the two together are what a project
+ * reaches for when it wants the tool to disappear.
+ */
+export const ThemedStudioQuiet: Story = {
+  args: {
+    ...Default.args,
+    accent: "#64748b",
+    radius: "square",
+    selectionId: mockSelectionIds.home,
+  },
+};
+
+/**
+ * The accent on the customer's own page.
+ *
+ * The canvas outlines every editable element, and those outlines are the
+ * accent: they follow it deliberately, so a project's brand colour frames the
+ * project's own site. The generated step is held to 3:1 against both white and
+ * black, so they stay visible whatever the site behind them looks like — see
+ * `accentRamp.test.ts`.
+ */
+export const ThemedCanvas: Story = {
+  args: {
+    ...ThemedStudio.args,
+    canvasOpen: true,
+    canvasView: "fields",
   },
 };

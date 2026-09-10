@@ -10,10 +10,14 @@ import {
   ASSISTANT_SETTINGS_MAX_LENGTH,
   AssistantSettingsSource,
   SettingsSource,
+  ThemeSettingsSource,
 } from "../source/settings";
 import { ModuleFilePath, SourcePath } from "../val";
 import { boolean } from "./boolean";
+import { color } from "./color";
+import { literal } from "./literal";
 import { string } from "./string";
+import { union } from "./union";
 import {
   ValidationError,
   ValidationErrors,
@@ -271,11 +275,17 @@ export class SettingsSchema<
  *     context: "Val is a CMS for developers. British English, and 'Val' is never 'VAL'.",
  *     tone: "Plain and direct. No exclamation marks, sentence case in headings.",
  *   },
+ *   theme: {
+ *     accent: "#2563eb",
+ *     radius: "tight",
+ *   },
  * });
  * ```
  *
- * The Studio edits it under the cog at the foot of the left rail, and the
- * assistant is told `assistant.context` and `assistant.tone` on every message.
+ * The Studio edits it under the cog at the foot of the left rail. The assistant
+ * is told `assistant.context` and `assistant.tone` on every message, and
+ * `theme` restyles the Studio's own chrome — see {@link ThemeSettingsSource},
+ * and note that it is the CMS being restyled, not the site.
  *
  * `s.settings()` takes no arguments: the shape is Val's, which is what lets the
  * Studio render a UI built for each field rather than a generic form. A
@@ -303,6 +313,28 @@ export function settings(): SettingsSchema<SettingsSource> {
         .nullable()
         .describe(
           "How the assistant should write when it writes content: formal or playful, British or American, how headings are cased.",
+        ),
+    }),
+    theme: new SettingsSchema<ThemeSettingsSource>({
+      accent: color({ format: "hex" })
+        .nullable()
+        .describe(
+          "The one colour the Studio's chrome is built from. Unset means Val's green. Any hex: the whole brand ramp is generated from it, keeping the lightness of each step, so contrast holds.",
+        ),
+      radius: union(
+        literal("square"),
+        literal("tight"),
+        literal("default"),
+        literal("soft"),
+      )
+        .nullable()
+        .describe(
+          "How round the Studio's corners are. Unset is the same as 'default'.",
+        ),
+      mode: union(literal("dark"), literal("light"))
+        .nullable()
+        .describe(
+          "The mode the Studio opens in for an editor who has not chosen one. Never overrides an editor who has.",
         ),
     }),
   });
