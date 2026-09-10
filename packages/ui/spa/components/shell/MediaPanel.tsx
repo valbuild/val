@@ -445,7 +445,7 @@ function baseName(ref: string): string {
  * neither of them is how a PDF ends up in the images folder.
  *
  * With one gallery there is no choice to make, so the button uploads straight
- * into it — but it still says which dir, for the same reason.
+ * into it — but it still says which directory, for the same reason.
  */
 function UploadMenu({
   media,
@@ -517,7 +517,7 @@ function UploadMenu({
 /**
  * Files grouped by the directory they are in, relative to the gallery's own.
  *
- * Relative because the gallery's dir is on the row above and repeating it
+ * Relative because the gallery's directory is on the row above and repeating it
  * on every group heading pushes the part that differs off the end.
  */
 export function groupByDirectory(
