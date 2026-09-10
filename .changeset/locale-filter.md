@@ -34,6 +34,16 @@ A locale field nobody has filled in stays listed. Hiding it would hide the field
 someone has to fill in to un-hide it — and a row that has not loaded yet stays
 listed too, so a list does not shed rows as it arrives.
 
+**While the filter is on one language, `s.locale()` fields are fixed to it.** A
+new item created under the filter arrives already set — filtered to Norwegian,
+you are writing Norwegian, and an item that defaulted to unset would fail
+validation and disappear from the list you are looking at, in that order. An
+existing field is shown but cannot be changed, with a tooltip saying why and
+naming the way out: clear the filter. Letting one field say another language
+while everything around it says this one would make the thing you are editing
+vanish as you saved it, which reads as the Studio losing your work rather than
+as a filter doing its job.
+
 Not yet filtered: the Pages and Data panels. A page is a tree rather than a list,
 so hiding one is a different question from hiding a row, and it is worth its own
 change.
