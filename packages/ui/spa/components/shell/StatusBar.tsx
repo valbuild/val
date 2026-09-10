@@ -169,7 +169,20 @@ export function SaveIndicator({
   return (
     <span className="inline-flex items-center gap-1.5">
       <span className="w-1.5 h-1.5 rounded-full bg-bg-brand-secondary" />
-      {breakpoint === "tablet" ? "Saved locally" : "All changes saved locally"}
+      {/*
+       * Not "saved locally".
+       *
+       * It said that at every breakpoint and in every mode, and against a
+       * project it is simply wrong: the patch is on the content service, which
+       * is where it has to be for a colleague to see it and for Publish to ship
+       * it. "Locally" reads as "still only on this machine", which is the one
+       * thing an editor would want to know and the opposite of what is true.
+       *
+       * It is not worth saying in dev either. There the bar already says "Dev
+       * mode" two items to the left, and the branch beside it - "locally" adds
+       * a word to a sentence whose subject is already answered.
+       */}
+      {breakpoint === "tablet" ? "Saved" : "All changes saved"}
     </span>
   );
 }
