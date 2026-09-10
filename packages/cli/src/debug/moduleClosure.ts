@@ -150,10 +150,7 @@ function collectSchemaReferences(schema: SerializedSchema): SchemaReferences {
           visit(item, false);
         }
         break;
-      case "union":
-        if (typeof node.key !== "string") {
-          visit(node.key, false);
-        }
+      case "discriminated-union":
         for (const item of node.items) {
           visit(item, false);
         }

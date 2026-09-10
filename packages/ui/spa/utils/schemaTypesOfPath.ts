@@ -27,28 +27,17 @@ export function schemaTypesOfPath(
     } else if (current.type === "richtext") {
       // richtext has internal structure (nodes with indices and tags), allow traversal
       break;
-    } else if (current.type === "union") {
-      if (typeof current.key === "string") {
-        const types = current.items;
-        for (const type of types) {
-          const subTypes = schemaTypesOfPath(type, patchPath.slice(i));
-          for (const subType of Array.from(subTypes.values())) {
-            branches.add(subType);
-          }
+    } else if (current.type === "discriminated-union") {
+      const types = current.items;
+      for (const type of types) {
+        const subTypes = schemaTypesOfPath(type, patchPath.slice(i));
+        for (const subType of Array.from(subTypes.values())) {
+          branches.add(subType);
         }
-        return branches;
-      } else {
-        if (i !== patchPath.length - 1) {
-          throw new Error(
-            "Found string union (primitive), but path has more parts: " +
-              patchPath.join("/") +
-              " at " +
-              pathPart,
-          );
-        }
-        break;
       }
+      return branches;
     } else if (
+      current.type === "enum" ||
       current.type === "boolean" ||
       current.type === "number" ||
       current.type === "string" ||
@@ -93,12 +82,12 @@ export function schemaTypesOfPath(
   }
   if (current) {
     branches.add(current.type);
-    if (current.type === "union") {
-      if (typeof current.key === "string") {
-        branches.add("object");
-      } else {
-        branches.add("string");
-      }
+    // A discriminated union's value IS an object, and an enum's IS a string:
+    // a patch op typed for either has to be accepted here too.
+    if (current.type === "discriminated-union") {
+      branches.add("object");
+    } else if (current.type === "enum") {
+      branches.add("string");
     }
   }
   return branches;

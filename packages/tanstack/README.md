@@ -374,7 +374,7 @@ SDK of your choice. See [`@valbuild/mcp`](https://www.npmjs.com/package/@valbuil
 ## Schema reference
 
 The schema types — `s.string()`, `s.richtext()`, `s.image()`, `s.record()`,
-`s.union()`, `s.keyOf()`, `s.route()`, and the rest — are the same in every Val
+`s.discriminatedUnion()`, `s.keyOf()`, `s.route()`, and the rest — are the same in every Val
 package and are documented in full at
 [val.build/docs](https://val.build/docs) and in
 [`@valbuild/next`'s README](https://github.com/valbuild/val/blob/main/packages/next/README.md#schema-types).

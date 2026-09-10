@@ -3,8 +3,6 @@ import {
   ModulePath,
   JsonObject,
   SerializedObjectSchema,
-  SerializedObjectUnionSchema,
-  SerializedStringUnionSchema,
   Source,
 } from "@valbuild/core";
 
@@ -174,58 +172,31 @@ export function resolvePatchPath(
       }
       currentSource = currentObjectSourceRes.source[part];
       addPart(JSON.stringify(part));
-    } else if (currentSchema.type === "union") {
-      const unionStringSchema =
-        typeof currentSchema.key === "object" &&
-        currentSchema.key.type === "literal"
-          ? (currentSchema as SerializedStringUnionSchema)
-          : undefined;
-      const unionObjectSchema =
-        typeof currentSchema.key === "string"
-          ? (currentSchema as SerializedObjectUnionSchema)
-          : undefined;
-      if (unionStringSchema) {
+    } else if (currentSchema.type === "discriminated-union") {
+      const unionSchema = currentSchema;
+      const currentObjectSourceRes = getObjectSourceOrError(
+        patchPath,
+        part,
+        i,
+        currentSource,
+        "union object",
+      );
+      if (!currentObjectSourceRes.success) {
         return {
           success: false,
-          error: `Invalid lookup in string union`,
+          error: currentObjectSourceRes.error,
         };
-      } else if (unionObjectSchema) {
-        const currentObjectSourceRes = getObjectSourceOrError(
-          patchPath,
-          part,
-          i,
-          currentSource,
-          "union object",
-        );
-        if (!currentObjectSourceRes.success) {
-          return {
-            success: false,
-            error: currentObjectSourceRes.error,
-          };
-        }
-        const currentObjectSource = currentObjectSourceRes.source;
-        let foundSchema: SerializedObjectSchema | undefined;
-        for (const item of unionObjectSchema.items) {
-          const maybeLiteral = item.items[unionObjectSchema.key];
-          if (maybeLiteral.type === "literal") {
-            if (
-              currentObjectSource[unionObjectSchema.key] === maybeLiteral.value
-            ) {
-              foundSchema = item;
-              break;
-            }
-          } else {
-            return {
-              success: false,
-              error: `Invalid lookup in union: unknown union type in: '${patchPath.join(
-                "/",
-              )}' at part ${i} (sliced: ${patchPath
-                .slice(0, i + 1)
-                .join("/")})`,
-            };
+      }
+      const currentObjectSource = currentObjectSourceRes.source;
+      let foundSchema: SerializedObjectSchema | undefined;
+      for (const item of unionSchema.items) {
+        const maybeLiteral = item.items[unionSchema.key];
+        if (maybeLiteral.type === "literal") {
+          if (currentObjectSource[unionSchema.key] === maybeLiteral.value) {
+            foundSchema = item;
+            break;
           }
-        }
-        if (!foundSchema) {
+        } else {
           return {
             success: false,
             error: `Invalid lookup in union: unknown union type in: '${patchPath.join(
@@ -233,10 +204,8 @@ export function resolvePatchPath(
             )}' at part ${i} (sliced: ${patchPath.slice(0, i + 1).join("/")})`,
           };
         }
-        currentSchema = foundSchema.items[part];
-        currentSource = currentObjectSource[part];
-        addPart(JSON.stringify(part));
-      } else {
+      }
+      if (!foundSchema) {
         return {
           success: false,
           error: `Invalid lookup in union: unknown union type in: '${patchPath.join(
@@ -244,6 +213,9 @@ export function resolvePatchPath(
           )}' at part ${i} (sliced: ${patchPath.slice(0, i + 1).join("/")})`,
         };
       }
+      currentSchema = foundSchema.items[part];
+      currentSource = currentObjectSource[part];
+      addPart(JSON.stringify(part));
     } else if (
       currentSchema.type === "image" ||
       currentSchema.type === "file"

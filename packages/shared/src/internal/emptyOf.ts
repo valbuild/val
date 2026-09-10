@@ -87,11 +87,10 @@ export function emptyOf(schema: SerializedSchema): Json {
     return null; // returning null is the only thing we can do, however, it means that the patches cannot be applied yet since that might fail
   } else if (schema.type === "literal") {
     return schema.value;
-  } else if (schema.type === "union") {
-    if (typeof schema.key === "string") {
-      return emptyOf(schema.items[0]);
-    }
-    return schema.key.value;
+  } else if (schema.type === "discriminated-union") {
+    return emptyOf(schema.items[0]);
+  } else if (schema.type === "enum") {
+    return schema.values[0];
   } else if (schema.type === "date") {
     return clampDateString(formatLocalDate(new Date()), schema.options);
   } else if (schema.type === "dateTime") {

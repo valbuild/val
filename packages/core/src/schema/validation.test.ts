@@ -17,7 +17,8 @@ import { richtext } from "./richtext";
 import { record } from "./record";
 import { keyOf } from "./keyOf";
 import { define } from "../module";
-import { union } from "./union";
+import { discriminatedUnion } from "./discriminatedUnion";
+import { enumSchema } from "./enum";
 import { createValPathOfItem } from "../selector/SelectorProxy";
 import { date } from "./date";
 const testPath = "/test" as SourcePath;
@@ -300,30 +301,30 @@ const ValidationTestCases: {
   },
   // TODO: more richtext cases
   {
-    description: "basic union literals: key",
+    description: "basic enum: first value",
     input: "one",
-    schema: union(literal("one"), literal("two"), literal("three")),
+    schema: enumSchema("one", "two", "three"),
     expected: false,
   },
   {
-    description: "basic union literals: item",
+    description: "basic enum: last value",
     input: "three",
-    schema: union(literal("one"), literal("two"), literal("three")),
+    schema: enumSchema("one", "two", "three"),
     expected: false,
   },
   {
-    description: "failing union literals",
+    description: "failing enum",
     input: "four",
-    schema: union(literal("one"), literal("two"), literal("three")),
+    schema: enumSchema("one", "two", "three"),
     expected: [testPath],
   },
   {
-    description: "basic tagged union",
+    description: "basic discriminated union",
     input: {
       type: "singleItem",
       text: "test",
     },
-    schema: union(
+    schema: discriminatedUnion(
       "type",
       object({ type: literal("singleItem"), text: string() }),
       object({
@@ -334,12 +335,12 @@ const ValidationTestCases: {
     expected: false,
   },
   {
-    description: "failing tagged union: 1",
+    description: "failing discriminated union: 1",
     input: {
       type: "multiItem",
       text: "test",
     },
-    schema: union(
+    schema: discriminatedUnion(
       "type",
       object({ type: literal("singleItem"), text: string() }),
       object({
@@ -350,17 +351,17 @@ const ValidationTestCases: {
     expected: [pathOf("items")],
   },
   {
-    description: "failing tagged union: 2",
+    description: "failing discriminated union: 2",
     input: {
       type: "multiItem",
       items: { test: "subItem2", text2: "" },
     },
-    schema: union(
+    schema: discriminatedUnion(
       "type",
       object({ type: literal("singleItem"), text: string() }),
       object({
         type: literal("multiItem"),
-        items: union(
+        items: discriminatedUnion(
           "test",
           object({ test: literal("subItem1"), text1: string() }),
           object({ test: literal("subItem2"), text2: string().minLength(2) }),
@@ -370,12 +371,12 @@ const ValidationTestCases: {
     expected: [createValPathOfItem(pathOf("items"), "text2")],
   },
   {
-    description: "failing tagged union: 3",
+    description: "failing discriminated union: 3",
     input: {
       type: "multiItem",
       items: { test: "subItem1", text2: "" },
     },
-    schema: union(
+    schema: discriminatedUnion(
       "type",
       object({ type: literal("duplicateItem"), text: string() }),
       object({
@@ -386,12 +387,12 @@ const ValidationTestCases: {
     expected: [testPath],
   },
   {
-    description: "failing tagged union: 4",
+    description: "failing discriminated union: 4",
     input: {
       type: "foobar",
       items: { test: "subItem1", text2: "" },
     },
-    schema: union(
+    schema: discriminatedUnion(
       "type",
       object({ type: literal("test1"), text: string() }),
       object({
@@ -403,12 +404,12 @@ const ValidationTestCases: {
   },
 
   {
-    description: "failing tagged union: 5",
+    description: "failing discriminated union: 5",
     input: {
       type: "test2",
       image: { path: "/public/val/test.png" },
     },
-    schema: union(
+    schema: discriminatedUnion(
       "type",
       object({ type: literal("test1"), text: string() }),
       object({

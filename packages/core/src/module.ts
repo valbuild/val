@@ -12,7 +12,10 @@ import { Source } from "./source";
 import { ExternalRecordSrc } from "./source/external";
 import { ModuleFilePath, ModulePath, SourcePath } from "./val";
 import { ArraySchema, SerializedArraySchema } from "./schema/array";
-import { UnionSchema, SerializedUnionSchema } from "./schema/union";
+import {
+  DiscriminatedUnionSchema,
+  SerializedDiscriminatedUnionSchema,
+} from "./schema/discriminatedUnion";
 import { Json } from "./Json";
 import { RichTextSchema, SerializedRichTextSchema } from "./schema/richtext";
 import { ImageSchema, SerializedImageSchema } from "./schema/image";
@@ -215,13 +218,16 @@ function isArraySchema(
 //   );
 // }
 
-function isUnionSchema(
+function isDiscriminatedUnionSchema(
   schema: Schema<SelectorSource> | SerializedSchema,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): schema is UnionSchema<string, any, any> | SerializedUnionSchema {
+): schema is  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  | DiscriminatedUnionSchema<string, any, any>
+  | SerializedDiscriminatedUnionSchema {
   return (
-    schema instanceof UnionSchema ||
-    (typeof schema === "object" && "type" in schema && schema.type === "union")
+    schema instanceof DiscriminatedUnionSchema ||
+    (typeof schema === "object" &&
+      "type" in schema &&
+      schema.type === "discriminated-union")
   );
 }
 
@@ -398,27 +404,15 @@ export function resolvePath<
         schema: resolvedSchema as Sch,
         source: resolvedSource,
       };
-    } else if (isUnionSchema(resolvedSchema)) {
-      const key = resolvedSchema.key;
-      if (typeof key !== "string") {
-        return {
-          path: origParts
-            .map((p) => {
-              if (!Number.isNaN(Number(p))) {
-                return p;
-              } else {
-                return JSON.stringify(p);
-              }
-            })
-            .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
-          schema: resolvedSchema as Sch,
-          source: resolvedSource as Src,
-        };
-      }
+    } else if (isDiscriminatedUnionSchema(resolvedSchema)) {
+      const key =
+        resolvedSchema instanceof DiscriminatedUnionSchema
+          ? resolvedSchema["key"]
+          : resolvedSchema.key;
       const keyValue = resolvedSource[key];
       if (!keyValue) {
         throw Error(
-          `Invalid path: union source ${resolvedSchema} did not have required key ${key} in path: ${path}`,
+          `Invalid path: discriminated union source ${resolvedSchema} did not have required key ${key} in path: ${path}`,
         );
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -428,7 +422,7 @@ export function resolvePath<
       );
       if (!schemaOfUnionKey) {
         throw Error(
-          `Invalid path: union schema ${resolvedSchema} did not have a child object with ${key} of value ${keyValue} in path: ${path}`,
+          `Invalid path: discriminated union schema ${resolvedSchema} did not have a child object with ${key} of value ${keyValue} in path: ${path}`,
         );
       }
       resolvedSchema = schemaOfUnionKey.items[part];
@@ -691,29 +685,16 @@ export function safeResolvePath<
         schema: resolvedSchema as Sch,
         source: resolvedSource,
       };
-    } else if (isUnionSchema(resolvedSchema)) {
-      const key = resolvedSchema.key;
-      if (typeof key !== "string") {
-        return {
-          status: "ok",
-          path: origParts
-            .map((p) => {
-              if (!Number.isNaN(Number(p))) {
-                return p;
-              } else {
-                return JSON.stringify(p);
-              }
-            })
-            .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
-          schema: resolvedSchema as Sch,
-          source: resolvedSource as Src,
-        };
-      }
+    } else if (isDiscriminatedUnionSchema(resolvedSchema)) {
+      const key =
+        resolvedSchema instanceof DiscriminatedUnionSchema
+          ? resolvedSchema["key"]
+          : resolvedSchema.key;
       const keyValue = resolvedSource[key];
       if (!keyValue) {
         return {
           status: "error",
-          message: `Invalid path: union source ${resolvedSchema} did not have required key ${key} in path: ${path}`,
+          message: `Invalid path: discriminated union source ${resolvedSchema} did not have required key ${key} in path: ${path}`,
         };
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -724,7 +705,7 @@ export function safeResolvePath<
       if (!schemaOfUnionKey) {
         return {
           status: "error",
-          message: `Invalid path: union schema ${resolvedSchema} did not have a child object with ${key} of value ${keyValue} in path: ${path}`,
+          message: `Invalid path: discriminated union schema ${resolvedSchema} did not have a child object with ${key} of value ${keyValue} in path: ${path}`,
         };
       }
       resolvedSchema = schemaOfUnionKey.items[part];
