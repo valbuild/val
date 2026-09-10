@@ -249,8 +249,8 @@ const IMAGE_NAMES: string[] = [
 
 /**
  * Galleries, keyed by their module. The label is the last segment of the
- * dir the gallery is constrained to, which is what `directoryName`
- * produces — so it is lowercase, like the dir itself.
+ * directory the gallery is constrained to, which is what `directoryName`
+ * produces — so it is lowercase, like the directory itself.
  */
 export const mockMedia: ShellMediaGallery[] = [
   {
@@ -322,8 +322,8 @@ function dataModule(
 
 /**
  * The Data panel is a tree, so the mock is a tree: modules at the top of a
- * dir, modules nested a couple of levels down, and more than one
- * top-level dir. A project that keeps everything in one flat `/content`
+ * directory, modules nested a couple of levels down, and more than one
+ * top-level directory. A project that keeps everything in one flat `/content`
  * would never show the panel doing its job — and it is exactly the projects
  * that do organise their content that the tree exists for.
  */
