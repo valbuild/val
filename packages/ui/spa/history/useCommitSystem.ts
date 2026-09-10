@@ -6,6 +6,7 @@ import type {
 import { useMemo } from "react";
 import { createReadOnlySystem } from "../stores/readOnlySystem";
 import { useValSystem } from "../stores/react/SystemContext";
+import { useClient } from "../components/ValProvider";
 import type { System } from "../stores/createSystem";
 
 /**
@@ -46,10 +47,12 @@ export function useCommitSystem(
   } | null,
 ): System | null {
   const live = useValSystem();
+  const client = useClient();
   return useMemo(() => {
     if (!patchSet) {
       return null;
     }
+    const commitSha = patchSet.commit.commitSha;
     /*
      * Start from the project as it is, then lay the commit on top.
      *
@@ -120,9 +123,34 @@ export function useCommitSystem(
     return createReadOnlySystem({
       schemas,
       sources,
+      /*
+       * A `.jsonValues()` entry, as it was at this commit.
+       *
+       * Without it the store refuses the read and the entry stays a marker,
+       * which the pane draws as an empty field - a claim that the author left
+       * it blank, about content that is simply stored elsewhere. The fetch is
+       * per entry and on demand, which is the store's own design: an entry
+       * loads when something reads inside it, so a commit with a thousand
+       * support pages costs nothing until one is opened.
+       */
+      fetchJsonEntry: async (moduleFilePath, key) => {
+        const res = await client("/history/json", "GET", {
+          query: { commit_sha: commitSha, path: moduleFilePath, key },
+        });
+        if (res.status === 200) {
+          return { status: "ok", content: res.json.content as Json };
+        }
+        return {
+          status: "error",
+          message:
+            "message" in res.json
+              ? res.json.message
+              : `Could not read '${key}' as it was at ${commitSha.slice(0, 7)}`,
+        };
+      },
       noServerReason: "This is how things were; there is nothing pending here",
     });
-  }, [patchSet, live, outside]);
+  }, [patchSet, live, outside, client]);
 }
 
 /**

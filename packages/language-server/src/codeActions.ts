@@ -1,5 +1,7 @@
 import {
   DEFAULT_VAL_REMOTE_HOST,
+  Internal,
+  type Json,
   type ModuleFilePath,
   type SourcePath,
   type ValidationError,
@@ -9,6 +11,7 @@ import { result } from "@valbuild/core/fp";
 import {
   createFixPatch,
   patchSourceFile,
+  planJsonValuesEntryExtraction,
   type FixHandlerResult,
 } from "@valbuild/server";
 import {
@@ -33,6 +36,7 @@ import {
 } from "./valModulesRegistry";
 import type { ValModuleContent } from "./ValProject";
 import { jsonEntryEditFor, type JsonEntryEdit } from "./jsonEntryEdit";
+import { supportsResourceOperation } from "./clientCapabilities";
 import { minimalTextEdit } from "./textEdit";
 
 // Re-exported: it lives in its own module so that `commands.ts` can use it
@@ -41,7 +45,7 @@ export { minimalTextEdit };
 import fs from "fs";
 import path from "path";
 import ts from "typescript";
-import { pathToUri } from "./uri";
+import { pathToUri, uriToPath } from "./uri";
 
 /**
  * Quick fixes, built by running Val's own fix machinery.
@@ -72,6 +76,20 @@ const LOCAL_FIXES: readonly ValidationFix[] = [
   "files:check-all-files",
 ];
 
+/**
+ * Fixes that are local, but are NOT a patch against the document they are
+ * reported on, so they never reach `computeFixEdit`.
+ *
+ * `jsonValues:extract-entry` creates a file and rewrites another — see
+ * {@link createExtractEntryAction}. `createFixPatch` has no branch for it at all
+ * (the fix lives in the server's own `extractJsonValuesEntry`), so routing it
+ * through the patch pipeline would silently produce an empty patch and no
+ * action, which is exactly what it did before this existed.
+ */
+const WORKSPACE_EDIT_FIXES: readonly ValidationFix[] = [
+  "jsonValues:extract-entry",
+];
+
 /** Human-readable titles; falls back to the fix name for anything unknown. */
 const FIX_TITLES: Partial<Record<ValidationFix, string>> = {
   "image:add-metadata": "Val: add image metadata",
@@ -80,10 +98,20 @@ const FIX_TITLES: Partial<Record<ValidationFix, string>> = {
   "file:check-metadata": "Val: update file metadata",
   "images:check-all-files": "Val: update gallery image metadata",
   "files:check-all-files": "Val: update gallery file metadata",
+  "jsonValues:extract-entry": "Val: move entry into its own .val.json",
 };
 
 export function isLocalFix(fix: string): fix is ValidationFix {
   return (LOCAL_FIXES as readonly string[]).includes(fix);
+}
+
+export function isWorkspaceEditFix(fix: string): fix is ValidationFix {
+  return (WORKSPACE_EDIT_FIXES as readonly string[]).includes(fix);
+}
+
+/** Whether the client will honour a file CREATE inside a `WorkspaceEdit`. */
+export function canCreateFiles(capabilities: unknown): boolean {
+  return supportsResourceOperation(capabilities, "create");
 }
 
 /**
@@ -110,6 +138,7 @@ export async function createValCodeActions({
   moduleFilePath,
   read,
   remoteHost = process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST,
+  allowCreateFiles = false,
 }: {
   document: TextDocument;
   diagnostics: Diagnostic[];
@@ -128,6 +157,11 @@ export async function createValCodeActions({
    */
   read?: (fsPath: string) => string | undefined;
   remoteHost?: string;
+  /**
+   * Whether the client honours a file CREATE in a `WorkspaceEdit`. Without it
+   * the extract-entry fix is not offered at all — see {@link canCreateFiles}.
+   */
+  allowCreateFiles?: boolean;
 }): Promise<CodeAction[]> {
   const actions: CodeAction[] = [];
   /**
@@ -175,6 +209,26 @@ export async function createValCodeActions({
         });
         continue;
       }
+      if (isWorkspaceEditFix(fix)) {
+        if (offered.has(`${data.sourcePath}|${fix}`)) {
+          continue;
+        }
+        const action = createExtractEntryAction({
+          document,
+          sourcePath: data.sourcePath as SourcePath,
+          content,
+          valRoot,
+          moduleFilePath,
+          read,
+          allowCreateFiles,
+        });
+        if (!action) {
+          continue;
+        }
+        offered.add(`${data.sourcePath}|${fix}`);
+        actions.push(action);
+        continue;
+      }
       if (!isLocalFix(fix)) {
         continue;
       }
@@ -218,6 +272,139 @@ export async function createValCodeActions({
   }
 
   return actions;
+}
+
+/**
+ * The quick fix for `jsonValues:extract-entry`: move an entry that was written
+ * inline in the `.val.ts` into its own `*.val.json`.
+ *
+ * Not a patch, and so not `computeFixEdit`. Two files change at once — a
+ * `*.val.json` is created with the entry's content, and the `.val.ts` has the
+ * inline value replaced by `c.json(() => import("./..."))` — and a `Patch` can
+ * only edit one `.val.ts` and cannot create anything. That is why the fix is
+ * `extractJsonValuesEntry` in the server rather than a `createFixPatch` branch,
+ * and why the editor had no fix to offer for it at all until now: the patch
+ * pipeline produced nothing and the action was dropped.
+ *
+ * The plan comes from the same `planJsonValuesEntryExtraction` that
+ * `val validate --fix` runs, so the two cannot write different files; only the
+ * last step differs. Here it is a `WorkspaceEdit`, so the change goes through
+ * the editor's undo stack, and — crucially — is computed against the buffer the
+ * user is looking at rather than what is on disk.
+ */
+function createExtractEntryAction({
+  document,
+  sourcePath,
+  content,
+  valRoot,
+  moduleFilePath,
+  read,
+  allowCreateFiles,
+}: {
+  document: TextDocument;
+  sourcePath: SourcePath;
+  content: ValModuleContent;
+  valRoot: string;
+  moduleFilePath?: ModuleFilePath;
+  read?: (fsPath: string) => string | undefined;
+  allowCreateFiles: boolean;
+}): CodeAction | undefined {
+  if (!moduleFilePath || !allowCreateFiles) {
+    return undefined;
+  }
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(sourcePath);
+  const parts = Internal.splitModulePath(modulePath);
+  // Root-only by contract, exactly as the server's fix handler asserts: the
+  // entry is a direct child of the module's root record/router.
+  if (parts.length !== 1) {
+    return undefined;
+  }
+  const entryKey = parts[0];
+  const entryContent = entryContentOf(content.source, entryKey);
+  if (entryContent === undefined) {
+    return undefined;
+  }
+  const planned = planJsonValuesEntryExtraction({
+    moduleFilePath,
+    entryKey,
+    content: entryContent,
+    valTsPath: uriToPath(document.uri),
+    // The editor's text, not the file's: an edit computed against stale text
+    // has ranges that land in the wrong place.
+    valTsText: document.getText(),
+  });
+  if (result.isErr(planned)) {
+    return undefined;
+  }
+  const absoluteJsonPath = path.join(valRoot, planned.value.jsonPath);
+  // Same refusal as the CLI's, widened by one case: an unsaved buffer counts as
+  // occupied too. Creating over either would destroy content that a `--fix` run
+  // refuses to touch.
+  if (
+    read?.(absoluteJsonPath) !== undefined ||
+    fs.existsSync(absoluteJsonPath)
+  ) {
+    return undefined;
+  }
+  const valTsEdit = minimalTextEdit(
+    document.getText(),
+    planned.value.valTsContent,
+    document,
+  );
+  if (!valTsEdit) {
+    return undefined;
+  }
+  const jsonUri = pathToUri(absoluteJsonPath);
+  return {
+    title:
+      FIX_TITLES["jsonValues:extract-entry"] ??
+      "Val: move entry into its own .val.json",
+    kind: CodeActionKind.QuickFix,
+    edit: {
+      // `documentChanges`, not `changes`: a plain edit map cannot create a file,
+      // and an edit addressed to a file that does not exist is an error rather
+      // than a creation.
+      documentChanges: [
+        { kind: "create", uri: jsonUri },
+        {
+          textDocument: { uri: jsonUri, version: null },
+          edits: [
+            {
+              range: {
+                start: { line: 0, character: 0 },
+                end: { line: 0, character: 0 },
+              },
+              newText: planned.value.jsonContent,
+            },
+          ],
+        },
+        {
+          textDocument: { uri: document.uri, version: null },
+          edits: [valTsEdit],
+        },
+      ],
+    },
+  };
+}
+
+/**
+ * One entry's value out of a module's source.
+ *
+ * `Object.entries` rather than an index: the source is a `Source`, which has no
+ * index signature, and reading a dynamic key off it is the one thing this needs
+ * to do. Mirrors what the server's fix handler reads, so the editor extracts the
+ * same bytes `val validate --fix` would.
+ */
+function entryContentOf(source: unknown, entryKey: string): Json | undefined {
+  if (source === null || typeof source !== "object" || Array.isArray(source)) {
+    return undefined;
+  }
+  for (const [key, value] of Object.entries(source)) {
+    if (key === entryKey) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 async function computeFixEdit({

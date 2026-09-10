@@ -2,12 +2,11 @@ import {
   Internal,
   type Json,
   ModuleFilePath,
-  RecordSchema,
   Schema,
   SelectorSource,
   SourcePath,
 } from "@valbuild/core";
-import { ValidationError } from "@valbuild/core";
+import { ValidationError, ValidationErrors } from "@valbuild/core";
 
 /**
  * The outcome of {@link validateJsonValuesEntries}: the errors found inside the
@@ -25,6 +24,54 @@ export type JsonValuesEntriesValidation = {
   errors: Record<SourcePath, ValidationError[]>;
   loadedEntries: Record<string, Json>;
 };
+
+/**
+ * The part of a `.jsonValues()` record this file calls. Named structurally
+ * because the value may not be an instance of *this* copy of `RecordSchema` —
+ * see {@link isJsonValuesRecord}.
+ */
+type JsonValuesRecord = {
+  validateJsonEntryContent(
+    path: SourcePath,
+    content: SelectorSource,
+  ): ValidationErrors;
+};
+
+/**
+ * Is this a `.jsonValues()` record?
+ *
+ * NOT `schema instanceof RecordSchema`, and the distinction is the whole point.
+ * `loadValModules` evaluates the project's `*.val.ts` with a `require` rooted at
+ * the PROJECT, deliberately, so the schemas are built by whatever
+ * `@valbuild/core` the project resolves. When the CLI is itself installed in
+ * that project, that is this very module and `instanceof` holds. When it is run
+ * through `npx` / `pnpm dlx`, the tool gets its own copy of `@valbuild/core`
+ * beside the project's, and `instanceof` is false for a record that is a record
+ * in every way that matters — same class name, same serialized schema, same
+ * methods, different realm.
+ *
+ * That failed OPEN: the whole check returned "no errors", so
+ * `npx @valbuild/cli validate` called a module with un-extracted entries VALID
+ * and a CI gate on it was green for the wrong reason. `loadValModules` avoids
+ * constructor checks for exactly this reason and says so; this one was the
+ * exception.
+ *
+ * `validateJsonEntryContent` is declared by `RecordSchema` and by nothing else,
+ * so it is the brand — and checking it first keeps the cheap short-circuit
+ * `instanceof` gave us, rather than serializing every non-record schema.
+ */
+function isJsonValuesRecord(
+  schema: Schema<SelectorSource>,
+): schema is Schema<SelectorSource> & JsonValuesRecord {
+  if (
+    !("validateJsonEntryContent" in schema) ||
+    typeof schema.validateJsonEntryContent !== "function"
+  ) {
+    return false;
+  }
+  const serialized = schema["executeSerialize"]();
+  return serialized.type === "record" && serialized.jsonValues === true;
+}
 
 /**
  * Validates the content of every `.jsonValues()` entry in a module by loading
@@ -84,10 +131,7 @@ export async function validateJsonValuesEntries(
   const out: Record<SourcePath, ValidationError[]> = {};
   const loadedEntries: Record<string, Json> = {};
   const res: JsonValuesEntriesValidation = { errors: out, loadedEntries };
-  if (!(schema instanceof RecordSchema)) {
-    return res;
-  }
-  if (!schema["executeSerialize"]().jsonValues) {
+  if (!isJsonValuesRecord(schema)) {
     return res;
   }
   if (source === null || typeof source !== "object" || Array.isArray(source)) {

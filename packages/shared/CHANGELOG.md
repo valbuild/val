@@ -1,5 +1,142 @@
 # @valbuild/shared
 
+## 0.124.0
+
+### Minor Changes
+
+- [#639](https://github.com/valbuild/val/pull/639) [`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055) Thanks [@freekh](https://github.com/freekh)! - Show `.jsonValues()` entries in the history pane
+
+  A `.jsonValues()` record keeps each entry's content in its own `*.val.json`
+  file; the module's own content is just markers pointing at them. The history
+  pane had no way to fetch those files for a past commit, so every entry rendered
+  as an **empty field** — which reads as "the author left this blank", about
+  content that was simply stored somewhere else.
+
+  Entries now load in the history pane the same way they load in the Studio: one
+  at a time, when you open one. A commit with a thousand support pages costs
+  nothing until you look at one of them.
+
+  An entry that cannot be read says so instead of rendering blank — including the
+  case where the key did not exist yet at that commit, which is a real answer
+  rather than an error.
+
+### Patch Changes
+
+- [#639](https://github.com/valbuild/val/pull/639) [`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055) Thanks [@freekh](https://github.com/freekh)! - Require a session to read a file from history
+
+  `GET /api/val/history/files` served a file at a given commit to anyone who
+  asked. It followed the reasoning of `/api/val/files`, which is deliberately
+  open — and neither half of that reasoning applies to it:
+
+  - `/files` stands on `patch_id` being an unguessable UUID. A **commit sha is
+    published** — `git log`, the GitHub UI, every pull request — so it is no
+    substitute for a credential.
+  - `/files` also _cannot_ require auth: draft images are fetched by the app's own
+    backend during Next image optimisation, with no cookies to send. Nothing
+    fetches history files server-side; both callers are the Studio, in a browser
+    that already holds the session.
+
+  So history files now require a session. `/files` is unchanged, and the reason
+  the two differ is written down in `architecture/media.md` so it is not "fixed"
+  in either direction later.
+
+  No action needed: the Studio sends its session cookie automatically.
+
+- Updated dependencies [[`aa89fc2`](https://github.com/valbuild/val/commit/aa89fc26de7028b3c5a1666b99afc03b39e92769)]:
+  - @valbuild/core@0.124.0
+
+## 0.123.3
+
+### Patch Changes
+
+- [#633](https://github.com/valbuild/val/pull/633) [`accf4f8`](https://github.com/valbuild/val/commit/accf4f852fe3400d762cc14e80316da741a69a9a) Thanks [@freekh](https://github.com/freekh)! - Stop `@valbuild/shared` replacing a consumer's own flexsearch types
+
+  `@valbuild/shared` gained a flexsearch dependency in 0.123.0, for
+  `search_content`, and typed its exported `SearchIndex.index` as flexsearch's
+  own `Index`. That put `import { Index } from "flexsearch"` into the published
+  `searchIndex.d.ts` — and flexsearch's type entry opens with
+  `declare module "flexsearch"`, which is an AMBIENT module declaration and so
+  global to a whole TypeScript program.
+
+  The effect on a project that uses flexsearch itself, at a different version:
+  its own calls are checked against the copy Val dragged in. valbuild/web pins
+  flexsearch 0.7 and builds an index with
+  `new flexsearch.Document({ language: "en", … })`; on `@valbuild/shared@0.123.2`
+  that stopped compiling, because 0.8's `DocumentOptions` has no `language`. Its
+  resolved copy was still 0.7 — only the types had been swapped underneath it.
+
+  `SearchIndex.index` is now a structural type covering the three methods this
+  package calls, so nothing in the published declarations names flexsearch. The
+  library is still used to build the index; that is a value import, which never
+  reaches a `.d.ts`.
+
+  No API change: `SearchIndex` is still assignable from a real flexsearch
+  `Index`, and `noFlexsearchInPublishedTypes.test.ts` asserts both halves of that
+  — that no source file names flexsearch in a type position, and that a real
+  `Index` still satisfies the stand-in, so it cannot drift from the library
+  unnoticed.
+
+- [#628](https://github.com/valbuild/val/pull/628) [`aef45ce`](https://github.com/valbuild/val/commit/aef45ce3ef269f1b6221de44a56df0f6a0d9dbbd) Thanks [@freekh](https://github.com/freekh)! - Stop the serialized-schema parser dropping schema metadata
+
+  `SerializedSchema` in `@valbuild/shared` is a zod mirror of the serialized
+  schema type, and its `z.object`s strip keys they do not declare. Five fields
+  were declared on some schemas and forgotten on others:
+
+  - `customValidate` — missing on twelve of the eighteen schemas. This is the flag
+    that says a schema declares a `.validate()`; the function itself cannot
+    serialize, so the flag is the only thing that tells the Studio to run the
+    custom validators against the real instance.
+  - `description` — missing on thirteen, so a `.describe()` went unseen.
+  - `remote` and `referencedModule` — missing on `s.image()` and `s.file()`, so a
+    remote field read as local and a gallery-backed field lost the gallery it
+    reads its dimensions and mime type from.
+  - the `message` on a `.regexp(pattern, message)` — so a field with a custom
+    pattern message fell back to the generic "Expected string to match reg
+    exp: …".
+
+  Because it strips rather than rejects, nothing failed and nothing said so. The
+  live `/schema` route was unaffected — `ValClient` validates the response and
+  then returns the raw JSON — but the history path consumes the parsed output, so
+  in a commit or historical patch-set view (`getModuleAtCommit`,
+  `getHistoricalPatchSet`) a schema's custom validators, description, remoteness
+  and backing gallery all quietly disappeared.
+
+  The fields every serialized schema shares are now spread from one
+  `commonSchemaFields` object instead of being retyped eighteen times, which is
+  how they drifted apart in the first place. A round-trip test walks each schema's
+  serialized output against the parsed result and fails with the path of any key
+  that did not survive, so a field added to a serialized schema and forgotten in
+  the parser is caught without anyone having to remember to assert it.
+
+## 0.123.2
+
+### Patch Changes
+
+- [#629](https://github.com/valbuild/val/pull/629) [`04b6d4c`](https://github.com/valbuild/val/commit/04b6d4cbbecc131bbaf3c20633af9dad8c857310) Thanks [@freekh](https://github.com/freekh)! - Stop shipping zod to every visitor of a Val site (~113 KB)
+
+  `@valbuild/next`'s client code needed five things from
+  `@valbuild/shared/internal`, three of which are string constants like
+  `VAL_THEME_SESSION_STORAGE_KEY`. But preconstruct publishes each entrypoint as
+  a single bundled module, so importing a string constant pulled in the whole
+  entrypoint — including `ApiRoutes.ts` and its zod schemas. Measured on
+  val.build, that was 113 KB of zod in the initial JS of every page, for
+  visitors who never open the Studio.
+
+  Two changes:
+
+  - New `@valbuild/shared/client` entrypoint carrying the parts that are safe in
+    a browser bundle: the session-storage keys, the canvas protocol, and the
+    route-pattern helpers. Nothing reachable from it may import zod, and
+    `noZodInClientEntrypoint.test.ts` walks the source graph to enforce that —
+    one careless re-export would silently put the 113 KB back.
+  - `ValNextProvider` now imports `createValClient` on first use rather than at
+    module scope. It genuinely needs zod (it `safeParse`s every request and
+    response), but its only caller is the draft-mode poll, which returns early
+    unless the overlay is mounted. A visitor without the Val Enable cookie never
+    triggers the import.
+
+  No API change. `@valbuild/shared/internal` still exports everything it did.
+
 ## 0.123.0
 
 ### Minor Changes

@@ -222,7 +222,7 @@ hidden item quite happily; `e2e/keyof-create.spec.ts` is what caught it.
 `@valbuild/core`, and only that.** There used to be two — the server's, gating
 whether `/save` demands remote credentials, and the Studio's
 `findRequiredRemoteFiles`, gating the `/remote/settings` fetch — and they
-disagreed about `s.images({ remote: true })`. A media collection serializes as a
+disagreed about `s.images({ ... }).remote()`. A media collection serializes as a
 `record` of metadata with the file named by the KEY, so a walk that only recurses
 into `item` finds no image schema and says no; that was the server's answer. If
 you add a schema type, teach that one function about it: the `never` assignment in

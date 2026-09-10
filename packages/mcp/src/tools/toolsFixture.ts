@@ -173,7 +173,7 @@ export default c.define(
 /**
  * A gallery whose images live on Val's content host.
  *
- * `remote: true` changes what the content POINTS AT — a `remote.val.build` URL
+ * `.remote()` changes what the content POINTS AT — a `remote.val.build` URL
  * instead of a `/public` path — and nothing about where an unpublished upload's
  * bytes go, which is the patch store either way.
  */
@@ -182,7 +182,7 @@ import { s, c } from "val.config";
 
 export default c.define(
   "${REMOTE_GALLERY_PATH}",
-  s.images({ remote: true, directory: "/public/val/remote" }),
+  s.images({ directory: "/public/val/remote" }).remote(),
   {}
 );
 `;

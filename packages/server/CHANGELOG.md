@@ -1,5 +1,105 @@
 # @valbuild/server
 
+## 0.124.0
+
+### Minor Changes
+
+- [#639](https://github.com/valbuild/val/pull/639) [`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055) Thanks [@freekh](https://github.com/freekh)! - Show `.jsonValues()` entries in the history pane
+
+  A `.jsonValues()` record keeps each entry's content in its own `*.val.json`
+  file; the module's own content is just markers pointing at them. The history
+  pane had no way to fetch those files for a past commit, so every entry rendered
+  as an **empty field** — which reads as "the author left this blank", about
+  content that was simply stored somewhere else.
+
+  Entries now load in the history pane the same way they load in the Studio: one
+  at a time, when you open one. A commit with a thousand support pages costs
+  nothing until you look at one of them.
+
+  An entry that cannot be read says so instead of rendering blank — including the
+  case where the key did not exist yet at that commit, which is a real answer
+  rather than an error.
+
+### Patch Changes
+
+- [#639](https://github.com/valbuild/val/pull/639) [`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055) Thanks [@freekh](https://github.com/freekh)! - Require a session to read a file from history
+
+  `GET /api/val/history/files` served a file at a given commit to anyone who
+  asked. It followed the reasoning of `/api/val/files`, which is deliberately
+  open — and neither half of that reasoning applies to it:
+
+  - `/files` stands on `patch_id` being an unguessable UUID. A **commit sha is
+    published** — `git log`, the GitHub UI, every pull request — so it is no
+    substitute for a credential.
+  - `/files` also _cannot_ require auth: draft images are fetched by the app's own
+    backend during Next image optimisation, with no cookies to send. Nothing
+    fetches history files server-side; both callers are the Studio, in a browser
+    that already holds the session.
+
+  So history files now require a session. `/files` is unchanged, and the reason
+  the two differ is written down in `architecture/media.md` so it is not "fixed"
+  in either direction later.
+
+  No action needed: the Studio sends its session cookie automatically.
+
+- Updated dependencies [[`5674237`](https://github.com/valbuild/val/commit/56742371a75b4fdcbff8b1afccff8fcc1ebf8078), [`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055), [`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055), [`aa89fc2`](https://github.com/valbuild/val/commit/aa89fc26de7028b3c5a1666b99afc03b39e92769)]:
+  - @valbuild/ui@0.124.0
+  - @valbuild/shared@0.124.0
+  - @valbuild/core@0.124.0
+
+## 0.123.3
+
+### Patch Changes
+
+- [#623](https://github.com/valbuild/val/pull/623) [`4c9369b`](https://github.com/valbuild/val/commit/4c9369bad3f17e96868262e78a4f47361d85319e) Thanks [@freekh](https://github.com/freekh)! - Add the editor quick fix for a `.jsonValues()` entry written inline: **Val: move entry into its own .val.json**.
+
+  The language server already reported the problem — "Entry '…' is written inline … Run 'val validate --fix' to move it" — but offered no way to act on it, so the only remedy was to leave the editor and run the CLI. It now offers a quick fix that creates the `*.val.json` with the entry's content and rewrites the `.val.ts` to `c.json(() => import("./…"))`, in one undoable step.
+
+  The fix is computed from the same code `val validate --fix` runs, so the two write the same files, and it is computed against the buffer you are looking at rather than what is on disk — an unsaved module can be fixed without saving first. It refuses, rather than overwriting, when a file or an unsaved buffer already occupies the target path.
+
+  Requires an editor that honours file creation inside a workspace edit; VS Code does. In an editor that does not announce it, no action is offered rather than one that would rewrite the module to import a file that never got created.
+
+- [#621](https://github.com/valbuild/val/pull/621) [`fb1baff`](https://github.com/valbuild/val/commit/fb1baffead5228d8a86a51af65178b88738d5a64) Thanks [@freekh](https://github.com/freekh)! - Fix `.jsonValues()` validation being silently skipped when the CLI is run through `npx` / `pnpm dlx`.
+
+  `npx @valbuild/cli validate` reported a `.jsonValues()` module whose entries were still written inline in the `.val.ts` as **valid**, and `--fix` moved nothing into `*.val.json`. Running the CLI installed in the project (`./node_modules/.bin/val validate --fix`) worked, which made this look like a schema or path problem rather than a tooling one.
+
+  The cause: the project's `*.val.ts` are evaluated with a `require` rooted at the project, so their schemas come from the project's `@valbuild/core`, while `npx`/`dlx` runs the CLI's own second copy. The entry check guarded on `schema instanceof RecordSchema`, which is false across those two copies, and it failed open — the whole check returned "no errors". The guard is now structural, so it holds whichever copy built the schema. If you gate CI on `npx @valbuild/cli validate`, that gate was green for the wrong reason.
+
+- Updated dependencies [[`accf4f8`](https://github.com/valbuild/val/commit/accf4f852fe3400d762cc14e80316da741a69a9a), [`356eb11`](https://github.com/valbuild/val/commit/356eb11b5f6a0a02dfec80580c6fccac75d28402), [`aef45ce`](https://github.com/valbuild/val/commit/aef45ce3ef269f1b6221de44a56df0f6a0d9dbbd)]:
+  - @valbuild/shared@0.123.3
+  - @valbuild/ui@0.123.3
+
+## 0.123.2
+
+### Patch Changes
+
+- [#619](https://github.com/valbuild/val/pull/619) [`8e58c34`](https://github.com/valbuild/val/commit/8e58c3495d1bf0f221a57082cb0a3045929722a1) Thanks [@freekh](https://github.com/freekh)! - Stop `val validate` reporting published remote gallery images as missing — and `--fix` deleting them
+
+  A remote gallery (`s.images({ remote: true })`) keys an uploaded entry by its
+  remote URL. Two separate checks read that key, normalised it back to the local
+  path it encodes, and then required a file to be sitting there:
+
+  - `val validate` reported _"Gallery … has tracked files that do not exist on
+    disk"_ for every published remote image;
+  - `val validate --fix` **removed the entry from the gallery**, silently deleting
+    the reference to a file that was safely on the content host.
+
+  Both were wrong for the same reason. Publishing uploads remote files to the
+  content host and copies only local ones into the working tree, so an image added
+  through the Studio — or over MCP — has no file in the repo by design. Putting one
+  there is exactly what remote storage exists to avoid.
+
+  Remote entries are now exempt from both the missing-file check and the
+  metadata-from-disk verification. Whether a remote entry is sound is
+  `image:check-remote`'s question, and it already asks it. Nothing changes for
+  local entries, or for a remote entry that does have a local file — `--fix`
+  promotes a local file to a remote ref and leaves the file where it was, and that
+  file is still counted as tracked rather than reported as untracked.
+
+- Updated dependencies [[`04b6d4c`](https://github.com/valbuild/val/commit/04b6d4cbbecc131bbaf3c20633af9dad8c857310), [`3e93508`](https://github.com/valbuild/val/commit/3e93508b05d08b0c24947a97c6141a9ad8a3931e)]:
+  - @valbuild/shared@0.123.2
+  - @valbuild/ui@0.123.2
+
 ## 0.123.0
 
 ### Minor Changes

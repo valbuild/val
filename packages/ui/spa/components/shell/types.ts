@@ -200,7 +200,9 @@ export type ShellPanel =
   | "account"
   | "utility"
   | "ai"
-  | "notifications";
+  | "notifications"
+  /** The list of publishes, and the way into the two-pane history view. */
+  | "history";
 
 /** Breakpoint the shell is rendering at. */
 export type ShellBreakpoint = "mobile" | "tablet" | "desktop";

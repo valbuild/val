@@ -5,10 +5,16 @@
 `s.images()` / `s.files()` are **whole-module collections**. `s.image()` /
 `s.file()` are **fields**. They are not variants of each other.
 
-|       | collection (is the module)                        | field (lives at a path)                                      |
-| ----- | ------------------------------------------------- | ------------------------------------------------------------ |
-| image | `s.images({ directory, accept?, alt?, remote? })` | `s.image({ directory, accept })` or `s.image(galleryModule)` |
-| file  | `s.files({ directory, accept, remote? })`         | `s.file({ accept })`                                         |
+|       | collection (is the module)               | field (lives at a path)                                      |
+| ----- | ---------------------------------------- | ------------------------------------------------------------ |
+| image | `s.images({ directory, accept?, alt? })` | `s.image({ directory, accept })` or `s.image(galleryModule)` |
+| file  | `s.files({ directory, accept })`         | `s.file({ accept })` or `s.file(collectionModule)`           |
+
+Remote is a **method, not an option**, everywhere: `s.images({...}).remote()`,
+`s.files({...}).remote()`, `s.image().remote()`, `s.file().remote()`. It used to
+be `{ remote: true }` on the two collections and a `.remote()` on the two fields,
+which meant the same fact was spelled two ways depending on which of the four you
+were looking at.
 
 A collection's `directory` is **required**. It used to default to `/public/val`,
 which meant a gallery that had simply not said where it wanted its files shared a
@@ -53,9 +59,9 @@ only a path outside `/public`** — `isRemoteMediaPath` is the whole test.
 writes the derived ones **one property at a time** rather than replacing the
 object.
 
-A **gallery-backed** field (`s.image(galleryModule)`) carries neither: the
-gallery has them, keyed by path, and repeating them is how two copies of one
-fact get to disagree. `s.image(galleryVal)` refuses them at author time, and
+A **gallery-backed** field (`s.image(galleryModule)`, and `s.file(collectionModule)`
+for the file pair) carries neither: the gallery has them, keyed by path, and
+repeating them is how two copies of one fact get to disagree. `s.image(galleryVal)` refuses them at author time, and
 validation refuses a path the gallery does not track. `fillFromGallery` supplies
 them at resolve time — including `alt`, but only when the field has none, so a
 per-image override wins. A gallery whose `alt` is a locale record holds an object
@@ -181,6 +187,41 @@ broken the moment its write comes back.
 > `next dev` answers an uncommitted `/public` path with the app's HTML, so a
 > broken tile still returns **200** with a `src` that looks right. Only decoding
 > it — `naturalWidth > 0` — can tell. Any test here asserts on that.
+
+## Why `/files` has no auth, and `/history/files` does
+
+These two look like the same endpoint and are not, so they are documented
+together — an "inconsistency" that gets tidied in either direction breaks
+something.
+
+**`/api/val/files` is unauthenticated on purpose, and cannot be otherwise.** A
+draft image is fetched by the app's own backend during Next image optimisation.
+That is a backend-to-backend request: no browser, no cookies, nothing to
+authenticate with. Requiring auth would not tighten anything — it would black
+out every unpublished image in the Studio the moment the app runs its images
+through the optimiser.
+
+What stands in for the credential is the `patch_id`. It is a UUID, so a
+published path stays public (it already is) and an unpublished one is only
+reachable by someone who already knows a patch id. The trade is written out in
+full at the route itself in `ValServer.ts`; the short version is that guessing
+one is infeasible, shimming it into a frontend is work, and the prize is an
+image about to be published anyway.
+
+**`/api/val/history/files` is authenticated**, and neither half of that argument
+transfers to it:
+
+- Its token is a **commit sha**, which is not a secret. It is in `git log`, in
+  the GitHub UI, on every pull request. A sha cannot stand in for a credential
+  the way a patch id does.
+- Nothing fetches it server-side. Both callers are the Studio, in a browser that
+  has the session cookie — the history pane's `<img>`, and `stageRestore`'s
+  `fetch`, both same-origin so the cookie is sent. There is no optimiser path to
+  keep open, so asking for auth costs nothing.
+
+So: **`/files` open because it must be and can afford to be; `/history/files`
+closed because it can be and should be.** Before changing either, check which of
+those two properties you are relying on.
 
 ## Nav placement
 

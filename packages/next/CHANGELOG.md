@@ -1,5 +1,67 @@
 # @valbuild/next
 
+## 0.124.0
+
+### Patch Changes
+
+- Updated dependencies [[`5674237`](https://github.com/valbuild/val/commit/56742371a75b4fdcbff8b1afccff8fcc1ebf8078), [`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055), [`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055), [`aa89fc2`](https://github.com/valbuild/val/commit/aa89fc26de7028b3c5a1666b99afc03b39e92769)]:
+  - @valbuild/ui@0.124.0
+  - @valbuild/server@0.124.0
+  - @valbuild/shared@0.124.0
+  - @valbuild/core@0.124.0
+  - @valbuild/react@0.124.0
+  - @valbuild/language-server@0.124.0
+  - @valbuild/mcp@0.124.0
+
+## 0.123.3
+
+### Patch Changes
+
+- Updated dependencies [[`4c9369b`](https://github.com/valbuild/val/commit/4c9369bad3f17e96868262e78a4f47361d85319e), [`fb1baff`](https://github.com/valbuild/val/commit/fb1baffead5228d8a86a51af65178b88738d5a64), [`accf4f8`](https://github.com/valbuild/val/commit/accf4f852fe3400d762cc14e80316da741a69a9a), [`356eb11`](https://github.com/valbuild/val/commit/356eb11b5f6a0a02dfec80580c6fccac75d28402), [`aef45ce`](https://github.com/valbuild/val/commit/aef45ce3ef269f1b6221de44a56df0f6a0d9dbbd)]:
+  - @valbuild/server@0.123.3
+  - @valbuild/language-server@0.123.3
+  - @valbuild/shared@0.123.3
+  - @valbuild/ui@0.123.3
+  - @valbuild/mcp@0.123.3
+  - @valbuild/react@0.123.3
+
+## 0.123.2
+
+### Patch Changes
+
+- [#629](https://github.com/valbuild/val/pull/629) [`04b6d4c`](https://github.com/valbuild/val/commit/04b6d4cbbecc131bbaf3c20633af9dad8c857310) Thanks [@freekh](https://github.com/freekh)! - Stop shipping zod to every visitor of a Val site (~113 KB)
+
+  `@valbuild/next`'s client code needed five things from
+  `@valbuild/shared/internal`, three of which are string constants like
+  `VAL_THEME_SESSION_STORAGE_KEY`. But preconstruct publishes each entrypoint as
+  a single bundled module, so importing a string constant pulled in the whole
+  entrypoint — including `ApiRoutes.ts` and its zod schemas. Measured on
+  val.build, that was 113 KB of zod in the initial JS of every page, for
+  visitors who never open the Studio.
+
+  Two changes:
+
+  - New `@valbuild/shared/client` entrypoint carrying the parts that are safe in
+    a browser bundle: the session-storage keys, the canvas protocol, and the
+    route-pattern helpers. Nothing reachable from it may import zod, and
+    `noZodInClientEntrypoint.test.ts` walks the source graph to enforce that —
+    one careless re-export would silently put the 113 KB back.
+  - `ValNextProvider` now imports `createValClient` on first use rather than at
+    module scope. It genuinely needs zod (it `safeParse`s every request and
+    response), but its only caller is the draft-mode poll, which returns early
+    unless the overlay is mounted. A visitor without the Val Enable cookie never
+    triggers the import.
+
+  No API change. `@valbuild/shared/internal` still exports everything it did.
+
+- Updated dependencies [[`04b6d4c`](https://github.com/valbuild/val/commit/04b6d4cbbecc131bbaf3c20633af9dad8c857310), [`8e58c34`](https://github.com/valbuild/val/commit/8e58c3495d1bf0f221a57082cb0a3045929722a1), [`3e93508`](https://github.com/valbuild/val/commit/3e93508b05d08b0c24947a97c6141a9ad8a3931e)]:
+  - @valbuild/shared@0.123.2
+  - @valbuild/server@0.123.2
+  - @valbuild/ui@0.123.2
+  - @valbuild/language-server@0.123.2
+  - @valbuild/mcp@0.123.2
+  - @valbuild/react@0.123.2
+
 ## 0.123.1
 
 ### Patch Changes

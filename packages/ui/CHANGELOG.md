@@ -1,5 +1,85 @@
 # @valbuild/ui
 
+## 0.124.0
+
+### Minor Changes
+
+- [#635](https://github.com/valbuild/val/pull/635) [`5674237`](https://github.com/valbuild/val/commit/56742371a75b4fdcbff8b1afccff8fcc1ebf8078) Thanks [@freekh](https://github.com/freekh)! - Find your history from the Studio, instead of building a URL by hand
+
+  The two-pane history view shipped with no way in. Everything behind it worked —
+  the commit archives, the reconstruction, the compare, the restore — but the
+  only way to reach it was to read a commit sha out of the database and assemble
+  a query string yourself. A feature nobody can find is not shipped.
+
+  There is now a **History** button in the top bar, next to Publish. It lists what
+  has been published on this branch, newest first, with the message, who published
+  it, when, and how many changes it carried. Click one and it opens beside the
+  Studio; **Stop comparing** closes it again.
+
+  - Commits made before Val recorded history — and ones pushed straight to the
+    repo — are listed, but greyed out and not clickable, with a note saying why.
+    Hiding them would make your history look shorter than it is.
+  - **Load more** pages back through older commits.
+  - The button does not appear in local development, where there is no published
+    history to list.
+
+- [#639](https://github.com/valbuild/val/pull/639) [`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055) Thanks [@freekh](https://github.com/freekh)! - Show `.jsonValues()` entries in the history pane
+
+  A `.jsonValues()` record keeps each entry's content in its own `*.val.json`
+  file; the module's own content is just markers pointing at them. The history
+  pane had no way to fetch those files for a past commit, so every entry rendered
+  as an **empty field** — which reads as "the author left this blank", about
+  content that was simply stored somewhere else.
+
+  Entries now load in the history pane the same way they load in the Studio: one
+  at a time, when you open one. A commit with a thousand support pages costs
+  nothing until you look at one of them.
+
+  An entry that cannot be read says so instead of rendering blank — including the
+  case where the key did not exist yet at that commit, which is a real answer
+  rather than an error.
+
+## 0.123.3
+
+### Patch Changes
+
+- [#634](https://github.com/valbuild/val/pull/634) [`356eb11`](https://github.com/valbuild/val/commit/356eb11b5f6a0a02dfec80580c6fccac75d28402) Thanks [@freekh](https://github.com/freekh)! - Publish the AI summary that arrived while you were waiting for it
+
+  Pressing Publish while the AI was still writing the commit message starts a
+  short countdown, so the summary gets a chance to land before the commit goes
+  out. It landed — the box on screen filled with it — and then the commit said
+  "Update Home" anyway.
+
+  The text was read back out of the summary state by the publish button, from
+  that button's own render. The countdown fires a callback created when Publish
+  was pressed, and applying the summary and ending the wait happen in the same
+  flush, so the callback always ran with the text the box held _before_ the
+  summary arrived. No amount of waiting could have fixed it.
+
+  The popover now hands the text to publish along with the request, and works it
+  out from the values as they are at that moment. The rule is unchanged and is
+  still the one thing this flow guarantees: an AI summary takes over only a box
+  nobody has typed in, so anyone who wrote their own summary publishes exactly
+  what they wrote, whenever the AI happens to answer.
+
+## 0.123.2
+
+### Patch Changes
+
+- [#630](https://github.com/valbuild/val/pull/630) [`3e93508`](https://github.com/valbuild/val/commit/3e93508b05d08b0c24947a97c6141a9ad8a3931e) Thanks [@freekh](https://github.com/freekh)! - Two fixes to the Studio's chrome
+
+  **Data, Media and Settings are reachable again on a tablet.** The left rail is
+  drawn from 1200px up, and the top bar's menu button opens the first destination
+  a project has and nothing else — so between 768px and 1200px, which is an iPad
+  in either orientation and any half screen, whichever panel happened to be open
+  was the only panel you could reach. The destination switcher that stands in for
+  the rail was shown below 768px only, and the tablet width fell through the gap
+  between the two. It is now shown at every width where the rail is not.
+
+  **Review moved to the left of Preview.** The three actions read left to right
+  in the order they are done in — Review, Preview, Publish — instead of putting
+  the first step between the other two.
+
 ## 0.123.0
 
 ### Minor Changes

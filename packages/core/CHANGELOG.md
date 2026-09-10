@@ -1,5 +1,34 @@
 # @valbuild/core
 
+## 0.124.0
+
+### Minor Changes
+
+- [#622](https://github.com/valbuild/val/pull/622) [`aa89fc2`](https://github.com/valbuild/val/commit/aa89fc26de7028b3c5a1666b99afc03b39e92769) Thanks [@freekh](https://github.com/freekh)! - **Breaking:** `s.images()` and `s.files()` no longer take a `remote` option. Use
+  `.remote()`, the same way `s.image()` and `s.file()` already did.
+
+  ```ts
+  // before
+  s.images({ directory: "/public/val/images", remote: true });
+  s.files({
+    directory: "/public/val/docs",
+    accept: "application/pdf",
+    remote: true,
+  });
+
+  // after
+  s.images({ directory: "/public/val/images" }).remote();
+  s.files({
+    directory: "/public/val/docs",
+    accept: "application/pdf",
+  }).remote();
+  ```
+
+  Behaviour is unchanged — remote is still off unless asked for. This only makes
+  remote one thing spelled one way across all four media schemas, instead of an
+  option on the two collections and a method on the two fields. `remote: false`
+  has no replacement because it was the default; drop it.
+
 ## 0.121.0
 
 ### Minor Changes

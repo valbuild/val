@@ -5,6 +5,7 @@ import {
   Columns2,
   Eye,
   GitCompare,
+  History,
   Link2,
   Loader2,
   LucideIcon,
@@ -41,6 +42,15 @@ export type TopBarProps = {
    * hidden; a number — including 0 — means show it.
    */
   unreadNotifications?: number;
+  /**
+   * Whether to offer the history panel.
+   *
+   * False in FS mode: local dev has git, not a commit archive, so there is no
+   * published history to list and the endpoint answers
+   * `not-supported-in-fs-mode`. Better to not offer the button than to open a
+   * panel whose only content is an apology.
+   */
+  historyEnabled?: boolean;
   /** Absent until a profile loads, and in modes that have none. */
   user?: { name: string; avatarUrl?: string };
   onOpenSearch: () => void;
@@ -68,10 +78,12 @@ export type TopBarProps = {
   /**
    * Opens the review view. Absent in layouts that have none.
    *
-   * Review sits beside Publish because it is the step before it: a reader who
-   * is about to ship wants to see what they are shipping, and the action lived
-   * only in the Quick actions panel — two clicks away, behind an icon that does
-   * not say "review".
+   * Review is the first of the three actions — Review, Preview, Publish — read
+   * left to right in the order someone shipping a change does them: see what
+   * changed, look at it on the page, send it. It used to sit between Preview
+   * and Publish, which put the step you do FIRST in the middle; before that it
+   * lived only in the Quick actions panel, two clicks away behind an icon that
+   * does not say "review".
    */
   onCompare?: () => void;
   /**
@@ -114,9 +126,10 @@ export type PublishState = "idle" | "publishing" | "error" | "blocked";
 /**
  * The floating top bar.
  *
- * Preview and Publish stay visible at every breakpoint above mobile; on
- * mobile they move to the sticky bottom bar and the top bar keeps only
- * navigation, notifications, AI and account.
+ * Review, Preview and Publish stay visible at every breakpoint above mobile —
+ * in that order, which is the order they are done in; on mobile Preview and
+ * Publish move to the sticky bottom bar, Review moves to the Quick actions
+ * panel, and the top bar keeps only navigation, notifications, AI and account.
  */
 export function TopBar({
   breakpoint,
@@ -126,6 +139,7 @@ export function TopBar({
   onTogglePanel,
   onOpenMenu,
   unreadNotifications,
+  historyEnabled = false,
   user,
   onOpenSearch,
   onPreview,
@@ -173,16 +187,16 @@ export function TopBar({
       <div className="ml-auto flex items-center gap-1.5 shrink-0">
         {!isMobile && (
           <>
+            <ReviewButton
+              onCompare={onCompare}
+              pendingChanges={pendingChanges}
+              reviewCount={reviewCount}
+            />
             <PreviewButton
               onPreview={onPreview}
               previewHref={previewHref}
               onToggleCanvas={onToggleCanvas}
               isCanvasOpen={isCanvasOpen}
-            />
-            <ReviewButton
-              onCompare={onCompare}
-              pendingChanges={pendingChanges}
-              reviewCount={reviewCount}
             />
             {publishSlot ?? (
               <PublishButton
@@ -193,6 +207,15 @@ export function TopBar({
             )}
             <BarDivider />
           </>
+        )}
+        {historyEnabled && (
+          <IconButton
+            label="History"
+            active={openPanel === "history"}
+            onClick={() => onTogglePanel("history")}
+          >
+            <History size={16} />
+          </IconButton>
         )}
         {aiEnabled && (
           <IconButton
@@ -520,16 +543,20 @@ function BarDivider() {
 }
 
 /**
- * Review, beside Publish.
+ * Review, first of the three actions and to the left of Preview.
  *
  * Present whenever the shell can review at all, and merely INVISIBLE until
  * there is something to review. Not `null`, which is what it was: this group is
  * `ml-auto`, so its right edge is pinned and its left edge grows — a button
- * appearing in the middle of it slides Preview and everything left of it across
- * by its own width. That happens exactly when the first change lands, which is
- * exactly when someone is working in there, and it moved the Preview button out
- * from under a click that had already started. `canvas.spec.ts` caught it as a
- * click that hit nothing; a person gets the same miss and no error.
+ * mounting inside it moves the group's left edge, and everything left of that
+ * edge, by its own width. That happens exactly when the first change lands,
+ * which is exactly when someone is working in there, and while Review sat
+ * BETWEEN Preview and Publish it also moved Preview out from under a click that
+ * had already started. `canvas.spec.ts` caught it as a click that hit nothing;
+ * a person gets the same miss and no error. Being leftmost now spares Preview
+ * and Publish specifically, but the space still has to be held: the search
+ * field and the project name are to the left of it, and they would take the
+ * jump instead.
  *
  * `visibility: hidden` rather than opacity: it holds the space, takes no
  * clicks, takes no tab stop, and is not announced — so nothing is offered that

@@ -50,6 +50,10 @@ import {
   useHistoryParams,
 } from "../ValRouter";
 import { HistoryPane } from "../../history/HistoryPane";
+import { CommitList } from "../../history/CommitList";
+import { PanelEmptyState } from "./FloatingPanel";
+import { useCommitList } from "../../history/useCommitList";
+import { useValConfig } from "../ValFieldProvider";
 import { RestoreControls } from "../../history/RestoreControls";
 import { RestoreModeProvider } from "../../history/RestoreModeContext";
 import { useDirectedRestore } from "../../history/useDirectedRestore";
@@ -1093,11 +1097,82 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       aiSlot={
         isAIChatEnabled ? <AIChatSurface className="h-full" /> : undefined
       }
+      /*
+       * The list of publishes.
+       *
+       * `undefined` in FS mode, which also hides the button: local dev has git
+       * rather than a commit archive, so there is no published history to list
+       * and `/history/commits` answers `not-supported-in-fs-mode`. Mounted only
+       * while the panel is open, so opening the Studio does not fetch a list
+       * nobody asked for — the head of it moves on every publish, so it is not
+       * cached and there would be nothing to warm.
+       */
+      historySlot={mode === "http" ? <CommitListSurface /> : undefined}
       onMentionField={(sourcePath) => insertFieldRef(sourcePath as SourcePath)}
       // Held until the first load's patches are in — see `PendingChangesGate`.
       pendingChangesLoaded={pendingChangesLoaded}
       pendingChangesProgress={pendingChangesProgress}
       pendingChangesError={pendingChangesError}
+    />
+  );
+}
+
+/**
+ * The History panel's contents: the commit list, wired up.
+ *
+ * Separated from `ValShell` so the fetch lives with the thing that shows it —
+ * and so it unmounts with the panel, which is what keeps the list from being
+ * fetched on every Studio load.
+ */
+function CommitListSurface() {
+  const config = useValConfig();
+  const { history, setHistory } = useHistoryParams();
+  const branch = config?.gitBranch ?? null;
+  const { state, loadMore } = useCommitList(branch);
+  /*
+   * `gitBranch` is optional in ValConfig, and history is listed per branch, so
+   * without one there is nothing to ask for. Said out loud rather than left as
+   * a spinner: the hook has no request to make, so it would otherwise sit on
+   * "Reading the history…" forever. `config` being undefined is the different,
+   * transient case - it is still loading - and keeps the spinner.
+   */
+  if (config !== undefined && branch === null) {
+    return (
+      <PanelEmptyState>
+        This project has no <code>gitBranch</code> configured, and history is
+        listed per branch. Set one in <code>val.config</code> to see what has
+        been published.
+      </PanelEmptyState>
+    );
+  }
+  return (
+    <CommitList
+      state={state}
+      selectedCommitSha={history.commitSha}
+      onSelect={(commitSha) =>
+        /*
+         * Locked, and with no restore in progress.
+         *
+         * Picking a different commit from the list is starting again, not
+         * continuing: carrying a half-aimed restore across would leave a source
+         * path pointing into a commit that is no longer on screen.
+         */
+        setHistory({
+          commitSha,
+          locked: true,
+          rightPath: null,
+          restore: { mode: "off" },
+        })
+      }
+      onStopComparing={() =>
+        setHistory({
+          commitSha: null,
+          locked: true,
+          rightPath: null,
+          restore: { mode: "off" },
+        })
+      }
+      onLoadMore={loadMore}
     />
   );
 }

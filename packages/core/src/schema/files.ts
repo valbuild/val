@@ -22,11 +22,6 @@ export type FilesOptions = {
    * a directory with every other one.
    */
   directory: "/public" | `/public/${string}`;
-  /**
-   * Whether remote files are allowed
-   * @default false
-   */
-  remote?: boolean;
 };
 
 /**
@@ -43,6 +38,8 @@ type FilesItemSrc = { mimeType: string };
 
 /**
  * Define a collection of files.
+ *
+ * Remote is off by default: call `.remote()` on the result to allow remote files.
  *
  * @example
  * ```typescript
@@ -73,6 +70,6 @@ export const files = (
     type: "files",
     accept: options.accept,
     directory,
-    remote: options.remote ?? false,
+    remote: false,
   });
 };

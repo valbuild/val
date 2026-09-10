@@ -42,7 +42,8 @@ export { UtilityPanel } from "./UtilityPanel";
 export { AIChatPanel } from "./AIChatPanel";
 export { NotificationsPanel } from "./NotificationsPanel";
 export { EditorCanvas, PageEditor, CANVAS_MAX_WIDTH } from "./EditorCanvas";
-export { MobileBottomBar, MobileNavSwitcher } from "./MobileChrome";
+export { MobileBottomBar } from "./MobileChrome";
+export { NavSwitcher, needsNavSwitcher } from "./NavSwitcher";
 export {
   useShellBreakpoint,
   SHELL_MOBILE_BREAKPOINT,
