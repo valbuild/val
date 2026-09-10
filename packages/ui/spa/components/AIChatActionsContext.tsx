@@ -56,6 +56,30 @@ export interface AIChatActions {
    * it on every mount rather than having to know whether one is waiting.
    */
   flushPendingFieldRefs(): void;
+  /**
+   * Put a question to the assistant, opening it if it is not already there.
+   *
+   * For an affordance elsewhere in the Studio that stands for a request someone
+   * would otherwise have had to type — "Generate from my content" on an empty
+   * tone of voice is the first. It SENDS: a button that only fills the composer
+   * and waits is a worse thing than the sentence it saved.
+   *
+   * The prompt goes in as an ordinary user message, so the conversation shows
+   * what was asked and the editor can carry on from it. Same queue-and-replay
+   * as {@link AIChatActions.insertFieldRef}, for the same reason and one more:
+   * opening the assistant is what MOUNTS the surface that owns `sendMessage`,
+   * so there is nothing to send with until the render after.
+   */
+  askAssistant(prompt: string): void;
+  /**
+   * Register how a prompt is sent. Called by the surface that owns the
+   * conversation, and `null` on unmount.
+   *
+   * Registering also DELIVERS anything queued, which is what makes
+   * {@link AIChatActions.askAssistant} work across the mount it triggers —
+   * there is no separate flush to remember to call.
+   */
+  setAskAssistantImpl(fn: ((prompt: string) => void) | null): void;
 }
 
 const AIChatActionsContext = createContext<AIChatActions>({
@@ -66,6 +90,8 @@ const AIChatActionsContext = createContext<AIChatActions>({
   chatEditorRef: { current: null },
   insertFieldRef: () => {},
   flushPendingFieldRefs: () => {},
+  askAssistant: () => {},
+  setAskAssistantImpl: () => {},
 });
 
 export function AIChatActionsProvider({
@@ -91,6 +117,9 @@ export function AIChatActionsProvider({
 
   /** Mentions made before the editor existed, oldest first. See `insertFieldRef`. */
   const pendingFieldRefs = useRef<SourcePath[]>([]);
+  const askImplRef = useRef<((prompt: string) => void) | null>(null);
+  /** Prompts asked before the surface existed, oldest first. See `askAssistant`. */
+  const pendingPrompts = useRef<string[]>([]);
 
   const openAIChat = useCallback(() => {
     openImplRef.current?.();
@@ -124,6 +153,38 @@ export function AIChatActionsProvider({
     }
   }, []);
 
+  const askAssistant = useCallback(
+    (prompt: string) => {
+      openAIChat();
+      const ask = askImplRef.current;
+      if (ask === null) {
+        pendingPrompts.current.push(prompt);
+        return;
+      }
+      ask(prompt);
+    },
+    [openAIChat],
+  );
+
+  const setAskAssistantImpl = useCallback(
+    (fn: ((prompt: string) => void) | null) => {
+      askImplRef.current = fn;
+      if (fn === null || pendingPrompts.current.length === 0) {
+        return;
+      }
+      // Drained before sending, not after: `StrictMode` registers, cleans up
+      // and registers again, and a queue still holding the prompt on the second
+      // pass would send it twice. Emptying it first makes the second
+      // registration a no-op.
+      const queued = pendingPrompts.current;
+      pendingPrompts.current = [];
+      for (const prompt of queued) {
+        fn(prompt);
+      }
+    },
+    [],
+  );
+
   const value = useMemo<AIChatActions>(
     () => ({
       isAIChatEnabled,
@@ -133,6 +194,8 @@ export function AIChatActionsProvider({
       chatEditorRef,
       insertFieldRef,
       flushPendingFieldRefs,
+      askAssistant,
+      setAskAssistantImpl,
     }),
     [
       isAIChatEnabled,
@@ -142,6 +205,8 @@ export function AIChatActionsProvider({
       setOpenAIChatImpl,
       insertFieldRef,
       flushPendingFieldRefs,
+      askAssistant,
+      setAskAssistantImpl,
     ],
   );
 

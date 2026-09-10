@@ -1,5 +1,5 @@
-import { ReactNode, useEffect, useState } from "react";
-import { LucideIcon } from "lucide-react";
+import { ReactNode, useEffect, useId, useState } from "react";
+import { LucideIcon, Sparkles } from "lucide-react";
 import { THEME_RADIUS_STEPS, ThemeRadius } from "@valbuild/core";
 // From `ColorFieldPure`, not from `ColorField`: the connected field in that
 // module reaches the whole editor tree, and this panel is presentational.
@@ -188,6 +188,14 @@ export type AssistantSettingsFieldsProps = {
   maxLength: number;
   /** Validation messages, keyed by field, as the Studio has them. */
   errors?: Partial<Record<keyof AssistantSettingsValue, string>>;
+  /**
+   * Ask the assistant to write the tone of voice from the project's content.
+   *
+   * Absent where there is no assistant to ask — a project that has turned it
+   * off, or a layout with no chat surface — in which case the button is not
+   * drawn rather than drawn and dead. See `ValSettingsSections`.
+   */
+  onGenerateTone?: () => void;
   readonly?: boolean;
 };
 
@@ -204,6 +212,7 @@ export function AssistantSettingsFields({
   onChange,
   maxLength,
   errors,
+  onGenerateTone,
   readonly,
 }: AssistantSettingsFieldsProps) {
   /**
@@ -239,16 +248,14 @@ export function AssistantSettingsFields({
           onCheckedChange={(next) => onChange("enabled", next)}
         />
       </div>
-      <SettingsTextField
-        label="Context"
-        description="What this site is, who runs it, names and spellings that matter."
-        placeholder="A CMS for developers, run by a team of four…"
-        value={value.context}
-        onChange={(next) => onChange("context", next)}
-        maxLength={maxLength}
-        error={errors?.context}
-        readonly={readonly || value.enabled === false}
-      />
+      {/*
+       * Tone of voice first, context second.
+       *
+       * Not the order the schema declares them in, and the panel wins: tone is
+       * the field an editor comes here to write, and the one with something to
+       * offer while it is empty. Context is background you fill in once and do
+       * not look at again.
+       */}
       <SettingsTextField
         label="Tone of voice"
         description="How it should write: formal or playful, British or American, how headings are cased."
@@ -257,6 +264,32 @@ export function AssistantSettingsFields({
         onChange={(next) => onChange("tone", next)}
         maxLength={maxLength}
         error={errors?.tone}
+        readonly={readonly || value.enabled === false}
+        /*
+         * Offered only while the field is empty, and that is the whole rule:
+         * with something in it the button would be an invitation to overwrite
+         * what somebody wrote, and there is no undo in a settings panel. To
+         * regenerate, clear it.
+         */
+        action={
+          onGenerateTone && !value.tone?.trim() ? (
+            <SettingsFieldAction
+              icon={Sparkles}
+              label="Generate from my content"
+              onClick={onGenerateTone}
+              disabled={readonly || value.enabled === false}
+            />
+          ) : undefined
+        }
+      />
+      <SettingsTextField
+        label="Context"
+        description="What this site is, who runs it, names and spellings that matter."
+        placeholder="A CMS for developers, run by a team of four…"
+        value={value.context}
+        onChange={(next) => onChange("context", next)}
+        maxLength={maxLength}
+        error={errors?.context}
         readonly={readonly || value.enabled === false}
       />
     </SettingsSection>
@@ -280,6 +313,7 @@ export function SettingsTextField({
   onChange,
   maxLength,
   error,
+  action,
   readonly,
 }: {
   label: string;
@@ -289,8 +323,15 @@ export function SettingsTextField({
   onChange: (value: string | null) => void;
   maxLength: number;
   error?: string;
+  /** Drawn on the label's row, right-aligned. See `SettingsFieldAction`. */
+  action?: ReactNode;
   readonly?: boolean;
 }) {
+  // `useId` rather than a slug of the label: two fields could share a label,
+  // and an id that collides silently points a label at the wrong box.
+  const fieldId = useId();
+  const descriptionId = `${fieldId}-description`;
+  const errorId = `${fieldId}-error`;
   const [current, setCurrent] = useState(value ?? "");
   const write: DebouncedFieldWrite<string> = useDebouncedFieldWrite<string>(
     (next) => onChange(next === "" ? null : next),
@@ -306,9 +347,39 @@ export function SettingsTextField({
   }, [value, write]);
   const overBy = current.length - maxLength;
   return (
-    <label className="block">
-      <span className="text-xs font-medium">{label}</span>
-      <span className="block mt-0.5 text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
+    /*
+     * A `<div>` with a `<label htmlFor>`, not a `<label>` wrapping everything.
+     *
+     * The wrapping form is shorter and was what this had, and it makes two
+     * things wrong that nothing on screen shows:
+     *
+     * A BUTTON INSIDE A LABEL TAKES THE LABEL'S NAME. Add "Generate from my
+     * content" to a wrapping label and it is announced as "Tone of voice,
+     * button" — the label's text wins the accessible-name computation over the
+     * button's own contents. It also swallows the click, since a label forwards
+     * clicks to its control, so pressing it put the caret in the box.
+     *
+     * AND THE DESCRIPTION BECAME PART OF THE FIELD'S NAME. Everything inside a
+     * wrapping label names the control, so the textarea was called "Tone of
+     * voice How it should write: formal or playful, British or American, how
+     * headings are cased." It is a description; `aria-describedby` is where a
+     * description goes.
+     */
+    <div className="block">
+      {/*
+       * The action is a SIBLING of the label, on its row: next to the name of
+       * the thing it fills in, and outside the label for the reason above.
+       */}
+      <span className="flex items-start justify-between gap-2">
+        <label htmlFor={fieldId} className="text-xs font-medium">
+          {label}
+        </label>
+        {action}
+      </span>
+      <span
+        id={descriptionId}
+        className="block mt-0.5 text-[0.6875rem] text-fg-secondary-alt leading-relaxed"
+      >
         {description}
       </span>
       {/*
@@ -321,7 +392,12 @@ export function SettingsTextField({
        * scrolls instead, and can be dragged taller.
        */}
       <textarea
+        id={fieldId}
         rows={4}
+        // The description and, when there is one, the validation message: both
+        // are about the value rather than part of its name.
+        aria-describedby={error ? `${descriptionId} ${errorId}` : descriptionId}
+        aria-invalid={error ? true : undefined}
         className="mt-1.5 w-full resize-y max-h-56 rounded-md border border-border-primary bg-bg-primary px-3 py-2 text-xs leading-relaxed placeholder:text-fg-secondary-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
         placeholder={placeholder}
         value={current}
@@ -333,7 +409,10 @@ export function SettingsTextField({
         onBlur={() => write.flush()}
       />
       <span className="mt-1 flex items-start justify-between gap-2">
-        <span className="text-[0.6875rem] text-fg-error-on-surface leading-relaxed">
+        <span
+          id={errorId}
+          className="text-[0.6875rem] text-fg-error-on-surface leading-relaxed"
+        >
           {error}
         </span>
         <span
@@ -345,7 +424,7 @@ export function SettingsTextField({
           {overBy > 0 ? `${overBy} over` : `${current.length} / ${maxLength}`}
         </span>
       </span>
-    </label>
+    </div>
   );
 }
 
@@ -621,5 +700,43 @@ function SettingsChoice<Id extends string | null>({
         </span>
       )}
     </div>
+  );
+}
+
+/**
+ * A small button beside a settings field's label.
+ *
+ * A sibling of the label rather than inside it, which is `SettingsTextField`'s
+ * doing and is the whole reason that component is a `<div>` with a
+ * `<label htmlFor>`: a button inside a label is announced with the LABEL's text
+ * and has its click forwarded to the control.
+ */
+export function SettingsFieldAction({
+  icon: Icon,
+  label,
+  onClick,
+  disabled,
+}: {
+  icon: LucideIcon;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded",
+        "text-[0.6875rem] text-fg-secondary hover:text-fg-primary",
+        "bg-bg-float-raised hover:bg-bg-secondary-hover",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+        "disabled:cursor-not-allowed disabled:opacity-50",
+      )}
+    >
+      <Icon size={11} />
+      {label}
+    </button>
   );
 }
