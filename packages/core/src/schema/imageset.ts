@@ -34,7 +34,34 @@ export type AltSource = AltSourceOf<AltSchema>;
 export type ImagesetOptions<
   Accept extends `image/${string}`,
   Alt extends AltSchema = StringSchema<string | null>,
-> = {
+> = ImagesetOptionsBase<Accept> & ImagesetAltOption<Alt>;
+
+/**
+ * `alt` is optional only when it is the default schema.
+ *
+ * Naming a different `Alt` and then leaving `alt` out would make the fallback
+ * in `imageset()` a lie — `Alt` would say `s.string()` while the value was a
+ * nullable one. Requiring it in that case is what makes the fallback sound:
+ * the branch that uses it is reachable only when `Alt` IS the default.
+ */
+type ImagesetAltOption<Alt extends AltSchema> = [
+  StringSchema<string | null>,
+] extends [Alt]
+  ? {
+      /**
+       * Alt text schema. Can be:
+       * - s.string() for required alt text
+       * - s.string().nullable() for optional alt text (default)
+       * - s.record(s.string(), s.string()) for locale-based alt text
+       */
+      alt?: Alt;
+    }
+  : {
+      /** Alt text schema — required, because it is not the default one. */
+      alt: Alt;
+    };
+
+type ImagesetOptionsBase<Accept extends `image/${string}`> = {
   /**
    * The accepted mime type pattern. Must be an image type (e.g., "image/png", "image/webp", "image/*")
    * @default "image/*"
@@ -50,13 +77,6 @@ export type ImagesetOptions<
    * directory with every other one.
    */
   dir: "/public" | `/public/${string}`;
-  /**
-   * Alt text schema. Can be:
-   * - s.string() for required alt text
-   * - s.string().nullable() for optional alt text (default)
-   * - s.record(s.string(), s.string()) for locale-based alt text
-   */
-  alt?: Alt;
   /**
    * Re-encode uploads in the browser before they are uploaded.
    *
@@ -137,9 +157,13 @@ export const imageset = <
   const dir = options.dir;
   // `options.alt` is `Alt | undefined`, and the fallback is exactly the schema
   // `Alt` defaults to when `alt` is omitted. TypeScript will not narrow a type
-  // parameter from the absence of a value, so it cannot see that the two agree
-  // and the fallback is asserted here — the one assertion in this file, and it
-  // replaces the wider one that used to sit on the ObjectSchema below.
+  // parameter from the absence of a value, so it cannot see that the two agree,
+  // and the fallback is asserted here.
+  //
+  // Sound, not merely convenient: `ImagesetAltOption` makes `alt` REQUIRED
+  // unless `Alt` is the default, so this branch is unreachable for any other
+  // `Alt`. The one assertion in this file, and it replaces the wider one that
+  // used to sit on the ObjectSchema below.
   const altSchema = (options.alt ?? string().nullable()) as Alt;
   const itemSchema = new ObjectSchema<
     ImagesetItemProps<Alt>,
