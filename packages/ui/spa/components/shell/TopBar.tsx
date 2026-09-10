@@ -553,22 +553,25 @@ function BarDivider() {
 /**
  * Review, first of the three actions and to the left of Preview.
  *
- * Present whenever the shell can review at all, and merely INVISIBLE until
- * there is something to review. Not `null`, which is what it was: this group is
- * `ml-auto`, so its right edge is pinned and its left edge grows — a button
- * mounting inside it moves the group's left edge, and everything left of that
- * edge, by its own width. That happens exactly when the first change lands,
- * which is exactly when someone is working in there, and while Review sat
- * BETWEEN Preview and Publish it also moved Preview out from under a click that
- * had already started. `canvas.spec.ts` caught it as a click that hit nothing;
- * a person gets the same miss and no error. Being leftmost now spares Preview
- * and Publish specifically, but the space still has to be held: the search
- * field and the project name are to the left of it, and they would take the
- * jump instead.
+ * Offered whether or not anything is pending. It used to be `invisible` with
+ * nothing queued — present in the layout so the bar would not reflow, but
+ * unreachable and hidden from assistive tech. That made "is anything of mine
+ * still unpublished?" unanswerable from the bar: an absent button and a button
+ * whose data has not loaded look identical, so the only way to find out was to
+ * publish and see what happened. The phone's Quick actions row already answers
+ * it — see `reviewChangesLabel` — and this is the same rule above that
+ * breakpoint. What it opens says the same thing in a sentence; see
+ * `NothingToReview`.
  *
- * `visibility: hidden` rather than opacity: it holds the space, takes no
- * clicks, takes no tab stop, and is not announced — so nothing is offered that
- * cannot be used.
+ * Never `null`, which is what it was before it was `invisible`, and the reason
+ * survives both: this group is `ml-auto`, so its right edge is pinned and its
+ * left edge grows — a button mounting inside it moves the group's left edge,
+ * and everything left of that edge, by its own width. That happens exactly when
+ * the first change lands, which is exactly when someone is working in there,
+ * and while Review sat BETWEEN Preview and Publish it also moved Preview out
+ * from under a click that had already started. `canvas.spec.ts` caught it as a
+ * click that hit nothing; a person gets the same miss and no error. A button
+ * that is always there holds the space by being there.
  *
  * The badge shows `reviewCount`, which is the pending patch count zeroed when
  * all of it has been reverted. In that case the button stays — the review view
@@ -592,7 +595,6 @@ function ReviewButton({
     <button
       type="button"
       onClick={onCompare}
-      {...(hasWork ? {} : { "aria-hidden": true, tabIndex: -1 })}
       aria-label={
         showCount
           ? `Review ${reviewCount} ${reviewCount === 1 ? "change" : "changes"}`
@@ -602,7 +604,6 @@ function ReviewButton({
         "relative inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md shrink-0",
         "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
-        !hasWork && "invisible",
       )}
     >
       <GitCompare size={15} />
