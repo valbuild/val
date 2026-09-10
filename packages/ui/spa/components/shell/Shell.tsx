@@ -989,6 +989,16 @@ export function Shell({
               publishSlot={publishSlot}
               onOpenStatus={() => setOpenPanel("account")}
               onOpenQuickActions={() => setOpenPanel("utility")}
+              /*
+               * The same gate and the same ACT as the top bar's button above
+               * this breakpoint: absent when there is no assistant, and a
+               * toggle rather than an open, so the button that shows the panel
+               * as open is the button that closes it. It only opened, which on
+               * a phone - where the panel covers the editor - meant the
+               * obvious way to dismiss it did nothing.
+               */
+              onOpenAI={aiEnabled ? () => togglePanel("ai") : undefined}
+              isAIOpen={openPanel === "ai"}
             />
           </>
         ) : (

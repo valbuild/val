@@ -115,7 +115,8 @@ export type TopBarProps = {
    * Whether this project has an assistant. See `ShellProps.aiEnabled`.
    *
    * Absent hides the button rather than disabling it: it is the only thing in
-   * the bar that opens a panel with nothing behind it.
+   * the bar that opens a panel with nothing behind it. On mobile the button is
+   * not here at all — the bottom bar carries it.
    */
   aiEnabled?: boolean;
 };
@@ -127,9 +128,10 @@ export type PublishState = "idle" | "publishing" | "error" | "blocked";
  * The floating top bar.
  *
  * Review, Preview and Publish stay visible at every breakpoint above mobile —
- * in that order, which is the order they are done in; on mobile Preview and
- * Publish move to the sticky bottom bar, Review moves to the Quick actions
- * panel, and the top bar keeps only navigation, notifications, AI and account.
+ * in that order, which is the order they are done in; on mobile Preview,
+ * Publish and the assistant move to the sticky bottom bar, Review moves to the
+ * Quick actions panel, and the top bar keeps only navigation, history,
+ * notifications and account.
  */
 export function TopBar({
   breakpoint,
@@ -217,7 +219,13 @@ export function TopBar({
             <History size={16} />
           </IconButton>
         )}
-        {aiEnabled && (
+        {/*
+         * Above mobile only: on a phone the assistant is in the bottom bar,
+         * where the thumb is - see `MobileBottomBar`. Two Sparkles buttons on
+         * one screen would be two places to look for the same panel, and the
+         * top right corner of a phone is the furthest point from a thumb.
+         */}
+        {aiEnabled && !isMobile && (
           <IconButton
             label="AI assistant"
             active={openPanel === "ai"}
@@ -676,19 +684,29 @@ export function PublishButton({
       )}
     >
       {publishState === "publishing" ? (
-        <Loader2 size={14} className="animate-spin" />
+        <Loader2 size={14} className="shrink-0 animate-spin" />
       ) : publishState === "error" ? (
-        <AlertTriangle size={14} />
+        <AlertTriangle size={14} className="shrink-0" />
       ) : (
-        <Upload size={14} />
+        <Upload size={14} className="shrink-0" />
       )}
-      {publishState === "publishing"
-        ? "Publishing…"
-        : publishState === "error"
-          ? "Publish failed"
-          : "Publish"}
+      {/*
+       * Truncates, so the button can be narrower than its word. On the phone's
+       * bottom bar this shares a row with Preview and three icon buttons, and
+       * `min-w-0` there is only half the answer: a label that cannot clip makes
+       * the button refuse to shrink however small its box is asked to be.
+       */}
+      <span className="truncate">
+        {publishState === "publishing"
+          ? "Publishing…"
+          : publishState === "error"
+            ? "Publish failed"
+            : "Publish"}
+      </span>
       {publishState === "idle" && pendingChanges > 0 && (
-        <span className="tabular-nums opacity-80">{pendingChanges}</span>
+        <span className="shrink-0 tabular-nums opacity-80">
+          {pendingChanges}
+        </span>
       )}
     </button>
   );
