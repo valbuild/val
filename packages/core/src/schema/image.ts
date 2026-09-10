@@ -17,7 +17,7 @@ import {
 import { Internal, ValModule } from "..";
 import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
 import { FieldRender } from "../render";
-import { ImagesetEntryMetadata } from "./imageset";
+import { AltSource, ImagesetEntryMetadata } from "./imageset";
 import { getSource } from "../module";
 import { mimeTypeMatchesAccept } from "../mimeType";
 
@@ -98,7 +98,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly moduleMetadata: Record<
       ModulePath,
-      Record<string, ImagesetEntryMetadata>
+      Record<string, ImagesetEntryMetadata<AltSource>>
     > = {},
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
@@ -372,8 +372,15 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
   /**
    * The entries of the gallery this field points at, or null when it is a
    * standalone field.
+   *
+   * `AltSource` rather than a specific alt type: a field never reads an entry's
+   * alt — it carries its own — so it only needs the entry keys and the
+   * dimensions, and a gallery of any alt shape can back it.
    */
-  private galleryEntries(): Record<string, ImagesetEntryMetadata> | null {
+  private galleryEntries(): Record<
+    string,
+    ImagesetEntryMetadata<AltSource>
+  > | null {
     const modulePaths = Object.keys(this.moduleMetadata);
     if (modulePaths.length === 0) {
       return null;
@@ -576,27 +583,29 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
  * gallery, so the field carries only what a person typed.
  */
 export function image(
-  galleryModule: ValModule<Record<string, ImagesetEntryMetadata>>,
+  galleryModule: ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryImageOptions,
 ): ImageSchema<GalleryImageSource>;
 /** An image of its own, carrying its own dimensions and mime type. */
 export function image(options?: ImageOptions): ImageSchema<ImageSource>;
 export function image(
-  options?: ImageOptions | ValModule<Record<string, ImagesetEntryMetadata>>,
+  options?:
+    | ImageOptions
+    | ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryImageOptions,
 ): ImageSchema<ImageSource> | ImageSchema<GalleryImageSource> {
   const isModule =
     !!options &&
     !!Internal.getValPath(
-      options as ValModule<Record<string, ImagesetEntryMetadata>>,
+      options as ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
     );
   if (isModule) {
     const allModules: Record<
       string,
-      Record<string, ImagesetEntryMetadata>
+      Record<string, ImagesetEntryMetadata<AltSource>>
     > = {};
     for (const valModule of [
-      options as ValModule<Record<string, ImagesetEntryMetadata>>,
+      options as ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
     ]) {
       const modulePath = getValPath(valModule) as ModulePath | undefined;
       if (modulePath === undefined) {
@@ -606,7 +615,7 @@ export function image(
       }
       allModules[modulePath] = getSource(valModule) as Record<
         string,
-        ImagesetEntryMetadata
+        ImagesetEntryMetadata<AltSource>
       >;
     }
     return new ImageSchema<GalleryImageSource>(
