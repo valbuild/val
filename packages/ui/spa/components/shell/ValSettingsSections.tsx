@@ -156,24 +156,30 @@ function useLocalesSection(localesPath: SourcePath): LocalesSettingsValue {
  * Validation for the locales section, arranged the way the fields want it.
  *
  * Errors arrive per source path — `available.2` — and the component takes them
- * per TAG, so a row keeps its message when the row above it is removed.
- * Resolving the index against the list is what connects the two.
+ * per POSITION, which is the same thing with the path parsed off. Not per tag:
+ * the duplicate-language rule reports on the repeat, and a tag-keyed map cannot
+ * tell the repeat from the original.
+ *
+ * Between a removal and the next validation pass these are the PREVIOUS pass's
+ * errors read against the new list, so a message can sit on a neighbour for a
+ * frame. That resolves itself, and is true of any keying — the errors are
+ * produced per index, so nothing the panel does can make them survive a shift.
  */
 function useLocalesErrors(
   localesPath: SourcePath,
   available: string[],
-): { byTag?: Record<string, string> } {
+): { byIndex?: Record<number, string> } {
   const availablePath = sourcePathOfItem(localesPath, "available");
   const allErrors = useAllValidationErrors() || {};
   return useMemo(() => {
-    const byTag: Record<string, string> = {};
+    const byIndex: Record<number, string> = {};
     for (let i = 0; i < available.length; i++) {
       const errors = allErrors[sourcePathOfItem(availablePath, i)];
       if (errors && errors.length > 0) {
-        byTag[available[i]] = errors[0].message;
+        byIndex[i] = errors[0].message;
       }
     }
-    return { byTag };
+    return { byIndex };
   }, [allErrors, availablePath, available]);
 }
 

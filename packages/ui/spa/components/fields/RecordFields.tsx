@@ -4,7 +4,7 @@ import {
   SourcePath,
   isInlineRender,
 } from "@valbuild/core";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   usePreviewAtPath,
   useSchemaAtPath,
@@ -108,6 +108,20 @@ export function RecordFields({
   const visibleKeys = (keys: string[]): string[] =>
     keys.filter((key) => matchesLocale({ key, keySchema: schema.key }));
 
+  /**
+   * Whether the KEY already answered the filter for every row.
+   *
+   * For a locale-keyed record it did — `visibleKeys` filtered on it — and
+   * asking each entry again is the same question with three subscriptions
+   * attached per row. It could not even disagree: a locale-keyed record opens a
+   * scope, and a scope may not contain another, so the entry has no locale of
+   * its own to find.
+   *
+   * Every other record's keys say nothing about language, so there the entry is
+   * the only thing that can answer and `LocaleFiltered` does the work.
+   */
+  const keyDecidesLocale = schema.key?.type === "locale";
+
   // Entries are rendered in place either because the caller asked for it
   // (`inline` prop) or because the item schema opted in with
   // `.render({ as: "inline" })` — the record counterpart of the inline rows in
@@ -128,7 +142,11 @@ export function RecordFields({
                   matchesLocale({ key, keySchema: schema.key }),
                 )
                 .map(([key, itemPath]) => (
-                  <LocaleFiltered key={itemPath} path={itemPath}>
+                  <LocaleFilteredRow
+                    key={itemPath}
+                    path={itemPath}
+                    alreadyFiltered={keyDecidesLocale}
+                  >
                     <Field
                       label={key}
                       path={itemPath}
@@ -146,7 +164,7 @@ export function RecordFields({
                         errorDisplay={errorDisplay}
                       />
                     </Field>
-                  </LocaleFiltered>
+                  </LocaleFilteredRow>
                 ))}
         </div>
       </div>
@@ -175,6 +193,7 @@ export function RecordFields({
           // so a key with no item falls back to a skeleton or the default preview.
           keys={visibleKeys(Object.keys(source))}
           jsonValues={schema.jsonValues === true}
+          keyDecidesLocale={keyDecidesLocale}
         />
       )}
       {!previewAtPathData && source && (
@@ -183,6 +202,7 @@ export function RecordFields({
           keys={visibleKeys(Object.keys(source))}
           jsonValues={schema.jsonValues === true}
           validationErrors={validationErrors}
+          keyDecidesLocale={keyDecidesLocale}
         />
       )}
     </div>
@@ -207,16 +227,41 @@ const PREVIEW_ROW_HEIGHT = 74;
  */
 const PREVIEW_ROW_CONTENT_HEIGHT = 56;
 
+/**
+ * A record row, filtered by the locale picker unless the KEY already answered.
+ *
+ * `LocaleFiltered` costs a schema lookup and two source reads per row, so it is
+ * worth not asking when the answer is known: see `keyDecidesLocale` in
+ * `RecordFields`.
+ */
+function LocaleFilteredRow({
+  path,
+  alreadyFiltered,
+  children,
+}: {
+  path: SourcePath;
+  alreadyFiltered: boolean;
+  children: ReactNode;
+}) {
+  if (alreadyFiltered) {
+    return <>{children}</>;
+  }
+  return <LocaleFiltered path={path}>{children}</LocaleFiltered>;
+}
+
 function RecordCardList({
   path,
   keys,
   jsonValues,
   validationErrors,
+  keyDecidesLocale,
 }: {
   path: SourcePath;
   keys: string[];
   jsonValues: boolean;
   validationErrors: Record<SourcePath, ValidationError[]>;
+  /** `keys` is already locale-filtered — see `keyDecidesLocale` in `RecordFields`. */
+  keyDecidesLocale: boolean;
 }) {
   const { navigate } = useNavigation();
   const val = useValSystem();
@@ -250,7 +295,10 @@ function RecordCardList({
           );
         }
         return (
-          <LocaleFiltered path={sourcePathOfItem(path, key)}>
+          <LocaleFilteredRow
+            path={sourcePathOfItem(path, key)}
+            alreadyFiltered={keyDecidesLocale}
+          >
             <div className="pb-4">
               <div
                 onClick={() => navigate(sourcePathOfItem(path, key))}
@@ -281,7 +329,7 @@ function RecordCardList({
                 </div>
               </div>
             </div>
-          </LocaleFiltered>
+          </LocaleFilteredRow>
         );
       }}
     />
@@ -344,11 +392,14 @@ function RecordPreviewList({
   path,
   keys,
   jsonValues,
+  keyDecidesLocale,
 }: {
   path: SourcePath;
   /** Every key of the record, in source order — see the call site. */
   keys: string[];
   jsonValues: boolean;
+  /** `keys` is already locale-filtered — see `keyDecidesLocale` in `RecordFields`. */
+  keyDecidesLocale: boolean;
 }) {
   const { navigate } = useNavigation();
   const val = useValSystem();
@@ -382,7 +433,10 @@ function RecordPreviewList({
           );
         }
         return (
-          <LocaleFiltered path={sourcePathOfItem(path, key)}>
+          <LocaleFilteredRow
+            path={sourcePathOfItem(path, key)}
+            alreadyFiltered={keyDecidesLocale}
+          >
             <div className="pb-4">
               <button
                 onClick={() => navigate(sourcePathOfItem(path, key))}
@@ -401,7 +455,7 @@ function RecordPreviewList({
                 )}
               </button>
             </div>
-          </LocaleFiltered>
+          </LocaleFilteredRow>
         );
       }}
     />

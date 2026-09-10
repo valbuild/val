@@ -55,7 +55,7 @@ type HarnessProps = {
   breakpoint: ShellBreakpoint;
   /** The settings module's `locales` section, as source. */
   initial?: LocalesSettingsValue;
-  errors?: { byTag?: Record<string, string> };
+  errors?: { byIndex?: Record<number, string> };
   readonly?: boolean;
 };
 
@@ -150,12 +150,27 @@ export const BadTags: Story = {
   args: {
     initial: { available: ["en-US", "nb_NO", "fr-fr"] },
     errors: {
-      byTag: {
-        nb_NO:
-          "'nb_NO' is not a language tag. Language then region, separated by a hyphen — 'nb-NO', not 'nb_NO'",
-        "fr-fr": "'fr-fr' is not canonical. Write it as 'fr-FR'",
+      byIndex: {
+        1: "'nb_NO' is not a language tag. Language then region, separated by a hyphen — 'nb-NO', not 'nb_NO'",
+        2: "'fr-fr' is not canonical. Write it as 'fr-FR'",
       },
     },
+  },
+};
+
+/**
+ * The same language declared twice.
+ *
+ * Only reachable by hand-editing the settings module — the Add box refuses a
+ * tag already in the list — which is why the panel has to be able to FIX it.
+ * The error sits on the repeat, not on the list and not on the original, so the
+ * second row is the one to delete; rows are identified by position for exactly
+ * this case, or removing "en-US" would take both.
+ */
+export const DuplicateLanguage: Story = {
+  args: {
+    initial: { available: ["en-US", "nb-NO", "en-US"] },
+    errors: { byIndex: { 2: "'en-US' is declared twice" } },
   },
 };
 

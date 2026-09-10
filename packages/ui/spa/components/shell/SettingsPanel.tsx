@@ -367,13 +367,14 @@ export type LocalesSettingsFieldsProps = {
   value: LocalesSettingsValue;
   onChange: (next: LocalesSettingsValue) => void;
   /**
-   * What validation says about each language.
+   * What validation says about each language, by its POSITION in the list.
    *
-   * Keyed by tag rather than by index so a row keeps its message when the row
-   * above it is removed — the source has not been re-validated yet at that
-   * point, and an index would shift the message onto its neighbour.
+   * By position and not by tag, because a tag is not a row: `available` can
+   * hold the same language twice — that is exactly what the duplicate-language
+   * rule reports, on the repeat — and a tag-keyed map would put that message on
+   * both rows, leaving the editor no way to see which one to delete.
    */
-  errors?: { byTag?: Record<string, string> };
+  errors?: { byIndex?: Record<number, string> };
   readonly?: boolean;
 };
 
@@ -408,8 +409,11 @@ export function LocalesSettingsFields({
     onChange({ available: [...value.available, tag] });
     setDraft("");
   };
-  const remove = (tag: string) => {
-    onChange({ available: value.available.filter((each) => each !== tag) });
+  // By position, not by value. A hand-edited settings module can declare the
+  // same language twice, and removing "every en-US" would delete the good row
+  // along with the duplicate the editor came here to fix.
+  const remove = (index: number) => {
+    onChange({ available: value.available.filter((_, i) => i !== index) });
   };
   return (
     <SettingsSection description="The languages this project publishes. Content is checked against this list, so removing a language reports every piece of content still written in it.">
@@ -419,13 +423,16 @@ export function LocalesSettingsFields({
             No languages yet. Add one and this project becomes translated.
           </p>
         )}
-        {value.available.map((tag) => (
+        {value.available.map((tag, index) => (
+          // Keyed by position for the same reason: a tag is not unique, so a
+          // duplicate would collide. Safe here because a row holds no state of
+          // its own and the list is never reordered.
           <LocaleRow
-            key={tag}
+            key={index}
             tag={tag}
-            error={errors?.byTag?.[tag]}
+            error={errors?.byIndex?.[index]}
             readonly={readonly}
-            onRemove={() => remove(tag)}
+            onRemove={() => remove(index)}
           />
         ))}
       </div>
