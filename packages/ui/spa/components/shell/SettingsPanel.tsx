@@ -1,7 +1,9 @@
 import { ReactNode, useEffect, useState } from "react";
 import { LucideIcon } from "lucide-react";
 import { THEME_RADIUS_STEPS, ThemeRadius } from "@valbuild/core";
-import { ColorFieldPure } from "../fields/ColorField";
+// From `ColorFieldPure`, not from `ColorField`: the connected field in that
+// module reaches the whole editor tree, and this panel is presentational.
+import { ColorFieldPure } from "../fields/ColorFieldPure";
 import { FloatingPanel, PanelEmptyState } from "./FloatingPanel";
 import { PanelErrorState, PanelSkeleton } from "./PanelPrimitives";
 import { Switch } from "../designSystem/switch";
