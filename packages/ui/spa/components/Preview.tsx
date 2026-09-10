@@ -24,9 +24,12 @@ import { Loader2 } from "lucide-react";
 export function Preview({
   path,
   size,
+  nullLabel,
 }: {
   path: SourcePath;
   size?: "compact";
+  /** What an unwritten value is called here — see {@link PreviewNull}. */
+  nullLabel?: string;
 }) {
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(
@@ -41,7 +44,7 @@ export function Preview({
   }
   const type = schemaAtPath.data.type;
   if ("data" in sourceAtPath && sourceAtPath.data === null) {
-    return <PreviewNull path={path} />;
+    return <PreviewNull path={path} label={nullLabel} />;
   }
 
   if (type === "string") {
@@ -96,10 +99,23 @@ export function PreviewLoading({ path }: { path: SourcePath }) {
   );
 }
 
-export function PreviewNull({ path }: { path: SourcePath }) {
+export function PreviewNull({
+  path,
+  label,
+}: {
+  path: SourcePath;
+  /**
+   * What to call a value nobody has written, where the container knows a
+   * better word for it than "empty". A locale-keyed record's rows are the
+   * case this exists for: an unwritten entry there is not empty content, it is
+   * a language nobody has translated into, and a row reading `<empty>` looked
+   * the same as a row whose text happened to be blank.
+   */
+  label?: string;
+}) {
   return (
     <div id={path} key={path + "-null"} className="text-fg-quaternary">
-      {"<empty>"}
+      {label ?? "<empty>"}
     </div>
   );
 }

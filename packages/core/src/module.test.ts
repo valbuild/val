@@ -11,8 +11,8 @@ import {
 } from "./module";
 import { SelectorOfSchema } from "./schema";
 import { array } from "./schema/array";
-import { number } from "./schema/number";
-import { object } from "./schema/object";
+import { number, NumberSchema } from "./schema/number";
+import { object, ObjectSchema } from "./schema/object";
 import { settings } from "./schema/settings";
 import { string, StringSchema } from "./schema/string";
 import { union } from "./schema/union";
@@ -23,6 +23,9 @@ import { literal } from "./schema/literal";
 import { richtext } from "./schema/richtext";
 import { route, RouteSchema } from "./schema/route";
 import { image, ImageSchema } from "./schema/image";
+import { record } from "./schema/record";
+import { boolean, BooleanSchema } from "./schema/boolean";
+import { locale } from "./schema/locale";
 
 // import { i18n as initI18nSchema } from "./schema/i18n";
 // import { i18n as initI18nSource } from "./source/i18n";
@@ -289,6 +292,109 @@ describe("module", () => {
     if (res.status === "ok") {
       expect(res.schema).toBeInstanceOf(StringSchema);
       expect(res.source).toBe(undefined);
+    }
+  });
+
+  describe("resolvePath: a record entry that is present but FALSY", () => {
+    /**
+     * The key exists. Its value happens to be falsy. Those are different
+     * facts, and the record branch used to test the value — so `""`, `0`,
+     * `false` and `null` all reported as keys the record does not have, in
+     * every record, whether or not any of this has to do with locales.
+     */
+    test("an empty string is an entry", () => {
+      const schema = record(string(), string());
+      const { schema: resolved, source } = resolveAtPath(
+        '"empty"' as ModulePath,
+        { empty: "" },
+        schema,
+      );
+      expect(resolved).toBeInstanceOf(StringSchema);
+      expect(source).toBe("");
+    });
+
+    test("zero is an entry", () => {
+      const schema = record(string(), number());
+      const { schema: resolved, source } = resolveAtPath(
+        '"zero"' as ModulePath,
+        { zero: 0 },
+        schema,
+      );
+      expect(resolved).toBeInstanceOf(NumberSchema);
+      expect(source).toBe(0);
+    });
+
+    test("false is an entry", () => {
+      const schema = record(string(), boolean());
+      const { schema: resolved, source } = resolveAtPath(
+        '"off"' as ModulePath,
+        { off: false },
+        schema,
+      );
+      expect(resolved).toBeInstanceOf(BooleanSchema);
+      expect(source).toBe(false);
+    });
+
+    test("null is an entry — the declared key nobody has written yet", () => {
+      const schema = record(locale(), object({ title: string() }));
+      const { schema: resolved, source } = resolveAtPath(
+        '"nb-NO"' as ModulePath,
+        { "en-US": { title: "Jacket" }, "nb-NO": null },
+        schema,
+      );
+      expect(resolved).toBeInstanceOf(ObjectSchema);
+      expect(source).toBe(null);
+    });
+
+    test("a path THROUGH a null entry resolves the schema, with a null source", () => {
+      // What the Studio asks when someone navigates into an unwritten entry:
+      // it wants the field's schema in order to say that nothing is written
+      // there. `null` propagates down, exactly as it does through an object.
+      const schema = record(locale(), object({ title: string() }));
+      const { schema: resolved, source } = resolveAtPath(
+        '"nb-NO"."title"' as ModulePath,
+        { "en-US": { title: "Jacket" }, "nb-NO": null },
+        schema,
+      );
+      expect(resolved).toBeInstanceOf(StringSchema);
+      expect(source).toBe(null);
+    });
+
+    test("a key that is genuinely absent still throws", () => {
+      const schema = record(string(), string());
+      expect(() =>
+        resolveAtPath('"missing"' as ModulePath, { present: "" }, schema),
+      ).toThrow(/did not have key missing/);
+    });
+  });
+
+  test("safeResolvePath: a null record entry resolves rather than throwing", () => {
+    // `safeResolvePath` may not throw — that is the whole of the name — and
+    // indexing a `null` record source did.
+    const schema = record(locale(), object({ title: string() }));
+    const res = safeResolveAtPath(
+      '"nb-NO"."title"' as ModulePath,
+      { "en-US": { title: "Jacket" }, "nb-NO": null },
+      schema,
+    );
+    expect(res.status).toBe("ok");
+    if (res.status === "ok") {
+      expect(res.schema).toBeInstanceOf(StringSchema);
+      expect(res.source).toBe(null);
+    }
+  });
+
+  test("safeResolvePath: a record that is itself null resolves as null", () => {
+    const schema = object({ items: record(string(), string()).nullable() });
+    const res = safeResolveAtPath(
+      '"items"."a"' as ModulePath,
+      { items: null },
+      schema,
+    );
+    expect(res.status).toBe("ok");
+    if (res.status === "ok") {
+      expect(res.schema).toBeInstanceOf(StringSchema);
+      expect(res.source).toBe(null);
     }
   });
 

@@ -10,6 +10,7 @@ import { AnyField } from "../../components/AnyField";
 import { Preview } from "../../components/Preview";
 import { FieldSourceError } from "../../components/FieldSourceError";
 import { fixCapitalization } from "../../utils/fixCapitalization";
+import { FieldNull } from "../../components/FieldNull";
 
 export function ObjectFields({
   path,
@@ -63,6 +64,12 @@ export function ObjectFields({
     );
   }
   const schema = schemaAtPath.data;
+  if (sourceAtPath.data === null) {
+    // A null object has no children. Rendering the schema's items over it
+    // asked the store for paths that genuinely do not exist, so every one of
+    // them came back "Not Found" — see `FieldNull`.
+    return <FieldNull path={path} schema={schema} readonly={readonly} />;
+  }
   return (
     <div id={path}>
       <div className={`flex flex-col ${compact ? "gap-3" : "gap-6"}`}>
