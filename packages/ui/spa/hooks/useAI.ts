@@ -1687,7 +1687,7 @@ export function useAI(
                 toolCallId: message.toolCallId,
                 result: {
                   success: false,
-                  error: `No next-app-router page found for pathname "${pathname}".`,
+                  error: `No page router module found for pathname "${pathname}".`,
                 },
                 isError: true,
               });
@@ -2447,7 +2447,7 @@ Never tell the user to navigate manually — offer to navigate for them instead.
 ## Understanding content types
 - object: a group of fields
 - record: a collection of items with the same shape (e.g. blog posts, products)
-  - router: next-app-router — pages in a Next.js site, shown under "Pages" in the left menu
+  - router: next-app-router / tanstack-router — pages in this site, shown under "Pages" in the left menu
   - router: external-url-router — external links, shown under "External Sites" in the left menu
   - mediaType: "image" or "file" — a media gallery grouped by directory
 - array: an ordered list of items

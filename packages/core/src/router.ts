@@ -222,6 +222,141 @@ export function parseNextJsRoutePattern(moduleFilePath: string): string[] {
   return [];
 }
 
+/**
+ * Parse a TanStack Router route pattern out of a Val module file path.
+ *
+ * TanStack Router's file conventions are not Next's, so this is a different
+ * parser rather than a flag on the one above. A Val module for a route lives
+ * beside the route file and is named the same way — `routes/posts.$postId.tsx`
+ * is served content by `routes/posts.$postId.val.ts` — so the pattern is the
+ * file path with the conventions applied:
+ *
+ * - `.` and `/` both separate segments (`posts.$postId.val.ts` and
+ *   `posts/$postId.val.ts` are the same route)
+ * - `$param` is a dynamic segment, `$` on its own is a splat
+ * - `index` is the directory's own route and contributes no segment
+ * - `route` is a layout for the directory, likewise
+ * - `(group)` folders and `_pathless` layout segments are not in the URL
+ * - a trailing `_` on a segment opts out of nesting and is not in the URL
+ *
+ * The result is expressed in the SAME vocabulary the Next parser uses
+ * (`[param]`, `[...param]`), because everything downstream — validation, the
+ * sitemap, the key inputs in the Studio — is written against that vocabulary
+ * and there is no reason for two.
+ *
+ * - /src/routes/posts.$postId.val.ts -> ["posts", "[postId]"]
+ * - /routes/posts/$postId.val.ts     -> ["posts", "[postId]"]
+ * - /src/routes/index.val.ts         -> []
+ * - /src/routes/files.$.val.ts       -> ["files", "[..._splat]"]
+ * - /src/routes/(app)/_layout.about.val.ts -> ["about"]
+ */
+export function parseTanStackRoutePattern(moduleFilePath: string): string[] {
+  const segments = tanStackRouteSegments(moduleFilePath);
+  if (segments === null) {
+    return [];
+  }
+  return segments;
+}
+
+/**
+ * The segments, or `null` when the path is not a TanStack route module at all.
+ *
+ * Distinct from `parseTanStackRoutePattern`'s empty array, which is a real
+ * answer: the root route `/` has no segments.
+ */
+function tanStackRouteSegments(moduleFilePath: string): string[] | null {
+  if (!moduleFilePath || typeof moduleFilePath !== "string") {
+    return null;
+  }
+  const match = moduleFilePath.match(
+    /^(?:\/src)?\/routes\/(.+)\.val\.[tj]sx?$/,
+  );
+  if (!match) {
+    return null;
+  }
+  return tanStackSegmentsOfRoutePath(match[1]);
+}
+
+/**
+ * The URL segments of a TanStack route path, given relative to `routes/`.
+ *
+ * Exported because the Studio derives the same pattern from the same file path
+ * and must not disagree with validation about what a route is.
+ */
+export function tanStackSegmentsOfRoutePath(routePath: string): string[] {
+  // `.` is a separator exactly like `/`, so flatten both before looking at any
+  // segment: `posts/$postId.edit` and `posts.$postId.edit` are one route.
+  const rawSegments = routePath
+    .split("/")
+    .flatMap((part) => part.split("."))
+    .filter((part) => part !== "");
+  const segments: string[] = [];
+  for (const rawSegment of rawSegments) {
+    // A route group: a folder that organises files without appearing in the URL.
+    if (rawSegment.startsWith("(") && rawSegment.endsWith(")")) {
+      continue;
+    }
+    // A pathless layout route. `_layout` nests its children without adding a
+    // segment; `index`/`route` are the directory's own route and its layout.
+    if (rawSegment.startsWith("_")) {
+      continue;
+    }
+    if (rawSegment === "index" || rawSegment === "route") {
+      continue;
+    }
+    // A trailing `_` opts the segment out of layout nesting; the URL keeps the
+    // name without it.
+    const segment = rawSegment.endsWith("_")
+      ? rawSegment.slice(0, -1)
+      : rawSegment;
+    if (segment === "$") {
+      // A splat. Named `_splat` because that is the param name TanStack gives
+      // it, so `useValRoute(pageVal, params)` can be handed the route's own
+      // params object unchanged.
+      segments.push("[..._splat]");
+      continue;
+    }
+    if (segment.startsWith("$")) {
+      segments.push(`[${segment.slice(1)}]`);
+      continue;
+    }
+    segments.push(segment);
+  }
+  return segments;
+}
+
+/**
+ * The router for a TanStack Router (and TanStack Start) app.
+ *
+ * Like `nextAppRouter` this does not belong in core — it is here for the same
+ * reason that one is: the serialized schema carries only a router id, so the
+ * thing that turns an id back into a validator has to be somewhere every
+ * consumer can reach.
+ */
+export const tanstackRouter: ValRouter = {
+  getRouterId: () => "tanstack-router",
+  validate: (moduleFilePath, urlPaths) => {
+    const routePattern = parseTanStackRoutePattern(moduleFilePath);
+    const errors: RouteValidationError[] = [];
+
+    for (const urlPath of urlPaths) {
+      const validation = validateUrlAgainstPattern(urlPath, routePattern);
+
+      if (!validation.isValid) {
+        errors.push({
+          error: {
+            message: `URL path "${urlPath}" does not match the route pattern for "${moduleFilePath}"`,
+            urlPath,
+            expectedPath: validation.expectedPath || null,
+          },
+        });
+      }
+    }
+
+    return errors;
+  },
+};
+
 export interface ValRouter {
   getRouterId(): string;
   validate(

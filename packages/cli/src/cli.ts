@@ -228,5 +228,21 @@ void main().catch((err) => {
 async function versions() {
   const foundVersions = getVersions();
   console.log(`${chalk.cyan("@valbuild/core")}: ${foundVersions.coreVersion}`);
-  console.log(`${chalk.cyan("@valbuild/next")}: ${foundVersions.nextVersion}`);
+  // Only the framework package this project actually has. Printing the other
+  // as `undefined` reads as something missing rather than something absent.
+  if (foundVersions.nextVersion) {
+    console.log(
+      `${chalk.cyan("@valbuild/next")}: ${foundVersions.nextVersion}`,
+    );
+  }
+  if (foundVersions.tanstackVersion) {
+    console.log(
+      `${chalk.cyan("@valbuild/tanstack")}: ${foundVersions.tanstackVersion}`,
+    );
+  }
+  if (!foundVersions.nextVersion && !foundVersions.tanstackVersion) {
+    console.log(
+      `${chalk.yellow("No framework package found")}: install @valbuild/next or @valbuild/tanstack`,
+    );
+  }
 }
