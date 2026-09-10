@@ -1,0 +1,163 @@
+import { ValConfig } from "@valbuild/core";
+import { VAL_APP_PATH, VAL_APP_ID, VERSION as UIVersion } from "@valbuild/ui";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useConfigStorageSave } from "./useConfigStorageSave";
+import { cn, valPrefixedClass } from "./cssUtils";
+import { canvasDarkBg, canvasLightBg } from "./fallbackColors";
+import { ValScript } from "./ValScript";
+
+/**
+ * How often the embedded Studio announces itself to the opener.
+ *
+ * It repeats because the parent's `message` listener may not be attached yet
+ * when this frame first loads, and it does not need an ACK: the parent clears
+ * `iframeSrc` on the first one it receives, which unmounts this frame and
+ * takes the interval with it. 100ms matches the parent's own
+ * `DRAFT_HANDSHAKE_POLL_MS`, so the two sides of the handshake tick together.
+ *
+ * `setInterval` was previously called with NO delay, which is a 0ms interval —
+ * a `postMessage` every tick of the event loop for as long as the handshake
+ * took.
+ */
+const VAL_READY_PING_MS = 100;
+
+export const ValApp = ({
+  config,
+  children,
+}: {
+  config: ValConfig;
+  children?: ReactNode;
+}) => {
+  const route = "/api/val"; // TODO: make configurable
+  const [inMessageMode, setInMessageMode] = useState<boolean>();
+  const isClientSIde = inMessageMode === undefined;
+  useConfigStorageSave(config);
+  const container = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (location.search === "?message_onready=true") {
+      setInMessageMode(true);
+      const interval = setInterval(() => {
+        window.parent.postMessage(
+          {
+            type: "val-ready",
+          },
+          "*",
+        );
+      }, VAL_READY_PING_MS);
+      return () => {
+        clearInterval(interval);
+      };
+    } else {
+      setInMessageMode(false);
+    }
+  }, []);
+  useEffect(() => {
+    if (container.current?.childElementCount === 0) {
+      window.dispatchEvent(new CustomEvent("val-append-studio"));
+    }
+  });
+
+  // this theme is used to avoid flickering
+  const [loadingTheme, setLoadingTheme] = useState<string | null>(
+    config.defaultTheme || null,
+  );
+  useEffect(() => {
+    const theme = localStorage.getItem(
+      "val-theme-" + (config?.project || "unknown"),
+    );
+    if (theme === "dark") {
+      setLoadingTheme("dark");
+    } else if (theme === "light") {
+      setLoadingTheme("light");
+    } else if (config.defaultTheme) {
+      setLoadingTheme(config.defaultTheme);
+    }
+  }, [config]);
+  // The studio's canvas, so the loading screen is the same colour as what
+  // replaces it rather than a flash of a different one.
+  const darkBg = canvasDarkBg;
+  const lightBg = canvasLightBg;
+  useEffect(() => {
+    if (inMessageMode || loadingTheme === null) {
+      return;
+    }
+    const body = document.body;
+    const prevBodyBg = body.style.backgroundColor;
+    const prevBodyMinHeight = body.style.minHeight;
+    const prevBodyMinWidth = body.style.minWidth;
+    body.style.backgroundColor = loadingTheme === "dark" ? darkBg : lightBg;
+    body.style.minHeight = "100vh";
+    body.style.minWidth = "100%";
+    // A stable reference: `removeEventListener` compares by identity, so a
+    // second arrow function removes nothing and every re-run of this effect
+    // used to leave another listener behind.
+    const onCssLoaded = () => {
+      // css was loaded, has been loaded, so let app decide what to do
+      setLoadingTheme(null);
+    };
+    window.addEventListener("val-css-loaded", onCssLoaded);
+    return () => {
+      body.style.backgroundColor = prevBodyBg;
+      body.style.minHeight = prevBodyMinHeight;
+      body.style.minWidth = prevBodyMinWidth;
+      window.removeEventListener("val-css-loaded", onCssLoaded);
+    };
+  }, [inMessageMode, loadingTheme]);
+
+  if (loadingTheme !== null && isClientSIde) {
+    return (
+      <div
+        style={{
+          color: loadingTheme === "dark" ? "white" : "black",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          padding: "1rem",
+          backgroundColor: loadingTheme === "dark" ? darkBg : lightBg,
+          minHeight: "100vh",
+          minWidth: "100%",
+        }}
+      >
+        <style>
+          {`.${valPrefixedClass}animate-spin {
+  animation: ${valPrefixedClass}spin 2s linear infinite;
+}
+@keyframes ${valPrefixedClass}spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}`}
+        </style>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={cn(["animate-spin"])}
+        >
+          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </svg>
+      </div>
+    );
+  }
+  if (inMessageMode) {
+    return <div>Val Studio is disabled: in message mode</div>;
+  }
+  return (
+    <>
+      <ValScript
+        src={`${route}/static${UIVersion ? `/${UIVersion}` : ""}${VAL_APP_PATH}`}
+      />
+      <div id={VAL_APP_ID} ref={container}></div>
+      {children}
+    </>
+  );
+};

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import {
   Internal,
+  isPageRouter,
   ModuleFilePath,
   resolveSettingsModule,
   SerializedSchema,
@@ -9,11 +10,11 @@ import {
 import { useTrees } from "../useTrees";
 import {
   useShallowModulesAtPaths,
-  useNextAppRouterSrcFolder,
+  usePageRouterSrcFolder,
 } from "../ValProvider";
 import { useSchemas } from "../ValFieldProvider";
 import {
-  getNextAppRouterSitemapTree,
+  getPageRouterSitemapTree,
   SitemapNode,
   PageNode,
   parseRoutePattern,
@@ -122,13 +123,23 @@ function transformPathNode(
  */
 export function useNavMenuData(): Remote<NavMenuData> {
   const trees = useTrees();
+  /*
+   * The modules of every PAGE router, whichever framework declared them.
+   *
+   * One sitemap rather than one per router id: the tree is made of URL paths
+   * of this site, and a project has one of those. `isPageRouter` is what
+   * decides which routers those are — the same answer `getSourcePathFromRoute`
+   * gives, so the menu and click-to-edit cannot disagree.
+   */
   const sitemapPaths = useMemo(() => {
     if (trees.status !== "success") return [];
-    return trees.data.routers["next-app-router"] || [];
+    return Object.keys(trees.data.routers)
+      .filter(isPageRouter)
+      .flatMap((routerId) => trees.data.routers[routerId] ?? []);
   }, [trees]);
 
   const shallowModules = useShallowModulesAtPaths(sitemapPaths, "record");
-  const srcFolder = useNextAppRouterSrcFolder();
+  const srcFolder = usePageRouterSrcFolder();
   const validationErrors = useAllValidationErrors();
   const schemas = useSchemas();
 
@@ -169,7 +180,7 @@ export function useNavMenuData(): Remote<NavMenuData> {
             });
           }
         }
-        const sitemapTree = getNextAppRouterSitemapTree(srcFolder.data, paths);
+        const sitemapTree = getPageRouterSitemapTree(srcFolder.data, paths);
         data.sitemap = transformSitemapNode(
           sitemapTree,
           navErrors,

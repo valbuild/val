@@ -109,7 +109,7 @@ export type NavMenuData = {
    * for a project that merely has not created its first page would be wrong.
    */
   hasRouters: boolean;
-  /** Site map data (if next-app-router exists) */
+  /** Site map data (if a page router exists) */
   sitemap?: SitemapItem;
   /** Explorer data (if there are non-router val files) */
   explorer?: ExplorerItem;

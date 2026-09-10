@@ -1,6 +1,66 @@
 import { useCallback, useEffect, useRef } from "react";
-import type { ModuleFilePath } from "@valbuild/core";
+import type { Json, ModuleFilePath, PatchId } from "@valbuild/core";
 import { useValSystem, type ValSystem } from "./SystemContext";
+
+/**
+ * Stamp `patch_id` onto media whose bytes are still in a patch.
+ *
+ * The host page turns a media source into a URL with `Internal.mediaUrl`, and
+ * that needs `patch_id` to reach for `/api/val/files/...?patch_id=` instead of
+ * the committed `/public` path. The server sets it on the sources IT serves;
+ * the Studio's own store never carries it — the editor's fields get it from
+ * `patchStore.filePatchIds()` separately. So a page that resolves media from
+ * what this emitter sends was pointing every freshly uploaded image at a path
+ * with no file behind it yet, and the image silently did not load.
+ *
+ * Which values are media is normally the SCHEMA's answer, never the value's.
+ * The test here is neither: `filePatchIds` is keyed by the `filePath` of a real
+ * `file` op, so a `path` that is a key in it is a file this session has
+ * uploaded and not yet published. A non-media object would have to hold that
+ * exact string to be touched, and would gain an unread sibling if it did.
+ *
+ * Structurally shared: an unchanged subtree comes back by reference, so a
+ * module with no pending files is the same object it was, and
+ * `ValExternalStore`'s equality check on the receiving side still short-circuits.
+ */
+export function withFilePatchIds(
+  value: Json,
+  filePatchIds: ReadonlyMap<string, PatchId>,
+): Json {
+  if (Array.isArray(value)) {
+    let changed = false;
+    const next = value.map((item) => {
+      const mapped = withFilePatchIds(item, filePatchIds);
+      if (mapped !== item) changed = true;
+      return mapped;
+    });
+    return changed ? next : value;
+  }
+  if (!isJsonObject(value)) {
+    return value;
+  }
+  let changed = false;
+  const next: { [key: string]: Json } = {};
+  for (const [key, item] of Object.entries(value)) {
+    const mapped = withFilePatchIds(item, filePatchIds);
+    if (mapped !== item) changed = true;
+    next[key] = mapped;
+  }
+  const path = value["path"];
+  if (typeof path === "string") {
+    const patchId = filePatchIds.get(path);
+    if (patchId !== undefined && value["patch_id"] !== patchId) {
+      next["patch_id"] = patchId;
+      changed = true;
+    }
+  }
+  return changed ? next : value;
+}
+
+/** A type predicate, so the object branch narrows without an assertion. */
+function isJsonObject(value: Json): value is { readonly [key: string]: Json } {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 /**
  * How long a burst of edits is collected before the host page is told.
@@ -48,10 +108,14 @@ function emitModuleSource(
   if (keys.size > 0) {
     void system.sourceStore.loadEntries(moduleFilePath, [...keys]);
   }
-  // The store's own object. The receiver is a different bundle reading it,
-  // never writing it — and cloning a whole module per burst is the cost the
-  // debounce exists to avoid paying more than once.
-  onUpdate(moduleFilePath, source);
+  // The store's own object, unless a pending upload means it has to be copied
+  // to carry a `patch_id`. The receiver is a different bundle reading it, never
+  // writing it — and cloning a whole module per burst is the cost the debounce
+  // exists to avoid paying more than once.
+  onUpdate(
+    moduleFilePath,
+    withFilePatchIds(source, system.patchStore.filePatchIds()),
+  );
 }
 
 /**

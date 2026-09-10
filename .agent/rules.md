@@ -233,6 +233,40 @@ darkMode: ["class", '[data-mode="dark"]'];
 
 Custom color tokens map to CSS variables (e.g., `bg-background` → `var(--background)`).
 
+## Framework packages
+
+`@valbuild/next` and `@valbuild/tanstack` are the two framework bindings, and
+they are deliberately near-copies of each other: the provider, the overlay
+context, the canvas bridge, the client hooks and the route helpers are the same
+code with a different framework underneath. When you change one, ask whether the
+other needs it — `packages/tanstack/README.md` has a table of what actually
+differs.
+
+What is genuinely different in TanStack Start, and why:
+
+- **There is no RSC.** So there is no `rsc` entrypoint; the server-side readers
+  (`fetchVal` and friends) live in `@valbuild/tanstack/server` as
+  `initValContent`, and the recommended way to read content is the client hooks,
+  which resolve on the server during SSR and in the browser after that.
+- **There is no `draftMode()`.** `valDraftMode()` in the tanstack package owns a
+  `val_draft_mode` cookie instead. It is a mode switch, not a credential — draft
+  reads are still gated by the signed session cookie.
+- **A route module is named after its route file.** `src/routes/posts.$postId.tsx`
+  is served by `src/routes/posts.$postId.val.ts`. `tanstackRouter` in
+  `packages/core/src/router.ts` reads the URL pattern out of that name, and
+  `tanStackSegmentsOfRoutePath` is the one implementation of the conventions —
+  `@valbuild/shared`'s `getPatternFromModuleFilePath` calls it rather than
+  re-deriving them.
+- **The Studio UI is router-agnostic.** `isPageRouter` in
+  `packages/core/src/getSourcePathFromRoute.ts` is the single answer to "does
+  this router's keys name routes of this site"; the sitemap, the Pages menu and
+  the add-a-page form all go through it. Adding a third framework means adding
+  a parser there, not another special case in the UI.
+
+Several TanStack-specific traps are recorded in
+[`architecture/quirks.md`](../architecture/quirks.md) under "TanStack Start" —
+read them before debugging a Studio that hydrates and then stops.
+
 ## MCP
 
 `@valbuild/mcp` (`packages/mcp`) is Val's content tools for MCP hosts: the tool
