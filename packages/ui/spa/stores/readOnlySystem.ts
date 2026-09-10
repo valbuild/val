@@ -5,6 +5,7 @@ import type {
   SerializedSchema,
 } from "@valbuild/core";
 import { createSystem, type System } from "./createSystem";
+import type { FetchJsonEntry } from "./SourceStore";
 import type { HostBridge } from "./bridges";
 
 /**
@@ -27,11 +28,27 @@ export function createReadOnlySystem({
   schemas,
   sources,
   previews,
+  fetchJsonEntry,
   noServerReason,
 }: {
   schemas: Record<ModuleFilePath, SerializedSchema | undefined>;
   sources: Record<ModuleFilePath, Json | undefined>;
   previews?: Record<ModuleFilePath, ReifiedPreview | null>;
+  /**
+   * How to load a `.jsonValues()` entry, if this system can.
+   *
+   * A `.jsonValues()` record's source is only `{_type:"json"}` markers - the
+   * content is per entry and fetched when something reads inside one. Without
+   * this the store refuses the read (see `SourceStore.loadEntry`) and every
+   * entry stays a marker, which the pane draws as an empty field: a claim that
+   * the author left it blank.
+   *
+   * Optional because not every read-only system HAS somewhere to fetch from;
+   * one built from a snapshot with the entries already inlined does not need
+   * it, and refusing honestly is the right answer where there is nowhere to
+   * ask.
+   */
+  fetchJsonEntry?: FetchJsonEntry;
   /** What to say when something asks this system for a patch it cannot fetch. */
   noServerReason: string;
 }): System {
@@ -50,6 +67,7 @@ export function createReadOnlySystem({
   };
 
   const system = createSystem({
+    ...(fetchJsonEntry ? { fetchJsonEntry } : {}),
     // Nothing announces patch ids here, so nothing ever asks for one.
     fetchPatches: async (patchIds) => ({
       patches: [],
