@@ -1,8 +1,8 @@
-# @valbuild/eslint-plugin
+# @valbuild/tanstack
 
 ## 0.125.0
 
-### Patch Changes
+### Minor Changes
 
 - [#638](https://github.com/valbuild/val/pull/638) [`c390397`](https://github.com/valbuild/val/commit/c390397cb5e203eb1bedae3a6fab15726e850b90) Thanks [@freekh](https://github.com/freekh)! - Val now runs on TanStack Start.
 
@@ -80,3 +80,14 @@ JSON` on the first file and took the whole lint run with it.
     `notFound()` from a component, which escaped to the error boundary and logged
     `Error in renderToReadableStream` (and, with no not-found component
     configured, aborted the response) on every miss.
+
+### Patch Changes
+
+- Updated dependencies [[`22f78b4`](https://github.com/valbuild/val/commit/22f78b471fd18e542f518f72b75bd472d7c3dc52), [`c390397`](https://github.com/valbuild/val/commit/c390397cb5e203eb1bedae3a6fab15726e850b90)]:
+  - @valbuild/language-server@0.125.0
+  - @valbuild/core@0.125.0
+  - @valbuild/shared@0.125.0
+  - @valbuild/ui@0.125.0
+  - @valbuild/mcp@0.125.0
+  - @valbuild/react@0.125.0
+  - @valbuild/server@0.125.0
