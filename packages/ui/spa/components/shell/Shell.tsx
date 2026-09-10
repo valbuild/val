@@ -50,7 +50,7 @@ import { availableDestinations } from "./shellDataMapping";
 import { servedPath } from "../../utils/mediaPath";
 import { useShellBreakpoint } from "./useShellBreakpoint";
 import {
-  ShellActivityEntry,
+  ShellChangeActivity,
   ShellData,
   ShellDataModule,
   ShellExternalPage,
@@ -337,7 +337,8 @@ export type ShellProps = {
   /** The last error from fetching patches, for that same report. */
   pendingChangesError?: string | null;
   onSelectValidationError?: (error: ShellValidationError) => void;
-  onSelectActivity?: (entry: ShellActivityEntry) => void;
+  /** Open a change row's field. Publishes are not selectable — see `UtilityPanelProps`. */
+  onSelectActivity?: (entry: ShellChangeActivity) => void;
   /** Create a page under a route. See `PagesPanelProps`. */
   onNewPage?: (moduleFilePath: ModuleFilePath, urlPath: string) => void;
   /** Copy a page to another URL under the same route. See `PagesPanelProps`. */
@@ -573,17 +574,24 @@ export function Shell({
    * already grouped by the thing that changed. Five, because this is a "take me
    * back" list rather than a history: past that it stops being a shortcut and
    * starts being something to read.
+   *
+   * Changes only: the feed also carries publishes, and a search result is a
+   * thing to open. Filtered BEFORE the slice, so a busy publishing afternoon
+   * does not leave the recent list short.
    */
   const recentSearchResults = useMemo(
     (): SearchResult[] =>
-      (data.activity ?? []).slice(0, RECENT_SEARCH_LIMIT).map((entry) => ({
-        id: entry.sourcePath,
-        kind: "recent",
-        label: entry.title,
-        detail: entry.author
-          ? `${entry.timestamp} · ${entry.author}`
-          : entry.timestamp,
-      })),
+      (data.activity ?? [])
+        .filter((entry) => entry.kind === "change")
+        .slice(0, RECENT_SEARCH_LIMIT)
+        .map((entry) => ({
+          id: entry.sourcePath,
+          kind: "recent",
+          label: entry.title,
+          detail: entry.author
+            ? `${entry.timestamp} · ${entry.author}`
+            : entry.timestamp,
+        })),
     [data.activity],
   );
 

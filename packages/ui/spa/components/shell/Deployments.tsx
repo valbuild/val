@@ -8,7 +8,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "../designSystem/cn";
-import { ShellDeployment } from "./types";
+import { DeploymentProgress, ShellDeployment } from "./types";
 
 /**
  * What the deploy feed adds up to right now.
@@ -108,6 +108,23 @@ function isFailed(deployment: ShellDeployment): boolean {
     return false;
   }
   return deployment.state === "failure" || deployment.state === "error";
+}
+
+/**
+ * The three states a publish can be rendered in.
+ *
+ * Exported because Recent activity shows publishes too, and a publish that
+ * reads as "Building" in the status bar and as finished in the activity list is
+ * two answers to one question. `isBuilding` and `isFailed` stay private: the
+ * order they are asked in is part of the rule — a live commit is neither — and
+ * this is that rule, once.
+ */
+export function deploymentProgress(
+  deployment: ShellDeployment,
+): DeploymentProgress {
+  if (isBuilding(deployment)) return "building";
+  if (isFailed(deployment)) return "failed";
+  return "settled";
 }
 
 export type DeploymentsStatusProps = {
@@ -428,8 +445,9 @@ function DeploymentRow({
   deployment: ShellDeployment;
   onDismiss: () => void;
 }) {
-  const building = isBuilding(deployment);
-  const failed = isFailed(deployment);
+  const progress = deploymentProgress(deployment);
+  const building = progress === "building";
+  const failed = progress === "failed";
   return (
     <li className="flex items-start gap-2.5 px-3 py-2.5 border-b border-border-float last:border-b-0">
       <span className="mt-0.5 shrink-0">
@@ -448,7 +466,7 @@ function DeploymentRow({
           {deployment.message ?? deployment.commitSha.slice(0, 7)}
         </div>
         <div className="text-[11px] text-fg-secondary-alt truncate">
-          {describeState(deployment)}
+          {describeDeploymentState(deployment)}
           {deployment.author ? ` · ${deployment.author}` : ""} ·{" "}
           {deployment.timestamp}
         </div>
@@ -467,7 +485,13 @@ function DeploymentRow({
   );
 }
 
-function describeState(deployment: ShellDeployment): string {
+/**
+ * What happened to a publish, in a word or two.
+ *
+ * Exported for the same reason as {@link deploymentProgress}: the activity list
+ * says it about the same publishes.
+ */
+export function describeDeploymentState(deployment: ShellDeployment): string {
   // The site answering with this commit outranks anything the build host said
   // about it, including having said nothing at all. See `isBuilding`.
   if (deployment.isLive) {
