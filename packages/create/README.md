@@ -10,6 +10,33 @@ npm create @valbuild@latest
 pnpm create @valbuild@latest
 ```
 
+Node 22.13 or newer is required (`^22.13.0 || >=23.5.0`). The command checks
+before it does anything else and tells you if this Node is too old, because
+`engines` alone does not stop it: npm only warns, pnpm enforces it only with
+`engine-strict`, and neither warning is visible in `npm create` / `pnpm create`
+output.
+
+### On Windows, quote the package name in PowerShell
+
+```powershell
+npm create "@valbuild@latest"
+# or
+pnpm create "@valbuild@latest"
+```
+
+Unquoted, PowerShell reads a leading `@` followed by a name as
+[splatting](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_splatting)
+— `@valbuild` expands to the variable `$valbuild`, which does not exist, so the
+argument disappears before npm or pnpm sees it:
+
+```
+ ERR_PNPM_MISSING_ARGS  Missing the template package name.
+```
+
+cmd.exe, Git Bash, WSL and every shell on macOS and Linux pass `@valbuild`
+through as written, so the quotes are only needed in PowerShell — but they are
+harmless everywhere.
+
 ## Which framework
 
 The first question is which framework to build on:
