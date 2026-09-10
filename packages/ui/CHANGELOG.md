@@ -1,5 +1,44 @@
 # @valbuild/ui
 
+## 0.124.0
+
+### Minor Changes
+
+- [#635](https://github.com/valbuild/val/pull/635) [`5674237`](https://github.com/valbuild/val/commit/56742371a75b4fdcbff8b1afccff8fcc1ebf8078) Thanks [@freekh](https://github.com/freekh)! - Find your history from the Studio, instead of building a URL by hand
+
+  The two-pane history view shipped with no way in. Everything behind it worked —
+  the commit archives, the reconstruction, the compare, the restore — but the
+  only way to reach it was to read a commit sha out of the database and assemble
+  a query string yourself. A feature nobody can find is not shipped.
+
+  There is now a **History** button in the top bar, next to Publish. It lists what
+  has been published on this branch, newest first, with the message, who published
+  it, when, and how many changes it carried. Click one and it opens beside the
+  Studio; **Stop comparing** closes it again.
+
+  - Commits made before Val recorded history — and ones pushed straight to the
+    repo — are listed, but greyed out and not clickable, with a note saying why.
+    Hiding them would make your history look shorter than it is.
+  - **Load more** pages back through older commits.
+  - The button does not appear in local development, where there is no published
+    history to list.
+
+- [#639](https://github.com/valbuild/val/pull/639) [`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055) Thanks [@freekh](https://github.com/freekh)! - Show `.jsonValues()` entries in the history pane
+
+  A `.jsonValues()` record keeps each entry's content in its own `*.val.json`
+  file; the module's own content is just markers pointing at them. The history
+  pane had no way to fetch those files for a past commit, so every entry rendered
+  as an **empty field** — which reads as "the author left this blank", about
+  content that was simply stored somewhere else.
+
+  Entries now load in the history pane the same way they load in the Studio: one
+  at a time, when you open one. A commit with a thousand support pages costs
+  nothing until you look at one of them.
+
+  An entry that cannot be read says so instead of rendering blank — including the
+  case where the key did not exist yet at that commit, which is a real answer
+  rather than an error.
+
 ## 0.123.3
 
 ### Patch Changes

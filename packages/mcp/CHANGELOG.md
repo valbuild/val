@@ -1,5 +1,14 @@
 # @valbuild/mcp
 
+## 0.124.0
+
+### Patch Changes
+
+- Updated dependencies [[`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055), [`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055), [`aa89fc2`](https://github.com/valbuild/val/commit/aa89fc26de7028b3c5a1666b99afc03b39e92769)]:
+  - @valbuild/server@0.124.0
+  - @valbuild/shared@0.124.0
+  - @valbuild/core@0.124.0
+
 ## 0.123.3
 
 ### Patch Changes

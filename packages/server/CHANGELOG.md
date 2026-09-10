@@ -1,5 +1,52 @@
 # @valbuild/server
 
+## 0.124.0
+
+### Minor Changes
+
+- [#639](https://github.com/valbuild/val/pull/639) [`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055) Thanks [@freekh](https://github.com/freekh)! - Show `.jsonValues()` entries in the history pane
+
+  A `.jsonValues()` record keeps each entry's content in its own `*.val.json`
+  file; the module's own content is just markers pointing at them. The history
+  pane had no way to fetch those files for a past commit, so every entry rendered
+  as an **empty field** — which reads as "the author left this blank", about
+  content that was simply stored somewhere else.
+
+  Entries now load in the history pane the same way they load in the Studio: one
+  at a time, when you open one. A commit with a thousand support pages costs
+  nothing until you look at one of them.
+
+  An entry that cannot be read says so instead of rendering blank — including the
+  case where the key did not exist yet at that commit, which is a real answer
+  rather than an error.
+
+### Patch Changes
+
+- [#639](https://github.com/valbuild/val/pull/639) [`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055) Thanks [@freekh](https://github.com/freekh)! - Require a session to read a file from history
+
+  `GET /api/val/history/files` served a file at a given commit to anyone who
+  asked. It followed the reasoning of `/api/val/files`, which is deliberately
+  open — and neither half of that reasoning applies to it:
+
+  - `/files` stands on `patch_id` being an unguessable UUID. A **commit sha is
+    published** — `git log`, the GitHub UI, every pull request — so it is no
+    substitute for a credential.
+  - `/files` also _cannot_ require auth: draft images are fetched by the app's own
+    backend during Next image optimisation, with no cookies to send. Nothing
+    fetches history files server-side; both callers are the Studio, in a browser
+    that already holds the session.
+
+  So history files now require a session. `/files` is unchanged, and the reason
+  the two differ is written down in `architecture/media.md` so it is not "fixed"
+  in either direction later.
+
+  No action needed: the Studio sends its session cookie automatically.
+
+- Updated dependencies [[`5674237`](https://github.com/valbuild/val/commit/56742371a75b4fdcbff8b1afccff8fcc1ebf8078), [`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055), [`ad7fff4`](https://github.com/valbuild/val/commit/ad7fff4cc8cea98c506cf7ff9b4e8d6e5ffa4055), [`aa89fc2`](https://github.com/valbuild/val/commit/aa89fc26de7028b3c5a1666b99afc03b39e92769)]:
+  - @valbuild/ui@0.124.0
+  - @valbuild/shared@0.124.0
+  - @valbuild/core@0.124.0
+
 ## 0.123.3
 
 ### Patch Changes
