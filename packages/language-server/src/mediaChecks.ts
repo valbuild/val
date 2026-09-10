@@ -1,17 +1,26 @@
 /**
- * Adjudicating the media metadata placeholders core emits unconditionally.
+ * Adjudicating the media placeholders core emits unconditionally.
  *
- * `ImageSchema.validate` cannot read bytes, so it never answers "does the
- * stored width/height/mimeType match the file". It defers instead: any
- * `s.image()` carrying metadata gets an `image:check-metadata` error whether
- * or not anything is wrong (`packages/core/src/schema/image.ts`), and
- * `s.file()` does the same with `file:check-metadata`.
+ * A media schema cannot answer two of its own questions, because both need
+ * something core has no access to -- the bytes on disk, or the bytes on the
+ * content host. So it defers, by reporting an error that only means "nobody
+ * has looked yet":
  *
- * `val validate` resolves those by running the fix handler and then
- * `createFixPatch` in report mode, which compares each field against the file
- * and returns one error per field that disagrees. The Studio cannot do that at
- * all -- a browser has no filesystem -- so it drops them wholesale
- * (`partitionValidationErrors` in `@valbuild/shared`).
+ *  - **Metadata.** Any `s.image()` carrying metadata gets an
+ *    `image:check-metadata` error whether or not anything is wrong
+ *    (`packages/core/src/schema/image.ts`), and `s.file()` does the same with
+ *    `file:check-metadata`.
+ *  - **Remote refs.** Every `s.image().remote()` / `s.file().remote()` value
+ *    whose path is a remote ref gets `Remote image was not checked.` with
+ *    `image:check-remote` -- unconditionally, for every remote image in the
+ *    project.
+ *
+ * `val validate` resolves both by running the fix handler and then
+ * `createFixPatch` in report mode, which returns one error per real problem
+ * and nothing at all when there is none. The Studio cannot do that -- a
+ * browser has neither the filesystem nor the project's remote credentials --
+ * so it drops them wholesale (`partitionValidationErrors` in
+ * `@valbuild/shared`).
  *
  * An editor is in the CLI's position, not the browser's, and publishing the
  * placeholders raw put a permanent warning on every image in the project. So
@@ -43,8 +52,23 @@ const METADATA_CHECK_FIXES: readonly string[] = [
   "file:check-metadata",
 ];
 
-/** One field of a media value that disagrees with the file behind it. */
-export type MediaMetadataFinding = {
+/**
+ * The fixes that carry an unconditional remote-ref placeholder.
+ *
+ * The plural `images:check-remote` / `files:check-remote` are deliberately
+ * absent. `RecordSchema.validateMediaKey` emits those only for a key that is
+ * already wrong -- an unparseable remote URL, or one outside the gallery's
+ * directory -- and their messages say so. They are findings, not deferrals,
+ * and `createFixPatch` has no branch for them at all, so adjudicating one
+ * would come back empty and silently drop a real error.
+ */
+const REMOTE_CHECK_FIXES: readonly string[] = [
+  "image:check-remote",
+  "file:check-remote",
+];
+
+/** One thing about a media value that a real check found to be wrong. */
+export type MediaCheckFinding = {
   message: string;
   /** The placeholder's own fixes, so the quick fix and severity survive. */
   fixes?: ValidationFix[];
@@ -53,13 +77,28 @@ export type MediaMetadataFinding = {
 };
 
 /**
- * The verdict on one placeholder. Empty means the metadata agrees with the
- * file and nothing should be published.
+ * The verdict on one placeholder. Empty means the check passed -- the metadata
+ * agrees with the file, or the remote ref is sound -- and nothing should be
+ * published.
  */
-export type MediaMetadataVerdict = MediaMetadataFinding[];
+export type MediaCheckVerdict = MediaCheckFinding[];
 
 /**
- * Whether this error is the unconditional deferral rather than a real finding.
+ * Whether this error is the unconditional remote-ref deferral.
+ *
+ * Unlike the metadata deferral this needs no re-derivation: `image:check-remote`
+ * is attached to exactly one error in `ImageSchema.executeValidate`, the
+ * fall-through for a remote schema with a remote path, and `FileSchema` mirrors
+ * it. Everything else a remote media field can be wrong about carries a
+ * different fix (`image:upload-remote`, `image:download-remote`) or none.
+ */
+export function isDeferredRemoteCheck(error: ValidationError): boolean {
+  return (error.fixes ?? []).some((fix) => REMOTE_CHECK_FIXES.includes(fix));
+}
+
+/**
+ * Whether this error is the unconditional METADATA deferral rather than a real
+ * finding.
  *
  * This is the whole difficulty of the change. `image:check-metadata` is
  * attached to FIVE different image errors, and only the last is a placeholder:
@@ -78,7 +117,7 @@ export type MediaMetadataVerdict = MediaMetadataFinding[];
  * There is no flag on `ValidationError` saying which is which, so the four
  * conditions are re-derived here from the same inputs core used. They are
  * transcribed from `ImageSchema.executeValidate`, in its order, and
- * `mediaMetadataChecks.test.ts` drives real core through all five cases to
+ * `mediaChecks.test.ts` drives real core through all five cases to
  * check that this agrees with it. If core grows a sixth condition, that test is
  * what catches it.
  *
@@ -139,14 +178,14 @@ export function isDeferredMediaMetadataCheck({
 }
 
 /**
- * {@link isDeferredMediaMetadataCheck} for an error in a module, resolving the
- * schema it needs.
+ * Whether an error in a module is either deferral, resolving the schema the
+ * metadata classification needs.
  *
  * Both the adjudicator and `createValDiagnostics` have to make the same call,
  * on the same inputs -- one to decide what to adjudicate, the other to decide
  * what to publish -- so it lives here rather than being written out twice.
  */
-export function isDeferredMediaMetadataCheckAt({
+export function isDeferredMediaCheckAt({
   sourcePath,
   error,
   content,
@@ -155,21 +194,24 @@ export function isDeferredMediaMetadataCheckAt({
   error: ValidationError;
   content: ValModuleContent;
 }): boolean {
-  return isDeferredMediaMetadataCheck({
-    error,
-    schema: resolveSchemaAt(sourcePath, content),
-  });
+  return (
+    isDeferredRemoteCheck(error) ||
+    isDeferredMediaMetadataCheck({
+      error,
+      schema: resolveSchemaAt(sourcePath, content),
+    })
+  );
 }
 
 /**
- * Adjudicate every deferred metadata placeholder in `validation`.
+ * Adjudicate every deferred media placeholder in `validation`.
  *
  * Async, and therefore separate from `createValDiagnostics`, which stays
  * synchronous so it can be tested without a project -- the same split
  * `resolveGalleryChecks` uses. The caller runs this first and passes the
  * result in.
  */
-export async function resolveMediaMetadataChecks({
+export async function resolveMediaChecks({
   validation,
   content,
   valRoot,
@@ -179,17 +221,17 @@ export async function resolveMediaMetadataChecks({
   content: ValModuleContent;
   valRoot: string;
   remoteHost?: string;
-}): Promise<Map<string, MediaMetadataVerdict>> {
-  const verdicts = new Map<string, MediaMetadataVerdict>();
+}): Promise<Map<string, MediaCheckVerdict>> {
+  const verdicts = new Map<string, MediaCheckVerdict>();
   for (const [sourcePath, errors] of Object.entries(validation) as [
     SourcePath,
     ValidationError[],
   ][]) {
     for (const error of errors) {
-      if (!isDeferredMediaMetadataCheckAt({ sourcePath, error, content })) {
+      if (!isDeferredMediaCheckAt({ sourcePath, error, content })) {
         continue;
       }
-      const key = mediaMetadataCheckKey(sourcePath, error);
+      const key = mediaCheckKey(sourcePath, error);
       try {
         verdicts.set(
           key,
@@ -198,7 +240,7 @@ export async function resolveMediaMetadataChecks({
       } catch {
         // This runs inside `validate`, which publishes NOTHING if it throws --
         // one bad image would silently clear every Val diagnostic in the file.
-        // Keep the placeholder rather than claiming the metadata is fine.
+        // Keep the placeholder rather than claiming the check passed.
         verdicts.set(key, keep(error));
       }
     }
@@ -210,7 +252,7 @@ export async function resolveMediaMetadataChecks({
  * Key for one placeholder. A value can in principle carry more than one, so
  * the fix names are part of the key -- as they are for the gallery checks.
  */
-export function mediaMetadataCheckKey(
+export function mediaCheckKey(
   sourcePath: string,
   error: ValidationError,
 ): string {
@@ -218,7 +260,7 @@ export function mediaMetadataCheckKey(
 }
 
 /** Keeping the placeholder: what to publish when we learned nothing. */
-function keep(error: ValidationError): MediaMetadataVerdict {
+function keep(error: ValidationError): MediaCheckVerdict {
   return [
     {
       message: error.message,
@@ -230,6 +272,25 @@ function keep(error: ValidationError): MediaMetadataVerdict {
 
 /**
  * What `createFixPatch` says about one placeholder, in report mode.
+ *
+ * Which placeholder decides only what has to be true before asking; the asking
+ * is the same call either way, and `reportFixPatch` is it.
+ */
+async function adjudicate(args: {
+  sourcePath: SourcePath;
+  error: ValidationError;
+  content: ValModuleContent;
+  valRoot: string;
+  remoteHost: string;
+}): Promise<MediaCheckVerdict> {
+  return isDeferredRemoteCheck(args.error)
+    ? adjudicateRemote(args)
+    : adjudicateMetadata(args);
+}
+
+/**
+ * The metadata placeholder: does the stored width/height/mimeType match the
+ * bytes?
  *
  * `val validate` runs the fix handler first and then `createFixPatch`, but for
  * these four fixes the handler is `handleFileMetadata`, whose whole job is the
@@ -252,7 +313,7 @@ function keep(error: ValidationError): MediaMetadataVerdict {
  * `createFixPatch` reads and decodes the image itself, so this is one file read
  * per media field per validation pass, and nothing here should add another.
  */
-async function adjudicate({
+async function adjudicateMetadata({
   sourcePath,
   error,
   content,
@@ -264,7 +325,7 @@ async function adjudicate({
   content: ValModuleContent;
   valRoot: string;
   remoteHost: string;
-}): Promise<MediaMetadataVerdict> {
+}): Promise<MediaCheckVerdict> {
   const ref = mediaValueOf(error.value)?.path;
   if (typeof ref !== "string") {
     return keep(error);
@@ -279,23 +340,17 @@ async function adjudicate({
     // means this verdict never has the last word on a file that is not there.
     return keep(error);
   }
-  let fixed;
-  try {
-    fixed = await createFixPatch(
-      { projectRoot: valRoot, remoteHost },
-      // `false`: this is a question, not a fix. Asking for the patch would have
-      // createFixPatch read and rewrite files behind the editor's back.
-      false,
-      sourcePath,
-      error,
-      {},
-      content.source,
-      content.schema,
-    );
-  } catch {
+  const reported = await reportFixPatch({
+    sourcePath,
+    error,
+    content,
+    valRoot,
+    remoteHost,
+  });
+  if (reported === undefined) {
     return keep(error);
   }
-  return (fixed?.remainingErrors ?? []).map((remaining) => ({
+  return reported.map((remaining) => ({
     message: remaining.message,
     // `createFixPatch` clears `fixes` on the per-field errors it reports, but
     // the fix is still available and still the remedy -- it is what the
@@ -305,6 +360,92 @@ async function adjudicate({
     ...(error.fixes ? { fixes: error.fixes } : {}),
     ...(error.value !== undefined ? { value: error.value } : {}),
   }));
+}
+
+/**
+ * The remote-ref placeholder: is the ref this value carries still the ref the
+ * bytes behind it produce?
+ *
+ * `handleRemoteFileCheck` is a no-op that asks for the patch, so unlike the
+ * metadata case there is no precondition of its own to stand in for -- the
+ * whole check is `checkRemoteRef` inside `createFixPatch`. It recomputes the
+ * validation hash from the schema, the file extension, the metadata on the
+ * value and the file hash in the ref; when that agrees with the ref, nothing is
+ * downloaded and nothing is reported. Only a ref that no longer adds up costs a
+ * download, and that is cached under `.val/remote-file-cache`.
+ *
+ * The findings deliberately carry no `fixes`. `createFixPatch` clears them
+ * (`Remote ref: ... is not valid. Use the --fix flag to fix this issue.`
+ * arrives with `fixes: undefined`), no quick fix is registered for
+ * `image:check-remote` -- rewriting the ref needs the bytes off the content
+ * host, so it is `val validate --fix`'s job, not a lightbulb's -- and dropping
+ * them is what makes this an Error rather than a Warning, matching the `✘` the
+ * CLI prints for the same finding.
+ */
+async function adjudicateRemote({
+  sourcePath,
+  error,
+  content,
+  valRoot,
+  remoteHost,
+}: {
+  sourcePath: SourcePath;
+  error: ValidationError;
+  content: ValModuleContent;
+  valRoot: string;
+  remoteHost: string;
+}): Promise<MediaCheckVerdict> {
+  const reported = await reportFixPatch({
+    sourcePath,
+    error,
+    content,
+    valRoot,
+    remoteHost,
+  });
+  if (reported === undefined) {
+    return keep(error);
+  }
+  return reported.map((remaining) => ({
+    message: remaining.message,
+    ...(error.value !== undefined ? { value: error.value } : {}),
+  }));
+}
+
+/**
+ * `createFixPatch` in report mode, or `undefined` if it could not answer.
+ *
+ * `false` is the load-bearing argument: this is a question, not a fix. Asking
+ * for the patch would have `createFixPatch` read and rewrite files behind the
+ * editor's back -- and, for a remote ref, re-derive one from bytes it had to
+ * download first.
+ */
+async function reportFixPatch({
+  sourcePath,
+  error,
+  content,
+  valRoot,
+  remoteHost,
+}: {
+  sourcePath: SourcePath;
+  error: ValidationError;
+  content: ValModuleContent;
+  valRoot: string;
+  remoteHost: string;
+}): Promise<ValidationError[] | undefined> {
+  try {
+    const fixed = await createFixPatch(
+      { projectRoot: valRoot, remoteHost },
+      false,
+      sourcePath,
+      error,
+      {},
+      content.source,
+      content.schema,
+    );
+    return fixed?.remainingErrors ?? [];
+  } catch {
+    return undefined;
+  }
 }
 
 /**
