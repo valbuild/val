@@ -10,6 +10,26 @@ npm create @valbuild@latest
 pnpm create @valbuild@latest
 ```
 
+## Which framework
+
+The first question is which framework to build on:
+
+- **Next.js** — [`valbuild/template-nextjs-starter`](https://github.com/valbuild/template-nextjs-starter)
+- **TanStack Start** — [`valbuild/template-tanstack-starter`](https://github.com/valbuild/template-tanstack-starter)
+
+Answer it up front to skip the prompt:
+
+```sh
+pnpm create @valbuild@latest my-app --framework tanstack
+pnpm create @valbuild@latest my-app --tanstack          # shorthand
+pnpm create @valbuild@latest my-app --nextjs
+```
+
+`--framework` also takes `next`, `next.js` and `tanstack-start`, and the last
+flag wins if you pass more than one.
+
+## Package manager
+
 The new project is installed with the package manager that ran the command, so
 `pnpm create` gives you a pnpm project (`pnpm-lock.yaml`, `pnpm run dev`) and
 `npm create` an npm one. yarn and bun are detected the same way.
@@ -31,7 +51,11 @@ pnpm create @valbuild@latest my-app
 
 ## Features it asks about
 
-Two parts of the template are optional, and both default to yes.
+Two parts of the template are optional, and both default to yes. They are asked
+about only where the chosen starter has them — the TanStack Start starter does
+not ship an MCP endpoint yet, so neither question is asked for it, and a
+`--mcp` flag given anyway is turned off with a note rather than silently
+producing a project whose endpoint is not there.
 
 - **MCP.** Serves Val's content tools at `/api/mcp`, so a coding agent can read
   your schemas, look content up, validate it and edit it. The endpoint refuses
