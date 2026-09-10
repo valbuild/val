@@ -380,4 +380,60 @@ describe("mergeCommitsAndDeployments", () => {
     );
     expect(result[0].commitMessage).toBe("Bump the dependency");
   });
+
+  /**
+   * The result is fed back in as `prev` on the next poll, so without a bound
+   * this function is an accumulator: every commit and deployment a session ever
+   * saw stayed in it for as long as the tab was open. That is what the deploy
+   * list's per-row dismiss button was for, and the bound is what replaced it.
+   */
+  it("keeps only the newest few", () => {
+    const deployments: ValDeployment[] = Array.from(
+      { length: 40 },
+      (_, index) => ({
+        commitSha: `sha-${index}`,
+        deploymentId: `deployment-${index}`,
+        deploymentState: "success",
+        createdAt: new Date(2000 + index * 1000).toISOString(),
+        updatedAt: new Date(2000 + index * 1000).toISOString(),
+      }),
+    );
+    const result = mergeCommitsAndDeployments([], [], deployments);
+    expect(result).toHaveLength(25);
+    // Newest first, and it is the NEWEST that survive: the oldest fall off the
+    // end, which is the whole point of the bound.
+    expect(result[0].commitSha).toBe("sha-39");
+    expect(result[result.length - 1].commitSha).toBe("sha-15");
+  });
+
+  it("drops what it already held once newer publishes crowd it out", () => {
+    const at = (index: number) => new Date(2000 + index * 1000).toISOString();
+    const prev: ValEnrichedDeployment[] = Array.from(
+      { length: 25 },
+      (_, index) => ({
+        commitSha: `old-${index}`,
+        deploymentState: "success",
+        commitMessage: null,
+        creator: null,
+        createdAt: at(index),
+        updatedAt: at(index),
+      }),
+    );
+    const result = mergeCommitsAndDeployments(
+      prev,
+      [],
+      [
+        {
+          commitSha: "new",
+          deploymentId: "deployment-new",
+          deploymentState: "pending",
+          createdAt: at(100),
+          updatedAt: at(100),
+        },
+      ],
+    );
+    expect(result).toHaveLength(25);
+    expect(result[0].commitSha).toBe("new");
+    expect(result.some((d) => d.commitSha === "old-0")).toBe(false);
+  });
 });

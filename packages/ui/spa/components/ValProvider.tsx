@@ -146,7 +146,6 @@ type ValContextValue = {
   authenticationState: AuthenticationState;
   profiles: Record<AuthorId, Profile>;
   deployments: ValEnrichedDeployment[];
-  dismissDeployment: (deploymentId: string) => void;
   observedCommitShas: Set<string>;
   remoteFiles:
     | {
@@ -557,7 +556,6 @@ export function ValProvider({
   }, [system, statProfileId]);
 
   const [deployments, setDeployments] = useState<ValEnrichedDeployment[]>([]);
-  const dismissedDeploymentsRef = useRef<Set<string>>(new Set());
   /**
    * What is worth re-merging for, as a value rather than a reference.
    *
@@ -601,18 +599,12 @@ export function ValProvider({
             prev,
             stat.data?.commits || [],
             stat.data?.deployments || [],
-          ).filter((d) => !dismissedDeploymentsRef.current.has(d.commitSha));
+          );
         }
         return prev;
       });
     }
   }, [deploymentsFingerprint, commitsFingerprint]);
-  const dismissDeployment = useCallback((commitSha: string) => {
-    setDeployments((prev) => {
-      return prev.filter((d) => d.commitSha !== commitSha);
-    });
-    dismissedDeploymentsRef.current.add(commitSha);
-  }, []);
   const [observedCommitShas, setObservedCommitShas] = useState<Set<string>>(
     new Set(),
   );
@@ -803,7 +795,6 @@ export function ValProvider({
         baseSha,
         observedCommitShas,
         deployments,
-        dismissDeployment,
         authenticationState,
         config: runtimeConfig,
         profiles:
@@ -1226,9 +1217,8 @@ export function useAIModelSelection(): {
 }
 
 export function useDeployments() {
-  const { deployments, dismissDeployment, observedCommitShas } =
-    useContext(ValContext);
-  return { deployments, dismissDeployment, observedCommitShas };
+  const { deployments, observedCommitShas } = useContext(ValContext);
+  return { deployments, observedCommitShas };
 }
 
 /**
@@ -1519,10 +1509,9 @@ export function useCommittedPatches(): ReadonlySet<PatchId> {
  *
  * The deploy line is drawn over patches that shipped in a specific commit, and
  * that commit is the one thing they can be labelled with honestly. Reading the
- * newest entry of the deployment feed instead is wrong in three ways at once: the
- * feed is filtered by `dismissDeployment`, it can lag a commit the chain already
- * knows about, and two undeployed commits would both be described by whichever
- * one happened to be first.
+ * newest entry of the deployment feed instead is wrong in two ways at once: it
+ * can lag a commit the chain already knows about, and two undeployed commits
+ * would both be described by whichever one happened to be first.
  */
 export function useDeployingCommitShas(): string[] {
   const val = useValSystem();

@@ -39,7 +39,6 @@ export type StatusBarProps = {
   onDeploymentsOpenChange?: (open: boolean) => void;
   /** True when the open list opened itself, which lets it close itself. */
   deploymentsAutoOpened?: boolean;
-  onDismissDeployment?: (commitSha: string) => void;
 };
 
 /**
@@ -66,7 +65,6 @@ export function StatusBar({
   deploymentsOpen = false,
   onDeploymentsOpenChange,
   deploymentsAutoOpened = false,
-  onDismissDeployment,
 }: StatusBarProps) {
   return (
     <footer
@@ -118,7 +116,6 @@ export function StatusBar({
               deployments={deployments}
               open={deploymentsOpen}
               onOpenChange={onDeploymentsOpenChange ?? (() => undefined)}
-              onDismiss={onDismissDeployment ?? (() => undefined)}
               autoClose={deploymentsAutoOpened}
             />
             <Divider />

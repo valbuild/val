@@ -524,19 +524,16 @@ export function Shell({
     setDeploymentsOpen(open);
     setDeploymentsAutoOpened(false);
   }, []);
-  const [dismissedDeployments, setDismissedDeployments] = useState<
-    ReadonlySet<string>
-  >(() => new Set());
-  const dismissDeployment = useCallback((commitSha: string) => {
-    setDismissedDeployments((current) => new Set(current).add(commitSha));
-  }, []);
-  const deployments = useMemo(
-    () =>
-      data.deployments?.filter(
-        (deployment) => !dismissedDeployments.has(deployment.commitSha),
-      ),
-    [data.deployments, dismissedDeployments],
-  );
+  /*
+   * The feed as it comes, unfiltered.
+   *
+   * The shell used to hold a set of dismissed commit shas and subtract it from
+   * the feed. That control existed for a list that grew - the client
+   * accumulated every deployment a session had ever seen - and the feed is the
+   * last few publishes now, oldest falling off the end on their own. See
+   * `mergeCommitsAndDeployments` and `toDeployments`.
+   */
+  const deployments = data.deployments;
 
   // A publish is the one thing here that finishes somewhere else, so the list
   // opens itself when a commit Val has not seen before shows up. The first
@@ -960,7 +957,6 @@ export function Shell({
                 deployments={deployments}
                 open={deploymentsOpen}
                 onOpenChange={setDeploymentsOpenByUser}
-                onDismiss={dismissDeployment}
                 autoClose={deploymentsAutoOpened}
               />
             )}
@@ -1013,7 +1009,6 @@ export function Shell({
             deploymentsOpen={deploymentsOpen}
             onDeploymentsOpenChange={setDeploymentsOpenByUser}
             deploymentsAutoOpened={deploymentsAutoOpened}
-            onDismissDeployment={dismissDeployment}
           />
         )}
 
@@ -1122,7 +1117,6 @@ export function Shell({
              * feed (`mode === "http"`); the panel was missed.
              */
             deployments={mode === "fs" ? undefined : deployments}
-            onDismissDeployment={dismissDeployment}
             // Passed through as-is: absent means there is no session to end, and
             // the panel then shows no Sign out button rather than a dead one.
             onSignOut={onSignOut}

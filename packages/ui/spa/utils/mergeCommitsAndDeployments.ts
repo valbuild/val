@@ -98,10 +98,33 @@ export function mergeCommitsAndDeployments(
     }
   }
 
-  return Object.values(deploymentsByCommitSha).sort((a, b) => {
-    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-  });
+  return (
+    Object.values(deploymentsByCommitSha)
+      .sort((a, b) => {
+        return (
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        );
+      })
+      // The newest few, and no more. This function's result is fed back in as
+      // `prev` on the next poll, so without a bound it is an accumulator: every
+      // commit and deployment a session ever saw stayed in it for as long as the
+      // tab was open, and the only thing that ever took a row out was the
+      // reader pressing a dismiss button on it. The feed is "what has been
+      // going out lately" - the content service returns a bounded set for
+      // exactly that reason - so the client keeps a bounded set too.
+      .slice(0, MERGED_DEPLOYMENTS_LIMIT)
+  );
 }
+
+/**
+ * How many publishes the merged feed keeps.
+ *
+ * Rows, not publishes: a commit sha is the key here, so this is already folded
+ * per commit - but it is deliberately larger than the ten the Studio SHOWS
+ * (`DEPLOYMENT_LIMIT`), because a commit whose deployment has not been reported
+ * yet is in here as a commit and a poll can bring several at once.
+ */
+const MERGED_DEPLOYMENTS_LIMIT = 25;
 
 /**
  * The first line of a commit message, which is the whole of what a row shows.
