@@ -8,6 +8,21 @@ import { useConfigStorageSave } from "./useConfigStorageSave";
 import { cn, valPrefixedClass } from "./cssUtils";
 import { canvasDarkBg, canvasLightBg } from "./fallbackColors";
 
+/**
+ * How often the embedded Studio announces itself to the opener.
+ *
+ * It repeats because the parent's `message` listener may not be attached yet
+ * when this frame first loads, and it does not need an ACK: the parent clears
+ * `iframeSrc` on the first one it receives, which unmounts this frame and
+ * takes the interval with it. 100ms matches the parent's own
+ * `DRAFT_HANDSHAKE_POLL_MS`, so the two sides of the handshake tick together.
+ *
+ * `setInterval` was previously called with NO delay, which is a 0ms interval —
+ * a `postMessage` every tick of the event loop for as long as the handshake
+ * took.
+ */
+const VAL_READY_PING_MS = 100;
+
 export const ValApp = ({
   config,
   children,
@@ -30,7 +45,7 @@ export const ValApp = ({
           },
           "*",
         );
-      });
+      }, VAL_READY_PING_MS);
       return () => {
         clearInterval(interval);
       };
@@ -75,17 +90,19 @@ export const ValApp = ({
     body.style.backgroundColor = loadingTheme === "dark" ? darkBg : lightBg;
     body.style.minHeight = "100vh";
     body.style.minWidth = "100%";
-    window.addEventListener("val-css-loaded", () => {
+    // A stable reference: `removeEventListener` compares by identity, so a
+    // second arrow function removes nothing and every re-run of this effect
+    // used to leave another listener behind.
+    const onCssLoaded = () => {
       // css was loaded, has been loaded, so let app decide what to do
       setLoadingTheme(null);
-    });
+    };
+    window.addEventListener("val-css-loaded", onCssLoaded);
     return () => {
       body.style.backgroundColor = prevBodyBg;
       body.style.minHeight = prevBodyMinHeight;
       body.style.minWidth = prevBodyMinWidth;
-      window.removeEventListener("val-css-loaded", () => {
-        setLoadingTheme(null);
-      });
+      window.removeEventListener("val-css-loaded", onCssLoaded);
     };
   }, [inMessageMode, loadingTheme]);
 

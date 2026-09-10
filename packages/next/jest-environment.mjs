@@ -1,5 +1,6 @@
 import { TestEnvironment as JSDOMEnvironment } from "jest-environment-jsdom";
 import { ReadableStream } from "node:stream/web";
+import { TextDecoder, TextEncoder } from "node:util";
 
 /**
  * JSDOM does not provide a few globals that @valbuild/core and
