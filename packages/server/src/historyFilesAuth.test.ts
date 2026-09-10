@@ -131,6 +131,24 @@ describe("auth on the two file routes", () => {
   });
 
   /*
+   * The same pair for /history/json, which is authenticated for exactly the
+   * same reasons: its token is a commit sha, and its only caller is the Studio
+   * in a browser that has the session.
+   */
+  const HISTORY_JSON =
+    "/history/json?commit_sha=abc123&path=/content/page.val.ts&key=/a";
+
+  test("/history/json refuses a request with no session", async () => {
+    const res = await get(HISTORY_JSON, false);
+    expect(res.status).toBe(401);
+  });
+
+  test("/history/json gets past auth with one", async () => {
+    const res = await get(HISTORY_JSON, true);
+    expect(res.status).not.toBe(401);
+  });
+
+  /*
    * And /files must NOT start asking. If this ever goes red, the Next image
    * optimiser can no longer read draft images and every unpublished image in
    * the Studio goes blank - which is not a symptom anyone would trace back to

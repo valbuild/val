@@ -58,6 +58,7 @@ export async function getJsonEntryAtCommit(
   }
   const entryPath = findEntryImportPath(
     moduleFilePath,
+    moduleGitPath.value,
     moduleRes.value.toString("utf-8"),
     key,
   );
@@ -102,6 +103,15 @@ export async function getJsonEntryAtCommit(
  */
 export function findEntryImportPath(
   moduleFilePath: ModuleFilePath,
+  /**
+   * The same module, repository-relative, for error reporting only.
+   *
+   * A `gitPath` in a HistoryError is a REPOSITORY path - that is what every
+   * other history helper reports, and what a reader can paste into a `git show`
+   * - so reporting the project-relative ModuleFilePath here named a file that
+   * does not exist at that path for any project not rooted at the repo root.
+   */
+  moduleGitPath: string,
   valTsSource: string,
   key: string,
 ): result.Result<string, HistoryError> {
@@ -120,7 +130,7 @@ export function findEntryImportPath(
     // would be a new case every reader has to handle to say the same thing.
     return result.err({
       kind: "file-unavailable",
-      gitPath: moduleFilePath,
+      gitPath: moduleGitPath,
       message: `could not parse the module at this commit: ${
         err instanceof Error ? err.message : String(err)
       }`,
@@ -129,7 +139,7 @@ export function findEntryImportPath(
   if (result.isErr(analysis)) {
     return result.err({
       kind: "file-unavailable",
-      gitPath: moduleFilePath,
+      gitPath: moduleGitPath,
       message: "could not read the module at this commit",
     });
   }
@@ -144,7 +154,7 @@ export function findEntryImportPath(
      */
     return result.err({
       kind: "file-unavailable",
-      gitPath: moduleFilePath,
+      gitPath: moduleGitPath,
       message: `'${key}' had no entry at this commit`,
     });
   }

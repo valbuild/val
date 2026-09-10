@@ -3,6 +3,8 @@ import { result } from "@valbuild/core/fp";
 import { findEntryImportPath } from "./getJsonEntryAtCommit";
 
 const MODULE = "/app/support/[slug]/page.val.ts" as ModuleFilePath;
+// The same module as git sees it: this project lives under examples/next.
+const MODULE_GIT_PATH = "examples/next/app/support/[slug]/page.val.ts";
 
 /**
  * Taken from the example app, because the shape of the problem is only visible
@@ -27,7 +29,7 @@ export default c.define(
 `;
 
 function pathFor(key: string) {
-  return findEntryImportPath(MODULE, SOURCE, key);
+  return findEntryImportPath(MODULE, MODULE_GIT_PATH, SOURCE, key);
 }
 
 describe("finding a jsonValues entry's file at a commit", () => {
@@ -62,7 +64,12 @@ describe("finding a jsonValues entry's file at a commit", () => {
   });
 
   test("reports a module it cannot read, rather than reporting it empty", () => {
-    const res = findEntryImportPath(MODULE, "this is not typescript {{{", "k");
+    const res = findEntryImportPath(
+      MODULE,
+      MODULE_GIT_PATH,
+      "this is not typescript {{{",
+      "k",
+    );
     if (!result.isErr(res)) throw new Error("expected an error");
     expect(res.error.kind).toBe("file-unavailable");
   });
@@ -74,8 +81,25 @@ describe("finding a jsonValues entry's file at a commit", () => {
       import { s, c } from "./val.config";
       export default c.define("/app/page.val.ts", s.string(), "hello");
     `;
-    const res = findEntryImportPath(MODULE, plain, "/support/faq");
+    const res = findEntryImportPath(
+      MODULE,
+      MODULE_GIT_PATH,
+      plain,
+      "/support/faq",
+    );
     if (!result.isErr(res)) throw new Error("expected an error");
     expect(res.error.kind).toBe("file-unavailable");
+  });
+
+  /*
+   * A `gitPath` in a HistoryError is a REPOSITORY path - what every other
+   * history helper reports, and what a reader can paste into `git show`.
+   * Reporting the project-relative ModuleFilePath named a file that does not
+   * exist at that path for any project not rooted at the repository root.
+   */
+  test("reports the repository path, not the project-relative one", () => {
+    const res = pathFor("/support/added-later");
+    if (!result.isErr(res)) throw new Error("expected an error");
+    expect("gitPath" in res.error && res.error.gitPath).toBe(MODULE_GIT_PATH);
   });
 });
