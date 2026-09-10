@@ -259,7 +259,9 @@ function resolveDiscriminatedUnionVariant(
   }
 
   const key = source[schemaKey];
-  if (!key || typeof key !== "string") {
+  // The `typeof` check is the whole test: a falsy guard here would drop a
+  // variant tagged `s.literal("")`, whose strings would then never be encoded.
+  if (typeof key !== "string") {
     return null;
   }
 

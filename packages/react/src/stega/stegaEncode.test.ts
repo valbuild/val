@@ -202,6 +202,28 @@ describe("stega transform", () => {
     });
   });
 
+  // `""` is a legal `s.literal`, so it is a legal tag. The variant resolver
+  // used to test the tag for truthiness, so this arm was never matched and its
+  // strings came back unencoded — silently, since the value is unchanged.
+  test("a discriminated union tagged with an empty string still encodes its arm", () => {
+    const schema = s.discriminatedUnion(
+      "type",
+      s.object({ type: s.literal(""), str: s.string() }),
+      s.object({ type: s.literal("named"), num: s.number() }),
+    );
+    const transformed = stegaEncode(
+      c.define("/test1.val.ts", schema, { type: "", str: "one" }),
+      {},
+    );
+    expect(vercelStegaSplit(transformed.str).cleaned).toStrictEqual("one");
+    expect(vercelStegaDecode(transformed.str)).toStrictEqual({
+      data: {
+        valPath: '/test1.val.ts?p="str"',
+      },
+      origin: "val.build",
+    });
+  });
+
   test("skip stegaEncode on dates", () => {
     const schema = s.date();
     const transformed = stegaEncode(

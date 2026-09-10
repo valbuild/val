@@ -410,7 +410,9 @@ export function resolvePath<
           ? resolvedSchema["key"]
           : resolvedSchema.key;
       const keyValue = resolvedSource[key];
-      if (!keyValue) {
+      // `undefined`, not falsy: `s.literal("")` is a legal tag, and a variant
+      // carrying it was reported as a missing key.
+      if (keyValue === undefined) {
         throw Error(
           `Invalid path: discriminated union source ${resolvedSchema} did not have required key ${key} in path: ${path}`,
         );
@@ -691,7 +693,8 @@ export function safeResolvePath<
           ? resolvedSchema["key"]
           : resolvedSchema.key;
       const keyValue = resolvedSource[key];
-      if (!keyValue) {
+      // See the note in `resolvePath`: an empty-string tag is a present key.
+      if (keyValue === undefined) {
         return {
           status: "error",
           message: `Invalid path: discriminated union source ${resolvedSchema} did not have required key ${key} in path: ${path}`,
