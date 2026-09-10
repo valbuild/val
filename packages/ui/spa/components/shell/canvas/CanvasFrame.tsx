@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, Loader2, RefreshCw } from "lucide-react";
 import {
   isValCanvasPageMessage,
   VAL_CANVAS_MESSAGE,
@@ -8,8 +7,8 @@ import {
   withValCanvasParam,
 } from "@valbuild/shared/internal";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
-import { cn } from "../../designSystem/cn";
 import { CanvasPinch } from "./CanvasWindow";
+import { CanvasPreviewStatus } from "./CanvasPreviewNotice";
 import { CanvasPoint } from "./types";
 import {
   useValPendingSourceSnapshot,
@@ -37,7 +36,7 @@ type FrameState =
  * cost of being wrong in this direction is a spinner that lingers; in the other
  * it is telling someone to enable a mode that is already on.
  */
-const ANSWER_TIMEOUT_MS = 8000;
+export const ANSWER_TIMEOUT_MS = 8000;
 
 export type CanvasFrameProps = {
   /** The page's own URL, e.g. `/blogs/blog1`. */
@@ -64,8 +63,25 @@ export type CanvasFrameProps = {
   onPinch?: (gesture: CanvasPinch) => void;
   /** A ctrl/cmd + wheel zoom over the page, relayed for the same reason. */
   onZoom?: (factor: number, center: CanvasPoint) => void;
-  /** Ask for the page again — used when enabling preview needs a reload. */
-  onRequestReload: () => void;
+  /**
+   * Bumped to turn preview mode on.
+   *
+   * A key rather than a method, for the reason `reloadKey` is one: the act is a
+   * NAVIGATION of the frame, and only the thing holding the frame can perform
+   * it. The notice that offers the button sits outside the canvas's zoom
+   * transform — see `CanvasPreviewNotice` — so it cannot hold the frame.
+   *
+   * Ignored at its initial value, so mounting does not enable anything.
+   */
+  enableKey?: number;
+  /**
+   * How the conversation with the page is going.
+   *
+   * Reported rather than rendered here, because the thing that renders it must
+   * not be inside the zoom transform: a status bar that shrinks to 7px at
+   * auto-fit is not a status bar. See `CanvasPreviewNotice`.
+   */
+  onStatusChange?: (status: CanvasPreviewStatus) => void;
   /** Whether the page says it is re-rendering. See `ValCanvasBridge`. */
   onRefreshingChange?: (isRefreshing: boolean) => void;
 };
@@ -97,8 +113,9 @@ export function CanvasFrame({
   onPick,
   onPinch,
   onZoom,
-  onRequestReload,
   onRefreshingChange,
+  enableKey = 0,
+  onStatusChange,
 }: CanvasFrameProps) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [state, setState] = useState<FrameState>({ status: "waiting" });
@@ -238,6 +255,18 @@ export function CanvasFrame({
    */
   const enablePreview = useCallback(() => {
     setIsEnabling(true);
+    /*
+     * A fresh attempt, on the same terms as a reload.
+     *
+     * The frame is about to hold a NEW document, and whatever the last one said
+     * no longer holds - so the wait for an answer starts again, and with it the
+     * timeout that turns silence into `no-answer`. Without this the state stayed
+     * wherever it was and `isEnabling`, which only a `ready` message clears, was
+     * the whole of what the notice had to go on: an enable that never landed -
+     * a redirect that 404s, a page that does not come back - said "Turning on…"
+     * for as long as the tab was open.
+     */
+    setState({ status: "waiting" });
     const redirectTo = new URL(frameSrc, window.location.origin).toString();
     const enableUrl = `/api/val/enable?redirect_to=${encodeURIComponent(
       redirectTo,
@@ -303,9 +332,57 @@ export function CanvasFrame({
     send({ val: VAL_CANVAS_MESSAGE, type: "sourcesSynced" });
   }, [isLive, documentEpoch, sendPendingSources, sendSourceUpdate, send]);
 
-  const blocked =
-    (state.status === "ready" && !state.draftMode) ||
-    state.status === "no-answer";
+  /**
+   * Turn preview mode on when asked from outside.
+   *
+   * The button lives in the notice above the canvas, which is outside the zoom
+   * transform and therefore cannot be this component; the navigation has to
+   * happen here, where the frame is. See `enableKey`.
+   *
+   * Guarded on the KEY's value rather than on "have I run before", and that is
+   * the whole of it. `enablePreview` is a `useCallback` over `frameSrc`, so the
+   * effect re-runs whenever the canvas changes route — and a "skip the first
+   * run" flag says yes to every run after it. The canvas then navigated itself
+   * through `/api/val/enable` the moment somebody typed a different route: it
+   * turned preview mode on by itself, which is a cookie being set on somebody's
+   * site because they looked at a second page.
+   */
+  const lastEnableKey = useRef(enableKey);
+  useEffect(() => {
+    if (enableKey === lastEnableKey.current) {
+      return;
+    }
+    lastEnableKey.current = enableKey;
+    enablePreview();
+  }, [enableKey, enablePreview]);
+
+  /**
+   * Say how it is going, once per change.
+   *
+   * `isEnabling` is part of it: an enable is a redirect and a fresh document,
+   * so between the click and the page answering there is nothing in `state`
+   * that distinguishes "waiting because we just asked" from "waiting because
+   * nothing is coming".
+   *
+   * But it does not outrank `no-answer`, which is the answer to exactly that
+   * question once the timeout has run: an enable that never lands has to reach
+   * a diagnosis and the actions that go with it, rather than saying "Turning
+   * on…" forever. `isEnabling` is cleared by the page announcing itself, and
+   * a page that never announces itself never clears it.
+   */
+  const status: CanvasPreviewStatus =
+    state.status === "no-answer"
+      ? "no-answer"
+      : isEnabling
+        ? "enabling"
+        : state.status === "waiting"
+          ? "connecting"
+          : state.draftMode
+            ? "live"
+            : "preview-off";
+  useEffect(() => {
+    onStatusChange?.(status);
+  }, [onStatusChange, status]);
 
   return (
     <div style={{ width, height }} className="relative bg-white">
@@ -320,158 +397,16 @@ export function CanvasFrame({
         style={{ width, height, border: "none", display: "block" }}
         referrerPolicy="same-origin"
       />
-      {blocked && (
-        <PreviewBlocked
-          isEnabling={isEnabling}
-          onEnable={enablePreview}
-          onReload={onRequestReload}
-          unreachable={state.status === "no-answer"}
-        />
-      )}
+      {/*
+       * Nothing is drawn over the page here any more.
+       *
+       * A panel with a blurred backdrop used to cover the frame whenever the
+       * canvas could not do its job, which stopped the canvas being a canvas:
+       * the published page underneath is real and worth reading and scrolling,
+       * and it was unreachable behind an explanation of why it could not be
+       * EDITED. `CanvasPreviewNotice`, above the viewport, says the same thing
+       * without taking the page away.
+       */}
     </div>
-  );
-}
-
-/**
- * Shown over the page when the canvas cannot do its job.
- *
- * Over rather than instead of: the published page underneath is real, and worth
- * seeing. What is missing is that nothing on it is selectable, which is what
- * this says.
- */
-function PreviewBlocked({
-  isEnabling,
-  onEnable,
-  onReload,
-  unreachable,
-}: {
-  isEnabling: boolean;
-  onEnable: () => void;
-  onReload: () => void;
-  /** True when the page never answered at all, rather than answering "off". */
-  unreachable: boolean;
-}) {
-  return (
-    <div className="absolute inset-0 grid place-items-center bg-bg-canvas/80 backdrop-blur-sm p-6">
-      <div className="max-w-sm rounded-lg border border-border-float bg-bg-float p-5 text-center shadow-lg">
-        <h3 className="text-sm font-medium text-fg-primary">
-          {unreachable ? "No answer from the page" : "Preview mode is off"}
-        </h3>
-        <p className="mt-2 text-xs leading-relaxed text-fg-secondary">
-          {unreachable
-            ? "The page loaded but did not report back. It may be an older version of Val, preview mode may have been turned off elsewhere, or the app may not be wired up yet."
-            : "Without preview mode the canvas shows the published page, and nothing on it can be selected or edited."}
-        </p>
-        {unreachable && <SetupInstructions />}
-        <div className="mt-4 flex items-center justify-center gap-2">
-          <button
-            type="button"
-            onClick={onEnable}
-            disabled={isEnabling}
-            className={cn(
-              "inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium",
-              "bg-bg-brand-primary text-fg-brand-primary border border-border-brand-primary",
-              "hover:bg-bg-brand-primary-hover",
-              "disabled:bg-bg-disabled disabled:text-fg-disabled",
-            )}
-          >
-            {isEnabling && <Loader2 size={13} className="animate-spin" />}
-            {isEnabling ? "Turning on…" : "Turn on preview mode"}
-          </button>
-          <button
-            type="button"
-            onClick={onReload}
-            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium text-fg-secondary border border-border-float hover:bg-bg-float-raised hover:text-fg-primary"
-          >
-            <RefreshCw size={13} />
-            Reload
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * What a DEVELOPER needs when the page never answers.
- *
- * The most likely cause of silence is not a fault at all — it is an app that has
- * not been wired up: no `ValProvider` in the root layout, or one that is not
- * above the page being previewed. That is a five-line fix and completely opaque
- * from this side of the iframe, so the answer is worth having on screen.
- *
- * Folded away, and that is the whole design of it. Most people looking at this
- * panel are editors, for whom a code snippet is noise and slightly alarming;
- * the developer they will ask is the one who needs it. A `details` gives both
- * audiences the right thing without a mode switch, and it is native, so it
- * needs no state and cannot get stuck open.
- */
-function SetupInstructions() {
-  return (
-    <details className="group mt-3 text-left">
-      <summary className="cursor-pointer list-none text-xs text-fg-secondary-alt hover:text-fg-primary [&::-webkit-details-marker]:hidden">
-        <span className="inline-flex items-center gap-1">
-          <ChevronRight
-            size={12}
-            // `group-open`, not an arbitrary `details[open] &`: the standard
-            // variant is what the config is certain to generate.
-            className="transition-transform group-open:rotate-90"
-            aria-hidden
-          />
-          Setup instructions
-        </span>
-      </summary>
-      <div className="mt-2 rounded-md border border-border-float bg-bg-secondary p-3">
-        <p className="text-xs leading-relaxed text-fg-secondary">
-          The canvas talks to the page through Val&apos;s provider. If it never
-          answers, check that:
-        </p>
-        <ol className="mt-2 list-decimal space-y-1.5 pl-4 text-xs leading-relaxed text-fg-secondary">
-          <li>
-            <code className="rounded bg-bg-tertiary px-1 py-0.5 font-mono text-[0.6875rem] text-fg-primary">
-              ValProvider
-            </code>{" "}
-            is in the ROOT layout —{" "}
-            <code className="font-mono">app/layout.tsx</code> — and therefore
-            above every page it should preview. A provider inside a route group
-            does not cover the pages outside it.
-          </li>
-          <li>
-            <code className="rounded bg-bg-tertiary px-1 py-0.5 font-mono text-[0.6875rem] text-fg-primary">
-              ValModulesClient
-            </code>{" "}
-            is rendered inside it, so the editor can read your schemas.
-          </li>
-          <li>
-            The API route exists at{" "}
-            <code className="font-mono">
-              app/(val)/api/val/[[...val]]/route.ts
-            </code>
-            , since preview mode is turned on through it.
-          </li>
-          <li>
-            The page is not served from a different origin than the studio: the
-            canvas and the page have to be able to talk to each other.
-          </li>
-          <li>
-            <code className="font-mono">@valbuild/next</code> and{" "}
-            <code className="font-mono">@valbuild/core</code> are on the same
-            version, in the app and in the editor.
-          </li>
-        </ol>
-        <p className="mt-2 text-xs leading-relaxed text-fg-secondary-alt">
-          The setup guide has the whole layout:{" "}
-          <a
-            href="https://github.com/valbuild/val/blob/main/packages/next/MANUAL_CONFIGURATION.md"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline hover:text-fg-primary"
-          >
-            manual configuration
-          </a>
-          .
-        </p>
-      </div>
-    </details>
   );
 }

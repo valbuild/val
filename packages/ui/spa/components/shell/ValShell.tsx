@@ -757,11 +757,12 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       height,
       reloadKey,
       isPicking,
-      onRequestReload,
       onRefreshingChange,
       onPinch,
       onZoom,
       onPicked,
+      enableKey,
+      onStatusChange,
     }: Parameters<NonNullable<PageWorkspaceProps["renderCanvas"]>>[0]) => (
       <CanvasFrame
         url={canvasUrl}
@@ -797,7 +798,14 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         }}
         onPinch={onPinch}
         onZoom={onZoom}
-        onRequestReload={onRequestReload}
+        /*
+         * Preview mode, both ways. The button that turns it on is in the
+         * notice above the canvas - outside the zoom, where a status bar has
+         * to be - and the navigation that does it has to happen here, where
+         * the frame is. See `CanvasPreviewNotice`.
+         */
+        enableKey={enableKey}
+        onStatusChange={onStatusChange}
         onRefreshingChange={onRefreshingChange}
       />
     );
