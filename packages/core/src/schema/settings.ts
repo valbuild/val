@@ -10,11 +10,13 @@ import {
   ASSISTANT_SETTINGS_MAX_LENGTH,
   AssistantSettingsSource,
   SettingsSource,
+  THEME_LOGO_DIRECTORY,
   ThemeSettingsSource,
 } from "../source/settings";
 import { ModuleFilePath, SourcePath } from "../val";
 import { boolean } from "./boolean";
 import { color } from "./color";
+import { image } from "./image";
 import { literal } from "./literal";
 import { string } from "./string";
 import { union } from "./union";
@@ -278,6 +280,7 @@ export class SettingsSchema<
  *   theme: {
  *     accent: "#2563eb",
  *     radius: "tight",
+ *     logo: { path: "/public/val/brand/mark_a1b2c.png", width: 512, height: 512, mimeType: "image/png" },
  *   },
  * });
  * ```
@@ -335,6 +338,11 @@ export function settings(): SettingsSchema<SettingsSource> {
         .nullable()
         .describe(
           "The mode the Studio opens in for an editor who has not chosen one. Never overrides an editor who has.",
+        ),
+      logo: image({ directory: THEME_LOGO_DIRECTORY })
+        .nullable()
+        .describe(
+          "The project's own mark, shown where Val's is in the Studio. A square-ish mark rather than a wordmark: the slot is 32px wide.",
         ),
     }),
   });

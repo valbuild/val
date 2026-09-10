@@ -6,8 +6,16 @@ import {
 } from "../components/ValFieldProvider";
 import { sourcePathOfItem } from "../utils/sourcePathOfItem";
 
-/** The theme's fields, in the order a new section is written with. */
-export const THEME_FIELDS = ["accent", "radius", "mode"] as const;
+/**
+ * The theme's fields, in the order a new section is written with.
+ *
+ * `logo` is in the list even though nothing here writes it — `ImageField` does,
+ * at its own source path. It has to be, and the reason is the patch semantics:
+ * an image field writes `replace`, and a `replace` fails with "Cannot replace
+ * object element which does not exist" for a key that is absent. So the
+ * section-creating write has to leave a `logo: null` for it to replace.
+ */
+export const THEME_FIELDS = ["accent", "radius", "mode", "logo"] as const;
 
 export type ThemeField = (typeof THEME_FIELDS)[number];
 

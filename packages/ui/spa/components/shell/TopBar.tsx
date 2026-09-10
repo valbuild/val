@@ -21,8 +21,8 @@ import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
 import { Avatar } from "../Avatar";
 import { AccountErrorDot } from "./AccountError";
-import { ValLogo } from "./ValLogo";
-import { ShellBreakpoint, ShellPanel } from "./types";
+import { StudioMark } from "./ValLogo";
+import { ShellBreakpoint, ShellLogo, ShellPanel } from "./types";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 
 export type TopBarProps = {
@@ -105,6 +105,11 @@ export type TopBarProps = {
    * altogether and there was no way left to reach the panel that explains it.
    */
   accountError?: { message: string };
+  /**
+   * The project's own mark, from `s.settings()`'s `theme.logo`. Absent leaves
+   * Val's. Shown only below the desktop breakpoint, where the rail is not.
+   */
+  logo?: ShellLogo;
   /** Blinks the mark, as a terminal caret does while it waits. */
   isLoading?: boolean;
   /**
@@ -152,6 +157,7 @@ export function TopBar({
   reviewCount,
   publishState = "idle",
   accountError,
+  logo,
   isLoading,
   aiEnabled = false,
   previewHref,
@@ -179,7 +185,7 @@ export function TopBar({
       )}
       {!isDesktop && (
         <div className="grid place-items-center w-7 h-7 shrink-0 text-fg-primary">
-          <ValLogo className="h-5" blinking={isLoading} />
+          <StudioMark logo={logo} className="h-5" blinking={isLoading} />
         </div>
       )}
       <ProjectName projectName={projectName} projectHref={projectHref} />

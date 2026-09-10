@@ -7,6 +7,7 @@ import { ShellData, ShellPanel } from "../types";
 import {
   emptyShellData,
   mockDeployments,
+  mockProjectLogo,
   mockSelectionIds,
   mockShellData,
 } from "../mockShellData";
@@ -57,6 +58,11 @@ const meta: Meta<typeof ShellHarness> = {
     radius: {
       control: "inline-radio",
       options: [...THEME_RADIUS_STEPS],
+    },
+    logo: {
+      control: "inline-radio",
+      options: ["none", "square", "wide"],
+      description: "The project's own mark, in place of Val's.",
     },
     openPanel: {
       control: "select",
@@ -170,6 +176,8 @@ type HarnessProps = {
   accent: string;
   /** The project's corner radius, as `s.settings()`'s `theme.radius`. */
   radius: ThemeRadius;
+  /** The project's own mark, as `s.settings()`'s `theme.logo`. */
+  logo: "none" | "square" | "wide";
   publishState: PublishState;
   saveState: SaveState;
   mode: StatusBarProps["mode"];
@@ -295,6 +303,7 @@ function ShellHarness({
   theme,
   accent,
   radius,
+  logo,
   publishState,
   saveState,
   mode,
@@ -330,6 +339,9 @@ function ShellHarness({
   const data = {
     ...withErrors,
     deployments: published && feed ? [published, ...feed] : feed,
+    // `s.settings()`'s `theme.logo` after `useShellData` has resolved it to a
+    // URL. Absent leaves Val's own mark, which is the resting state.
+    logo: logo === "none" ? undefined : mockProjectLogo[logo],
   };
   return (
     <Shell
@@ -428,6 +440,7 @@ export const Default: Story = {
     theme: "dark",
     accent: "",
     radius: "default",
+    logo: "none",
     publishState: "idle",
     saveState: "saved",
     mode: "fs",
@@ -901,5 +914,54 @@ export const ThemedCanvas: Story = {
     ...ThemedStudio.args,
     canvasOpen: true,
     canvasView: "fields",
+  },
+};
+
+/**
+ * A project's own mark at the top of the rail.
+ *
+ * `s.settings()`'s `theme.logo`, in the slot Val's mark had. The Studio's two
+ * mark slots — the rail on desktop, beside the menu button below 1200px — say
+ * which WORKSPACE this is, so the project's own logo is the right label for
+ * them. The launcher on the project's own site keeps Val's mark: there the mark
+ * labels the tool. See `architecture/logo.md`.
+ */
+export const WithProjectLogo: Story = {
+  args: {
+    ...Default.args,
+    logo: "square",
+    selectionId: mockSelectionIds.home,
+  },
+};
+
+/**
+ * A wordmark in a slot built for a mark.
+ *
+ * Contained rather than cropped: all of it is there and none of it is legible
+ * at 32px wide. Kept as a story because it is the honest picture of the
+ * trade-off — cropping the ends off a logo would read as a bug in Val, and
+ * widening the rail for one image is a layout change rather than a setting.
+ */
+export const WithWideProjectLogo: Story = {
+  args: {
+    ...Default.args,
+    logo: "wide",
+    selectionId: mockSelectionIds.home,
+  },
+};
+
+/**
+ * The project's mark and the project's accent together, which is the point.
+ *
+ * A logo alone in green chrome still looks like Val's Studio with somebody
+ * else's picture in it; the two axes are what make it read as theirs.
+ */
+export const FullyBranded: Story = {
+  args: {
+    ...Default.args,
+    logo: "square",
+    accent: "#ea580c",
+    radius: "tight",
+    selectionId: mockSelectionIds.home,
   },
 };

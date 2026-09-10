@@ -5,8 +5,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../designSystem/tooltip";
-import { ShellDestination, ShellPanel } from "./types";
-import { ValLogo } from "./ValLogo";
+import { ShellDestination, ShellLogo, ShellPanel } from "./types";
+import { StudioMark } from "./ValLogo";
 import { Avatar } from "../Avatar";
 import { AccountErrorDot } from "./AccountError";
 
@@ -87,6 +87,14 @@ export type LeftRailProps = {
    * case where `user` is absent — so the mark has to appear on the cog as well.
    */
   accountError?: { message: string };
+  /**
+   * The project's own mark, from `s.settings()`'s `theme.logo`.
+   *
+   * Absent leaves Val's. A prop rather than a hook so the rail stays
+   * presentational and a story can hand it one — see `StudioMark` for why it is
+   * contained rather than cropped in a 32px slot.
+   */
+  logo?: ShellLogo;
   /** Blinks the mark, as a terminal caret does while it waits. */
   isLoading?: boolean;
 };
@@ -104,6 +112,7 @@ export function LeftRail({
   user,
   hasDraftChanges,
   accountError,
+  logo,
   isLoading,
 }: LeftRailProps) {
   const items = visibleRailItems(destinations);
@@ -115,7 +124,7 @@ export function LeftRail({
       className="absolute left-3 top-3 bottom-3 z-full w-12 flex flex-col items-center py-2 gap-1 rounded-lg bg-bg-float border border-border-float shadow-sm"
     >
       <div className="grid place-items-center w-8 h-8 mb-1 shrink-0 text-fg-primary">
-        <ValLogo className="h-6" blinking={isLoading} />
+        <StudioMark logo={logo} className="h-6" blinking={isLoading} />
       </div>
       {topItems.map(({ panel, label, icon: Icon }) => (
         <Tooltip key={panel}>

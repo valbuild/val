@@ -8,6 +8,7 @@ import {
 import { useCallback } from "react";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { useAIChatActions } from "../AIChatActionsContext";
+import { ImageField } from "../fields/ImageField";
 import { toneOfVoicePrompt } from "../../hooks/toneOfVoicePrompt";
 import { useSchemaAtPath, useShallowSourceAtPath } from "../ValFieldProvider";
 import { useWriteAssistantSetting } from "../../hooks/useWriteAssistantSetting";
@@ -16,6 +17,7 @@ import { useValidationErrors } from "../ValErrorProvider";
 import {
   AssistantSettingsFields,
   NoSettingsModule,
+  SettingsLogoPlaceholder,
   SettingsTabs,
   ThemeSettingsFields,
 } from "./SettingsPanel";
@@ -84,6 +86,19 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
   const accentPath = sourcePathOfItem(themePath, "accent");
   const radiusPath = sourcePathOfItem(themePath, "radius");
   const modePath = sourcePathOfItem(themePath, "mode");
+  const logoPath = sourcePathOfItem(themePath, "logo");
+  /**
+   * Whether the `theme` section exists yet.
+   *
+   * The logo is the one field here that cannot create it — see
+   * `SettingsLogoPlaceholder`. The others go through `writeThemeSetting`, which
+   * writes the whole section on its first call.
+   */
+  const themeSection = useShallowSourceAtPath(themePath, "settings");
+  const hasThemeSection =
+    themeSection.status === "success" &&
+    "data" in themeSection &&
+    !!themeSection.data;
   const accentValue = useThemeStringField(accentPath);
   const radiusValue = useThemeRadiusField(radiusPath);
   const modeValue = useThemeModeField(modePath);
@@ -143,6 +158,24 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
                 radius: radiusErrors[0]?.message,
                 mode: modeErrors[0]?.message,
               }}
+              /*
+               * The real image field, at the logo's own source path — it does
+               * its own upload and reports its own validation, so nothing about
+               * the logo goes through `writeThemeSetting`.
+               *
+               * Except the first write of all, which has to create the section
+               * the key lives in. See `SettingsLogoPlaceholder`.
+               */
+              logoField={
+                hasThemeSection ? (
+                  <ImageField path={logoPath} readonly={readonly} />
+                ) : (
+                  <SettingsLogoPlaceholder
+                    onAdd={() => writeThemeSetting("logo", null)}
+                    disabled={readonly}
+                  />
+                )
+              }
               readonly={readonly}
             />
           ),

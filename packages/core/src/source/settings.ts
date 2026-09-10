@@ -1,3 +1,5 @@
+import { ImageSource } from "./media";
+
 /**
  * The source of the project's settings module — `s.settings()`.
  *
@@ -72,7 +74,31 @@ export type ThemeSettingsSource = {
    * account button keeps their choice, and this never overrides it.
    */
   mode?: "dark" | "light" | null;
+  /**
+   * The project's own mark, shown where Val's is in the Studio.
+   *
+   * The top of the left rail on desktop, and beside the menu button on mobile.
+   * NOT the launcher that floats on the project's own site: there the mark says
+   * "this is Val", and a project's logo on its own page says nothing at all —
+   * see {@link THEME_LOGO_DIRECTORY} and `architecture/logo.md`.
+   *
+   * A square-ish mark rather than a wordmark, because the slot it goes in is
+   * 32px wide. A wide image is contained rather than cropped, so nothing is
+   * cut off — it is simply small.
+   */
+  logo?: ImageSource | null;
 };
+
+/**
+ * Where an uploaded logo goes.
+ *
+ * Its own directory rather than the `/public/val` default, so that the one
+ * image a project uploads through the settings panel does not land in the
+ * middle of its content's media. `val list-unused-files` reads what is
+ * referenced rather than where it sits, so nothing depends on this beyond
+ * tidiness.
+ */
+export const THEME_LOGO_DIRECTORY = "/public/val/brand";
 
 /** @see {@link ThemeSettingsSource.radius} */
 export type ThemeRadius = "square" | "tight" | "default" | "soft";

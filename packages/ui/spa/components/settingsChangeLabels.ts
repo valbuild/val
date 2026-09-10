@@ -48,4 +48,5 @@ const LABELS: Record<string, string> = {
   "theme.accent": "Appearance · Accent",
   "theme.radius": "Appearance · Corners",
   "theme.mode": "Appearance · Opens in",
+  "theme.logo": "Appearance · Logo",
 };

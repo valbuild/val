@@ -5,10 +5,12 @@ import {
   THEME_RADIUS_LENGTHS,
 } from "@valbuild/core";
 import { themeCustomProperties } from "@valbuild/shared/internal";
+import { mockProjectLogo } from "../mockShellData";
 import {
   AssistantSettingsFields,
   AssistantSettingsValue,
   NoSettingsModule,
+  SettingsLogoPlaceholder,
   SettingsPanel,
   SettingsTabs,
   ThemeSettingsFields,
@@ -70,6 +72,15 @@ type HarnessProps = {
   themeErrors?: Partial<Record<keyof ThemeSettingsValue, string>>;
   /** Open on the Appearance tab instead of Assistant. */
   appearance?: boolean;
+  /**
+   * What goes in the logo slot.
+   *
+   * A slot, not a value: uploading is `ImageField`'s job and it needs the
+   * stores, so the panel takes an element. "placeholder" is what a project with
+   * no `theme` section sees — the button that creates it — and "field" stands
+   * in for the real image field.
+   */
+  logoSlot?: "none" | "placeholder" | "field";
   readonly?: boolean;
   isLoading?: boolean;
   loadError?: string;
@@ -102,6 +113,7 @@ function SettingsPanelHarness({
   initialTheme = UNSET_THEME,
   themeErrors,
   appearance,
+  logoSlot = "none",
   readonly,
   isLoading,
   loadError,
@@ -160,6 +172,30 @@ function SettingsPanelHarness({
           setTheme((current) => ({ ...current, [field]: next }))
         }
         errors={themeErrors}
+        logoField={
+          logoSlot === "placeholder" ? (
+            <SettingsLogoPlaceholder
+              onAdd={() => undefined}
+              disabled={readonly}
+            />
+          ) : logoSlot === "field" ? (
+            // A still of the real field: the point of the story is the row it
+            // sits in, not `ImageField`'s own states, which have stories of
+            // their own.
+            <div className="flex items-center gap-3">
+              <img
+                src={mockProjectLogo.square.url}
+                alt=""
+                className="w-16 h-16 rounded-md border border-border-primary object-contain"
+              />
+              <div className="text-[0.6875rem] text-fg-secondary-alt">
+                mark_a1b2c.svg
+                <br />
+                64 × 64 · image/svg+xml
+              </div>
+            </div>
+          ) : undefined
+        }
         readonly={readonly}
       />
     ),
@@ -420,5 +456,33 @@ export const NoAssistantToAsk: Story = {
   args: {
     initial: { enabled: true, context: null, tone: null },
     canAskAssistant: false,
+  },
+};
+
+/**
+ * The logo slot before the project has a `theme` section at all.
+ *
+ * The button is a necessity rather than a nicety: an image field writes
+ * `replace`, which fails for a key that does not exist, and until something has
+ * written the section there is no `logo` key for it to replace — the field's
+ * source never resolves and it renders a spinner that never stops. So the first
+ * step creates the section, as a change the editor asked for by pressing it.
+ */
+export const AppearanceLogoPlaceholder: Story = {
+  args: { appearance: true, logoSlot: "placeholder" },
+};
+
+/**
+ * The logo slot with an image in it.
+ *
+ * The real panel puts `ImageField` here — the upload, the progress, the alt
+ * text and the focal point all come with it. This is a still of that row, so
+ * the story is about the slot rather than about the field.
+ */
+export const AppearanceWithLogo: Story = {
+  args: {
+    appearance: true,
+    logoSlot: "field",
+    initialTheme: { accent: "#ea580c", radius: "tight", mode: null },
   },
 };
