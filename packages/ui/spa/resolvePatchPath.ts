@@ -179,7 +179,7 @@ export function resolvePatchPath(
         part,
         i,
         currentSource,
-        "union object",
+        "discriminated union",
       );
       if (!currentObjectSourceRes.success) {
         return {
@@ -199,7 +199,7 @@ export function resolvePatchPath(
         } else {
           return {
             success: false,
-            error: `Invalid lookup in union: unknown union type in: '${patchPath.join(
+            error: `Invalid lookup in discriminated union: unknown variant in: '${patchPath.join(
               "/",
             )}' at part ${i} (sliced: ${patchPath.slice(0, i + 1).join("/")})`,
           };
@@ -208,7 +208,7 @@ export function resolvePatchPath(
       if (!foundSchema) {
         return {
           success: false,
-          error: `Invalid lookup in union: unknown union type in: '${patchPath.join(
+          error: `Invalid lookup in discriminated union: unknown variant in: '${patchPath.join(
             "/",
           )}' at part ${i} (sliced: ${patchPath.slice(0, i + 1).join("/")})`,
         };

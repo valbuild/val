@@ -2,6 +2,7 @@ import { Schema } from ".";
 import { SelectorSource } from "../selector/index";
 import {
   DiscriminatedUnionItem,
+  DiscriminatedUnionItems,
   DiscriminatedUnionSchema,
   DiscriminatedUnionSourceOf,
   SerializedDiscriminatedUnionSchema,
@@ -60,7 +61,7 @@ type EnumSourceOf<T extends Schema<string>[]> = T extends Schema<infer S>[]
  */
 export function union<
   Key extends string,
-  T extends DiscriminatedUnionItem<Key>[],
+  T extends DiscriminatedUnionItems<Key>,
 >(
   key: Key,
   ...objects: T

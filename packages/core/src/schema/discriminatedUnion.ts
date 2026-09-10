@@ -43,6 +43,19 @@ export type DiscriminatedUnionItem<Key extends string> = Schema<
   SourceObject & { [k in Key]: string }
 >;
 
+/**
+ * At least one variant, so a union with none cannot be written.
+ *
+ * Everything downstream reads the first one where it needs any — `emptyOf`
+ * takes `items[0]` for the value a new entry starts as — and a union with
+ * nothing to select is not a thing an author means. `s.enum` says the same
+ * about its values.
+ */
+export type DiscriminatedUnionItems<Key extends string> = [
+  DiscriminatedUnionItem<Key>,
+  ...DiscriminatedUnionItem<Key>[],
+];
+
 /** The source type a discriminated union over `T` accepts. */
 export type DiscriminatedUnionSourceOf<
   Key extends string,
@@ -594,7 +607,7 @@ export class DiscriminatedUnionSchema<
 
 export const discriminatedUnion = <
   Key extends string,
-  T extends DiscriminatedUnionItem<Key>[],
+  T extends DiscriminatedUnionItems<Key>,
 >(
   key: Key,
   ...objects: T

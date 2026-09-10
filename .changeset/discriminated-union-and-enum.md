@@ -47,10 +47,21 @@ holding; each now has its own serialized type (`"discriminated-union"` and
 `"enum"`) and Val Studio has a field per kind rather than one field that
 branches.
 
-One behaviour change falls out of the split: a value that is not a string at
-all now fails an enum's validation with a type error. `s.union` of literals only
-ever checked the value against its literals when the value WAS a string, so a
-number or an object where an enum was declared validated clean.
+Two behaviour changes fall out of the split, both of them fixes:
+
+- A value that is not a string at all now fails an enum's validation with a
+  type error. `s.union` of literals only ever checked the value against its
+  literals when the value WAS a string, so a number or an object where an enum
+  was declared validated clean.
+- An enum field now shows its validation errors in Val Studio where the field
+  is opened on its own — the module editor and the canvas's fields column — and
+  gets the compact error layout inside an inline list row. It is a leaf now, so
+  it goes through the same error rendering as every other leaf field; the string
+  union bypassed it and showed nothing in those places.
+
+`s.discriminatedUnion` also requires at least one variant, as `s.enum` requires
+at least one value: a union with nothing to select is not a thing to write, and
+everything downstream reads the first variant where it needs any.
 
 If you read serialized schemas yourself, that is the breaking part: `type` is no
 longer `"union"`, an enum carries `values: string[]` instead of a `key` plus
