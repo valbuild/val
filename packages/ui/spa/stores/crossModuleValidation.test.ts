@@ -232,6 +232,66 @@ describe("a change to a router module's keys reaches the fields holding routes",
   });
 });
 
+describe("a module joining or leaving the set of routers reaches route fields", () => {
+  const LINKS = mfp("/links.val.ts");
+  const LINKS_CTA = sp('/links.val.ts?p="cta"');
+  const sameKeys = { "/home": "Home", "/about": "About" };
+
+  const asRouter = () => {
+    const { c, s } = initVal();
+    return c.define(
+      "/app/[slug]/page.val.ts",
+      s.record(s.string()).router(Internal.nextAppRouter),
+      sameKeys,
+    );
+  };
+  const asPlainRecord = () => {
+    const { c, s } = initVal();
+    return c.define("/app/[slug]/page.val.ts", s.record(s.string()), sameKeys);
+  };
+  const linksModule = () => {
+    const { c, s } = initVal();
+    return c.define("/links.val.ts", s.object({ cta: s.route() }), {
+      cta: "/home",
+    });
+  };
+
+  it("invalidates route fields when a record stops being a router", async () => {
+    const rig = initTestSystem();
+    await rig.sourceStore.testReceive([asRouter(), linksModule()]);
+    expect(await surfaced(rig, LINKS)).toEqual({});
+    const before = rig.validationStore.peek(LINKS);
+
+    // Same keys, so nothing about the SOURCE moved; the route resolves against
+    // routers only, and this record has just left that set.
+    await rig.sourceStore.testReceive([asPlainRecord()]);
+
+    expect(rig.validationStore.peek(LINKS)).not.toBe(before);
+    // With no router left, the resolver reports the route as unverifiable
+    // rather than missing; either way the field is no longer clean.
+    const broken = await surfaced(rig, LINKS);
+    expect(Object.keys(broken)).toEqual([LINKS_CTA]);
+    expect(broken[LINKS_CTA]?.[0]?.message).toMatch(/Route '\/home'/);
+    rig.dispose();
+  });
+
+  it("invalidates route fields when a record becomes a router", async () => {
+    const rig = initTestSystem();
+    await rig.sourceStore.testReceive([asPlainRecord(), linksModule()]);
+    const broken = await surfaced(rig, LINKS);
+    expect(Object.keys(broken)).toEqual([LINKS_CTA]);
+    const before = rig.validationStore.peek(LINKS);
+
+    // The dependent never saw this module as a router, so no stored keys can
+    // register the change; it is the router SET that moved.
+    await rig.sourceStore.testReceive([asRouter()]);
+
+    expect(rig.validationStore.peek(LINKS)).not.toBe(before);
+    expect(await surfaced(rig, LINKS)).toEqual({});
+    rig.dispose();
+  });
+});
+
 describe("a change to a referenced module's schema reaches the referrer", () => {
   it("invalidates the referrer when the referenced module's schema is replaced", async () => {
     const rig = initTestSystem();
