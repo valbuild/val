@@ -448,6 +448,35 @@ cd examples/next && ./node_modules/.bin/val validate   # the `val` bin is linked
 
 The example app might have known pre-existing content errors (missing image files, stale image metadata), so a non-zero error count can be expected. What you are verifying is that the modules **load and validate at all** — a regression in the loader shows up as a thrown error or `0 valid` files, not as a changed error count.
 
+## Running the Studio against a content host locally
+
+```bash
+pnpm run dev:example-next:http     # then open the login URL it prints
+```
+
+`pnpm run dev:example-next` gives you **fs mode**, where the content host is a
+directory and the server is `ValOpsFS`. A deployed app runs **proxy mode**, and
+several things exist only there: a publish is a git commit, published patches
+are marked applied rather than deleted, deployments arrive over a WebSocket —
+and **history and restore**, which `ValOpsFS` answers
+`not-supported-in-fs-mode` for. `ValShell` hides the History button entirely in
+fs mode (`historySlot` is `undefined`), so no amount of clicking in the normal
+dev loop reaches that UI.
+
+`scripts/devProxyMode.ts` starts the same three processes the `chromium-http`
+Playwright project uses — `e2e/mock-content-host`, the Studio's Vite server,
+and a second `examples/next` on 3457 — importing their ports and secrets from
+`e2e/http/config.ts` so the two cannot drift. It adds the two things a human
+needs and a test does not: a login (proxy mode refuses every request without a
+signed session, and the real one goes to admin.val.build) and a seeded history
+to open. See [`docs/local-proxy-mode.md`](../docs/local-proxy-mode.md).
+
+**Do not add a second history implementation to `ValOpsFS`.** The mock content
+host is already a full stand-in for `home`, pinned by `homeWireContract.test.ts`
+and driven by `e2e/http/history.spec.ts`, so CI keeps it honest on every push. A
+fake commit store behind an env flag in `packages/server` would be a second
+fake of the same service, in shipped product code, with nothing testing it.
+
 ## Working with Images
 
 ### ImageSource Shape
