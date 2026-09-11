@@ -20,6 +20,8 @@
     "release": "pnpm run build && changeset publish",
     "dev:example-next": "concurrently -k \"cd  packages/ui; pnpm run dev\" \"cd examples/next; pnpm run dev\"",
     "dev:example-tanstack": "concurrently -k \"cd  packages/ui; pnpm run dev\" \"cd examples/tanstack; pnpm run dev\"",
+    "dev:example-next:http": "tsx scripts/devProxyMode.ts",
+    "seed:history": "tsx scripts/seedHistory.ts",
     "dev:storybook:": "cd packages/ui; pnpm run storybook",
     "debug:replay": "tsx scripts/debugReplay.ts"
   },
