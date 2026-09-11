@@ -2357,6 +2357,20 @@ export abstract class ValOps {
     filePath: string,
     remote: boolean,
   ): Promise<result.Result<Buffer, HistoryError>>;
+
+  /**
+   * Where a module lives in the REPOSITORY, as `getFileAtCommit` wants it.
+   *
+   * A `ModuleFilePath` is project-relative (`/app/page.val.ts`); a git path is
+   * repository-relative and carries the project root in front of it
+   * (`examples/next/app/page.val.ts`). Only the ops know that root, which is
+   * why this is here rather than computed by the history functions - and why a
+   * history function that needs to read a module's own file at a commit has to
+   * ask instead of concatenating.
+   */
+  abstract gitPathOfModule(
+    moduleFilePath: ModuleFilePath,
+  ): result.Result<string, HistoryError>;
   // #endregion history
 }
 

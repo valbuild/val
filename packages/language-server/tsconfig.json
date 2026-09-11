@@ -11,6 +11,8 @@
     "strict": true,
     "isolatedModules": true,
     "noEmit": true,
+    // For `import { version } from "../package.json"` in src/version.ts.
+    "resolveJsonModule": true,
     "esModuleInterop": true,
     "module": "esnext",
     // `bundler`, not `node`: vscode-languageserver 10 and vscode-jsonrpc 9 ship

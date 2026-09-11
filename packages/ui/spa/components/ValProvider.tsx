@@ -29,7 +29,7 @@ import {
   ParentRef,
   SharedValConfig,
   ValClient,
-  getNextAppRouterSourceFolder,
+  getPageRouterSourceFolder,
 } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
 import { readableProfilesError } from "../utils/readableProfilesError";
@@ -2957,8 +2957,14 @@ export function useShallowModulesAtPaths<
   }, [sourcesRes, type, initializedAt, moduleFilePaths]);
 }
 
-// TODO: this should be in the next package somehow - that might require a lot of refactoring to accomplish though
-export function useNextAppRouterSrcFolder():
+/**
+ * The route folder this project's pages live in — `/app`, `/src/app`,
+ * `/routes` or `/src/routes`.
+ *
+ * TODO: this should be in the framework packages somehow - that might require a
+ * lot of refactoring to accomplish though.
+ */
+export function usePageRouterSrcFolder():
   | {
       status: "success";
       data: string | null;
@@ -2975,7 +2981,7 @@ export function useNextAppRouterSrcFolder():
     if (schemas.status === "success") {
       let currentSrcFolder: string | null = null;
       for (const moduleFilePath in schemas.data) {
-        const maybeCurrentSrcFolder = getNextAppRouterSourceFolder(
+        const maybeCurrentSrcFolder = getPageRouterSourceFolder(
           moduleFilePath as ModuleFilePath,
         );
         if (maybeCurrentSrcFolder) {

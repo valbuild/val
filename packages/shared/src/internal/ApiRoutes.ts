@@ -1434,6 +1434,66 @@ export const Api = {
    * actually mounts. A file at a fixed commit cannot change, so the response is
    * immutable and the browser's own cache handles flipping between commits.
    */
+  /**
+   * One `.jsonValues()` entry's content, as it was at a commit.
+   *
+   * The history pane's counterpart to `/json`. A `.jsonValues()` record's
+   * source is only `{_type:"json"}` markers - the content is per entry, fetched
+   * on demand - so without this the commit pane rendered every entry as an
+   * empty field, which is a claim that the author left it blank.
+   *
+   * One entry per request, deliberately: the store fetches an entry when
+   * something reads inside it, so a batch would mean guessing which entries the
+   * pane is about to show. Authenticated for the same reasons as
+   * `/history/files` below.
+   */
+  "/history/json": {
+    GET: {
+      req: {
+        query: {
+          commit_sha: onlyOneStringQueryParam,
+          path: onlyOneStringQueryParam,
+          key: onlyOneStringQueryParam,
+        },
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({
+          status: z.literal(400),
+          json: GenericError.and(z.object({ kind: z.string().optional() })),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError.and(z.object({ kind: z.string().optional() })),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            path: ModuleFilePath,
+            key: z.string(),
+            content: z.unknown(),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * A binary file as it was at a commit.
+   *
+   * AUTHENTICATED, unlike `/files` below - and the difference is not an
+   * oversight in either direction. See the comment on `/files`: what makes it
+   * safe to leave open is that a `patch_id` is an unguessable UUID, and what
+   * makes leaving it open NECESSARY is that a draft image is fetched by the
+   * app's own backend during Next image optimisation, with no cookies.
+   *
+   * Neither holds here. A commit sha is published - `git log`, the GitHub UI,
+   * every PR - so it is not a secret to stand in for a credential. And nothing
+   * fetches these server-side: they are read by the Studio, in a browser that
+   * has the session cookie, for the history pane and for staging a restore.
+   * So this one asks.
+   */
   "/history/files": {
     GET: {
       req: {
@@ -1442,6 +1502,7 @@ export const Api = {
           path: onlyOneStringQueryParam,
           remote: onlyOneStringQueryParam.optional(),
         },
+        cookies: { val_session: z.string().optional() },
       },
       res: z.union([
         unauthorizedResponse,

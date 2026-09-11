@@ -366,6 +366,31 @@ writes to a live store.
 
 ## Patches
 
+**A discard is `source:patch-drop` and, usually, nothing else.** The source
+store announces a drop as its own event and then re-applies whatever survives
+in the module's chain, which is what emits `source:patch-apply` — so a discard
+that empties the chain, which is the ordinary "discard my changes", is the drop
+event alone. Every store that invalidated on the apply and not on the drop
+(validation, previews, the search and reference staleness marks) therefore kept
+showing the discarded edit until something unrelated touched the module. The
+symptom that found it: rename a page (a record key) with the AI, discard, and a
+`keyOf` field elsewhere goes on reporting that the key "does not exist" —
+about a key that is back. If a store reads source, it listens to both events —
+or to `source:change`, which `SourceStore.bump` emits for every way a revision
+can move and which the validation store now uses instead of enumerating them.
+`crossModuleValidation.test.ts` pins validation, previews, search and
+references.
+
+**A `keyOf` field's validity lives in another module's keys.** The schema emits
+a `keyof:check-keys` marker and the answer is settled when the errors are READ,
+against the referenced record's current keys — so nothing about the referring
+module's own source says whether it is valid. `ValidationStore` remembers, per
+validated module, which records its markers resolve against and the keys they
+had (`resolvedAgainst`), and invalidates the module when those keys move.
+Compared on keys deliberately: a router module is a page module, so "the
+referenced module changed" would put every module with an `s.route()` field
+back in the queue on each keystroke into any page.
+
 **`GET /patches` with no `patch_id` returns every patch.** The filter is applied
 to a table the endpoint already holds, so an absent filter is not "none" — it is
 "all". Two ways to trip on it:
@@ -612,6 +637,54 @@ is a whole-route request avoided, and in development that is a page re-render.
 If you find yourself adding a refresh somewhere, check whether this net already
 covers it.
 
+## A preview with no background shows the Studio's artboard — or does not
+
+`CanvasFrame` paints a hardcoded `bg-white` artboard behind the preview iframe.
+A site that sets no background of its own can therefore render as a white sheet
+inside a dark editor, which reads as the preview being broken.
+
+The rule that decides whether the artboard is visible at all is not "iframes get
+the browser's default white". It is CSS Color Adjust's opaque-canvas rule:
+
+> When an element's used color scheme differs from its parent's — or, for the
+> root of an embedded document, from the **embedder's** — the UA paints an
+> opaque canvas in that scheme's Canvas colour. When they match, the canvas
+> stays transparent and the embedder shows through.
+
+Measured across the full matrix in Chromium 1194 (4 embedder declarations x 4
+embedded declarations x both browser preferences, 32/32 cells): Canvas is
+`#ffffff` for light and `rgb(18,18,18)` for dark. `prefers-color-scheme` inside
+the iframe follows the BROWSER, not the embedder — the embedder only decides
+match versus differ, so nothing here misreports the site's own media queries.
+
+For a background-less site previewed on the white artboard, that collapses to:
+
+| Studio's used scheme | site's used scheme | preview shows        |
+| -------------------- | ------------------ | -------------------- |
+| same as site         | —                  | the artboard (white) |
+| differs, site light  | light              | opaque white         |
+| differs, site dark   | dark               | `rgb(18,18,18)`      |
+
+So the preview is dark for exactly one combination: the site resolves dark while
+the Studio page resolves light. Nothing in `@valbuild/ui` declares
+`color-scheme` — the only occurrence in the built CSS is `DateTimeField`'s
+picker utility — so the Studio page resolves light unless the app puts one on
+it. In `examples/tanstack` it does: `__root.tsx` is the shell for `/val` too and
+links `styles.css`, so the Studio inherited the site's
+`:root { color-scheme: light dark }`, always matched the site, and the preview
+was deterministically white. A Next app whose `/val` route does NOT share the
+site stylesheet gets the split instead — white for a light-mode editor,
+`rgb(18,18,18)` for a dark-mode one, on the same site.
+
+The artboard stays white on purpose. Making it follow the Studio theme would
+make the preview depend on the editor's theme, and there is no single correct
+answer to paint instead: a site with no background genuinely has none, and a
+real visitor sees white or `#121212` depending on their own preference.
+
+The fix is on the site, not the Studio: set an explicit background on `body`.
+A page that paints its own background is opaque in both contexts and none of
+the above applies. Neither Tailwind v3 nor v4 preflight sets one for you.
+
 ## `suspend` is three waits, and a route only gets one chance
 
 `suspend` on `ValProvider` exists for one situation: a route that exists only in
@@ -687,3 +760,79 @@ route into dynamic rendering for everyone.
 including the two that differ ONLY in whether the gate was on for the deciding
 render. `e2e/uncommitted-routes.spec.ts` covers the path end to end; its
 single-module case is `test.fixme` for (3).
+
+## TanStack Start
+
+**A `*.val.ts` under `src/routes` is read as a route unless you say otherwise.**
+TanStack Router's generator scans every file in the routes folder and warns, on
+every run, that `posts.$postId.val.ts` exports no `Route` — while quietly
+treating it as `/posts/$postId/val`. The fix is one line in both the Vite plugin
+and `tsr.config.json`: `routeFileIgnorePattern: "\\.val\\.[tj]sx?$"`. Colocation
+is worth the line — the Val module is named after the route file it serves, and
+that naming is what `tanstackRouter` reads the URL pattern out of.
+
+**`suspend` must not be activated in the same effect flush that sets
+`mountOverlay`.** `useValStega` suspends on `draftModeReady`, and the only thing
+that resolves it is the `/draft/stat` poll — which does not start until
+`mountOverlay` is set. Activating the gate alongside it lets the tree suspend
+before that state has committed, and then it never does: React is left
+re-rendering a suspended tree in which `mountOverlay` is forever `undefined`, so
+the poll never runs, so the promise never resolves. The page hydrates and then
+stops — no overlay, no draft content, no error, and every state update in the
+provider silently discarded. `ValTanStackProvider` gates the activation on
+`mountOverlay` for exactly this reason. (`@valbuild/next` has not been observed
+to hit it; the ordering there is not obviously safe either.)
+
+**`suspend` needs a `<Suspense>` boundary you provide.** Next gives you one per
+route through `loading.tsx`; TanStack Start gives you none. With no boundary
+between a suspending component and the root, there is nowhere to show a fallback
+and the symptom is the one above — a tree that hydrates and stops.
+
+**A route `loader` runs in the browser too.** So importing the module that calls
+`initValContent` straight into a loader puts `@valbuild/server` — and `fs` — in
+the client bundle, and the page dies with "Module node:module has been
+externalized for browser compatibility". Server reads go through
+`createServerFn`, which the plugin compiles away on the client along with
+everything only its handler used.
+
+**Content read through a loader is not click-to-editable on a hard load.** The
+edit tags are attached as JSX is created, and `SET_AUTO_TAG_JSX_ENABLED(true)`
+only happens after hydration has established that the Studio is open — by which
+time the component has rendered its loader data once, and re-running the loader
+does not re-tag it. A client-side navigation to the same route tags it normally.
+Read with the hooks anything an editor should be able to click.
+
+**`require("../package.json")` returns `null` in an ESM bundle**, which is how
+`Internal.VERSION.core` came to be null under Vite — silently, because the read
+is wrapped in a `try`. It is not only a display value: it goes into every remote
+file ref, and proxy mode refuses to start without it. Every `version.ts` now
+uses a static JSON import, which preconstruct inlines at build time.
+
+**A page that reads media from the client store shows draft images at their
+published URL.** The Studio's own store never carries `patch_id` — the server
+sets it on the sources IT serves, and the editor's fields get it from
+`patchStore.filePatchIds()` separately — so the source the overlay emitter hands
+the host page had a freshly uploaded image pointing at `/public/...`, where
+nothing is written until publish. The image then fails to load with no error at
+all: in a TanStack app `/val/...` is the Studio route, so the request 200s with
+the Studio's HTML and the `<img>` simply decodes nothing. `withFilePatchIds` in
+`ValOverlayEmitter` stamps it now. Next hides this because its pages usually read
+through `fetchVal` in an RSC, which reads `/sources/~` server-side where the
+stamp is already there.
+
+**`notFound()` thrown from a COMPONENT is not caught by
+`defaultNotFoundComponent`.** It escapes to the error boundary instead: the
+right page still renders, but every miss logs `Error in renderToReadableStream`
+and React's "the above error occurred in <Page>" during server rendering, and
+before a not-found component exists at all it also aborts the response — which
+surfaces as an `AbortError` from srvx and reads like a server crash. A
+route-level `notFoundComponent` does catch it; `defaultNotFoundComponent` only
+covers a `notFound()` thrown from a loader. Reading content in the component is
+Val's normal path, so a page with no entry should RETURN the not-found UI rather
+than throw.
+
+**TanStack names a splat parameter twice.** `useParams()` on a `$` route returns
+both `_splat` and `*`, set to the same value. Val's route pattern has one param
+for it, so the other was left over and reported as "parameters ... where not
+found in the path" — a console error on every render of a working splat route.
+`getValRouteUrlFromVal` drops `*` when `_splat` is present.

@@ -1,0 +1,84 @@
+{
+  "name": "@valbuild/tanstack",
+  "description": "Val for TanStack Start: hard-coded content - super-charged",
+  "private": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/valbuild/val.git"
+  },
+  "sideEffects": true,
+  "keywords": [
+    "CMS",
+    "tanstack",
+    "tanstack-start",
+    "tanstack-router",
+    "react"
+  ],
+  "version": "0.125.0",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "main": "dist/valbuild-tanstack.cjs.js",
+  "module": "dist/valbuild-tanstack.esm.js",
+  "exports": {
+    ".": {
+      "module": "./dist/valbuild-tanstack.esm.js",
+      "default": "./dist/valbuild-tanstack.cjs.js"
+    },
+    "./client": {
+      "module": "./client/dist/valbuild-tanstack-client.esm.js",
+      "default": "./client/dist/valbuild-tanstack-client.cjs.js"
+    },
+    "./server": {
+      "module": "./server/dist/valbuild-tanstack-server.esm.js",
+      "default": "./server/dist/valbuild-tanstack-server.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "dist/valbuild-tanstack.cjs.d.ts",
+  "preconstruct": {
+    "entrypoints": [
+      "./index.ts",
+      "./server/index.ts",
+      "./client/index.ts"
+    ],
+    "exports": true
+  },
+  "dependencies": {
+    "@valbuild/core": "workspace:*",
+    "@valbuild/language-server": "workspace:*",
+    "@valbuild/mcp": "workspace:*",
+    "@valbuild/react": "workspace:*",
+    "@valbuild/server": "workspace:*",
+    "@valbuild/shared": "workspace:*",
+    "@valbuild/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@tanstack/react-router": "^1.170.33",
+    "@tanstack/react-start": "^1.168.50",
+    "@testing-library/react": "^16.3.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "jest-environment-jsdom": "^30.5.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "typescript": "^6.0.3"
+  },
+  "peerDependencies": {
+    "@tanstack/react-router": ">=1.130.0",
+    "@tanstack/react-start": ">=1.130.0",
+    "react": ">=19.0.0",
+    "react-dom": ">=19.0.0"
+  },
+  "externals": [
+    "@tanstack/react-router",
+    "@tanstack/react-start"
+  ],
+  "files": [
+    "CHANGELOG.md",
+    "dist",
+    "client",
+    "server"
+  ]
+}
