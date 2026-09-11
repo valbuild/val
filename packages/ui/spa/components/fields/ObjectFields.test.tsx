@@ -87,21 +87,26 @@ const localeKey = s.locale()["executeSerialize"]();
 const stringKey = s.string()["executeSerialize"]();
 
 describe("ObjectFields on a null source", () => {
-  test("draws one create state, and none of the schema's children", () => {
+  beforeEach(() => {
+    mockAddPatch.mockClear();
+  });
+
+  test("draws one create button, and none of the schema's children", () => {
     mount(null, stringKey);
     render(<ObjectFields path={ENTRY_PATH} />);
     expect(screen.queryAllByTestId("field")).toHaveLength(0);
     expect(screen.queryAllByTestId("any-field")).toHaveLength(0);
     expect(screen.queryByTestId("field-not-found")).toBeNull();
-    expect(screen.queryByText("Nothing here yet")).not.toBeNull();
-    expect(screen.queryByRole("button", { name: /create/i })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /^create$/i })).not.toBeNull();
   });
 
-  test("an entry of a locale-keyed record reads as untranslated", () => {
+  test("an entry of a locale-keyed record offers to translate it", () => {
     mount(null, localeKey);
     render(<ObjectFields path={ENTRY_PATH} />);
     expect(screen.queryAllByTestId("any-field")).toHaveLength(0);
-    expect(screen.queryByText("Not translated yet")).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /write this translation/i }),
+    ).not.toBeNull();
   });
 
   test("creating writes the item's empty value, not null", () => {
@@ -114,10 +119,15 @@ describe("ObjectFields on a null source", () => {
     );
   });
 
-  test("readonly offers no way to create it", () => {
+  test("readonly cannot create it", () => {
+    // Disabled rather than absent: a readonly null still has to say what it
+    // is, and an empty pane says nothing at all.
     mount(null, localeKey);
     render(<ObjectFields path={ENTRY_PATH} readonly />);
-    expect(screen.queryByRole("button")).toBeNull();
+    const button = screen.getByRole("button");
+    expect(button).toHaveProperty("disabled", true);
+    button.click();
+    expect(mockAddPatch).not.toHaveBeenCalled();
   });
 
   test("a written entry still draws its children", () => {
@@ -130,6 +140,6 @@ describe("ObjectFields on a null source", () => {
     );
     render(<ObjectFields path={ENTRY_PATH} />);
     expect(screen.queryAllByTestId("any-field")).toHaveLength(2);
-    expect(screen.queryByText("Not translated yet")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });

@@ -7,17 +7,17 @@ import { useEmptyOf } from "../hooks/useEmptyOf";
 import { useParent } from "../hooks/useParent";
 
 /**
- * A value that has not been written yet.
+ * A value that has not been written yet: one button that writes it.
  *
- * `Field` already has this state — the checkbox beside a field's label, which
- * is offered whenever the source is `null` and not merely when the schema is
+ * `Field` already has this state — the checkbox beside a field's label, offered
+ * whenever the source is `null` and not merely when the schema is
  * `.nullable()`. This is the same state for the places that render a value
  * WITHOUT that wrapper: the module editor, which is what you get by navigating
- * to a record entry, and the canvas' field column.
+ * to a record entry or a list item.
  *
  * Those places used to render the item schema's children over a `null` source,
  * so every child resolved to nothing and said "Not Found" — a list of broken
- * fields where the truth is one fact about the parent. A `null` value has no
+ * fields where the truth is one fact about the value. A `null` value has no
  * children by definition; the only thing to offer is creating it.
  *
  * ## Why this is not about declared keys
@@ -43,58 +43,41 @@ export function FieldNull({
   const { path: parentPath, schema: parentSchema } = useParent(path);
   /**
    * An entry of a locale-keyed record is not "empty", it is UNTRANSLATED — and
-   * that is the state the locale work exists to make visible, so it is worth
-   * saying in the words the editor is thinking in.
-   *
-   * Read off the parent record's key schema, which is the same fact
-   * `RecordFields` reads for `keyDecidesLocale`. A locale scope may not contain
-   * another, so there is no deeper case to consider: either the immediate
-   * parent is that record or this is an ordinary empty value.
+   * that is the state the locale work exists to make visible, so the button
+   * says so. It is the same fact `RecordFields` reads for `keyDecidesLocale`; a
+   * locale scope may not contain another, so the immediate parent is the only
+   * place it can come from.
    */
   const isUntranslated =
     parentPath !== path &&
     parentSchema?.type === "record" &&
     parentSchema.key?.type === "locale";
   return (
-    <div
-      id={path}
-      className="flex flex-col items-start gap-3 rounded-lg border border-border-primary border-dashed p-6"
-    >
-      <div className="flex flex-col gap-1">
-        <div className="text-sm text-fg-primary">
-          {isUntranslated ? "Not translated yet" : "Nothing here yet"}
-        </div>
-        <div className="text-sm text-fg-tertiary">
-          {isUntranslated
-            ? "This language is declared by the schema, and nobody has written it."
-            : "This value has not been created."}
-        </div>
-      </div>
-      {!readonly && (
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={() => {
-            addPatch(
-              [
-                {
-                  op: "replace",
-                  path: patchPath,
-                  // `opt` stripped, the same way `Field`'s checkbox does it:
-                  // the point of pressing this is to get a value, and
-                  // `emptyOf` of an optional schema is `null`.
-                  value: emptyOf({ ...schema, opt: false }) as JSONValue,
-                },
-              ],
-              schema.type,
-            );
-          }}
-        >
-          <Plus size={14} className="mr-1" />
-          {isUntranslated ? "Write this translation" : "Create"}
-        </Button>
-      )}
+    <div id={path}>
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        disabled={readonly}
+        onClick={() => {
+          addPatch(
+            [
+              {
+                op: "replace",
+                path: patchPath,
+                // `opt` stripped, the same way `Field`'s checkbox does it: the
+                // point of pressing this is to get a value, and `emptyOf` of an
+                // optional schema is `null`.
+                value: emptyOf({ ...schema, opt: false }) as JSONValue,
+              },
+            ],
+            schema.type,
+          );
+        }}
+      >
+        <Plus size={14} className="mr-1" />
+        {isUntranslated ? "Write this translation" : "Create"}
+      </Button>
     </div>
   );
 }
