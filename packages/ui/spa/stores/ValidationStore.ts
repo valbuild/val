@@ -1,5 +1,6 @@
 import {
   Internal,
+  type Json,
   type ModuleFilePath,
   type SerializedSchema,
   type Source,
@@ -173,42 +174,31 @@ export class ValidationStore {
   ) {}
 
   /**
-   * A module is stale when its source changed, OR its schema changed, OR the
-   * keys of a record its errors resolve against changed. The first two, or
-   * validation silently reports errors against a schema that no longer exists —
-   * which is exactly what an HMR edit to a schema file produces. The third, or
-   * a `keyOf` field's error describes the referenced record as it was, not as
-   * it is; see {@link resolvedAgainst}.
+   * A module is stale when its source changed, OR its schema changed, OR a
+   * record its errors resolve against changed. The first two, or validation
+   * silently reports errors against a schema that no longer exists — which is
+   * exactly what an HMR edit to a schema file produces. The third, or a `keyOf`
+   * field's error describes the referenced record as it was, not as it is; see
+   * {@link resolvedAgainst}.
    *
-   * Source changes arrive as three events, and all three are listened to. A
-   * drop is its own event and is NOT followed by an apply when nothing in the
-   * module's chain survives — which is the ordinary discard — so a store that
-   * invalidated on `source:patch-apply` alone kept the discarded edit's errors
-   * for as long as nothing else touched the module.
+   * Source changes are taken from `source:change`: the one event
+   * `SourceStore.bump` emits for every way a module's source can move — a patch
+   * applied, a patch dropped, the base received, an entry arriving or being
+   * forgotten. This store used to enumerate the specific events instead, and
+   * missed one: a drop is its own event and is NOT followed by an apply when
+   * nothing in the module's chain survives, which is the ordinary discard. So
+   * the discarded edit's errors stayed for as long as nothing else touched the
+   * module. Listening to the revision moving cannot miss a way for it to move.
    */
   listenTo(): () => void {
-    const offInit = this.sourceStore.events.on("source:init", (event) => {
-      this.sourceChanged(event.sources);
-    });
-    const offApply = this.sourceStore.events.on(
-      "source:patch-apply",
-      (event) => {
-        // `modules` lists only modules whose source actually changed, so a patch
-        // that failed to apply invalidates nothing — it cannot have changed the
-        // module's validity.
-        this.sourceChanged(event.modules);
-      },
-    );
-    const offDrop = this.sourceStore.events.on("source:patch-drop", (event) => {
-      this.sourceChanged(event.modules);
+    const offChange = this.sourceStore.events.on("source:change", (event) => {
+      this.sourceChanged([event.moduleFilePath]);
     });
     const offSchema = this.schemaStore.events.on("schema:init", (event) => {
-      this.invalidate(event.modules);
+      this.schemaChanged(event.modules);
     });
     return () => {
-      offInit();
-      offApply();
-      offDrop();
+      offChange();
       offSchema();
     };
   }
@@ -219,6 +209,58 @@ export class ValidationStore {
     this.invalidate(
       dependents.length === 0 ? modules : [...modules, ...dependents],
     );
+  }
+
+  /**
+   * These modules' schema was replaced: they are stale, and so is everything
+   * that resolves against them.
+   *
+   * Unconditionally, unlike a source change: a resolution reads the referenced
+   * SCHEMA as well as its keys — a `keyOf` target that stops being a record, or
+   * a record that stops being a router, changes the answer with every key in
+   * place, so there is no key comparison that could see it. Schemas move on HMR
+   * and on load, not on keystrokes, so the wider net costs nothing that matters.
+   */
+  private schemaChanged(modules: ModuleFilePath[]): void {
+    const changedSet = new Set(modules);
+    const routerAmong = modules.some((moduleFilePath) =>
+      isRouterRecord(this.schemaStore.get(moduleFilePath)),
+    );
+    const dependents: ModuleFilePath[] = [];
+    for (const [dependent, inputs] of this.resolvedAgainst) {
+      if (changedSet.has(dependent)) {
+        continue;
+      }
+      if (
+        (inputs.routes && routerAmong) ||
+        inputs.records.some((record) => changedSet.has(record.module))
+      ) {
+        dependents.push(dependent);
+      }
+    }
+    this.invalidate(
+      dependents.length === 0 ? modules : [...modules, ...dependents],
+    );
+  }
+
+  /**
+   * A snapshot holding only these modules' source.
+   *
+   * Never `allSources()`: that walks and substitutes every loaded module, and
+   * this runs on every source change once any cross-module result exists — so
+   * it would have made typing in one module rebuild a project-sized snapshot
+   * per keystroke. A resolution reads the referenced module's source and
+   * schema and nothing else, so nothing else is read here.
+   */
+  private snapshotOf(modules: Iterable<ModuleFilePath>): SchemaSourceSnapshot {
+    const sources: Record<ModuleFilePath, Json> = {};
+    for (const moduleFilePath of modules) {
+      const source = this.sourceStore.moduleSource(moduleFilePath);
+      if (source !== undefined) {
+        sources[moduleFilePath] = source;
+      }
+    }
+    return { schemas: this.schemaStore.all(), sources };
   }
 
   /**
@@ -234,10 +276,30 @@ export class ValidationStore {
       return [];
     }
     const changedSet = new Set(changed);
-    const snapshot: SchemaSourceSnapshot = {
-      schemas: this.schemaStore.all(),
-      sources: this.sourceStore.allSources(),
-    };
+    const changedRouters = changed.filter((moduleFilePath) =>
+      isRouterRecord(this.schemaStore.get(moduleFilePath)),
+    );
+    // Who COULD be affected, decided from what is already held. The common
+    // case — an edit in a module nothing resolves against — ends here, having
+    // read no source at all.
+    const candidates: [ModuleFilePath, CrossModuleInputs][] = [];
+    for (const [dependent, inputs] of this.resolvedAgainst) {
+      if (changedSet.has(dependent)) {
+        // Being invalidated anyway.
+        continue;
+      }
+      if (
+        (inputs.routes && changedRouters.length > 0) ||
+        inputs.records.some((record) => changedSet.has(record.module))
+      ) {
+        candidates.push([dependent, inputs]);
+      }
+    }
+    if (candidates.length === 0) {
+      return [];
+    }
+    // Only the changed modules: a record in any other module cannot have moved.
+    const snapshot = this.snapshotOf(changed);
     // Read once per record, not once per dependent that names it.
     const keysNow = new Map<string, string | null>();
     const currentKeys = (record: ResolvedRecord): string | null => {
@@ -249,15 +311,8 @@ export class ValidationStore {
       }
       return keys;
     };
-    const changedRouters = changed.filter((moduleFilePath) =>
-      isRouterRecord(snapshot.schemas[moduleFilePath]),
-    );
     const dependents: ModuleFilePath[] = [];
-    for (const [dependent, inputs] of this.resolvedAgainst) {
-      if (changedSet.has(dependent)) {
-        // Being invalidated anyway.
-        continue;
-      }
+    for (const [dependent, inputs] of candidates) {
       const keysMoved = inputs.records.some(
         (record) =>
           changedSet.has(record.module) && currentKeys(record) !== record.keys,
@@ -285,12 +340,10 @@ export class ValidationStore {
     if (errors === false) {
       return null;
     }
-    const snapshot: SchemaSourceSnapshot = {
-      schemas: this.schemaStore.all(),
-      sources: this.sourceStore.allSources(),
-    };
-    const records: ResolvedRecord[] = [];
-    const seen = new Set<string>();
+    // The markers first, and no source until they are found: most modules
+    // with errors have none, and reading source for them would put a
+    // cross-module pass on every ordinary validation.
+    const paths = new Set<SourcePath>();
     let routes = false;
     for (const list of Object.values(errors)) {
       for (const error of list) {
@@ -298,34 +351,43 @@ export class ValidationStore {
           routes = true;
         }
         const path = keyOfRecordPath(error);
-        if (path === null || seen.has(path)) {
-          continue;
-        }
-        seen.add(path);
-        const [module] = Internal.splitModuleFilePathAndModulePath(path);
-        records.push({
-          kind: "keyOf",
-          module,
-          path,
-          keys: keysOf(getKeyOfRecordAt(path, snapshot).source),
-        });
-      }
-    }
-    if (routes) {
-      // Every router record that has source, which is exactly what
-      // `checkRouteIsValid` reads its routes from.
-      for (const moduleFilePath of this.sourceStore.loadedModules()) {
-        if (isRouterRecord(snapshot.schemas[moduleFilePath])) {
-          records.push({
-            kind: "router",
-            module: moduleFilePath,
-            keys: keysOf(snapshot.sources[moduleFilePath]),
-          });
+        if (path !== null) {
+          paths.add(path);
         }
       }
     }
-    if (records.length === 0 && !routes) {
+    if (paths.size === 0 && !routes) {
       return null;
+    }
+    const keyOfModules = [...paths].map(
+      (path) => Internal.splitModuleFilePathAndModulePath(path)[0],
+    );
+    // Every router record that has source, which is exactly what
+    // `checkRouteIsValid` reads its routes from.
+    const routers = routes
+      ? this.sourceStore
+          .loadedModules()
+          .filter((moduleFilePath) =>
+            isRouterRecord(this.schemaStore.get(moduleFilePath)),
+          )
+      : [];
+    const snapshot = this.snapshotOf([...keyOfModules, ...routers]);
+    const records: ResolvedRecord[] = [];
+    for (const path of paths) {
+      const [module] = Internal.splitModuleFilePathAndModulePath(path);
+      records.push({
+        kind: "keyOf",
+        module,
+        path,
+        keys: keysOf(getKeyOfRecordAt(path, snapshot).source),
+      });
+    }
+    for (const moduleFilePath of routers) {
+      records.push({
+        kind: "router",
+        module: moduleFilePath,
+        keys: keysOf(snapshot.sources[moduleFilePath]),
+      });
     }
     return { records, routes };
   }

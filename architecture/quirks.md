@@ -375,8 +375,11 @@ event alone. Every store that invalidated on the apply and not on the drop
 showing the discarded edit until something unrelated touched the module. The
 symptom that found it: rename a page (a record key) with the AI, discard, and a
 `keyOf` field elsewhere goes on reporting that the key "does not exist" —
-about a key that is back. If a store reads source, it listens to both events;
-`crossModuleValidation.test.ts` pins the validation half.
+about a key that is back. If a store reads source, it listens to both events —
+or to `source:change`, which `SourceStore.bump` emits for every way a revision
+can move and which the validation store now uses instead of enumerating them.
+`crossModuleValidation.test.ts` pins validation, previews, search and
+references.
 
 **A `keyOf` field's validity lives in another module's keys.** The schema emits
 a `keyof:check-keys` marker and the answer is settled when the errors are READ,

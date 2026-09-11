@@ -229,6 +229,96 @@ describe("a change to a router module's keys reaches the fields holding routes",
   });
 });
 
+describe("a change to a referenced module's schema reaches the referrer", () => {
+  it("invalidates the referrer when the referenced module's schema is replaced", async () => {
+    const rig = initTestSystem();
+    await rig.sourceStore.testReceive([pagesModule(), navModule()]);
+    await surfaced(rig, NAV);
+    const before = rig.validationStore.peek(NAV);
+
+    // The referenced module arrives again — an HMR round, a reload. Its keys
+    // are the same, so a key comparison sees nothing; its schema is what a
+    // resolution reads the record's type from, and that is now a new object.
+    await rig.sourceStore.testReceive([pagesModule()]);
+
+    expect(rig.validationStore.peek(NAV)).not.toBe(before);
+    expect(await surfaced(rig, NAV)).toEqual({});
+    rig.dispose();
+  });
+});
+
+describe("a discard reaches previews", () => {
+  const CARD = mfp("/card.val.ts");
+  const cardModule = () => {
+    const { c, s } = initVal();
+    return c.define(
+      "/card.val.ts",
+      s.array(
+        s.object({ title: s.string() }).preview(({ val }) => ({
+          title: val.title,
+        })),
+      ),
+      [{ title: "Home" }],
+    );
+  };
+
+  it("recomputes the preview of a module whose only patch was discarded", async () => {
+    const rig = initTestSystem();
+    await rig.sourceStore.testReceive([cardModule()]);
+
+    const patchId = await write(rig, CARD, [
+      { op: "replace", path: ["0", "title"], value: "Zebra crossing" },
+    ]);
+    const edited = await rig.previewStore.get(sp("/card.val.ts?p=0"));
+    expect(edited.status).toBe("previewed");
+    expect(JSON.stringify(edited)).toContain("Zebra crossing");
+
+    rig.patchStore.drop([patchId]);
+
+    // Stale, so the next read recomputes — and recomputes to the base value.
+    expect(rig.previewStore.peek(sp("/card.val.ts?p=0")).status).not.toBe(
+      "previewed",
+    );
+    const reverted = await rig.previewStore.get(sp("/card.val.ts?p=0"));
+    expect(JSON.stringify(reverted)).not.toContain("Zebra crossing");
+    expect(JSON.stringify(reverted)).toContain("Home");
+    rig.dispose();
+  });
+});
+
+describe("a discard reaches references", () => {
+  it("stops reporting a reference the discarded patch made", async () => {
+    const rig = initTestSystem();
+    await rig.sourceStore.testReceive([pagesModule(), navModule()]);
+
+    const patchId = await write(rig, NAV, [
+      { op: "replace", path: ["primary"], value: "/about" },
+    ]);
+    const pointing = await rig.findReferences({
+      kind: "keyOf",
+      module: PAGES,
+      value: "/about",
+    });
+    expect(pointing.refs).toEqual([NAV_PRIMARY]);
+
+    rig.patchStore.drop([patchId]);
+
+    const after = await rig.findReferences({
+      kind: "keyOf",
+      module: PAGES,
+      value: "/about",
+    });
+    expect(after.refs).toEqual([]);
+    const restored = await rig.findReferences({
+      kind: "keyOf",
+      module: PAGES,
+      value: "/home",
+    });
+    expect(restored.refs).toEqual([NAV_PRIMARY]);
+    rig.dispose();
+  });
+});
+
 describe("a discard reaches search", () => {
   it("stops finding the discarded text", async () => {
     const rig = initTestSystem();
