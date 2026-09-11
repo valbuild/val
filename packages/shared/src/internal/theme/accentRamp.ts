@@ -277,8 +277,33 @@ export function themeCustomProperties(theme: {
       for (const step of RAMP_STEPS) {
         properties[`--colors-brand-green-${step}`] = ramp[step];
       }
-      // `--bg-page-selection` is a var() into the ramp, so it follows on its
-      // own. These two are literal rgba() in index.css and do not.
+      /*
+       * The page-selection trio, written OUT rather than left to follow the
+       * ramp — and the first of them is the one that has to be said out loud,
+       * because it looks like it should follow and does not.
+       *
+       * `index.css` declares `--bg-page-selection: var(--colors-brand-green-600)`,
+       * so overriding the ramp looks like enough. It is not: **a `var()` inside
+       * a custom property is substituted where the property is DECLARED, not
+       * where it is used.** That declaration lives in the light block, whose
+       * selector is `:host, :root, *[data-mode="light"]` — so on a
+       * `data-mode="dark"` element the rule does not match, nothing is declared
+       * there, and what the element inherits from `:host` is the value already
+       * substituted to green. An override of the ramp on the element cannot
+       * reach backwards into it.
+       *
+       * The brand tokens escape this only because the DARK block re-declares
+       * them: `--bg-brand-primary: var(--colors-brand-green-800)` is computed
+       * on the themed element itself, so it resolves against the override. The
+       * page-selection tokens are deliberately declared once and never flipped
+       * with the theme (the page underneath is not a Val surface), which is
+       * exactly what puts them outside that mechanism.
+       *
+       * So: anything that depends on the ramp and is not re-declared per mode
+       * has to be written here. `brandDerivedTokens.test.ts` scans the
+       * stylesheet and fails if another one appears.
+       */
+      properties["--bg-page-selection"] = ramp[PAGE_SELECTION_STEP];
       const selection = hexToRgb(ramp[PAGE_SELECTION_STEP]);
       if (selection !== null) {
         const channels = selection.map((c) => Math.round(c * 255)).join(", ");

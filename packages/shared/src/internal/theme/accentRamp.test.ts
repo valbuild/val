@@ -199,17 +199,29 @@ describe("themeCustomProperties", () => {
     expect(themeCustomProperties({ accent: "cornflower" })).toEqual({});
   });
 
-  test("writes the ramp, and the two page-selection tokens that are not var()", () => {
+  test("writes the ramp, and every page-selection token", () => {
     const properties = themeCustomProperties({ accent: "#2563eb" });
     for (const step of RAMP_STEPS) {
       expect(properties[`--colors-brand-green-${step}`]).toMatch(
         /^#[0-9a-f]{6}$/,
       );
     }
-    // `--bg-page-selection` itself is `var(--colors-brand-green-600)` in
-    // index.css, so it follows the ramp on its own and must NOT be written
-    // here. These two are literal rgba() and have to be derived.
-    expect(properties["--bg-page-selection"]).toBeUndefined();
+    /*
+     * `--bg-page-selection` IS written, and this assertion used to say the
+     * opposite.
+     *
+     * The reasoning it encoded was that `index.css` declares it as
+     * `var(--colors-brand-green-600)`, so overriding the ramp would carry it
+     * along. That is not how custom properties work: a `var()` inside one is
+     * substituted where the property is DECLARED, and this one is declared in a
+     * block whose selector does not match the themed element in dark mode — so
+     * the element inherited green from `:host` and the override never reached
+     * it. The Studio went violet and the outlines on the page stayed green.
+     *
+     * Left here as a corrected assertion rather than deleted, because the wrong
+     * version of it is the more plausible-looking one.
+     */
+    expect(properties["--bg-page-selection"]).toMatch(/^#[0-9a-f]{6}$/);
     expect(properties["--bg-page-selection-fill"]).toMatch(
       /^rgba\(\d+, \d+, \d+, 0\.12\)$/,
     );

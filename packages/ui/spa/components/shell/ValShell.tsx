@@ -137,6 +137,23 @@ export function ValShell() {
  */
 function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const { resolvedTheme, setTheme, themeStyle } = useTheme();
+  /**
+   * The outline colours to hand the canvas frame.
+   *
+   * `themeStyle` holds them because `themeCustomProperties` writes
+   * `--bg-page-selection` and its soft variant explicitly — see the note there
+   * on why they cannot be left to `var()`. Taking them from the same object the
+   * chrome uses is what keeps the page's outlines and the studio's pick button
+   * the same colour.
+   */
+  const canvasSelectionColors = useMemo(() => {
+    const selection = themeStyle["--bg-page-selection"];
+    const selectionSoft = themeStyle["--bg-page-selection-soft"];
+    if (typeof selection !== "string" || typeof selectionSoft !== "string") {
+      return undefined;
+    }
+    return { selection, selectionSoft };
+  }, [themeStyle]);
   const mode = useValMode();
   /**
    * Why there is no profile, when the studio expected one.
@@ -769,6 +786,15 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         height={height}
         reloadKey={reloadKey}
         isPicking={isPicking}
+        /*
+         * The project's accent, for the outlines drawn on the page itself.
+         *
+         * Read off `themeStyle` rather than recomputed: those are the very
+         * custom properties the rest of the studio resolves its outlines from,
+         * so the page and the chrome cannot end up a shade apart. Undefined
+         * when the project has no accent, which leaves Val's green.
+         */
+        selectionColors={canvasSelectionColors}
         /*
          * The field being edited is the one the route points at, so the outline
          * on the page follows the editor without a second source of truth for

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, Loader2, RefreshCw } from "lucide-react";
 import {
+  DEFAULT_CANVAS_SELECTION,
+  DEFAULT_CANVAS_SELECTION_SOFT,
   isValCanvasPageMessage,
   VAL_CANVAS_MESSAGE,
   ValCanvasElement,
@@ -48,6 +50,14 @@ export type CanvasFrameProps = {
   reloadKey: number;
   /** Whether a click on the page picks the element under it. */
   isPicking: boolean;
+  /**
+   * What to outline the page's content in, from the project's accent.
+   *
+   * A prop rather than a `useTheme()` call here: this component is rendered
+   * directly by the canvas tests, which mount it with no providers at all.
+   * Absent means Val's own green — see `DEFAULT_CANVAS_SELECTION`.
+   */
+  selectionColors?: { selection: string; selectionSoft: string };
   /** The path to outline, or null for none. */
   highlightedPath: SourcePath | null;
   /** The elements Val tracks on the page, as the page reports them. */
@@ -92,6 +102,7 @@ export function CanvasFrame({
   height,
   reloadKey,
   isPicking,
+  selectionColors,
   highlightedPath,
   onElements,
   onPick,
@@ -205,6 +216,33 @@ export function CanvasFrame({
   useEffect(() => {
     send({ val: VAL_CANVAS_MESSAGE, type: "setPicking", picking: isPicking });
   }, [send, isPicking, state.status]);
+
+  /**
+   * The outline colours, pushed for a stronger reason than picking is.
+   *
+   * The page has none of Val's stylesheet, so a project's accent cannot reach
+   * the outlines by cascade the way it reaches everything else in the studio —
+   * the tokens are not overridden in that document, they are absent. Telling
+   * the page is the only route.
+   *
+   * Keyed on `state.status` as well as on the colours, because a reload is a
+   * new document: the bridge starts again at Val's green and has to be told
+   * afresh. Same reason `setPicking` above is.
+   */
+  useEffect(() => {
+    send({
+      val: VAL_CANVAS_MESSAGE,
+      type: "theme",
+      selection: selectionColors?.selection ?? DEFAULT_CANVAS_SELECTION,
+      selectionSoft:
+        selectionColors?.selectionSoft ?? DEFAULT_CANVAS_SELECTION_SOFT,
+    });
+  }, [
+    send,
+    selectionColors?.selection,
+    selectionColors?.selectionSoft,
+    state.status,
+  ]);
 
   useEffect(() => {
     // Everywhere except straight after a pick on the page, where the thing

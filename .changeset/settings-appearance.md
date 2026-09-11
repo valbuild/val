@@ -2,6 +2,8 @@
 "@valbuild/core": minor
 "@valbuild/shared": minor
 "@valbuild/ui": minor
+"@valbuild/next": patch
+"@valbuild/tanstack": patch
 ---
 
 A project can now make Val Studio look like its own.
@@ -34,6 +36,12 @@ each.
 
 **`radius`** is `square`, `tight`, `default` or `soft`, and moves every corner
 in the Studio.
+
+The accent also moves the outlines the canvas draws around editable elements on
+your own page. Those are drawn inside your document, which has none of Val's
+stylesheet, so the colour is sent to the page over the canvas protocol — which
+means a project on an older `@valbuild/next` or `@valbuild/tanstack` than its
+Studio keeps Val's green there until it upgrades, rather than breaking.
 
 **`mode`** is the mode the Studio opens in for an editor who has never picked
 one. It never overrides an editor who has — that choice stays theirs, per

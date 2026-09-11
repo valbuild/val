@@ -83,6 +83,35 @@ user's file. Studio media edits are per-property for the same reason.
 
 ## React in the Studio
 
+**A `var()` inside a custom property is substituted where the property is
+DECLARED, not where it is used.** This is CSS, not React, and it is the trap
+that shipped a half-themed Studio. `index.css` says
+`--bg-page-selection: var(--colors-brand-green-600)`, so overriding the ramp on
+a descendant looks like enough to move it. It is not: that declaration lives in
+the light block, whose selector is `:host, :root, *[data-mode="light"]`, so on a
+`data-mode="dark"` element the rule does not match, nothing is declared there,
+and what the element inherits from `:host` is the value already substituted to
+green. An override on the element cannot reach backwards into a substitution
+that already happened on an ancestor.
+
+The brand tokens escape it only by accident of the theme: the dark block
+RE-DECLARES `--bg-brand-primary: var(--colors-brand-green-800)`, and that
+declaration is computed on the themed element, so it resolves against the
+override. Which is why an accent moved the whole chrome and left the page's
+outlines green — in dark mode only, since in light mode the block's own selector
+matches the themed element. So: a token that depends on the ramp must either be
+re-declared per mode or written explicitly by `themeCustomProperties`.
+`brandDerivedTokens.test.ts` scans the stylesheet and holds that.
+
+**The canvas outlines are drawn in the customer's document, where Val has no
+stylesheet at all.** `CanvasPage.tsx` is the Storybook mock; the real canvas is
+an iframe, and the outlines around editable elements come from a `<style>` that
+`ValCanvasBridge` (in `@valbuild/next` and `@valbuild/tanstack`) injects into the
+page. There are no tokens there to override — not overridden, absent — so the
+accent is SENT over the canvas protocol as a `theme` message and the bridge
+keeps it in state. Hunting a colour there through the Studio's CSS finds
+nothing, because the colour is a literal in a different package.
+
 **There are three nested `[data-mode]` elements, and the outermost is not the
 themed one.** `App.tsx` wraps the Studio in one, `Shell.tsx` draws its own
 inside that, and `ValPortalProvider` adds a third for everything portalled.
