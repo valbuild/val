@@ -366,6 +366,31 @@ writes to a live store.
 
 ## Patches
 
+**A discard is `source:patch-drop` and, usually, nothing else.** The source
+store announces a drop as its own event and then re-applies whatever survives
+in the module's chain, which is what emits `source:patch-apply` — so a discard
+that empties the chain, which is the ordinary "discard my changes", is the drop
+event alone. Every store that invalidated on the apply and not on the drop
+(validation, previews, the search and reference staleness marks) therefore kept
+showing the discarded edit until something unrelated touched the module. The
+symptom that found it: rename a page (a record key) with the AI, discard, and a
+`keyOf` field elsewhere goes on reporting that the key "does not exist" —
+about a key that is back. If a store reads source, it listens to both events —
+or to `source:change`, which `SourceStore.bump` emits for every way a revision
+can move and which the validation store now uses instead of enumerating them.
+`crossModuleValidation.test.ts` pins validation, previews, search and
+references.
+
+**A `keyOf` field's validity lives in another module's keys.** The schema emits
+a `keyof:check-keys` marker and the answer is settled when the errors are READ,
+against the referenced record's current keys — so nothing about the referring
+module's own source says whether it is valid. `ValidationStore` remembers, per
+validated module, which records its markers resolve against and the keys they
+had (`resolvedAgainst`), and invalidates the module when those keys move.
+Compared on keys deliberately: a router module is a page module, so "the
+referenced module changed" would put every module with an `s.route()` field
+back in the queue on each keystroke into any page.
+
 **`GET /patches` with no `patch_id` returns every patch.** The filter is applied
 to a table the endpoint already holds, so an absent filter is not "none" — it is
 "all". Two ways to trip on it:

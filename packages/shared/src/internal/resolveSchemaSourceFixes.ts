@@ -99,7 +99,17 @@ export function findSimilar(
 
 type CheckResult = { error: false } | { error: true; message: string };
 
-function getKeyOfRecordAt(
+/**
+ * The record a `keyof:check-keys` error resolves against — the value and the
+ * schema at the error's `sourcePath`.
+ *
+ * Exported for the one consumer that has to know what a resolution DEPENDED
+ * on rather than what it concluded: `ValidationStore` re-reads the keys here
+ * to decide whether a change to the referenced module can have moved the
+ * answer. Keep this and {@link checkKeyIsValid} reading the same record, or the
+ * store will invalidate on one record and the resolution answer from another.
+ */
+export function getKeyOfRecordAt(
   sourcePath: SourcePath,
   snapshot: SchemaSourceSnapshot,
 ): { source: unknown; schema: SerializedSchema | undefined } {
@@ -262,6 +272,28 @@ function checkRouteIsValid(
 export type ResolvedFix =
   | { status: "resolved" }
   | { status: "remaining"; error: ValidationError };
+
+/**
+ * The record a `keyof:check-keys` error resolves against, or null for any other
+ * error — including a malformed marker, which
+ * {@link resolveSchemaSourceFixForError} reports and this has nothing to say
+ * about.
+ *
+ * For a consumer that needs to know what the resolution READS, not what it
+ * concludes: `ValidationStore` keeps this per validated module, so that a change
+ * to the referenced record can invalidate the module holding the reference.
+ */
+export function keyOfRecordPath(error: ValidationError): SourcePath | null {
+  if (!(error.fixes ?? []).includes("keyof:check-keys")) {
+    return null;
+  }
+  const value = error.value;
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const sourcePath = (value as { sourcePath?: unknown }).sourcePath;
+  return typeof sourcePath === "string" ? (sourcePath as SourcePath) : null;
+}
 
 /**
  * Resolves a single `keyof:check-keys` or `router:check-route` error against
