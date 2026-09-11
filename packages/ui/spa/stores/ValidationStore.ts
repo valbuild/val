@@ -1,9 +1,16 @@
-import type {
-  ModuleFilePath,
-  Source,
-  SourcePath,
-  ValidationErrors,
+import {
+  Internal,
+  type ModuleFilePath,
+  type SerializedSchema,
+  type Source,
+  type SourcePath,
+  type ValidationErrors,
 } from "@valbuild/core";
+import {
+  getKeyOfRecordAt,
+  keyOfRecordPath,
+  type SchemaSourceSnapshot,
+} from "@valbuild/shared/internal";
 import { collectCustomValidateTargets } from "../validation/customValidate";
 import { StoreBus } from "./StoreBus";
 import type { SystemEvent } from "./types";
@@ -70,6 +77,57 @@ export type ValidationResult =
 /** One object, so repeated stale peeks are `===`. See `ValidationStore.peek`. */
 const STALE: ValidationResult = { status: "stale" };
 
+/**
+ * A record that another module's errors are resolved against, and its keys as
+ * they were when that module was validated.
+ *
+ * `keyOf` names the record it points at; a route resolves against the keys of
+ * every router record in the project. In both cases the KEYS are the whole of
+ * what the resolution reads, so they are what is remembered and compared — an
+ * edit inside an entry moves nothing here, and must not cost the referrer a
+ * validation.
+ */
+type ResolvedRecord =
+  | {
+      kind: "keyOf";
+      module: ModuleFilePath;
+      path: SourcePath;
+      keys: string | null;
+    }
+  | { kind: "router"; module: ModuleFilePath; keys: string | null };
+
+type CrossModuleInputs = {
+  records: ResolvedRecord[];
+  /**
+   * Any `router:check-route` marker. The answer then also depends on WHICH
+   * modules are routers: a router module that arrives later is a record this
+   * result never saw, so no stored keys can register its keys changing.
+   */
+  routes: boolean;
+};
+
+/** The keys of a record as one comparable value, or null if it is not a record. */
+function keysOf(source: unknown): string | null {
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    return null;
+  }
+  return JSON.stringify(Object.keys(source).sort());
+}
+
+function isRouterRecord(schema: SerializedSchema | undefined): boolean {
+  return schema !== undefined && schema.type === "record" && !!schema.router;
+}
+
+function recordKeysNow(
+  record: ResolvedRecord,
+  snapshot: SchemaSourceSnapshot,
+): string | null {
+  if (record.kind === "router") {
+    return keysOf(snapshot.sources[record.module]);
+  }
+  return keysOf(getKeyOfRecordAt(record.path, snapshot).source);
+}
+
 export class ValidationStore {
   readonly events = new StoreBus<SystemEvent>();
 
@@ -87,6 +145,22 @@ export class ValidationStore {
    */
   private results = new Map<ModuleFilePath, ValidationResult>();
   private stale = new Set<ModuleFilePath>();
+  /**
+   * What each validated module's cross-module fixes were resolved against.
+   *
+   * A `keyof:check-keys` or `router:check-route` error is a marker: the schema
+   * cannot see the record it points at, so the answer is settled when the errors
+   * are READ, against the referenced module's source. That makes a module's
+   * validity depend on source it does not own — and a change to that source
+   * used to reach no one. Renaming a page (a record key) left every module
+   * pointing at the old key reporting nothing, and discarding the rename left
+   * every module that HAD noticed reporting "does not exist" about a key that
+   * was back. Neither module had changed, so neither was invalidated.
+   *
+   * Kept per dependent so the check on a source change is a set lookup and a
+   * string compare per record, not a resolution. Deleted with the result.
+   */
+  private resolvedAgainst = new Map<ModuleFilePath, CrossModuleInputs>();
   /** Concurrent readers of one module share a single validation. */
   private inFlight = new Map<ModuleFilePath, Promise<ValidationResult>>();
 
@@ -99,13 +173,22 @@ export class ValidationStore {
   ) {}
 
   /**
-   * A module is stale when its source changed OR its schema changed. Both, or
+   * A module is stale when its source changed, OR its schema changed, OR the
+   * keys of a record its errors resolve against changed. The first two, or
    * validation silently reports errors against a schema that no longer exists —
-   * which is exactly what an HMR edit to a schema file produces.
+   * which is exactly what an HMR edit to a schema file produces. The third, or
+   * a `keyOf` field's error describes the referenced record as it was, not as
+   * it is; see {@link resolvedAgainst}.
+   *
+   * Source changes arrive as three events, and all three are listened to. A
+   * drop is its own event and is NOT followed by an apply when nothing in the
+   * module's chain survives — which is the ordinary discard — so a store that
+   * invalidated on `source:patch-apply` alone kept the discarded edit's errors
+   * for as long as nothing else touched the module.
    */
   listenTo(): () => void {
     const offInit = this.sourceStore.events.on("source:init", (event) => {
-      this.invalidate(event.sources);
+      this.sourceChanged(event.sources);
     });
     const offApply = this.sourceStore.events.on(
       "source:patch-apply",
@@ -113,17 +196,138 @@ export class ValidationStore {
         // `modules` lists only modules whose source actually changed, so a patch
         // that failed to apply invalidates nothing — it cannot have changed the
         // module's validity.
-        this.invalidate(event.modules);
+        this.sourceChanged(event.modules);
       },
     );
+    const offDrop = this.sourceStore.events.on("source:patch-drop", (event) => {
+      this.sourceChanged(event.modules);
+    });
     const offSchema = this.schemaStore.events.on("schema:init", (event) => {
       this.invalidate(event.modules);
     });
     return () => {
       offInit();
       offApply();
+      offDrop();
       offSchema();
     };
+  }
+
+  /** These modules' source moved: they are stale, and so is whatever resolved against them. */
+  private sourceChanged(modules: ModuleFilePath[]): void {
+    const dependents = this.dependentsOf(modules);
+    this.invalidate(
+      dependents.length === 0 ? modules : [...modules, ...dependents],
+    );
+  }
+
+  /**
+   * The validated modules whose cross-module fixes would now resolve
+   * differently because one of `changed` moved.
+   *
+   * Compared on keys, not on "the module changed": a router module is a page
+   * module, so typing into any page would otherwise put every module holding a
+   * `s.route()` field back into the validation queue on every keystroke.
+   */
+  private dependentsOf(changed: readonly ModuleFilePath[]): ModuleFilePath[] {
+    if (changed.length === 0 || this.resolvedAgainst.size === 0) {
+      return [];
+    }
+    const changedSet = new Set(changed);
+    const snapshot: SchemaSourceSnapshot = {
+      schemas: this.schemaStore.all(),
+      sources: this.sourceStore.allSources(),
+    };
+    // Read once per record, not once per dependent that names it.
+    const keysNow = new Map<string, string | null>();
+    const currentKeys = (record: ResolvedRecord): string | null => {
+      const at = record.kind === "router" ? record.module : record.path;
+      let keys = keysNow.get(at);
+      if (keys === undefined) {
+        keys = recordKeysNow(record, snapshot);
+        keysNow.set(at, keys);
+      }
+      return keys;
+    };
+    const changedRouters = changed.filter((moduleFilePath) =>
+      isRouterRecord(snapshot.schemas[moduleFilePath]),
+    );
+    const dependents: ModuleFilePath[] = [];
+    for (const [dependent, inputs] of this.resolvedAgainst) {
+      if (changedSet.has(dependent)) {
+        // Being invalidated anyway.
+        continue;
+      }
+      const keysMoved = inputs.records.some(
+        (record) =>
+          changedSet.has(record.module) && currentKeys(record) !== record.keys,
+      );
+      const routerAppeared =
+        inputs.routes &&
+        changedRouters.some(
+          (moduleFilePath) =>
+            !inputs.records.some(
+              (record) =>
+                record.kind === "router" && record.module === moduleFilePath,
+            ),
+        );
+      if (keysMoved || routerAppeared) {
+        dependents.push(dependent);
+      }
+    }
+    return dependents;
+  }
+
+  /** What resolving these errors reads from OTHER modules, as it stands now. */
+  private crossModuleInputs(
+    errors: ValidationErrors,
+  ): CrossModuleInputs | null {
+    if (errors === false) {
+      return null;
+    }
+    const snapshot: SchemaSourceSnapshot = {
+      schemas: this.schemaStore.all(),
+      sources: this.sourceStore.allSources(),
+    };
+    const records: ResolvedRecord[] = [];
+    const seen = new Set<string>();
+    let routes = false;
+    for (const list of Object.values(errors)) {
+      for (const error of list) {
+        if ((error.fixes ?? []).includes("router:check-route")) {
+          routes = true;
+        }
+        const path = keyOfRecordPath(error);
+        if (path === null || seen.has(path)) {
+          continue;
+        }
+        seen.add(path);
+        const [module] = Internal.splitModuleFilePathAndModulePath(path);
+        records.push({
+          kind: "keyOf",
+          module,
+          path,
+          keys: keysOf(getKeyOfRecordAt(path, snapshot).source),
+        });
+      }
+    }
+    if (routes) {
+      // Every router record that has source, which is exactly what
+      // `checkRouteIsValid` reads its routes from.
+      for (const moduleFilePath of this.sourceStore.loadedModules()) {
+        if (isRouterRecord(snapshot.schemas[moduleFilePath])) {
+          records.push({
+            kind: "router",
+            module: moduleFilePath,
+            keys: keysOf(snapshot.sources[moduleFilePath]),
+          });
+        }
+      }
+    }
+    if (records.length === 0 && !routes) {
+      return null;
+    }
+    return { records, routes };
   }
 
   /**
@@ -146,6 +350,7 @@ export class ValidationStore {
     for (const moduleFilePath of modules) {
       this.stale.add(moduleFilePath);
       this.results.delete(moduleFilePath);
+      this.resolvedAgainst.delete(moduleFilePath);
     }
     if (hadResult.length > 0) {
       this.events.emit({ type: "validation:invalidate", modules: hadResult });
@@ -293,6 +498,12 @@ export class ValidationStore {
       jsonEntriesLoaded: !this.sourceStore.hasUnloadedEntries(moduleFilePath),
     };
     this.results.set(moduleFilePath, result);
+    const inputs = this.crossModuleInputs(errors);
+    if (inputs === null) {
+      this.resolvedAgainst.delete(moduleFilePath);
+    } else {
+      this.resolvedAgainst.set(moduleFilePath, inputs);
+    }
     /**
      * Only if nothing invalidated while this was running.
      *

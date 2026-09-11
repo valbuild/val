@@ -1511,6 +1511,14 @@ export function createSystem(options: SystemOptions): System {
       searchStale.mark(event.modules);
       referenceStale.mark(event.modules);
     }),
+    // A discard that empties a module's chain emits ONLY `source:patch-drop` —
+    // nothing survives to re-apply, so no `source:patch-apply` follows it. Every
+    // consumer that marks on the apply has to mark on the drop as well, or the
+    // discarded text stays findable and the discarded reference stays counted.
+    sourceStore.events.on("source:patch-drop", (event) => {
+      searchStale.mark(event.modules);
+      referenceStale.mark(event.modules);
+    }),
     sourceStore.events.on("source:init", (event) => {
       searchStale.mark(event.sources);
       referenceStale.mark(event.sources);
