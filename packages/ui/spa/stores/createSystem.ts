@@ -1637,14 +1637,16 @@ export function createSystem(options: SystemOptions): System {
     // Only what the index owes a pass for. On a first query that is every loaded
     // module; after an edit it is the one module that changed. Decided here, from
     // host state, so a real seam is crossed once rather than four times.
+    const pass = referenceStale.begin();
     const target = referenceStale.target(sourceStore.loadedModules());
     const scanned = await referenceStore.rescan(
       gatherReferenceSnapshot(target),
     );
     // Marked covered from what the worker actually scanned, not from what was
     // asked for: a module it skipped (no schema, no source) must stay stale or it
-    // never gets another chance.
-    referenceStale.covers(scanned);
+    // never gets another chance. And only marks older than the pass: a module
+    // that changed during the await was scanned as it was, not as it is.
+    referenceStale.covers(scanned, pass);
   }
 
   function gatherReferenceSnapshot(
@@ -1695,9 +1697,10 @@ export function createSystem(options: SystemOptions): System {
       // The gather is the whole-project copy, so scoping it here is the point:
       // one edit then one query used to clone and re-walk the entire project.
       if (searchStale.needsPass()) {
+        const pass = searchStale.begin();
         const target = searchStale.target(sourceStore.loadedModules());
         const indexed = await searchStore.reindex(gatherSnapshot(target));
-        searchStale.covers(indexed.all);
+        searchStale.covers(indexed.all, pass);
       }
       const found = await searchStore.search(query, limit, offset);
       if (found.status === "no-index") {
@@ -1708,9 +1711,10 @@ export function createSystem(options: SystemOptions): System {
       return { ...found, staleModules: searchStale.staleModules() };
     },
     async buildSearchIndex() {
+      const pass = searchStale.begin();
       const loaded = sourceStore.loadedModules();
       const result = await searchStore.buildIndex(gatherSnapshot(loaded));
-      searchStale.covers(result.all);
+      searchStale.covers(result.all, pass);
       return result;
     },
     /**

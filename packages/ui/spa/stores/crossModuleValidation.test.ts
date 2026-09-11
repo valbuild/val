@@ -7,6 +7,9 @@ import {
 import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
 import { initTestSystem, mfp, sp } from "./testSystem";
 import type { ValidationStore } from "./ValidationStore";
+import { createSystem } from "./createSystem";
+import { SchemaValidator } from "../validation/validateModule";
+import type { PatchId } from "@valbuild/core";
 
 /**
  * Validation errors that resolve against ANOTHER module's source.
@@ -343,5 +346,95 @@ describe("a discard reaches search", () => {
     }
     expect(gone.results).toEqual([]);
     rig.dispose();
+  });
+});
+
+describe("a referenced record moving under a validation in flight", () => {
+  /**
+   * A system whose validation bridge can be held open, so a change can land
+   * while a validation is away — the window in which the dependent has no
+   * `resolvedAgainst` entry yet and cannot be found by name.
+   */
+  function gatedSystem() {
+    const validator = new SchemaValidator();
+    let release: () => void = () => {};
+    let gate: Promise<void> = Promise.resolve();
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+      createPatchId: (() => {
+        let next = 0;
+        return (): PatchId => `p${++next}` as PatchId;
+      })(),
+      savePatches: async ({ patches, parentRef }) => ({
+        status: "saved",
+        newPatchIds: patches.map((patch) => patch.patchId),
+        parentRef,
+      }),
+      publishPatches: async () => ({ status: "published" }),
+      discardPatches: async (patchIds) => ({ status: "discarded", patchIds }),
+      schemaValidation: {
+        async validate(moduleFilePath, source, serializedSchema, version) {
+          await gate;
+          return validator.validate(
+            moduleFilePath,
+            source,
+            serializedSchema,
+            version,
+          );
+        },
+      },
+    });
+    system.host.receive([pagesModule(), navModule()]);
+    system.stat.receiveStat({ patches: [], baseSha: "sha" });
+    return {
+      system,
+      hold() {
+        gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      },
+      release() {
+        release();
+      },
+    };
+  }
+
+  it("recomputes a first pass that a referenced record moved under", async () => {
+    const { system, hold, release } = gatedSystem();
+
+    hold();
+    const pending = system.validationStore.validate(NAV);
+    // The rename lands while `nav`'s FIRST validation is away. Nothing yet
+    // records that `nav` reads `pages`, so this cannot invalidate `nav` by
+    // name — it can only move the generation.
+    const res = await system.patchStore.createPatch(PAGES, [
+      { op: "move", from: ["/home"], path: ["/start"] },
+    ]);
+    if (res.status !== "created") {
+      throw new Error(`createPatch failed: ${res.status}`);
+    }
+    release();
+    const result = await pending;
+
+    // Answered about the world as it is now, and cached as current.
+    expect(result.status).toBe("validated");
+    expect(system.validationStore.peek(NAV).status).toBe("validated");
+    if (result.status !== "validated" || result.errors === false) {
+      throw new Error("expected errors to resolve");
+    }
+    const broken = filterBlockingValidationErrors(
+      result.errors,
+      system.schemaStore.all(),
+      system.sourceStore.allSources(),
+    );
+    expect(broken[NAV_PRIMARY]?.[0]?.message).toMatch(
+      /'\/home' does not exist/,
+    );
+
+    // And its inputs are the RENAMED keys: discarding the rename is a key
+    // change, so it reaches `nav`. Inputs read before the rename would call
+    // the discard a no-op and leave the error standing.
+    system.patchStore.drop([res.record.patchId]);
+    expect(system.validationStore.peek(NAV).status).toBe("stale");
   });
 });

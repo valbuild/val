@@ -569,6 +569,15 @@ export class ValidationStore {
     /**
      * Only if nothing invalidated while this was running.
      *
+     * ANY invalidation, of any module — the counter is global on purpose. That
+     * is also what covers a cross-module dependent on its first pass: it has no
+     * {@link resolvedAgainst} entry until this method stores one, so a change
+     * to the record it reads cannot find it by name and invalidates only the
+     * record's own module. But that invalidation moves the generation, this
+     * result stays stale, and `run` computes it again against the record as it
+     * now is. Pinned by "recomputes a first pass that a referenced record moved
+     * under" in `crossModuleValidation.test.ts`.
+     *
      * Both halves are awaited — the schema half across a worker, the custom half
      * across the host seam — so an edit can land mid-flight. Clearing `stale`
      * unconditionally cached a result computed from the PRE-edit source and
