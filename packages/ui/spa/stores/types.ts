@@ -416,6 +416,14 @@ export type SystemEvent =
    * landed", and this says the opposite — a value moved because something was
    * taken away. A consumer that invalidates on either is correct; one that
    * counts patches as it goes would be wrong to treat them as the same news.
+   *
+   * "Either" means BOTH have to be listened to. A drop is followed by a
+   * `source:patch-apply` only when something in the module's chain survived to
+   * be re-applied — so the common discard, which empties the chain, is this
+   * event and nothing else. Every store that invalidates on the apply and not on
+   * this one showed the discarded edit until the next unrelated change: the
+   * validation store, the preview store, and the search and reference
+   * staleness marks all did, and `crossModuleValidation.test.ts` pins the first.
    */
   | { type: "source:patch-drop"; modules: ModuleFilePath[] }
   | { type: "patch:head"; head: Head }
