@@ -64,6 +64,22 @@ export class ArraySchema<
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is shown next to the field's label in the Val editor, so
+   * it is where you say what an editor needs to know but the field name cannot
+   * carry. It also travels in the serialized schema, which is what the AI
+   * assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s
+   *   .array(s.string())
+   *   .describe("Bullet points shown under the heading");
+   * export default c.define("/example.val.ts", schema, ["First", "Second"]);
+   */
   describe(description: string | null): ArraySchema<T, Src> {
     return new ArraySchema(
       this.item,
@@ -77,6 +93,30 @@ export class ArraySchema<
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * The function is given the whole array. To validate one item, put a
+   * `.validate(...)` on the ITEM schema instead — that reports the error on
+   * the item's own row.
+   *
+   * @example
+   * const schema = s.array(s.string()).validate((val) =>
+   *   val.length <= 3 ? false : "At most 3 items",
+   * );
+   * export default c.define("/example.val.ts", schema, ["First", "Second"]);
+   */
   validate(
     validationFunction: (src: Src) => false | string,
   ): ArraySchema<T, Src> {
@@ -322,6 +362,25 @@ export class ArraySchema<
    * is the item of another container, in search, in references. What its rows
    * show is the ITEM schema's `preview`, not this. Never how the field is
    * edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * // The preview of the ARRAY, for where it is an item of something else.
+   * // What its own rows show is the ITEM schema's preview — see below.
+   * const tags = s.array(s.string()).preview(({ val }) => ({
+   *   title: `${val.length} tags`,
+   * }));
+   * export default c.define("/example.val.ts", s.record(tags), {
+   *   "a-post": ["news", "release"],
+   * });
+   *
+   * @example
+   * // Rows of an array come from the ITEM's preview, not the array's:
+   * const author = s
+   *   .object({ name: s.string(), role: s.string() })
+   *   .preview(({ val }) => ({ title: val.name, subtitle: val.role }));
+   * export default c.define("/example.val.ts", s.array(author), [
+   *   { name: "Ada", role: "Engineer" },
+   * ]);
    */
   preview(select: ItemPreviewInput<Src>): ArraySchema<T, Src> {
     return new ArraySchema(
@@ -342,6 +401,12 @@ export class ArraySchema<
    * instead of a preview row that navigates to it.
    *
    * Static configuration, not a callback — see `render.ts`.
+   *
+   * @example
+   * const schema = s.record(s.array(s.string()).render({ as: "inline" }));
+   * export default c.define("/example.val.ts", schema, {
+   *   "a-post": ["news", "release"],
+   * });
    */
   render(input: FieldRender): ArraySchema<T, Src> {
     return new ArraySchema(

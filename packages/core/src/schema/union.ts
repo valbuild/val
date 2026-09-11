@@ -85,6 +85,22 @@ export class UnionSchema<
   >[],
   Src extends SourceOf<Key, T> | null,
 > extends Schema<Src> {
+  /**
+   * Describe this field.
+   *
+   * The description is shown next to the field's label in the Val editor, so
+   * it is where you say what an editor needs to know but the field name cannot
+   * carry. It also travels in the serialized schema, which is what the AI
+   * assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s
+   *   .union(s.literal("draft"), s.literal("published"))
+   *   .describe("Only published pages are built");
+   * export default c.define("/example.val.ts", schema, "draft");
+   */
   describe(description: string | null): UnionSchema<Key, T, Src> {
     return new UnionSchema<Key, T, Src>(
       this.key,
@@ -99,6 +115,28 @@ export class UnionSchema<
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * @example
+   * const schema = s
+   *   .union(s.literal("draft"), s.literal("published"))
+   *   .validate((val) =>
+   *     val === "published" ? "Publishing is frozen this week" : false,
+   *   );
+   * export default c.define("/example.val.ts", schema, "draft");
+   */
   validate(
     validationFunction: (src: Src) => false | string,
   ): UnionSchema<Key, T, Src> {
@@ -611,6 +649,16 @@ export class UnionSchema<
    * instead of a preview row that navigates to it.
    *
    * Static configuration, not a callback — see `render.ts`.
+   *
+   * @example
+   * // A page builder: the row draws the tag selector and the matched
+   * // variant's fields.
+   * const hero = s.object({ type: s.literal("hero"), title: s.string() });
+   * const text = s.object({ type: s.literal("text"), body: s.string() });
+   * const block = s.union("type", hero, text).render({ as: "inline" });
+   * export default c.define("/example.val.ts", s.array(block), [
+   *   { type: "hero", title: "Hello" },
+   * ]);
    */
   render(input: FieldRender): UnionSchema<Key, T, Src> {
     return new UnionSchema<Key, T, Src>(
@@ -633,6 +681,16 @@ export class UnionSchema<
    *
    * Without one of its own, a tagged union previews as the VARIANT the value
    * takes — declare `preview` on the member objects and the union dispatches.
+   *
+   * @example
+   * const hero = s.object({ type: s.literal("hero"), title: s.string() });
+   * const text = s.object({ type: s.literal("text"), body: s.string() });
+   * const block = s
+   *   .union("type", hero, text)
+   *   .preview(({ val }) => ({ title: val.type }));
+   * export default c.define("/example.val.ts", s.array(block), [
+   *   { type: "hero", title: "Hello" },
+   * ]);
    */
   preview(select: ItemPreviewInput<Src>): UnionSchema<Key, T, Src> {
     return new UnionSchema<Key, T, Src>(

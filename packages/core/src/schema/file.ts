@@ -62,6 +62,23 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is shown next to the field's label in the Val editor, so
+   * it is where you say what an editor needs to know but the field name cannot
+   * carry. It also travels in the serialized schema, which is what the AI
+   * assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s.file().describe("The PDF offered for download");
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/example.pdf",
+   *   mimeType: "application/pdf",
+   * });
+   */
   describe(description: string | null): FileSchema<Src> {
     return new FileSchema(
       this.options,
@@ -77,6 +94,21 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     );
   }
 
+  /**
+   * Store the file on Val's remote content host instead of in your repository.
+   *
+   * The bytes still go into the patch store when the file is uploaded — the
+   * push to the remote host happens at publish. What changes is where the
+   * published file lives: `path` becomes a remote URL rather than a path under
+   * `/public`, so the repository does not grow with every upload.
+   *
+   * @example
+   * const schema = s.file({ accept: "application/pdf" }).remote();
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/example.pdf",
+   *   mimeType: "application/pdf",
+   * });
+   */
   remote(): FileSchema<Src> {
     return new FileSchema(
       this.options,
@@ -92,6 +124,32 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * The second argument carries the `path` of the field being validated, for
+   * when the message needs to say where the problem is.
+   *
+   * @example
+   * const schema = s.file().validate((val) =>
+   *   val.path.endsWith(".pdf") ? false : "Must be a PDF",
+   * );
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/example.pdf",
+   *   mimeType: "application/pdf",
+   * });
+   */
   validate(validationFunction: CustomValidateFunction<Src>): FileSchema<Src> {
     return new FileSchema(
       this.options,
@@ -422,6 +480,12 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
    * instead of a preview row that navigates to it.
    *
    * Static configuration, not a callback — see `render.ts`.
+   *
+   * @example
+   * const schema = s.array(s.file().render({ as: "inline" }));
+   * export default c.define("/example.val.ts", schema, [
+   *   { path: "/public/val/example.pdf", mimeType: "application/pdf" },
+   * ]);
    */
   render(input: FieldRender): FileSchema<Src> {
     return new FileSchema(
@@ -442,6 +506,14 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
    * How this VALUE is shown where a preview of it is needed — a row in a
    * sortable list, a reference dropdown, a search hit. Never how the field
    * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * const schema = s.array(
+   *   s.file().preview(({ val }) => ({ title: val.path })),
+   * );
+   * export default c.define("/example.val.ts", schema, [
+   *   { path: "/public/val/example.pdf", mimeType: "application/pdf" },
+   * ]);
    */
   preview(select: ItemPreviewInput<Src>): FileSchema<Src> {
     return new FileSchema(

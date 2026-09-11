@@ -160,6 +160,25 @@ export abstract class Schema<Src extends SelectorSource> {
     path: SourcePath,
     src: unknown,
   ): SchemaAssertResult<Src>; // TODO: rename to parse? or _assert / _parse to indicate it is private? Or make protected (requires us to have some sort of calling it in the UX Val code)
+  /**
+   * Allow `null` as a value for this field.
+   *
+   * The editor gets a way to clear the field, and the type of the source
+   * widens to include `null` — so consuming code has to handle it.
+   *
+   * Declare `.validate(...)` AFTER `.nullable()`: on most schema types a
+   * validator added before it is not carried over.
+   *
+   * @example
+   * const schema = s.object({
+   *   title: s.string(),
+   *   subtitle: s.string().nullable(),
+   * });
+   * export default c.define("/example.val.ts", schema, {
+   *   title: "Hello",
+   *   subtitle: null,
+   * });
+   */
   abstract nullable(): Schema<Src | null>;
   /**
    * Mark this field as read-only in the Val editor.
@@ -170,6 +189,16 @@ export abstract class Schema<Src extends SelectorSource> {
    * The flag defaults to `true`, so `.readonly()` and `.readonly(true)` are the
    * same thing. `.readonly(false)` leaves the field editable, which is what a
    * schema is anyway - pass it when the decision comes from a variable.
+   *
+   * @example
+   * const schema = s.object({
+   *   id: s.string().readonly(),
+   *   title: s.string(),
+   * });
+   * export default c.define("/example.val.ts", schema, {
+   *   id: "generated-by-the-build",
+   *   title: "Hello",
+   * });
    */
   abstract readonly(isReadonly?: boolean): Schema<Src>;
   /**
@@ -181,6 +210,16 @@ export abstract class Schema<Src extends SelectorSource> {
    * The flag defaults to `true`, so `.hidden()` and `.hidden(true)` are the
    * same thing. `.hidden(false)` leaves the field visible, which is what a
    * schema is anyway - pass it when the decision comes from a variable.
+   *
+   * @example
+   * const schema = s.object({
+   *   title: s.string(),
+   *   internalNotes: s.string().hidden(),
+   * });
+   * export default c.define("/example.val.ts", schema, {
+   *   title: "Hello",
+   *   internalNotes: "Not shown in the editor",
+   * });
    */
   abstract hidden(isHidden?: boolean): Schema<Src>;
   protected abstract executeSerialize(): SerializedSchema;
