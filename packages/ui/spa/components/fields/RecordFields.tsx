@@ -236,7 +236,7 @@ function RecordCardList({
             <div
               onClick={() => navigate(sourcePathOfItem(path, key))}
               className={classNames(
-                "bg-primary-foreground cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
+                "bg-bg-primary cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
                 "hover:bg-bg-secondary-hover",
               )}
             >
