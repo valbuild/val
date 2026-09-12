@@ -299,8 +299,10 @@ export function ImageField({
    * The description, as one place rather than inline in the input.
    *
    * The "add, never replace" rule below is the load-bearing part and the reason
-   * this is worth naming: it has to hold for every caller, and there are two now
-   * — typing, and the shortcut that fills it in from the file name.
+   * this is worth naming: it has to hold for every caller. Typing is the only
+   * one today — the shortcut that filled this in from the file name is gone —
+   * and the rule belongs to the patch rather than to the caller, so it holds
+   * for whatever writes here next.
    */
   const altText = typeof source?.alt === "string" ? source.alt : "";
   const setAltText = (alt: string) => {
