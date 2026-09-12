@@ -18,6 +18,19 @@ import { sourcePathOfItem } from "../utils/sourcePathOfItem";
  */
 const LocaleFilterContext = createContext<string | null>(null);
 
+/**
+ * Normalises here rather than at each reader, so `useLocaleFilter` can be
+ * trusted.
+ *
+ * A locale reaches this from the URL, which is a place anyone can type: a link
+ * to `?locale=sv-SE`, or a bookmark from before a language was removed from
+ * settings. The list treats such a value as "all locales" — there is no row it
+ * could match — and every other reader has to agree, or they disagree about
+ * whether a filter is active at all. They did: the picker stayed disabled with
+ * a tooltip naming a language nobody had chosen, and `useEmptyOf` seeded new
+ * `s.locale()` fields with it, writing content that failed validation the
+ * moment it was created.
+ */
 export function LocaleFilterProvider({
   locale,
   children,
@@ -25,14 +38,21 @@ export function LocaleFilterProvider({
   locale: string | null;
   children: ReactNode;
 }) {
+  const projectLocales = useProjectLocales();
+  const active =
+    locale !== null && projectLocales.includes(locale) ? locale : null;
   return (
-    <LocaleFilterContext.Provider value={locale}>
+    <LocaleFilterContext.Provider value={active}>
       {children}
     </LocaleFilterContext.Provider>
   );
 }
 
-/** The language being shown, or `null` for all of them. */
+/**
+ * The language being shown, or `null` for all of them.
+ *
+ * Always one of the project's languages: see {@link LocaleFilterProvider}.
+ */
 export function useLocaleFilter(): string | null {
   return useContext(LocaleFilterContext);
 }

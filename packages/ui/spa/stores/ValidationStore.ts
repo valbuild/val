@@ -6,6 +6,7 @@ import {
   type SerializedSchema,
   type Source,
   type SourcePath,
+  type ValidationError,
   type ValidationErrors,
 } from "@valbuild/core";
 import {
@@ -156,6 +157,31 @@ function recordKeysNow(
 
 function isSettingsModule(schema: SerializedSchema | undefined): boolean {
   return schema !== undefined && schema.type === "settings";
+}
+
+/**
+ * Whether a `record:fill-keys` marker is resolved against the SETTINGS module,
+ * rather than against a key set it already carries.
+ *
+ * The marker is raised for every declared key set, not just locales: a
+ * literal- or enum-keyed record brings its keys along in `declared`, and only a
+ * locale-keyed record leaves them `null` to be read out of settings. Asking the
+ * same question `resolveSchemaSourceFixForError` asks, so the two cannot
+ * disagree about which markers depend on settings at all.
+ *
+ * Without the distinction every declared-key record in the project depended on
+ * settings, so editing an unrelated one — the assistant's context box, which
+ * the panel writes on every keystroke — revalidated all of them.
+ */
+function readsSettingsLocales(error: ValidationError): boolean {
+  if (!(error.fixes ?? []).includes("record:fill-keys")) {
+    return false;
+  }
+  const value = error.value;
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  return !Array.isArray((value as { declared?: unknown }).declared);
 }
 
 export class ValidationStore {
@@ -400,7 +426,7 @@ export class ValidationStore {
         }
         if (
           fixes.includes("locale:check-locale") ||
-          fixes.includes("record:fill-keys")
+          readsSettingsLocales(error)
         ) {
           locales = true;
         }

@@ -1,5 +1,10 @@
 import * as React from "react";
-import { ImageSource, Internal, SourcePath } from "@valbuild/core";
+import {
+  declaredKeySetOf,
+  ImageSource,
+  Internal,
+  SourcePath,
+} from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
@@ -516,12 +521,19 @@ export function KeyOfField({
   // A RECORD only: an object's keys are its schema, so there is no key to add.
   // A media record (`s.images()` / `s.files()`) is keyed by file path and needs
   // bytes rather than a key, so it is left to the gallery.
+  //
+  // Nor a record whose key schema DECLARES its keys — `s.locale()`,
+  // `s.enum(...)`, `s.literal(...)`. There the declared set is the complete
+  // set and every entry already exists, so the only key this form could create
+  // is an undeclared one: an error the moment it is written, and never what
+  // the editor meant. Picking from the list is the whole interaction.
   const creatableRecordSchema =
     !readonly &&
     keyOf?.path !== undefined &&
     referencedSchema?.type === "record" &&
     !referencedSchema.readonly &&
-    referencedSchema.mediaType === undefined
+    referencedSchema.mediaType === undefined &&
+    declaredKeySetOf(referencedSchema.key) === null
       ? referencedSchema
       : undefined;
   const [referencedModuleFilePath, referencedModulePath] =

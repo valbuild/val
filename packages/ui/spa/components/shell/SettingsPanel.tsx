@@ -1,3 +1,4 @@
+import type { Json } from "@valbuild/core";
 import { ReactNode, useEffect, useState } from "react";
 import { LucideIcon } from "lucide-react";
 import { FloatingPanel, PanelEmptyState } from "./FloatingPanel";
@@ -359,8 +360,17 @@ export function NoSettingsModule() {
 }
 
 export type LocalesSettingsValue = {
-  /** The declared languages, in the project's own order. */
-  available: string[];
+  /**
+   * Every POSITION the source has, in the project's own order — not only the
+   * ones holding a language.
+   *
+   * `Json` rather than `string[]` because a settings module is a file people
+   * edit by hand, and dropping what is not a string would take the row with it:
+   * validation reports by index, so the message for `available.0` would land on
+   * whatever survived to position 0, and the value that caused it would have no
+   * row to be removed from. A panel has to be able to repair what it reports.
+   */
+  available: Json[];
 };
 
 export type LocalesSettingsFieldsProps = {
@@ -423,13 +433,13 @@ export function LocalesSettingsFields({
             No languages yet. Add one and this project becomes translated.
           </p>
         )}
-        {value.available.map((tag, index) => (
+        {value.available.map((entry, index) => (
           // Keyed by position for the same reason: a tag is not unique, so a
           // duplicate would collide. Safe here because a row holds no state of
           // its own and the list is never reordered.
           <LocaleRow
             key={index}
-            tag={tag}
+            entry={entry}
             error={errors?.byIndex?.[index]}
             readonly={readonly}
             onRemove={() => remove(index)}
@@ -471,18 +481,27 @@ export function LocalesSettingsFields({
   );
 }
 
+/**
+ * One declared position.
+ *
+ * Usually a language. Where it is not — a number, an object, whatever a hand
+ * edit left behind — the row still draws, showing the value as it is written so
+ * it can be recognised and removed. Validation has already said what is wrong
+ * with it; the row's job is to be the thing that can be deleted.
+ */
 function LocaleRow({
-  tag,
+  entry,
   error,
   readonly,
   onRemove,
 }: {
-  tag: string;
+  entry: Json;
   error?: string;
   readonly?: boolean;
   onRemove: () => void;
 }) {
-  const name = localeName(tag);
+  const tag = typeof entry === "string" ? entry : JSON.stringify(entry);
+  const name = typeof entry === "string" ? localeName(entry) : undefined;
   return (
     <div className="flex flex-col gap-1 rounded-md border border-border-primary px-3 py-2">
       <div className="flex items-center gap-2">

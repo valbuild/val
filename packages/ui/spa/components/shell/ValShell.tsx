@@ -292,6 +292,12 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         canvasOpen: state.canvasOpen,
         canvasView: state.canvasView,
       }));
+      // Adopted directly rather than through `restoreViewState`: the locale is
+      // owned here, not by the shell. Without this, going back to an entry with
+      // a different `?locale=` left the filter on the language it had been
+      // moved to — and the next URL write put that language back into the
+      // address bar, so the entry could not be reached at all.
+      setLocale(state.locale);
     };
     window.addEventListener("popstate", listener);
     return () => window.removeEventListener("popstate", listener);

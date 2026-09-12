@@ -1,4 +1,6 @@
 import { useMemo } from "react";
+import type { Json } from "@valbuild/core";
+import type { JSONValue } from "@valbuild/core/patch";
 import {
   ASSISTANT_SETTINGS_MAX_LENGTH,
   ModuleFilePath,
@@ -115,7 +117,14 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
             <LocalesSettingsFields
               value={localesValue}
               onChange={(next) => {
-                writeLocalesSetting({ available: next.available });
+                // `Json` is the readonly spelling of the same shape a patch op
+                // takes — the same crossing `emptyOf` makes in
+                // `DiscriminatedUnionField`. The values are the source's own,
+                // carried through unchanged so a malformed entry is removed
+                // rather than rewritten.
+                writeLocalesSetting({
+                  available: next.available as JSONValue[],
+                });
               }}
               errors={localesErrors}
               readonly={readonly}
@@ -142,12 +151,15 @@ function useLocalesSection(localesPath: SourcePath): LocalesSettingsValue {
     sourcePathOfItem(localesPath, "available"),
   );
   return useMemo<LocalesSettingsValue>(() => {
-    const raw =
-      "data" in availableSource && Array.isArray(availableSource.data)
-        ? availableSource.data
-        : [];
+    // Every position, unfiltered. Validation reports by index, and the panel
+    // removes by index, so dropping what is not a string here would put a
+    // message on the wrong row and leave the value that caused it with no row
+    // to be removed from. See `LocalesSettingsValue`.
     return {
-      available: raw.filter((tag): tag is string => typeof tag === "string"),
+      available:
+        "data" in availableSource && Array.isArray(availableSource.data)
+          ? availableSource.data
+          : [],
     };
   }, [availableSource]);
 }
@@ -167,7 +179,7 @@ function useLocalesSection(localesPath: SourcePath): LocalesSettingsValue {
  */
 function useLocalesErrors(
   localesPath: SourcePath,
-  available: string[],
+  available: Json[],
 ): { byIndex?: Record<number, string> } {
   const availablePath = sourcePathOfItem(localesPath, "available");
   const allErrors = useAllValidationErrors() || {};

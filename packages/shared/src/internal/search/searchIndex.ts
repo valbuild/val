@@ -124,7 +124,13 @@ export function indexModule(
       // An enum's value is a string the editor chose; it is as searchable as
       // any other string leaf. The old string union was never indexed at all,
       // which is the gap this closes.
-      schema.type === "enum"
+      schema.type === "enum" ||
+      // A locale tag, for the same reason: it is what the editor picked and
+      // what they see in the field, so searching "nb-NO" has to find the
+      // Norwegian rows. `traverseSchemaSource` visits these, and visiting a
+      // leaf only to index it as the empty string is worse than not visiting
+      // it — it looks like content that does not exist.
+      schema.type === "locale"
     ) {
       searchText = source?.toString() ?? "";
       label = source?.toString() ?? "";

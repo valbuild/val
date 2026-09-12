@@ -4,6 +4,7 @@ import { renderHook } from "@testing-library/react";
 import { ReactNode } from "react";
 import {
   LocaleFilterProvider,
+  useLocaleFilter,
   useLocaleFilterPredicate,
 } from "./LocaleFilterProvider";
 
@@ -148,5 +149,38 @@ describe("the locale filter predicate", () => {
     const matches = predicateUnder("sv-SE");
     expect(matches({ key: "nb-NO", keySchema: localeKey })).toBe(true);
     expect(matches({ key: "en-US", keySchema: localeKey })).toBe(true);
+  });
+});
+
+/**
+ * A locale reaches the provider from the URL, which anyone can type: a link to
+ * a language this project does not have, or a bookmark from before one was
+ * removed from settings. The list shows everything for such a value — there is
+ * no row it could match — and every other reader has to agree, or they
+ * disagree about whether a filter is active at all.
+ *
+ * They did. The picker stayed disabled with a tooltip naming a language nobody
+ * had chosen, and `useEmptyOf` seeded new `s.locale()` fields with it, writing
+ * content that failed validation the moment it was created. Normalizing once,
+ * here, is what makes `useLocaleFilter` a thing the rest can trust.
+ */
+describe("the filter is always one of the project's languages", () => {
+  function filterUnder(locale: string | null) {
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <LocaleFilterProvider locale={locale}>{children}</LocaleFilterProvider>
+    );
+    return renderHook(() => useLocaleFilter(), { wrapper }).result.current;
+  }
+
+  test("a declared language is the filter", () => {
+    expect(filterUnder("nb-NO")).toBe("nb-NO");
+  });
+
+  test("a language this project does not have is no filter at all", () => {
+    expect(filterUnder("sv-SE")).toBe(null);
+  });
+
+  test("nothing in the URL is no filter", () => {
+    expect(filterUnder(null)).toBe(null);
   });
 });
