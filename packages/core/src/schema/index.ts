@@ -168,8 +168,38 @@ export abstract class Schema<Src extends SelectorSource> {
    * The editor gets a way to clear the field, and the type of the source
    * widens to include `null` — so consuming code has to handle it.
    *
-   * Declare `.validate(...)` AFTER `.nullable()`: on most schema types a
-   * validator added before it is not carried over.
+   * `.validate(...)` may be declared before or after `.nullable()`: the
+   * validator is carried over either way. Declared before, its argument is
+   * typed as non-null even though `null` can reach it, so guard for it.
+   *
+   * Implementations MUST carry `customValidateFunctions` over to the new
+   * instance. `.nullable()` returns a copy, so dropping them there silently
+   * un-declares the user's `.validate(...)` whenever it was written before the
+   * `.nullable()` — which is the order most people write it in. Thirteen schema
+   * classes passed `[]` here until this was fixed; `nullableCustomValidate.test.ts`
+   * pins one instance of every factory on `s` against that, and does not compile
+   * until a newly added schema is listed in it.
+   *
+   * The validators keep running when the value IS null: a nullable schema's
+   * validator sees `Src | null` and decides for itself. That is what the
+   * classes that never dropped them (string, record, route, file, image) have
+   * always done.
+   *
+   * Carrying them over needs a cast, because `Src` sits in a PARAMETER position
+   * of {@link CustomValidateFunction} and so `CustomValidateFunction<Src>[]` is
+   * not assignable to `CustomValidateFunction<Src | null>[]`. Widening what the
+   * functions can be CALLED with is the intent here rather than something the
+   * cast gets away with: `null` is handed to them, and the paragraph above is
+   * the behaviour that buys.
+   *
+   * A validator's parameter type was never a runtime guarantee to begin with.
+   * `executeValidate` runs the custom validators BEFORE the structural checks
+   * (see {@link CustomValidateFunction}'s callers, e.g. `NumberSchema`, which
+   * calls them ahead of its `typeof src !== "number"`), so one can already be
+   * called with a value of the wrong type entirely — hand-written content, or
+   * a node the Studio's walker reached before its type was checked. That is why
+   * {@link executeCustomValidateFunctions} catches what a validator throws and
+   * reports it as a `schemaError` instead of letting it escape.
    *
    * @example
    * const schema = s.object({

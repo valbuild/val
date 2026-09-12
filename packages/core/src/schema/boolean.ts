@@ -158,7 +158,7 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
   nullable(): BooleanSchema<Src | null> {
     return new BooleanSchema<Src | null>(
       true,
-      [],
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.isReadonly,
       this.isHidden,
       this.description,

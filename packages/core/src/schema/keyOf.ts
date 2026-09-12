@@ -344,7 +344,7 @@ export class KeyOfSchema<
       this.schema,
       this.sourcePath,
       true,
-      [],
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.isReadonly,
       this.isHidden,
       this.description,

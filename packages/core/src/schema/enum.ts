@@ -200,7 +200,7 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
     return new EnumSchema<Src | null>(
       this.values,
       true,
-      [],
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.isReadonly,
       this.isHidden,
       this.description,

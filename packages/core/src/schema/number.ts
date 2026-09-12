@@ -201,7 +201,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     return new NumberSchema<Src | null>(
       this.options,
       true,
-      [],
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.isReadonly,
       this.isHidden,
       this.description,
