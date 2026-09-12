@@ -41,7 +41,7 @@ export default c.define(
      * crash above.
      */
     sections: s.array(
-      s.union(
+      s.discriminatedUnion(
         "type",
         s.object({ type: s.literal("text"), text: s.string() }),
         s.object({ type: s.literal("image"), image: s.image() }),

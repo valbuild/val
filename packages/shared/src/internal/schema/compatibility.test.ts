@@ -16,16 +16,16 @@ function ser(schema: Schema<SelectorSource>) {
 }
 
 describe("checkCompatibility", () => {
-  describe("the union rule", () => {
+  describe("the discriminated union rule", () => {
     test("a variant that still exists is compatible, even though the union changed", () => {
       // Then: link | button. Now: link | button | ghost. The union is not the
       // same union, but the value being restored still has somewhere to go.
-      const before = s.union(
+      const before = s.discriminatedUnion(
         "kind",
         s.object({ kind: s.literal("link"), label: s.string() }),
         s.object({ kind: s.literal("button"), label: s.string() }),
       );
-      const now = s.union(
+      const now = s.discriminatedUnion(
         "kind",
         s.object({ kind: s.literal("link"), label: s.string() }),
         s.object({ kind: s.literal("button"), label: s.string() }),
@@ -39,12 +39,12 @@ describe("checkCompatibility", () => {
     });
 
     test("a variant that was removed is not", () => {
-      const before = s.union(
+      const before = s.discriminatedUnion(
         "kind",
         s.object({ kind: s.literal("link"), label: s.string() }),
         s.object({ kind: s.literal("marquee"), label: s.string() }),
       );
-      const now = s.union(
+      const now = s.discriminatedUnion(
         "kind",
         s.object({ kind: s.literal("link"), label: s.string() }),
       );
@@ -61,7 +61,7 @@ describe("checkCompatibility", () => {
     test("a plain object restores into a union that now contains its shape", () => {
       // The case from the plan: `cta` was an object, today it is a union.
       const before = s.object({ kind: s.literal("link"), label: s.string() });
-      const now = s.union(
+      const now = s.discriminatedUnion(
         "kind",
         s.object({ kind: s.literal("link"), label: s.string() }),
         s.object({ kind: s.literal("button"), label: s.string() }),
@@ -73,9 +73,9 @@ describe("checkCompatibility", () => {
       expect(res.status).toBe("compatible");
     });
 
-    test("string unions compare by their literals", () => {
-      const before = s.union(s.literal("sm"), s.literal("lg"));
-      const now = s.union(s.literal("sm"), s.literal("md"), s.literal("lg"));
+    test("enums compare by their values", () => {
+      const before = s.enum("sm", "lg");
+      const now = s.enum("sm", "md", "lg");
       expect(
         checkCompatibility(
           { schema: ser(before), value: "lg" },
@@ -168,14 +168,17 @@ describe("checkCompatibility", () => {
   describe("arrays", () => {
     test("every item is checked, not just the first", () => {
       const before = s.array(
-        s.union(
+        s.discriminatedUnion(
           "kind",
           s.object({ kind: s.literal("a"), v: s.string() }),
           s.object({ kind: s.literal("b"), v: s.string() }),
         ),
       );
       const now = s.array(
-        s.union("kind", s.object({ kind: s.literal("a"), v: s.string() })),
+        s.discriminatedUnion(
+          "kind",
+          s.object({ kind: s.literal("a"), v: s.string() }),
+        ),
       );
       const res = checkCompatibility(
         {
@@ -209,8 +212,8 @@ describe("checkCompatibility", () => {
       expect(res.status).toBe("unknown");
     });
 
-    test("a union value that does not identify its variant is unknown", () => {
-      const before = s.union(
+    test("a discriminated union value that does not identify its variant is unknown", () => {
+      const before = s.discriminatedUnion(
         "kind",
         s.object({ kind: s.literal("link"), label: s.string() }),
       );

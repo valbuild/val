@@ -12,7 +12,8 @@ import { SerializedObjectSchema } from "./object";
 import { SerializedRecordSchema } from "./record";
 import { SerializedRichTextSchema } from "./richtext";
 import { RawString, SerializedStringSchema } from "./string";
-import { SerializedUnionSchema } from "./union";
+import { SerializedDiscriminatedUnionSchema } from "./discriminatedUnion";
+import { SerializedEnumSchema } from "./enum";
 import { SerializedCodeSchema } from "./code";
 import { SerializedColorSchema } from "./color";
 import { SerializedDateSchema } from "./date";
@@ -38,7 +39,8 @@ export type SerializedSchema =
   | SerializedNumberSchema
   | SerializedObjectSchema
   | SerializedArraySchema
-  | SerializedUnionSchema
+  | SerializedDiscriminatedUnionSchema
+  | SerializedEnumSchema
   | SerializedRichTextSchema
   | SerializedRecordSchema
   | SerializedKeyOfSchema
@@ -166,7 +168,7 @@ export abstract class Schema<Src extends SelectorSource> {
    * Implementations MUST carry `customValidateFunctions` over to the new
    * instance. `.nullable()` returns a copy, so dropping them there silently
    * un-declares the user's `.validate(...)` whenever it was written before the
-   * `.nullable()` — which is the order most people write it in. Twelve schema
+   * `.nullable()` — which is the order most people write it in. Thirteen schema
    * classes passed `[]` here until this was fixed; `nullableCustomValidate.test.ts`
    * pins one instance of every factory on `s` against that, and does not compile
    * until a newly added schema is listed in it.

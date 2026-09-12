@@ -560,7 +560,7 @@ describe("agrees with the scans it replaces", () => {
     const referrer = c.define(
       "/blocks.val.ts",
       s.array(
-        s.union(
+        s.discriminatedUnion(
           "type",
           s.object({ type: s.literal("link"), key: s.keyOf(target) }),
           s.object({ type: s.literal("text"), body: s.string() }),

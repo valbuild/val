@@ -46,6 +46,16 @@ const nullableAfterValidate: Record<
     .number()
     .validate(() => MESSAGE)
     .nullable(),
+  discriminatedUnion: s
+    .discriminatedUnion("type", s.object({ type: s.literal("a") }))
+    .validate(() => MESSAGE)
+    .nullable(),
+  enum: s
+    .enum("a", "b")
+    .validate(() => MESSAGE)
+    .nullable(),
+  // Deprecated, and delegates to the two above — listed so the map stays keyed
+  // by the whole of `s`, and because it is still what most existing schemas say.
   union: s
     .union(s.literal("a"), s.literal("b"))
     .validate(() => MESSAGE)

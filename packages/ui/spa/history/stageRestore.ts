@@ -113,7 +113,7 @@ function walk(
     }
     return;
   }
-  if (schema.type === "union") {
+  if (schema.type === "discriminated-union") {
     // Every variant is tried rather than narrowing first: this only collects
     // paths, so a variant that does not match simply contributes none, and
     // getting the narrowing wrong here would silently miss a file.

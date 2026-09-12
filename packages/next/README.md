@@ -581,7 +581,7 @@ const sectionsSchema = s.array(
 );
 ```
 
-A tagged union with no preview of its own previews as the VARIANT the value
+A discriminated union with no preview of its own previews as the VARIANT the value
 takes, so a page-builder list previews each block by its own block type.
 
 Your function is run on demand, for the rows actually on screen, so it is fine
@@ -919,20 +919,16 @@ const image = useVal(imageVal);
 return <img src={image.url} />;
 ```
 
-## Union
+## Discriminated Union
 
-The union schema can be used to create either "tagged unions" or a union of string literals.
+A discriminated union is a union of objects which all have the same field (of the same type). This field determines (or "discriminates") which of the union's types a value is.
 
-### Union Schema tagged unions
-
-A tagged union is a union of objects which all have the same field (of the same type). This field can be used to determine (or "discriminate") the exact type of one of the types of the union.
-
-It is useful when editors should be able to chose from a set of objects that are different.
+It is useful when editors should be able to choose from a set of objects that are different.
 
 Example: let us say you have a page that can be one of the following: blog (page) or product (page). In this case your schema could look like this:
 
 ```ts
-s.union(
+s.discriminatedUnion(
   "type", // the key of the "discriminator"
   s.object({
     type: s.literal("blogPage"), // <- each type must have a UNIQUE value
@@ -947,16 +943,23 @@ s.union(
 ); // <- Schema<{ type: "blogPage", author: string } | { type: "productPage", sku: number }>
 ```
 
-## Union Schema: union of string literals
+## Enum
 
-You can also use a union to create a union of string literals. This is useful if you want a type-safe way to describe a set of valid strings that can be chosen by an editor.
+Use `s.enum` for a fixed set of strings. It gives you a type-safe way to describe the valid values an editor can choose from, and it presents as a dropdown in Val Studio.
 
 ```ts
-s.union(
-  s.literal("one"),
-  s.literal("two"),
-  //...
-); // <- Schema<"one" | "two">
+s.enum("one", "two"); // <- Schema<"one" | "two">
+```
+
+### `s.union` is deprecated
+
+`s.union` did both of these jobs, deciding which one you meant from its first
+argument. It still works, and produces exactly the schemas above, but name the
+one you mean instead:
+
+```ts
+s.union(s.literal("one"), s.literal("two")); // -> s.enum("one", "two")
+s.union("type", pageA, pageB); // -> s.discriminatedUnion("type", pageA, pageB)
 ```
 
 ## KeyOf

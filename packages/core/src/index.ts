@@ -204,8 +204,14 @@ export {
   RichTextSchema,
 } from "./schema/richtext";
 export {
+  type SerializedDiscriminatedUnionSchema,
+  type DiscriminatedUnionSourceOf,
+  DiscriminatedUnionSchema,
+} from "./schema/discriminatedUnion";
+export { type SerializedEnumSchema, EnumSchema } from "./schema/enum";
+export {
   type SerializedUnionSchema,
-  UnionSchema,
+  type UnionSchema,
   type SerializedStringUnionSchema,
   type SerializedObjectUnionSchema,
 } from "./schema/union";
