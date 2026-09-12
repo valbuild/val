@@ -538,6 +538,23 @@ cleanup cancels, which is the only pass that writes to the editor that survives.
 resolving `dist/`. Also delete `examples/next/.next` — a production build left
 there makes the dev server 500 with `MODULE_NOT_FOUND` on Studio routes.
 
+## `createRequire` is imported in one place in `@valbuild/server`
+
+webpack tries to resolve the argument of any `createRequire` call it can see,
+and warns `module.createRequire failed parsing argument.` when the argument is
+not a literal. `@valbuild/server` calls it twice — `evalValConfigFile` and
+`loadValModules` — and both times the argument is a path inside the user's
+project, known only at runtime. So there was nothing to resolve, nothing to fix,
+and the warning showed up on every `next build` of every app that has a Val API
+route, pointing into a `dist/` file the reader has no way to act on.
+
+`createNodeRequire` reaches the same function through the `Module` class, which
+webpack does not tag, and an eslint rule (`no-restricted-imports`, scoped to
+`packages/server/src`) stops the direct import coming back. It has to stay a
+real `node:module` import: jest hands out its own `node:module`, and a `require`
+obtained around it — through `process.getBuiltinModule`, say — would resolve
+against the real filesystem instead of the registry the tests run in.
+
 ## The `@valbuild/ui` build substitutes placeholders into bundler output
 
 `packages/ui` ships two strings that only get their real values _after_ Vite has
