@@ -512,7 +512,7 @@ export class UnionSchema<
       this.key,
       this.items,
       true,
-      [],
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.isReadonly,
       this.isHidden,
       this.description,

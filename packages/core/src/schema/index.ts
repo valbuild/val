@@ -160,6 +160,28 @@ export abstract class Schema<Src extends SelectorSource> {
     path: SourcePath,
     src: unknown,
   ): SchemaAssertResult<Src>; // TODO: rename to parse? or _assert / _parse to indicate it is private? Or make protected (requires us to have some sort of calling it in the UX Val code)
+  /**
+   * Widen this schema to also accept `null`.
+   *
+   * Implementations MUST carry `customValidateFunctions` over to the new
+   * instance. `.nullable()` returns a copy, so dropping them there silently
+   * un-declares the user's `.validate(...)` whenever it was written before the
+   * `.nullable()` — which is the order most people write it in. Twelve schema
+   * classes passed `[]` here until this was fixed; `nullableCustomValidate.test.ts`
+   * pins one instance of every factory on `s` against that, and does not compile
+   * until a newly added schema is listed in it.
+   *
+   * The validators keep running when the value IS null: a nullable schema's
+   * validator sees `Src | null` and decides for itself. That is what the
+   * classes that never dropped them (string, record, route, file, image) have
+   * always done.
+   *
+   * Carrying them over needs a cast, because `Src` sits in a PARAMETER position
+   * of {@link CustomValidateFunction} and so `CustomValidateFunction<Src>[]` is
+   * not assignable to `CustomValidateFunction<Src | null>[]`. The cast is sound
+   * here for the same reason: the functions are only ever CALLED with values
+   * this schema accepts, and null is one of those from now on.
+   */
   abstract nullable(): Schema<Src | null>;
   /**
    * Mark this field as read-only in the Val editor.

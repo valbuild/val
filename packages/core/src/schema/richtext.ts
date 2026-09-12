@@ -660,7 +660,7 @@ export class RichTextSchema<
     return new RichTextSchema<O, Src | null>(
       this.options,
       true,
-      [],
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.isReadonly,
       this.isHidden,
       this.description,

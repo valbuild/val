@@ -163,7 +163,7 @@ export class ArraySchema<
     return new ArraySchema<T, Src | null>(
       this.item,
       true,
-      [],
+      this.customValidateFunctions as ((src: Src | null) => false | string)[],
       this.isReadonly,
       this.isHidden,
       this.description,

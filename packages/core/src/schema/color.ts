@@ -219,7 +219,7 @@ export class ColorSchema<Src extends string | null> extends Schema<Src> {
     return new ColorSchema<Src | null>(
       this.options,
       true,
-      [],
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.isReadonly,
       this.isHidden,
       this.description,

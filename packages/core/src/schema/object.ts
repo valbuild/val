@@ -243,7 +243,7 @@ export class ObjectSchema<
     return new ObjectSchema<Props, Src | null>(
       this.items,
       true,
-      [],
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.isReadonly,
       this.isHidden,
       this.description,
