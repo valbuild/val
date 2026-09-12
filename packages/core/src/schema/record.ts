@@ -750,15 +750,21 @@ export class RecordSchema<
    * For `s.images()` and `s.files()`, which are records of media. Remote is off
    * until this is called.
    *
+   * Each entry is then keyed by its URL on the content host rather than by a
+   * path under `/public`. That key is not something to write by hand: upload
+   * in the Studio, or add a local path and let `npx val validate --fix`
+   * upload it and rewrite the key.
+   *
    * @example
    * const schema = s.images({ directory: "/public/val/images" }).remote();
    * export default c.define("/content/images.val.ts", schema, {
-   *   "/public/val/images/hero.webp": {
-   *     width: 1920,
-   *     height: 1080,
-   *     mimeType: "image/webp",
-   *     alt: "Hero image",
-   *   },
+   *   "https://remote.val.build/file/p/my-project/b/01/v/1.0.0/h/8f2a1c/f/3b9d70/p/public/val/images/hero.webp":
+   *     {
+   *       width: 1920,
+   *       height: 1080,
+   *       mimeType: "image/webp",
+   *       alt: "Hero image",
+   *     },
    * });
    */
   remote(): RecordSchema<T, K, Src> {

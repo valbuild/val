@@ -102,10 +102,15 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
    * published file lives: `path` becomes a remote URL rather than a path under
    * `/public`, so the repository does not grow with every upload.
    *
+   * The `path` of a remote file is a URL on the content host, and it is not
+   * something to write by hand: upload the file in the Studio, or write a
+   * local path and let `npx val validate --fix` upload it and rewrite the
+   * `path` to the ref below.
+   *
    * @example
    * const schema = s.file({ accept: "application/pdf" }).remote();
    * export default c.define("/example.val.ts", schema, {
-   *   path: "/public/val/example.pdf",
+   *   path: "https://remote.val.build/file/p/my-project/b/01/v/1.0.0/h/8f2a1c/f/3b9d70/p/public/val/example.pdf",
    *   mimeType: "application/pdf",
    * });
    */

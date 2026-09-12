@@ -60,8 +60,8 @@ export type ContentConstructor = {
 };
 export type ValConstructor = {
   /**
-   * The source path of a value inside a module, or `null` for something that
-   * did not come from Val.
+   * The source path of a value inside a module, or `undefined` for something
+   * that did not come from Val.
    *
    * A path is what every Val API addresses content by, so this is the way from
    * a value you are holding back to the thing the Studio, a patch or a

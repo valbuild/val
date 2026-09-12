@@ -83,6 +83,7 @@ export const initVal = (
      * comparison, a URL, anything sent to an API.
      *
      * @example
+     * import pageVal from "./page.val";
      * const page = useVal(pageVal);
      * const slug = val.raw(page.slug);
      */
@@ -93,10 +94,15 @@ export const initVal = (
      * This is typically used to manually set the data-val-path attribute for visual editing on any element.
      *
      * @example
-     * const page = useVal(pageVal)
-     * <a href={page.url.href} {...val.attrs(page)}>
-     *   {page.url.label}
-     * </a>
+     * import pageVal from "./page.val";
+     * function PageLink() {
+     *   const page = useVal(pageVal);
+     *   return (
+     *     <a href={page.url.href} {...val.attrs(page)}>
+     *       {page.url.label}
+     *     </a>
+     *   );
+     * }
      */
     attrs: typeof attrs;
     /**
@@ -108,6 +114,7 @@ export const initVal = (
      * path is not part of the public API yet.
      *
      * @example
+     * import pageVal from "./page.val";
      * const page = useVal(pageVal);
      * const paths = val.unstable_decodeValPathsOfString(page.title);
      */

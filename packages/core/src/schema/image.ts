@@ -153,12 +153,17 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
    * published image lives: `path` becomes a remote URL rather than a path
    * under `/public`, so the repository does not grow with every upload.
    *
+   * The `path` of a remote image is a URL on the content host, and it is not
+   * something to write by hand: upload the image in the Studio, or write a
+   * local path and let `npx val validate --fix` upload it and rewrite the
+   * `path` to the ref below.
+   *
    * @example
    * const schema = s
    *   .image({ accept: "image/webp", directory: "/public/val/images" })
    *   .remote();
    * export default c.define("/example.val.ts", schema, {
-   *   path: "/public/val/images/example.webp",
+   *   path: "https://remote.val.build/file/p/my-project/b/01/v/1.0.0/h/8f2a1c/f/3b9d70/p/public/val/images/example.webp",
    *   width: 100,
    *   height: 100,
    *   mimeType: "image/webp",

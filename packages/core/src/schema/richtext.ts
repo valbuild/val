@@ -124,7 +124,7 @@ export class RichTextSchema<
    * @example
    * const schema = s.richtext().minLength(20).maxLength(280);
    * export default c.define("/example.val.ts", schema, [
-   *   { tag: "p", children: ["Hello"] },
+   *   { tag: "p", children: ["Long enough to clear the minimum length."] },
    * ]);
    */
   minLength(min: number): RichTextSchema<O, Src> {
