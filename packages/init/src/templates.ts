@@ -215,9 +215,9 @@ export const testSchema = s.object({
   image: s.image().nullable(),
 
   /**
-   * String enums: presents as a dropdown in the UI
+   * Enums: presents as a dropdown in the UI
    */
-  stringEnum: s.union(s.literal("lit-0"), s.literal("lit-1")),
+  stringEnum: s.enum("lit-0", "lit-1"),
 
   /**
    * Raw strings disables the stega (steganography) feature that automatically tags content when using the overlay.
@@ -226,11 +226,12 @@ export const testSchema = s.object({
   slug: s.string().raw(),
 
   /**
-   * Object unions: presents as a dropdown in the UI and the different fields
+   * Discriminated unions: presents as a dropdown in the UI, plus the fields of
+   * whichever variant is selected
    *
-   * @docs https://val.build/docs/api/schema/union
+   * @docs https://val.build/docs/api/schema/discriminated-union
    */
-  objectUnions: s.union(
+  objectUnions: s.discriminatedUnion(
     "type",
     s.object({
       type: s.literal("page-type-1"),

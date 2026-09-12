@@ -10,7 +10,8 @@ import { SettingsFields } from "./fields/SettingsFields";
 import { RichTextField } from "./fields/RichTextField";
 import { RouteField } from "./fields/RouteField";
 import { StringField } from "./fields/StringField";
-import { UnionField } from "./fields/UnionField";
+import { DiscriminatedUnionField } from "./fields/DiscriminatedUnionField";
+import { EnumField } from "./fields/EnumField";
 import { DateField } from "./fields/DateField";
 import { DateTimeField } from "./fields/DateTimeField";
 import { CodeField } from "./fields/CodeField";
@@ -128,9 +129,9 @@ export function AnyField({
         errorDisplay={errorDisplay}
       />
     );
-  } else if (schema.type === "union") {
+  } else if (schema.type === "discriminated-union") {
     return (
-      <UnionField
+      <DiscriminatedUnionField
         key={path}
         path={path}
         readonly={effectiveReadonly}
@@ -139,6 +140,8 @@ export function AnyField({
         errorDisplay={errorDisplay}
       />
     );
+  } else if (schema.type === "enum") {
+    leaf = <EnumField key={path} path={path} readonly={effectiveReadonly} />;
   } else if (schema.type === "keyOf") {
     leaf = <KeyOfField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "route") {
