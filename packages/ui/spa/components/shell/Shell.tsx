@@ -810,8 +810,17 @@ export function Shell({
         select(next);
         return;
       }
-      // A content hit is a path inside a module, which no row can stand for.
-      onOpenSearchResult?.(result);
+      // A content or recent hit is a path inside a module, which no row can
+      // stand for, so it is opened by path instead.
+      //
+      // A NAVIGATION row that resolves to nothing is a different thing: its id
+      // is not a source path, so opening it as one navigates to something that
+      // does not exist. `collectSearchResults` no longer offers those rows;
+      // this makes the fallback say what it means rather than treat every
+      // unresolved id as a path.
+      if (result.kind === "content" || result.kind === "recent") {
+        onOpenSearchResult?.(result);
+      }
     },
     [data, select, onOpenSearchResult],
   );
