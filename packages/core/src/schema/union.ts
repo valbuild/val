@@ -58,6 +58,14 @@ type EnumSourceOf<T extends Schema<string>[]> = T extends Schema<infer S>[]
  *
  * @example // was: s.union(s.literal("a"), s.literal("b"))
  * s.enum("a", "b")
+ *
+ * One thing does NOT survive the literal form: an enum's values are strings,
+ * so a member literal's own `.validate()` and `.describe()` are dropped rather
+ * than carried over. `s.union(s.literal("a").validate(...), ...)` ran that
+ * validator as part of deciding whether the value matched; `s.enum` has no
+ * member to run. A validator on a single-valued literal could only accept or
+ * reject that one value, which the enum's own value list already decides — but
+ * if you rely on one, keep it by validating the enum itself.
  */
 export function union<
   Key extends string,

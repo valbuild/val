@@ -226,6 +226,41 @@ describe("module", () => {
     expect(res.status).toStrictEqual("error");
   });
 
+  // `typeof null === "object"`, so a path under a nullable union holding null
+  // used to index into null and throw a TypeError.
+  test("resolvePath: descending into a null nullable union errors, not throws", () => {
+    const schema = object({
+      cta: discriminatedUnion(
+        "type",
+        object({ type: literal("a"), v: string() }),
+      ).nullable(),
+    });
+    expect(() =>
+      resolveAtPath(
+        '"cta"."v"' as ModulePath,
+        { cta: null } as SelectorOfSchema<typeof schema>,
+        schema,
+      ),
+    ).toThrow(
+      /expected discriminated union source to be an object, but got null/,
+    );
+  });
+
+  test("safeResolvePath: the same case returns a structured error", () => {
+    const schema = object({
+      cta: discriminatedUnion(
+        "type",
+        object({ type: literal("a"), v: string() }),
+      ).nullable(),
+    });
+    const res = safeResolveAtPath(
+      '"cta"."v"' as ModulePath,
+      { cta: null } as SelectorOfSchema<typeof schema>,
+      schema,
+    );
+    expect(res.status).toStrictEqual("error");
+  });
+
   test("parentOfSourcePath", () => {
     const base = '/content/test?p="one".2."three"' as SourcePath;
     expect(parentOfSourcePath(base)).toStrictEqual('/content/test?p="one".2');

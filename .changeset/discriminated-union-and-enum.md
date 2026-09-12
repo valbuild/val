@@ -59,6 +59,25 @@ Two behaviour changes fall out of the split, both of them fixes:
   it goes through the same error rendering as every other leaf field; the string
   union bypassed it and showed nothing in those places.
 
+Several latent crashes in the old `s.union` are fixed on the way past, all of
+them cases where it threw a `TypeError` instead of reporting:
+
+- A required discriminated union holding `null` now reports a type error rather
+  than throwing, and resolving a path underneath a nullable one that is `null`
+  gives the error the API promises instead of a crash.
+- `s.literal("")` is a legal discriminator tag, and `s.enum("")` a legal value.
+  Both used to be treated as absent by a truthiness check — in path resolution,
+  in stega encoding, and in the message that lists a union's valid tags. The
+  editor's dropdowns handle them too: an empty value is reserved by the select
+  component and had to be mapped around.
+- A variant that omits the discriminator entirely is now reported as the schema
+  error it is, instead of throwing while the check looked for it.
+- An enum's value is now indexed for search, like every other string leaf. The
+  old string union was never indexed at all, so searching for one of its values
+  could not find the field.
+- A nullable discriminated union set to `null` no longer renders a spinner that
+  never resolves.
+
 `s.discriminatedUnion` also requires at least one variant, as `s.enum` requires
 at least one value: a union with nothing to select is not a thing to write, and
 everything downstream reads the first variant where it needs any.

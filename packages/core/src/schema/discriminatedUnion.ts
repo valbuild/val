@@ -182,9 +182,11 @@ export class DiscriminatedUnionSchema<
     const serializedSchemas = objectSchemas.map((schema) =>
       schema["executeSerialize"](),
     );
+    // `items[key]?` — a variant that OMITS the discriminator is exactly what
+    // this check exists to report, so it must not throw while finding it.
     const illegalSchemas = serializedSchemas.filter(
       (schema) =>
-        !(schema.type === "object") || !(schema.items[key].type === "literal"),
+        !(schema.type === "object") || schema.items[key]?.type !== "literal",
     );
 
     if (illegalSchemas.length > 0) {
@@ -209,9 +211,13 @@ export class DiscriminatedUnionSchema<
       });
     }
 
-    if (typeof unknownSrc !== "object") {
+    // `typeof null === "object"`, so null has to be named separately or it
+    // reaches `objectSrc[key]` below and throws instead of reporting.
+    if (unknownSrc === null || typeof unknownSrc !== "object") {
       return structural({
-        message: `Expected an object`,
+        message: `Expected an object, got ${
+          unknownSrc === null ? "null" : typeof unknownSrc
+        }`,
         typeError: true,
       });
     }
@@ -259,7 +265,9 @@ export class DiscriminatedUnionSchema<
             }". Valid values: ${serializedObjectSchemas
               .map((schema) => {
                 const keySchema = schema.items[key];
-                if (keySchema.type === "literal" && keySchema.value) {
+                // The TYPE is the whole test: `s.literal("")` is a valid
+                // discriminator, and a truthiness check threw on it here.
+                if (keySchema.type === "literal") {
                   return `"${keySchema.value}"`;
                 } else {
                   // should not happen here, we already checked this

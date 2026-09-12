@@ -32,6 +32,7 @@ import { Field } from "../../components/Field";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ObjectLikePreview } from "./ObjectFields";
 import { isJsonArray } from "../../utils/isJsonArray";
+import { fromSelectValue, toSelectValue } from "./selectEmptyValue";
 
 export function DiscriminatedUnionField({
   path,
@@ -86,6 +87,13 @@ export function DiscriminatedUnionField({
   }
 
   const source = sourceAtPath.data;
+  // `typeof null === "object"`, so a nullable union holding null used to reach
+  // the editor below, where `useDiscriminatedUnion` finds no tag and answers
+  // `loading` forever — a spinner that never resolves. It is a real state (an
+  // unset optional field), so it previews as null rather than erroring.
+  if (source === null) {
+    return <PreviewNull path={path} />;
+  }
   if (typeof source !== "object") {
     return (
       <FieldSourceError
@@ -270,10 +278,11 @@ export function DiscriminatedUnionTagSelect({
   return (
     <Select
       disabled={readonly}
-      value={state.current}
+      // `s.literal("")` is a legal tag, and `""` is Radix's placeholder value.
+      value={toSelectValue(state.current)}
       onValueChange={(value) => {
         if (readonly) return;
-        state.select(value);
+        state.select(fromSelectValue(value));
       }}
     >
       <SelectTrigger className={className}>
@@ -281,7 +290,7 @@ export function DiscriminatedUnionTagSelect({
       </SelectTrigger>
       <SelectContent container={portalContainer} className="w-32">
         {state.options.map((option) => (
-          <SelectItem key={option} value={option}>
+          <SelectItem key={option} value={toSelectValue(option)}>
             {option}
           </SelectItem>
         ))}

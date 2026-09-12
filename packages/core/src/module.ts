@@ -409,6 +409,15 @@ export function resolvePath<
         resolvedSchema instanceof DiscriminatedUnionSchema
           ? resolvedSchema["key"]
           : resolvedSchema.key;
+      // A nullable union holding `null` has no variant to descend into, and
+      // `null[key]` throws before any of the reporting below can run.
+      if (resolvedSource === null || typeof resolvedSource !== "object") {
+        throw Error(
+          `Schema type error: expected discriminated union source to be an object, but got ${
+            resolvedSource === null ? "null" : typeof resolvedSource
+          } in path: ${path}`,
+        );
+      }
       const keyValue = resolvedSource[key];
       // `undefined`, not falsy: `s.literal("")` is a legal tag, and a variant
       // carrying it was reported as a missing key.
@@ -692,6 +701,16 @@ export function safeResolvePath<
         resolvedSchema instanceof DiscriminatedUnionSchema
           ? resolvedSchema["key"]
           : resolvedSchema.key;
+      // See the note in `resolvePath`: a null union has no variant to descend
+      // into, and this API promises a structured error rather than a throw.
+      if (resolvedSource === null || typeof resolvedSource !== "object") {
+        return {
+          status: "error",
+          message: `Schema type error: expected discriminated union source to be an object, but got ${
+            resolvedSource === null ? "null" : typeof resolvedSource
+          } in path: ${path}`,
+        };
+      }
       const keyValue = resolvedSource[key];
       // See the note in `resolvePath`: an empty-string tag is a present key.
       if (keyValue === undefined) {

@@ -20,6 +20,7 @@ import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchEr
 import { FieldSourceError } from "../../components/FieldSourceError";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ReadonlyGuard } from "./ReadonlyGuard";
+import { fromSelectValue, toSelectValue } from "./selectEmptyValue";
 
 /**
  * One of a fixed set of strings, edited as a dropdown.
@@ -115,7 +116,9 @@ function SelectField({
   return (
     <Select
       disabled={readonly}
-      value={source ?? ""}
+      // Only a genuinely unset value may be `""` here — that is Radix's
+      // "show the placeholder". A source of `""` is one of the enum's values.
+      value={source === null ? "" : toSelectValue(source)}
       onValueChange={(value) => {
         if (readonly) return;
         addPatch(
@@ -123,7 +126,7 @@ function SelectField({
             {
               op: "replace",
               path: patchPath,
-              value: value,
+              value: fromSelectValue(value),
             },
           ],
           "enum",
@@ -138,7 +141,7 @@ function SelectField({
           <LoadingSelectContent />
         ) : (
           options.map((option) => (
-            <SelectItem key={option} value={option}>
+            <SelectItem key={option} value={toSelectValue(option)}>
               {option}
             </SelectItem>
           ))
