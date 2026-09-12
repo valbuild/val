@@ -152,6 +152,31 @@ Each Schema class validates and types its corresponding Source type:
 | `ObjectSchema<T>`   | `SourceObject`                                | `s.object({...})`     |
 | `ArraySchema<T>`    | `SourceArray`                                 | `s.array(schema)`     |
 
+### Choosing between two shapes: `s.discriminatedUnion` and `s.enum`
+
+These were one schema (`s.union`, still exported and still working, now
+deprecated), and splitting them is the whole point: they are not the same kind
+of node, and everything that walks a schema tree has to treat them differently.
+
+- **`s.discriminatedUnion(key, ...objects)`** is a CONTAINER. Every variant is
+  an object with `key` set to a distinct `s.literal(...)`, the value's tag says
+  which variant it is, and the variant's fields are the fields being edited. A
+  walk has to descend through the matching variant — and the variants SHARE the
+  union's path, which is why `executeCustomValidateAt` and `executePreviewItem`
+  dispatch there rather than the caller resolving a child path. Serializes as
+  `{ type: "discriminated-union", key, items }`.
+- **`s.enum("a", "b")`** is a LEAF — a string with a closed domain, like
+  `s.literal` with more than one allowed value. There are no member schemas, so
+  nothing recurses into it, and (like a literal) it is NEVER stega encoded:
+  consumer code compares against those exact strings. Serializes as
+  `{ type: "enum", values }`.
+
+`s.union` dispatches on its first argument (a string key → discriminated union,
+literal schemas → enum) and produces exactly those two, byte-identically
+serialized. There is no third serialized form and no `UnionSchema` class any
+more — `UnionSchema`, `SerializedUnionSchema`, `SerializedStringUnionSchema`
+and `SerializedObjectUnionSchema` are deprecated type aliases.
+
 ## Module System
 
 ### c.define() Pattern

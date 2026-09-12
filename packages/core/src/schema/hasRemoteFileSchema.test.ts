@@ -2,7 +2,7 @@ import { hasRemoteFileSchema } from "./hasRemoteFileSchema";
 import { initVal } from "../initVal";
 import { Schema, type SerializedSchema } from "./index";
 import type { SelectorSource } from "../selector";
-import type { SerializedObjectUnionSchema } from "./union";
+import type { SerializedDiscriminatedUnionSchema } from "./discriminatedUnion";
 import type { SourcePath } from "../val";
 
 const { s } = initVal();
@@ -176,9 +176,9 @@ describe("hasRemoteFileSchema", () => {
     expect(hasRemoteFileSchema(schema)).toBe(true);
   });
 
-  it("should return false for a union schema with no remote files", () => {
-    const schema: SerializedObjectUnionSchema = {
-      type: "union",
+  it("should return false for a discriminated union schema with no remote files", () => {
+    const schema: SerializedDiscriminatedUnionSchema = {
+      type: "discriminated-union",
       opt: false,
       key: "type",
       items: [
@@ -205,9 +205,9 @@ describe("hasRemoteFileSchema", () => {
     expect(hasRemoteFileSchema(schema)).toBe(false);
   });
 
-  it("should return true for a union schema with a remote file", () => {
-    const schema: SerializedObjectUnionSchema = {
-      type: "union",
+  it("should return true for a discriminated union schema with a remote file", () => {
+    const schema: SerializedDiscriminatedUnionSchema = {
+      type: "discriminated-union",
       opt: false,
       key: "type",
       items: [
@@ -334,11 +334,11 @@ describe("hasRemoteFileSchema", () => {
       ).toBe(true);
     });
 
-    it("should find a remote gallery nested in a union", () => {
+    it("should find a remote gallery nested in a discriminated union", () => {
       expect(
         hasRemoteFileSchema(
           serialize(
-            s.union(
+            s.discriminatedUnion(
               "type",
               s.object({
                 type: s.literal("text"),

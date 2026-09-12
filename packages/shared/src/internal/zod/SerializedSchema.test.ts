@@ -213,16 +213,16 @@ describe("SerializedSchema keeps every field the schema wrote", () => {
         .describe("d"),
     ],
     [
-      "union of literals",
+      "enum",
       s
-        .union(s.literal("a"), s.literal("b"))
+        .enum("a", "b")
         .validate(() => false)
         .describe("d"),
     ],
     [
-      "union of objects",
+      "discriminated union",
       s
-        .union("k", s.object({ k: s.literal("a") }))
+        .discriminatedUnion("k", s.object({ k: s.literal("a") }))
         .validate(() => false)
         .describe("d"),
     ],

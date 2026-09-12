@@ -107,6 +107,21 @@ describe("buildSearchIndex", () => {
       '/pages.val.ts?p="/a"."title"',
     ]);
   });
+
+  // An enum's value is a string an editor picked, so it is as findable as any
+  // other string leaf. The former string union was never indexed at all — it
+  // reached the indexer with a schema type the indexer had no branch for, and
+  // fell out at the empty-searchText check.
+  test("indexes enum values", () => {
+    const modules = getModules([
+      c.define(
+        "/content.val.ts",
+        s.object({ size: s.enum("small", "medium", "large") }),
+        { size: "medium" },
+      ),
+    ]);
+    expect(find(modules, "medium")).toEqual(['/content.val.ts?p="size"']);
+  });
 });
 
 describe("performSearch", () => {

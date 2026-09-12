@@ -7,7 +7,8 @@ import {
   type SerializedNumberSchema as SerializedNumberSchemaT,
   type SerializedObjectSchema as SerializedObjectSchemaT,
   type SerializedArraySchema as SerializedArraySchemaT,
-  type SerializedUnionSchema as SerializedUnionSchemaT,
+  type SerializedDiscriminatedUnionSchema as SerializedDiscriminatedUnionSchemaT,
+  type SerializedEnumSchema as SerializedEnumSchemaT,
   type SerializedRichTextSchema as SerializedRichTextSchemaT,
   type SerializedRichTextOptions as SerializedRichTextOptionsT,
   type SerializedRecordSchema as SerializedRecordSchemaT,
@@ -137,26 +138,23 @@ export const SerializedArraySchema: z.ZodType<SerializedArraySchemaT> = z.lazy(
   },
 );
 
-export const SerializedUnionSchema: z.ZodType<SerializedUnionSchemaT> = z.lazy(
-  () => {
-    return z.union([
-      z.object({
-        ...commonSchemaFields,
-        type: z.literal("union"),
-        key: SerializedLiteralSchema,
-        items: z.array(SerializedLiteralSchema),
-        opt: z.boolean(),
-      }),
-      z.object({
-        ...commonSchemaFields,
-        type: z.literal("union"),
-        key: z.string(),
-        items: z.array(SerializedObjectSchema),
-        opt: z.boolean(),
-      }),
-    ]);
-  },
-);
+export const SerializedDiscriminatedUnionSchema: z.ZodType<SerializedDiscriminatedUnionSchemaT> =
+  z.lazy(() => {
+    return z.object({
+      ...commonSchemaFields,
+      type: z.literal("discriminated-union"),
+      key: z.string(),
+      items: z.array(SerializedObjectSchema),
+      opt: z.boolean(),
+    });
+  });
+
+export const SerializedEnumSchema: z.ZodType<SerializedEnumSchemaT> = z.object({
+  ...commonSchemaFields,
+  type: z.literal("enum"),
+  values: z.array(z.string()),
+  opt: z.boolean(),
+});
 
 export const ImageEncodeOption = z.union([
   z.literal(false),
@@ -386,7 +384,8 @@ export const SerializedSchema: z.ZodType<SerializedSchemaT> = z.union([
   SerializedNumberSchema,
   SerializedObjectSchema,
   SerializedArraySchema,
-  SerializedUnionSchema,
+  SerializedDiscriminatedUnionSchema,
+  SerializedEnumSchema,
   SerializedRichTextSchema,
   SerializedRecordSchema,
   SerializedKeyOfSchema,

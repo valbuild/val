@@ -75,7 +75,7 @@ describe("hasCustomValidate", () => {
 
     const inUnionBranch = c.define(
       MODULE,
-      s.union(
+      s.discriminatedUnion(
         "type",
         s.object({ type: s.literal("a"), a: s.string() }),
         s.object({
@@ -122,7 +122,7 @@ describe("collectCustomValidateTargets", () => {
   test("only the union branch the value actually takes", () => {
     // Reporting the other branch's fields would name paths that do not exist in
     // this source, and the main thread would fail to resolve them.
-    const schema = s.union(
+    const schema = s.discriminatedUnion(
       "type",
       s.object({ type: s.literal("a"), a: s.string().validate(() => false) }),
       s.object({ type: s.literal("b"), b: s.string().validate(() => false) }),

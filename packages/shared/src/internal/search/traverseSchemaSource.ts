@@ -133,6 +133,14 @@ export function traverseSchemaSource(
     return;
   }
 
+  // Handle enum: a leaf, like a literal with more than one allowed value
+  if (schema.type === "enum") {
+    if (typeof source === "string") {
+      callback({ source, schema, path });
+    }
+    return;
+  }
+
   // Handle route and locale: both are plain strings at a leaf
   if (schema.type === "route" || schema.type === "locale") {
     if (typeof source === "string") {
@@ -190,37 +198,29 @@ export function traverseSchemaSource(
     return;
   }
 
-  // Handle union
-  if (schema.type === "union") {
+  // Handle discriminated union: descend through the variant the value takes
+  if (schema.type === "discriminated-union") {
     const schemaKey = schema.key;
-    if (typeof schemaKey === "string") {
-      // Tagged union - find matching sub-schema
-      if (
-        source &&
-        typeof source === "object" &&
-        !Array.isArray(source) &&
-        schemaKey in source
-      ) {
-        const itemKey = (source as Record<string, Source>)[schemaKey];
-        if (typeof itemKey === "string") {
-          const schemaOfItem = (schema.items as SerializedObjectSchema[])
-            .filter((item) => item.type === "object")
-            .find((item) => {
-              const itemKeySchema = item.items[schemaKey];
-              if (itemKeySchema?.type === "literal") {
-                return itemKeySchema.value === itemKey;
-              }
-              return false;
-            });
-          if (schemaOfItem) {
-            traverseSchemaSource(source, schemaOfItem, path, callback);
-          }
+    if (
+      source &&
+      typeof source === "object" &&
+      !Array.isArray(source) &&
+      schemaKey in source
+    ) {
+      const itemKey = (source as Record<string, Source>)[schemaKey];
+      if (typeof itemKey === "string") {
+        const schemaOfItem = (schema.items as SerializedObjectSchema[])
+          .filter((item) => item.type === "object")
+          .find((item) => {
+            const itemKeySchema = item.items[schemaKey];
+            if (itemKeySchema?.type === "literal") {
+              return itemKeySchema.value === itemKey;
+            }
+            return false;
+          });
+        if (schemaOfItem) {
+          traverseSchemaSource(source, schemaOfItem, path, callback);
         }
-      }
-    } else {
-      // Literal union - treat as primitive
-      if (typeof source === "string") {
-        callback({ source, schema, path });
       }
     }
     return;

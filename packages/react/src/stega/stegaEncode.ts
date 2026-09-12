@@ -6,7 +6,9 @@ import {
   SerializedSchema,
   SerializedRecordSchema,
   SerializedObjectSchema,
-  SerializedUnionSchema,
+  SerializedDiscriminatedUnionSchema,
+  SerializedEnumSchema,
+  SerializedKeyOfSchema,
   SerializedLiteralSchema,
   SerializedFileSchema,
   SerializedImageSchema,
@@ -245,24 +247,22 @@ export type StegaOfSource<T extends Source> = Json extends T
                   : never;
 
 /**
- * Resolves the matching sub-schema for a tagged union based on the discriminator key.
+ * Resolves the matching variant of a discriminated union from the value's tag.
  * Returns the matching schema or null if no match is found.
  */
-function resolveTaggedUnionSchema(
+function resolveDiscriminatedUnionVariant(
   source: any,
-  schema: SerializedUnionSchema,
+  schema: SerializedDiscriminatedUnionSchema,
 ): SerializedSchema | null {
   const schemaKey = schema.key;
-  if (typeof schemaKey !== "string") {
-    return null;
-  }
-
   if (!source || typeof source !== "object" || Array.isArray(source)) {
     return null;
   }
 
   const key = source[schemaKey];
-  if (!key || typeof key !== "string") {
+  // The `typeof` check is the whole test: a falsy guard here would drop a
+  // variant tagged `s.literal("")`, whose strings would then never be encoded.
+  if (typeof key !== "string") {
     return null;
   }
 
@@ -273,40 +273,19 @@ function resolveTaggedUnionSchema(
         return keySchema.value === key;
       } else {
         console.warn(
-          "Expected literal schema at key in union, but found: ",
+          "Expected literal schema at key in discriminated union, but found: ",
           keySchema,
           { key, schema: s },
         );
       }
     } else {
-      console.warn("Expected union containing object schema, but found: ", s);
+      console.warn(
+        "Expected discriminated union containing object schema, but found: ",
+        s,
+      );
     }
     return false;
   });
-
-  return matchingSchema || null;
-}
-
-/**
- * Resolves the matching sub-schema for a literal union (string-based).
- * Returns the matching schema or null if no match is found.
- */
-function resolveLiteralUnionSchema(
-  source: string,
-  schema: SerializedUnionSchema,
-): SerializedSchema | null {
-  if (typeof schema.key === "string") {
-    return null; // Not a literal union
-  }
-
-  const matchingSchema = [schema.key]
-    .concat(...(schema.items as SerializedLiteralSchema[]))
-    .find((s) => {
-      if (isLiteralSchema(s)) {
-        return s.value === source;
-      }
-      return false;
-    });
 
   return matchingSchema || null;
 }
@@ -434,30 +413,22 @@ export function stegaEncode(
     if (recOpts?.schema && isLocaleSchema(recOpts?.schema)) {
       return sourceOrSelector;
     }
-    if (recOpts?.schema && isUnionSchema(recOpts?.schema)) {
-      // Handle tagged union
-      const taggedSchema = resolveTaggedUnionSchema(
+    // An enum value is one of a fixed set of strings, and consumer code
+    // compares against those strings. Weaving stega into it would break every
+    // such comparison, so it is handed back verbatim — as a literal is.
+    if (recOpts?.schema && isEnumSchema(recOpts?.schema)) {
+      return sourceOrSelector;
+    }
+    if (recOpts?.schema && isDiscriminatedUnionSchema(recOpts?.schema)) {
+      const variantSchema = resolveDiscriminatedUnionVariant(
         sourceOrSelector,
         recOpts.schema,
       );
-      if (taggedSchema) {
+      if (variantSchema) {
         return rec(sourceOrSelector, {
           path: recOpts.path,
-          schema: taggedSchema,
+          schema: variantSchema,
         });
-      }
-      // Handle literal union
-      if (typeof sourceOrSelector === "string") {
-        const literalSchema = resolveLiteralUnionSchema(
-          sourceOrSelector,
-          recOpts.schema,
-        );
-        if (literalSchema) {
-          return rec(sourceOrSelector, {
-            path: recOpts.path,
-            schema: literalSchema,
-          });
-        }
       }
       // No match found, return as is
       return sourceOrSelector;
@@ -624,15 +595,21 @@ function unknownSchema(schema: unknown) {
   return schema;
 }
 
-function isUnionSchema(
+function isDiscriminatedUnionSchema(
   schema: SerializedSchema | undefined,
-): schema is SerializedUnionSchema {
-  return schema?.type === "union";
+): schema is SerializedDiscriminatedUnionSchema {
+  return schema?.type === "discriminated-union";
+}
+
+function isEnumSchema(
+  schema: SerializedSchema | undefined,
+): schema is SerializedEnumSchema {
+  return schema?.type === "enum";
 }
 
 function isKeyOfSchema(
   schema: SerializedSchema | undefined,
-): schema is SerializedUnionSchema {
+): schema is SerializedKeyOfSchema {
   return schema?.type === "keyOf";
 }
 
@@ -674,7 +651,7 @@ function collectReferencedModulesFromSchema(
     }
   } else if (schema.type === "array" || schema.type === "record") {
     collectReferencedModulesFromSchema(schema.item, acc);
-  } else if (schema.type === "union") {
+  } else if (schema.type === "discriminated-union") {
     for (const item of schema.items) {
       collectReferencedModulesFromSchema(item, acc);
     }

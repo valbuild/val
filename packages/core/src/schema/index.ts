@@ -12,7 +12,8 @@ import { SerializedObjectSchema } from "./object";
 import { SerializedRecordSchema } from "./record";
 import { SerializedRichTextSchema } from "./richtext";
 import { RawString, SerializedStringSchema } from "./string";
-import { SerializedUnionSchema } from "./union";
+import { SerializedDiscriminatedUnionSchema } from "./discriminatedUnion";
+import { SerializedEnumSchema } from "./enum";
 import { SerializedCodeSchema } from "./code";
 import { SerializedColorSchema } from "./color";
 import { SerializedDateSchema } from "./date";
@@ -39,7 +40,8 @@ export type SerializedSchema =
   | SerializedNumberSchema
   | SerializedObjectSchema
   | SerializedArraySchema
-  | SerializedUnionSchema
+  | SerializedDiscriminatedUnionSchema
+  | SerializedEnumSchema
   | SerializedRichTextSchema
   | SerializedRecordSchema
   | SerializedKeyOfSchema

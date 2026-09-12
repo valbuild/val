@@ -21,7 +21,8 @@ import { LocaleSchema } from "./locale";
 import { RouteSchema } from "./route";
 import { SettingsSchema } from "./settings";
 import { StringSchema } from "./string";
-import { UnionSchema } from "./union";
+import { DiscriminatedUnionSchema } from "./discriminatedUnion";
+import { EnumSchema } from "./enum";
 
 export function deserializeSchema(
   serialized: SerializedSchema,
@@ -137,14 +138,21 @@ function deserializeSchemaImpl(
         null,
         serialized.render ?? null,
       );
-    case "union":
-      return new UnionSchema(
-        typeof serialized.key === "string"
-          ? serialized.key
-          : // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (deserializeSchema(serialized.key) as any), // TODO: we do not really need any here - right?
+    case "discriminated-union":
+      return new DiscriminatedUnionSchema(
+        serialized.key,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         serialized.items.map(deserializeSchema) as any, // TODO: we do not really need any here - right?
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+        serialized.render ?? null,
+      );
+    case "enum":
+      return new EnumSchema(
+        serialized.values,
         serialized.opt,
         [],
         false,

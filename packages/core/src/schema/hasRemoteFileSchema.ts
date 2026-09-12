@@ -1,7 +1,3 @@
-import type {
-  SerializedObjectUnionSchema,
-  SerializedStringUnionSchema,
-} from "./union";
 import type { SerializedSchema } from "./index";
 
 /**
@@ -72,30 +68,18 @@ export function hasRemoteFileSchema(schema: SerializedSchema): boolean {
       }
     }
     return false;
-  } else if (schema.type === "union") {
-    const unionStringSchema =
-      typeof schema.key === "object" && schema.key.type === "literal"
-        ? (schema as SerializedStringUnionSchema)
-        : undefined;
-    const unionObjectSchema =
-      typeof schema.key === "string"
-        ? (schema as SerializedObjectUnionSchema)
-        : undefined;
-    if (unionStringSchema) {
-      // A string union's items are literals, so there is nothing to look inside.
-      return false;
-    }
-    if (unionObjectSchema) {
-      for (const item of unionObjectSchema.items) {
-        const hasRemoteFile = hasRemoteFileSchema(item);
-        if (hasRemoteFile) {
-          return true;
-        }
+  } else if (schema.type === "discriminated-union") {
+    for (const item of schema.items) {
+      const hasRemoteFile = hasRemoteFileSchema(item);
+      if (hasRemoteFile) {
+        return true;
       }
     }
     return false;
   } else if (
     schema.type === "boolean" ||
+    // An enum's values are strings, so there is nothing to look inside.
+    schema.type === "enum" ||
     schema.type === "number" ||
     schema.type === "string" ||
     schema.type === "literal" ||
@@ -159,22 +143,17 @@ export function hasMediaSchema(schema: SerializedSchema): boolean {
       }
     }
     return false;
-  } else if (schema.type === "union") {
-    const unionObjectSchema =
-      typeof schema.key === "string"
-        ? (schema as SerializedObjectUnionSchema)
-        : undefined;
-    if (unionObjectSchema) {
-      for (const item of unionObjectSchema.items) {
-        if (hasMediaSchema(item)) {
-          return true;
-        }
+  } else if (schema.type === "discriminated-union") {
+    for (const item of schema.items) {
+      if (hasMediaSchema(item)) {
+        return true;
       }
     }
-    // A string union's items are literals, so there is nothing to look inside.
     return false;
   } else if (
     schema.type === "boolean" ||
+    // An enum's values are strings, so there is nothing to look inside.
+    schema.type === "enum" ||
     schema.type === "number" ||
     schema.type === "string" ||
     schema.type === "literal" ||

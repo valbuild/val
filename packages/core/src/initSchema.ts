@@ -5,6 +5,8 @@ import { object } from "./schema/object";
 import { string } from "./schema/string";
 import { boolean } from "./schema/boolean";
 import { union } from "./schema/union";
+import { discriminatedUnion } from "./schema/discriminatedUnion";
+import { enumSchema } from "./schema/enum";
 import { richtext } from "./schema/richtext";
 import { image } from "./schema/image";
 import { literal } from "./schema/literal";
@@ -72,24 +74,49 @@ export type InitSchema = {
    */
   readonly number: typeof number;
   /**
-   * Define a union.
+   * Define one of several object shapes, told apart by a tag field.
    *
-   * @example // union of string literals
-   * const schema = s.union(s.literal("test"), s.literal("test2"));
-   * export default c.define("/example.val.ts", schema, "test");
+   * The first argument names the field that carries the tag; every object must
+   * set it to a distinct `s.literal(...)`. The editor shows a dropdown of the
+   * tags and the fields of whichever one is selected.
    *
-   * @example // union of string literals
-   * const schema = s.union("type", s.object({
-   *   type: s.literal("test"),
-   *   value: s.string()
-   * }), s.object({
-   *   type: s.literal("test2"),
-   *   value: s.string()
-   * }));
+   * @example
+   * const schema = s.discriminatedUnion("type",
+   *   s.object({ type: s.literal("text"), value: s.string() }),
+   *   s.object({ type: s.literal("image"), value: s.image() }),
+   * );
    * export default c.define("/example.val.ts", schema, {
-   *   type: "test",
+   *   type: "text",
    *   value: "test"
    * });
+   *
+   */
+  readonly discriminatedUnion: typeof discriminatedUnion;
+  /**
+   * Define a string that must be one of a fixed set of values.
+   *
+   * The editor shows a dropdown of the values, in the order they are given.
+   *
+   * @example
+   * const schema = s.enum("primary", "secondary", "ghost");
+   * export default c.define("/example.val.ts", schema, "primary");
+   *
+   */
+  readonly enum: typeof enumSchema;
+  /**
+   * Define a union.
+   *
+   * @deprecated Use `s.discriminatedUnion` for a tagged union of objects, or
+   * `s.enum` for one of a fixed set of strings.
+   *
+   * @example // was: a union of string literals
+   * const schema = s.enum("test", "test2");
+   *
+   * @example // was: a tagged union of objects
+   * const schema = s.discriminatedUnion("type",
+   *   s.object({ type: s.literal("test"), value: s.string() }),
+   *   s.object({ type: s.literal("test2"), value: s.string() }),
+   * );
    *
    */
   readonly union: typeof union;
@@ -356,6 +383,8 @@ export function initSchema() {
     array,
     object,
     number,
+    discriminatedUnion,
+    enum: enumSchema,
     union,
     // oneOf,
     richtext,

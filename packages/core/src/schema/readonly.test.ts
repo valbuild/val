@@ -51,7 +51,7 @@ describe("Schema.readonly()", () => {
     );
     expect(
       s
-        .union("type", s.object({ type: s.literal("a") }))
+        .discriminatedUnion("type", s.object({ type: s.literal("a") }))
         .readonly()
         ["executeSerialize"]().readonly,
     ).toBe(true);
