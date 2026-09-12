@@ -163,7 +163,14 @@ export abstract class Schema<Src extends SelectorSource> {
     src: unknown,
   ): SchemaAssertResult<Src>; // TODO: rename to parse? or _assert / _parse to indicate it is private? Or make protected (requires us to have some sort of calling it in the UX Val code)
   /**
-   * Widen this schema to also accept `null`.
+   * Allow `null` as a value for this field.
+   *
+   * The editor gets a way to clear the field, and the type of the source
+   * widens to include `null` — so consuming code has to handle it.
+   *
+   * `.validate(...)` may be declared before or after `.nullable()`: the
+   * validator is carried over either way. Declared before, its argument is
+   * typed as non-null even though `null` can reach it, so guard for it.
    *
    * Implementations MUST carry `customValidateFunctions` over to the new
    * instance. `.nullable()` returns a copy, so dropping them there silently
@@ -193,6 +200,16 @@ export abstract class Schema<Src extends SelectorSource> {
    * a node the Studio's walker reached before its type was checked. That is why
    * {@link executeCustomValidateFunctions} catches what a validator throws and
    * reports it as a `schemaError` instead of letting it escape.
+   *
+   * @example
+   * const schema = s.object({
+   *   title: s.string(),
+   *   subtitle: s.string().nullable(),
+   * });
+   * export default c.define("/example.val.ts", schema, {
+   *   title: "Hello",
+   *   subtitle: null,
+   * });
    */
   abstract nullable(): Schema<Src | null>;
   /**
@@ -204,6 +221,16 @@ export abstract class Schema<Src extends SelectorSource> {
    * The flag defaults to `true`, so `.readonly()` and `.readonly(true)` are the
    * same thing. `.readonly(false)` leaves the field editable, which is what a
    * schema is anyway - pass it when the decision comes from a variable.
+   *
+   * @example
+   * const schema = s.object({
+   *   id: s.string().readonly(),
+   *   title: s.string(),
+   * });
+   * export default c.define("/example.val.ts", schema, {
+   *   id: "generated-by-the-build",
+   *   title: "Hello",
+   * });
    */
   abstract readonly(isReadonly?: boolean): Schema<Src>;
   /**
@@ -215,6 +242,16 @@ export abstract class Schema<Src extends SelectorSource> {
    * The flag defaults to `true`, so `.hidden()` and `.hidden(true)` are the
    * same thing. `.hidden(false)` leaves the field visible, which is what a
    * schema is anyway - pass it when the decision comes from a variable.
+   *
+   * @example
+   * const schema = s.object({
+   *   title: s.string(),
+   *   internalNotes: s.string().hidden(),
+   * });
+   * export default c.define("/example.val.ts", schema, {
+   *   title: "Hello",
+   *   internalNotes: "Not shown in the editor",
+   * });
    */
   abstract hidden(isHidden?: boolean): Schema<Src>;
   protected abstract executeSerialize(): SerializedSchema;

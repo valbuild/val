@@ -123,7 +123,8 @@ export type InitSchema = {
    * Define a rich text.
    *
    * @example
-   * const schema = s.richtext();
+   * // Every tag and style is off until the options ask for it.
+   * const schema = s.richtext({ h1: true, bold: true });
    * export default c.define("/example.val.ts", schema, [
    *   { tag: "h1", children: ["Title 1"] },
    * ]);
@@ -150,6 +151,7 @@ export type InitSchema = {
    *
    * @example
    * // Backed by a gallery: width, height and mimeType live there.
+   * import galleryVal from "./gallery.val"; // an s.images() module
    * const schema = s.image(galleryVal);
    * export default c.define("/example.val.ts", schema, {
    *   path: "/public/val/example.png",

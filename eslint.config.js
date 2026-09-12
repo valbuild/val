@@ -77,6 +77,42 @@ module.exports = defineConfig([
     },
   },
   /**
+   * `createRequire` is imported in ONE place, and it is not here.
+   *
+   * webpack tries to resolve the argument of a `createRequire` call it can see,
+   * and warns `module.createRequire failed parsing argument.` when the argument
+   * is not a literal. Ours never is — it is a path in the user's project — so
+   * every Next app that bundles `@valbuild/server` into its Val API route got
+   * that warning on every build, about a call that was doing exactly what it
+   * should. `createNodeRequire` reaches the same function through the `Module`
+   * class, which webpack does not tag, and every call site goes through it.
+   */
+  {
+    files: ["packages/server/src/**/*.ts"],
+    ignores: ["packages/server/src/createNodeRequire.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "node:module",
+              importNames: ["createRequire"],
+              message:
+                "Use createNodeRequire from ./createNodeRequire — a direct createRequire import makes webpack warn in every consumer's build.",
+            },
+            {
+              name: "module",
+              importNames: ["createRequire"],
+              message:
+                "Use createNodeRequire from ./createNodeRequire — a direct createRequire import makes webpack warn in every consumer's build.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  /**
    * An e2e assertion reads a BOUNDARY, never the client's own internals.
    *
    * The rule, and why it is a rule, is in `e2e/README.md`. In short: the DOM,

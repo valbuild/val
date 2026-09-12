@@ -53,12 +53,6 @@ type EnumSourceOf<T extends Schema<string>[]> = T extends Schema<infer S>[]
  * @deprecated Use `s.discriminatedUnion(key, ...objects)` for a tagged union of
  * objects, or `s.enum("a", "b")` for one of a fixed set of strings.
  *
- * @example // was: s.union("type", s.object({ type: s.literal("a") }), ...)
- * s.discriminatedUnion("type", s.object({ type: s.literal("a") }), ...)
- *
- * @example // was: s.union(s.literal("a"), s.literal("b"))
- * s.enum("a", "b")
- *
  * One thing does NOT survive the literal form: an enum's values are strings,
  * so a member literal's own `.validate()` and `.describe()` are dropped rather
  * than carried over. `s.union(s.literal("a").validate(...), ...)` ran that
@@ -66,6 +60,19 @@ type EnumSourceOf<T extends Schema<string>[]> = T extends Schema<infer S>[]
  * member to run. A validator on a single-valued literal could only accept or
  * reject that one value, which the enum's own value list already decides — but
  * if you rely on one, keep it by validating the enum itself.
+ *
+ * @example
+ * // was: s.union("type", s.object({ type: s.literal("a"), a: s.string() }))
+ * const schema = s.discriminatedUnion(
+ *   "type",
+ *   s.object({ type: s.literal("a"), a: s.string() }),
+ * );
+ * export default c.define("/example.val.ts", schema, { type: "a", a: "one" });
+ *
+ * @example
+ * // was: s.union(s.literal("a"), s.literal("b"))
+ * const schema = s.enum("a", "b");
+ * export default c.define("/example.val.ts", schema, "a");
  */
 export function union<
   Key extends string,

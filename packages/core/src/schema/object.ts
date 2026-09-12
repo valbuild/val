@@ -80,6 +80,25 @@ export class ObjectSchema<
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is shown next to the field's label in the Val editor, so
+   * it is where you say what an editor needs to know but the field name cannot
+   * carry. It also travels in the serialized schema, which is what the AI
+   * assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s
+   *   .object({ street: s.string(), city: s.string() })
+   *   .describe("Where the office is — shown on the contact page");
+   * export default c.define("/example.val.ts", schema, {
+   *   street: "Torggata 1",
+   *   city: "Oslo",
+   * });
+   */
   describe(description: string | null): ObjectSchema<Props, Src> {
     return new ObjectSchema(
       this.items,
@@ -93,6 +112,32 @@ export class ObjectSchema<
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * An object validator is the place for a rule that spans FIELDS — one field
+   * validated on its own belongs on that field's schema, where the error lands
+   * on the field itself.
+   *
+   * @example
+   * const schema = s
+   *   .object({ from: s.number(), to: s.number() })
+   *   .validate((val) =>
+   *     val.from <= val.to ? false : "'from' must not be after 'to'",
+   *   );
+   * export default c.define("/example.val.ts", schema, { from: 1, to: 4 });
+   */
   validate(
     validationFunction: (src: Src) => false | string,
   ): ObjectSchema<Props, Src> {
@@ -295,6 +340,16 @@ export class ObjectSchema<
    * instead of a preview row that navigates to it.
    *
    * Static configuration, not a callback — see `render.ts`.
+   *
+   * @example
+   * // A page builder: each row edits the object in place, instead of
+   * // navigating to it.
+   * const block = s
+   *   .object({ heading: s.string(), body: s.string() })
+   *   .render({ as: "inline" });
+   * export default c.define("/example.val.ts", s.array(block), [
+   *   { heading: "Hello", body: "World" },
+   * ]);
    */
   render(input: FieldRender): ObjectSchema<Props, Src> {
     return new ObjectSchema(
@@ -313,6 +368,14 @@ export class ObjectSchema<
    * How this VALUE is shown where a preview of it is needed — a row in a
    * sortable list, a reference dropdown, a search hit. Never how the field
    * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * const author = s
+   *   .object({ name: s.string(), role: s.string() })
+   *   .preview(({ val }) => ({ title: val.name, subtitle: val.role }));
+   * export default c.define("/example.val.ts", s.array(author), [
+   *   { name: "Ada", role: "Engineer" },
+   * ]);
    */
   preview(select: ItemPreviewInput<Src>): ObjectSchema<Props, Src> {
     return new ObjectSchema(
