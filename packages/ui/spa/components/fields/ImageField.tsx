@@ -30,7 +30,7 @@ import { array } from "@valbuild/core/fp";
 import { resolveEncodeSettings } from "../../utils/encodeImage";
 import type { ReadImageEncode } from "../../utils/readImage";
 import { useImageUpload } from "./useImageUpload";
-import { MediaSummaryRow, Section, readableFilename } from "./MediaSummaryRow";
+import { MediaSummaryRow, Section } from "./MediaSummaryRow";
 import { HotspotMarker } from "./HotspotMarker";
 import { Dialog, DialogContent, DialogTitle } from "../designSystem/dialog";
 
@@ -478,30 +478,18 @@ export function ImageField({
             <span id={altPath} className="sr-only">
               Description
             </span>
+            {/*
+             * No "Missing" marker and no fill-it-from-the-filename shortcut:
+             * Val has no rule that alt text is required, so an empty field is
+             * not an error and must not be dressed as one. If a schema ever
+             * does require it, the validation error says so through the
+             * normal error path rather than through a badge invented here.
+             */}
             <Input
               value={altText}
               disabled={disabled}
               onChange={(ev) => setAltText(ev.target.value)}
             />
-            <div className="mt-1.5 flex items-center gap-3">
-              {altText === "" && (
-                // Said, not enforced: Val has no rule that alt is required, and
-                // an editor who has not filled it in should be told rather than
-                // blocked.
-                <span className="text-[0.6875rem] text-fg-error-on-surface">
-                  Missing
-                </span>
-              )}
-              {!disabled && fileName && altText === "" && (
-                <button
-                  type="button"
-                  onClick={() => setAltText(readableFilename(fileName))}
-                  className="text-[0.6875rem] text-fg-secondary underline underline-offset-2 hover:text-fg-primary"
-                >
-                  Use the filename
-                </button>
-              )}
-            </div>
           </Section>
         )}
         {source && url && (
