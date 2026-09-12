@@ -46,7 +46,9 @@ export function NodeIcon({
       return <Code size={size} className={className} />;
     case "array":
       return <List size={size} className={className} />;
-    case "union":
+    case "discriminated-union":
+      return <Split size={size} className={className} />;
+    case "enum":
       return <Split size={size} className={className} />;
     case "richtext":
       return <FileText size={size} className={className} />;

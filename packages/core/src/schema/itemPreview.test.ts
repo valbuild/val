@@ -89,7 +89,10 @@ describe("item-level preview", () => {
       s.array(s.string()).preview(p),
       s.object({ a: s.string() }).preview(p),
       s.record(s.string()).preview(p),
-      s.union("type", s.object({ type: s.literal("a") })).preview(p),
+      s
+        .discriminatedUnion("type", s.object({ type: s.literal("a") }))
+        .preview(p),
+      s.enum("a", "b").preview(p),
       s.keyOf(authors).preview(p),
     ];
     for (const schema of schemas) {
@@ -148,9 +151,9 @@ describe("item-level preview", () => {
     ]);
   });
 
-  describe("unions", () => {
+  describe("discriminated unions", () => {
     const blocks = s.array(
-      s.union(
+      s.discriminatedUnion(
         "type",
         s
           .object({ type: s.literal("hero"), heading: s.string() })
@@ -191,7 +194,7 @@ describe("item-level preview", () => {
     test("a union's own preview wins over its variants'", () => {
       const schema = s.array(
         s
-          .union(
+          .discriminatedUnion(
             "type",
             s
               .object({ type: s.literal("hero"), heading: s.string() })
@@ -217,7 +220,7 @@ describe("item-level preview", () => {
       // union inside an array — the walk has to dispatch through the union to
       // reach it.
       const schema = s.array(
-        s.union(
+        s.discriminatedUnion(
           "type",
           s.object({
             type: s.literal("gallery"),

@@ -120,7 +120,11 @@ export function indexModule(
       schema.type === "color" ||
       schema.type === "code" ||
       schema.type === "keyOf" ||
-      schema.type === "route"
+      schema.type === "route" ||
+      // An enum's value is a string the editor chose; it is as searchable as
+      // any other string leaf. The old string union was never indexed at all,
+      // which is the gap this closes.
+      schema.type === "enum"
     ) {
       searchText = source?.toString() ?? "";
       label = source?.toString() ?? "";

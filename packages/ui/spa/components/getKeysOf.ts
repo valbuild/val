@@ -55,6 +55,7 @@ export function getKeysOf(
       schema.type === "number" ||
       schema.type === "boolean" ||
       schema.type === "literal" ||
+      schema.type === "enum" ||
       schema.type === "date" ||
       schema.type === "dateTime" ||
       schema.type === "color" ||

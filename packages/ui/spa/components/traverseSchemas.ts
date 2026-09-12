@@ -6,17 +6,21 @@ import {
   SerializedRecordSchema,
   SerializedSchema,
   SerializedSettingsSchema,
-  SerializedUnionSchema,
+  SerializedDiscriminatedUnionSchema,
   Source,
   SourcePath,
 } from "@valbuild/core";
 import { sourcePathOfChild } from "../utils/sourcePath";
 
+/**
+ * Everything the traversal hands to a visitor rather than descending into.
+ * An enum belongs here: its values are strings, so there is nothing below it.
+ */
 export type LeafSerializedSchema = Exclude<
   SerializedSchema,
   | SerializedObjectSchema
   | SerializedArraySchema
-  | SerializedUnionSchema
+  | SerializedDiscriminatedUnionSchema
   | SerializedRecordSchema
   | SerializedSettingsSchema
 >;
@@ -77,24 +81,22 @@ export function traverseSchemas(
           i++;
         }
       }
-    } else if (schema.type === "union") {
-      // ignore string unions
+    } else if (schema.type === "discriminated-union") {
+      // An enum is not handled here: its values are strings, so it is a leaf.
       const schemaKey = schema.key;
-      if (typeof schemaKey === "string") {
-        if (isObjectOrRecordSource(source)) {
-          const itemKey = (source as Record<string, Source>)[schemaKey];
-          if (typeof itemKey === "string") {
-            const schemaOfItem = (schema.items as SerializedObjectSchema[])
-              .filter((item) => item.type === "object")
-              .find((item) => {
-                const itemKeySchema = item.items[schemaKey];
-                if (itemKeySchema?.type === "literal") {
-                  return itemKeySchema.value === itemKey;
-                }
-              });
-            if (schemaOfItem) {
-              go(sourcePath, schemaOfItem, source);
-            }
+      if (isObjectOrRecordSource(source)) {
+        const itemKey = (source as Record<string, Source>)[schemaKey];
+        if (typeof itemKey === "string") {
+          const schemaOfItem = (schema.items as SerializedObjectSchema[])
+            .filter((item) => item.type === "object")
+            .find((item) => {
+              const itemKeySchema = item.items[schemaKey];
+              if (itemKeySchema?.type === "literal") {
+                return itemKeySchema.value === itemKey;
+              }
+            });
+          if (schemaOfItem) {
+            go(sourcePath, schemaOfItem, source);
           }
         }
       }

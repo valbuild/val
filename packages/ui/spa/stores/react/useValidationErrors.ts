@@ -169,6 +169,13 @@ const NO_ERRORS: ValidationError[] = [];
  * deletes the result and produces a new object. So a stale resolution cannot
  * outlive the inputs it was computed from.
  *
+ * "Any change" has to include changes to OTHER modules, and this is where that
+ * promise is relied on: a `keyOf` error resolves against the referenced record's
+ * keys, so `ValidationStore` invalidates this module when those keys move — not
+ * only when this module's own source does (see `resolvedAgainst` there). Before
+ * it did, renaming a page and then discarding the rename left the field pointing
+ * at it showing "does not exist" about a key that was back, from this cache.
+ *
  * A `WeakMap` because the key is the store's own object and the store decides
  * when it dies. Cached at all because the alternative is resolving the whole
  * module's errors once per FIELD in it — `useValidationErrors` is on every field

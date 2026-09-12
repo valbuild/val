@@ -15,7 +15,7 @@ import { number } from "./schema/number";
 import { object } from "./schema/object";
 import { settings } from "./schema/settings";
 import { string, StringSchema } from "./schema/string";
-import { union } from "./schema/union";
+import { discriminatedUnion } from "./schema/discriminatedUnion";
 import { GetSource } from "./selector";
 import { newSelectorProxy } from "./selector/SelectorProxy";
 import { ModulePath, SourcePath } from "./val";
@@ -156,10 +156,10 @@ describe("module", () => {
   //   expect(res.source).toStrictEqual("brun");
   // });
 
-  test("getSchemaAtPath: union", () => {
+  test("getSchemaAtPath: discriminated union", () => {
     const basicSchema = array(
       object({
-        foo: union(
+        foo: discriminatedUnion(
           "type",
           object({ type: literal("test1"), bar: object({ zoo: string() }) }),
           object({ type: literal("test2"), bar: object({ zoo: number() }) }),
@@ -180,6 +180,85 @@ describe("module", () => {
     );
     expect(res.schema).toStrictEqual(number()["executeSerialize"]());
     expect(res.source).toStrictEqual(1);
+  });
+
+  // `""` is a legal `s.literal`, so it is a legal tag. Resolving used to test
+  // the tag for truthiness and reported the variant as a missing key.
+  test("getSchemaAtPath: a discriminated union tagged with an empty string", () => {
+    const schema = discriminatedUnion(
+      "type",
+      object({ type: literal(""), bar: string() }),
+      object({ type: literal("named"), bar: number() }),
+    );
+    const res = resolveAtPath(
+      '"bar"' as ModulePath,
+      { type: "", bar: "hi" } as SelectorOfSchema<typeof schema>,
+      schema["executeSerialize"](),
+    );
+    expect(res.schema).toStrictEqual(string()["executeSerialize"]());
+    expect(res.source).toStrictEqual("hi");
+  });
+
+  test("safeResolvePath: a discriminated union tagged with an empty string", () => {
+    const schema = discriminatedUnion(
+      "type",
+      object({ type: literal(""), bar: string() }),
+      object({ type: literal("named"), bar: number() }),
+    );
+    const res = safeResolveAtPath(
+      '"bar"' as ModulePath,
+      { type: "", bar: "hi" } as SelectorOfSchema<typeof schema>,
+      schema["executeSerialize"](),
+    );
+    expect(res.status).toStrictEqual("ok");
+  });
+
+  test("safeResolvePath: a discriminated union with the tag absent is still an error", () => {
+    const schema = discriminatedUnion(
+      "type",
+      object({ type: literal("named"), bar: string() }),
+    );
+    const res = safeResolveAtPath(
+      '"bar"' as ModulePath,
+      { bar: "hi" } as unknown as SelectorOfSchema<typeof schema>,
+      schema["executeSerialize"](),
+    );
+    expect(res.status).toStrictEqual("error");
+  });
+
+  // `typeof null === "object"`, so a path under a nullable union holding null
+  // used to index into null and throw a TypeError.
+  test("resolvePath: descending into a null nullable union errors, not throws", () => {
+    const schema = object({
+      cta: discriminatedUnion(
+        "type",
+        object({ type: literal("a"), v: string() }),
+      ).nullable(),
+    });
+    expect(() =>
+      resolveAtPath(
+        '"cta"."v"' as ModulePath,
+        { cta: null } as SelectorOfSchema<typeof schema>,
+        schema,
+      ),
+    ).toThrow(
+      /expected discriminated union source to be an object, but got null/,
+    );
+  });
+
+  test("safeResolvePath: the same case returns a structured error", () => {
+    const schema = object({
+      cta: discriminatedUnion(
+        "type",
+        object({ type: literal("a"), v: string() }),
+      ).nullable(),
+    });
+    const res = safeResolveAtPath(
+      '"cta"."v"' as ModulePath,
+      { cta: null } as SelectorOfSchema<typeof schema>,
+      schema,
+    );
+    expect(res.status).toStrictEqual("error");
   });
 
   test("parentOfSourcePath", () => {

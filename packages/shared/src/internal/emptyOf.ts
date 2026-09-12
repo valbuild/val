@@ -87,11 +87,22 @@ export function emptyOf(schema: SerializedSchema): Json {
     return null; // returning null is the only thing we can do, however, it means that the patches cannot be applied yet since that might fail
   } else if (schema.type === "literal") {
     return schema.value;
-  } else if (schema.type === "union") {
-    if (typeof schema.key === "string") {
-      return emptyOf(schema.items[0]);
+  } else if (schema.type === "discriminated-union") {
+    // The first variant is what a new value starts as. `s.discriminatedUnion`
+    // requires one, so an empty `items` means a serialized schema that was not
+    // built by it — say so rather than returning `undefined`, which is not
+    // JSON and would be written into a patch as a missing key.
+    if (schema.items.length === 0) {
+      throw Error(
+        "Cannot create an empty value for a discriminated union with no variants",
+      );
     }
-    return schema.key.value;
+    return emptyOf(schema.items[0]);
+  } else if (schema.type === "enum") {
+    if (schema.values.length === 0) {
+      throw Error("Cannot create an empty value for an enum with no values");
+    }
+    return schema.values[0];
   } else if (schema.type === "date") {
     return clampDateString(formatLocalDate(new Date()), schema.options);
   } else if (schema.type === "dateTime") {
