@@ -53,6 +53,22 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is shown next to the field's label in the Val editor, so it is
+   * where you say what an editor needs to know but the field name cannot carry. It
+   * also travels in the serialized schema, which is what the AI assistant and the
+   * MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s
+   *   .enum("draft", "published")
+   *   .describe("Only published pages are built");
+   * export default c.define("/example.val.ts", schema, "draft");
+   */
   describe(description: string | null): EnumSchema<Src> {
     return new EnumSchema<Src>(
       this.values,
@@ -66,6 +82,25 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and before a
+   * publish.
+   *
+   * @example
+   * const schema = s
+   *   .enum("draft", "published")
+   *   .validate((val) =>
+   *     val === "published" ? "Publishing is frozen this week" : false,
+   *   );
+   * export default c.define("/example.val.ts", schema, "draft");
+   */
   validate(validationFunction: (src: Src) => false | string): EnumSchema<Src> {
     return new EnumSchema<Src>(
       this.values,
@@ -217,6 +252,12 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
    * instead of a preview row that navigates to it.
    *
    * Static configuration, not a callback — see `render.ts`.
+   *
+   * @example
+   * const schema = s.array(
+   *   s.enum("draft", "published").render({ as: "inline" }),
+   * );
+   * export default c.define("/example.val.ts", schema, ["draft"]);
    */
   render(input: FieldRender): EnumSchema<Src> {
     return new EnumSchema<Src>(
@@ -235,6 +276,12 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
    * How this VALUE is shown where a preview of it is needed — a row in a
    * sortable list, a reference dropdown, a search hit. Never how the field
    * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * const schema = s.array(
+   *   s.enum("draft", "published").preview(({ val }) => ({ title: val })),
+   * );
+   * export default c.define("/example.val.ts", schema, ["draft"]);
    */
   preview(select: ItemPreviewInput<Src>): EnumSchema<Src> {
     return new EnumSchema<Src>(
