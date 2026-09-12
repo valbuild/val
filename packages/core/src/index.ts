@@ -231,8 +231,32 @@ export {
 } from "./preview";
 export { type InlineRender, type FieldRender, isInlineRender } from "./render";
 export type { ValRouter, RouteValidationError } from "./router";
-export { getSourcePathFromRoute } from "./getSourcePathFromRoute";
-import { nextAppRouter, externalPageRouter } from "./router";
+export {
+  parseNextJsRoutePattern,
+  parseTanStackRoutePattern,
+  tanStackSegmentsOfRoutePath,
+  validateUrlAgainstPattern,
+} from "./router";
+export { getSourcePathFromRoute, isPageRouter } from "./getSourcePathFromRoute";
+import { nextAppRouter, tanstackRouter, externalPageRouter } from "./router";
+
+/**
+ * This package's version, inlined at build time.
+ *
+ * A static JSON import rather than `require("../package.json")`, which is what
+ * this used to be: `require` does not exist in an ESM bundle, so anything that
+ * bundles core for a browser or an ESM server — the Studio's own Vite build, a
+ * TanStack Start app — got `null` here, silently. That is not only a display
+ * value: `Internal.remote.createRemoteRef` puts the core version in a remote
+ * file's ref, and proxy mode refuses to start without it. preconstruct inlines
+ * this at build time (it ships `@rollup/plugin-json`), and every bundler and
+ * jest resolve it in dev.
+ *
+ * A default import, not `import { version }`: preconstruct configures
+ * `@rollup/plugin-json` with `namedExports: false`, so a named import fails the
+ * BUILD (not the typecheck) with "'version' is not exported by package.json".
+ */
+import corePackageJson from "../package.json";
 
 export const FATAL_ERROR_TYPES = [
   "no-schema",
@@ -248,14 +272,7 @@ export const DEFAULT_APP_HOST = "https://admin.val.build";
 
 const Internal = {
   VERSION: {
-    core: ((): string | null => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        return require("../package.json").version;
-      } catch {
-        return null;
-      }
-    })(),
+    core: corePackageJson.version,
   },
   mediaUrl,
   resolveMedia,
@@ -272,6 +289,7 @@ const Internal = {
   splitModuleFilePathAndModulePath,
   joinModuleFilePathAndModulePath,
   nextAppRouter,
+  tanstackRouter,
   externalPageRouter,
   color: {
     parseColor,

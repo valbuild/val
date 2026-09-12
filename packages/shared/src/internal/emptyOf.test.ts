@@ -61,3 +61,40 @@ describe("emptyOf, for a record with a declared key set", () => {
     ).toEqual({ title: "", byLanguage: { "en-US": null } });
   });
 });
+
+describe("emptyOf and the language being worked in", () => {
+  test("a locale field is created set to the one language in play", () => {
+    // The point of the whole thing: adding an item while the Studio is
+    // filtered to Norwegian gives a Norwegian item, not an invalid one that
+    // vanishes from the list the moment it is written.
+    const schema = s.object({ locale: s.locale(), title: s.string() });
+    expect(
+      emptyOf(schema["executeSerialize"](), {
+        locales: ["en-US", "nb-NO"],
+        selectedLocale: "nb-NO",
+      }),
+    ).toEqual({ locale: "nb-NO", title: "" });
+  });
+
+  test("with no language in play it is unset, and validation says so", () => {
+    // NOT `locales[0]`: guessing would file content under a language nobody
+    // chose, which is the state this feature exists to make visible.
+    const schema = s.object({ locale: s.locale(), title: s.string() });
+    expect(
+      emptyOf(schema["executeSerialize"](), { locales: ["en-US", "nb-NO"] }),
+    ).toEqual({ locale: "", title: "" });
+  });
+
+  test("it reaches a locale field however deep it is", () => {
+    const schema = s.object({
+      sections: s.array(s.object({ locale: s.locale() })),
+    });
+    // An array starts empty, so the field is reached through what CREATES a
+    // row — the item schema — which is what the Studio's add paths pass.
+    const item = s.object({ locale: s.locale() });
+    expect(emptyOf(schema["executeSerialize"](), {})).toEqual({ sections: [] });
+    expect(
+      emptyOf(item["executeSerialize"](), { selectedLocale: "fr-FR" }),
+    ).toEqual({ locale: "fr-FR" });
+  });
+});

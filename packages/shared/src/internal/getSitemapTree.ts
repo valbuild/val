@@ -3,7 +3,9 @@ import {
   ModuleFilePath,
   ModulePath,
   SourcePath,
+  tanStackSegmentsOfRoutePath,
 } from "@valbuild/core";
+import { isTanStackRoutesFolder } from "./getNextAppRouterSourceFolder";
 
 export type PageNode = {
   type: "leaf";
@@ -31,8 +33,14 @@ export type SitemapNode = {
   sourcePath?: SourcePath | ModuleFilePath;
 };
 
-// Strictly speaking this should be in the next package but it's shared, because we want to use it in the ui package. We want to resolve that somehow
-export function getNextAppRouterSitemapTree(
+// Strictly speaking this should be in the framework packages but it's shared,
+// because we want to use it in the ui package. We want to resolve that somehow.
+//
+// It is one function for both page routers because the tree it builds is made
+// of URL paths, which is the same thing in either: only `srcFolder` and the
+// pattern derivation differ, and both of those are arguments (or the one call
+// below).
+export function getPageRouterSitemapTree(
   srcFolder: string,
   paths: { urlPath: string; moduleFilePath: string }[],
 ): SitemapNode {
@@ -137,10 +145,28 @@ export function getNextAppRouterSitemapTree(
   return root;
 }
 
+/**
+ * The route pattern a page-router module serves, e.g. `/blogs/[blog]`.
+ *
+ * Written in Next's vocabulary for both routers on purpose: the pattern is read
+ * by `parseRoutePattern`, the sitemap and the Studio's key inputs, none of which
+ * should have to know which framework the project uses. The TanStack branch
+ * translates that framework's conventions into it; see
+ * `tanStackSegmentsOfRoutePath` in `@valbuild/core` for the rules.
+ */
 export function getPatternFromModuleFilePath(
   moduleFilePath: string,
   srcFolder: string,
 ) {
+  if (isTanStackRoutesFolder(srcFolder)) {
+    const routePath = moduleFilePath
+      .slice(srcFolder.length)
+      .replace(/\.val\.[tj]sx?$/, "");
+    const segments = tanStackSegmentsOfRoutePath(routePath);
+    // "" rather than "/" for the root, so it matches what the Next branch
+    // returns for `/app/page.val.ts` — `parseRoutePattern` reads both as [].
+    return segments.length === 0 ? "" : `/${segments.join("/")}`;
+  }
   return (
     moduleFilePath
       .replace(srcFolder, "")

@@ -3,6 +3,31 @@ import fs from "fs";
 import path from "path";
 import ts from "typescript";
 
+/**
+ * Read a tsconfig/jsconfig, comments and all.
+ *
+ * `JSON.parse` is not enough: a tsconfig is JSONC, and plenty of templates ship
+ * with comments in it — the TanStack Start starter does — so this rule threw
+ * `Expected double-quoted property name in JSON` on the FIRST file of such a
+ * project and took the whole lint run with it. `parseConfigFileTextToJson` is
+ * the parser tsc itself uses; a file it still cannot read yields `{}`, which
+ * leaves the resolution defaults in place rather than failing the run.
+ *
+ * @param {string} configPath
+ * @returns {{ compilerOptions?: ts.CompilerOptions & { baseUrl?: string, paths?: Record<string, string[]> } }}
+ */
+function readConfigFile(configPath) {
+  try {
+    const { config, error } = ts.parseConfigFileTextToJson(
+      configPath,
+      fs.readFileSync(configPath, "utf-8"),
+    );
+    return error ? {} : config || {};
+  } catch {
+    return {};
+  }
+}
+
 /** @type {Record<string, ts.ModuleResolutionCache>} */
 const cache = {};
 /**
@@ -43,9 +68,7 @@ export default {
     );
 
     if (tsConfigPath) {
-      const tsConfig = tsConfigPath
-        ? JSON.parse(fs.readFileSync(tsConfigPath, "utf-8"))
-        : {};
+      const tsConfig = readConfigFile(tsConfigPath);
 
       baseUrl = tsConfig.compilerOptions?.baseUrl
         ? path.resolve(projectDir, tsConfig.compilerOptions.baseUrl)
@@ -60,9 +83,7 @@ export default {
         );
       }
     } else if (jsConfigPath) {
-      const jsConfig = jsConfigPath
-        ? JSON.parse(fs.readFileSync(jsConfigPath, "utf-8"))
-        : {};
+      const jsConfig = readConfigFile(jsConfigPath);
 
       baseUrl = jsConfig.compilerOptions?.baseUrl
         ? path.resolve(projectDir, jsConfig.compilerOptions.baseUrl)

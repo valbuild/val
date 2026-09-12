@@ -188,6 +188,41 @@ broken the moment its write comes back.
 > broken tile still returns **200** with a `src` that looks right. Only decoding
 > it — `naturalWidth > 0` — can tell. Any test here asserts on that.
 
+## Why `/files` has no auth, and `/history/files` does
+
+These two look like the same endpoint and are not, so they are documented
+together — an "inconsistency" that gets tidied in either direction breaks
+something.
+
+**`/api/val/files` is unauthenticated on purpose, and cannot be otherwise.** A
+draft image is fetched by the app's own backend during Next image optimisation.
+That is a backend-to-backend request: no browser, no cookies, nothing to
+authenticate with. Requiring auth would not tighten anything — it would black
+out every unpublished image in the Studio the moment the app runs its images
+through the optimiser.
+
+What stands in for the credential is the `patch_id`. It is a UUID, so a
+published path stays public (it already is) and an unpublished one is only
+reachable by someone who already knows a patch id. The trade is written out in
+full at the route itself in `ValServer.ts`; the short version is that guessing
+one is infeasible, shimming it into a frontend is work, and the prize is an
+image about to be published anyway.
+
+**`/api/val/history/files` is authenticated**, and neither half of that argument
+transfers to it:
+
+- Its token is a **commit sha**, which is not a secret. It is in `git log`, in
+  the GitHub UI, on every pull request. A sha cannot stand in for a credential
+  the way a patch id does.
+- Nothing fetches it server-side. Both callers are the Studio, in a browser that
+  has the session cookie — the history pane's `<img>`, and `stageRestore`'s
+  `fetch`, both same-origin so the cookie is sent. There is no optimiser path to
+  keep open, so asking for auth costs nothing.
+
+So: **`/files` open because it must be and can afford to be; `/history/files`
+closed because it can be and should be.** Before changing either, check which of
+those two properties you are relying on.
+
 ## Nav placement
 
 A collection is deliberately **not** an Explorer file. `collectMediaModules`

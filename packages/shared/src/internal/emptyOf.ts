@@ -55,15 +55,25 @@ function clampDateTimeString(
 /**
  * What `emptyOf` cannot read off a serialized schema.
  *
- * Only the project's languages, so far. A locale-keyed record has one entry per
- * language and the languages are declared in the settings module — another file
- * — so an empty one cannot be built without being told. Optional throughout:
- * a caller that has no context gets an empty record, which validation then
- * reports, rather than a wrong one.
+ * The project's languages, and which one is being worked in. Neither is in the
+ * schema: a locale-keyed record has one entry per language and the languages
+ * are declared in the settings module, and "which language am I writing" is a
+ * fact about the editor, not about the content. Optional throughout: a caller
+ * that has no context gets an empty record and an unset locale, which
+ * validation then reports, rather than wrong ones.
  */
 export type EmptyOfContext = {
   /** `locales.available` from the settings module. */
   locales?: string[];
+  /**
+   * The one language being worked in, where the editor has narrowed to one.
+   *
+   * A new `s.locale()` field is created already set to it. Someone filtered to
+   * Norwegian is writing Norwegian, and a new item that defaulted to unset
+   * would fail validation and vanish from the list they are looking at, in
+   * that order.
+   */
+  selectedLocale?: string;
 };
 
 export function emptyOf(
@@ -106,11 +116,13 @@ export function emptyOf(
     return ""; // Empty string as default route value
   } else if (schema.type === "locale") {
     // Which languages exist is in the settings module, which `emptyOf` has no
-    // access to — it works from a serialized schema alone. The empty string is
-    // not one of them, so validation reports it, which is the honest outcome:
-    // the Studio's add paths choose a real language, and a caller that has not
-    // been given one has not been given one.
-    return "";
+    // access to — it works from a serialized schema alone. So a caller that
+    // has narrowed to one language says so and gets it; a caller that has not
+    // gets the empty string, which is not a language and which validation
+    // reports. Guessing `locales[0]` instead would file content under a
+    // language nobody chose, which is the thing this whole feature exists to
+    // make visible.
+    return context?.selectedLocale ?? "";
   } else if (schema.type === "file" || schema.type === "image") {
     return null; // returning null is the only thing we can do, however, it means that the patches cannot be applied yet since that might fail
   } else if (schema.type === "literal") {

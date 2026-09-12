@@ -2153,6 +2153,24 @@ export class ValOpsHttp extends ValOps {
     return result.ok(res.value.files);
   }
 
+  /**
+   * `root` in front, and never a doubled or missing slash.
+   *
+   * `root` is "" for a project at the repository root and something like
+   * `examples/next` otherwise; a ModuleFilePath always starts with "/". Joining
+   * them by hand at each call site is how one of these ends up with "//" in the
+   * middle, which GitHub answers with a 404 that reads like a missing file.
+   */
+  override gitPathOfModule(
+    moduleFilePath: ModuleFilePath,
+  ): result.Result<string, HistoryError> {
+    const joined = `${this.root}/${moduleFilePath}`
+      .split("/")
+      .filter((part) => part !== "")
+      .join("/");
+    return result.ok(joined);
+  }
+
   override async getFileAtCommit(
     commitSha: string,
     filePath: string,

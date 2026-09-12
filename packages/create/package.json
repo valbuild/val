@@ -1,7 +1,7 @@
 {
   "name": "@valbuild/create",
-  "version": "0.123.0",
-  "description": "Create a new Val project with Next.js",
+  "version": "0.125.0",
+  "description": "Create a new Val project with Next.js or TanStack Start",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/valbuild/val.git"
@@ -38,7 +38,8 @@
     "valbuild",
     "create",
     "cli",
-    "nextjs"
+    "nextjs",
+    "tanstack"
   ],
   "author": "Valbuild",
   "license": "MIT",

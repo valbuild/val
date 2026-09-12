@@ -21,6 +21,12 @@ import {
 import { ReadonlyGuard } from "./ReadonlyGuard";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { localeName } from "../../utils/localeName";
+import { useLocaleFilter } from "../LocaleFilterProvider";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../designSystem/tooltip";
 
 /**
  * One of the project's languages, as a picker.
@@ -41,6 +47,7 @@ export function LocaleField({
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const { patchPath, addPatch } = useAddPatch(path);
   const projectLocales = useProjectLocales();
+  const localeFilter = useLocaleFilter();
   const portalContainer = useValPortal();
   if (schemaAtPath.status === "error") {
     return (
@@ -80,6 +87,7 @@ export function LocaleField({
         options={projectLocales}
         value={sourceAtPath.data ?? null}
         readonly={readonly}
+        filterLocale={localeFilter}
         portalContainer={portalContainer}
         onChange={(next) => {
           addPatch([{ op: "replace", path: patchPath, value: next }], type);
@@ -104,6 +112,7 @@ export function LocalePicker({
   options,
   value,
   readonly,
+  filterLocale,
   onChange,
   portalContainer,
 }: {
@@ -111,6 +120,16 @@ export function LocalePicker({
   options: string[];
   value: string | null;
   readonly?: boolean;
+  /**
+   * The language the Studio's locale filter is narrowed to, or `null` for all.
+   *
+   * Narrowed means this field cannot be changed. Everything on screen is in
+   * that language — that is what the filter did — so changing this one field
+   * to another language would make the thing you are editing disappear as you
+   * saved it, which reads as the Studio losing your work rather than as a
+   * filter doing its job.
+   */
+  filterLocale?: string | null;
   onChange: (next: string) => void;
   portalContainer?: HTMLElement | null;
 }) {
@@ -123,10 +142,13 @@ export function LocalePicker({
       </p>
     );
   }
-  return (
+  // `readonly` already draws its own explanation through `ReadonlyGuard`, so
+  // the filter only speaks where it is the reason.
+  const lockedToFilter = !readonly && filterLocale != null;
+  const select = (
     <Select
       value={value === null || value === "" ? undefined : value}
-      disabled={readonly}
+      disabled={readonly || lockedToFilter}
       onValueChange={onChange}
     >
       <SelectTrigger className="w-full">
@@ -141,6 +163,33 @@ export function LocalePicker({
       </SelectContent>
     </Select>
   );
+  if (!lockedToFilter) {
+    return select;
+  }
+  return (
+    <Tooltip>
+      {/*
+       * The span is load-bearing: a disabled control fires no pointer events,
+       * so a tooltip triggered on the `Select` itself would never open — which
+       * is the one state it exists to explain.
+       */}
+      <TooltipTrigger asChild>
+        <span className="block w-full" tabIndex={0}>
+          {select}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-[280px] text-xs">
+        The locale filter is showing only {localeLabel(filterLocale)}, so this
+        is fixed to it. Clear the filter in the top bar to change it.
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** A language as a person reads it: the name where there is one, else the tag. */
+function localeLabel(locale: string): string {
+  const name = localeName(locale);
+  return name === undefined ? locale : `${name} (${locale})`;
 }
 
 /**

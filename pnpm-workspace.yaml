@@ -6,12 +6,14 @@ packages:
   - packages/language-server
   - packages/mcp
   - packages/next
+  - packages/tanstack
   - packages/react
   - packages/cli
   - packages/create
   - packages/init
   - packages/eslint-plugin
   - examples/next
+  - examples/tanstack
   - packages/server/test/example-projects/*
 
 allowBuilds:

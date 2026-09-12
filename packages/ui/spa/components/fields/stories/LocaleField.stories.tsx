@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { LocalePicker } from "../LocaleField";
+import { TooltipProvider } from "../../designSystem/tooltip";
 
 /**
  * `s.locale()` as an editor meets it: a picker over the project's languages.
@@ -27,6 +28,8 @@ type HarnessProps = {
   projectLocales: string[];
   initial?: string | null;
   readonly?: boolean;
+  /** What the Studio's locale filter is narrowed to, or `null` for all. */
+  filterLocale?: string | null;
 };
 
 /**
@@ -39,26 +42,31 @@ function LocalePickerHarness({
   projectLocales,
   initial = null,
   readonly,
+  filterLocale = null,
 }: HarnessProps) {
   const [value, setValue] = useState<string | null>(initial);
   return (
-    <div
-      data-mode="dark"
-      className="min-h-screen bg-bg-canvas p-6 font-sans text-fg-primary"
-    >
-      <div className="mx-auto flex max-w-[360px] flex-col gap-3">
-        <label className="text-[0.8125rem] font-medium">Language</label>
-        <LocalePicker
-          options={projectLocales}
-          value={value}
-          readonly={readonly}
-          onChange={setValue}
-        />
-        <p className="text-xs text-fg-secondary-alt">
-          Stored: {value === null ? "nothing yet" : <code>{value}</code>}
-        </p>
+    // The real tree gets this from `ValProvider`; a story mounts its own.
+    <TooltipProvider>
+      <div
+        data-mode="dark"
+        className="min-h-screen bg-bg-canvas p-6 font-sans text-fg-primary"
+      >
+        <div className="mx-auto flex max-w-[360px] flex-col gap-3">
+          <label className="text-[0.8125rem] font-medium">Language</label>
+          <LocalePicker
+            options={projectLocales}
+            value={value}
+            readonly={readonly}
+            filterLocale={filterLocale}
+            onChange={setValue}
+          />
+          <p className="text-xs text-fg-secondary-alt">
+            Stored: {value === null ? "nothing yet" : <code>{value}</code>}
+          </p>
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }
 
@@ -97,5 +105,40 @@ export const Readonly: Story = {
     projectLocales: ["en-US", "nb-NO", "fr-FR"],
     initial: "fr-FR",
     readonly: true,
+  },
+};
+
+/**
+ * The locale filter is narrowed to one language, so the field is fixed to it.
+ *
+ * Hover it for the reason. Locking rather than merely defaulting is the point:
+ * everything on screen is Norwegian because the filter made it so, and letting
+ * this one field say otherwise would make the item vanish as it saved — which
+ * reads as the Studio losing your work, not as a filter working.
+ *
+ * A new item created while the filter is on arrives already set to it, so this
+ * is normally a field that is right rather than a field you cannot fix. The
+ * way out is named in the tooltip: clear the filter.
+ */
+export const LockedByFilter: Story = {
+  args: {
+    projectLocales: ["en-US", "nb-NO", "fr-FR"],
+    initial: "nb-NO",
+    filterLocale: "nb-NO",
+  },
+};
+
+/**
+ * Locked by the filter, on a field nobody has set.
+ *
+ * Reachable on content written before the language existed, or by hand. The
+ * placeholder still reads "Pick a language" and the picker will not open,
+ * which is exactly when the tooltip has to name the way out rather than just
+ * saying no.
+ */
+export const LockedByFilterUnset: Story = {
+  args: {
+    projectLocales: ["en-US", "nb-NO", "fr-FR"],
+    filterLocale: "nb-NO",
   },
 };

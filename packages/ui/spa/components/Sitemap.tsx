@@ -3,7 +3,7 @@ import { ChevronRight, Plus, Loader2, FileText, Folder } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { Remote } from "../utils/Remote";
 import {
-  useNextAppRouterSrcFolder,
+  usePageRouterSrcFolder,
   useShallowModulesAtPaths,
 } from "./ValProvider";
 import { AnimateHeight } from "./AnimateHeight";
@@ -11,20 +11,21 @@ import { useNavigation } from "./ValRouter";
 import {
   PageNode,
   SitemapNode,
-  getNextAppRouterSitemapTree,
+  getPageRouterSitemapTree,
 } from "@valbuild/shared/internal";
 import { cn } from "./designSystem/cn";
 import { parseRoutePattern } from "@valbuild/shared/internal";
 import { AddRecordPopover } from "./AddRecordPopover";
 
-// TODO: technically this shouldn't be defined here in the ui package, but it should be in the next package.
-export function NextAppRouterSitemap({
+// TODO: technically this shouldn't be defined here in the ui package, but it
+// should be in the framework packages.
+export function PageRouterSitemap({
   moduleFilePaths,
 }: {
   moduleFilePaths: ModuleFilePath[];
 }) {
   const shallowModules = useShallowModulesAtPaths(moduleFilePaths, "record");
-  const srcFolder = useNextAppRouterSrcFolder();
+  const srcFolder = usePageRouterSrcFolder();
   const rootNode = useMemo((): Remote<SitemapNode> => {
     const paths: { urlPath: string; moduleFilePath: ModuleFilePath }[] = [];
     if (srcFolder.status !== "success") {
@@ -66,7 +67,7 @@ export function NextAppRouterSitemap({
         });
       }
     }
-    const sitemapData = getNextAppRouterSitemapTree(srcFolder.data, paths);
+    const sitemapData = getPageRouterSitemapTree(srcFolder.data, paths);
     return {
       status: shallowModules.status,
       data: sitemapData,
