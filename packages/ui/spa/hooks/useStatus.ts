@@ -544,6 +544,11 @@ async function execStat(
                           deploymentState: message.deployment.deploymentState,
                           createdAt: message.deployment.createdAt,
                           updatedAt: message.deployment.updatedAt,
+                          // The git message, where the content service sends
+                          // one. Copied field by field here, so leaving it out
+                          // dropped it as surely as the schema stripping it
+                          // would have. See `ValDeployment`.
+                          commitMessage: message.deployment.commitMessage,
                         }),
                       },
                       waitStart:

@@ -19,6 +19,7 @@ import {
   SerializedDateTimeSchema,
   SerializedColorSchema,
   SerializedCodeSchema,
+  SerializedLocaleSchema,
 } from "@valbuild/core";
 import { vercelStegaCombine, vercelStegaSplit } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
@@ -406,6 +407,12 @@ export function stegaEncode(
     if (recOpts?.schema && isCodeSchema(recOpts?.schema)) {
       return sourceOrSelector;
     }
+    // A locale ends up in `<html lang>`, in `hreflang`, and in `Intl`
+    // constructors. None of those survive invisible characters: the attribute
+    // carries them into the markup, and `Intl` throws on a tag it cannot parse.
+    if (recOpts?.schema && isLocaleSchema(recOpts?.schema)) {
+      return sourceOrSelector;
+    }
     // An enum value is one of a fixed set of strings, and consumer code
     // compares against those strings. Weaving stega into it would break every
     // such comparison, so it is handed back verbatim — as a literal is.
@@ -569,6 +576,12 @@ function isColorSchema(
   schema: SerializedSchema | undefined,
 ): schema is SerializedColorSchema {
   return schema?.type === "color";
+}
+
+function isLocaleSchema(
+  schema: SerializedSchema | undefined,
+): schema is SerializedLocaleSchema {
+  return schema?.type === "locale";
 }
 
 function isCodeSchema(

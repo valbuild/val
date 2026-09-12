@@ -271,12 +271,18 @@ describe("ColorSchema", () => {
     });
   });
 
-  test("nullable drops custom validate functions, like the other schemas", () => {
+  test("nullable keeps custom validate functions, like every other schema", () => {
     const schema = color()
       .validate(() => "always fails")
       .nullable();
     expect(
       schema["executeValidate"]("path" as SourcePath, raw("hsl(0 100% 50%)")),
-    ).toBe(false);
+    ).toEqual({
+      path: [{ message: "always fails", value: "hsl(0 100% 50%)" }],
+    });
+    // Including when the value IS null: the validator is handed it, not skipped.
+    expect(schema["executeValidate"]("path" as SourcePath, null)).toEqual({
+      path: [{ message: "always fails", value: null }],
+    });
   });
 });

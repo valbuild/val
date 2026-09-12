@@ -24,7 +24,7 @@ import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { FieldSourceError } from "../../components/FieldSourceError";
-import { emptyOf } from "@valbuild/shared/internal";
+
 import { AnyField } from "../../components/AnyField";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { useCallback, useEffect, useRef } from "react";
@@ -32,6 +32,7 @@ import { Field } from "../../components/Field";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ObjectLikePreview } from "./ObjectFields";
 import { isJsonArray } from "../../utils/isJsonArray";
+import { useEmptyOf } from "../../hooks/useEmptyOf";
 import { fromSelectValue, toSelectValue } from "./selectEmptyValue";
 
 export function DiscriminatedUnionField({
@@ -160,6 +161,7 @@ export function useDiscriminatedUnion(
 ): DiscriminatedUnionState {
   const fullSourceAtPath = useSourceAtPath(path);
   const { addPatch, patchPath } = useAddPatch(path);
+  const emptyOf = useEmptyOf();
   const keyPath = sourcePathOfItem(path, schema.key);
   const currentSourceKeyRes = useShallowSourceAtPath(keyPath, "literal");
   const currentKey =
@@ -226,7 +228,7 @@ export function useDiscriminatedUnion(
         schema.type,
       );
     },
-    [addPatch, patchPath, path, schema],
+    [addPatch, patchPath, path, schema, emptyOf],
   );
 
   const options = schema.items.flatMap((item) => {

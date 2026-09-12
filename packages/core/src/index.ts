@@ -165,6 +165,7 @@ export {
 export {
   type SettingsSource,
   type AssistantSettingsSource,
+  type LocalesSettingsSource,
   type AssistantAvailability,
   ASSISTANT_SETTINGS_MAX_LENGTH,
   assistantAvailability,
@@ -175,6 +176,14 @@ export {
   isRootModuleFilePath,
   resolveSettingsModule,
 } from "./settingsModule";
+export { type Locale, localeTagError, localeOfValue } from "./locale";
+export { type SerializedLocaleSchema, LocaleSchema } from "./schema/locale";
+export {
+  type DeclaredKeySet,
+  declaredKeySetOf,
+  missingDeclaredKeys,
+} from "./schema/declaredKeys";
+export { discriminatedUnionBranchOf } from "./schema/discriminatedUnionBranch";
 export {
   type SerializedColorSchema,
   type ColorOptions,

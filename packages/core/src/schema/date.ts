@@ -259,7 +259,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     return new DateSchema<Src | null>(
       this.options,
       true,
-      [],
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.isReadonly,
       this.isHidden,
       this.description,

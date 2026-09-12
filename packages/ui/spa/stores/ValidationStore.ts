@@ -1,13 +1,16 @@
 import {
   Internal,
+  resolveSettingsModule,
   type Json,
   type ModuleFilePath,
   type SerializedSchema,
   type Source,
   type SourcePath,
+  type ValidationError,
   type ValidationErrors,
 } from "@valbuild/core";
 import {
+  declaredLocales,
   getKeyOfRecordAt,
   keyOfRecordPath,
   type SchemaSourceSnapshot,
@@ -83,10 +86,10 @@ const STALE: ValidationResult = { status: "stale" };
  * they were when that module was validated.
  *
  * `keyOf` names the record it points at; a route resolves against the keys of
- * every router record in the project. In both cases the KEYS are the whole of
- * what the resolution reads, so they are what is remembered and compared — an
- * edit inside an entry moves nothing here, and must not cost the referrer a
- * validation.
+ * every router record in the project; `locales` against the project's declared
+ * languages. In every case the KEYS are the whole of what the resolution reads,
+ * so they are what is remembered and compared — an edit inside an entry moves
+ * nothing here, and must not cost the referrer a validation.
  */
 type ResolvedRecord =
   | {
@@ -95,7 +98,8 @@ type ResolvedRecord =
       path: SourcePath;
       keys: string | null;
     }
-  | { kind: "router"; module: ModuleFilePath; keys: string | null };
+  | { kind: "router"; module: ModuleFilePath; keys: string | null }
+  | { kind: "locales"; module: ModuleFilePath; keys: string | null };
 
 type CrossModuleInputs = {
   records: ResolvedRecord[];
@@ -105,6 +109,15 @@ type CrossModuleInputs = {
    * result never saw, so no stored keys can register its keys changing.
    */
   routes: boolean;
+  /**
+   * Any `locale:check-locale` or `record:fill-keys` marker — both resolve
+   * against `locales.available` in the settings module.
+   *
+   * Same reason `routes` is a flag and not just a record: a project with no
+   * settings module yet resolves these against an empty list, and the module
+   * that later declares the languages is one no stored record names.
+   */
+  locales: boolean;
 };
 
 /** The keys of a record as one comparable value, or null if it is not a record. */
@@ -119,6 +132,16 @@ function isRouterRecord(schema: SerializedSchema | undefined): boolean {
   return schema !== undefined && schema.type === "record" && !!schema.router;
 }
 
+/**
+ * The project's languages as one comparable value.
+ *
+ * Ordered, not a set: `record:fill-keys` reports its missing keys in the order
+ * the project declared them, so reordering the list changes the message.
+ */
+function localesNow(snapshot: SchemaSourceSnapshot): string {
+  return JSON.stringify(declaredLocales(snapshot));
+}
+
 function recordKeysNow(
   record: ResolvedRecord,
   snapshot: SchemaSourceSnapshot,
@@ -126,7 +149,39 @@ function recordKeysNow(
   if (record.kind === "router") {
     return keysOf(snapshot.sources[record.module]);
   }
+  if (record.kind === "locales") {
+    return localesNow(snapshot);
+  }
   return keysOf(getKeyOfRecordAt(record.path, snapshot).source);
+}
+
+function isSettingsModule(schema: SerializedSchema | undefined): boolean {
+  return schema !== undefined && schema.type === "settings";
+}
+
+/**
+ * Whether a `record:fill-keys` marker is resolved against the SETTINGS module,
+ * rather than against a key set it already carries.
+ *
+ * The marker is raised for every declared key set, not just locales: a
+ * literal- or enum-keyed record brings its keys along in `declared`, and only a
+ * locale-keyed record leaves them `null` to be read out of settings. Asking the
+ * same question `resolveSchemaSourceFixForError` asks, so the two cannot
+ * disagree about which markers depend on settings at all.
+ *
+ * Without the distinction every declared-key record in the project depended on
+ * settings, so editing an unrelated one — the assistant's context box, which
+ * the panel writes on every keystroke — revalidated all of them.
+ */
+function readsSettingsLocales(error: ValidationError): boolean {
+  if (!(error.fixes ?? []).includes("record:fill-keys")) {
+    return false;
+  }
+  const value = error.value;
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  return !Array.isArray((value as { declared?: unknown }).declared);
 }
 
 export class ValidationStore {
@@ -226,6 +281,9 @@ export class ValidationStore {
     const routerAmong = modules.some((moduleFilePath) =>
       isRouterRecord(this.schemaStore.get(moduleFilePath)),
     );
+    const settingsAmong = modules.some((moduleFilePath) =>
+      isSettingsModule(this.schemaStore.get(moduleFilePath)),
+    );
     const dependents: ModuleFilePath[] = [];
     for (const [dependent, inputs] of this.resolvedAgainst) {
       if (changedSet.has(dependent)) {
@@ -233,6 +291,7 @@ export class ValidationStore {
       }
       if (
         (inputs.routes && routerAmong) ||
+        (inputs.locales && settingsAmong) ||
         inputs.records.some((record) => changedSet.has(record.module))
       ) {
         dependents.push(dependent);
@@ -279,6 +338,9 @@ export class ValidationStore {
     const changedRouters = changed.filter((moduleFilePath) =>
       isRouterRecord(this.schemaStore.get(moduleFilePath)),
     );
+    const changedSettings = changed.filter((moduleFilePath) =>
+      isSettingsModule(this.schemaStore.get(moduleFilePath)),
+    );
     // Who COULD be affected, decided from what is already held. The common
     // case — an edit in a module nothing resolves against — ends here, having
     // read no source at all.
@@ -290,6 +352,7 @@ export class ValidationStore {
       }
       if (
         (inputs.routes && changedRouters.length > 0) ||
+        (inputs.locales && changedSettings.length > 0) ||
         inputs.records.some((record) => changedSet.has(record.module))
       ) {
         candidates.push([dependent, inputs]);
@@ -303,7 +366,7 @@ export class ValidationStore {
     // Read once per record, not once per dependent that names it.
     const keysNow = new Map<string, string | null>();
     const currentKeys = (record: ResolvedRecord): string | null => {
-      const at = record.kind === "router" ? record.module : record.path;
+      const at = record.kind === "keyOf" ? record.path : record.module;
       let keys = keysNow.get(at);
       if (keys === undefined) {
         keys = recordKeysNow(record, snapshot);
@@ -326,7 +389,16 @@ export class ValidationStore {
                 record.kind === "router" && record.module === moduleFilePath,
             ),
         );
-      if (keysMoved || routerAppeared) {
+      const settingsAppeared =
+        inputs.locales &&
+        changedSettings.some(
+          (moduleFilePath) =>
+            !inputs.records.some(
+              (record) =>
+                record.kind === "locales" && record.module === moduleFilePath,
+            ),
+        );
+      if (keysMoved || routerAppeared || settingsAppeared) {
         dependents.push(dependent);
       }
     }
@@ -345,10 +417,18 @@ export class ValidationStore {
     // cross-module pass on every ordinary validation.
     const paths = new Set<SourcePath>();
     let routes = false;
+    let locales = false;
     for (const list of Object.values(errors)) {
       for (const error of list) {
-        if ((error.fixes ?? []).includes("router:check-route")) {
+        const fixes = error.fixes ?? [];
+        if (fixes.includes("router:check-route")) {
           routes = true;
+        }
+        if (
+          fixes.includes("locale:check-locale") ||
+          readsSettingsLocales(error)
+        ) {
+          locales = true;
         }
         const path = keyOfRecordPath(error);
         if (path !== null) {
@@ -356,7 +436,7 @@ export class ValidationStore {
         }
       }
     }
-    if (paths.size === 0 && !routes) {
+    if (paths.size === 0 && !routes && !locales) {
       return null;
     }
     const keyOfModules = [...paths].map(
@@ -371,7 +451,17 @@ export class ValidationStore {
             isRouterRecord(this.schemaStore.get(moduleFilePath)),
           )
       : [];
-    const snapshot = this.snapshotOf([...keyOfModules, ...routers]);
+    // The settings module, which is where `locales.available` is read from.
+    // Null where the project has none — there is then nothing to watch, and
+    // `locales` stays true so that one arriving later is still noticed.
+    const settingsModule = locales
+      ? resolveSettingsModule(this.schemaStore.all()).moduleFilePath
+      : null;
+    const snapshot = this.snapshotOf([
+      ...keyOfModules,
+      ...routers,
+      ...(settingsModule !== null ? [settingsModule] : []),
+    ]);
     const records: ResolvedRecord[] = [];
     for (const path of paths) {
       const [module] = Internal.splitModuleFilePathAndModulePath(path);
@@ -389,7 +479,14 @@ export class ValidationStore {
         keys: keysOf(snapshot.sources[moduleFilePath]),
       });
     }
-    return { records, routes };
+    if (settingsModule !== null) {
+      records.push({
+        kind: "locales",
+        module: settingsModule,
+        keys: localesNow(snapshot),
+      });
+    }
+    return { records, routes, locales };
   }
 
   /**

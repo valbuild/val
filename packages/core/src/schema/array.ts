@@ -203,7 +203,7 @@ export class ArraySchema<
     return new ArraySchema<T, Src | null>(
       this.item,
       true,
-      [],
+      this.customValidateFunctions as ((src: Src | null) => false | string)[],
       this.isReadonly,
       this.isHidden,
       this.description,
@@ -236,6 +236,13 @@ export class ArraySchema<
       this.previewInput,
       this.renderInput,
     );
+  }
+
+  protected override localeScopeChildren(): {
+    key: string;
+    schema: Schema<SelectorSource>;
+  }[] {
+    return [{ key: "*", schema: this.item }];
   }
 
   protected override executeCustomValidateAt(

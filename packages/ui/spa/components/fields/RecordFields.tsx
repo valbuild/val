@@ -4,7 +4,7 @@ import {
   SourcePath,
   isInlineRender,
 } from "@valbuild/core";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   usePreviewAtPath,
   useSchemaAtPath,
@@ -20,6 +20,7 @@ import { useValSystem } from "../../stores/react/SystemContext";
 import { ModuleGallery } from "./ModuleGallery";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
+import { useLocaleFilterPredicate } from "../LocaleFilterProvider";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
@@ -35,6 +36,7 @@ import classNames from "classnames";
 import { PreviewError } from "../PreviewError";
 import { Field } from "../../components/Field";
 import { AnyField } from "../../components/AnyField";
+import { LocaleFiltered } from "../LocaleFilterProvider";
 
 export function RecordFields({
   path,
@@ -51,6 +53,7 @@ export function RecordFields({
 }) {
   const type = "record";
   const validationErrors = useAllValidationErrors() || {};
+  const matchesLocale = useLocaleFilterPredicate();
   const schemaAtPath = useSchemaAtPath(path);
   const previewAtPath = usePreviewAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
@@ -94,6 +97,30 @@ export function RecordFields({
   }
   const source = sourceAtPath.data;
   const schema = schemaAtPath.data;
+  /**
+   * The keys the locale filter leaves on screen.
+   *
+   * A locale-keyed record is the case where a key IS a language, so the filter
+   * can answer from the key alone — no entry has to be loaded to know it is
+   * Norwegian. Every other record is untouched, because its keys say nothing
+   * about language.
+   */
+  const visibleKeys = (keys: string[]): string[] =>
+    keys.filter((key) => matchesLocale({ key, keySchema: schema.key }));
+
+  /**
+   * Whether the KEY already answered the filter for every row.
+   *
+   * For a locale-keyed record it did — `visibleKeys` filtered on it — and
+   * asking each entry again is the same question with three subscriptions
+   * attached per row. It could not even disagree: a locale-keyed record opens a
+   * scope, and a scope may not contain another, so the entry has no locale of
+   * its own to find.
+   *
+   * Every other record's keys say nothing about language, so there the entry is
+   * the only thing that can answer and `LocaleFiltered` does the work.
+   */
+  const keyDecidesLocale = schema.key?.type === "locale";
 
   // Entries are rendered in place either because the caller asked for it
   // (`inline` prop) or because the item schema opted in with
@@ -110,26 +137,35 @@ export function RecordFields({
         <div className={`flex flex-col ${compact ? "gap-3" : "gap-4"}`}>
           {schema.item.hidden
             ? null
-            : Object.entries(sourceEntries).map(([key, itemPath]) => (
-                <Field
-                  key={itemPath}
-                  label={key}
-                  path={itemPath}
-                  type={schema.item.type}
-                  readonly={readonly || schema.item.readonly}
-                  compact={compact}
-                  errorDisplay={errorDisplay}
-                >
-                  <AnyField
+            : Object.entries(sourceEntries)
+                .filter(([key]) =>
+                  matchesLocale({ key, keySchema: schema.key }),
+                )
+                .map(([key, itemPath]) => (
+                  <LocaleFilteredRow
+                    key={itemPath}
                     path={itemPath}
-                    schema={schema.item}
-                    readonly={readonly || schema.item.readonly}
-                    compact={compact}
-                    inline={inline}
-                    errorDisplay={errorDisplay}
-                  />
-                </Field>
-              ))}
+                    alreadyFiltered={keyDecidesLocale}
+                  >
+                    <Field
+                      label={key}
+                      path={itemPath}
+                      type={schema.item.type}
+                      readonly={readonly || schema.item.readonly}
+                      compact={compact}
+                      errorDisplay={errorDisplay}
+                    >
+                      <AnyField
+                        path={itemPath}
+                        schema={schema.item}
+                        readonly={readonly || schema.item.readonly}
+                        compact={compact}
+                        inline={inline}
+                        errorDisplay={errorDisplay}
+                      />
+                    </Field>
+                  </LocaleFilteredRow>
+                ))}
         </div>
       </div>
     );
@@ -155,16 +191,18 @@ export function RecordFields({
           // list that rendered just those could never scroll far enough to load
           // the rest. Each row looks its own item up by key (resolveRefPreview),
           // so a key with no item falls back to a skeleton or the default preview.
-          keys={Object.keys(source)}
+          keys={visibleKeys(Object.keys(source))}
           jsonValues={schema.jsonValues === true}
+          keyDecidesLocale={keyDecidesLocale}
         />
       )}
       {!previewAtPathData && source && (
         <RecordCardList
           path={path}
-          keys={Object.keys(source)}
+          keys={visibleKeys(Object.keys(source))}
           jsonValues={schema.jsonValues === true}
           validationErrors={validationErrors}
+          keyDecidesLocale={keyDecidesLocale}
         />
       )}
     </div>
@@ -189,16 +227,41 @@ const PREVIEW_ROW_HEIGHT = 74;
  */
 const PREVIEW_ROW_CONTENT_HEIGHT = 56;
 
+/**
+ * A record row, filtered by the locale picker unless the KEY already answered.
+ *
+ * `LocaleFiltered` costs a schema lookup and two source reads per row, so it is
+ * worth not asking when the answer is known: see `keyDecidesLocale` in
+ * `RecordFields`.
+ */
+function LocaleFilteredRow({
+  path,
+  alreadyFiltered,
+  children,
+}: {
+  path: SourcePath;
+  alreadyFiltered: boolean;
+  children: ReactNode;
+}) {
+  if (alreadyFiltered) {
+    return <>{children}</>;
+  }
+  return <LocaleFiltered path={path}>{children}</LocaleFiltered>;
+}
+
 function RecordCardList({
   path,
   keys,
   jsonValues,
   validationErrors,
+  keyDecidesLocale,
 }: {
   path: SourcePath;
   keys: string[];
   jsonValues: boolean;
   validationErrors: Record<SourcePath, ValidationError[]>;
+  /** `keys` is already locale-filtered — see `keyDecidesLocale` in `RecordFields`. */
+  keyDecidesLocale: boolean;
 }) {
   const { navigate } = useNavigation();
   const val = useValSystem();
@@ -232,36 +295,41 @@ function RecordCardList({
           );
         }
         return (
-          <div className="pb-4">
-            <div
-              onClick={() => navigate(sourcePathOfItem(path, key))}
-              className={classNames(
-                "bg-bg-primary cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
-                "hover:bg-bg-secondary-hover",
-              )}
-            >
-              <div className="flex justify-between items-start">
-                <div className="pb-4 font-semibold text-md">{key}</div>
-                {isParentError(
-                  sourcePathOfItem(path, key),
-                  validationErrors,
-                ) && <ErrorIndicator />}
-              </div>
-              <div>
-                {unloadedKeys.has(key) ? (
-                  // An un-loaded `.jsonValues()` entry: a preview here would read
-                  // the opaque marker, which is what made these lists a wall of
-                  // spinners.
-                  <RecordRowSkeleton
-                    path={sourcePathOfItem(path, key)}
-                    height={PREVIEW_ROW_CONTENT_HEIGHT}
-                  />
-                ) : (
-                  <RefPreview path={sourcePathOfItem(path, key)} />
+          <LocaleFilteredRow
+            path={sourcePathOfItem(path, key)}
+            alreadyFiltered={keyDecidesLocale}
+          >
+            <div className="pb-4">
+              <div
+                onClick={() => navigate(sourcePathOfItem(path, key))}
+                className={classNames(
+                  "bg-bg-primary cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
+                  "hover:bg-bg-secondary-hover",
                 )}
+              >
+                <div className="flex justify-between items-start">
+                  <div className="pb-4 font-semibold text-md">{key}</div>
+                  {isParentError(
+                    sourcePathOfItem(path, key),
+                    validationErrors,
+                  ) && <ErrorIndicator />}
+                </div>
+                <div>
+                  {unloadedKeys.has(key) ? (
+                    // An un-loaded `.jsonValues()` entry: a preview here would read
+                    // the opaque marker, which is what made these lists a wall of
+                    // spinners.
+                    <RecordRowSkeleton
+                      path={sourcePathOfItem(path, key)}
+                      height={PREVIEW_ROW_CONTENT_HEIGHT}
+                    />
+                  ) : (
+                    <RefPreview path={sourcePathOfItem(path, key)} />
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          </LocaleFilteredRow>
         );
       }}
     />
@@ -324,11 +392,14 @@ function RecordPreviewList({
   path,
   keys,
   jsonValues,
+  keyDecidesLocale,
 }: {
   path: SourcePath;
   /** Every key of the record, in source order — see the call site. */
   keys: string[];
   jsonValues: boolean;
+  /** `keys` is already locale-filtered — see `keyDecidesLocale` in `RecordFields`. */
+  keyDecidesLocale: boolean;
 }) {
   const { navigate } = useNavigation();
   const val = useValSystem();
@@ -362,24 +433,29 @@ function RecordPreviewList({
           );
         }
         return (
-          <div className="pb-4">
-            <button
-              onClick={() => navigate(sourcePathOfItem(path, key))}
-              className={classNames(
-                "w-full hover:bg-bg-secondary-hover",
-                "border rounded-lg cursor-pointer border-border-primary",
-              )}
-            >
-              {unloadedKeys.has(key) ? (
-                <RecordRowSkeleton
-                  path={sourcePathOfItem(path, key)}
-                  height={PREVIEW_ROW_CONTENT_HEIGHT}
-                />
-              ) : (
-                <RefPreview path={sourcePathOfItem(path, key)} />
-              )}
-            </button>
-          </div>
+          <LocaleFilteredRow
+            path={sourcePathOfItem(path, key)}
+            alreadyFiltered={keyDecidesLocale}
+          >
+            <div className="pb-4">
+              <button
+                onClick={() => navigate(sourcePathOfItem(path, key))}
+                className={classNames(
+                  "w-full hover:bg-bg-secondary-hover",
+                  "border rounded-lg cursor-pointer border-border-primary",
+                )}
+              >
+                {unloadedKeys.has(key) ? (
+                  <RecordRowSkeleton
+                    path={sourcePathOfItem(path, key)}
+                    height={PREVIEW_ROW_CONTENT_HEIGHT}
+                  />
+                ) : (
+                  <RefPreview path={sourcePathOfItem(path, key)} />
+                )}
+              </button>
+            </div>
+          </LocaleFilteredRow>
         );
       }}
     />

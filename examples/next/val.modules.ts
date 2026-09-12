@@ -38,6 +38,8 @@ export default modules(config, [
   { def: () => import("./content/kb.val") },
   { def: () => import("./content/jsonEntryMedia.val") },
   { def: () => import("./content/tags.val") },
+  // Locales: one locale-keyed record and one array of locale-tagged items.
+  { def: () => import("./content/translated.val") },
   { def: () => import("./content/featuredContent.val") },
   // A handbook: chapters of sections, with a `select` at BOTH array levels —
   // the shape the store benchmark measures against, in an app that really builds

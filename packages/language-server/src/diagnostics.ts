@@ -11,6 +11,7 @@ import {
 } from "@valbuild/core";
 import {
   resolveSchemaSourceFixes,
+  SCHEMA_SOURCE_FIXES,
   type SchemaSourceSnapshot,
 } from "@valbuild/shared/internal";
 import {
@@ -637,11 +638,17 @@ export function galleryCheckKey(
   return `${sourcePath}|${(error.fixes ?? []).join(",")}`;
 }
 
-/** Fixes core cannot resolve without a project-wide snapshot. */
-const DEFERRED_FIXES: readonly string[] = [
-  "keyof:check-keys",
-  "router:check-route",
-];
+/**
+ * Fixes core cannot resolve without a project-wide snapshot.
+ *
+ * The shared list, not a copy: this had its own and fell behind by two, so a
+ * locale field and a declared-key record each put the marker's developer-facing
+ * placeholder — "should typically be processed by Val internally … version
+ * mismatch" — into the editor's diagnostics whenever the snapshot was missing.
+ * Every caller that recognises some of these has to recognise all of them; see
+ * `SCHEMA_SOURCE_FIXES`.
+ */
+const DEFERRED_FIXES: readonly string[] = SCHEMA_SOURCE_FIXES;
 
 /**
  * Fallback for when no snapshot is available: drop the placeholders rather than

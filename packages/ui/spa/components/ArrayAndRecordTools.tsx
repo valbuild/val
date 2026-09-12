@@ -9,7 +9,7 @@ import {
 import * as React from "react";
 import { JSONValue } from "@valbuild/core/patch";
 import { Plus, Trash, Edit, Link, Copy } from "lucide-react";
-import { emptyOf } from "@valbuild/shared/internal";
+
 import { Button } from "./designSystem/button";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import {
@@ -46,6 +46,8 @@ import {
 import { ChangeRecordPopover } from "./ChangeRecordPopover";
 import { DuplicateRecordPopover } from "./DuplicateRecordPopover";
 import { ConnectedReferencesList } from "./ReferencesList";
+import { useEmptyOf } from "../hooks/useEmptyOf";
+import { declaredKeySetOf } from "@valbuild/core";
 
 type Variant = "module" | "field";
 export function ArrayAndRecordTools({
@@ -131,7 +133,20 @@ export function ArrayAndRecordTools({
 
   const isFixedRoute =
     routePattern?.every((part) => part.type === "literal") || false;
-  const canAdd = !routePattern || !isFixedRoute; // cannot add if this is a router and this has no dynamic route parts
+  /**
+   * A record whose key schema declares its keys — `s.locale()`, `s.enum(...)`,
+   * `s.literal(...)` — has no key left to add: the declared set IS the complete
+   * set, and every entry in it already exists (unwritten ones as `null`). An
+   * Add here could only produce an undeclared key, which is a validation error
+   * the moment it is written and which the editor has no way to have meant.
+   *
+   * The same shape as the router gate below it, and for the same reason: both
+   * are records whose keys are decided somewhere other than this text box.
+   */
+  const schemaHere = "data" in schemaAtPath ? schemaAtPath.data : undefined;
+  const keysAreDeclared =
+    schemaHere?.type === "record" && declaredKeySetOf(schemaHere.key) !== null;
+  const canAdd = (!routePattern || !isFixedRoute) && !keysAreDeclared; // cannot add if this is a router and this has no dynamic route parts, nor if the schema declares the keys
 
   // Determine if the parent is a router (for showing route references)
   const isParentRouter =
@@ -318,6 +333,7 @@ function AddArrayButton({
   const { addPatch, patchPath } = useAddPatch(path);
   const schemaAtPath = useSchemaAtPath(path);
   const shallowSourceAtPath = useShallowSourceAtPath(path, "array");
+  const emptyOf = useEmptyOf();
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   if (!("data" in shallowSourceAtPath) || !shallowSourceAtPath.data) {
     return null;

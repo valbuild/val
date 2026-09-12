@@ -183,6 +183,40 @@ describe("toDeployments", () => {
     ).toBe(true);
   });
 
+  /**
+   * A git message is a subject, a blank line and a body. Val's own messages are
+   * one line, so this only shows up on the deployments Val did not publish -
+   * and the rows truncate, so the whole body arrived as one long line with the
+   * subject lost at the front of it.
+   */
+  test("shows the subject line of a multi-line git message", () => {
+    const [row] = toDeployments(
+      [
+        {
+          ...enriched,
+          commitMessage:
+            "Bump the dependency\n\nThe old one pinned a transitive package we\nno longer use.",
+        },
+      ],
+      new Set(),
+      {},
+      now,
+    );
+    expect(row.message).toBe("Bump the dependency");
+  });
+
+  test("a message that is only whitespace is no message", () => {
+    // Which is what makes the row fall back to the short sha rather than
+    // rendering an empty title.
+    const [row] = toDeployments(
+      [{ ...enriched, commitMessage: "  \n\n" }],
+      new Set(),
+      {},
+      now,
+    );
+    expect(row.message).toBeNull();
+  });
+
   test("keeps the feed short enough to read", () => {
     const many = Array.from({ length: 25 }, (_, index) => ({
       ...enriched,
@@ -196,28 +230,47 @@ describe("toDeployments", () => {
  * Whether an unseen commit is worth opening the list for. See
  * `isDeploymentNews` - "not in the previous feed" cannot tell a publish that
  * just happened from one that finished before this tab existed.
+ *
+ * Decided by the clock alone. It used to make anything not LIVE news, which
+ * held while the feed only carried the publishes on the current chain: a row
+ * that was not live was one on its way out. The feed is the last few publishes
+ * now - a push, a merged pull request, a revert, from any time - and Val only
+ * ever observes the current commit serving the site, so "not live" is the
+ * resting state of every superseded publish. Left as it was, opening Val would
+ * pop the list open to announce a build from last Tuesday.
  */
 describe("isDeploymentNews", () => {
-  test("a publish still on its way out is news however old it is", () => {
+  test("nothing an hour old is news, whatever state it is in", () => {
+    for (const state of ["pending", "failure", "success"] as const) {
+      expect(
+        isDeploymentNews(
+          deployment({ commitSha: "a", state, updatedAt: minutesAgo(120) }),
+          NOW,
+        ),
+      ).toBe(false);
+    }
+  });
+
+  test("a publish on its way out is news while it is fresh", () => {
     expect(
       isDeploymentNews(
         deployment({
           commitSha: "a",
           state: "pending",
-          updatedAt: minutesAgo(120),
+          updatedAt: minutesAgo(1),
         }),
         NOW,
       ),
     ).toBe(true);
   });
 
-  test("a failed publish is news however old it is", () => {
+  test("so is one that has just failed", () => {
     expect(
       isDeploymentNews(
         deployment({
           commitSha: "a",
           state: "failure",
-          updatedAt: minutesAgo(120),
+          updatedAt: minutesAgo(1),
         }),
         NOW,
       ),

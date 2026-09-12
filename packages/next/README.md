@@ -385,6 +385,16 @@ import { s } from "./val.config";
 s.string().nullable(); // <- Schema<string | null>
 ```
 
+`.nullable()` can go before or after `.validate(...)` — a validator declared on
+either side of it is kept, and runs on `null` too, so the validator decides for
+itself what an unset value means:
+
+```ts
+s.string()
+  .nullable()
+  .validate((val) => (val === null ? "Please fill this in" : false));
+```
+
 ## Read-only and hidden fields
 
 `.readonly()` renders a field disabled in the Val editor, and `.hidden()` leaves
@@ -1327,6 +1337,27 @@ s.string().validate((val) => {
   return false; // no validation error
 });
 ```
+
+`.validate(...)` and `.nullable()` can be written in either order: the validator
+is carried through the copy `.nullable()` makes. On a nullable schema the value
+reaching the validator can be `null`, and it is handed over rather than skipped —
+so a validator declared **before** the `.nullable()` has to guard for it, since
+its argument is still typed as non-null there:
+
+```ts
+s.string()
+  .validate((val) => (val !== null && val.length > 80 ? "Too long" : false))
+  .nullable();
+
+// Declared after, and the argument is typed `string | null`:
+s.string()
+  .nullable()
+  .validate((val) => (val !== null && val.length > 80 ? "Too long" : false));
+```
+
+Not every modifier is order-free, though: a record's `.jsonValues()` changes the
+source shape, so it must come **before** `.validate(...)` and `.preview(...)`,
+and throws with that message if it does not.
 
 ## Get in touch
 

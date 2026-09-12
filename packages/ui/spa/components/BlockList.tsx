@@ -54,9 +54,11 @@ import {
 } from "./designSystem/popover";
 import { cn } from "./designSystem/cn";
 import { DRAG_HANDLE_TOUCH, SORTABLE_ROW_TOUCH } from "./dragHandle";
-import { emptyOf } from "@valbuild/shared/internal";
+
 import { sourcePathOfItem } from "../utils/sourcePathOfItem";
 import { FieldValidationError } from "./FieldValidationError";
+import { useEmptyOf } from "../hooks/useEmptyOf";
+import { LocaleFiltered } from "./LocaleFilterProvider";
 
 /**
  * A rebuilt sortable list for arrays, dense enough that a page-builder tree —
@@ -116,6 +118,7 @@ export function BlockList({
 }) {
   const type = "array";
   const { navigate } = useNavigation();
+  const emptyOf = useEmptyOf();
   const sourceAtPath = useSourceAtPath(path);
   const {
     source: shallowSourceAtPath,
@@ -194,47 +197,48 @@ export function BlockList({
   const schema = schemaAtPath.data as SerializedArraySchema;
 
   const renderRow = (item: { path: SourcePath; id: number }, index: number) => (
-    <BlockRow
-      key={item.id}
-      id={item.id}
-      index={index}
-      path={item.path}
-      itemSchema={schema.item}
-      depth={depth}
-      readonly={readonly}
-      onNavigate={(p) => navigate(p)}
-      onDelete={() => {
-        addPatch(
-          [
-            {
-              op: "remove",
-              path: patchPath.concat(
-                index.toString(),
-              ) as array.NonEmptyArray<string>,
-            },
-          ],
-          type,
-        );
-      }}
-      onDuplicate={() => {
-        if (
-          "data" in sourceAtPath &&
-          sourceAtPath.data &&
-          Array.isArray(sourceAtPath.data)
-        ) {
+    <LocaleFiltered key={item.id} path={item.path}>
+      <BlockRow
+        id={item.id}
+        index={index}
+        path={item.path}
+        itemSchema={schema.item}
+        depth={depth}
+        readonly={readonly}
+        onNavigate={(p) => navigate(p)}
+        onDelete={() => {
           addPatch(
             [
               {
-                op: "add",
-                path: patchPath.concat(index.toString()),
-                value: (sourceAtPath.data[index] ?? null) as JSONValue,
+                op: "remove",
+                path: patchPath.concat(
+                  index.toString(),
+                ) as array.NonEmptyArray<string>,
               },
             ],
             type,
           );
-        }
-      }}
-    />
+        }}
+        onDuplicate={() => {
+          if (
+            "data" in sourceAtPath &&
+            sourceAtPath.data &&
+            Array.isArray(sourceAtPath.data)
+          ) {
+            addPatch(
+              [
+                {
+                  op: "add",
+                  path: patchPath.concat(index.toString()),
+                  value: (sourceAtPath.data[index] ?? null) as JSONValue,
+                },
+              ],
+              type,
+            );
+          }
+        }}
+      />
+    </LocaleFiltered>
   );
 
   return (
@@ -252,9 +256,11 @@ export function BlockList({
           disabled={readonly}
         >
           <div className="flex flex-col gap-1 w-full">
+            {/* `empty:hidden` — see `SortableList`, same wrapper, same reason. */}
             {items.map((item, index) => (
               <div
                 key={item.id}
+                className="empty:hidden"
                 style={{ opacity: item.id === activeId ? 0.3 : undefined }}
               >
                 {renderRow(item, index)}

@@ -1220,6 +1220,14 @@ export const EverythingReverted: Story = {
   ),
 };
 
+/**
+ * Nothing pending, which is a screen someone reaches on purpose.
+ *
+ * Review is in the top bar whether or not anything is queued — a button that
+ * comes and goes cannot answer "is anything of mine still unpublished?" — so
+ * this is what it opens most of the time. It used to be one grey line reading
+ * "No pending changes.", which looks like a view that failed to load.
+ */
 export const NoChanges: Story = {
   render: () => (
     <StorySetup

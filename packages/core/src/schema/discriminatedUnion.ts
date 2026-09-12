@@ -425,7 +425,7 @@ export class DiscriminatedUnionSchema<
       this.key,
       this.items,
       true,
-      [],
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.isReadonly,
       this.isHidden,
       this.description,
@@ -460,6 +460,17 @@ export class DiscriminatedUnionSchema<
       this.renderInput,
       this.previewInput,
     );
+  }
+
+  protected override localeScopeChildren(): {
+    key: string;
+    schema: Schema<SelectorSource>;
+  }[] {
+    // Every variant is walked under the SAME path: whichever one the value
+    // takes, that is where it sits. `s.enum()` has no children at all — its
+    // values are strings, not schemas — which is why only this half of the old
+    // `s.union` has this.
+    return this.items.map((item) => ({ key: "*", schema: item }));
   }
 
   protected override executeCustomValidateAt(
