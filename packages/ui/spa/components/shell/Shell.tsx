@@ -50,7 +50,7 @@ import { availableDestinations } from "./shellDataMapping";
 import { servedPath } from "../../utils/mediaPath";
 import { useShellBreakpoint } from "./useShellBreakpoint";
 import {
-  ShellActivityEntry,
+  ShellChangeActivity,
   ShellData,
   ShellDataModule,
   ShellExternalPage,
@@ -337,7 +337,8 @@ export type ShellProps = {
   /** The last error from fetching patches, for that same report. */
   pendingChangesError?: string | null;
   onSelectValidationError?: (error: ShellValidationError) => void;
-  onSelectActivity?: (entry: ShellActivityEntry) => void;
+  /** Open a change row's field. Publishes are not selectable — see `UtilityPanelProps`. */
+  onSelectActivity?: (entry: ShellChangeActivity) => void;
   /** Create a page under a route. See `PagesPanelProps`. */
   onNewPage?: (moduleFilePath: ModuleFilePath, urlPath: string) => void;
   /** Copy a page to another URL under the same route. See `PagesPanelProps`. */
@@ -523,19 +524,16 @@ export function Shell({
     setDeploymentsOpen(open);
     setDeploymentsAutoOpened(false);
   }, []);
-  const [dismissedDeployments, setDismissedDeployments] = useState<
-    ReadonlySet<string>
-  >(() => new Set());
-  const dismissDeployment = useCallback((commitSha: string) => {
-    setDismissedDeployments((current) => new Set(current).add(commitSha));
-  }, []);
-  const deployments = useMemo(
-    () =>
-      data.deployments?.filter(
-        (deployment) => !dismissedDeployments.has(deployment.commitSha),
-      ),
-    [data.deployments, dismissedDeployments],
-  );
+  /*
+   * The feed as it comes, unfiltered.
+   *
+   * The shell used to hold a set of dismissed commit shas and subtract it from
+   * the feed. That control existed for a list that grew - the client
+   * accumulated every deployment a session had ever seen - and the feed is the
+   * last few publishes now, oldest falling off the end on their own. See
+   * `mergeCommitsAndDeployments` and `toDeployments`.
+   */
+  const deployments = data.deployments;
 
   // A publish is the one thing here that finishes somewhere else, so the list
   // opens itself when a commit Val has not seen before shows up. The first
@@ -573,17 +571,24 @@ export function Shell({
    * already grouped by the thing that changed. Five, because this is a "take me
    * back" list rather than a history: past that it stops being a shortcut and
    * starts being something to read.
+   *
+   * Changes only: the feed also carries publishes, and a search result is a
+   * thing to open. Filtered BEFORE the slice, so a busy publishing afternoon
+   * does not leave the recent list short.
    */
   const recentSearchResults = useMemo(
     (): SearchResult[] =>
-      (data.activity ?? []).slice(0, RECENT_SEARCH_LIMIT).map((entry) => ({
-        id: entry.sourcePath,
-        kind: "recent",
-        label: entry.title,
-        detail: entry.author
-          ? `${entry.timestamp} · ${entry.author}`
-          : entry.timestamp,
-      })),
+      (data.activity ?? [])
+        .filter((entry) => entry.kind === "change")
+        .slice(0, RECENT_SEARCH_LIMIT)
+        .map((entry) => ({
+          id: entry.sourcePath,
+          kind: "recent",
+          label: entry.title,
+          detail: entry.author
+            ? `${entry.timestamp} · ${entry.author}`
+            : entry.timestamp,
+        })),
     [data.activity],
   );
 
@@ -952,7 +957,6 @@ export function Shell({
                 deployments={deployments}
                 open={deploymentsOpen}
                 onOpenChange={setDeploymentsOpenByUser}
-                onDismiss={dismissDeployment}
                 autoClose={deploymentsAutoOpened}
               />
             )}
@@ -981,6 +985,16 @@ export function Shell({
               publishSlot={publishSlot}
               onOpenStatus={() => setOpenPanel("account")}
               onOpenQuickActions={() => setOpenPanel("utility")}
+              /*
+               * The same gate and the same ACT as the top bar's button above
+               * this breakpoint: absent when there is no assistant, and a
+               * toggle rather than an open, so the button that shows the panel
+               * as open is the button that closes it. It only opened, which on
+               * a phone - where the panel covers the editor - meant the
+               * obvious way to dismiss it did nothing.
+               */
+              onOpenAI={aiEnabled ? () => togglePanel("ai") : undefined}
+              isAIOpen={openPanel === "ai"}
             />
           </>
         ) : (
@@ -995,7 +1009,6 @@ export function Shell({
             deploymentsOpen={deploymentsOpen}
             onDeploymentsOpenChange={setDeploymentsOpenByUser}
             deploymentsAutoOpened={deploymentsAutoOpened}
-            onDismissDeployment={dismissDeployment}
           />
         )}
 
@@ -1104,7 +1117,6 @@ export function Shell({
              * feed (`mode === "http"`); the panel was missed.
              */
             deployments={mode === "fs" ? undefined : deployments}
-            onDismissDeployment={dismissDeployment}
             // Passed through as-is: absent means there is no session to end, and
             // the panel then shows no Sign out button rather than a dead one.
             onSignOut={onSignOut}

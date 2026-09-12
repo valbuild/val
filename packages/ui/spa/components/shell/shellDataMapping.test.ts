@@ -10,7 +10,14 @@ import {
   toValidationErrors,
 } from "./shellDataMapping";
 import { ExplorerItem, SitemapItem } from "../NavMenu/types";
-import { ShellData, ShellDataModule, ShellMediaGallery } from "./types";
+import {
+  ShellActivityEntry,
+  ShellChangeActivity,
+  ShellData,
+  ShellDataModule,
+  ShellDeployment,
+  ShellMediaGallery,
+} from "./types";
 
 /**
  * The provider-to-shell mapping.
@@ -253,10 +260,46 @@ describe("toActivity", () => {
   /** Ten minutes after the timestamps below, so "10 minutes ago" is stable. */
   const now = new Date("2026-08-24T10:10:00Z").getTime();
 
+  /**
+   * A publish, as `toDeployments` produces one. `isLive` false is the state
+   * every publish starts in and the one `state` still speaks for.
+   */
+  const deployment = (
+    overrides: Partial<ShellDeployment> & Pick<ShellDeployment, "commitSha">,
+  ): ShellDeployment => ({
+    state: "success",
+    message: "A publish",
+    timestamp: "just now",
+    updatedAt: "2026-08-24T10:09:00Z",
+    isLive: false,
+    ...overrides,
+  });
+
+  /**
+   * The change rows, narrowed.
+   *
+   * The feed is a union now, so a test that means "the edits" has to say so —
+   * and one that reads `sourcePath` off whatever came first would pass for the
+   * wrong reason the day a publish sorts above it.
+   */
+  const changes = (entries: ShellActivityEntry[]): ShellChangeActivity[] =>
+    entries.filter(
+      (entry): entry is ShellChangeActivity => entry.kind === "change",
+    );
+
   test("reads as a trail from the file to what changed in it", () => {
-    const [entry] = toActivity(
-      [set("/content/home.val.ts", ["hero", "title"], "2026-08-24T10:00:00Z")],
-      now,
+    const [entry] = changes(
+      toActivity(
+        [
+          set(
+            "/content/home.val.ts",
+            ["hero", "title"],
+            "2026-08-24T10:00:00Z",
+          ),
+        ],
+        [],
+        now,
+      ),
     );
     expect(entry.title).toBe("home › hero › title");
     expect(entry.author).toBe("ada");
@@ -267,15 +310,20 @@ describe("toActivity", () => {
   test("carries a source path that resolves", () => {
     // The grammar matters: string keys are quoted, array indices are bare. A
     // hand-joined path looks close enough to work and then opens nothing.
-    const [entry] = toActivity(
-      [set("/content/home.val.ts", ["items", "0", "title"], "x")],
-      now,
+    const [entry] = changes(
+      toActivity(
+        [set("/content/home.val.ts", ["items", "0", "title"], "x")],
+        [],
+        now,
+      ),
     );
     expect(entry.sourcePath).toBe('/content/home.val.ts?p="items".0."title"');
   });
 
   test("a whole-module change points at the module", () => {
-    const [entry] = toActivity([set("/content/home.val.ts", [], "x")], now);
+    const [entry] = changes(
+      toActivity([set("/content/home.val.ts", [], "x")], [], now),
+    );
     expect(entry.sourcePath).toBe("/content/home.val.ts");
   });
 
@@ -283,7 +331,7 @@ describe("toActivity", () => {
     const many = Array.from({ length: 20 }, (_, i) =>
       set("/content/home.val.ts", [`field${i}`], "2026-08-24T10:00:00Z"),
     );
-    const activity = toActivity(many, now);
+    const activity = toActivity(many, [], now);
     expect(activity).toHaveLength(8);
     expect(activity[0].title).toBe("home › field0");
   });
@@ -295,17 +343,144 @@ describe("toActivity", () => {
         set("/content/home.val.ts", ["title"], "2026-08-24T10:00:00Z"),
         set("/content/home.val.ts", ["title"], "2026-08-23T10:00:00Z"),
       ],
+      [],
       now,
     );
     expect(activity[0].id).not.toBe(activity[1].id);
   });
 
   test("survives a patch with no author", () => {
-    const [entry] = toActivity(
-      [{ ...set("/content/home.val.ts", ["title"], "x"), lastUpdatedBy: null }],
-      now,
+    const [entry] = changes(
+      toActivity(
+        [
+          {
+            ...set("/content/home.val.ts", ["title"], "x"),
+            lastUpdatedBy: null,
+          },
+        ],
+        [],
+        now,
+      ),
     );
     expect(entry.author).toBeUndefined();
+  });
+
+  /**
+   * The publishes, which used to be visible only in the status bar's deploy
+   * feed — a live-progress indicator that empties itself as builds land, so
+   * once a publish had finished nothing in the Studio said it had.
+   */
+  describe("publishes", () => {
+    test("show up beside the changes, interleaved by time", () => {
+      const activity = toActivity(
+        [
+          set("/content/home.val.ts", ["title"], "2026-08-24T10:08:00Z"),
+          set("/content/home.val.ts", ["intro"], "2026-08-24T10:00:00Z"),
+        ],
+        [
+          deployment({
+            commitSha: "abc1234def",
+            updatedAt: "2026-08-24T10:05:00Z",
+          }),
+        ],
+        now,
+      );
+      expect(activity.map((entry) => entry.kind)).toEqual([
+        "change",
+        "deploy",
+        "change",
+      ]);
+    });
+
+    test("are named by their commit message", () => {
+      const [entry] = toActivity(
+        [],
+        [deployment({ commitSha: "abc1234def", message: "Update the hero" })],
+        now,
+      );
+      expect(entry.title).toBe("Update the hero");
+    });
+
+    test("fall back to the short sha when there is no message", () => {
+      // Which is what the deploy feed shows for the same publish.
+      const [entry] = toActivity(
+        [],
+        [deployment({ commitSha: "abc1234def5678", message: null })],
+        now,
+      );
+      expect(entry.title).toBe("abc1234");
+    });
+
+    test("say how the publish is doing", () => {
+      const [building, failed, live] = toActivity(
+        [],
+        [
+          deployment({
+            commitSha: "a",
+            state: "pending",
+            updatedAt: "2026-08-24T10:09:00Z",
+          }),
+          deployment({
+            commitSha: "b",
+            state: "failure",
+            updatedAt: "2026-08-24T10:08:00Z",
+          }),
+          deployment({
+            commitSha: "c",
+            state: "success",
+            isLive: true,
+            updatedAt: "2026-08-24T10:07:00Z",
+          }),
+        ],
+        now,
+      );
+      expect(building).toMatchObject({
+        state: "Building",
+        progress: "building",
+      });
+      expect(failed).toMatchObject({
+        state: "Build failed",
+        progress: "failed",
+      });
+      // The site answering with the commit outranks the build state, which is
+      // the deploy feed's rule and has to stay one rule.
+      expect(live).toMatchObject({ state: "Live", progress: "settled" });
+    });
+
+    test("keep the ids apart from the changes'", () => {
+      const [entry] = toActivity([], [deployment({ commitSha: "abc" })], now);
+      expect(entry.id).toBe("deploy-abc");
+    });
+
+    /**
+     * A run of publishes must not push out the edits: this panel exists to get
+     * back to them, and the whole feed is in the status bar's list anyway.
+     */
+    test("never take more than a few of the rows", () => {
+      const activity = toActivity(
+        [set("/content/home.val.ts", ["title"], "2026-08-20T10:00:00Z")],
+        Array.from({ length: 10 }, (_, i) =>
+          deployment({
+            commitSha: `sha${i}`,
+            updatedAt: `2026-08-24T10:0${i % 10}:00Z`,
+          }),
+        ),
+        now,
+      );
+      expect(activity.filter((entry) => entry.kind === "deploy")).toHaveLength(
+        3,
+      );
+      expect(changes(activity)).toHaveLength(1);
+    });
+
+    test("an unreadable timestamp sorts last rather than scrambling the feed", () => {
+      const activity = toActivity(
+        [set("/content/home.val.ts", ["title"], "2026-08-24T10:00:00Z")],
+        [deployment({ commitSha: "abc", updatedAt: "not a date" })],
+        now,
+      );
+      expect(activity.map((entry) => entry.kind)).toEqual(["change", "deploy"]);
+    });
   });
 });
 

@@ -12,6 +12,7 @@ import {
 import { Patch, PatchId } from "./zod/Patch";
 import { SerializedSchema } from "./zod/SerializedSchema";
 import { ValCommit } from "./zod/ValCommit";
+import { ValDeployment } from "./zod/ValDeployment";
 import {
   HistoricalCommit,
   HistoricalModule,
@@ -630,6 +631,21 @@ export const Api = {
                */
               headCommitSha: z.string().optional(),
               commits: z.array(ValCommit),
+              /**
+               * The publishes the content service knows about.
+               *
+               * Declared, at last. `getStat` has always returned these in
+               * `http` mode and the Studio has always read them - the response
+               * validator strips unknown keys rather than rejecting them, and
+               * the raw json is what the client hands back, so they arrived
+               * while the contract said they could not. That was survivable
+               * until a deployment started carrying a commit MESSAGE: a field
+               * nobody has declared is a field the next person deletes.
+               *
+               * Optional, because a content service that reports no
+               * deployments sends none.
+               */
+              deployments: z.array(ValDeployment).optional(),
               config: ValConfig,
               profileId: z.string().nullable(),
               mode: z.union([z.literal("http"), z.literal("fs")]),

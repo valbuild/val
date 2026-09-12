@@ -40,7 +40,6 @@ describe("catching the canvas up", () => {
         reloadKey={0}
         isPicking={false}
         highlightedPath={null}
-        onRequestReload={() => {}}
       />,
     );
     const found = rendered.container.querySelector("iframe");
