@@ -816,11 +816,18 @@ export async function handleExternalUpload(): Promise<FixHandlerResult> {
   };
 }
 
-// Fix handler registry. `keyof:check-keys` and `router:check-route` are
-// resolved upfront by the shared resolveSchemaSourceFixes — they never reach
-// this registry, so they're excluded from the key set.
+// Fix handler registry. `keyof:check-keys`, `router:check-route`,
+// `locale:check-locale` and `record:fill-keys` are resolved upfront by the
+// shared resolveSchemaSourceFixes — they never reach this registry, so they're
+// excluded from the key set.
 export const currentFixHandlers: Record<
-  Exclude<ValidationFix, "keyof:check-keys" | "router:check-route">,
+  Exclude<
+    ValidationFix,
+    | "keyof:check-keys"
+    | "router:check-route"
+    | "locale:check-locale"
+    | "record:fill-keys"
+  >,
   FixHandler
 > = {
   "image:check-metadata": handleFileMetadata,

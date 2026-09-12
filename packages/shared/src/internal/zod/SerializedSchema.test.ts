@@ -317,6 +317,13 @@ describe("SerializedSchema keeps every field the schema wrote", () => {
         .validate(() => false)
         .describe("d"),
     ],
+    [
+      "locale",
+      s
+        .locale()
+        .validate(() => false)
+        .describe("d"),
+    ],
     ["settings", s.settings()],
   ];
 

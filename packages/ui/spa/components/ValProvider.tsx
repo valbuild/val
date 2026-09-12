@@ -50,6 +50,7 @@ import { LocalModulesErrorBanner } from "./LocalModulesErrorBanner";
 import { useSchemas } from "./ValFieldProvider";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
+import { ProjectLocalesProvider } from "../hooks/ProjectLocalesProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
 import { ValFieldProvider } from "./ValFieldProvider";
 import { ValStoreProvider } from "../stores/react/ValStoreProvider";
@@ -866,7 +867,9 @@ export function ValProvider({
                         */}
                           <ValOverlayEmitter enabled={dispatchValEvents} />
                           <LocalModulesErrorBanner />
-                          {children}
+                          <ProjectLocalesProvider>
+                            {children}
+                          </ProjectLocalesProvider>
                           <SchemaOutOfDateGate />
                         </ValFieldProvider>
                       </ValRemoteProvider>
@@ -2338,6 +2341,7 @@ export type ShallowSource = EnsureAllTypes<{
   boolean: boolean;
   keyOf: string;
   route: string;
+  locale: string;
   number: number;
   string: string;
   date: string;
@@ -3138,6 +3142,17 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       data: source as ShallowSource[SchemaType],
     };
   } else if (type === "route") {
+    if (typeof source !== "string") {
+      return {
+        status: "error",
+        error: `Expected string, got ${typeof source}`,
+      };
+    }
+    return {
+      status: "success",
+      data: source as ShallowSource[SchemaType],
+    };
+  } else if (type === "locale") {
     if (typeof source !== "string") {
       return {
         status: "error",

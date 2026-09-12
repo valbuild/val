@@ -40,6 +40,16 @@ export type SerializedEnumSchema = {
  * discriminated union's variants and must not try to recurse into these.
  */
 export class EnumSchema<Src extends string | null> extends Schema<Src> {
+  /**
+   * Type-only marker: as a record key, this declares the key set.
+   *
+   * An enum names every value it may take, so a record keyed by one holds
+   * exactly those keys — the same claim `s.literal()` and `s.locale()` make.
+   * `DiscriminatedUnionSchema` carries no marker: it discriminates objects and
+   * cannot be a record key at all. See `LocaleSchema`.
+   */
+  declare readonly __declaresRecordKeys: true;
+
   constructor(
     private readonly values: readonly string[],
     private readonly opt: boolean = false,

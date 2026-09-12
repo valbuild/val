@@ -2,6 +2,7 @@ import { Info, PanelRight, Sparkles } from "lucide-react";
 import { ReactNode } from "react";
 import { cn } from "../designSystem/cn";
 import { PreviewButton, PublishButton } from "./TopBar";
+import { LocaleFilter } from "./LocaleFilter";
 
 /**
  * The sticky mobile bottom bar. Preview and Publish are always reachable
@@ -21,6 +22,9 @@ export function MobileBottomBar({
   onPublish,
   publishSlot,
   onOpenStatus,
+  locales,
+  locale = null,
+  onLocaleChange,
   onOpenQuickActions,
   onOpenAI,
   isAIOpen,
@@ -37,6 +41,11 @@ export function MobileBottomBar({
   /** The real publish control, when there is one. See `TopBarProps`. */
   publishSlot?: ReactNode;
   onOpenStatus: () => void;
+  /** The project's languages, for the locale filter. Empty hides it. */
+  locales?: string[];
+  /** The language being shown, or `null` for all of them. */
+  locale?: string | null;
+  onLocaleChange?: (locale: string | null) => void;
   /**
    * Quick actions — the same panel the top bar opens above the mobile
    * breakpoint. It holds the validation errors, Review changes, New page and
@@ -98,6 +107,20 @@ export function MobileBottomBar({
         >
           <Sparkles size={16} />
         </button>
+      )}
+      {/*
+       * The phone's home for the locale filter, since the top bar here is the
+       * project name and a menu button. `above`, or the menu opens off the
+       * bottom of the screen.
+       */}
+      {locales !== undefined && onLocaleChange !== undefined && (
+        <LocaleFilter
+          locales={locales}
+          value={locale}
+          onChange={onLocaleChange}
+          menuPlacement="above"
+          className="h-9 shrink-0"
+        />
       )}
       {/*
        * The same control as on desktop, not a second design of it.

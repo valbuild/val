@@ -22,6 +22,42 @@
  */
 export type SettingsSource = {
   assistant?: AssistantSettingsSource;
+  locales?: LocalesSettingsSource;
+};
+
+/**
+ * The languages this project publishes.
+ *
+ * Content rather than configuration, and deliberately: which languages a site
+ * has is a decision the people who write it make, and under a build-time
+ * constant it took a developer and a deploy. It is the same move `assistant`
+ * makes with `enabled`.
+ *
+ * Val ships no list of its own. A project with no `locales` section has not
+ * said it is translated, and nothing about locales appears anywhere — no picker
+ * in the Studio, no checks, nothing.
+ *
+ * **This list is a decision with a blast radius.** Every locale in content is
+ * checked against it, so removing one invalidates the content that uses it, and
+ * adding one leaves every locale-keyed record short of a language until it is
+ * filled in. That is the intended behaviour — a language that is declared and
+ * missing everywhere is worth being told about — but it is why the Studio warns
+ * before saving a removal rather than treating this as an ordinary field.
+ *
+ * There is no default language, deliberately. Every locale-specific field asks
+ * which language it is in, and a default is exactly the answer that lets that
+ * question go unanswered — content ends up filed under a language nobody chose,
+ * which is the state translation is meant to make visible.
+ */
+export type LocalesSettingsSource = {
+  /**
+   * The languages, as canonical BCP 47 tags: `en-US`, `nb-NO`.
+   *
+   * Order is the project's own, and it is kept: it decides the order of the
+   * Studio's picker and of the rows in a locale-keyed record, so a project can
+   * put the language it works in first.
+   */
+  available?: string[] | null;
 };
 
 /**
@@ -56,6 +92,22 @@ export type AssistantSettingsSource = {
    * `glossary`) rather than a field that looks like it should absorb them.
    */
   tone?: string | null;
+  /**
+   * How to translate into each language, keyed by language.
+   *
+   * Per language rather than one field, because translation rules are per
+   * language: bokmål or nynorsk, `du` or `De`, which product names stay in
+   * English. Only the target language's note is sent, so a French rule does not
+   * ride along in a Norwegian request.
+   *
+   * Keyed by language, so it holds every one of them once it exists at all —
+   * `null` where a language needs no special instruction, which is most of them.
+   * That is the same rule every locale-keyed record follows (see
+   * `declaredKeys.ts`): a gap you can count and see in a diff, rather than a key
+   * that is simply not there. A project with no notes at all leaves the whole
+   * field unset and nothing is required.
+   */
+  translation?: Record<string, string | null> | null;
 };
 
 /**

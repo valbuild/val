@@ -13,6 +13,7 @@ import {
   type SerializedRichTextOptions as SerializedRichTextOptionsT,
   type SerializedRecordSchema as SerializedRecordSchemaT,
   type SerializedKeyOfSchema as SerializedKeyOfSchemaT,
+  type SerializedLocaleSchema as SerializedLocaleSchemaT,
   type SerializedRouteSchema as SerializedRouteSchemaT,
   type SerializedFileSchema as SerializedFileSchemaT,
   type SerializedDateSchema as SerializedDateSchemaT,
@@ -320,6 +321,18 @@ export const SerializedCodeSchema: z.ZodType<SerializedCodeSchemaT> = z.object({
   opt: z.boolean(),
 });
 
+export const SerializedLocaleSchema: z.ZodType<SerializedLocaleSchemaT> =
+  z.object({
+    type: z.literal("locale"),
+    render: FieldRender,
+    preview: z.literal(true).optional(),
+    opt: z.boolean(),
+    customValidate: z.boolean().optional(),
+    readonly: z.boolean().optional(),
+    hidden: z.boolean().optional(),
+    description: z.string().optional(),
+  });
+
 export const SerializedRouteSchema: z.ZodType<SerializedRouteSchemaT> =
   z.object({
     ...commonSchemaFields,
@@ -356,6 +369,11 @@ export const SerializedSettingsSchema: z.ZodType<SerializedSettingsSchemaT> =
       type: z.literal("settings"),
       items: z.record(z.string(), SerializedSchema),
       opt: z.boolean(),
+      // Which section this is, where Val has rules about it beyond its keys.
+      // Dropping it would leave the Studio's validation worker running every
+      // field's own rules and none of the cross-field ones — see
+      // `sectionValidators` in core/src/schema/settings.ts.
+      section: z.string().optional(),
     });
   });
 
@@ -372,6 +390,7 @@ export const SerializedSchema: z.ZodType<SerializedSchemaT> = z.union([
   SerializedRecordSchema,
   SerializedKeyOfSchema,
   SerializedRouteSchema,
+  SerializedLocaleSchema,
   SerializedFileSchema,
   SerializedDateSchema,
   SerializedDateTimeSchema,

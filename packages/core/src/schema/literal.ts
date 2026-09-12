@@ -27,6 +27,9 @@ export type SerializedLiteralSchema = {
 };
 
 export class LiteralSchema<Src extends string | null> extends Schema<Src> {
+  /** Type-only marker: as a record key, this declares the key set. See `LocaleSchema`. */
+  declare readonly __declaresRecordKeys: true;
+
   constructor(
     private readonly value: string,
     private readonly opt: boolean = false,
