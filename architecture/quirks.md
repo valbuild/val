@@ -538,6 +538,36 @@ cleanup cancels, which is the only pass that writes to the editor that survives.
 resolving `dist/`. Also delete `examples/next/.next` — a production build left
 there makes the dev server 500 with `MODULE_NOT_FOUND` on Studio routes.
 
+## The Studio is not always a secure context
+
+`crypto.randomUUID` and `navigator.clipboard` exist on `https://` and on
+`localhost`, and NOWHERE ELSE. Not "throw when used" — absent, so
+`crypto.randomUUID()` is a TypeError.
+
+That is not theoretical for a dev tool: the Studio is served by the app's own
+dev server, and that gets opened on a plain-http address that is not
+`localhost` routinely — a phone on the LAN, a VM, or a browser on Windows
+reaching a dev server inside WSL at `http://172.23.x.x:3000`. The crash lands
+during the Studio's FIRST RENDER (`useStatus` names its websocket connection
+with one), so the symptom is a blank screen and
+`crypto.randomUUID is not a function` in the console, with a stack entirely
+inside minified bundle frames.
+
+This reads as TanStack-only and is not. It is about which URL you open: `next
+dev` binds `0.0.0.0` and prints a Local and a Network URL, so a WSL user stays
+on `localhost` and inside a secure context, while `vite dev` binds `localhost`
+only and says "use --host to expose" — so the WSL user who wants to see the
+site from Windows ends up with `--host` and the VM's IP. Same bundle, same bug,
+different default.
+
+`randomUUID` and `copyText` in `packages/ui/spa/utils` fall back
+(`crypto.getRandomValues`, which IS available insecurely, then `Math.random`;
+`document.execCommand("copy")`), and an eslint rule over `packages/ui/spa`
+keeps the raw globals from coming back. Nothing identified this way is a
+secret — patch ids, chat message ids, a connection id — so the fallback gives
+up nothing. Before reaching for another web API in the Studio, check whether it
+is secure-context-only.
+
 ## `createRequire` is imported in one place in `@valbuild/server`
 
 webpack tries to resolve the argument of any `createRequire` call it can see,

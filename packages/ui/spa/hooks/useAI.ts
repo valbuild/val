@@ -52,6 +52,7 @@ import {
   settingsModuleFilePath,
 } from "./assistantSettings";
 import { useAISearch } from "./useAISearch";
+import { randomUUID } from "../utils/randomUUID";
 import { useAssistantAvailability } from "./useAssistantAvailability";
 import { useAIValidation } from "./useAIValidation";
 import type {
@@ -2272,7 +2273,7 @@ export function useAI(
       let sid = sessionIdRef.current;
       const wasUnborn = sid == null;
       if (sid == null) {
-        sid = crypto.randomUUID();
+        sid = randomUUID();
         sessionIdRef.current = sid;
         setCurrentSessionId(sid);
       }
@@ -2325,7 +2326,7 @@ export function useAI(
         // Started before it is errored: `errorAssistantMessage` retires a
         // message that already exists, so erroring an id nothing has created is
         // silently a no-op — which left only the composer's generic failure.
-        const noticeId = crypto.randomUUID();
+        const noticeId = randomUUID();
         chatRef.current?.startAssistantMessage(noticeId);
         chatRef.current?.errorAssistantMessage(
           noticeId,
@@ -2339,7 +2340,7 @@ export function useAI(
       let sid = sessionIdRef.current;
       const wasUnborn = sid == null;
       if (sid == null) {
-        sid = crypto.randomUUID();
+        sid = randomUUID();
         sessionIdRef.current = sid;
         setCurrentSessionId(sid);
       }
@@ -2390,7 +2391,7 @@ export function useAI(
         type: "ai_prompt",
         message: contentBlocks,
         sessionId: sid,
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         agents: [
           {
             id: "default",

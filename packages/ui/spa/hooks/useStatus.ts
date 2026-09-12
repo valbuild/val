@@ -15,6 +15,7 @@ import React, {
   useCallback,
 } from "react";
 import { z } from "zod";
+import { randomUUID } from "../utils/randomUUID";
 
 const PatchId = z
   .string()
@@ -191,7 +192,7 @@ export function useStatus(client: ValClient) {
   });
 
   const webSocketRef = useRef<WebSocket | null>(null);
-  const connectionIdRef = useRef<string>(crypto.randomUUID());
+  const connectionIdRef = useRef<string>(randomUUID());
   const {
     authenticationState,
     setAuthenticationLoadingIfNotAuthenticated,
