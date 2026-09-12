@@ -1,13 +1,15 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { initVal } from "@valbuild/core";
+import { Internal, initVal } from "@valbuild/core";
 import type {
   FileSchema,
   FileSource,
   ImageSchema,
   ImageSource,
   ModuleFilePath,
+  SerializedImageSchema,
+  SerializedSchema,
   SourcePath,
   ValidationError,
   ValidationErrors,
@@ -15,10 +17,11 @@ import type {
 import { createValDiagnostics } from "./diagnostics";
 import {
   isDeferredMediaMetadataCheck,
-  mediaMetadataCheckKey,
-  resolveMediaMetadataChecks,
-  type MediaMetadataVerdict,
-} from "./mediaMetadataChecks";
+  isDeferredRemoteCheck,
+  mediaCheckKey,
+  resolveMediaChecks,
+  type MediaCheckVerdict,
+} from "./mediaChecks";
 import type { ValModuleContent } from "./ValProject";
 
 const { s } = initVal();
@@ -83,6 +86,17 @@ function validateFile(
     schema: schema["executeSerialize"](),
     source,
   };
+}
+
+/**
+ * Narrow what `executeSerialize` hands back, which is the whole
+ * `SerializedSchema` union, to the image schema `getValidationHash` wants.
+ */
+function asImageSchema(schema: SerializedSchema): SerializedImageSchema {
+  if (schema.type !== "image") {
+    throw Error(`Expected an image schema, got: ${schema.type}`);
+  }
+  return schema;
 }
 
 /** The single error core reported, failing loudly if it reported none or many. */
@@ -303,7 +317,7 @@ describe("isDeferredMediaMetadataCheck: nothing to go on", () => {
   });
 });
 
-describe("resolveMediaMetadataChecks", () => {
+describe("resolveMediaChecks", () => {
   let valRoot: string;
 
   const IMAGE_REF = "/public/val/logo.png";
@@ -329,12 +343,12 @@ describe("resolveMediaMetadataChecks", () => {
 
   const resolve = async (value: unknown) => {
     const error = deferralFor(value);
-    const verdicts = await resolveMediaMetadataChecks({
+    const verdicts = await resolveMediaChecks({
       validation: { [SOURCE_PATH]: [error] },
       content: contentFor(value),
       valRoot,
     });
-    return verdicts.get(mediaMetadataCheckKey(SOURCE_PATH, error));
+    return verdicts.get(mediaCheckKey(SOURCE_PATH, error));
   };
 
   const CORRECT = {
@@ -470,7 +484,7 @@ describe("resolveMediaMetadataChecks", () => {
       value: { path: IMAGE_REF },
       fixes: ["image:add-metadata"],
     };
-    const verdicts = await resolveMediaMetadataChecks({
+    const verdicts = await resolveMediaChecks({
       validation: { [SOURCE_PATH]: [error] },
       content: contentFor(error.value),
       valRoot,
@@ -483,6 +497,207 @@ describe("resolveMediaMetadataChecks", () => {
     fs.rmSync(path.join(valRoot, IMAGE_REF));
     expect(await resolve(CORRECT)).toHaveLength(1);
   });
+});
+
+describe("isDeferredRemoteCheck", () => {
+  /**
+   * Driven through core, like the metadata cases above: the claim being pinned
+   * is that a remote image's ONLY error is the deferral, so no re-derivation of
+   * core's conditions is needed to tell it apart from a real finding.
+   */
+  test("a remote image with a remote path defers, and says nothing else", () => {
+    const { errors } = validateImage(s.image().remote(), {
+      path: "https://remote.val.build/file/p/abc/b/v0/v/1/h/dead/f/beef/p/public/val/logo.png",
+      width: 1,
+      height: 1,
+      mimeType: "image/png",
+    });
+    const error = onlyError(errors);
+    expect(error.message).toBe("Remote image was not checked.");
+    expect(error.fixes).toEqual(["image:check-remote"]);
+    expect(isDeferredRemoteCheck(error)).toBe(true);
+  });
+
+  test("a remote file with a remote path defers the same way", () => {
+    const { errors } = validateFile(s.file().remote(), {
+      path: "https://remote.val.build/file/p/abc/b/v0/v/1/h/dead/f/beef/p/public/val/doc.pdf",
+      mimeType: "application/pdf",
+    });
+    const error = onlyError(errors);
+    expect(error.message).toBe("Remote file was not checked.");
+    expect(isDeferredRemoteCheck(error)).toBe(true);
+  });
+
+  test("a remote schema holding a local path is a real finding, not a deferral", () => {
+    const { errors } = validateImage(s.image().remote(), {
+      path: "/public/val/logo.png",
+      width: 1,
+      height: 1,
+      mimeType: "image/png",
+    });
+    const error = onlyError(errors);
+    expect(error.fixes).toEqual(["image:upload-remote"]);
+    expect(isDeferredRemoteCheck(error)).toBe(false);
+  });
+
+  test("a gallery's own remote check is a finding and is never adjudicated", () => {
+    // `RecordSchema.validateMediaKey` emits `images:check-remote` only for a
+    // key that is already wrong, and `createFixPatch` has no branch for it --
+    // adjudicating one would come back empty and drop a real error.
+    expect(
+      isDeferredRemoteCheck({
+        message: "Invalid remote URL format. Got: nope",
+        fixes: ["images:check-remote"],
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("resolveMediaChecks: the remote-ref placeholder", () => {
+  let valRoot: string;
+
+  const REMOTE_HOST = "https://remote.val.build";
+  const REMOTE_FILE_PATH = "public/val/logo.png";
+  const PROJECT_ID = "abc123";
+  const BUCKET = "v0";
+  const CORE_VERSION = Internal.VERSION.core || "unknown";
+  const FILE_HASH = Internal.remote.getFileHash(PNG_1X1);
+  const SCHEMA = asImageSchema(s.image().remote()["executeSerialize"]());
+  const METADATA = { width: 1, height: 1, mimeType: "image/png" };
+
+  /**
+   * A remote ref whose validation hash is computed from `metadata`.
+   *
+   * Pass the metadata the value actually carries and `checkRemoteRef` agrees
+   * with the ref, which is the whole happy path and costs no network. Pass
+   * anything else and the ref no longer adds up, which is the stale case.
+   */
+  const remoteRef = (metadata: Record<string, unknown>) =>
+    Internal.remote.createRemoteRef(REMOTE_HOST, {
+      publicProjectId: PROJECT_ID,
+      coreVersion: CORE_VERSION,
+      bucket: BUCKET,
+      validationHash: Internal.remote.getValidationHash(
+        CORE_VERSION,
+        SCHEMA,
+        "png",
+        metadata,
+        FILE_HASH,
+        new TextEncoder(),
+      ),
+      fileHash: FILE_HASH,
+      filePath: REMOTE_FILE_PATH,
+    });
+
+  const contentFor = (source: unknown): ValModuleContent =>
+    ({
+      source,
+      schema: SCHEMA,
+      errors: false,
+      path: SOURCE_PATH,
+    }) as ValModuleContent;
+
+  const deferralFor = (value: unknown): ValidationError => ({
+    message: "Remote image was not checked.",
+    value,
+    fixes: ["image:check-remote"],
+  });
+
+  const resolve = async (value: unknown) => {
+    const error = deferralFor(value);
+    const verdicts = await resolveMediaChecks({
+      validation: { [SOURCE_PATH]: [error] },
+      content: contentFor(value),
+      valRoot,
+      remoteHost: REMOTE_HOST,
+    });
+    return verdicts.get(mediaCheckKey(SOURCE_PATH, error));
+  };
+
+  beforeEach(() => {
+    valRoot = fs.mkdtempSync(path.join(os.tmpdir(), "val-remote-checks-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(valRoot, { recursive: true, force: true });
+  });
+
+  test("a ref that still adds up publishes nothing", async () => {
+    // The reported bug: every remote image carried a permanent
+    // "Remote image was not checked." No file is on disk and none is
+    // downloaded -- the hashes settle it.
+    expect(await resolve({ path: remoteRef(METADATA), ...METADATA })).toEqual(
+      [],
+    );
+  });
+
+  /**
+   * A value whose metadata was edited after the ref was minted: the ref's
+   * validation hash was computed from the real 1x1 bytes, the value now claims
+   * 800x600, and the two cannot both be right.
+   */
+  const STALE_VALUE = {
+    path: remoteRef(METADATA),
+    width: 800,
+    height: 600,
+    mimeType: "image/png",
+  };
+
+  test("a stale ref is reported with the CLI's own wording", async () => {
+    // Seeding the download cache is what keeps this offline: `checkRemoteRef`
+    // reads `.val/remote-file-cache` before it reaches for the network, and
+    // only a ref that no longer adds up gets that far at all.
+    seedRemoteFileCache();
+    const verdict = await resolve(STALE_VALUE);
+    expect(verdict).toHaveLength(1);
+    expect(verdict?.[0].message).toMatch(
+      /^Remote ref: https:\/\/remote\.val\.build\/file\/p\/abc123\/.* is not valid\. Use the --fix flag to fix this issue\.$/,
+    );
+  });
+
+  test("a finding carries no fix, so it is an Error and not a lightbulb", async () => {
+    // `createFixPatch` clears `fixes` on it, no quick fix is registered for
+    // `image:check-remote`, and dropping them is what matches the CLI's `✘`.
+    seedRemoteFileCache();
+    const verdict = await resolve(STALE_VALUE);
+    expect(verdict?.[0].fixes).toBeUndefined();
+  });
+
+  test("a path that is not a remote ref at all is reported, not hidden", async () => {
+    const verdict = await resolve({ path: "not-a-ref", ...METADATA });
+    expect(verdict).toHaveLength(1);
+    expect(verdict?.[0].message).toBe("Invalid remote ref: not-a-ref");
+  });
+
+  test("a check that could not be made keeps the placeholder", async () => {
+    // `createFixPatch` resolves the source path to find the schema, and throws
+    // on a path the source does not have. Claiming a ref is sound on no
+    // evidence is the worse failure, so the placeholder stands.
+    const value = { path: remoteRef(METADATA), ...METADATA };
+    const error = deferralFor(value);
+    const at = Internal.createValPathOfItem(SOURCE_PATH, "img") as SourcePath;
+    const verdicts = await resolveMediaChecks({
+      validation: { [at]: [error] },
+      content: {
+        source: {},
+        schema: s.object({ img: s.image().remote() })["executeSerialize"](),
+        errors: false,
+        path: SOURCE_PATH,
+      } as unknown as ValModuleContent,
+      valRoot,
+      remoteHost: REMOTE_HOST,
+    });
+    const verdict = verdicts.get(mediaCheckKey(at, error));
+    expect(verdict).toHaveLength(1);
+    expect(verdict?.[0].message).toBe("Remote image was not checked.");
+  });
+
+  /** The bytes `checkRemoteRef` would otherwise download, put where it looks. */
+  function seedRemoteFileCache() {
+    const dir = path.join(valRoot, ".val", "remote-file-cache");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${FILE_HASH}.png`), PNG_1X1);
+  }
 });
 
 describe("createValDiagnostics: publishing a verdict", () => {
@@ -508,15 +723,15 @@ describe("createValDiagnostics: publishing a verdict", () => {
       path: SOURCE_PATH,
     }) as unknown as ValModuleContent;
 
-  const diagnose = (error: ValidationError, verdict?: MediaMetadataVerdict) =>
+  const diagnose = (error: ValidationError, verdict?: MediaCheckVerdict) =>
     createValDiagnostics({
       moduleFilePath: MODULE_FILE_PATH,
       content: contentWith(error),
       text: "export default c.define('/content/media.val.ts', s.image(), {})",
       ...(verdict
         ? {
-            mediaMetadataChecks: new Map([
-              [mediaMetadataCheckKey(SOURCE_PATH, error), verdict],
+            mediaChecks: new Map([
+              [mediaCheckKey(SOURCE_PATH, error), verdict],
             ]),
           }
         : {}),
@@ -561,6 +776,42 @@ describe("createValDiagnostics: publishing a verdict", () => {
     // adjudicate must not publish an unconditional warning, because a warning
     // that is always there is one nobody reads -- which is this whole bug.
     expect(diagnose(deferral)).toEqual([]);
+  });
+
+  test("an empty remote verdict publishes nothing either", () => {
+    // The reported bug's other half: every remote image carried a permanent
+    // "Remote image was not checked."
+    const remote: ValidationError = {
+      message: "Remote image was not checked.",
+      value: {
+        path: "https://remote.val.build/file/p/a/b/v0/v/1/h/d/f/e/p/public/val/logo.png",
+      },
+      fixes: ["image:check-remote"],
+    };
+    expect(diagnose(remote, [])).toEqual([]);
+  });
+
+  test("a stale remote ref publishes an Error with no quick fix", () => {
+    const remote: ValidationError = {
+      message: "Remote image was not checked.",
+      value: {
+        path: "https://remote.val.build/file/p/a/b/v0/v/1/h/d/f/e/p/public/val/logo.png",
+      },
+      fixes: ["image:check-remote"],
+    };
+    const diagnostics = diagnose(remote, [
+      {
+        message:
+          "Remote ref: https://remote.val.build/file/p/a/b/v0/v/1/h/x/f/e/p/public/val/logo.png is not valid. Use the --fix flag to fix this issue.",
+        value: remote.value,
+      },
+    ]);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].message).toMatch(/is not valid\. Use the --fix flag/);
+    expect(diagnostics[0].severity).toBe(1); // Error, as the CLI's `✘`
+    expect(diagnostics[0].data).not.toMatchObject({
+      fixes: expect.anything(),
+    });
   });
 
   test("an error that is not a deferral is published without any verdict", () => {
