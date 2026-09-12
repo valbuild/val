@@ -178,9 +178,19 @@ export abstract class Schema<Src extends SelectorSource> {
    *
    * Carrying them over needs a cast, because `Src` sits in a PARAMETER position
    * of {@link CustomValidateFunction} and so `CustomValidateFunction<Src>[]` is
-   * not assignable to `CustomValidateFunction<Src | null>[]`. The cast is sound
-   * here for the same reason: the functions are only ever CALLED with values
-   * this schema accepts, and null is one of those from now on.
+   * not assignable to `CustomValidateFunction<Src | null>[]`. Widening what the
+   * functions can be CALLED with is the intent here rather than something the
+   * cast gets away with: `null` is handed to them, and the paragraph above is
+   * the behaviour that buys.
+   *
+   * A validator's parameter type was never a runtime guarantee to begin with.
+   * `executeValidate` runs the custom validators BEFORE the structural checks
+   * (see {@link CustomValidateFunction}'s callers, e.g. `NumberSchema`, which
+   * calls them ahead of its `typeof src !== "number"`), so one can already be
+   * called with a value of the wrong type entirely — hand-written content, or
+   * a node the Studio's walker reached before its type was checked. That is why
+   * {@link executeCustomValidateFunctions} catches what a validator throws and
+   * reports it as a `schemaError` instead of letting it escape.
    */
   abstract nullable(): Schema<Src | null>;
   /**
