@@ -94,6 +94,27 @@ export class DiscriminatedUnionSchema<
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is shown next to the field's label in the Val editor, so it is
+   * where you say what an editor needs to know but the field name cannot carry. It
+   * also travels in the serialized schema, which is what the AI assistant and the
+   * MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const hero = s.object({ type: s.literal("hero"), title: s.string() });
+   * const text = s.object({ type: s.literal("text"), body: s.string() });
+   * const schema = s
+   *   .discriminatedUnion("type", hero, text)
+   *   .describe("What this section of the page is");
+   * export default c.define("/example.val.ts", schema, {
+   *   type: "hero",
+   *   title: "Hello",
+   * });
+   */
   describe(description: string | null): DiscriminatedUnionSchema<Key, T, Src> {
     return new DiscriminatedUnionSchema<Key, T, Src>(
       this.key,
@@ -108,6 +129,33 @@ export class DiscriminatedUnionSchema<
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and before a
+   * publish.
+   *
+   * The function is given the whole value, whichever variant it took. A rule
+   * that only concerns one variant belongs on that variant's object schema.
+   *
+   * @example
+   * const hero = s.object({ type: s.literal("hero"), title: s.string() });
+   * const text = s.object({ type: s.literal("text"), body: s.string() });
+   * const schema = s
+   *   .discriminatedUnion("type", hero, text)
+   *   .validate((val) =>
+   *     val.type === "hero" && !val.title ? "A hero needs a title" : false,
+   *   );
+   * export default c.define("/example.val.ts", schema, {
+   *   type: "hero",
+   *   title: "Hello",
+   * });
+   */
   validate(
     validationFunction: (src: Src) => false | string,
   ): DiscriminatedUnionSchema<Key, T, Src> {
@@ -474,6 +522,16 @@ export class DiscriminatedUnionSchema<
    * instead of a preview row that navigates to it.
    *
    * Static configuration, not a callback — see `render.ts`.
+   *
+   * @example
+   * // A page builder: the row draws the tag selector and the matched
+   * // variant's fields.
+   * const hero = s.object({ type: s.literal("hero"), title: s.string() });
+   * const text = s.object({ type: s.literal("text"), body: s.string() });
+   * const block = s.discriminatedUnion("type", hero, text).render({ as: "inline" });
+   * export default c.define("/example.val.ts", s.array(block), [
+   *   { type: "hero", title: "Hello" },
+   * ]);
    */
   render(input: FieldRender): DiscriminatedUnionSchema<Key, T, Src> {
     return new DiscriminatedUnionSchema<Key, T, Src>(
@@ -497,6 +555,16 @@ export class DiscriminatedUnionSchema<
    * Without one of its own, a discriminated union previews as the VARIANT the
    * value takes — declare `preview` on the member objects and the union
    * dispatches.
+   *
+   * @example
+   * const hero = s.object({ type: s.literal("hero"), title: s.string() });
+   * const text = s.object({ type: s.literal("text"), body: s.string() });
+   * const block = s
+   *   .discriminatedUnion("type", hero, text)
+   *   .preview(({ val }) => ({ title: val.type }));
+   * export default c.define("/example.val.ts", s.array(block), [
+   *   { type: "hero", title: "Hello" },
+   * ]);
    */
   preview(
     select: ItemPreviewInput<Src>,

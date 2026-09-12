@@ -125,6 +125,12 @@ export const probes = {
   array: s.array(s.string()),
   object: s.object({ title: s.string() }),
   union: s.union(s.literal("a"), s.literal("b")),
+  discriminatedUnion: s.discriminatedUnion(
+    "type",
+    s.object({ type: s.literal("a"), a: s.string() }),
+    s.object({ type: s.literal("b"), b: s.string() }),
+  ),
+  enum: s.enum("a", "b"),
   record: s.record(s.string()),
   keyOf: s.keyOf(authorsVal),
   richtext: s.richtext(),
