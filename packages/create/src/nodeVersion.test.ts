@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 import { join } from "path";
-import { isUnsupportedNodeVersion, minimumNodeVersion } from "../nodeVersion";
+import { isUnsupportedNodeVersion } from "../nodeVersion";
 
 function engineRangeOf(json: unknown): string {
   if (
@@ -60,21 +60,18 @@ describe("isUnsupportedNodeVersion", () => {
     expect(isUnsupportedNodeVersion("nonsense", RANGE)).toBe(false);
   });
 
+  test("skips a clause it can only partly read, rather than half-reading it", () => {
+    // `>=22.13.0 <23` is a range with an upper bound. Reading it as its first
+    // half would call Node 24 supported on a range that excludes it, so the
+    // clause is not understood at all and the whole range fails open.
+    expect(isUnsupportedNodeVersion("24.0.0", ">=22.13.0 <23")).toBe(false);
+    expect(isUnsupportedNodeVersion("22.0.0", ">=22.13.0 <23")).toBe(false);
+    // ...and the same for a version with trailing junk, which is not 20.11.0.
+    expect(isUnsupportedNodeVersion("20.11.0garbage", RANGE)).toBe(false);
+  });
+
   test("uses the clauses it understands and ignores the rest", () => {
     expect(isUnsupportedNodeVersion("20.11.0", "18 || >=22.13.0")).toBe(true);
     expect(isUnsupportedNodeVersion("22.13.0", "18 || >=22.13.0")).toBe(false);
-  });
-});
-
-describe("minimumNodeVersion", () => {
-  test("reports the lowest version any clause allows", () => {
-    expect(minimumNodeVersion(RANGE)).toBe("22.13.0");
-    expect(minimumNodeVersion(">=23.5.0 || ^22.13.0 || ^20.17.0")).toBe(
-      "20.17.0",
-    );
-  });
-
-  test("is null when no clause parsed", () => {
-    expect(minimumNodeVersion("*")).toBe(null);
   });
 });

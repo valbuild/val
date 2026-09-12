@@ -10,11 +10,12 @@ npm create @valbuild@latest
 pnpm create @valbuild@latest
 ```
 
-Node 22.13 or newer is required (`^22.13.0 || >=23.5.0`). The command checks
-before it does anything else and tells you if this Node is too old, because
-`engines` alone does not stop it: npm only warns, pnpm enforces it only with
-`engine-strict`, and neither warning is visible in `npm create` / `pnpm create`
-output.
+Node `^22.13.0 || >=23.5.0` is required — 22.13 or newer on the 22 line, and
+23.5 or newer after it, so Node 23.0 to 23.4 are **not** supported. The command
+checks before it does anything else and tells you if this Node is not one of
+them, because `engines` alone does not stop it: npm only warns, pnpm enforces
+it only with `engine-strict`, and neither warning is visible in
+`npm create` / `pnpm create` output.
 
 ### On Windows, quote the package name in PowerShell
 

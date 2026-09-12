@@ -21,19 +21,20 @@ output.
 The version is now checked before anything is loaded:
 
 ```
-Val needs Node 22.13.0 or newer, but this is Node 20.11.0.
+Val needs Node ^22.13.0 || >=23.5.0, but this is Node 20.11.0.
 
 Upgrade Node, then run the same command again:
 
-  nvm install 24 && nvm use 24     # or fnm, volta, asdf
-  https://nodejs.org/en/download   # or an installer
-
-Supported: ^22.13.0 || >=23.5.0
+  nvm install --lts && nvm use --lts   # or fnm, volta, asdf
+  https://nodejs.org/en/download       # or an installer
 ```
 
-The range is read from `engines.node` rather than repeated, and a version or
-range the check cannot parse is allowed through — it can only ever explain a
-failure that was going to happen anyway.
+The range is read from `engines.node` and printed as it is written, rather
+than paraphrased: `^22.13.0 || >=23.5.0` is not "22.13.0 or newer" — it
+excludes 23.0 to 23.4 — and a message that rounded it off would send you to
+install a Node that still gets refused. A version or range the check cannot
+parse is allowed through, so it can only ever explain a failure that was going
+to happen anyway.
 
 The README also now notes that PowerShell needs the package name quoted:
 `npm create "@valbuild@latest"`. Unquoted, PowerShell reads `@valbuild` as

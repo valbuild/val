@@ -21,9 +21,15 @@
  * @returns {{ major: number, minor: number, patch: number } | null}
  */
 function parseVersion(version) {
-  // A trailing `-nightly...` / `-rc.1` is ignored: a prerelease of a supported
-  // major is close enough to supported, and refusing it is worse than trying.
-  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(version.trim());
+  // Anchored at both ends, so anything this does not fully understand is null
+  // rather than its leading digits. Unanchored, `>=22.13.0 <23` read as
+  // `>=22.13.0` - the upper bound silently dropped - and `20.11.0garbage` read
+  // as a version. A prerelease suffix is the one thing allowed through, and it
+  // is ignored: a prerelease of a supported major is close enough to
+  // supported, and refusing it is worse than trying.
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$/.exec(
+    version.trim(),
+  );
   if (!match) {
     return null;
   }
@@ -97,27 +103,4 @@ function isUnsupportedNodeVersion(version, range) {
   return understoodAny;
 }
 
-/**
- * The lowest version any clause of the range allows, for saying "Node X or
- * newer" instead of quoting a semver range at someone. Null when no clause
- * parsed.
- *
- * @param {string} range
- * @returns {string | null}
- */
-function minimumNodeVersion(range) {
-  /** @type {{ major: number, minor: number, patch: number } | null} */
-  let lowest = null;
-  for (const clause of range.split("||")) {
-    const min = parseVersion(clause.trim().replace(/^(\^|>=|>)\s*/, ""));
-    if (!min) {
-      continue;
-    }
-    if (!lowest || compareVersions(min, lowest) < 0) {
-      lowest = min;
-    }
-  }
-  return lowest ? `${lowest.major}.${lowest.minor}.${lowest.patch}` : null;
-}
-
-module.exports = { isUnsupportedNodeVersion, minimumNodeVersion };
+module.exports = { isUnsupportedNodeVersion };

@@ -15,29 +15,32 @@
  * `pnpm create`. So the check has to be here, and it cannot use chalk to say
  * so.
  */
-const {
-  isUnsupportedNodeVersion,
-  minimumNodeVersion,
-} = require("./nodeVersion");
+const { isUnsupportedNodeVersion } = require("./nodeVersion");
 
-// Optional chaining, so a package.json that ever loses `engines` makes the
-// check skip rather than crash on its way to explaining a crash.
-const required = require("./package.json").engines?.node;
+// ES2015 only in this file, deliberately: it has to PARSE on the old Node it
+// exists to diagnose. Optional chaining (`engines?.node`) is ES2020, so on
+// Node 13 and earlier it would turn the explanation into a syntax error. The
+// `engines &&` guard does the same job - a package.json that ever loses
+// `engines` skips the check instead of crashing on its way to explaining a
+// crash.
+const engines = require("./package.json").engines;
+const required = engines && engines.node;
 const current = process.versions.node;
 
 if (required && isUnsupportedNodeVersion(current, required)) {
-  const minimum = minimumNodeVersion(required);
   console.error(
     [
       "",
-      `Val needs Node ${minimum ? `${minimum} or newer` : required}, but this is Node ${current}.`,
+      // The range itself, not a paraphrase of it: `^22.13.0 || >=23.5.0` is
+      // NOT "22.13.0 or newer" - it excludes 23.0 to 23.4 - and a sentence
+      // that says otherwise sends someone to install a Node this still
+      // refuses.
+      `Val needs Node ${required}, but this is Node ${current}.`,
       "",
       "Upgrade Node, then run the same command again:",
       "",
-      "  nvm install 24 && nvm use 24     # or fnm, volta, asdf",
-      "  https://nodejs.org/en/download   # or an installer",
-      "",
-      `Supported: ${required}`,
+      "  nvm install --lts && nvm use --lts   # or fnm, volta, asdf",
+      "  https://nodejs.org/en/download       # or an installer",
       "",
     ].join("\n"),
   );
