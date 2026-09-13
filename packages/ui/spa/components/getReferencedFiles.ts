@@ -41,6 +41,7 @@ export function getReferencedFiles(
       schema.type === "number" ||
       schema.type === "boolean" ||
       schema.type === "literal" ||
+      schema.type === "enum" ||
       schema.type === "date" ||
       schema.type === "dateTime" ||
       schema.type === "color" ||
@@ -49,7 +50,8 @@ export function getReferencedFiles(
       schema.type === "image" ||
       schema.type === "file" ||
       schema.type === "richtext" ||
-      schema.type === "route"
+      schema.type === "route" ||
+      schema.type === "locale"
     ) {
       // ignore these
     } else {

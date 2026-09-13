@@ -326,16 +326,12 @@ const pagesModule = c.define(
     s.object({
       title: s.string(),
       body: s.richtext(),
-      status: s.union(
-        s.literal("draft"),
-        s.literal("published"),
-        s.literal("archived"),
-      ),
+      status: s.enum("draft", "published", "archived"),
       sections: s.array(
         s.object({
           heading: s.string(),
           items: s.array(
-            s.union(
+            s.discriminatedUnion(
               "type",
               s.object({ type: s.literal("text"), content: s.string() }),
               s.object({ type: s.literal("quote"), text: s.string() }),
@@ -1069,7 +1065,7 @@ const unionModule = c.define(
   "/app/features.val.ts",
   s.record(
     s.object({
-      content: s.union(
+      content: s.discriminatedUnion(
         "type",
         s.object({
           type: s.literal("test-1"),
@@ -1224,6 +1220,14 @@ export const EverythingReverted: Story = {
   ),
 };
 
+/**
+ * Nothing pending, which is a screen someone reaches on purpose.
+ *
+ * Review is in the top bar whether or not anything is queued — a button that
+ * comes and goes cannot answer "is anything of mine still unpublished?" — so
+ * this is what it opens most of the time. It used to be one grey line reading
+ * "No pending changes.", which looks like a view that failed to load.
+ */
 export const NoChanges: Story = {
   render: () => (
     <StorySetup

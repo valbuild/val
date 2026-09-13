@@ -3,12 +3,17 @@ import { refToUrl } from "../MediaPicker/refToUrl";
 import { ExplorerItem, SitemapItem } from "../NavMenu/types";
 import { AvailableRoute } from "../NavMenu/NewPageForm";
 import { routePatternToString } from "../NavMenu/SitemapItem";
-import { ValEnrichedDeployment } from "../../utils/mergeCommitsAndDeployments";
+import {
+  commitSubject,
+  ValEnrichedDeployment,
+} from "../../utils/mergeCommitsAndDeployments";
+import { deploymentProgress, describeDeploymentState } from "./Deployments";
 import {
   ShellActivityEntry,
   ShellAdminLinks,
   ShellData,
   ShellDataModule,
+  ShellDeployActivity,
   ShellDeployment,
   ShellDestination,
   ShellLogo,
@@ -160,10 +165,29 @@ export function toValidationErrors(
 const ACTIVITY_LIMIT = 8;
 
 /**
- * Recent activity, from the patch sets.
+ * How many of those may be publishes.
+ *
+ * An afternoon of publishing produces a run of deploys — one of yours, one of a
+ * colleague's, a retried build — and a straight merge by time would fill the
+ * whole list with them and push out the edits the panel exists to get back to.
+ * The deploy feed in the status bar has them all; here they are context, so
+ * they get a minority of the rows and never the last edit's place.
+ */
+const DEPLOY_ACTIVITY_LIMIT = 3;
+
+/**
+ * Recent activity: the unpublished edits and the publishes, newest first.
  *
  * Patch sets are already newest first and already grouped by the thing that
- * changed, which is exactly what this list wants.
+ * changed, which is exactly what this list wants. Publishes come in as the rows
+ * the deploy feed renders — same labels, same three states — because a publish
+ * that reads one way in the status bar and another here is two answers to one
+ * question.
+ *
+ * The two are then interleaved by time, which is what makes it a feed rather
+ * than two lists in one box: "I changed the hero, then it went out, then Ida
+ * changed the pricing" is the sentence someone opening this panel is trying to
+ * read.
  */
 export function toActivity(
   patchSets: Array<{
@@ -173,35 +197,92 @@ export function toActivity(
     lastUpdatedBy: string | null;
   }>,
   /**
+   * The publishes, already mapped by {@link toDeployments}.
+   *
+   * Rows rather than the raw feed, so this cannot disagree with the deploy list
+   * about what a publish is called or how it is doing.
+   */
+  deployments: ShellDeployment[],
+  /**
    * A parameter rather than a call to `Date.now()`, so the result is a function
    * of its inputs and can be tested — the same reason `toDeployments` takes one.
    */
   now: number,
 ): ShellActivityEntry[] {
-  return patchSets.slice(0, ACTIVITY_LIMIT).map(
-    (set, index): ShellActivityEntry => ({
-      // The index is load-bearing: two patch sets can share a module and a path,
-      // and React needs them apart. `sourcePath` is the one that means something.
-      id: `${set.moduleFilePath}?${set.patchPath.join("/")}-${index}`,
-      /**
-       * Where the change was, as a real source path.
-       *
-       * Built with `patchPathToModulePath`, which is the only thing that knows
-       * the grammar — string keys are JSON-quoted, array indices are bare — so
-       * `["items", "0", "title"]` becomes `"items".0."title"` and not something
-       * that looks close enough to work and then does not resolve.
-       */
-      sourcePath: Internal.joinModuleFilePathAndModulePath(
-        set.moduleFilePath,
-        Internal.patchPathToModulePath(set.patchPath),
-      ),
-      title: [fileLabel(set.moduleFilePath), ...set.patchPath].join(" › "),
-      // Relative, because this is a "what have I been doing" list and an ISO
-      // timestamp is not an answer to that. It was rendered raw.
-      timestamp: formatRelativeTime(set.lastUpdated, now),
-      author: set.lastUpdatedBy ?? undefined,
+  const changes = patchSets.slice(0, ACTIVITY_LIMIT).map(
+    (set, index): Dated<ShellActivityEntry> => ({
+      at: timeOf(set.lastUpdated),
+      entry: {
+        kind: "change",
+        // The index is load-bearing: two patch sets can share a module and a
+        // path, and React needs them apart. `sourcePath` is the one that means
+        // something.
+        id: `${set.moduleFilePath}?${set.patchPath.join("/")}-${index}`,
+        /**
+         * Where the change was, as a real source path.
+         *
+         * Built with `patchPathToModulePath`, which is the only thing that knows
+         * the grammar — string keys are JSON-quoted, array indices are bare — so
+         * `["items", "0", "title"]` becomes `"items".0."title"` and not something
+         * that looks close enough to work and then does not resolve.
+         */
+        sourcePath: Internal.joinModuleFilePathAndModulePath(
+          set.moduleFilePath,
+          Internal.patchPathToModulePath(set.patchPath),
+        ),
+        title: [fileLabel(set.moduleFilePath), ...set.patchPath].join(" › "),
+        // Relative, because this is a "what have I been doing" list and an ISO
+        // timestamp is not an answer to that. It was rendered raw.
+        timestamp: formatRelativeTime(set.lastUpdated, now),
+        author: set.lastUpdatedBy ?? undefined,
+      },
     }),
   );
+  const deploys = deployments.slice(0, DEPLOY_ACTIVITY_LIMIT).map(
+    (deployment): Dated<ShellActivityEntry> => ({
+      at: timeOf(deployment.updatedAt),
+      entry: toDeployActivity(deployment),
+    }),
+  );
+  return (
+    [...changes, ...deploys]
+      // Newest first. A stable sort, so patch sets that share a timestamp stay
+      // in the order the store gave them — which is the order they happened in.
+      .sort((a, b) => b.at - a.at)
+      .slice(0, ACTIVITY_LIMIT)
+      .map(({ entry }) => entry)
+  );
+}
+
+/** An entry with the instant it is sorted by, which the entry itself has lost. */
+type Dated<T> = { at: number; entry: T };
+
+/**
+ * An ISO timestamp as milliseconds, for sorting only.
+ *
+ * An unreadable one sorts oldest rather than throwing the whole feed off: `NaN`
+ * makes every comparison false, which leaves the sort's output unspecified.
+ */
+function timeOf(iso: string): number {
+  const at = new Date(iso).getTime();
+  return Number.isNaN(at) ? 0 : at;
+}
+
+/** One publish, as an activity row. */
+function toDeployActivity(deployment: ShellDeployment): ShellDeployActivity {
+  return {
+    kind: "deploy",
+    // Prefixed, because a commit sha and a patch set id share one list now.
+    id: `deploy-${deployment.commitSha}`,
+    // The commit message when there is one. Without it there is nothing to say
+    // about the publish but which commit it was, and the short sha is what the
+    // deploy feed shows for the same publish.
+    title: deployment.message ?? deployment.commitSha.slice(0, 7),
+    state: describeDeploymentState(deployment),
+    progress: deploymentProgress(deployment),
+    timestamp: deployment.timestamp,
+    author: deployment.author,
+  };
 }
 
 /** How many publishes the deployment feed keeps. */
@@ -224,7 +305,7 @@ export function toDeployments(
     (deployment): ShellDeployment => ({
       commitSha: deployment.commitSha,
       state: deployment.deploymentState,
-      message: deployment.commitMessage,
+      message: commitSubject(deployment.commitMessage),
       author: deployment.creator
         ? profilesByAuthorId[deployment.creator]?.fullName
         : undefined,

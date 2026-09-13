@@ -44,7 +44,7 @@ describe("ValOpsFS", () => {
 
         export const schema = s.object({
           text: s.string(),
-          objectUnions: s.union(
+          objectUnions: s.discriminatedUnion(
             "type",
             s.object({
               type: s.literal("object-type-1"),
@@ -56,11 +56,7 @@ describe("ValOpsFS", () => {
             })
           ),
           arrays: s.array(s.string()),
-          stringEnum: s.union(
-            s.literal("lit-0"),
-            s.literal("lit-1"),
-            s.literal("lit-2")
-          ),
+          stringEnum: s.enum("lit-0", "lit-1", "lit-2"),
         });
         export type ClientContent = t.inferSchema<typeof schema>;
         

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAIContext } from "../components/ValProvider";
 import type { AiSummaryState } from "../components/PublishSummaryView";
 import type { AIModel, AIServerMessage } from "./useAIWebSocket";
+import { randomUUID } from "../utils/randomUUID";
 
 /**
  * Writes the commit summary through the AI websocket, in its own session.
@@ -159,8 +160,8 @@ export function useCommitSummary(
         return;
       }
       startedRef.current = true;
-      const promptId = crypto.randomUUID();
-      const sessionId = crypto.randomUUID();
+      const promptId = randomUUID();
+      const sessionId = randomUUID();
       promptIdRef.current = promptId;
       sessionIdRef.current = sessionId;
       streamedRef.current = "";
@@ -197,7 +198,7 @@ export function useCommitSummary(
     if (sessionId === null) {
       return null;
     }
-    const requestId = crypto.randomUUID();
+    const requestId = randomUUID();
     return new Promise<string | null>((resolve) => {
       const timeout = setTimeout(() => {
         unsubscribe();

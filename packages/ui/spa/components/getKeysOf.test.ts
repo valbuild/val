@@ -154,7 +154,7 @@ describe("getKeysOf", () => {
           level1: s.record(
             s.object({
               level2: s.array(
-                s.union(
+                s.discriminatedUnion(
                   "type",
                   s.object({
                     type: s.literal("one"),

@@ -90,19 +90,9 @@ function variantOf(
   schema: SerializedSchema,
   value: Json,
 ): SerializedSchema | undefined {
-  if (schema.type !== "union") {
+  if (schema.type !== "discriminated-union") {
     return undefined;
   }
-  // String union: the value IS the discriminator.
-  if (typeof schema.key !== "string") {
-    if (typeof value !== "string") {
-      return undefined;
-    }
-    return schema.items.find(
-      (item) => item.type === "literal" && item.value === value,
-    );
-  }
-  // Object union: the discriminator is a literal at `key`.
   const discriminator = schema.key;
   if (!isJsonObject(value)) {
     return undefined;
@@ -121,9 +111,6 @@ function variantOf(
 }
 
 function describeVariant(schema: SerializedSchema, key: string): string {
-  if (schema.type === "literal") {
-    return schema.value;
-  }
   if (schema.type === "object") {
     const tag = schema.items[key];
     if (tag?.type === "literal") {
@@ -143,11 +130,27 @@ export function checkCompatibility(
     return to.schema.opt ? compatible : incompatible({ kind: "not-optional" });
   }
 
+  // An enum's domain IS its schema, so the value decides: whatever the old
+  // schema was — an enum, a literal, a plain string — the only question is
+  // whether this string is still offered here.
+  if (to.schema.type === "enum") {
+    if (
+      typeof from.value === "string" &&
+      to.schema.values.includes(from.value)
+    ) {
+      return compatible;
+    }
+    return incompatible({
+      kind: "no-matching-variant",
+      variants: to.schema.values,
+    });
+  }
+
   // A changed union is not itself disqualifying. What matters is whether the
   // variant being restored still has somewhere to go — comparing the unions
   // wholesale would refuse a restore that is perfectly safe.
-  if (to.schema.type === "union") {
-    const key = typeof to.schema.key === "string" ? to.schema.key : "";
+  if (to.schema.type === "discriminated-union") {
+    const key = to.schema.key;
     for (const variant of to.schema.items) {
       if (
         checkCompatibility(from, { schema: variant }).status === "compatible"
@@ -161,9 +164,9 @@ export function checkCompatibility(
     });
   }
 
-  // Coming FROM a union into something that is not one: only the variant this
-  // value actually is matters, so narrow before comparing.
-  if (from.schema.type === "union") {
+  // Coming FROM a discriminated union into something that is not one: only the
+  // variant this value actually is matters, so narrow before comparing.
+  if (from.schema.type === "discriminated-union") {
     const variant = variantOf(from.schema, from.value);
     if (variant === undefined) {
       return {
@@ -173,6 +176,25 @@ export function checkCompatibility(
       };
     }
     return checkCompatibility({ schema: variant, value: from.value }, to);
+  }
+
+  // Coming FROM an enum into something that is not one: the value it holds is
+  // all the old schema contributes, so compare as that one value.
+  if (from.schema.type === "enum") {
+    if (typeof from.value !== "string") {
+      return {
+        status: "unknown",
+        message:
+          "The old value is not one of the options it was stored as, so we cannot tell whether it fits here.",
+      };
+    }
+    return checkCompatibility(
+      {
+        schema: { type: "literal", value: from.value, opt: from.schema.opt },
+        value: from.value,
+      },
+      to,
+    );
   }
 
   if (from.schema.type !== to.schema.type) {

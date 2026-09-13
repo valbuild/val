@@ -1352,10 +1352,14 @@ type ShallowSource = {
   /** The sections a settings module HAS: every settings key is optional. */
   settings: Record<string, SourcePath>;
   record: Record<string, SourcePath>;
-  union: string | Record<string, SourcePath>;
+  /** The variant's own keys: a discriminated union's value IS an object. */
+  "discriminated-union": Record<string, SourcePath>;
+  /** One of the enum's values. */
+  enum: string;
   boolean: boolean;
   keyOf: string;
   route: string;
+  locale: string;
   number: number;
   string: string;
   date: string;
@@ -1522,13 +1526,29 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       status: "success",
       data: source as ShallowSource[SchemaType],
     };
-  } else if (type === "union") {
-    if (typeof source === "string") {
+  } else if (type === "locale") {
+    if (typeof source !== "string") {
       return {
-        status: "success",
-        data: source as ShallowSource[SchemaType],
+        status: "error",
+        error: `Expected string, got ${typeof source}`,
       };
     }
+    return {
+      status: "success",
+      data: source as ShallowSource[SchemaType],
+    };
+  } else if (type === "enum") {
+    if (typeof source !== "string") {
+      return {
+        status: "error",
+        error: `Expected string, got ${typeof source}`,
+      };
+    }
+    return {
+      status: "success",
+      data: source as ShallowSource[SchemaType],
+    };
+  } else if (type === "discriminated-union") {
     if (typeof source !== "object") {
       return {
         status: "error",
@@ -1541,7 +1561,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
         error: `Expected object, got array`,
       };
     }
-    const data: ShallowSource["union"] = {};
+    const data: ShallowSource["discriminated-union"] = {};
     for (const key of Object.keys(source)) {
       data[key] = concatModulePath(moduleFilePath, modulePath, key);
     }

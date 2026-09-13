@@ -1,5 +1,544 @@
 # @valbuild/ui
 
+## 0.127.0
+
+### Minor Changes
+
+- [#608](https://github.com/valbuild/val/pull/608) [`7fa8699`](https://github.com/valbuild/val/commit/7fa869974bc895af992a7d5c18b76253636d7d65) Thanks [@freekh](https://github.com/freekh)! - A record whose schema declares its keys now holds every one of them.
+
+  Two key schemas enumerate their keys: `s.locale()`, whose set is the project's
+  `locales.available`, and a union of literals. For those, the keys are part of the
+  schema, so a missing one is a hole in the content rather than content nobody has
+  written yet — and validation now says so, naming what is missing.
+
+  ```typescript
+  s.record(s.locale(), s.object({ title: s.string() }));
+  // Missing key: 'nb-NO'. This record's keys are declared by its schema, so
+  // every one of them is an entry — an entry nobody has written yet is null,
+  // not absent.
+  ```
+
+  **An entry nobody has written yet is `null`.** Not an absent key: a null entry is
+  data you can count, filter and see in a diff, and it means half-translated
+  content stays _valid_ rather than blocking a publish. The value type of such a
+  record widens by `null` to match, so writing one in a `.val.ts` type-checks:
+
+  ```typescript
+  c.define(
+    "/content/jacket.val.ts",
+    s.record(s.locale(), s.object({ title: s.string() })),
+    {
+      "en-US": { title: "Winter jacket" },
+      "nb-NO": null, // nobody has translated this yet
+    },
+  );
+  ```
+
+  **This changes `s.record(s.union(...), item)`**, and closes a gap that was
+  already there: `s.record(s.union(s.literal("a"), s.literal("b")), item)` types as
+  `Record<"a" | "b", T>`, so TypeScript demanded both keys while the validator only
+  checked the ones present. It now checks them too, and — as above — accepts `null`
+  for an entry that has not been filled in. If you have such a record with keys
+  missing, validation will report them; adding the keys with `null` values is the
+  fix, and creating one from the Studio does it for you.
+
+  `emptyOf` creates these records with every key already in them rather than
+  empty, since an empty one is already missing keys. In the Studio use the
+  `useEmptyOf()` hook rather than importing `emptyOf` directly: a locale record's
+  keys are in the settings module, and the hook is what has read it.
+
+- [#608](https://github.com/valbuild/val/pull/608) [`600308d`](https://github.com/valbuild/val/commit/600308d0174990ad9f5c417147d160273489c65a) Thanks [@freekh](https://github.com/freekh)! - A locale filter in the Studio: work through one language at a time.
+
+  Pick a language from the filter in the top bar — the bottom bar on a phone — and
+  the Studio shows that language's content. **Content in no language at all is
+  always shown**, which in most projects is most of it: the filter narrows a
+  translated section rather than emptying the Studio.
+
+  It changes what is **listed**, never what is reachable. A link to a Norwegian
+  page opens that page while the filter says English, because the filter is for
+  working through one language and not a permission on the content.
+
+  The default is all locales, and it is deep-linked as `?locale=nb-NO`, so a link
+  carries the view you are on. A project that has declared no languages has no
+  filter at all: a picker offering only "All locales" is furniture that explains
+  nothing.
+
+  Filtering is a per-node question rather than a walk, and that falls out of the
+  scope rule: only a node that OPENS a locale scope is ever filtered, and content
+  inside a scope is reachable only through the node that opened it — so hiding
+  that node takes its subtree with it. Two of the three ways a scope opens are
+  answerable from what a list already has: an entry of a locale-keyed record (the
+  key IS the language) and an object with a `locale` field.
+
+  The filter reaches record entries, array items and blocks. A locale-keyed record
+  filters its KEYS, so a row in another language is never rendered at all; every
+  other row asks its own content, because a list has paths and the language is in
+  the row.
+
+  A locale field nobody has filled in stays listed. Hiding it would hide the field
+  someone has to fill in to un-hide it — and a row that has not loaded yet stays
+  listed too, so a list does not shed rows as it arrives.
+
+  **While the filter is on one language, `s.locale()` fields are fixed to it.** A
+  new item created under the filter arrives already set — filtered to Norwegian,
+  you are writing Norwegian, and an item that defaulted to unset would fail
+  validation and disappear from the list you are looking at, in that order. An
+  existing field is shown but cannot be changed, with a tooltip saying why and
+  naming the way out: clear the filter. Letting one field say another language
+  while everything around it says this one would make the thing you are editing
+  vanish as you saved it, which reads as the Studio losing your work rather than
+  as a filter doing its job.
+
+  Not yet filtered: the Pages and Data panels. A page is a tree rather than a list,
+  so hiding one is a different question from hiding a row, and it is worth its own
+  change.
+
+- [#608](https://github.com/valbuild/val/pull/608) [`5b7fe05`](https://github.com/valbuild/val/commit/5b7fe05cec6365f9cd1de9ba31e65ed4a87edb63) Thanks [@freekh](https://github.com/freekh)! - `s.locale()`: one of the project's languages.
+
+  The languages themselves are declared in the settings module (`locales.available`);
+  this says that a value is one of them.
+
+  ```typescript
+  // a field: everything in this entry is in this language
+  s.record(s.string(), s.object({ locale: s.locale(), title: s.string() }));
+
+  // a key: one entry per language
+  s.record(s.locale(), s.object({ title: s.string() }));
+  ```
+
+  Every locale in content is checked against the project's list, the way `keyOf`
+  and `route` are checked against what they point at. An undeclared language names
+  the ones the project has; a project that has declared none is told to declare
+  them rather than told the value is wrong.
+
+  A locale is stored as the tag itself — the value in content is `nb-NO`, and a
+  record keyed by `s.locale()` has `nb-NO` as its key. Spelling one differently
+  where it is stored (`/no/…` as a URL segment) is a real need and is deliberately
+  not in this release: it changes what is accepted as well as what is shown, so it
+  is being designed on its own rather than folded in here.
+
+  A locale is **never stega encoded**: it ends up in `<html lang>`, in `hreflang`
+  and in `Intl` constructors, none of which survive invisible characters.
+
+  `assistant.translation` joins the settings module alongside `context` and `tone`
+  — a note per language, keyed by language, so only the target language's rules are
+  sent when translating into it.
+
+- [#608](https://github.com/valbuild/val/pull/608) [`29811c3`](https://github.com/valbuild/val/commit/29811c3f8c7e001a950e6f4833af6888e6a4efea) Thanks [@freekh](https://github.com/freekh)! - Settings: declare the languages a project publishes.
+
+  A new `locales` section in the settings module says which languages a project
+  has:
+
+  ```typescript
+  export default c.define("/settings.val.ts", s.settings(), {
+    locales: {
+      available: ["en-US", "fr-FR", "nb-NO"],
+    },
+  });
+  ```
+
+  The order is the project's own and is kept rather than sorted: it is the order
+  of the Studio's locale picker and of the rows in a locale-keyed record. There
+  is no default language — every locale-specific field asks which language it is
+  in, and a default is the answer that lets that question go unanswered.
+
+  Like every other settings section it is optional, so a project that is not
+  translated writes nothing and sees nothing: no locale controls appear anywhere
+  until `available` has something in it.
+
+  This is content rather than configuration, and deliberately: which languages a
+  site has is a decision the people who write it make, and under a build-time
+  constant it took a developer and a deploy. It is the same move `assistant`
+  already makes with `enabled`.
+
+  Tags are BCP 47 (`en-US`, `nb-NO`), checked through `Intl.getCanonicalLocales` —
+  the same implementation `<html lang>` and every `Intl` constructor use — and
+  they have to be in canonical form. `nb-no` parses, but nothing else in the stack
+  agrees it is the same string as `nb-NO`, and a locale is compared as a string
+  everywhere it is used. Validation names the spelling to use, and reports a
+  language declared twice on the repeat rather than on the list — that is the row
+  to delete, and a message on the list itself would not say which.
+
+  Edited under Settings → Locales in the Studio, which names each language in its
+  own language.
+
+### Patch Changes
+
+- [#669](https://github.com/valbuild/val/pull/669) [`9983116`](https://github.com/valbuild/val/commit/99831164c5151aad7ca69de79e1d0d59878be251) Thanks [@freekh](https://github.com/freekh)! - Fix the Studio crashing with `crypto.randomUUID is not a function` when it is
+  opened over plain http on something that is not `localhost`
+
+  Opening `/val` at an address like `http://172.23.135.172:3000` — a LAN IP, a
+  VM, or a dev server inside WSL viewed from a browser on Windows — left a blank
+  screen and this in the console:
+
+  ```
+  crypto.randomUUID is not a function
+  ```
+
+  `crypto.randomUUID` is secure-context only: it exists on `https://` and on
+  `localhost`, and is simply absent anywhere else. The Studio called it while
+  rendering, to name its websocket connection, so it died before it drew
+  anything. Every id the Studio generates this way now goes through a fallback
+  that works in any context. `navigator.clipboard`, which is secure-context only
+  for the same reason, got the same treatment — copying a code block out of the
+  assistant no longer throws there either.
+
+  The fallback is `crypto.getRandomValues`, which exists in an insecure context
+  and is still cryptographically secure — which matters, because a patch id is
+  what `/api/val/files` accepts instead of authentication when it serves an
+  unpublished file. Where a browser has neither that nor `crypto.randomUUID`, the
+  Studio now says so rather than inventing a guessable id.
+
+  This is not specific to any framework, but it shows up most with TanStack
+  Start: `vite dev` binds `localhost` only, so a WSL user who wants to see the
+  site from Windows runs it with `--host` and opens the VM's IP, while `next dev`
+  binds `0.0.0.0` and `localhost` keeps working.
+
+## 0.126.0
+
+### Minor Changes
+
+- [#652](https://github.com/valbuild/val/pull/652) [`f2fe70d`](https://github.com/valbuild/val/commit/f2fe70dab2b65000dfaf289f09c70b4a8291467a) Thanks [@freekh](https://github.com/freekh)! - `s.union` is now `s.discriminatedUnion` and `s.enum`.
+
+  `s.union` did two unrelated jobs and worked out which one you meant from its
+  first argument: a string key meant a tagged union of objects, literal schemas
+  meant a set of allowed strings. Those are now two schemas with two names.
+
+  ```ts
+  // A fixed set of strings — presents as a dropdown
+  s.enum("primary", "secondary", "ghost"); // Schema<"primary" | "secondary" | "ghost">
+
+  // One of several object shapes, told apart by a tag field
+  s.discriminatedUnion(
+    "type",
+    s.object({ type: s.literal("hero"), heading: s.string() }),
+    s.object({ type: s.literal("quote"), text: s.string() }),
+  );
+  ```
+
+  `s.enum` takes the strings directly, so the `s.literal(...)` wrapper is gone.
+
+  **`s.union` still works** — it is deprecated, and it builds exactly the schema
+  above, so nothing has to change today:
+
+  ```ts
+  s.union(s.literal("one"), s.literal("two")); // → s.enum("one", "two")
+  s.union("type", pageA, pageB); // → s.discriminatedUnion("type", pageA, pageB)
+  ```
+
+  The two are different kinds of node, and that is the reason for the split. A
+  discriminated union is a container: the selected variant's fields are the fields
+  being edited, and everything that walks a schema descends through it. An enum is
+  a leaf — a string with a closed domain — so nothing recurses into it. Told apart
+  only by the shape of `key`, every consumer had to re-derive which one it was
+  holding; each now has its own serialized type (`"discriminated-union"` and
+  `"enum"`) and Val Studio has a field per kind rather than one field that
+  branches.
+
+  Two behaviour changes fall out of the split, both of them fixes:
+
+  - A value that is not a string at all now fails an enum's validation with a
+    type error. `s.union` of literals only ever checked the value against its
+    literals when the value WAS a string, so a number or an object where an enum
+    was declared validated clean.
+  - An enum field now shows its validation errors in Val Studio where the field
+    is opened on its own — the module editor and the canvas's fields column — and
+    gets the compact error layout inside an inline list row. It is a leaf now, so
+    it goes through the same error rendering as every other leaf field; the string
+    union bypassed it and showed nothing in those places.
+
+  Several latent crashes in the old `s.union` are fixed on the way past, all of
+  them cases where it threw a `TypeError` instead of reporting:
+
+  - A required discriminated union holding `null` now reports a type error rather
+    than throwing, and resolving a path underneath a nullable one that is `null`
+    gives the error the API promises instead of a crash.
+  - `s.literal("")` is a legal discriminator tag, and `s.enum("")` a legal value.
+    Both used to be treated as absent by a truthiness check — in path resolution,
+    in stega encoding, and in the message that lists a union's valid tags. The
+    editor's dropdowns handle them too: an empty value is reserved by the select
+    component and had to be mapped around.
+  - A variant that omits the discriminator entirely is now reported as the schema
+    error it is, instead of throwing while the check looked for it.
+  - An enum's value is now indexed for search, like every other string leaf. The
+    old string union was never indexed at all, so searching for one of its values
+    could not find the field.
+  - A nullable discriminated union set to `null` no longer renders a spinner that
+    never resolves.
+
+  `s.discriminatedUnion` also requires at least one variant, as `s.enum` requires
+  at least one value: a union with nothing to select is not a thing to write, and
+  everything downstream reads the first variant where it needs any.
+
+  If you read serialized schemas yourself, that is the breaking part: `type` is no
+  longer `"union"`, an enum carries `values: string[]` instead of a `key` plus
+  `items` of literal schemas, and `UnionSchema` is no longer a class.
+  `SerializedUnionSchema`, `SerializedStringUnionSchema`,
+  `SerializedObjectUnionSchema` and `UnionSchema` remain as deprecated type
+  aliases.
+
+### Patch Changes
+
+- [#664](https://github.com/valbuild/val/pull/664) [`719ad6b`](https://github.com/valbuild/val/commit/719ad6b607bcf136d0dbde9e90bf4b8a843561a4) Thanks [@freekh](https://github.com/freekh)! - Recent activity now shows publishes, not just edits
+
+  The Studio's Recent activity list only ever showed unpublished edits. Publishes
+  lived in the status bar's deploy feed, which is a live-progress indicator — it
+  closes itself once a build lands, and rows can be dismissed — so as soon as a
+  publish had finished, nothing in the Studio said it had.
+
+  Publishes are now rows in the same list, interleaved with the edits by time, so
+  the panel reads as what happened here: you changed the hero, it went out, a
+  colleague changed the pricing. A publish row carries the commit message (or the
+  short sha when there is none), who published it, and how the build is doing —
+  with the same labels and the same spinner/warning icons the deploy feed uses, so
+  one publish never reads two ways in two places.
+
+  Edits stay clickable and open the field they changed; a publish is a commit and
+  opens nothing, so it renders as a line rather than a button. Publishes take at
+  most three of the eight rows: an afternoon of publishing must not push out the
+  edits the panel exists to get you back to, and the full feed is still in the
+  status bar.
+
+- [#664](https://github.com/valbuild/val/pull/664) [`9830277`](https://github.com/valbuild/val/commit/9830277e9aaca8da3030f629c2656ec58da47e45) Thanks [@freekh](https://github.com/freekh)! - "All changes saved", not "All changes saved locally"
+
+  The status bar's resting state claimed changes were saved _locally_, at every
+  breakpoint and in both modes. Against a project that is wrong: the patch is on
+  the content service, which is where it has to be for a colleague to see it and
+  for Publish to ship it. "Locally" reads as "still only on this machine" — the
+  one thing an editor would want to know, said backwards.
+
+  It is not worth saying in local dev either, where the bar already shows "Dev
+  mode" and the branch a couple of items to the left.
+
+- [#664](https://github.com/valbuild/val/pull/664) [`64bfd0a`](https://github.com/valbuild/val/commit/64bfd0a6c85832ea5169b53e47087f22e193df36) Thanks [@freekh](https://github.com/freekh)! - The canvas no longer covers the page to say preview mode is off
+
+  Whenever the canvas could not do its job, a panel with a blurred backdrop
+  covered the whole frame. That stopped the canvas being a canvas: the published
+  page underneath is real and worth reading and scrolling, and none of it was
+  reachable behind an explanation of why it could not be _edited_. And because
+  the panel also appeared during ordinary slowness — a first `next dev` compile of
+  a route, the enable redirect in flight — the normal path to a working canvas ran
+  through a screen that looked like a failure.
+
+  It is a small pill at the top of the canvas viewport now, with the page
+  untouched behind it. For the first twenty seconds it shows a spinner and says
+  only that the preview is not ready yet; after that it turns into a warning, with
+  warning colours, and names what is actually wrong — "Preview mode is off" or "No
+  answer from the page".
+
+  "Turn on preview mode" is on the pill itself, as soon as there is something to
+  turn on — it is the one thing most people here need, and it is one click. The
+  explanation, "Reload" and the developer's setup checklist are behind a "Details"
+  disclosure, so nobody has to read a wiring guide to look at their page.
+
+- [#664](https://github.com/valbuild/val/pull/664) [`7782979`](https://github.com/valbuild/val/commit/7782979e9b52f2015a6e72dc981e630d4f8c78e2) Thanks [@freekh](https://github.com/freekh)! - The deploy feed is the last few publishes, with no rows to dismiss
+
+  Every row in the deploy list carried a dismiss button, and the shell and the
+  provider each kept a set of dismissed commits to subtract from the feed. That
+  control existed because the list grew: the client accumulated every deployment
+  and commit a session had ever seen, so a tab left open all day ended up with a
+  list only clearing could shorten.
+
+  The feed is bounded now — the content service returns the most recent publishes,
+  and the client keeps the newest few of those — so there is nothing to tidy: what
+  a row would be dismissed for is that it is old, and being old is what takes it
+  off the end of the list on its own. The list still closes on its own once
+  everything has landed, on Escape, and on a click outside.
+
+  One behaviour follows from the feed carrying history: the list no longer opens
+  itself for an old publish. It used to treat anything Val had not seen serving
+  the site as news, which was true when the feed only held the publishes on the
+  current chain — now that it holds the last few, "not live" is the resting state
+  of every publish that has been superseded, and opening Val would have announced
+  a build from last week. Freshness decides it instead.
+
+- [#664](https://github.com/valbuild/val/pull/664) [`5bfd630`](https://github.com/valbuild/val/commit/5bfd630b63dee2189e238f20fe72ecc5537160f7) Thanks [@freekh](https://github.com/freekh)! - Show the git message on deployments Val did not publish
+
+  The deploy feed could only name a publish when Val itself had made the commit:
+  the message came off Val's own `ValCommit`, and every other deployment — a
+  developer's push, a merged pull request, a revert — showed a seven-character
+  sha. On most projects those are the majority, so "what went out at 14:02?" had
+  no answer in the Studio.
+
+  A deployment can now carry its own `commitMessage`, which the Studio uses
+  wherever there is no Val commit to prefer. It is optional and nullable, so a
+  content service that does not report messages is unaffected — those publishes
+  keep showing the short sha, exactly as before.
+
+  Deployment rows also show only the subject line of a message now. A git message
+  is a subject, a blank line and a body, and the rows are one truncated line — so
+  a real push arrived as "Subject The body went on like this…". The classic
+  Draft changes view still has the whole message in its tooltip.
+
+- [#659](https://github.com/valbuild/val/pull/659) [`ccbcda6`](https://github.com/valbuild/val/commit/ccbcda60b3e3c465071229ae1ba28ac735483e63) Thanks [@freekh](https://github.com/freekh)! - Discarding changes now clears the validation errors, previews and search results
+  that were computed from them.
+
+  A discard that removed a module's last pending change announced itself only as
+  a "drop", and the stores that keep validation results, previews and the search
+  index listened only for changes being applied. So after discarding, the Studio
+  kept showing the errors and previews of the discarded edit until something else
+  touched the module.
+
+  Fields that reference another module's keys (`s.keyOf(...)` and `s.route()`)
+  also follow that module now. Renaming a page and then discarding the rename left
+  every `keyOf` field pointing at it reporting that the key does not exist — about
+  a key that was back — because the module holding the reference had not changed
+  and was never re-checked. The validation store now tracks which records a
+  module's errors resolve against and re-checks it when their keys change, and only
+  then: editing content inside a referenced page does not re-validate its
+  referrers.
+
+- [#667](https://github.com/valbuild/val/pull/667) [`755e1a3`](https://github.com/valbuild/val/commit/755e1a3953775cb8d2c2dce87d6810d3dc329640) Thanks [@freekh](https://github.com/freekh)! - An empty image description is no longer marked as an error
+
+  The Description field of an image field showed a red **Missing** next to it
+  whenever it was empty. Val has no rule that alt text is required, so nothing in
+  validation reports that — the badge claimed an error the validator never
+  raises, on every image field that had not been given a description. It is gone.
+  If a schema ever does require alt text, that arrives through the ordinary
+  validation error path, which the field already shows.
+
+  The **Use the filename** shortcut next to it is gone with it. It only ever
+  appeared alongside the badge, and a filename says what the file is called
+  rather than what the picture shows, which is the one thing the field is asking
+  for.
+
+- [#660](https://github.com/valbuild/val/pull/660) [`c6b1ec8`](https://github.com/valbuild/val/commit/c6b1ec84f1883750a4cfe5f70470b177621e971f) Thanks [@freekh](https://github.com/freekh)! - Surfaces in the Studio paint the colour they name
+
+  Four places named a colour from shadcn's compatibility block — `bg-card`,
+  `bg-primary-foreground`, and a gradient's stops. None of those tokens is
+  declared anywhere the Studio can see them: they live under `:root` and `.dark`,
+  and the Studio renders inside a shadow root (where `:root` matches nothing)
+  with `darkMode` set to `[data-mode="dark"]` (so `.dark` never matches either).
+
+  The effect is quiet, which is why it lasted: an undefined colour is invalid at
+  computed-value time, so the element simply paints nothing and shows whatever is
+  behind it. The record list's rows had no background at all, and the fade over a
+  truncated list row computed to a gradient from transparent to transparent —
+  no fade.
+
+  They now name the Studio's own tokens. Nothing changes colour: each surface was
+  already showing the page background through the hole, which is the colour it
+  now paints deliberately — except the truncation fade, which appears again.
+
+  `surfaceTokens.test.ts` holds the line, alongside the focus-ring test that
+  covers the same trap for `box-shadow`. It reads the dead tokens out of
+  `index.css`, so reviving one lifts the ban on it automatically. The vendored
+  `components/designSystem/` copies of shadcn are out of scope and still name the
+  dead tokens.
+
+- [#664](https://github.com/valbuild/val/pull/664) [`656f680`](https://github.com/valbuild/val/commit/656f680043c640f678625a64e690389ab23a0a69) Thanks [@freekh](https://github.com/freekh)! - Move the assistant button to the bottom bar on mobile
+
+  On a phone the Sparkles button sat in the top right of the top bar, sharing
+  that corner with the navigation menu, History, notifications and the account
+  avatar — the furthest point on the screen from a thumb, and the row you reach
+  for least.
+
+  It is now in the sticky bottom bar, beside Quick actions, where Preview and
+  Publish already are. The top bar drops its own button below the mobile
+  breakpoint, so there is still exactly one way in rather than two places to look
+  for the same panel. Nothing changes on tablet or desktop, and a project with no
+  assistant configured shows no button in either place.
+
+- [#664](https://github.com/valbuild/val/pull/664) [`610a041`](https://github.com/valbuild/val/commit/610a0414b120b521f38a2eb1182b3778bf778b2b) Thanks [@freekh](https://github.com/freekh)! - Review stays in the top bar with nothing pending, and says so
+
+  Above the mobile breakpoint — a phone reaches Review through Quick actions, and
+  still does — the Review button was hidden whenever nothing was pending: present
+  in the layout so the bar would not reflow, but unreachable and invisible to
+  screen readers. That made "is anything of mine still unpublished?" unanswerable from
+  the top bar: a hidden button and a button whose data has not loaded yet look
+  exactly the same, so the only way to find out was to publish and see what
+  happened. The Quick actions row on a phone already answered it; the bar now
+  does too.
+
+  Opening it with nothing pending gives a real screen instead of the single grey
+  "No pending changes." line: it says the editor and the published site agree, and
+  what the view will show once they do not. The wording follows the mode, so a
+  local dev project is told about its working tree rather than about publishing.
+
+  The change count is still a badge that only appears when there is one, so an
+  empty Review reads as "nothing pending" rather than as "0 changes".
+
+## 0.125.0
+
+### Minor Changes
+
+- [#638](https://github.com/valbuild/val/pull/638) [`c390397`](https://github.com/valbuild/val/commit/c390397cb5e203eb1bedae3a6fab15726e850b90) Thanks [@freekh](https://github.com/freekh)! - Val now runs on TanStack Start.
+
+  `@valbuild/tanstack` is a new package with everything `@valbuild/next` has: Val
+  Studio at `/val`, the on-page overlay and canvas, draft mode, the client hooks,
+  server-side content reads, images, and the MCP tools.
+
+  ```sh
+  npm install @valbuild/tanstack
+  ```
+
+  ```ts
+  // val.config.ts
+  import { initVal } from "@valbuild/tanstack";
+  const { s, c, config, tanstackRouter } = initVal({ project: "org/project" });
+  ```
+
+  **Routes are first class.** A Val module for a route is named after the route
+  file it sits beside — `src/routes/posts.$postId.tsx` is served content by
+  `src/routes/posts.$postId.val.ts` — and its keys are the URLs that route serves:
+
+  ```ts
+  export default c.define(
+    "/src/routes/posts.$postId.val.ts",
+    s.router(tanstackRouter, s.object({ title: s.string() })),
+    { "/posts/hello-world": { title: "Hello world" } },
+  );
+  ```
+
+  `.` and `/` both separate segments, `$param` is a parameter, `$` is a splat, and
+  `index`, `route`, `(groups)` and `_pathless` layouts add no URL segment — the
+  same rules TanStack Router uses for the route file itself. Val validates every
+  key against that pattern, and Val Studio shows these modules as a sitemap under
+  **Pages**, where an editor can add a page.
+
+  Point the route generator away from your content files, in `vite.config.ts` and
+  `tsr.config.json`:
+
+  ```ts
+  tanstackStart({ router: { routeFileIgnorePattern: "\\.val\\.[tj]sx?$" } });
+  ```
+
+  See the [README](https://github.com/valbuild/val/blob/main/packages/tanstack/README.md)
+  for the full wiring, and `examples/tanstack` for a working app.
+
+  **Also fixed, for everyone:** `Internal.VERSION.core` was `null` in any ESM
+  bundle — it was read with `require("../package.json")` inside a `try`, so the
+  failure was silent. That version goes into every remote file ref and proxy mode
+  refuses to start without it. Every package now reads its version through a
+  static JSON import, which is inlined at build time.
+
+  Two smaller fixes that came out of running the whole toolchain against a
+  TanStack project:
+
+  - `val versions` reports `@valbuild/tanstack`, and `val debug` writes a snapshot
+    that names whichever framework package the captured project actually has.
+  - `@valbuild/eslint-plugin` reads a `tsconfig.json` that has comments in it. A
+    tsconfig is JSONC, and `JSON.parse` is not — so on any project whose tsconfig
+    carries a comment (the TanStack starter's does) the
+    `module-in-val-modules` rule threw `Expected double-quoted property name in
+JSON` on the first file and took the whole lint run with it.
+
+  Three fixes found by driving the Studio against a real TanStack app:
+
+  - **A draft image now loads on the page.** The source the Studio pushes to the
+    host page carries `patch_id` for any file whose bytes are still in a patch, so
+    the page asks `/api/val/files/...?patch_id=` rather than a `/public` path that
+    nothing has written yet. This was silent — the image just did not appear — and
+    it affects any page that reads media through the hooks rather than on the
+    server, `@valbuild/next` included.
+  - **A splat route no longer logs an error on every render.** TanStack returns
+    both `_splat` and `*` for the same parameter; Val reported the second as a
+    parameter it could not place in the path.
+  - The TanStack example and starter render a 404 page instead of throwing
+    `notFound()` from a component, which escaped to the error boundary and logged
+    `Error in renderToReadableStream` (and, with no not-found component
+    configured, aborted the response) on every miss.
+
 ## 0.124.0
 
 ### Minor Changes

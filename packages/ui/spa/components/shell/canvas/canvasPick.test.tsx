@@ -47,7 +47,6 @@ describe("a pick on the page", () => {
         reloadKey={0}
         isPicking
         highlightedPath={highlightedPath}
-        onRequestReload={() => {}}
       />,
     );
     const found = rendered.container.querySelector("iframe");
@@ -102,7 +101,6 @@ describe("a pick on the page", () => {
         reloadKey={0}
         isPicking
         highlightedPath={PICKED}
-        onRequestReload={() => {}}
       />,
     );
 
@@ -126,7 +124,6 @@ describe("a pick on the page", () => {
         reloadKey={0}
         isPicking
         highlightedPath={ELSEWHERE}
-        onRequestReload={() => {}}
       />,
     );
     expect(lastHighlight()).toEqual({
@@ -148,7 +145,6 @@ describe("a pick on the page", () => {
         reloadKey={0}
         isPicking
         highlightedPath={ELSEWHERE}
-        onRequestReload={() => {}}
       />,
     );
 
@@ -166,7 +162,6 @@ describe("a pick on the page", () => {
           reloadKey={0}
           isPicking
           highlightedPath={path}
-          onRequestReload={() => {}}
         />,
       );
     click(PICKED);

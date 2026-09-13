@@ -107,6 +107,36 @@ describe("buildSearchIndex", () => {
       '/pages.val.ts?p="/a"."title"',
     ]);
   });
+
+  // An enum's value is a string an editor picked, so it is as findable as any
+  // other string leaf. The former string union was never indexed at all — it
+  // reached the indexer with a schema type the indexer had no branch for, and
+  // fell out at the empty-searchText check.
+  test("indexes enum values", () => {
+    const modules = getModules([
+      c.define(
+        "/content.val.ts",
+        s.object({ size: s.enum("small", "medium", "large") }),
+        { size: "medium" },
+      ),
+    ]);
+    expect(find(modules, "medium")).toEqual(['/content.val.ts?p="size"']);
+  });
+
+  // Same reason, and the same failure: `traverseSchemaSource` visits a locale
+  // leaf, so one that the indexer has no branch for is visited and then
+  // dropped at the empty-searchText check — which looks exactly like content
+  // that does not exist.
+  test("indexes locale tags", () => {
+    const modules = getModules([
+      c.define(
+        "/content.val.ts",
+        s.object({ locale: s.locale(), title: s.string() }),
+        { locale: "nb-NO", title: "Vinterjakka" },
+      ),
+    ]);
+    expect(find(modules, "nb-NO")).toEqual(['/content.val.ts?p="locale"']);
+  });
 });
 
 describe("performSearch", () => {

@@ -152,6 +152,31 @@ Each Schema class validates and types its corresponding Source type:
 | `ObjectSchema<T>`   | `SourceObject`                                | `s.object({...})`     |
 | `ArraySchema<T>`    | `SourceArray`                                 | `s.array(schema)`     |
 
+### Choosing between two shapes: `s.discriminatedUnion` and `s.enum`
+
+These were one schema (`s.union`, still exported and still working, now
+deprecated), and splitting them is the whole point: they are not the same kind
+of node, and everything that walks a schema tree has to treat them differently.
+
+- **`s.discriminatedUnion(key, ...objects)`** is a CONTAINER. Every variant is
+  an object with `key` set to a distinct `s.literal(...)`, the value's tag says
+  which variant it is, and the variant's fields are the fields being edited. A
+  walk has to descend through the matching variant — and the variants SHARE the
+  union's path, which is why `executeCustomValidateAt` and `executePreviewItem`
+  dispatch there rather than the caller resolving a child path. Serializes as
+  `{ type: "discriminated-union", key, items }`.
+- **`s.enum("a", "b")`** is a LEAF — a string with a closed domain, like
+  `s.literal` with more than one allowed value. There are no member schemas, so
+  nothing recurses into it, and (like a literal) it is NEVER stega encoded:
+  consumer code compares against those exact strings. Serializes as
+  `{ type: "enum", values }`.
+
+`s.union` dispatches on its first argument (a string key → discriminated union,
+literal schemas → enum) and produces exactly those two, byte-identically
+serialized. There is no third serialized form and no `UnionSchema` class any
+more — `UnionSchema`, `SerializedUnionSchema`, `SerializedStringUnionSchema`
+and `SerializedObjectUnionSchema` are deprecated type aliases.
+
 ## Module System
 
 ### c.define() Pattern
@@ -405,12 +430,27 @@ pnpm run -r typecheck                  # tsc --noEmit per package
 pnpm test                              # jest
 pnpm run build                         # top-level: preconstruct + pnpm --filter @valbuild/ui build
 cd examples/next && pnpm run build     # next build for the example app
+cd examples/tanstack && pnpm run build # vite build for the TanStack example (no CI job yet)
+```
+
+Two more checks have no CI job YET — `check.yml` has no `smoke` job and its
+`e2e` matrix selects only `chromium` and `chromium-http` — so for now they are
+yours to run. They are the gate for "the Studio does not come up at all", on
+both frameworks and in an insecure context, which is the one class of failure
+that reaches every user at once, so run them before shipping anything the
+Studio loads through:
+
+```bash
+pnpm exec playwright test --project=tanstack                         # ~1 min
+pnpm exec playwright test --project=chromium e2e/smoke.spec.ts \
+  e2e/insecure-context.spec.ts                                       # ~4 min
 ```
 
 Notes:
 
 - `pnpm run build` at the root is NOT recursive — it only runs `preconstruct build && pnpm --filter @valbuild/ui build`. Do not use `pnpm -r build` to verify CI; recursive build pulls in example-project fixtures that aren't part of CI and have unrelated pre-existing issues.
 - `examples/next` build is its own CI job and must be run separately. It is also the only job that type-checks with `next-env.d.ts` present, so a green `pnpm run -r typecheck` does not imply a green example build — see "'X' cannot be used as a JSX component" under Common Fixes.
+- The `tanstack` Playwright project and the `examples/tanstack` build are the only things that run that app at all, and both were added after `crypto.randomUUID is not a function` shipped: nothing exercised TanStack, and nothing ran outside a secure context. Neither has a CI job yet — the workflow change adding `build-tanstack` and a blocking `smoke` job is pending a maintainer (the session that wrote them had no `workflow` scope). Until then a green CI does NOT mean the Studio comes up on TanStack. See `e2e/tanstack/studio.spec.ts`.
 - `prettier --check .` walks the whole tree; untracked local files (e.g. `.claude/settings.local.json`) can show as warnings locally but won't affect CI since CI only sees tracked files.
 
 ### Don't run `pnpm run build` during development

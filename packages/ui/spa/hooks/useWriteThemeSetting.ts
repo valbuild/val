@@ -1,10 +1,6 @@
 import { useCallback } from "react";
 import { ModuleFilePath } from "@valbuild/core";
-import {
-  useAddPatch,
-  useShallowSourceAtPath,
-} from "../components/ValFieldProvider";
-import { sourcePathOfItem } from "../utils/sourcePathOfItem";
+import { useWriteSettingsSection } from "./useWriteSettingsSection";
 
 /**
  * The theme's fields, in the order a new section is written with.
@@ -22,42 +18,23 @@ export type ThemeField = (typeof THEME_FIELDS)[number];
 /**
  * Write one of the theme's settings, creating the section if it is absent.
  *
- * Deliberately a near-copy of `useWriteAssistantSetting` rather than a shared
- * generic over both. The rule they have in common is one line — a `replace` at
+ * The rule about an absent section is not this section's — a `replace` at
  * `["theme", field]` fails when there is nothing at `theme` to replace a key
- * inside, and `{}` is the normal state of a fresh settings module — and the
- * thing that differs is the field list, which is the part that has to be
- * exhaustive per section. A generic version would take the field list as a
- * parameter and be the same length, with one more layer to read through.
- *
- * If a third section wants this, collapse all three then: by that point the
- * shape will have been demonstrated three times rather than guessed at twice.
+ * inside, and `{}` is the normal state of a fresh settings module — so it lives
+ * in {@link useWriteSettingsSection} and this only says which fields the theme
+ * has.
  */
 export function useWriteThemeSetting(
   moduleFilePath: ModuleFilePath,
 ): (field: ThemeField, value: string | null) => void {
-  const { addPatch } = useAddPatch(moduleFilePath);
-  const themePath = sourcePathOfItem(moduleFilePath, "theme");
-  const section = useShallowSourceAtPath(themePath, "settings");
-  const hasSection =
-    section.status === "success" && "data" in section && !!section.data;
+  const write = useWriteSettingsSection(moduleFilePath, "theme", THEME_FIELDS);
+  // One field at a time: the Appearance tab's controls are independent, and
+  // each of them is one editor action. The shared hook takes a set because the
+  // locales section needs to write two together.
   return useCallback(
     (field: ThemeField, value: string | null) => {
-      if (hasSection) {
-        addPatch([{ op: "add", path: ["theme", field], value }], "settings");
-        return;
-      }
-      const others: Record<string, null> = {};
-      for (const key of THEME_FIELDS) {
-        if (key !== field) {
-          others[key] = null;
-        }
-      }
-      addPatch(
-        [{ op: "add", path: ["theme"], value: { ...others, [field]: value } }],
-        "settings",
-      );
+      write({ [field]: value });
     },
-    [addPatch, hasSection],
+    [write],
   );
 }

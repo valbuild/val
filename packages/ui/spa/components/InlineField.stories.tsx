@@ -203,7 +203,7 @@ const deepRecursionModule = c.define(
         s.object({
           heading: s.string(),
           items: s.array(
-            s.union(
+            s.discriminatedUnion(
               "type",
               s.object({ type: s.literal("text"), content: s.string() }),
               s.object({

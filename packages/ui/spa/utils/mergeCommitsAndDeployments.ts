@@ -3,6 +3,13 @@ import { ValCommit, ValDeployment } from "@valbuild/shared/internal";
 /**
  * We merge Val commits (which are created by Val and immutable) and
  * deployments which basically comes from GitHub.
+ *
+ * A deployment can arrive with no Val commit behind it at all — a developer's
+ * push, a merged pull request, a revert — and those are the majority on most
+ * projects. Their message therefore has to come off the deployment itself; see
+ * `ValDeployment.commitMessage`. Val's own commit wins where there is one: it
+ * is the message Val wrote, and it is known before any host has reported a
+ * build.
  */
 export type ValEnrichedDeployment = {
   deploymentState: "pending" | "success" | "failure" | "error" | "created";
@@ -25,7 +32,8 @@ export function mergeCommitsAndDeployments(
   }
   for (const commit of commits) {
     // Assumes commits (of a given commit sha) are immutable so if we already found something for this commit sha, we don't need to add it again
-    if (!deploymentsByCommitSha[commit.commitSha]) {
+    const existing = deploymentsByCommitSha[commit.commitSha];
+    if (!existing) {
       deploymentsByCommitSha[commit.commitSha] = {
         commitMessage: commit?.commitMessage || null,
         deploymentState: "created",
@@ -34,7 +42,26 @@ export function mergeCommitsAndDeployments(
         updatedAt: commit.createdAt,
         commitSha: commit.commitSha,
       };
+      continue;
     }
+    /**
+     * Something is already here, and it came from the HOST: the same commit
+     * seen from the deployment side, which can arrive first - the socket
+     * delivers whatever happens first, and a build often starts before this
+     * client has fetched the commit that triggered it.
+     *
+     * Its build state and its timestamps are the host's to report and are left
+     * alone. The message and the author are not: this is the commit Val wrote,
+     * so they win here - which is the precedence claimed above and everywhere
+     * else in this file. Skipping the row outright, as this used to, left a
+     * publish of Val's own named by whatever the host had said about the
+     * commit, for the whole life of the tab.
+     */
+    deploymentsByCommitSha[commit.commitSha] = {
+      ...existing,
+      commitMessage: commit.commitMessage || existing.commitMessage,
+      creator: commit.creator || existing.creator,
+    };
   }
   /**
    * Oldest first, so the newest state for a commit is the one that survives.
@@ -52,8 +79,13 @@ export function mergeCommitsAndDeployments(
     // NOTE: we ignore the deployments without commit sha - this is a new property, in the future they should all have it. We can't really do much useful stuff without knowing the commit?
     if (deployment.commitSha) {
       deploymentsByCommitSha[deployment.commitSha] = {
+        // What we already know first — a Val commit's own message, or a message
+        // an earlier row for this sha carried — then the host's. A commit sha
+        // is immutable, so these cannot be messages for different things.
         commitMessage:
-          deploymentsByCommitSha[deployment.commitSha]?.commitMessage || null,
+          deploymentsByCommitSha[deployment.commitSha]?.commitMessage ||
+          deployment.commitMessage ||
+          null,
         deploymentState:
           deployment.deploymentState as ValEnrichedDeployment["deploymentState"],
         creator: deploymentsByCommitSha[deployment.commitSha]?.creator || null,
@@ -66,7 +98,48 @@ export function mergeCommitsAndDeployments(
     }
   }
 
-  return Object.values(deploymentsByCommitSha).sort((a, b) => {
-    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-  });
+  return (
+    Object.values(deploymentsByCommitSha)
+      .sort((a, b) => {
+        return (
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        );
+      })
+      // The newest few, and no more. This function's result is fed back in as
+      // `prev` on the next poll, so without a bound it is an accumulator: every
+      // commit and deployment a session ever saw stayed in it for as long as the
+      // tab was open, and the only thing that ever took a row out was the
+      // reader pressing a dismiss button on it. The feed is "what has been
+      // going out lately" - the content service returns a bounded set for
+      // exactly that reason - so the client keeps a bounded set too.
+      .slice(0, MERGED_DEPLOYMENTS_LIMIT)
+  );
+}
+
+/**
+ * How many publishes the merged feed keeps.
+ *
+ * Rows, not publishes: a commit sha is the key here, so this is already folded
+ * per commit - but it is deliberately larger than the ten the Studio SHOWS
+ * (`DEPLOYMENT_LIMIT`), because a commit whose deployment has not been reported
+ * yet is in here as a commit and a poll can bring several at once.
+ */
+const MERGED_DEPLOYMENTS_LIMIT = 25;
+
+/**
+ * The first line of a commit message, which is the whole of what a row shows.
+ *
+ * Val writes single-line messages, so this did nothing until deployments Val
+ * did NOT publish started arriving with their own messages — a push, a merged
+ * pull request — and a git message is a subject, a blank line and a body. The
+ * rows truncate, so the body was rendered as one long line with the subject
+ * lost somewhere at the front of it.
+ *
+ * A message that is only whitespace is no message: `null`, which is what makes
+ * the row fall back to the short sha rather than showing an empty title.
+ */
+export function commitSubject(message: string | null): string | null {
+  if (message === null) return null;
+  const subject = message.split("\n", 1)[0].trim();
+  return subject === "" ? null : subject;
 }

@@ -843,7 +843,7 @@ describe("PatchSet", () => {
       "/content/projects.val.ts" as ModuleFilePath,
       s.object({
         record: s.record(
-          s.union(
+          s.discriminatedUnion(
             "type",
             s.object({
               type: s.literal("blog"),
@@ -959,12 +959,12 @@ describe("PatchSet", () => {
             author: "author1",
             createdAt: "2021-01-02T00:00:00Z",
             opType: "add",
-            schemaTypes: ["union", "object"],
+            schemaTypes: ["discriminated-union", "object"],
           },
         ],
         authors: ["author2", "author1"],
         opTypes: ["replace", "add"],
-        schemaTypes: ["union", "object"],
+        schemaTypes: ["discriminated-union", "object"],
         lastUpdated: "2021-01-03T00:00:00Z",
         lastUpdatedBy: "author2",
       },
@@ -977,11 +977,11 @@ describe("PatchSet", () => {
       "/content/projects.val.ts" as ModuleFilePath,
       s.object({
         record: s.record(
-          s.union(
+          s.discriminatedUnion(
             "type",
             s.object({
               type: s.literal("type1"),
-              value: s.union(
+              value: s.discriminatedUnion(
                 "sub-type",
                 s.object({
                   "sub-type": s.literal("sub-type1"),
@@ -995,7 +995,7 @@ describe("PatchSet", () => {
             }),
             s.object({
               type: s.literal("type1"),
-              value: s.union(
+              value: s.discriminatedUnion(
                 "sub-type",
                 s.object({
                   "sub-type": s.literal("sub-type1"),
@@ -1051,12 +1051,12 @@ describe("PatchSet", () => {
             author: "author1",
             createdAt: "2021-01-02T00:00:00Z",
             opType: "add",
-            schemaTypes: ["union", "object"],
+            schemaTypes: ["discriminated-union", "object"],
           },
         ],
         authors: ["author1"],
         opTypes: ["add"],
-        schemaTypes: ["union", "object"],
+        schemaTypes: ["discriminated-union", "object"],
         lastUpdated: "2021-01-02T00:00:00Z",
         lastUpdatedBy: "author1",
       },
@@ -1088,7 +1088,7 @@ describe("PatchSet", () => {
       "/content/projects.val.ts" as ModuleFilePath,
       s.object({
         record: s.record(
-          s.union(
+          s.discriminatedUnion(
             "type",
             s.object({
               type: s.literal("type1"),
@@ -1096,7 +1096,7 @@ describe("PatchSet", () => {
             }),
             s.object({
               type: s.literal("type1"),
-              value: s.union(
+              value: s.discriminatedUnion(
                 "sub-type",
                 s.object({
                   "sub-type": s.literal("sub-type1"),
@@ -1193,12 +1193,12 @@ describe("PatchSet", () => {
             author: "author1",
             createdAt: "2021-01-02T00:00:00Z",
             opType: "add",
-            schemaTypes: ["union", "object"],
+            schemaTypes: ["discriminated-union", "object"],
           },
         ],
         authors: ["author1"],
         opTypes: ["add"],
-        schemaTypes: ["union", "object"],
+        schemaTypes: ["discriminated-union", "object"],
         lastUpdated: "2021-01-02T00:00:00Z",
         lastUpdatedBy: "author1",
       },
@@ -1246,10 +1246,11 @@ describe("PatchSet", () => {
       ["theme", "accent"],
     ]);
     // The field's own schema type, not the section's: this is what the publish
-    // diff reads to decide how to render the change. A union of literals
-    // reports its members alongside itself, as every union does.
+    // diff reads to decide how to render the change. An enum reports `string`
+    // alongside itself, because an enum's value IS a string — see
+    // `schemaTypesOfPath`.
     expect(serialized.map((set) => set.schemaTypes)).toEqual([
-      ["union", "string"],
+      ["enum", "string"],
       ["color"],
     ]);
   });
