@@ -108,6 +108,10 @@ const nullableAfterValidate: Record<
     .route()
     .validate(() => MESSAGE)
     .nullable(),
+  locale: s
+    .locale()
+    .validate(() => MESSAGE)
+    .nullable(),
   router: s
     .router(nextAppRouter, s.object({ title: s.string() }))
     .validate(() => MESSAGE)

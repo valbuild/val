@@ -140,6 +140,7 @@ export const probes = {
   datetime: s.datetime(),
   color: s.color(),
   code: s.code(),
+  locale: s.locale(),
   route: s.route(),
   router: s.router(nextAppRouter, s.object({ title: s.string() })),
   images: s.images({ directory: "/public/val/images" }),

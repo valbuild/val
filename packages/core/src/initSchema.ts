@@ -270,6 +270,7 @@ export type InitSchema = {
    * export default c.define("/example.val.ts", schema, "/a-page-slug");
    * ```
    */
+  readonly route: typeof route;
   /**
    * Define one of the project's languages.
    *
@@ -284,7 +285,6 @@ export type InitSchema = {
    * const schema = s.record(s.locale(), s.object({ title: s.string() }));
    */
   readonly locale: typeof locale;
-  readonly route: typeof route;
   /**
    * Create a page router.
    * Each key is the path of the page.
