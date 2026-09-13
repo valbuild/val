@@ -498,3 +498,72 @@ describe("a referenced record moving under a validation in flight", () => {
     expect(system.validationStore.peek(NAV).status).toBe("stale");
   });
 });
+
+describe("a change to the project's languages reaches locale fields", () => {
+  const SETTINGS = mfp("/settings.val.ts");
+  const POSTS = mfp("/posts.val.ts");
+  const POSTS_LOCALE = sp('/posts.val.ts?p="locale"');
+
+  /**
+   * `s.locale()` names no module either: it resolves against
+   * `locales.available` in the settings module, which is why a project that
+   * has not declared its languages yet is the case that has to keep working.
+   */
+  const settingsModule = (available: string[]) => {
+    const { c, s } = initVal();
+    return c.define("/settings.val.ts", s.settings(), {
+      locales: { available },
+      assistant: { enabled: true },
+    });
+  };
+
+  const postsModule = () => {
+    const { c, s } = initVal();
+    return c.define(
+      "/posts.val.ts",
+      s.object({ locale: s.locale(), title: s.string() }),
+      { locale: "nb-NO", title: "Vinterjakka er her" },
+    );
+  };
+
+  it("clears the error when the language is added to settings", async () => {
+    const rig = initTestSystem();
+    await rig.sourceStore.testReceive([
+      settingsModule(["en-US"]),
+      postsModule(),
+    ]);
+
+    const broken = await surfaced(rig, POSTS);
+    expect(broken[POSTS_LOCALE]?.[0]?.message).toMatch(
+      /'nb-NO' is not one of this project's languages/,
+    );
+    const before = rig.validationStore.peek(POSTS);
+
+    await write(rig, SETTINGS, [
+      { op: "add", path: ["locales", "available", "-"], value: "nb-NO" },
+    ]);
+
+    expect(rig.validationStore.peek(POSTS)).not.toBe(before);
+    expect(await surfaced(rig, POSTS)).toEqual({});
+    rig.dispose();
+  });
+
+  it("leaves it alone for a settings edit that is not the language list", async () => {
+    const rig = initTestSystem();
+    await rig.sourceStore.testReceive([
+      settingsModule(["en-US", "nb-NO"]),
+      postsModule(),
+    ]);
+    expect(await surfaced(rig, POSTS)).toEqual({});
+    const before = rig.validationStore.peek(POSTS);
+
+    // The Settings panel writes here on every keystroke in the assistant's
+    // context box. None of it can move what `s.locale()` resolves against.
+    await write(rig, SETTINGS, [
+      { op: "replace", path: ["assistant", "enabled"], value: false },
+    ]);
+
+    expect(rig.validationStore.peek(POSTS)).toBe(before);
+    rig.dispose();
+  });
+});

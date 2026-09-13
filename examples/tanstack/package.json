@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite dev --port 3457",
+    "dev": "vite dev --port 3458",
     "build": "vite build",
     "preview": "vite preview",
     "generate-routes": "tsr generate",

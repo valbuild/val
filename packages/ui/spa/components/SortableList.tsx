@@ -32,6 +32,7 @@ import {
 } from "./designSystem/popover";
 import { cn } from "./designSystem/cn";
 import { DRAG_HANDLE_TOUCH, SORTABLE_ROW_TOUCH } from "./dragHandle";
+import { LocaleFiltered } from "./LocaleFilterProvider";
 
 export function SortableContainer({
   source,
@@ -130,9 +131,20 @@ export function SortableContainer({
         disabled={disabled}
       >
         <div className={className ?? "flex flex-col gap-y-4 w-full"}>
+          {/*
+           * `empty:hidden` so a row that draws nothing takes no gap.
+           *
+           * Whether a row renders is decided INSIDE it — `LocaleFiltered`
+           * returns null under the locale filter, and a hidden item schema
+           * does the same — so this wrapper cannot ask before rendering, and
+           * a flex child with no content still gets its share of the `gap`.
+           * The result was a blank slot per hidden row. `:empty` is the one
+           * test that runs after the child has decided.
+           */}
           {items.map(({ path, id }, index) => (
             <div
               key={id}
+              className="empty:hidden"
               style={{ opacity: id === activeId ? 0.3 : undefined }}
             >
               {renderItem({ path, id, index })}
@@ -191,24 +203,26 @@ export function SortableList({
       disabled={disabled}
       onMove={onMove}
       renderItem={({ path, id }) => (
-        <SortableItemRow
-          id={id}
-          disabled={disabled}
-          path={path}
-          onClick={onClick}
-          onDelete={(id) => {
-            onDelete(
-              /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
-              id - 1,
-            );
-          }}
-          onDuplicate={(id) => {
-            onDuplicate(
-              /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
-              id - 1,
-            );
-          }}
-        />
+        <LocaleFiltered path={path}>
+          <SortableItemRow
+            id={id}
+            disabled={disabled}
+            path={path}
+            onClick={onClick}
+            onDelete={(id) => {
+              onDelete(
+                /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
+                id - 1,
+              );
+            }}
+            onDuplicate={(id) => {
+              onDuplicate(
+                /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
+                id - 1,
+              );
+            }}
+          />
+        </LocaleFiltered>
       )}
     />
   );
@@ -292,7 +306,7 @@ export function SortableItemRow({
       <button
         className={cn(
           "flex-grow",
-          "relative flex text-left border rounded-lg border-border bg-card gap-y-2 bg-bg-primary",
+          "relative flex text-left border rounded-lg border-border-primary gap-y-2 bg-bg-primary",
           "hover:bg-bg-secondary-hover",
           "overflow-y-clip",
         )}
@@ -307,8 +321,16 @@ export function SortableItemRow({
       >
         <RefPreview path={path} className="flex-grow w-full" />
         {isTruncated && (
+          /*
+           * The fade into the row's own background, so a clipped preview does
+           * not end on a hard edge. Both stops must be the SAME token the row
+           * paints above — and no alpha modifier: these colours are plain
+           * `var()` values, which Tailwind cannot mix an alpha into, so
+           * `via-bg-primary/90` emits no rule at all and leaves the middle stop
+           * unset. See `surfaceTokens.test.ts`.
+           */
           <div
-            className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-card/90 to-card"
+            className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-bg-primary to-bg-primary"
             style={{ height: 40 }}
           ></div>
         )}

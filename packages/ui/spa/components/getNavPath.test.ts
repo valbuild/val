@@ -30,7 +30,7 @@ const module = c.define(
     // A page builder: the render is on the BLOCKS, and the union between them
     // carries none of its own. See `isInlineRender`.
     blocks: s.array(
-      s.union(
+      s.discriminatedUnion(
         "type",
         s
           .object({ type: s.literal("text"), text: s.string() })

@@ -93,16 +93,10 @@ export function resolveSerializedSchemaAtPath(
         schema: current,
         remainingPath: path.slice(i),
       };
-    } else if (current.type === "union") {
-      if (typeof current.key === "string") {
-        for (const variant of current.items) {
-          const resolved = resolveSerializedSchemaAtPath(
-            variant,
-            path.slice(i),
-          );
-          if (resolved.kind !== "unresolved") return resolved;
-        }
-        return { kind: "unresolved" };
+    } else if (current.type === "discriminated-union") {
+      for (const variant of current.items) {
+        const resolved = resolveSerializedSchemaAtPath(variant, path.slice(i));
+        if (resolved.kind !== "unresolved") return resolved;
       }
       return { kind: "unresolved" };
     } else {

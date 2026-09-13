@@ -1,5 +1,6 @@
 import type { EditorView, NodeView } from "prosemirror-view";
 import type { Node as PMNode } from "prosemirror-model";
+import { randomUUID } from "../../../utils/randomUUID";
 
 export function createChatImageNodeView() {
   return function imageNodeView(
@@ -105,7 +106,7 @@ export function insertImageWithUpload(
   const imageType = view.state.schema.nodes.image;
   if (!imageType) return false;
 
-  const pendingKey = `pending:${crypto.randomUUID()}`;
+  const pendingKey = `pending:${randomUUID()}`;
   const previewUrl = URL.createObjectURL(file);
   const mimeType = file.type || "image/*";
 

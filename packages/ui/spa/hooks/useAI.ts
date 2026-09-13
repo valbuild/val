@@ -52,6 +52,7 @@ import {
   settingsModuleFilePath,
 } from "./assistantSettings";
 import { useAISearch } from "./useAISearch";
+import { randomUUID } from "../utils/randomUUID";
 import { useAssistantAvailability } from "./useAssistantAvailability";
 import { useAIValidation } from "./useAIValidation";
 import type {
@@ -83,6 +84,7 @@ import {
   expandSessionKeysInPatch,
   type ExpandResult,
 } from "./expandSessionKeysInPatch";
+import { useProjectLocales } from "./useProjectLocales";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
   name: "get_all_schema",
@@ -627,6 +629,10 @@ export function useAI(
     aiSessionImagesToPatchFile,
   } = useAIContext();
   const valSystem = useValSystem();
+  // Same answer the fields get, for the same reason: `empty_at_path` on a
+  // locale-keyed record scaffolds one entry per language, and the languages are
+  // in another module. See `ProjectLocalesProvider`.
+  const projectLocales = useProjectLocales();
   /**
    * What this hook reads out of the store system.
    *
@@ -1872,6 +1878,7 @@ export function useAI(
                 { destinationPath: args.destination_path },
                 moduleSchema,
                 sourceData,
+                { locales: projectLocales },
               );
             }
             if (buildResult.kind === "wrong-tool") {
@@ -2272,7 +2279,7 @@ export function useAI(
       let sid = sessionIdRef.current;
       const wasUnborn = sid == null;
       if (sid == null) {
-        sid = crypto.randomUUID();
+        sid = randomUUID();
         sessionIdRef.current = sid;
         setCurrentSessionId(sid);
       }
@@ -2325,7 +2332,7 @@ export function useAI(
         // Started before it is errored: `errorAssistantMessage` retires a
         // message that already exists, so erroring an id nothing has created is
         // silently a no-op — which left only the composer's generic failure.
-        const noticeId = crypto.randomUUID();
+        const noticeId = randomUUID();
         chatRef.current?.startAssistantMessage(noticeId);
         chatRef.current?.errorAssistantMessage(
           noticeId,
@@ -2339,7 +2346,7 @@ export function useAI(
       let sid = sessionIdRef.current;
       const wasUnborn = sid == null;
       if (sid == null) {
-        sid = crypto.randomUUID();
+        sid = randomUUID();
         sessionIdRef.current = sid;
         setCurrentSessionId(sid);
       }
@@ -2390,7 +2397,7 @@ export function useAI(
         type: "ai_prompt",
         message: contentBlocks,
         sessionId: sid,
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         agents: [
           {
             id: "default",

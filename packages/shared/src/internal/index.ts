@@ -16,6 +16,7 @@ export * from "./parseRoutePattern";
 export * from "./getNextAppRouterSourceFolder";
 export * from "./routeValidation";
 export * from "./resolveSchemaSourceFixes";
+export * from "./localeAt";
 export * from "./getErrorMessageFromUnknownJson";
 export * from "./zod/SerializedSchema";
 export * from "./valCanvasProtocol";

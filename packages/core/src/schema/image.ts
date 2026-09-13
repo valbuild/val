@@ -109,6 +109,27 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is shown next to the field's label in the Val editor, so
+   * it is where you say what an editor needs to know but the field name cannot
+   * carry. It also travels in the serialized schema, which is what the AI
+   * assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s
+   *   .image()
+   *   .describe("Shown at the top of the page, 16:9 works best");
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/example.png",
+   *   width: 100,
+   *   height: 100,
+   *   mimeType: "image/png",
+   * });
+   */
   describe(description: string | null): ImageSchema<Src> {
     return new ImageSchema(
       this.options,
@@ -124,6 +145,30 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
     );
   }
 
+  /**
+   * Store the image on Val's remote content host instead of in your repository.
+   *
+   * The bytes still go into the patch store when the image is uploaded — the
+   * push to the remote host happens at publish. What changes is where the
+   * published image lives: `path` becomes a remote URL rather than a path
+   * under `/public`, so the repository does not grow with every upload.
+   *
+   * The `path` of a remote image is a URL on the content host, and it is not
+   * something to write by hand: upload the image in the Studio, or write a
+   * local path and let `npx val validate --fix` upload it and rewrite the
+   * `path` to the ref below.
+   *
+   * @example
+   * const schema = s
+   *   .image({ accept: "image/webp", directory: "/public/val/images" })
+   *   .remote();
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "https://remote.val.build/file/p/my-project/b/01/v/1.0.0/h/8f2a1c/f/3b9d70/p/public/val/images/example.webp",
+   *   width: 100,
+   *   height: 100,
+   *   mimeType: "image/webp",
+   * });
+   */
   remote(): ImageSchema<Src> {
     return new ImageSchema(
       this.options,
@@ -139,6 +184,35 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * The second argument carries the `path` of the field being validated, for
+   * when the message needs to say where the problem is.
+   *
+   * @example
+   * const schema = s.image().validate((val) =>
+   *   val.alt ? false : "Every image needs alt text",
+   * );
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/example.png",
+   *   width: 100,
+   *   height: 100,
+   *   mimeType: "image/png",
+   *   alt: "An example",
+   * });
+   */
   validate(validationFunction: CustomValidateFunction<Src>): ImageSchema<Src> {
     return new ImageSchema(
       this.options,
@@ -495,6 +569,17 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
    * instead of a preview row that navigates to it.
    *
    * Static configuration, not a callback — see `render.ts`.
+   *
+   * @example
+   * const schema = s.array(s.image().render({ as: "inline" }));
+   * export default c.define("/example.val.ts", schema, [
+   *   {
+   *     path: "/public/val/example.png",
+   *     width: 100,
+   *     height: 100,
+   *     mimeType: "image/png",
+   *   },
+   * ]);
    */
   render(input: FieldRender): ImageSchema<Src> {
     return new ImageSchema(
@@ -515,6 +600,23 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
    * How this VALUE is shown where a preview of it is needed — a row in a
    * sortable list, a reference dropdown, a search hit. Never how the field
    * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * const schema = s.array(
+   *   s.image().preview(({ val }) => ({
+   *     title: val.alt ?? "Image",
+   *     image: val,
+   *   })),
+   * );
+   * export default c.define("/example.val.ts", schema, [
+   *   {
+   *     path: "/public/val/example.png",
+   *     width: 100,
+   *     height: 100,
+   *     mimeType: "image/png",
+   *     alt: "An example",
+   *   },
+   * ]);
    */
   preview(select: ItemPreviewInput<Src>): ImageSchema<Src> {
     return new ImageSchema(
