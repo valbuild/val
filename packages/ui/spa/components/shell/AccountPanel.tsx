@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import {
+  Compass,
   ExternalLink,
   LogOut,
   LucideIcon,
@@ -41,6 +42,19 @@ export type AccountPanelProps = {
   mode?: "fs" | "http" | "unknown";
   autoSave: boolean;
   onAutoSaveChange: (autoSave: boolean) => void;
+  /**
+   * Whether the Studio may offer the guided tour.
+   *
+   * A per-browser preference, which is why it is here rather than in the
+   * Settings panel: everything in THAT panel is `s.settings()` content, gets
+   * published, and is the same for the whole team — and "I have seen the tour"
+   * is neither a property of the project nor something to publish. It sits
+   * beside Auto save and the theme, which are per-person for the same reason.
+   */
+  tourEnabled?: boolean;
+  onTourEnabledChange?: (enabled: boolean) => void;
+  /** Run the tour now, whether or not the prompt is still on offer. */
+  onStartTour?: () => void;
   branch?: string;
   /** Publishes in flight or recently finished. Absent when there is no feed. */
   deployments?: ShellDeployment[];
@@ -80,6 +94,9 @@ export function AccountPanel({
   mode,
   autoSave,
   onAutoSaveChange,
+  tourEnabled,
+  onTourEnabledChange,
+  onStartTour,
   branch,
   deployments,
   onSignOut,
@@ -170,6 +187,24 @@ export function AccountPanel({
               checked={autoSave}
               onChange={onAutoSaveChange}
             />
+          )}
+          {onTourEnabledChange && (
+            <SettingsToggle
+              label="Offer the tour"
+              description="Glow the Take a tour button until someone has been through it."
+              checked={tourEnabled !== false}
+              onChange={onTourEnabledChange}
+            />
+          )}
+          {onStartTour && (
+            <button
+              type="button"
+              onClick={onStartTour}
+              className="inline-flex items-center gap-1.5 h-7 px-2 -mx-2 rounded-md text-xs text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+            >
+              <Compass size={13} />
+              Take a tour
+            </button>
           )}
           {branch && (
             <div className="flex items-baseline justify-between text-xs">

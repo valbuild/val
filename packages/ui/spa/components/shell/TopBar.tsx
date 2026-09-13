@@ -25,6 +25,7 @@ import { StudioMark } from "./ValLogo";
 import { ShellBreakpoint, ShellLogo, ShellPanel } from "./types";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 import { LocaleFilter } from "./LocaleFilter";
+import { TourLauncher } from "./StudioTour";
 
 export type TopBarProps = {
   breakpoint: ShellBreakpoint;
@@ -125,6 +126,16 @@ export type TopBarProps = {
    */
   previewHref?: string;
   /**
+   * Start the guided tour.
+   *
+   * Present ONLY while the tour is still worth offering — a browser that has
+   * been through it, or has turned the prompt off, gets no button here at all.
+   * It is not a permanent control: the permanent ones are in Quick actions and
+   * the Account panel, which is where someone goes looking for a thing they
+   * have seen before. See `showTourPrompt` in `Shell`.
+   */
+  onStartTour?: () => void;
+  /**
    * Whether this project has an assistant. See `ShellProps.aiEnabled`.
    *
    * Absent hides the button rather than disabling it: it is the only thing in
@@ -174,6 +185,7 @@ export function TopBar({
   isLoading,
   aiEnabled = false,
   previewHref,
+  onStartTour,
 }: TopBarProps) {
   const isMobile = breakpoint === "mobile";
   const isDesktop = breakpoint === "desktop";
@@ -205,6 +217,14 @@ export function TopBar({
       <SearchTrigger breakpoint={breakpoint} onClick={onOpenSearch} />
       <div className="ml-auto flex items-center gap-1.5 shrink-0">
         {/*
+         * Before everything else in the cluster, because it is the one control
+         * here aimed at somebody who does not yet know what the rest of them
+         * are. Icon-only on a phone, where the row is already six things wide.
+         */}
+        {onStartTour && (
+          <TourLauncher onStart={onStartTour} compact={isMobile} />
+        )}
+        {/*
          * First in the cluster, and before the divider: everything after it is
          * something you DO, and this is what you are looking at while you do it.
          * On a phone it moves to the bottom bar, where the actions are.
@@ -223,19 +243,32 @@ export function TopBar({
               pendingChanges={pendingChanges}
               reviewCount={reviewCount}
             />
-            <PreviewButton
-              onPreview={onPreview}
-              previewHref={previewHref}
-              onToggleCanvas={onToggleCanvas}
-              isCanvasOpen={isCanvasOpen}
-            />
-            {publishSlot ?? (
-              <PublishButton
-                pendingChanges={pendingChanges}
-                onPublish={onPublish}
-                publishState={publishState}
+            {/*
+             * Wrappers, only so the tour has something to point at.
+             *
+             * `PreviewButton` is a split control and the publish control is
+             * supplied by the app (`publishSlot`), so neither is a single
+             * element this file can put an attribute on. `inline-flex` rather
+             * than `contents`: a box with no layout of its own measures zero,
+             * and a spotlight on a zero-sized box is a dot.
+             */}
+            <span data-val-tour="preview" className="inline-flex">
+              <PreviewButton
+                onPreview={onPreview}
+                previewHref={previewHref}
+                onToggleCanvas={onToggleCanvas}
+                isCanvasOpen={isCanvasOpen}
               />
-            )}
+            </span>
+            <span data-val-tour="publish" className="inline-flex">
+              {publishSlot ?? (
+                <PublishButton
+                  pendingChanges={pendingChanges}
+                  onPublish={onPublish}
+                  publishState={publishState}
+                />
+              )}
+            </span>
             <BarDivider />
           </>
         )}
@@ -268,6 +301,7 @@ export function TopBar({
             label="Quick actions"
             active={openPanel === "utility"}
             onClick={() => onTogglePanel("utility")}
+            tourTarget="utility"
           >
             <PanelRight size={16} />
           </IconButton>
@@ -624,6 +658,7 @@ function ReviewButton({
     <button
       type="button"
       onClick={onCompare}
+      data-val-tour="review"
       aria-label={
         showCount
           ? `Review ${reviewCount} ${reviewCount === 1 ? "change" : "changes"}`
@@ -653,11 +688,14 @@ function IconButton({
   active,
   onClick,
   children,
+  tourTarget,
 }: {
   label: string;
   active?: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  /** Marks this button as the thing a tour step points at. See `StudioTour`. */
+  tourTarget?: string;
 }) {
   return (
     <button
@@ -665,6 +703,7 @@ function IconButton({
       aria-label={label}
       aria-pressed={active}
       onClick={onClick}
+      data-val-tour={tourTarget}
       className={cn(
         "relative grid place-items-center w-8 h-8 rounded-md shrink-0",
         active

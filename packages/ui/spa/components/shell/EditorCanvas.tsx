@@ -1,12 +1,14 @@
 import { ReactNode } from "react";
 import {
   ChevronDown,
+  Compass,
   FileText,
   GripVertical,
   ImageIcon,
   Link2,
 } from "lucide-react";
 import { cn } from "../designSystem/cn";
+import { ShellDestination } from "./types";
 
 /** The content canvas is this wide at most, and never resizes. */
 export const CANVAS_MAX_WIDTH = 1048;
@@ -32,24 +34,92 @@ export function EditorCanvas({ children }: { children: ReactNode }) {
   );
 }
 
-/** Shown when nothing is selected — the shell's resting state. */
-export function EmptyEditorState() {
+/**
+ * Shown when nothing is selected — the shell's resting state, and the first
+ * thing a new editor sees.
+ *
+ * It used to say "No item selected", which is a true description of the state
+ * and no help at all to the person it is describing it to: it names the three
+ * destinations without saying what any of them is, which was exactly the
+ * complaint. The list below is the shortest honest definition of each, and the
+ * tour is offered here because this screen is where somebody who does not know
+ * where to start is standing.
+ */
+export function EmptyEditorState({
+  /**
+   * Which destinations this project has. All three when absent.
+   *
+   * Explaining Pages to a project with no router is worse than saying nothing:
+   * there is no icon to go and look for afterwards.
+   */
+  destinations,
+  onStartTour,
+}: {
+  destinations?: readonly ShellDestination[];
+  onStartTour?: () => void;
+} = {}) {
+  const offers = (destination: ShellDestination) =>
+    destinations === undefined || destinations.includes(destination);
   return (
-    <div className="grid place-items-center min-h-[60svh] text-center">
-      <div className="max-w-xs">
+    <div className="grid place-items-center min-h-[60svh]">
+      <div className="max-w-sm">
         <FileText
           size={28}
-          className="mx-auto mb-4 text-fg-secondary-alt"
+          className="mb-4 text-fg-secondary-alt"
           strokeWidth={1.25}
         />
         <h2 className="text-[0.9375rem] font-medium tracking-tight">
-          No item selected
+          Pick something to edit
         </h2>
         <p className="mt-2 text-xs text-fg-secondary-alt leading-relaxed">
-          Pick a page, a media file or a data item from the navigation to start
-          editing.
+          Everything in this project is in the navigation, under one of these:
         </p>
+        <dl className="mt-3 space-y-2">
+          {offers("pages") && (
+            <EmptyStateTerm
+              term="Pages"
+              description="One row per page of your site, by URL."
+            />
+          )}
+          {offers("media") && (
+            <EmptyStateTerm
+              term="Media"
+              description="Images and files, uploaded once and used anywhere."
+            />
+          )}
+          {offers("data") && (
+            <EmptyStateTerm
+              term="Data"
+              description="Content that is not tied to one page — menus, footers, shared wording."
+            />
+          )}
+        </dl>
+        {onStartTour && (
+          <button
+            type="button"
+            onClick={onStartTour}
+            className="mt-5 inline-flex h-8 items-center gap-1.5 rounded-md border border-border-float px-2.5 text-xs text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+          >
+            <Compass size={13} />
+            Take a tour
+          </button>
+        )}
       </div>
+    </div>
+  );
+}
+
+function EmptyStateTerm({
+  term,
+  description,
+}: {
+  term: string;
+  description: string;
+}) {
+  return (
+    <div className="flex gap-2 text-xs leading-relaxed">
+      <dt className="w-14 shrink-0 font-medium text-fg-primary">{term}</dt>
+      <dd className="min-w-0 text-fg-secondary-alt">{description}</dd>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { THEME_RADIUS_STEPS, ThemeRadius } from "@valbuild/core";
 // module reaches the whole editor tree, and this panel is presentational.
 import { ColorFieldPure } from "../fields/ColorFieldPure";
 import { FloatingPanel, PanelEmptyState } from "./FloatingPanel";
+import { useShellPanelLink } from "./shellPanelLink";
 import { PanelErrorState, PanelSkeleton } from "./PanelPrimitives";
 import { Switch } from "../designSystem/switch";
 import { cn } from "../designSystem/cn";
@@ -76,9 +77,38 @@ export function SettingsPanel({
       ) : loadError ? (
         <PanelErrorState message={loadError} onRetry={onRetryLoad} />
       ) : (
-        children
+        <>
+          {children}
+          <PersonalSettingsPointer />
+        </>
       )}
     </FloatingPanel>
+  );
+}
+
+/**
+ * Where the OTHER settings are.
+ *
+ * The split between this panel and the account panel is real — one is project
+ * content and gets published, the other is one person on one machine — but it
+ * is invisible from here, and "Settings" is where anybody goes looking for the
+ * dark mode switch. A line at the foot of the panel is cheaper than either
+ * duplicating those controls or renaming a destination.
+ */
+function PersonalSettingsPointer() {
+  const link = useShellPanelLink("account");
+  return (
+    <p className="px-4 py-4 text-[0.6875rem] leading-relaxed text-fg-secondary-alt">
+      These settings belong to the project and are published with your content.
+      Your own — theme, and how the Studio behaves on this machine — are under{" "}
+      <a
+        {...link}
+        className="underline underline-offset-2 hover:text-fg-primary"
+      >
+        Account
+      </a>
+      .
+    </p>
   );
 }
 

@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   CircleAlert,
   Clock,
+  Compass,
   FilePlus2,
   GitCompare,
   ImagePlus,
@@ -40,6 +41,15 @@ export type UtilityPanelProps = {
   onSelectValidationError?: (error: ShellValidationError) => void;
   onNewPage: () => void;
   onUploadMedia: () => void;
+  /**
+   * Run the guided tour.
+   *
+   * The tour's permanent home. The glowing button in the top bar is a one-time
+   * offer and goes away for good once it has been taken; this row does not, so
+   * there is somewhere to send a colleague who asks what any of this is —
+   * which is also what the tour's own last step says.
+   */
+  onStartTour?: () => void;
   /**
    * Open the assistant. Absent when the project has no assistant configured —
    * see `ShellProps.aiEnabled` — and the row is then not offered at all.
@@ -127,6 +137,7 @@ export function UtilityPanel({
   onSelectValidationError,
   onNewPage,
   onUploadMedia,
+  onStartTour,
   onOpenAI,
   destinations,
   onCompare,
@@ -232,6 +243,13 @@ export function UtilityPanel({
               icon={ImagePlus}
               label="Upload media"
               onClick={onUploadMedia}
+            />
+          )}
+          {onStartTour && (
+            <QuickAction
+              icon={Compass}
+              label="Take a tour"
+              onClick={onStartTour}
             />
           )}
           {/*

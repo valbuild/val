@@ -48,6 +48,14 @@ import { isDeploymentNews, MobileDeployments } from "./Deployments";
 import { PublishState, TopBar } from "./TopBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { availableDestinations } from "./shellDataMapping";
+import { StudioTour } from "./StudioTour";
+import {
+  readTourCompleted,
+  readTourEnabled,
+  studioTourSteps,
+  writeTourCompleted,
+  writeTourEnabled,
+} from "./studioTour";
 import { servedPath } from "../../utils/mediaPath";
 import { useShellBreakpoint } from "./useShellBreakpoint";
 import {
@@ -107,6 +115,14 @@ export type ShellProps = {
   initialSelectionId?: string | null;
   /** Open the global search on mount. */
   initialSearchOpen?: boolean;
+  /**
+   * Run the guided tour on mount.
+   *
+   * For stories and tests. Nothing in the app passes it: the tour is started
+   * by a person pressing a button, never by the Studio opening — see
+   * `TourLauncher`.
+   */
+  initialTourOpen?: boolean;
   theme: "dark" | "light";
   /**
    * The project's theme, as CSS custom properties — see `ValThemeProvider`.
@@ -411,6 +427,7 @@ export function Shell({
   initialPanel = null,
   initialSelectionId = null,
   initialSearchOpen = false,
+  initialTourOpen = false,
   theme,
   themeStyle,
   onThemeChange,
@@ -628,6 +645,58 @@ export function Shell({
     () => availableDestinations(data, isLoading),
     [isLoading, data],
   );
+
+  const [isTourOpen, setIsTourOpen] = useState(initialTourOpen);
+  /**
+   * Whether this browser has been offered the tour, and whether it wants to be.
+   *
+   * Read once, on mount: both are per-browser preferences rather than shared
+   * state, so nothing else can change them underneath us, and reading storage
+   * on every render to find out that the answer is still the same is not worth
+   * a try/catch per frame.
+   */
+  const [tourCompleted, setTourCompleted] = useState(readTourCompleted);
+  const [tourEnabled, setTourEnabledState] = useState(readTourEnabled);
+  const setTourEnabled = useCallback((enabled: boolean) => {
+    setTourEnabledState(enabled);
+    writeTourEnabled(enabled);
+  }, []);
+  const startTour = useCallback(() => setIsTourOpen(true), []);
+  /**
+   * The tour opening a panel. Stable, because the tour re-runs it whenever the
+   * step changes and an identity that changed every render would reopen the
+   * panel on every keystroke elsewhere in the shell.
+   */
+  const openPanelForTour = useCallback(
+    (panel: ShellPanel | null | undefined) => setOpenPanel(panel ?? null),
+    [],
+  );
+  /**
+   * Leaving the tour, however it was left.
+   *
+   * Finishing it and abandoning it both count as done, because what this flag
+   * decides is whether to GLOW at someone — and having already said no once is
+   * the clearest possible answer to that. The tour never becomes unreachable:
+   * Quick actions and the Account panel both keep it.
+   */
+  const closeTour = useCallback(() => {
+    setIsTourOpen(false);
+    setTourCompleted(true);
+    writeTourCompleted(true);
+  }, []);
+  const tourSteps = useMemo(
+    () => studioTourSteps(destinations, mode ?? "unknown"),
+    [destinations, mode],
+  );
+  /**
+   * Whether to glow.
+   *
+   * Not while the navigation is still loading: the steps are built from the
+   * destinations, and offering a tour of Pages and Data to someone whose
+   * project turns out to have neither is worse than offering it a second later.
+   */
+  const showTourPrompt =
+    tourEnabled && !tourCompleted && !isTourOpen && !isLoading;
   /**
    * Opening a panel from deep inside the shell — a row in the publish diff
    * linking to Settings, say. The URL is read once on mount, so an in-app link
@@ -864,7 +933,7 @@ export function Shell({
   const editorColumn = editorOverride ? (
     editorOverride
   ) : selection === null ? (
-    <EmptyEditorState />
+    <EmptyEditorState destinations={destinations} onStartTour={startTour} />
   ) : (
     /*
      * Held until the server's pending changes have landed — see
@@ -983,6 +1052,9 @@ export function Shell({
           pendingChanges={pendingChanges}
           onCompare={onCompare}
           reviewCount={reviewCount ?? pendingChanges}
+          // Only while it is still worth offering — see `showTourPrompt`. The
+          // tour itself never goes: Quick actions and the Account panel keep it.
+          onStartTour={showTourPrompt ? startTour : undefined}
           publishState={
             publishState === "idle" && validationErrorCount > 0
               ? "blocked"
@@ -1156,6 +1228,9 @@ export function Shell({
             admin={data.admin}
             autoSave={autoSave}
             onAutoSaveChange={onAutoSaveChange}
+            tourEnabled={tourEnabled}
+            onTourEnabledChange={setTourEnabled}
+            onStartTour={startTour}
             branch={data.branch}
             /**
              * No deploy feed in dev.
@@ -1193,6 +1268,7 @@ export function Shell({
             onOpenAI={aiEnabled ? () => setOpenPanel("ai") : undefined}
             onCompare={onCompare}
             reviewCount={reviewCount ?? pendingChanges}
+            onStartTour={startTour}
             onDiscardAll={onDiscardAll}
             discardAllDescription={discardAllDescription}
             portalContainer={portalContainer}
@@ -1248,6 +1324,14 @@ export function Shell({
               )
             }
             onClose={closePanel}
+          />
+        )}
+
+        {isTourOpen && (
+          <StudioTour
+            steps={tourSteps}
+            onClose={closeTour}
+            onOpenPanel={openPanelForTour}
           />
         )}
 
