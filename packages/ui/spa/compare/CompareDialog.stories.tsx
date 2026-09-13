@@ -84,9 +84,22 @@ export const RecordWithAddedAndRemoved: Story = {};
  *
  * Select `lists.val.ts`. `moved` is the fourth mark — array items splice, so a
  * reorder is a real change that is not an edit, and calling it one would make
- * every row below the move look changed.
+ * every row below the move look changed. `ArrayFields` emits a real
+ * `{op: "move"}` for a drag, so this is read rather than inferred.
  */
 export const ArrayWithMoves: Story = {};
+
+/**
+ * A page that changed URL.
+ *
+ * The other half of `moved`, and the consequential one: in a router record the
+ * key IS the address, and `ChangeRecordPopover` renames it with a real
+ * `{op: "move"}` while rewriting every referrer it found. So this is one row
+ * saying "renamed", not an add beside a remove — and the nav row carries the
+ * old URL so a publish can be scanned for broken links without opening
+ * anything. Select `/blogs/history-and-restore` under Pages.
+ */
+export const RenamedRoute: Story = {};
 
 /**
  * Comparing against a commit instead of against published.

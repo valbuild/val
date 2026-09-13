@@ -9,6 +9,7 @@ import type {
   CompareFieldRow,
   CompareGroup,
   CompareListItemRow,
+  CompareMove,
   ComparePane,
 } from "./types";
 
@@ -249,6 +250,18 @@ function ListItemRowSide({
       : row.change === "removed"
         ? side === "before"
         : true;
+  /*
+   * A renamed entry is called something different on each side, so each column
+   * shows the key ITS side knows it by. Anything else makes one of the two
+   * columns a lie — and the left column is supposed to be readable on its own,
+   * which is what the phone layout depends on.
+   */
+  const keyOnThisSide =
+    row.change === "moved" && row.move?.kind === "rename"
+      ? side === "before"
+        ? row.move.from
+        : row.move.to
+      : row.label;
 
   return (
     <div className="border-b border-border-secondary py-1.5 last:border-b-0">
@@ -260,16 +273,47 @@ function ListItemRowSide({
             presentOnThisSide ? "text-fg-primary" : "text-fg-tertiary",
           )}
         >
-          {row.label}
+          {keyOnThisSide}
         </span>
         <span className="shrink-0 text-[10px] uppercase tracking-wider text-fg-tertiary">
           {row.change === "moved"
-            ? movedLabel(row)
+            ? moveBadge(row.move)
             : presentOnThisSide
               ? changeKindLabel(row.change)
               : ""}
         </span>
       </div>
+      {/*
+       * A rename gets its own line, on both sides, showing the key each side
+       * knows it by.
+       *
+       * Not folded into the badge: for a router record the key is the URL, so
+       * this is a page changing address — the line most likely to break links,
+       * and the one an editor scans a publish for. A badge reading "RENAMED"
+       * would say that something happened without saying what, and the two keys
+       * are the whole content of the change.
+       */}
+      {row.change === "moved" && row.move?.kind === "rename" && (
+        <div className="mt-1 min-w-0 border-l-2 border-l-border-secondary py-0.5 pl-2 font-mono text-xs">
+          <span
+            className={
+              side === "before" ? "text-fg-primary" : "text-fg-tertiary"
+            }
+          >
+            {row.move.from}
+          </span>
+          <span className="px-1 text-fg-tertiary" aria-hidden>
+            →
+          </span>
+          <span
+            className={
+              side === "after" ? "text-fg-primary" : "text-fg-tertiary"
+            }
+          >
+            {row.move.to}
+          </span>
+        </div>
+      )}
       {/*
        * The preview, or a placeholder of the same height where there is none.
        *
@@ -316,11 +360,21 @@ function ListItemRowSide({
   );
 }
 
-function movedLabel(row: CompareListItemRow): string {
-  if (row.movedFrom === undefined || row.movedTo === undefined) {
+/**
+ * What a move says in one badge.
+ *
+ * A reorder is positions, 1-based because the rest of the Studio numbers list
+ * items for people rather than for arrays. A rename says only "renamed" here —
+ * the two keys get their own line, because they are too important and too long
+ * to live in a badge.
+ */
+function moveBadge(move: CompareMove | undefined): string {
+  if (move === undefined) {
     return "Moved";
   }
-  return `${row.movedFrom + 1} → ${row.movedTo + 1}`;
+  return move.kind === "rename"
+    ? "Renamed"
+    : `${move.from + 1} → ${move.to + 1}`;
 }
 
 /** The "Show all fields" control, and what it would reveal. */

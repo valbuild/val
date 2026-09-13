@@ -160,10 +160,26 @@ function NavRow({
             >
               {node.label}
             </span>
-            {node.sublabel !== undefined && (
+            {/*
+             * A renamed row says what it used to be called, in place of its
+             * sublabel.
+             *
+             * For a router record the key is the URL, so this line is a page
+             * changing address — the change most likely to break an inbound
+             * link, and the reason `moved` is worth a mark of its own rather
+             * than being folded into "changed". The old name wins the slot
+             * because the new one is already the label above it.
+             */}
+            {node.renamedFrom !== undefined ? (
               <span className="block truncate text-xs text-fg-tertiary">
-                {node.sublabel}
+                was <span className="font-mono">{node.renamedFrom}</span>
               </span>
+            ) : (
+              node.sublabel !== undefined && (
+                <span className="block truncate text-xs text-fg-tertiary">
+                  {node.sublabel}
+                </span>
+              )
             )}
           </span>
           {node.change !== undefined && (

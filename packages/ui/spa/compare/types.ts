@@ -64,6 +64,16 @@ export type CompareNavNode = {
   sublabel?: string;
   kind: CompareNavKind;
   change?: CompareChangeKind;
+  /**
+   * What this used to be called, when `change` is `moved`.
+   *
+   * A renamed page is ONE row, not an add beside a remove, and `label` is its
+   * new name. Without the old one the row cannot say the thing that matters —
+   * for a router record the key is the URL, so this is the old address, and an
+   * editor scanning a publish for "did any link break" is looking for exactly
+   * this line.
+   */
+  renamedFrom?: string;
   /** How many changed things sit at or under this row. */
   changedCount?: number;
   children?: CompareNavNode[];
@@ -126,10 +136,31 @@ export type CompareListItemRow = {
   preview?: ReactNode;
   change: CompareChangeKind;
   fields?: CompareFieldRow[];
-  /** Where it moved from and to, for `moved`. */
-  movedFrom?: number;
-  movedTo?: number;
+  /** Where it went, for `moved`. Required to say anything useful about one. */
+  move?: CompareMove;
 };
+
+/**
+ * The two things a `move` op can mean, which are not the same statement.
+ *
+ * Both come from a real `{op: "move"}` in the patch — a record key rename
+ * (`ChangeRecordPopover`) and an array reorder (`ArrayFields`) — so neither is
+ * inferred from comparing two snapshots. That distinction is load-bearing:
+ * inferring moves by diffing states is what `computeRestorePatches` did before
+ * #563 deleted it, and array items splice, so the inference could attribute a
+ * move to the wrong row and look like it had worked.
+ *
+ * They are separate members because a reader needs different things from them:
+ *
+ * - A **rename** is about identity. The key IS the thing — and in a router
+ *   record the key is the URL, so a rename is a page changing address, which is
+ *   usually the most consequential line in a publish. Position is irrelevant.
+ * - A **reorder** is about position, and the value is untouched. Showing it as
+ *   a before/after value pair would claim an edit that did not happen.
+ */
+export type CompareMove =
+  | { kind: "rename"; from: string; to: string }
+  | { kind: "reorder"; from: number; to: number };
 
 /**
  * A run of rows under one heading.

@@ -165,8 +165,7 @@ const listsPane: ComparePane = {
         item("kw-content", "content", "removed", { preview: text("content") }),
         item("kw-publish", "publish", "moved", {
           preview: text("publish"),
-          movedFrom: 3,
-          movedTo: 0,
+          move: { kind: "reorder", from: 3, to: 0 },
         }),
       ],
     },
@@ -239,6 +238,49 @@ const removedBlogPane: ComparePane = {
           text("The beta channel is open."),
           undefined,
         ),
+      ],
+    },
+  ],
+};
+
+/**
+ * A router record whose key was renamed — i.e. a page that changed URL.
+ *
+ * The case `moved` exists for. `ChangeRecordPopover` emits this as a real
+ * `{op: "move"}` and rewrites every referrer it found, so the rename is known
+ * rather than guessed at. Shown beside an ordinary edit in the same record, so
+ * the two marks can be told apart at a glance.
+ */
+const routesPane: ComparePane = {
+  title: "blogs",
+  subtitle: "/app/blogs/[blog]/page.val.ts — router record",
+  change: "changed",
+  groups: [
+    {
+      kind: "list",
+      id: "routes",
+      title: "blogs",
+      summary: "1 renamed · 1 changed",
+      rows: [
+        item("route-renamed", "/blogs/history-and-restore", "moved", {
+          preview: text("History, restored"),
+          move: {
+            kind: "rename",
+            from: "/blogs/history-restore",
+            to: "/blogs/history-and-restore",
+          },
+        }),
+        item("route-edited", "/blogs/getting-started", "changed", {
+          fields: [
+            field(
+              "gs-title",
+              "title",
+              "changed",
+              text("Getting started"),
+              text("Getting started with Val"),
+            ),
+          ],
+        }),
       ],
     },
   ],
@@ -331,7 +373,7 @@ export const compareModel: CompareModel = {
           id: "folder-blogs",
           label: "blogs",
           kind: "folder",
-          changedCount: 2,
+          changedCount: 3,
           children: [
             {
               id: "page-new-blog",
@@ -346,6 +388,16 @@ export const compareModel: CompareModel = {
               sublabel: "/blogs/old-announcement",
               kind: "page",
               change: "removed",
+            },
+            {
+              id: "page-renamed-blog",
+              // Short name like its siblings; `renamedFrom` takes the sublabel
+              // slot, so the row reads "history-and-restore / was
+              // /blogs/history-restore" rather than truncating a full URL.
+              label: "history-and-restore",
+              renamedFrom: "/blogs/history-restore",
+              kind: "page",
+              change: "moved",
             },
           ],
         },
@@ -414,6 +466,7 @@ export const compareModel: CompareModel = {
     "page-landing": landingPane,
     "page-new-blog": newBlogPane,
     "page-removed-blog": removedBlogPane,
+    "page-renamed-blog": routesPane,
     "mod-authors": authorsPane,
     "mod-lists": listsPane,
     "mod-settings": settingsPane,
