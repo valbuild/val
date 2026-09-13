@@ -1,5 +1,41 @@
 # @valbuild/next
 
+## 0.127.0
+
+### Patch Changes
+
+- [#665](https://github.com/valbuild/val/pull/665) [`7072e07`](https://github.com/valbuild/val/commit/7072e07623c953a09ac14388ae22dada0b431ce3) Thanks [@freekh](https://github.com/freekh)! - `.nullable()` no longer drops the field's `.validate(...)` functions.
+
+  `.nullable()` returns a copy of the schema, and most of the schema classes built
+  that copy with an empty list of custom validators — so a validator declared
+  before the `.nullable()` was silently thrown away:
+
+  ```ts
+  s.number()
+    .validate((n) => (n > 100 ? "Too big" : false))
+    .nullable(); // the validator never ran
+  ```
+
+  `array`, `object`, `discriminatedUnion`, `enum`, `number`, `boolean`, `literal`,
+  `keyOf`, `date`, `dateTime`, `code`, `color` and `richtext` were affected;
+  `string`, `record`, `route`, `file` and `image` already carried them over, which
+  is why the bug was easy to miss. Validators now survive `.nullable()` on every
+  schema, in either order.
+
+  A validator on a nullable schema is called with `null` when the value is unset,
+  rather than being skipped — the same thing the schemas that never dropped them
+  have always done. If yours was written before the `.nullable()`, its argument is
+  typed as non-null even though `null` can reach it, so guard for it.
+
+- Updated dependencies [[`7fa8699`](https://github.com/valbuild/val/commit/7fa869974bc895af992a7d5c18b76253636d7d65), [`600308d`](https://github.com/valbuild/val/commit/600308d0174990ad9f5c417147d160273489c65a), [`5b7fe05`](https://github.com/valbuild/val/commit/5b7fe05cec6365f9cd1de9ba31e65ed4a87edb63), [`88262ac`](https://github.com/valbuild/val/commit/88262ac8db068650a664981ef73556457d87741a), [`7072e07`](https://github.com/valbuild/val/commit/7072e07623c953a09ac14388ae22dada0b431ce3), [`29811c3`](https://github.com/valbuild/val/commit/29811c3f8c7e001a950e6f4833af6888e6a4efea), [`9983116`](https://github.com/valbuild/val/commit/99831164c5151aad7ca69de79e1d0d59878be251)]:
+  - @valbuild/core@0.127.0
+  - @valbuild/shared@0.127.0
+  - @valbuild/ui@0.127.0
+  - @valbuild/server@0.127.0
+  - @valbuild/react@0.127.0
+  - @valbuild/language-server@0.127.0
+  - @valbuild/mcp@0.127.0
+
 ## 0.126.0
 
 ### Patch Changes

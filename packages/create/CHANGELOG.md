@@ -1,5 +1,18 @@
 # @valbuild/create
 
+## 0.127.0
+
+### Patch Changes
+
+- [#669](https://github.com/valbuild/val/pull/669) [`ddc5f43`](https://github.com/valbuild/val/commit/ddc5f43ac7c9733f9ea1ff62b05c070c65461e26) Thanks [@freekh](https://github.com/freekh)! - `create` no longer copies the template repository's own CI into your project
+
+  The templates are downloaded whole — that is what lets you clone one directly
+  and run it — so a workflow a template runs on itself arrived in every new
+  project too. The TanStack starter now has one (it installs the template weekly
+  and checks that Val Studio still opens, which is how a bad release gets found),
+  and in a scaffolded project that workflow is a job about somebody else's
+  repository. `.github/` is now removed after the template is downloaded.
+
 ## 0.125.0
 
 ### Minor Changes
