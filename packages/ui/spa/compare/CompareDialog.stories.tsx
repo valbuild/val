@@ -6,6 +6,7 @@ import {
   compareModel,
   emptyModel,
   longCommitMessageModel,
+  revertBasisModel,
   singleModuleModel,
 } from "./fixtures";
 import type { CompareModel } from "./types";
@@ -32,10 +33,12 @@ function Harness({
   model,
   layout,
   authorFilter,
+  undoPicks,
 }: {
   model: CompareModel;
   layout?: "desktop" | "mobile";
   authorFilter?: string | null;
+  undoPicks?: string[];
 }) {
   const [basisId, setBasisId] = useState(model.selectedBasisId);
   return (
@@ -47,6 +50,10 @@ function Harness({
         onSelectBasis={setBasisId}
         forceLayout={layout}
         initialAuthorFilter={authorFilter ?? null}
+        initialUndoPicks={undoPicks}
+        currentAuthorId="profile-linus"
+        onUndo={() => undefined}
+        onRevertAll={() => undefined}
       />
     </div>
   );
@@ -169,6 +176,49 @@ export const LongCommitMessageMobile: Story = {
  * a single row, and the toggle in the toolbar says how much it is hiding.
  */
 export const ShowAllFields: Story = { args: { model: singleModuleModel } };
+
+/**
+ * Undo mode, with nothing picked yet.
+ *
+ * Entered from the header rather than always on: this is a reading surface,
+ * and the old review screen's problem was mixing reading with discarding. The
+ * bar is visible from the moment the mode opens — one that appeared on first
+ * selection would shift the rows under the cursor at the exact moment someone
+ * is aiming at a checkbox.
+ */
+export const UndoMode: Story = { args: { undoPicks: [] } };
+
+/**
+ * A discard that drags two later changes along, one of them somebody else's.
+ *
+ * `brand` cannot go alone: `badge` and `legacyNote` were written against a
+ * state in which it applied, so the prefix invariant compels them. They are
+ * ticked and marked as required rather than silently included, and the bar
+ * counts them apart from the pick and names Ada, whose work is in there.
+ *
+ * This is the outcome the whole design is arranged around — a click that
+ * quietly discards a colleague's edit is the worst thing this feature could
+ * do.
+ */
+export const DiscardPullsInDependents: Story = {
+  args: { undoPicks: ["brand"] },
+};
+
+/**
+ * Reverting to a commit, where the schema is the question.
+ *
+ * All three of `checkCompatibility`'s answers on one screen: `heading` is
+ * fine, `intro` is rich text and therefore `unknown` — offered anyway, because
+ * this gate cannot see the value and the real check runs at confirm — and
+ * `cta` became a union with no variant of the old shape, so it is refused with
+ * the reason where its checkbox would be.
+ *
+ * The bar also carries `revertAll`, which exists because "a publish went wrong
+ * and they want it undone, all of it, now" is the case people actually have.
+ */
+export const RevertToCommit: Story = {
+  args: { model: revertBasisModel, undoPicks: [] },
+};
 
 /**
  * Nothing staged.

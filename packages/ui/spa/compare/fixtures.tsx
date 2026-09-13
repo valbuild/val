@@ -90,8 +90,22 @@ function field(
   after?: ReactNode,
   path?: string,
   authors?: CompareAuthorship,
+  undo?: CompareFieldRow["undo"],
 ): CompareFieldRow {
-  return { id, label, change, before, after, path, authors };
+  return { id, label, change, before, after, path, authors, undo };
+}
+
+/** A plain discard, with nothing depending on it. */
+const DISCARD: CompareFieldRow["undo"] = { kind: "discard" };
+
+/**
+ * A discard that drags later changes along.
+ *
+ * The prefix invariant: a later patch in the same set was written against a
+ * state in which this one applied, so it cannot be left behind.
+ */
+function discardWith(...requires: string[]): CompareFieldRow["undo"] {
+  return { kind: "discard", requires };
 }
 
 function item(
@@ -120,6 +134,7 @@ const landingPane: ComparePane = {
           text("Content, super-charged — and yours to edit"),
           undefined,
           byBoth(),
+          DISCARD,
         ),
         field(
           "brand",
@@ -129,6 +144,7 @@ const landingPane: ComparePane = {
           swatch("hsl(262 83% 58%)", "hsl(262 83% 58%)"),
           "theme.brand",
           by("profile-linus", "replace", 55),
+          discardWith("badge", "legacyNote"),
         ),
         field(
           "badge",
@@ -138,6 +154,7 @@ const landingPane: ComparePane = {
           text("New in 0.125"),
           undefined,
           by("profile-ada", "add", 12),
+          DISCARD,
         ),
         field(
           "legacyNote",
@@ -147,6 +164,7 @@ const landingPane: ComparePane = {
           undefined,
           undefined,
           by("profile-ada", "remove", 8),
+          DISCARD,
         ),
         // Present so the "Show all fields" toggle has something to reveal.
         field(
@@ -183,13 +201,16 @@ const authorsPane: ComparePane = {
         item("kimmid", "kimmid", "added", {
           preview: text("Kim Midtlid"),
           authors: by("profile-linus", "add", 200),
+          undo: DISCARD,
         }),
         item("erlamd", "erlamd", "removed", {
           preview: text("Erlend Åmdal"),
           authors: by("profile-ada", "remove", 30),
+          undo: DISCARD,
         }),
         item("teddy", "teddy", "changed", {
           authors: by("profile-linus", "replace", 45),
+          undo: DISCARD,
           fields: [
             field(
               "teddy-name",
@@ -420,6 +441,12 @@ const settingsPane: ComparePane = {
 export const compareModel: CompareModel = {
   changeCount: 14,
   profiles: PROFILES,
+  /*
+   * Against Published, undoing means DISCARDING the staged patch. There is no
+   * schema question — the result is a state that already existed — and no
+   * whole-commit escape hatch, because the equivalent is discarding everything.
+   */
+  undo: { kind: "discard" },
   left: { label: "Published", caption: "3 days ago · mockcommit0" },
   right: { label: "After publish", caption: "14 staged changes" },
   selectedBasisId: "published",
@@ -693,6 +720,79 @@ export const longCommitMessageModel: CompareModel = {
     byline: "Linus Pauling",
   },
   right: { label: "After publish", caption: "14 staged changes" },
+};
+
+/**
+ * Against a commit, where undoing means REVERTING rather than discarding.
+ *
+ * The changes in that commit already shipped — there is no patch left to
+ * remove — so the only way back is to write the old value forward as a new
+ * `replace`, which makes it entirely a schema question. `checkCompatibility`
+ * answers it three ways and all three appear here:
+ *
+ * - `heading` is a plain string that is still a plain string: `yes`.
+ * - `intro` is rich text, which the schema-vs-schema gate cannot judge, so it
+ *   is `unknown` and OFFERED — the value-level check runs at confirm.
+ * - `cta` was an object at the commit and is a discriminated union now, with
+ *   no variant of that shape: `no`, and refused with the reason rather than
+ *   given a control that cannot work.
+ */
+export const revertBasisModel: CompareModel = {
+  ...commitBasisModel,
+  undo: {
+    kind: "revert",
+    all: { label: "Revert everything in this commit", blockedCount: 1 },
+  },
+  panes: {
+    ...commitBasisModel.panes,
+    "page-landing": {
+      title: "/",
+      subtitle: "/app/page.val.ts",
+      change: "changed",
+      groups: [
+        {
+          kind: "fields",
+          id: "root",
+          rows: [
+            field(
+              "heading",
+              "heading",
+              "changed",
+              text("Content, super-charged"),
+              text("Content, super-charged — and yours to edit"),
+              undefined,
+              byBoth(),
+              { kind: "revert", compatibility: "yes" },
+            ),
+            field(
+              "intro",
+              "intro",
+              "changed",
+              text("Hard-coded content, without the hard-coding."),
+              text("Content that ships with your code, and stays editable."),
+              undefined,
+              by("profile-ada", "replace", 30),
+              { kind: "revert", compatibility: "unknown" },
+            ),
+            field(
+              "cta",
+              "cta",
+              "changed",
+              text('{ label: "Get started", href: "/docs" }'),
+              text('{ kind: "link", label: "Get started", href: "/docs" }'),
+              undefined,
+              by("profile-linus", "replace", 85),
+              {
+                kind: "revert",
+                compatibility: "no",
+                reason: "cta is a union now — no variant has this shape",
+              },
+            ),
+          ],
+        },
+      ],
+    },
+  },
 };
 
 /** Nothing staged. The dialog still has to say something useful. */

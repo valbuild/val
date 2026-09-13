@@ -6,10 +6,13 @@ import {
   sideRailClass,
 } from "./ChangeKindIcon";
 import { FieldPatchAuthorsPure } from "../components/FieldPatchAuthors";
+import { UndoBlocked, UndoCheckbox, UndoSpacer } from "./CompareUndoBar";
+import { isSelectable } from "./undoSelection";
 import { passesAuthorFilter, useCompareAuthors } from "./CompareAuthorsContext";
 import type {
   CompareAuthorship,
   CompareFieldRow,
+  CompareUndo,
   CompareGroup,
   CompareListItemRow,
   CompareMove,
@@ -140,6 +143,69 @@ function visibleFieldRows(
 }
 
 /**
+ * The checkbox, or the reason there isn't one.
+ *
+ * Right column only, like attribution and for the same reason: the thing being
+ * undone is a staged change, and staged changes live on the right. A checkbox
+ * on the left would invite selecting a published value, which is not a thing
+ * that can be undone.
+ */
+function RowUndoControl({
+  rowId,
+  undo,
+  side,
+}: {
+  rowId: string;
+  undo: CompareUndo | undefined;
+  side: "before" | "after";
+}) {
+  const ctx = useCompareAuthors();
+  if (side !== "after" || ctx?.undo == null || undo === undefined) {
+    return null;
+  }
+  if (!isSelectable(undo)) {
+    // The reason is rendered at the end of the row instead; this only holds
+    // the column open. See `UndoSpacer`.
+    return <UndoSpacer />;
+  }
+  return (
+    <UndoCheckbox
+      checked={ctx.undo.selected.has(rowId)}
+      pulledIn={ctx.undo.pulledIn.has(rowId)}
+      onToggle={() => ctx.undo?.onToggle(rowId)}
+      label={rowId}
+    />
+  );
+}
+
+/**
+ * Why this row cannot be reverted, at the end of the row.
+ *
+ * Only in undo mode: outside it there is no control being explained, and a
+ * standing "cannot revert" on a row nobody asked to revert is noise.
+ */
+function RowUndoReason({
+  undo,
+  side,
+}: {
+  undo: CompareUndo | undefined;
+  side: "before" | "after";
+}) {
+  const ctx = useCompareAuthors();
+  if (
+    side !== "after" ||
+    ctx?.undo == null ||
+    undo === undefined ||
+    isSelectable(undo)
+  ) {
+    return null;
+  }
+  return (
+    <UndoBlocked reason={undo.kind === "revert" ? undo.reason : undefined} />
+  );
+}
+
+/**
  * The avatar stack for one row, on the right column only.
  *
  * `FieldPatchAuthorsPure` is the component the current review screen uses, so
@@ -222,6 +288,7 @@ function FieldRowSide({
   return (
     <div className={cn("py-1", indent && "pl-3")}>
       <div className="flex min-w-0 items-center gap-1.5">
+        <RowUndoControl rowId={row.id} undo={row.undo} side={side} />
         <ChangeKindIcon kind={row.change} size={12} hideLabel />
         <span className="min-w-0 truncate text-xs text-fg-secondary">
           {row.label}
@@ -237,6 +304,7 @@ function FieldRowSide({
          * different x on every line would read as noise rather than as a
          * column you can scan down.
          */}
+        <RowUndoReason undo={row.undo} side={side} />
         <span className="ml-auto shrink-0">
           <RowAuthors authors={row.authors} side={side} />
         </span>
@@ -339,6 +407,7 @@ function ListItemRowSide({
   return (
     <div className="border-b border-border-secondary py-1.5 last:border-b-0">
       <div className="flex min-w-0 items-center gap-1.5">
+        <RowUndoControl rowId={row.id} undo={row.undo} side={side} />
         <ChangeKindIcon kind={row.change} size={12} hideLabel />
         <span
           className={cn(

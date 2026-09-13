@@ -31,6 +31,25 @@ export type CompareAuthorsContextValue = {
    * that two people made.
    */
   authorFilter: string | null;
+  /**
+   * Undo mode, when it is on.
+   *
+   * In the same context as attribution for the same reason: the checkbox
+   * belongs on rows nested three deep, and threading mode, selection and a
+   * toggle callback through every component in between would put three
+   * parameters on each of them that they are otherwise not about.
+   *
+   * `null` is the normal, read-only dialog — which is most of the time, and is
+   * why every consumer treats it as the default rather than as a special case.
+   */
+  undo: {
+    kind: "discard" | "revert";
+    /** Everything that will go, picks and their forced dependents. */
+    selected: ReadonlySet<string>;
+    /** Only what the closure added, drawn differently. */
+    pulledIn: ReadonlySet<string>;
+    onToggle: (rowId: string) => void;
+  } | null;
 };
 
 const CompareAuthorsContext = createContext<CompareAuthorsContextValue | null>(

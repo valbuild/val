@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronLeft, PanelLeft } from "lucide-react";
+import { ChevronLeft, PanelLeft, Undo2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -13,10 +13,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/designSystem/select";
+import { Button } from "../components/designSystem/button";
 import { cn } from "../components/designSystem/cn";
 import { useValPortal } from "../components/ValPortalProvider";
 import { CompareAuthorFilter, authorsInModel } from "./CompareAuthorFilter";
 import { CompareAuthorsProvider } from "./CompareAuthorsContext";
+import { CompareUndoBar } from "./CompareUndoBar";
+import { summarizeUndo, undoKindOf } from "./undoSelection";
 import { CompareColumns, CompareMobileColumns } from "./CompareColumns";
 import { CompareNav } from "./CompareNav";
 import {
@@ -38,9 +41,22 @@ import type { CompareModel, CompareNavNode } from "./types";
  *
  * So this is navigation-first. The left side is the set of things that changed
  * — pages, modules, media directories — and picking one fills the right side
- * with just that thing's diff. Nothing here can discard or edit: this view is
- * for understanding a publish before making it, and mixing a destructive
- * control into a reading surface is what made the old screen hard to redesign.
+ * with just that thing's diff.
+ *
+ * ## Reading, then undoing
+ *
+ * It can discard and revert, but only inside a MODE you enter on purpose. The
+ * old screen's problem was that reading and discarding were the same surface,
+ * with a destructive control on every row; a mode keeps the default clean and
+ * makes destroying something a decision rather than a thing the cursor was
+ * near. Editing is still not here — the editor is one click away, and a field
+ * you can type into next to a field you cannot is the confusion
+ * `ComparePatchSets` already removed once.
+ *
+ * Which undo is offered follows from the basis, not from taste: against
+ * Published the change you want gone is a staged patch, so it is DISCARDED;
+ * against a commit those changes already shipped, so the only way back is to
+ * REVERT by writing the old value forward. See `CompareUndo`.
  *
  * ## Which side is which
  *
@@ -79,6 +95,12 @@ export function CompareDialog({
   now,
   /** Start filtered to one person. For stories; the dialog opens unfiltered. */
   initialAuthorFilter = null,
+  /** Start in undo mode with these rows picked. For stories. */
+  initialUndoPicks,
+  /** Who is looking, so the bar can say whose work a closure dragged in. */
+  currentAuthorId = null,
+  onUndo,
+  onRevertAll,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -88,6 +110,11 @@ export function CompareDialog({
   mode?: "fs" | "http" | "unknown";
   now?: Date;
   initialAuthorFilter?: string | null;
+  initialUndoPicks?: string[];
+  currentAuthorId?: string | null;
+  /** Called with everything that will go — picks and their dependents. */
+  onUndo?: (kind: "discard" | "revert", rowIds: string[]) => void;
+  onRevertAll?: () => void;
 }) {
   const firstId = useMemo(() => firstNodeId(model), [model]);
   const [selectedId, setSelectedId] = useState<string | null>(firstId);
@@ -109,8 +136,71 @@ export function CompareDialog({
     () => authorsInModel(model.sections),
     [model.sections],
   );
+  const undoKind = undoKindOf(model);
+  /*
+   * Undo is a MODE, entered deliberately.
+   *
+   * This dialog is a reading surface — the whole reason it is navigation-first
+   * is that the old review screen mixed reading with discarding and was hard to
+   * redesign because of it. A destructive control on every row would put that
+   * straight back. A mode keeps the default clean and makes destroying
+   * something a thing you decided to do rather than a thing the cursor was
+   * near.
+   */
+  const [undoing, setUndoing] = useState(initialUndoPicks !== undefined);
+  /*
+   * Only the user's OWN picks.
+   *
+   * What the closure compels is derived on every render rather than stored:
+   * keeping both in one set would make unticking ambiguous, since a row that is
+   * present because something else required it has to be told apart from one
+   * that was chosen.
+   */
+  const [picked, setPicked] = useState<ReadonlySet<string>>(
+    () => new Set(initialUndoPicks ?? []),
+  );
 
   const pane = selectedId === null ? undefined : model.panes[selectedId];
+  const undoSummary = useMemo(
+    () =>
+      pane === undefined
+        ? {
+            selected: new Set<string>(),
+            pulledIn: new Set<string>(),
+            othersAffected: [],
+          }
+        : summarizeUndo(picked, pane, currentAuthorId),
+    [picked, pane, currentAuthorId],
+  );
+  const selectRow = (id: string): void => {
+    /*
+     * Selection is cleared when the pane changes, by keying it to the pane —
+     * see `requiresMapOf`. Undoing is about the thing you are looking at, and
+     * a bar reporting a count whose rows are off screen is a trap.
+     */
+    setSelectedId(id);
+    setPicked(new Set());
+  };
+  const toggleRow = (rowId: string): void => {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowId)) {
+        next.delete(rowId);
+      } else if (undoSummary.pulledIn.has(rowId)) {
+        /*
+         * Unticking a row the closure added means backing out of the pick that
+         * compelled it, which is the only honest reading: the dependent cannot
+         * stay behind. Dropping every pick that requires it, transitively, is
+         * left to the adapter — for now the simplest correct thing is to clear,
+         * which is never wrong, only blunt.
+         */
+        return new Set<string>();
+      } else {
+        next.add(rowId);
+      }
+      return next;
+    });
+  };
   const hidden = pane === undefined ? 0 : hiddenFieldCount(pane, authorFilter);
   const isMobile = forceLayout === "mobile";
 
@@ -133,6 +223,15 @@ export function CompareDialog({
         // screenshotted twice and compared.
         now: now ?? new Date(),
         authorFilter,
+        undo:
+          undoing && undoKind !== null
+            ? {
+                kind: undoKind,
+                selected: undoSummary.selected,
+                pulledIn: undoSummary.pulledIn,
+                onToggle: toggleRow,
+              }
+            : null,
       }}
     >
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -174,7 +273,37 @@ export function CompareDialog({
               </DialogDescription>
             </div>
             <BasisPicker model={model} onSelectBasis={onSelectBasis} />
+            {undoKind !== null && !undoing && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                onClick={() => setUndoing(true)}
+              >
+                <Undo2 size={13} aria-hidden />
+                {undoKind === "discard" ? "Discard changes" : "Revert"}
+              </Button>
+            )}
           </header>
+          {undoing && undoKind !== null && (
+            <CompareUndoBar
+              kind={undoKind}
+              summary={undoSummary}
+              pickedCount={picked.size}
+              profiles={model.profiles}
+              revertAll={model.undo?.all}
+              onRevertAll={onRevertAll}
+              onCancel={() => {
+                setUndoing(false);
+                setPicked(new Set());
+              }}
+              onConfirm={() => {
+                onUndo?.(undoKind, [...undoSummary.selected]);
+                setUndoing(false);
+                setPicked(new Set());
+              }}
+            />
+          )}
           {people.length > 1 && (
             <div className="shrink-0 border-b border-border-primary px-4 py-2">
               <CompareAuthorFilter
@@ -243,7 +372,7 @@ export function CompareDialog({
                     selectedId={selectedId}
                     authorFilter={authorFilter}
                     onSelect={(id) => {
-                      setSelectedId(id);
+                      selectRow(id);
                       setNavOpen(false);
                     }}
                   />
@@ -257,7 +386,7 @@ export function CompareDialog({
                 sections={model.sections}
                 selectedId={selectedId}
                 authorFilter={authorFilter}
-                onSelect={setSelectedId}
+                onSelect={selectRow}
               />
               <div className="flex min-w-0 flex-1 flex-col px-4 py-3">
                 {pane === undefined ? (

@@ -141,6 +141,61 @@ export type CompareBasisOption = {
   caption?: string;
 };
 
+/**
+ * Whether a row can be undone, and what undoing it would mean.
+ *
+ * Two kinds, because discard and revert are NOT the same operation and fail
+ * for different reasons:
+ *
+ * - **`discard`** removes the staged patches. The result is a state that
+ *   already existed and already validated, so there is no schema question at
+ *   all. What there IS, is the prefix invariant from `utils/patchGroups.ts`:
+ *   inside a patch set, a later patch's array indices were computed against a
+ *   state in which its predecessors applied, so dropping one out of the middle
+ *   "either errors or silently writes to the wrong index". `requires` is what
+ *   that forces along; `unstageClosure` is the real implementation.
+ * - **`revert`** writes an old value forward as a new `replace`, so it is
+ *   entirely a schema question — and the one #563 already answered.
+ *   `compatibility` is `checkCompatibility`'s three-way answer, `unknown`
+ *   included, because "we are not sure" is a real state (rich text, and a
+ *   union value carrying no discriminator) and must not be reported as a
+ *   confident yes or no.
+ *
+ * Which one a row offers follows from the BASIS, not from taste. Against
+ * Published, the change you want gone is a staged patch, and removing it is
+ * cleaner than writing a second patch to cancel the first. Against a commit,
+ * those changes already shipped — there is no patch left to remove — so the
+ * only way back is to write the old value forward.
+ */
+export type CompareUndo =
+  | {
+      kind: "discard";
+      /**
+       * Other rows, by id, that must be discarded along with this one.
+       *
+       * Transitive: the dialog follows these to a fixed point, so a chain of
+       * three resolves in one click. Stated by the adapter rather than derived
+       * here, because deriving it needs the patch chain and the patch sets.
+       */
+      requires?: string[];
+    }
+  | {
+      kind: "revert";
+      /**
+       * `checkCompatibility`'s answer, schema against schema.
+       *
+       * `unknown` is OFFERED rather than refused, exactly as `RestoreChrome`
+       * does: this gate cannot see the value, so refusing on it would block
+       * restores that are fine. The value-level check happens at confirm, and
+       * the rule there is "refuse type-incompatible, allow validation errors" —
+       * a value that breaks a `minLength` is staged and held at publish, since
+       * putting an old value back must not be stricter than typing it.
+       */
+      compatibility: "yes" | "no" | "unknown";
+      /** Why not, when `compatibility` is `no`. Shown instead of the control. */
+      reason?: string;
+    };
+
 /** One field, at one path, on both sides. */
 export type CompareFieldRow = {
   id: string;
@@ -162,6 +217,8 @@ export type CompareFieldRow = {
    * same person twice for one change, once per column.
    */
   authors?: CompareAuthorship;
+  /** Whether this row can be undone. Absent means it cannot be selected. */
+  undo?: CompareUndo;
 };
 
 /**
@@ -183,6 +240,8 @@ export type CompareListItemRow = {
   move?: CompareMove;
   /** Who staged it. Right column only — see `CompareFieldRow.authors`. */
   authors?: CompareAuthorship;
+  /** Whether this entry can be undone as a whole. */
+  undo?: CompareUndo;
 };
 
 /**
@@ -259,4 +318,23 @@ export type CompareModel = {
    * takes `profilesByAuthorIds` as a prop.
    */
   profiles: Record<string, Profile>;
+  /**
+   * What undoing means against the current basis, and what it can reach.
+   *
+   * Absent means the dialog is read-only — which is what a basis with nothing
+   * to undo should produce, rather than an Undo button that opens a mode with
+   * no selectable rows in it.
+   */
+  undo?: {
+    kind: "discard" | "revert";
+    /**
+     * The whole-commit escape hatch, when the basis has one.
+     *
+     * `revertAll` exists because "a publish went wrong and they want it
+     * undone, all of it, now" is the case people actually have, and picking
+     * twenty fields one at a time "is not a workflow, it is a punishment".
+     * Absent against Published, where the equivalent is discarding everything.
+     */
+    all?: { label: string; blockedCount?: number };
+  };
 };
