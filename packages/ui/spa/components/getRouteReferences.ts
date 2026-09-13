@@ -7,11 +7,23 @@ import {
   SourcePath,
 } from "@valbuild/core";
 import { sourcePathOfChild } from "../utils/sourcePath";
+import {
+  JsonValuesLoadQuery,
+  schemaContainsReferrer,
+} from "./jsonValuesLoadRequirements";
+
+/** Allocated once: the predicate is called for every module, on every call. */
+const ROUTE_QUERY: JsonValuesLoadQuery = { kind: "route" };
 
 /**
- * Find all s.route() fields that have a value matching the given route key
+ * Find all s.route() fields that have a value matching the given route key.
  *
- * This scans all modules to find route fields where the source value equals the routeKey.
+ * A module whose SCHEMA contains no route field anywhere cannot contain a
+ * referrer, so its source is not walked at all. That test is a walk over the
+ * schema - small, fixed, and the same shape for every project - while the walk
+ * it skips is over the source, which is the part that is megabytes. On a real
+ * project most modules are content with no route field in them, and this is
+ * called once per route key, so the saving multiplies.
  */
 export function getRouteReferences(
   schemas: Record<ModuleFilePath, SerializedSchema>,
@@ -82,11 +94,11 @@ export function getRouteReferences(
 
   for (const moduleFilePathS in schemas) {
     const moduleFilePath = moduleFilePathS as ModuleFilePath;
-    go(
-      moduleFilePathS as SourcePath,
-      schemas[moduleFilePath],
-      sources[moduleFilePath],
-    );
+    const schema = schemas[moduleFilePath];
+    if (!schemaContainsReferrer(schema, ROUTE_QUERY)) {
+      continue;
+    }
+    go(moduleFilePathS as SourcePath, schema, sources[moduleFilePath]);
   }
 
   return results;

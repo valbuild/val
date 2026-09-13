@@ -323,6 +323,44 @@ describe("getRouteReferences", () => {
     const result = getRouteReferences(schemas, sources, "/home");
     expect(result).toEqual([]);
   });
+
+  /**
+   * A module whose SCHEMA has no route field in it cannot hold a referrer, so
+   * there is nothing in its source to find. Skipping it is worth doing because
+   * of the asymmetry: the test is a walk over the schema, which is small and
+   * the same shape for every project, while the walk it replaces is over the
+   * source, which is the part that grows. On a real project most modules are
+   * content with no route field anywhere, and this runs once per route key.
+   */
+  test("does not even look at the source of a module with no route in its schema", () => {
+    const modules = [
+      c.define("/routes.val.ts", s.record(s.object({ title: s.string() })), {
+        "/home": { title: "Home" },
+      }),
+      c.define("/content.val.ts", s.object({ link: s.route() }), {
+        link: "/home",
+      }),
+      c.define(
+        "/prose.val.ts",
+        s.object({ title: s.string(), body: s.string() }),
+        { title: "About us", body: "/home is not a route here" },
+      ),
+    ];
+    const { schemas, sources } = getTestData(modules);
+    const read: string[] = [];
+    const watched = new Proxy(sources, {
+      get(target, key: string) {
+        read.push(key);
+        return target[key as ModuleFilePath];
+      },
+    });
+    const result = getRouteReferences(schemas, watched, "/home");
+
+    expect(result).toEqual(['/content.val.ts?p="link"']);
+    // The router module holds route KEYS, not route fields, so it is skipped
+    // too - a record of objects of strings has no `route` node in its schema.
+    expect(read).toEqual(["/content.val.ts"]);
+  });
 });
 
 function getTestData(valModules: ValModule<Source>[]) {
