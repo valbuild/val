@@ -335,6 +335,19 @@ export type CompareModel = {
      * twenty fields one at a time "is not a workflow, it is a punishment".
      * Absent against Published, where the equivalent is discarding everything.
      */
-    all?: { label: string; blockedCount?: number };
+    all?: {
+      label: string;
+      /**
+       * The modules this commit changed that CANNOT be put back, with reasons.
+       *
+       * The shape `revertAll`'s `RevertPlan.blocked` already produces, rather
+       * than a count: a bare number tells an editor that something will be
+       * left behind without saying what, which is unactionable at exactly the
+       * moment they are deciding whether to undo a bad publish. The rule the
+       * feature follows is that "one broken thing must not take the others
+       * with it" — so the others still go, and these are named.
+       */
+      blocked?: { moduleFilePath: string; reason: string }[];
+    };
   };
 };

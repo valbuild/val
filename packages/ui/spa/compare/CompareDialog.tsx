@@ -19,7 +19,12 @@ import { useValPortal } from "../components/ValPortalProvider";
 import { CompareAuthorFilter, authorsInModel } from "./CompareAuthorFilter";
 import { CompareAuthorsProvider } from "./CompareAuthorsContext";
 import { CompareUndoBar } from "./CompareUndoBar";
-import { summarizeUndo, undoKindOf } from "./undoSelection";
+import {
+  dropRequiring,
+  requiresMapOf,
+  summarizeUndo,
+  undoKindOf,
+} from "./undoSelection";
 import { CompareColumns, CompareMobileColumns } from "./CompareColumns";
 import { CompareNav } from "./CompareNav";
 import {
@@ -182,22 +187,21 @@ export function CompareDialog({
     setPicked(new Set());
   };
   const toggleRow = (rowId: string): void => {
+    if (pane === undefined) return;
+    const requires = requiresMapOf(pane);
     setPicked((prev) => {
-      const next = new Set(prev);
-      if (next.has(rowId)) {
-        next.delete(rowId);
-      } else if (undoSummary.pulledIn.has(rowId)) {
-        /*
-         * Unticking a row the closure added means backing out of the pick that
-         * compelled it, which is the only honest reading: the dependent cannot
-         * stay behind. Dropping every pick that requires it, transitively, is
-         * left to the adapter — for now the simplest correct thing is to clear,
-         * which is never wrong, only blunt.
-         */
-        return new Set<string>();
-      } else {
-        next.add(rowId);
+      /*
+       * Unticking anything that is currently going — whether it was picked or
+       * compelled — means refusing it, and refusing a row refuses every pick
+       * that forced it. `dropRequiring` walks the graph backwards; picks that
+       * cannot reach this row are left alone, which is what makes "not that
+       * one" possible without starting the selection over.
+       */
+      if (undoSummary.selected.has(rowId)) {
+        return dropRequiring(prev, rowId, requires);
       }
+      const next = new Set(prev);
+      next.add(rowId);
       return next;
     });
   };
@@ -272,18 +276,49 @@ export function CompareDialog({
                     }`}
               </DialogDescription>
             </div>
-            <BasisPicker model={model} onSelectBasis={onSelectBasis} />
-            {undoKind !== null && !undoing && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="shrink-0"
-                onClick={() => setUndoing(true)}
-              >
-                <Undo2 size={13} aria-hidden />
-                {undoKind === "discard" ? "Discard changes" : "Revert"}
-              </Button>
-            )}
+            {/*
+             * One row below `sm`, three flex children above it.
+             *
+             * `sm:contents` dissolves this wrapper at desktop so the picker and
+             * the button go back to being direct children of the header. Below
+             * that it groups them, which fixes two things at once: the header
+             * was stacking into three rows on a phone and eating half the
+             * screen, and the button — a stretched flex child in a column —
+             * came out full width and centred, reading as a stray link rather
+             * than as a control next to the one it belongs beside.
+             */}
+            <div className="flex min-w-0 items-center gap-2 sm:contents">
+              <BasisPicker model={model} onSelectBasis={onSelectBasis} />
+              {undoKind !== null && !undoing && (
+                <Button
+                  size="sm"
+                  /*
+                   * `secondary`, not `outline`. The `outline` variant in this
+                   * design system is `border-transparent` — its own comment
+                   * says the border "has always been transparent" — so the
+                   * button rendered as a bare link, which is the wrong weight
+                   * for the thing that opens a destructive mode.
+                   */
+                  variant="secondary"
+                  className="shrink-0"
+                  onClick={() => setUndoing(true)}
+                >
+                  <Undo2 size={13} aria-hidden />
+                  {/*
+                   * The label is the verb, not the noun, and on a phone it is
+                   * the verb alone: "Discard changes" beside a basis picker
+                   * that already says what is being compared is two words of
+                   * repetition in the tightest row in the dialog.
+                   */}
+                  <span className="hidden sm:inline">
+                    {undoKind === "discard" ? "Discard changes" : "Revert"}
+                  </span>
+                  <span className="sm:hidden">
+                    {undoKind === "discard" ? "Discard" : "Revert"}
+                  </span>
+                </Button>
+              )}
+            </div>
           </header>
           {undoing && undoKind !== null && (
             <CompareUndoBar
@@ -293,6 +328,7 @@ export function CompareDialog({
               profiles={model.profiles}
               revertAll={model.undo?.all}
               onRevertAll={onRevertAll}
+              portalContainer={portalContainer}
               onCancel={() => {
                 setUndoing(false);
                 setPicked(new Set());
@@ -441,8 +477,16 @@ function BasisPicker({
   onSelectBasis?: (basisId: string) => void;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      <span className="shrink-0 text-xs text-fg-tertiary">
+    <div className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
+      {/*
+       * The label is dropped below `sm`. In a row that now also holds the undo
+       * button, "Comparing against" is the first thing that can go: the
+       * dropdown's own two lines already say what is being compared and when.
+       *
+       * `sm` and not a narrower breakpoint because there is no narrower one —
+       * this config defines only `md` and `2xl` on top of the defaults.
+       */}
+      <span className="hidden shrink-0 text-xs text-fg-tertiary sm:inline">
         Comparing against
       </span>
       <Select

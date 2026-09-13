@@ -131,6 +131,60 @@ export function summarizeUndo(
   return { selected, pulledIn, othersAffected: others };
 }
 
+/**
+ * Untick one row: drop it, and every pick that transitively compelled it.
+ *
+ * The blunt version cleared the whole selection, which was never *wrong* — a
+ * dependent genuinely cannot stay behind once its predecessor goes — but it
+ * threw away picks that had nothing to do with the row being unticked, and
+ * left no way to say "not that one" without starting over.
+ *
+ * The rule is the contrapositive of the closure: if picking `a` forces `b`,
+ * then refusing `b` refuses `a`. So this walks the `requires` graph BACKWARDS
+ * from the unticked row and removes every pick that can reach it. Picks that
+ * cannot reach it are untouched, which is the whole point.
+ *
+ * Unticking a row that was an explicit pick and is ALSO required by another
+ * pick still drops that other pick — it has to, or the next render would put
+ * the row straight back and the click would look ignored.
+ */
+export function dropRequiring(
+  picked: ReadonlySet<string>,
+  rowId: string,
+  requiresById: ReadonlyMap<string, readonly string[]>,
+): Set<string> {
+  const next = new Set(picked);
+  next.delete(rowId);
+  for (const pick of picked) {
+    if (pick === rowId) continue;
+    if (reaches(pick, rowId, requiresById)) {
+      next.delete(pick);
+    }
+  }
+  return next;
+}
+
+/** Whether `from` compels `target`, following `requires` transitively. */
+function reaches(
+  from: string,
+  target: string,
+  requiresById: ReadonlyMap<string, readonly string[]>,
+): boolean {
+  const seen = new Set<string>([from]);
+  const queue = [from];
+  while (queue.length > 0) {
+    const id = queue.shift();
+    if (id === undefined) continue;
+    for (const next of requiresById.get(id) ?? []) {
+      if (next === target) return true;
+      if (seen.has(next)) continue;
+      seen.add(next);
+      queue.push(next);
+    }
+  }
+  return false;
+}
+
 /** Whether a row can be picked at all, given what undoing means here. */
 export function isSelectable(undo: CompareUndo | undefined): boolean {
   if (undo === undefined) return false;

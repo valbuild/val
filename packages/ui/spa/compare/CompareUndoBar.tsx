@@ -1,4 +1,9 @@
 import { AlertTriangle, Undo2, X, Zap } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/designSystem/popover";
 import { Button } from "../components/designSystem/button";
 import { cn } from "../components/designSystem/cn";
 import type { Profile } from "../components/ValProvider";
@@ -26,6 +31,7 @@ export function CompareUndoBar({
   onConfirm,
   onRevertAll,
   revertAll,
+  portalContainer,
 }: {
   kind: "discard" | "revert";
   summary: UndoSummary;
@@ -36,7 +42,12 @@ export function CompareUndoBar({
   onConfirm: () => void;
   onRevertAll?: () => void;
   /** The whole-commit escape hatch, when this basis has one. */
-  revertAll?: { label: string; blockedCount?: number };
+  revertAll?: {
+    label: string;
+    blocked?: { moduleFilePath: string; reason: string }[];
+  };
+  /** Where the blocked-modules popover portals to. */
+  portalContainer?: HTMLElement | null;
 }) {
   const total = summary.selected.size;
   const pulled = summary.pulledIn.size;
@@ -90,15 +101,58 @@ export function CompareUndoBar({
 
       <span className="flex shrink-0 items-center gap-2">
         {revertAll !== undefined && onRevertAll !== undefined && (
-          <button
-            onClick={onRevertAll}
-            className="text-xs text-fg-secondary underline underline-offset-2 hover:text-fg-primary"
-          >
-            {revertAll.label}
-            {revertAll.blockedCount !== undefined &&
-              revertAll.blockedCount > 0 &&
-              ` (${revertAll.blockedCount} cannot)`}
-          </button>
+          <span className="flex items-center gap-1.5">
+            <button
+              onClick={onRevertAll}
+              className="text-xs text-fg-secondary underline underline-offset-2 hover:text-fg-primary"
+            >
+              {revertAll.label}
+            </button>
+            {/*
+             * The modules that will be left behind, NAMED.
+             *
+             * A count told an editor something would not go back without
+             * saying what — unactionable at the exact moment they are deciding
+             * whether to undo a bad publish. `revertAll` already returns a
+             * `RevertPlan.blocked` carrying a reason per module, and this is
+             * that list.
+             */}
+            {revertAll.blocked !== undefined &&
+              revertAll.blocked.length > 0 && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button className="flex items-center gap-1 rounded border border-border-warning-primary px-1.5 py-0.5 text-xs text-fg-warning-primary">
+                      <AlertTriangle size={11} aria-hidden />
+                      {`${revertAll.blocked.length} cannot`}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    container={portalContainer}
+                    align="end"
+                    className="z-[9001] w-[320px] p-0"
+                  >
+                    <div className="border-b border-border-primary px-3 py-2 text-xs font-medium text-fg-secondary">
+                      These will not be put back
+                    </div>
+                    <ul className="flex flex-col gap-2 p-3">
+                      {revertAll.blocked.map((entry) => (
+                        <li key={entry.moduleFilePath} className="min-w-0">
+                          <div className="truncate font-mono text-xs text-fg-primary">
+                            {entry.moduleFilePath}
+                          </div>
+                          <div className="text-xs text-fg-tertiary">
+                            {entry.reason}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="border-t border-border-primary px-3 py-2 text-xs text-fg-tertiary">
+                      Everything else in the commit still goes back.
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
+          </span>
         )}
         <Button size="sm" variant="ghost" onClick={onCancel}>
           <X size={13} aria-hidden />

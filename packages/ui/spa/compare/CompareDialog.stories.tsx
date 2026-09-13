@@ -205,6 +205,21 @@ export const DiscardPullsInDependents: Story = {
 };
 
 /**
+ * Two independent picks, so unticking can be shown to be surgical.
+ *
+ * `brand` compels `badge` and `legacyNote`; `heading` compels nothing. Untick
+ * `legacyNote` and the whole `brand` group goes — it has to, a dependent cannot
+ * stay behind once its predecessor is refused — while `heading` is untouched.
+ *
+ * The earlier version cleared the entire selection on any untick. Never wrong,
+ * always annoying: it threw away picks that had nothing to do with the row
+ * being unticked, and left no way to say "not that one" without starting over.
+ */
+export const DiscardUntickIsSurgical: Story = {
+  args: { undoPicks: ["brand", "heading"] },
+};
+
+/**
  * Reverting to a commit, where the schema is the question.
  *
  * All three of `checkCompatibility`'s answers on one screen: `heading` is

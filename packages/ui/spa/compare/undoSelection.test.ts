@@ -1,5 +1,6 @@
 import {
   closeOverRequired,
+  dropRequiring,
   isSelectable,
   summarizeUndo,
 } from "./undoSelection";
@@ -105,6 +106,56 @@ describe("summarizeUndo", () => {
 
     expect([...res.pulledIn]).toEqual(["second"]);
     expect(res.othersAffected).toEqual([]);
+  });
+});
+
+/**
+ * Unticking, which is the closure read backwards.
+ *
+ * If picking `a` forces `b`, then refusing `b` refuses `a` — but ONLY `a`. The
+ * earlier version cleared the whole selection, which was never wrong and was
+ * always annoying: it threw away picks that had nothing to do with the row
+ * being unticked.
+ */
+describe("dropRequiring", () => {
+  test("drops the pick that compelled the unticked row", () => {
+    const requires = new Map<string, string[]>([["a", ["b"]]]);
+
+    const res = dropRequiring(new Set(["a"]), "b", requires);
+
+    expect([...res]).toEqual([]);
+  });
+
+  test("leaves unrelated picks alone", () => {
+    // The whole point. `x` cannot reach `b`, so refusing `b` says nothing
+    // about it.
+    const requires = new Map<string, string[]>([["a", ["b"]]]);
+
+    const res = dropRequiring(new Set(["a", "x"]), "b", requires);
+
+    expect([...res]).toEqual(["x"]);
+  });
+
+  test("follows the chain backwards through an intermediate", () => {
+    // a → b → c. Refusing c must refuse a as well, not just b — a still
+    // compels c transitively, so leaving it would put c straight back.
+    const requires = new Map<string, string[]>([
+      ["a", ["b"]],
+      ["b", ["c"]],
+    ]);
+
+    const res = dropRequiring(new Set(["a"]), "c", requires);
+
+    expect([...res]).toEqual([]);
+  });
+
+  test("unticking an explicit pick that another pick also requires drops both", () => {
+    // Otherwise the next render puts the row back and the click looks ignored.
+    const requires = new Map<string, string[]>([["a", ["b"]]]);
+
+    const res = dropRequiring(new Set(["a", "b"]), "b", requires);
+
+    expect([...res]).toEqual([]);
   });
 });
 

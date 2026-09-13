@@ -741,7 +741,26 @@ export const revertBasisModel: CompareModel = {
   ...commitBasisModel,
   undo: {
     kind: "revert",
-    all: { label: "Revert everything in this commit", blockedCount: 1 },
+    all: {
+      label: "Revert everything in this commit",
+      /*
+       * The shape `revertAll` really returns: a reason per module. Two here,
+       * for the two kinds that actually occur — a schema this Val cannot read
+       * back, and a `.jsonValues()` module whose Source is entry markers and
+       * so is blocked from any root `replace`.
+       */
+      blocked: [
+        {
+          moduleFilePath: "/content/handbook.val.ts",
+          reason: "Schema was written by a newer Val and cannot be read here",
+        },
+        {
+          moduleFilePath: "/content/kb.val.ts",
+          reason:
+            "A .jsonValues() module — writing its Source back would overwrite the c.json() imports",
+        },
+      ],
+    },
   },
   panes: {
     ...commitBasisModel.panes,
