@@ -15,10 +15,10 @@ a value opened on its own has no such wrapper, and that is exactly what
 navigating to an entry does. Both places now agree.
 
 This is most visible with a record whose keys are declared by its schema
-(`s.record(s.locale(), …)`, or a union of literals), where an entry nobody has
-written is `null` rather than absent. There the wording follows: an unwritten
-entry reads as **Not translated** in the list, and the button says **Write this
-translation** rather than Create.
+(`s.record(s.locale(), …)` or `s.record(s.enum("a", "b"), …)`), where an entry
+nobody has written is `null` rather than absent. There the wording follows: an
+unwritten entry reads as **Not translated** in the list, and the button says
+**Write this translation** rather than Create.
 
 Also fixed: `Internal.resolvePath` reported a record entry that exists with a
 falsy value — `null`, but equally `""`, `0` and `false`, in any record — as a
