@@ -1,5 +1,46 @@
 # @valbuild/create
 
+## 0.127.0
+
+### Patch Changes
+
+- [#669](https://github.com/valbuild/val/pull/669) [`ddc5f43`](https://github.com/valbuild/val/commit/ddc5f43ac7c9733f9ea1ff62b05c070c65461e26) Thanks [@freekh](https://github.com/freekh)! - `create` no longer copies the template repository's own CI into your project
+
+  The templates are downloaded whole — that is what lets you clone one directly
+  and run it — so a workflow a template runs on itself arrived in every new
+  project too. The TanStack starter now has one (it installs the template weekly
+  and checks that Val Studio still opens, which is how a bad release gets found),
+  and in a scaffolded project that workflow is a job about somebody else's
+  repository. `.github/` is now removed after the template is downloaded.
+
+## 0.125.0
+
+### Minor Changes
+
+- [#644](https://github.com/valbuild/val/pull/644) [`d751975`](https://github.com/valbuild/val/commit/d751975914aab6b66431998f5c447fbf11a785c0) Thanks [@freekh](https://github.com/freekh)! - `npm create @valbuild` now asks which framework you want
+
+  TanStack Start joins Next.js as a starter, and choosing between them is the
+  first question — before the project name, because everything after it depends
+  on the answer.
+
+  ```sh
+  pnpm create @valbuild@latest my-app --tanstack
+  pnpm create @valbuild@latest my-app --framework tanstack   # same thing
+  pnpm create @valbuild@latest my-app --nextjs
+  ```
+
+  Like every other question here, a flag answers it and the prompt is skipped, so
+  a scripted setup never blocks. `--framework` also takes `next`, `next.js` and
+  `tanstack-start`, and the last flag wins if you pass more than one. A framework
+  we do not have a starter for is an error naming the ones we do, rather than a
+  silent fall back to Next.js.
+
+  The feature questions now follow the starter. The TanStack Start starter does
+  not ship an MCP endpoint yet, so it is not asked about there — and a `--mcp` or
+  `--image-uploads` flag given anyway is turned off with a note, rather than
+  producing a project whose success message points a coding agent at an endpoint
+  that is not in it.
+
 ## 0.123.0
 
 ### Minor Changes

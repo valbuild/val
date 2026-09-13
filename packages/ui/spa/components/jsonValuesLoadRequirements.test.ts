@@ -128,7 +128,7 @@ describe("jsonValuesLoadRequirements", () => {
         PAGES,
         s
           .record(
-            s.union(
+            s.discriminatedUnion(
               "type",
               s.object({ type: s.literal("plain"), text: s.string() }),
               s.object({ type: s.literal("ref"), author: s.keyOf(authors) }),

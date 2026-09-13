@@ -176,6 +176,12 @@ export default c.define(
  * `.remote()` changes what the content POINTS AT — a `remote.val.build` URL
  * instead of a `/public` path — and nothing about where an unpublished upload's
  * bytes go, which is the patch store either way.
+ *
+ * It is `.remote()` and not `{ remote: true }`, and the difference is not
+ * cosmetic here: this fixture is a STRING compiled at runtime, so nothing
+ * typechecks it. `s.images({ remote: true })` therefore compiles, silently
+ * drops the unknown key, and builds a LOCAL gallery — which is what every
+ * assertion in `remoteImages.test.ts` was failing on.
  */
 const REMOTE_GALLERY_CODE = `
 import { s, c } from "val.config";

@@ -40,7 +40,7 @@ import {
   resolveGalleryChecks,
   type ValDiagnosticData,
 } from "./diagnostics";
-import { resolveMediaMetadataChecks } from "./mediaMetadataChecks";
+import { resolveMediaChecks } from "./mediaChecks";
 import {
   createValCodeActions,
   createMissingModuleCodeAction,
@@ -359,11 +359,13 @@ export function createValLanguageServer(connection: Connection): {
             })
           : undefined;
       // Core also defers "does this image's stored metadata match its file",
-      // reporting it on every `s.image()` that carries any metadata. Same
-      // treatment: adjudicate with the fix machinery before showing anything.
-      const mediaMetadataChecks =
+      // reporting it on every `s.image()` that carries any metadata, and
+      // "is this remote ref still valid", reporting it on every remote image.
+      // Same treatment: adjudicate with the fix machinery before showing
+      // anything.
+      const mediaChecks =
         result.content.errors !== false && result.content.errors.validation
-          ? await resolveMediaMetadataChecks({
+          ? await resolveMediaChecks({
               validation: result.content.errors.validation,
               content: result.content,
               valRoot: activeProject.valRoot,
@@ -378,7 +380,7 @@ export function createValLanguageServer(connection: Connection): {
           ? { snapshot: snapshotResult.snapshot }
           : {}),
         ...(galleryChecks ? { galleryChecks } : {}),
-        ...(mediaMetadataChecks ? { mediaMetadataChecks } : {}),
+        ...(mediaChecks ? { mediaChecks } : {}),
       });
       const unregistered = findMissingModuleDiagnostic(
         project.valRoot,

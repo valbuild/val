@@ -124,7 +124,7 @@ export function findNestedJsonValuesRecords(
       case "array":
         rec(current.item, currentPath.concat("*"));
         return;
-      case "union":
+      case "discriminated-union":
         for (let i = 0; i < current.items.length; i++) {
           rec(current.items[i], currentPath.concat(`union[${i}]`));
         }

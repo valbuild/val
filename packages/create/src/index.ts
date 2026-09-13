@@ -2,10 +2,19 @@ import { execSync } from "child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import degit from "degit";
-import { confirm, input } from "@inquirer/prompts";
+import { confirm, input, select } from "@inquirer/prompts";
 import chalk from "chalk";
 import { applyFeatures, type Features } from "./features";
 import { parseFeatureFlags, reconcile } from "./featureFlags";
+import { pruneTemplateRepoFiles } from "./templateRepoFiles";
+import {
+  DEFAULT_FRAMEWORK,
+  dropUnsupportedFeatures,
+  FRAMEWORKS,
+  parseFrameworkArgs,
+  TEMPLATES,
+  type Template,
+} from "./framework";
 import {
   foreignLockFiles,
   PACKAGE_MANAGER_COMMANDS,
@@ -19,23 +28,6 @@ const PKG = {
   version: "0.1.0",
 };
 
-interface Template {
-  name: string;
-  description: string;
-  repo: string;
-  default?: boolean;
-}
-
-const TEMPLATES: Template[] = [
-  {
-    name: "starter",
-    description:
-      "Full-featured Next.js app with Val, TypeScript, Tailwind CSS, and examples",
-    repo: "valbuild/template-nextjs-starter",
-    default: true,
-  },
-];
-
 const DEFAULT_PROJECT_NAME = "my-val-app";
 
 function printHelp() {
@@ -48,6 +40,10 @@ ${chalk.bold("Options:")}
   -h, --help Show help
   -v, --version Show version
   --root <path> Specify the root directory for project creation (default: current directory)
+  --framework <${FRAMEWORKS.join(
+    "|",
+  )}> Which framework to build on (asked if not given)
+  --nextjs, --tanstack Same, as a shorthand
   --use-npm, --use-pnpm, --use-yarn, --use-bun Use this package manager instead of the one that ran this command
   --package-manager <${PACKAGE_MANAGERS.join(
     "|",
@@ -74,6 +70,7 @@ process.on("SIGINT", handleExit);
 
 // Timeline stepper logic
 const timelineSteps = [
+  "Choose framework",
   "Enter project name",
   "Choose features",
   "Download template",
@@ -167,7 +164,22 @@ ${chalk.green("Happy coding! 🚀")}
  * because it is the one answer with a cost a person might not want: a compiled
  * binary per platform, in a project that may never upload an image.
  */
-async function chooseFeatures(given: Partial<Features>): Promise<Features> {
+async function chooseFeatures(
+  given: Partial<Features>,
+  template: Template,
+): Promise<Features> {
+  if (!template.supports.mcp) {
+    // Nothing to ask: neither question has anything to turn on in this
+    // starter. A flag that asked anyway is reported rather than ignored.
+    const narrowed = dropUnsupportedFeatures(
+      { mcp: given.mcp ?? false, imageUploads: given.imageUploads ?? false },
+      template,
+    );
+    if (narrowed.warning !== null) {
+      console.log(chalk.yellow(narrowed.warning));
+    }
+    return narrowed.features;
+  }
   const mcp =
     given.mcp ??
     (await confirm({
@@ -196,6 +208,27 @@ async function chooseFeatures(given: Partial<Features>): Promise<Features> {
   return reconciled.features;
 }
 
+/**
+ * Which starter to download, asked unless a flag already said.
+ *
+ * First, because everything after it depends on the answer: the repository to
+ * clone, and which of the optional features that repository has any files for.
+ */
+async function chooseFramework(given: Template | null): Promise<Template> {
+  if (given) {
+    return given;
+  }
+  return await select({
+    message: chalk.bold("Which framework?"),
+    choices: FRAMEWORKS.map((framework) => ({
+      name: TEMPLATES[framework].name,
+      value: TEMPLATES[framework],
+      description: TEMPLATES[framework].description,
+    })),
+    default: TEMPLATES[DEFAULT_FRAMEWORK],
+  });
+}
+
 /** True, or the reason this is not a usable project name. */
 function validateProjectName(value: string): true | string {
   if (!value || value.trim().length === 0) {
@@ -216,6 +249,8 @@ function processTemplateFiles(projectPath: string, projectName: string) {
     "package.json",
     "README.md",
     "next.config.js",
+    "vite.config.ts",
+    "tsr.config.json",
     "val.config.ts",
     "val.config.js",
   ];
@@ -315,9 +350,27 @@ async function main() {
     const packageManager = resolved.packageManager;
     const commands = PACKAGE_MANAGER_COMMANDS[packageManager];
 
+    // Which starter to download, if a flag said. Taken out of `args` before
+    // the project name for the same reason the others are.
+    const frameworkArgs = parseFrameworkArgs(resolved.rest);
+    if (frameworkArgs.invalidFlag !== null) {
+      console.error(
+        chalk.red(
+          `❌ Error: unknown framework "${frameworkArgs.invalidFlag}".`,
+        ),
+      );
+      console.error(
+        chalk.yellow(`Supported frameworks: ${FRAMEWORKS.join(", ")}`),
+      );
+      process.exit(1);
+    }
+    const givenTemplate = frameworkArgs.framework
+      ? TEMPLATES[frameworkArgs.framework]
+      : null;
+
     // The help text has always advertised `[project-name]`: whatever is left
     // once the flags are out is it.
-    const projectNameArg = resolved.rest[0];
+    const projectNameArg = frameworkArgs.rest[0];
     if (projectNameArg !== undefined) {
       const invalid = validateProjectName(projectNameArg);
       if (invalid !== true) {
@@ -329,7 +382,12 @@ async function main() {
     let currentStep = 0;
     renderTimeline(currentStep);
 
-    // Step 1: Enter project name — unless it was given as an argument
+    // Step 1: Which framework — unless a flag already said
+    const selectedTemplate = await chooseFramework(givenTemplate);
+    currentStep++;
+    renderTimeline(currentStep);
+
+    // Step 2: Enter project name — unless it was given as an argument
     const projectName =
       projectNameArg ??
       (await input({
@@ -340,14 +398,12 @@ async function main() {
     currentStep++;
     renderTimeline(currentStep);
 
-    // Step 2: Which optional parts of the template to keep
-    const features = await chooseFeatures(flags.answers);
+    // Step 3: Which optional parts of the template to keep
+    const features = await chooseFeatures(flags.answers, selectedTemplate);
     currentStep++;
     renderTimeline(currentStep);
 
-    const selectedTemplate = TEMPLATES[0];
-
-    // Step 3: Download template
+    // Step 4: Download template
     const projectPath = join(rootDir, projectName);
     if (existsSync(projectPath)) {
       renderTimeline(currentStep, currentStep);
@@ -421,6 +477,9 @@ async function main() {
     // and not something to download and then throw away.
     applyFeatures(projectPath, features);
     pruneForeignLockFiles(projectPath, packageManager);
+    // The template's own CI, which is about the template rather than about
+    // anything in this new project. See `templateRepoFiles.ts`.
+    pruneTemplateRepoFiles(projectPath);
 
     // Change to project directory and install dependencies
     process.stdout.write(

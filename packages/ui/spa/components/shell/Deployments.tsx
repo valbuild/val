@@ -8,7 +8,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "../designSystem/cn";
-import { ShellDeployment } from "./types";
+import { DeploymentProgress, ShellDeployment } from "./types";
 
 /**
  * What the deploy feed adds up to right now.
@@ -57,19 +57,23 @@ export const DEPLOYMENT_NEWS_WINDOW_MS = 10 * 60 * 1000;
  * colleague published while this tab was closed, or when the deploy feed
  * simply comes back in a different order.
  *
- * A publish still on its way out is always news: it is going to change again,
- * and its result is what the list exists to show. One already serving the site
- * is news only while it is fresh - past that, someone opening Val is not
- * looking at their own publish, so the list stays shut and the status bar says
- * "Deployed" like it would for anything else.
+ * So it is decided by the CLOCK, and only by the clock. `isLive` used to make
+ * anything not live news, which was true while the feed only carried the
+ * publishes on the current chain: a row that was not live was one on its way
+ * out. The feed is the last few publishes now — a push, a merged pull request,
+ * a revert, from any time — and Val only ever observes the CURRENT commit
+ * serving the site, so "not live" is the resting state of every publish that
+ * has been superseded. Left as it was, opening Val would pop the deploy list
+ * open to announce a build from last Tuesday.
+ *
+ * Nothing about a publish from an hour ago is new, whatever state it is in — a
+ * build that is somehow still running then is not news either, it is a
+ * problem the status bar's summary already reports.
  */
 export function isDeploymentNews(
   deployment: ShellDeployment,
   now: number,
 ): boolean {
-  if (!deployment.isLive) {
-    return true;
-  }
   const updatedAt = new Date(deployment.updatedAt).getTime();
   if (Number.isNaN(updatedAt)) {
     // An unreadable timestamp is not grounds for hiding a publish.
@@ -110,11 +114,27 @@ function isFailed(deployment: ShellDeployment): boolean {
   return deployment.state === "failure" || deployment.state === "error";
 }
 
+/**
+ * The three states a publish can be rendered in.
+ *
+ * Exported because Recent activity shows publishes too, and a publish that
+ * reads as "Building" in the status bar and as finished in the activity list is
+ * two answers to one question. `isBuilding` and `isFailed` stay private: the
+ * order they are asked in is part of the rule — a live commit is neither — and
+ * this is that rule, once.
+ */
+export function deploymentProgress(
+  deployment: ShellDeployment,
+): DeploymentProgress {
+  if (isBuilding(deployment)) return "building";
+  if (isFailed(deployment)) return "failed";
+  return "settled";
+}
+
 export type DeploymentsStatusProps = {
   deployments: ShellDeployment[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onDismiss: (commitSha: string) => void;
   /**
    * Close the list on its own once every publish is live.
    *
@@ -221,7 +241,6 @@ export function DeploymentsStatus({
   deployments,
   open,
   onOpenChange,
-  onDismiss,
   autoClose = false,
 }: DeploymentsStatusProps) {
   const summary = summarizeDeployments(deployments);
@@ -257,7 +276,6 @@ export function DeploymentsStatus({
       {open && (
         <DeploymentsList
           deployments={deployments}
-          onDismiss={onDismiss}
           onClose={() => onOpenChange(false)}
           onReadingChange={setIsReading}
           className="absolute bottom-full right-0 mb-2 w-80"
@@ -313,7 +331,6 @@ export function MobileDeployments({
   deployments,
   open,
   onOpenChange,
-  onDismiss,
   autoClose = false,
 }: DeploymentsStatusProps) {
   const { containerRef, setIsReading } = useDeploymentsList({
@@ -333,7 +350,6 @@ export function MobileDeployments({
     >
       <DeploymentsList
         deployments={deployments}
-        onDismiss={onDismiss}
         onClose={() => onOpenChange(false)}
         onReadingChange={setIsReading}
       />
@@ -342,20 +358,22 @@ export function MobileDeployments({
 }
 
 /**
- * The publish feed, newest first.
+ * The publish feed: the last few publishes, newest first.
  *
- * Rows are dismissable one at a time so a finished publish can be cleared
- * without losing sight of one that is still building.
+ * Rows used to be dismissable one at a time. That was a control for a list
+ * that grew — it accumulated every deployment a session had ever seen — and
+ * the list is bounded now, so there is nothing to tidy: what a row would be
+ * dismissed FOR is that it is old, and being old is what takes it off the end
+ * of the list on its own. See `mergeCommitsAndDeployments` and
+ * `DEPLOYMENT_LIMIT`.
  */
 export function DeploymentsList({
   deployments,
-  onDismiss,
   onClose,
   onReadingChange,
   className,
 }: {
   deployments: ShellDeployment[];
-  onDismiss: (commitSha: string) => void;
   onClose: () => void;
   /** True while the pointer is on the list, which holds off auto-close. */
   onReadingChange?: (isReading: boolean) => void;
@@ -384,7 +402,7 @@ export function DeploymentsList({
           <X size={14} />
         </button>
       </div>
-      <DeploymentRows deployments={deployments} onDismiss={onDismiss} />
+      <DeploymentRows deployments={deployments} />
     </div>
   );
 }
@@ -395,10 +413,8 @@ export function DeploymentsList({
  */
 export function DeploymentRows({
   deployments,
-  onDismiss,
 }: {
   deployments: ShellDeployment[];
-  onDismiss: (commitSha: string) => void;
 }) {
   if (deployments.length === 0) {
     return (
@@ -411,25 +427,16 @@ export function DeploymentRows({
   return (
     <ul className="max-h-64 overflow-y-auto scrollbar-slim">
       {deployments.map((deployment) => (
-        <DeploymentRow
-          key={deployment.commitSha}
-          deployment={deployment}
-          onDismiss={() => onDismiss(deployment.commitSha)}
-        />
+        <DeploymentRow key={deployment.commitSha} deployment={deployment} />
       ))}
     </ul>
   );
 }
 
-function DeploymentRow({
-  deployment,
-  onDismiss,
-}: {
-  deployment: ShellDeployment;
-  onDismiss: () => void;
-}) {
-  const building = isBuilding(deployment);
-  const failed = isFailed(deployment);
+function DeploymentRow({ deployment }: { deployment: ShellDeployment }) {
+  const progress = deploymentProgress(deployment);
+  const building = progress === "building";
+  const failed = progress === "failed";
   return (
     <li className="flex items-start gap-2.5 px-3 py-2.5 border-b border-border-float last:border-b-0">
       <span className="mt-0.5 shrink-0">
@@ -448,26 +455,22 @@ function DeploymentRow({
           {deployment.message ?? deployment.commitSha.slice(0, 7)}
         </div>
         <div className="text-[11px] text-fg-secondary-alt truncate">
-          {describeState(deployment)}
+          {describeDeploymentState(deployment)}
           {deployment.author ? ` · ${deployment.author}` : ""} ·{" "}
           {deployment.timestamp}
         </div>
       </div>
-      {!building && (
-        <button
-          type="button"
-          aria-label="Dismiss deployment"
-          onClick={onDismiss}
-          className="mt-0.5 shrink-0 text-fg-secondary-alt hover:text-fg-primary"
-        >
-          <X size={13} />
-        </button>
-      )}
     </li>
   );
 }
 
-function describeState(deployment: ShellDeployment): string {
+/**
+ * What happened to a publish, in a word or two.
+ *
+ * Exported for the same reason as {@link deploymentProgress}: the activity list
+ * says it about the same publishes.
+ */
+export function describeDeploymentState(deployment: ShellDeployment): string {
   // The site answering with this commit outranks anything the build host said
   // about it, including having said nothing at all. See `isBuilding`.
   if (deployment.isLive) {

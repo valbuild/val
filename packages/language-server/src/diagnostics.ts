@@ -11,6 +11,7 @@ import {
 } from "@valbuild/core";
 import {
   resolveSchemaSourceFixes,
+  SCHEMA_SOURCE_FIXES,
   type SchemaSourceSnapshot,
 } from "@valbuild/shared/internal";
 import {
@@ -20,10 +21,10 @@ import {
 } from "vscode-languageserver";
 import { createModulePathMap, getModulePathRange } from "./modulePathMap";
 import {
-  isDeferredMediaMetadataCheckAt,
-  mediaMetadataCheckKey,
-  type MediaMetadataVerdict,
-} from "./mediaMetadataChecks";
+  isDeferredMediaCheckAt,
+  mediaCheckKey,
+  type MediaCheckVerdict,
+} from "./mediaChecks";
 import type { ValModuleContent } from "./ValProject";
 
 /** Marks diagnostics as ours, so a client can filter on it. */
@@ -133,18 +134,26 @@ const FALLBACK_RANGE: Range = {
   end: { line: 0, character: 0 },
 };
 
-/** Fixes that operate on a file or image reference. */
+/**
+ * Fixes that operate on a LOCAL file or image reference.
+ *
+ * `*:check-remote` is deliberately absent. A remote value's bytes are on the
+ * content host by design, so "is it on disk" is never its question -- and for
+ * a path that is neither under `/public` nor a parseable remote ref, this
+ * check answered "File <root>/... does not exist" and pre-empted the remote
+ * adjudication, which has the real answer ("Invalid remote ref: ..."). The
+ * upload/download fixes stay: `*:upload-remote` is reported on a local path
+ * and a missing file really is its problem.
+ */
 const FILE_FIXES: readonly string[] = [
   "image:add-metadata",
   "image:check-metadata",
   "image:upload-remote",
   "image:download-remote",
-  "image:check-remote",
   "file:add-metadata",
   "file:check-metadata",
   "file:upload-remote",
   "file:download-remote",
-  "file:check-remote",
 ];
 
 function build(
@@ -169,7 +178,7 @@ export function createValDiagnostics({
   valRoot,
   snapshot,
   galleryChecks,
-  mediaMetadataChecks,
+  mediaChecks,
 }: {
   moduleFilePath: ModuleFilePath;
   content: ValModuleContent;
@@ -199,14 +208,14 @@ export function createValDiagnostics({
    */
   galleryChecks?: ReadonlyMap<string, GalleryCheckVerdict>;
   /**
-   * Verdicts for the media metadata placeholders core emits unconditionally,
-   * from {@link resolveMediaMetadataChecks}. Without it the placeholders are
-   * dropped, for the same reason the gallery ones are: core reports
-   * `image:check-metadata` on every `s.image()` that carries metadata whether
-   * or not anything is wrong, so publishing them raw puts a permanent warning
-   * on every image in the project.
+   * Verdicts for the media placeholders core emits unconditionally, from
+   * {@link resolveMediaChecks}. Without it the placeholders are dropped, for
+   * the same reason the gallery ones are: core reports `image:check-metadata`
+   * on every `s.image()` that carries metadata, and `image:check-remote` on
+   * every remote image, whether or not anything is wrong -- so publishing them
+   * raw puts a permanent warning on every image in the project.
    */
-  mediaMetadataChecks?: ReadonlyMap<string, MediaMetadataVerdict>;
+  mediaChecks?: ReadonlyMap<string, MediaCheckVerdict>;
 }): Diagnostic[] {
   if (content.errors === false) {
     return [];
@@ -286,16 +295,16 @@ export function createValDiagnostics({
         continue;
       }
 
-      // An unconditional media metadata placeholder: core reports
-      // `image:check-metadata` on every `s.image()` carrying metadata, whether
-      // or not it disagrees with the file. Show only what the adjudication
-      // actually found, and nothing when it found nothing. Deliberately after
-      // the missing-file branch above, so a deleted file is still reported as
-      // `val/file-not-found` rather than as a metadata mismatch.
-      if (isDeferredMediaMetadataCheckAt({ sourcePath, error, content })) {
-        const verdict = mediaMetadataChecks?.get(
-          mediaMetadataCheckKey(sourcePath, error),
-        );
+      // An unconditional media placeholder: core reports
+      // `image:check-metadata` on every `s.image()` carrying metadata whether
+      // or not it disagrees with the file, and `Remote image was not checked.`
+      // on every remote image whether or not its ref is stale. Show only what
+      // the adjudication actually found, and nothing when it found nothing.
+      // Deliberately after the missing-file branch above, so a deleted file is
+      // still reported as `val/file-not-found` rather than as a metadata
+      // mismatch.
+      if (isDeferredMediaCheckAt({ sourcePath, error, content })) {
+        const verdict = mediaChecks?.get(mediaCheckKey(sourcePath, error));
         for (const finding of verdict ?? []) {
           diagnostics.push(
             build(rangeOf(sourcePath, modulePathMap), finding.message, {
@@ -629,11 +638,17 @@ export function galleryCheckKey(
   return `${sourcePath}|${(error.fixes ?? []).join(",")}`;
 }
 
-/** Fixes core cannot resolve without a project-wide snapshot. */
-const DEFERRED_FIXES: readonly string[] = [
-  "keyof:check-keys",
-  "router:check-route",
-];
+/**
+ * Fixes core cannot resolve without a project-wide snapshot.
+ *
+ * The shared list, not a copy: this had its own and fell behind by two, so a
+ * locale field and a declared-key record each put the marker's developer-facing
+ * placeholder — "should typically be processed by Val internally … version
+ * mismatch" — into the editor's diagnostics whenever the snapshot was missing.
+ * Every caller that recognises some of these has to recognise all of them; see
+ * `SCHEMA_SOURCE_FIXES`.
+ */
+const DEFERRED_FIXES: readonly string[] = SCHEMA_SOURCE_FIXES;
 
 /**
  * Fallback for when no snapshot is available: drop the placeholders rather than

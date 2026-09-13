@@ -4,11 +4,13 @@ import { useSchemaAtPath, useShallowSourceAtPath } from "./ValFieldProvider";
 import { ArrayPreview } from "./fields/ArrayFields";
 import { BooleanPreview } from "./fields/BooleanField";
 import { NumberPreview } from "./fields/NumberField";
-import { UnionPreview } from "./fields/UnionField";
+import { DiscriminatedUnionPreview } from "./fields/DiscriminatedUnionField";
+import { EnumPreview } from "./fields/EnumField";
 import { ObjectPreview } from "./fields/ObjectFields";
 import { ImagePreview } from "./fields/ImageField";
 import { KeyOfPreview } from "./fields/KeyOfField";
 import { RoutePreview } from "./fields/RouteField";
+import { LocalePreview } from "./fields/LocaleField";
 import { DatePreview } from "./fields/DateField";
 import { DateTimePreview } from "./fields/DateTimeField";
 import { CodePreview } from "./fields/CodeField";
@@ -51,8 +53,10 @@ export function Preview({
     return <BooleanPreview path={path} />;
   } else if (type === "number") {
     return <NumberPreview path={path} />;
-  } else if (type === "union") {
-    return <UnionPreview path={path} />;
+  } else if (type === "discriminated-union") {
+    return <DiscriminatedUnionPreview path={path} />;
+  } else if (type === "enum") {
+    return <EnumPreview path={path} />;
   } else if (type === "object") {
     return <ObjectPreview path={path} size={size} />;
   } else if (type === "image") {
@@ -61,6 +65,8 @@ export function Preview({
     return <KeyOfPreview path={path} />;
   } else if (type === "route") {
     return <RoutePreview path={path} />;
+  } else if (type === "locale") {
+    return <LocalePreview path={path} />;
   } else if (type === "date") {
     return <DatePreview path={path} />;
   } else if (type === "dateTime") {

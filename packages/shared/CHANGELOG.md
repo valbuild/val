@@ -1,5 +1,341 @@
 # @valbuild/shared
 
+## 0.127.0
+
+### Minor Changes
+
+- [#608](https://github.com/valbuild/val/pull/608) [`7fa8699`](https://github.com/valbuild/val/commit/7fa869974bc895af992a7d5c18b76253636d7d65) Thanks [@freekh](https://github.com/freekh)! - A record whose schema declares its keys now holds every one of them.
+
+  Two key schemas enumerate their keys: `s.locale()`, whose set is the project's
+  `locales.available`, and a union of literals. For those, the keys are part of the
+  schema, so a missing one is a hole in the content rather than content nobody has
+  written yet — and validation now says so, naming what is missing.
+
+  ```typescript
+  s.record(s.locale(), s.object({ title: s.string() }));
+  // Missing key: 'nb-NO'. This record's keys are declared by its schema, so
+  // every one of them is an entry — an entry nobody has written yet is null,
+  // not absent.
+  ```
+
+  **An entry nobody has written yet is `null`.** Not an absent key: a null entry is
+  data you can count, filter and see in a diff, and it means half-translated
+  content stays _valid_ rather than blocking a publish. The value type of such a
+  record widens by `null` to match, so writing one in a `.val.ts` type-checks:
+
+  ```typescript
+  c.define(
+    "/content/jacket.val.ts",
+    s.record(s.locale(), s.object({ title: s.string() })),
+    {
+      "en-US": { title: "Winter jacket" },
+      "nb-NO": null, // nobody has translated this yet
+    },
+  );
+  ```
+
+  **This changes `s.record(s.union(...), item)`**, and closes a gap that was
+  already there: `s.record(s.union(s.literal("a"), s.literal("b")), item)` types as
+  `Record<"a" | "b", T>`, so TypeScript demanded both keys while the validator only
+  checked the ones present. It now checks them too, and — as above — accepts `null`
+  for an entry that has not been filled in. If you have such a record with keys
+  missing, validation will report them; adding the keys with `null` values is the
+  fix, and creating one from the Studio does it for you.
+
+  `emptyOf` creates these records with every key already in them rather than
+  empty, since an empty one is already missing keys. In the Studio use the
+  `useEmptyOf()` hook rather than importing `emptyOf` directly: a locale record's
+  keys are in the settings module, and the hook is what has read it.
+
+- [#608](https://github.com/valbuild/val/pull/608) [`5b7fe05`](https://github.com/valbuild/val/commit/5b7fe05cec6365f9cd1de9ba31e65ed4a87edb63) Thanks [@freekh](https://github.com/freekh)! - `s.locale()`: one of the project's languages.
+
+  The languages themselves are declared in the settings module (`locales.available`);
+  this says that a value is one of them.
+
+  ```typescript
+  // a field: everything in this entry is in this language
+  s.record(s.string(), s.object({ locale: s.locale(), title: s.string() }));
+
+  // a key: one entry per language
+  s.record(s.locale(), s.object({ title: s.string() }));
+  ```
+
+  Every locale in content is checked against the project's list, the way `keyOf`
+  and `route` are checked against what they point at. An undeclared language names
+  the ones the project has; a project that has declared none is told to declare
+  them rather than told the value is wrong.
+
+  A locale is stored as the tag itself — the value in content is `nb-NO`, and a
+  record keyed by `s.locale()` has `nb-NO` as its key. Spelling one differently
+  where it is stored (`/no/…` as a URL segment) is a real need and is deliberately
+  not in this release: it changes what is accepted as well as what is shown, so it
+  is being designed on its own rather than folded in here.
+
+  A locale is **never stega encoded**: it ends up in `<html lang>`, in `hreflang`
+  and in `Intl` constructors, none of which survive invisible characters.
+
+  `assistant.translation` joins the settings module alongside `context` and `tone`
+  — a note per language, keyed by language, so only the target language's rules are
+  sent when translating into it.
+
+- [#608](https://github.com/valbuild/val/pull/608) [`88262ac`](https://github.com/valbuild/val/commit/88262ac8db068650a664981ef73556457d87741a) Thanks [@freekh](https://github.com/freekh)! - Locale scopes: a subtree in one language, and one function that answers which.
+
+  A **locale scope** is content governed by a single language. Two things open one
+  today (a third, locale segments in routes, follows):
+
+  ```typescript
+  // a locale field: this object and everything below it is in one language
+  s.object({ locale: s.locale(), title: s.string(), body: s.richtext() });
+
+  // a locale-keyed record: each entry is in the language its key names
+  s.record(s.locale(), s.object({ title: s.string() }));
+  ```
+
+  **A scope may not contain another scope**, and an object may have only one
+  locale field. Both are reported as schema errors, naming what to move:
+
+  ```
+  An object can be in one language, so it can have one locale field.
+  Found 'locale', 'language'.
+
+  Everything here is already in one language, so 'byLanguage' cannot set
+  another. Move the locale-keyed record out of this object, or take the outer
+  one away.
+  ```
+
+  A scope three levels deep is reported once, by the scope immediately enclosing
+  it, rather than by every ancestor.
+
+  The rule is **validated rather than typed**. Expressing "no scope below this
+  one" as a type constraint means threading it through every schema class's type
+  parameter, and the errors a recursive constraint like that produces name the
+  whole tree — an unrelated typo in a `.val.ts` would print pages.
+
+  `localeAt(path, snapshot)` (from `@valbuild/shared/internal`) answers which
+  language governs a path, and is the one implementation of that question, so the
+  Studio, the server and the validation worker cannot disagree. It returns the
+  tag, which is what `<html lang>`, `Intl` and `locales.available` all want.
+
+  It answers `null` where no scope governs the path, where the project has
+  declared no languages, and where a locale field holds something that is not one
+  of them — validation is already reporting the last, and guessing would put a
+  language in `<html lang>` that nobody chose.
+
+### Patch Changes
+
+- Updated dependencies [[`7fa8699`](https://github.com/valbuild/val/commit/7fa869974bc895af992a7d5c18b76253636d7d65), [`5b7fe05`](https://github.com/valbuild/val/commit/5b7fe05cec6365f9cd1de9ba31e65ed4a87edb63), [`88262ac`](https://github.com/valbuild/val/commit/88262ac8db068650a664981ef73556457d87741a), [`7072e07`](https://github.com/valbuild/val/commit/7072e07623c953a09ac14388ae22dada0b431ce3), [`29811c3`](https://github.com/valbuild/val/commit/29811c3f8c7e001a950e6f4833af6888e6a4efea)]:
+  - @valbuild/core@0.127.0
+
+## 0.126.0
+
+### Minor Changes
+
+- [#652](https://github.com/valbuild/val/pull/652) [`f2fe70d`](https://github.com/valbuild/val/commit/f2fe70dab2b65000dfaf289f09c70b4a8291467a) Thanks [@freekh](https://github.com/freekh)! - `s.union` is now `s.discriminatedUnion` and `s.enum`.
+
+  `s.union` did two unrelated jobs and worked out which one you meant from its
+  first argument: a string key meant a tagged union of objects, literal schemas
+  meant a set of allowed strings. Those are now two schemas with two names.
+
+  ```ts
+  // A fixed set of strings — presents as a dropdown
+  s.enum("primary", "secondary", "ghost"); // Schema<"primary" | "secondary" | "ghost">
+
+  // One of several object shapes, told apart by a tag field
+  s.discriminatedUnion(
+    "type",
+    s.object({ type: s.literal("hero"), heading: s.string() }),
+    s.object({ type: s.literal("quote"), text: s.string() }),
+  );
+  ```
+
+  `s.enum` takes the strings directly, so the `s.literal(...)` wrapper is gone.
+
+  **`s.union` still works** — it is deprecated, and it builds exactly the schema
+  above, so nothing has to change today:
+
+  ```ts
+  s.union(s.literal("one"), s.literal("two")); // → s.enum("one", "two")
+  s.union("type", pageA, pageB); // → s.discriminatedUnion("type", pageA, pageB)
+  ```
+
+  The two are different kinds of node, and that is the reason for the split. A
+  discriminated union is a container: the selected variant's fields are the fields
+  being edited, and everything that walks a schema descends through it. An enum is
+  a leaf — a string with a closed domain — so nothing recurses into it. Told apart
+  only by the shape of `key`, every consumer had to re-derive which one it was
+  holding; each now has its own serialized type (`"discriminated-union"` and
+  `"enum"`) and Val Studio has a field per kind rather than one field that
+  branches.
+
+  Two behaviour changes fall out of the split, both of them fixes:
+
+  - A value that is not a string at all now fails an enum's validation with a
+    type error. `s.union` of literals only ever checked the value against its
+    literals when the value WAS a string, so a number or an object where an enum
+    was declared validated clean.
+  - An enum field now shows its validation errors in Val Studio where the field
+    is opened on its own — the module editor and the canvas's fields column — and
+    gets the compact error layout inside an inline list row. It is a leaf now, so
+    it goes through the same error rendering as every other leaf field; the string
+    union bypassed it and showed nothing in those places.
+
+  Several latent crashes in the old `s.union` are fixed on the way past, all of
+  them cases where it threw a `TypeError` instead of reporting:
+
+  - A required discriminated union holding `null` now reports a type error rather
+    than throwing, and resolving a path underneath a nullable one that is `null`
+    gives the error the API promises instead of a crash.
+  - `s.literal("")` is a legal discriminator tag, and `s.enum("")` a legal value.
+    Both used to be treated as absent by a truthiness check — in path resolution,
+    in stega encoding, and in the message that lists a union's valid tags. The
+    editor's dropdowns handle them too: an empty value is reserved by the select
+    component and had to be mapped around.
+  - A variant that omits the discriminator entirely is now reported as the schema
+    error it is, instead of throwing while the check looked for it.
+  - An enum's value is now indexed for search, like every other string leaf. The
+    old string union was never indexed at all, so searching for one of its values
+    could not find the field.
+  - A nullable discriminated union set to `null` no longer renders a spinner that
+    never resolves.
+
+  `s.discriminatedUnion` also requires at least one variant, as `s.enum` requires
+  at least one value: a union with nothing to select is not a thing to write, and
+  everything downstream reads the first variant where it needs any.
+
+  If you read serialized schemas yourself, that is the breaking part: `type` is no
+  longer `"union"`, an enum carries `values: string[]` instead of a `key` plus
+  `items` of literal schemas, and `UnionSchema` is no longer a class.
+  `SerializedUnionSchema`, `SerializedStringUnionSchema`,
+  `SerializedObjectUnionSchema` and `UnionSchema` remain as deprecated type
+  aliases.
+
+### Patch Changes
+
+- [#664](https://github.com/valbuild/val/pull/664) [`5bfd630`](https://github.com/valbuild/val/commit/5bfd630b63dee2189e238f20fe72ecc5537160f7) Thanks [@freekh](https://github.com/freekh)! - Show the git message on deployments Val did not publish
+
+  The deploy feed could only name a publish when Val itself had made the commit:
+  the message came off Val's own `ValCommit`, and every other deployment — a
+  developer's push, a merged pull request, a revert — showed a seven-character
+  sha. On most projects those are the majority, so "what went out at 14:02?" had
+  no answer in the Studio.
+
+  A deployment can now carry its own `commitMessage`, which the Studio uses
+  wherever there is no Val commit to prefer. It is optional and nullable, so a
+  content service that does not report messages is unaffected — those publishes
+  keep showing the short sha, exactly as before.
+
+  Deployment rows also show only the subject line of a message now. A git message
+  is a subject, a blank line and a body, and the rows are one truncated line — so
+  a real push arrived as "Subject The body went on like this…". The classic
+  Draft changes view still has the whole message in its tooltip.
+
+- [#659](https://github.com/valbuild/val/pull/659) [`ccbcda6`](https://github.com/valbuild/val/commit/ccbcda60b3e3c465071229ae1ba28ac735483e63) Thanks [@freekh](https://github.com/freekh)! - Discarding changes now clears the validation errors, previews and search results
+  that were computed from them.
+
+  A discard that removed a module's last pending change announced itself only as
+  a "drop", and the stores that keep validation results, previews and the search
+  index listened only for changes being applied. So after discarding, the Studio
+  kept showing the errors and previews of the discarded edit until something else
+  touched the module.
+
+  Fields that reference another module's keys (`s.keyOf(...)` and `s.route()`)
+  also follow that module now. Renaming a page and then discarding the rename left
+  every `keyOf` field pointing at it reporting that the key does not exist — about
+  a key that was back — because the module holding the reference had not changed
+  and was never re-checked. The validation store now tracks which records a
+  module's errors resolve against and re-checks it when their keys change, and only
+  then: editing content inside a referenced page does not re-validate its
+  referrers.
+
+- Updated dependencies [[`f2fe70d`](https://github.com/valbuild/val/commit/f2fe70dab2b65000dfaf289f09c70b4a8291467a), [`171208a`](https://github.com/valbuild/val/commit/171208a20177e68ed5a8b1a6fdaabfe893a6aa5f)]:
+  - @valbuild/core@0.126.0
+
+## 0.125.0
+
+### Minor Changes
+
+- [#638](https://github.com/valbuild/val/pull/638) [`c390397`](https://github.com/valbuild/val/commit/c390397cb5e203eb1bedae3a6fab15726e850b90) Thanks [@freekh](https://github.com/freekh)! - Val now runs on TanStack Start.
+
+  `@valbuild/tanstack` is a new package with everything `@valbuild/next` has: Val
+  Studio at `/val`, the on-page overlay and canvas, draft mode, the client hooks,
+  server-side content reads, images, and the MCP tools.
+
+  ```sh
+  npm install @valbuild/tanstack
+  ```
+
+  ```ts
+  // val.config.ts
+  import { initVal } from "@valbuild/tanstack";
+  const { s, c, config, tanstackRouter } = initVal({ project: "org/project" });
+  ```
+
+  **Routes are first class.** A Val module for a route is named after the route
+  file it sits beside — `src/routes/posts.$postId.tsx` is served content by
+  `src/routes/posts.$postId.val.ts` — and its keys are the URLs that route serves:
+
+  ```ts
+  export default c.define(
+    "/src/routes/posts.$postId.val.ts",
+    s.router(tanstackRouter, s.object({ title: s.string() })),
+    { "/posts/hello-world": { title: "Hello world" } },
+  );
+  ```
+
+  `.` and `/` both separate segments, `$param` is a parameter, `$` is a splat, and
+  `index`, `route`, `(groups)` and `_pathless` layouts add no URL segment — the
+  same rules TanStack Router uses for the route file itself. Val validates every
+  key against that pattern, and Val Studio shows these modules as a sitemap under
+  **Pages**, where an editor can add a page.
+
+  Point the route generator away from your content files, in `vite.config.ts` and
+  `tsr.config.json`:
+
+  ```ts
+  tanstackStart({ router: { routeFileIgnorePattern: "\\.val\\.[tj]sx?$" } });
+  ```
+
+  See the [README](https://github.com/valbuild/val/blob/main/packages/tanstack/README.md)
+  for the full wiring, and `examples/tanstack` for a working app.
+
+  **Also fixed, for everyone:** `Internal.VERSION.core` was `null` in any ESM
+  bundle — it was read with `require("../package.json")` inside a `try`, so the
+  failure was silent. That version goes into every remote file ref and proxy mode
+  refuses to start without it. Every package now reads its version through a
+  static JSON import, which is inlined at build time.
+
+  Two smaller fixes that came out of running the whole toolchain against a
+  TanStack project:
+
+  - `val versions` reports `@valbuild/tanstack`, and `val debug` writes a snapshot
+    that names whichever framework package the captured project actually has.
+  - `@valbuild/eslint-plugin` reads a `tsconfig.json` that has comments in it. A
+    tsconfig is JSONC, and `JSON.parse` is not — so on any project whose tsconfig
+    carries a comment (the TanStack starter's does) the
+    `module-in-val-modules` rule threw `Expected double-quoted property name in
+JSON` on the first file and took the whole lint run with it.
+
+  Three fixes found by driving the Studio against a real TanStack app:
+
+  - **A draft image now loads on the page.** The source the Studio pushes to the
+    host page carries `patch_id` for any file whose bytes are still in a patch, so
+    the page asks `/api/val/files/...?patch_id=` rather than a `/public` path that
+    nothing has written yet. This was silent — the image just did not appear — and
+    it affects any page that reads media through the hooks rather than on the
+    server, `@valbuild/next` included.
+  - **A splat route no longer logs an error on every render.** TanStack returns
+    both `_splat` and `*` for the same parameter; Val reported the second as a
+    parameter it could not place in the path.
+  - The TanStack example and starter render a 404 page instead of throwing
+    `notFound()` from a component, which escaped to the error boundary and logged
+    `Error in renderToReadableStream` (and, with no not-found component
+    configured, aborted the response) on every miss.
+
+### Patch Changes
+
+- Updated dependencies [[`c390397`](https://github.com/valbuild/val/commit/c390397cb5e203eb1bedae3a6fab15726e850b90)]:
+  - @valbuild/core@0.125.0
+
 ## 0.124.0
 
 ### Minor Changes

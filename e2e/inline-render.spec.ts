@@ -10,9 +10,9 @@ import { clearPatchChain, openStudio } from "./studio";
  * do nothing at all.
  *
  * The first is that an inline item is EDITED IN ITS ROW, and counts as inline
- * even when the render is declared on the VARIANTS of a tagged union rather
+ * even when the render is declared on the VARIANTS of a discriminated union rather
  * than on the union itself — which is how a page-builder list is written
- * (`s.array(s.union("type", block, block))`). Declared that way it used to fall
+ * (`s.array(s.discriminatedUnion("type", block, block))`). Declared that way it used to fall
  * all the way back to preview rows, so the list looked exactly the same with
  * the render as without it.
  *

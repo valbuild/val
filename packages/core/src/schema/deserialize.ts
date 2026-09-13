@@ -17,10 +17,12 @@ import { NumberSchema } from "./number";
 import { ObjectSchema } from "./object";
 import { RecordSchema } from "./record";
 import { RichTextSchema } from "./richtext";
+import { LocaleSchema } from "./locale";
 import { RouteSchema } from "./route";
 import { SettingsSchema } from "./settings";
 import { StringSchema } from "./string";
-import { UnionSchema } from "./union";
+import { DiscriminatedUnionSchema } from "./discriminatedUnion";
+import { EnumSchema } from "./enum";
 
 export function deserializeSchema(
   serialized: SerializedSchema,
@@ -118,6 +120,11 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        // Carried through, or the Studio's validation worker — which only ever
+        // sees the deserialized schema — would run every field's own rules and
+        // none of the section's, so a language declared twice would be reported
+        // by the CLI and silently accepted in the Studio.
+        serialized.section,
       );
     case "array":
       return new ArraySchema(
@@ -131,14 +138,21 @@ function deserializeSchemaImpl(
         null,
         serialized.render ?? null,
       );
-    case "union":
-      return new UnionSchema(
-        typeof serialized.key === "string"
-          ? serialized.key
-          : // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (deserializeSchema(serialized.key) as any), // TODO: we do not really need any here - right?
+    case "discriminated-union":
+      return new DiscriminatedUnionSchema(
+        serialized.key,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         serialized.items.map(deserializeSchema) as any, // TODO: we do not really need any here - right?
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+        serialized.render ?? null,
+      );
+    case "enum":
+      return new EnumSchema(
+        serialized.values,
         serialized.opt,
         [],
         false,
@@ -218,6 +232,16 @@ function deserializeSchemaImpl(
         serialized.description,
         serialized.render ?? null,
       );
+    case "locale": {
+      return new LocaleSchema(
+        serialized.opt,
+        [],
+        false,
+        false,
+        serialized.description,
+        serialized.render ?? null,
+      );
+    }
     case "route": {
       const routeOptions = serialized.options
         ? {
