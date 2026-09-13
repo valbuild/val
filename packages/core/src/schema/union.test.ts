@@ -1,113 +1,56 @@
+import {
+  discriminatedUnion,
+  DiscriminatedUnionSchema,
+} from "./discriminatedUnion";
+import { EnumSchema, enumSchema } from "./enum";
+import { literal, LiteralSchema } from "./literal";
 import { object } from "./object";
-import { union } from "./union";
-import { literal } from "./literal";
-import { ModuleFilePath, SourcePath } from "../val";
 import { string } from "./string";
-import { record } from "./record";
+import { union } from "./union";
 
-describe("UnionSchema", () => {
-  // tagged unions:
-  test("assert: tagged unions should return success for valid tagged unions", () => {
-    const schema = union("type", object({ type: literal("string") }));
-    const res = schema["executeAssert"]("foo" as SourcePath, {
-      type: "string",
-    });
-    expect(res).toEqual({
-      success: true,
-      data: { type: "string" },
-    });
-  });
-
-  test("assert: tagged unions should return success if value is a string", () => {
-    const schema = union("type", object({ type: literal("string") }));
-    const res = schema["executeAssert"]("foo" as SourcePath, {
-      type: "string",
-    });
-    expect(res).toEqual({
-      success: true,
-      data: { type: "string" },
-    });
-  });
-
-  test("assert: tagged unions should return error if value is a string", () => {
+/**
+ * `s.union` is deprecated but still has to work: it dispatches on its first
+ * argument to whichever of the two schemas the call meant. What it must NOT do
+ * is keep a serialized shape of its own — a schema written with `s.union` and
+ * the same schema written with `s.enum` / `s.discriminatedUnion` have to
+ * serialize identically, or the Studio has two cases to handle forever.
+ */
+describe("the deprecated union()", () => {
+  test("a string key gives a discriminated union, serialized the same way", () => {
     const schema = union(
       "type",
-      object({ type: literal("string") }),
-      object({ type: literal("number") }),
+      object({ type: literal("a"), value: string() }),
+      object({ type: literal("b") }),
     );
-    const res = schema["executeAssert"]("foo" as SourcePath, {
-      wrongKey: "string",
-    });
-    expect(res.success).toEqual(false);
-  });
-
-  // string unions:
-  test("assert: string unions should return success for valid string unions", () => {
-    const schema = union(literal("one"), literal("two"));
-    const res = schema["executeAssert"]("foo" as SourcePath, "one");
-    expect(res).toEqual({
-      success: true,
-      data: "one",
-    });
-  });
-
-  test("assert: string unions should return error for valid string unions", () => {
-    const schema = union(literal("one"), literal("two"));
-    const res = schema["executeAssert"]("foo" as SourcePath, "false");
-    expect(res.success).toEqual(false);
-  });
-
-  test("preview union object schema", () => {
-    const schema = union(
-      "type",
-      object({
-        type: literal("value1"),
-        innerObject: record(
-          object({
-            value: string(),
-          }).preview(({ val }) => {
-            return {
-              title: val.value,
-            };
-          }),
-        ),
-      }),
-      object({ type: literal("value2"), innerString: string() }),
+    expect(schema).toBeInstanceOf(DiscriminatedUnionSchema);
+    expect(schema["executeSerialize"]()).toEqual(
+      discriminatedUnion(
+        "type",
+        object({ type: literal("a"), value: string() }),
+        object({ type: literal("b") }),
+      )["executeSerialize"](),
     );
+  });
 
-    expect(
-      schema["executePreview"]("/test.foo.val.ts" as ModuleFilePath, {
-        type: "value1",
-        innerObject: {
-          record1: { value: "test value 1" },
-          record2: { value: "test value 2" },
-        },
-      }),
-    ).toStrictEqual({
-      '/test.foo.val.ts?p="innerObject"': {
-        status: "success",
-        data: {
-          parent: "record",
-          items: [
-            [
-              "record1",
-              {
-                title: "test value 1",
-                subtitle: undefined,
-                image: undefined,
-              },
-            ],
-            [
-              "record2",
-              {
-                title: "test value 2",
-                subtitle: undefined,
-                image: undefined,
-              },
-            ],
-          ],
-        },
-      },
+  test("literal schemas give an enum, with the first literal among the values", () => {
+    const schema = union(literal("one"), literal("two"), literal("three"));
+    expect(schema).toBeInstanceOf(EnumSchema);
+    expect(schema["executeSerialize"]()).toEqual(
+      enumSchema("one", "two", "three")["executeSerialize"](),
+    );
+  });
+
+  test("a single literal is still an enum", () => {
+    expect(union(literal("only"))["executeSerialize"]()).toMatchObject({
+      type: "enum",
+      values: ["only"],
     });
+  });
+
+  test("something that is neither is refused rather than half-built", () => {
+    // The overloads already reject this; the throw is what happens when the
+    // call comes from untyped JavaScript.
+    const notALiteral = string() as unknown as LiteralSchema<string>;
+    expect(() => union(notALiteral)).toThrow(/expected either a string key/);
   });
 });

@@ -271,7 +271,7 @@ export function planSessionKeyExpansion(args: {
         return {
           kind: "wrong-tool",
           suggestedTool: "add_session_image_to_gallery",
-          reason: `Patch op #${opIndex} targets an images gallery (s.images()) with a SessionKey. Galleries use file paths as keys; use add_session_image_to_gallery instead.`,
+          reason: `Patch op #${opIndex} targets an images gallery (s.imageset()) with a SessionKey. Galleries use file paths as keys; use add_session_image_to_gallery instead.`,
         };
       }
       continue;

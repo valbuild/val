@@ -35,24 +35,11 @@ export function declaredKeySetOf(
   if (key.type === "literal") {
     return { kind: "literals", keys: [key.value] };
   }
-  if (key.type === "union") {
-    // The object form (`s.union("type", …)`) discriminates objects and cannot
-    // be a record key at all — only the string form reaches this.
-    if (typeof key.key === "string") {
-      return null;
-    }
-    return {
-      kind: "literals",
-      // `items` is narrowed per element rather than by the branch above: the
-      // serialized union is a union of two whole shapes, so knowing `key` is a
-      // literal does not tell TypeScript anything about `items`.
-      keys: [
-        key.key.value,
-        ...key.items.flatMap((item) =>
-          item.type === "literal" ? [item.value] : [],
-        ),
-      ],
-    };
+  if (key.type === "enum") {
+    // An enum names every value it may take, so those values ARE the key set.
+    // `discriminated-union` is deliberately absent: it discriminates objects
+    // and cannot be a record key at all.
+    return { kind: "literals", keys: [...key.values] };
   }
   if (key.type === "locale") {
     return { kind: "locale" };

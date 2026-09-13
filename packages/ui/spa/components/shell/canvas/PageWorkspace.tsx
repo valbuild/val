@@ -28,6 +28,10 @@ import {
 import { FieldsPanel } from "./FieldsPanel";
 import { CanvasFields } from "./CanvasFields";
 import { CanvasRouteBar } from "./CanvasRouteBar";
+import {
+  CanvasPreviewNotice,
+  CanvasPreviewStatus,
+} from "./CanvasPreviewNotice";
 import { CANVAS_MAX_WIDTH } from "../EditorCanvas";
 import { SourcePath } from "@valbuild/core";
 import { ShellBreakpoint } from "../types";
@@ -116,6 +120,22 @@ export type PageWorkspaceProps = {
      * canvas's business: the fields column, and on a phone the pane holding it.
      */
     onPicked: () => void;
+    /**
+     * Bumped when the notice's "Turn on preview mode" is used.
+     *
+     * The button is in the notice, which sits outside the zoom transform, and
+     * the act is a navigation of whatever is on the canvas — so, like
+     * `reloadKey`, it goes to the thing that can perform it.
+     */
+    enableKey: number;
+    /**
+     * How the canvas is getting on with what it is showing.
+     *
+     * Reported up here because the notice must NOT be inside the zoom
+     * transform: at auto-fit on a narrow pane that is a status bar rendered at
+     * half size. See `CanvasPreviewNotice`.
+     */
+    onStatusChange: (status: CanvasPreviewStatus) => void;
   }) => ReactNode;
   /**
    * The content paths the running page reported finding on itself.
@@ -579,6 +599,23 @@ export function PageWorkspace({
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   /**
+   * How the canvas is getting on with the page, and the way to fix it.
+   *
+   * Held here rather than in `CanvasFrame` because the notice that shows it
+   * cannot be in there: everything `renderCanvas` returns is inside the zoom
+   * transform, so a bar drawn beside the page would shrink with the page — at
+   * auto-fit on a narrow pane, to about half legibility. `enableKey` goes the
+   * other way for the same reason: the button is here, and only the thing
+   * holding the frame can navigate it.
+   *
+   * `live` to begin with, so the demo page — which reports nothing, because
+   * Storybook has no frame to report — shows no notice at all.
+   */
+  const [previewStatus, setPreviewStatus] =
+    useState<CanvasPreviewStatus>("live");
+  const [enableKey, setEnableKey] = useState(0);
+
+  /**
    * Clears the floating rail, which the narrowed column now reaches under.
    *
    * Inline because `md:px-6` lives in a media query and would otherwise win
@@ -831,6 +868,26 @@ export function PageWorkspace({
         </div>
       )}
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border-float bg-bg-float-raised">
+        {/*
+         * Above the page and outside the zoom, which is the whole reason the
+         * status is lifted out of the frame. It used to be a panel over the
+         * frame with a blurred backdrop, so the published page - which is real,
+         * and worth reading - was unreachable behind an explanation of why it
+         * could not be edited.
+         */}
+        <CanvasPreviewNotice
+          status={previewStatus}
+          /*
+           * Which attempt this is. Both counters, because both ask the frame
+           * for a new document and neither necessarily changes the STATUS -
+           * reloading a page that has already given up leaves it at
+           * `no-answer`, and the notice's clock would otherwise still be
+           * timing the attempt before it.
+           */
+          attempt={`${reloadKey}:${enableKey}`}
+          onEnable={() => setEnableKey((key) => key + 1)}
+          onReload={reload}
+        />
         <CanvasWindow
           ref={canvasWindowRef}
           pageWidth={pageWidth}
@@ -856,6 +913,8 @@ export function PageWorkspace({
               onPinch,
               onZoom: (factor, center) => zoomByUser(factor, center),
               onPicked,
+              enableKey,
+              onStatusChange: setPreviewStatus,
             }) ??
               (page && (
                 <CanvasPage

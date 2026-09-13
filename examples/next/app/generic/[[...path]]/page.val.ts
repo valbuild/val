@@ -4,7 +4,7 @@ const genericPageSchema = s.object({
   title: s.string(),
   url: s.route(),
   sections: s.array(
-    s.union(
+    s.discriminatedUnion(
       "type",
       s
         .object({

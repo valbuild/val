@@ -1,6 +1,6 @@
 import {
   localeOfValue,
-  unionBranchOf,
+  discriminatedUnionBranchOf,
   type SerializedSchema,
   type SourcePath,
 } from "@valbuild/core";
@@ -18,6 +18,19 @@ import { sourcePathOfItem } from "../utils/sourcePathOfItem";
  */
 const LocaleFilterContext = createContext<string | null>(null);
 
+/**
+ * Normalises here rather than at each reader, so `useLocaleFilter` can be
+ * trusted.
+ *
+ * A locale reaches this from the URL, which is a place anyone can type: a link
+ * to `?locale=sv-SE`, or a bookmark from before a language was removed from
+ * settings. The list treats such a value as "all locales" — there is no row it
+ * could match — and every other reader has to agree, or they disagree about
+ * whether a filter is active at all. They did: the picker stayed disabled with
+ * a tooltip naming a language nobody had chosen, and `useEmptyOf` seeded new
+ * `s.locale()` fields with it, writing content that failed validation the
+ * moment it was created.
+ */
 export function LocaleFilterProvider({
   locale,
   children,
@@ -25,14 +38,21 @@ export function LocaleFilterProvider({
   locale: string | null;
   children: ReactNode;
 }) {
+  const projectLocales = useProjectLocales();
+  const active =
+    locale !== null && projectLocales.includes(locale) ? locale : null;
   return (
-    <LocaleFilterContext.Provider value={locale}>
+    <LocaleFilterContext.Provider value={active}>
       {children}
     </LocaleFilterContext.Provider>
   );
 }
 
-/** The language being shown, or `null` for all of them. */
+/**
+ * The language being shown, or `null` for all of them.
+ *
+ * Always one of the project's languages: see {@link LocaleFilterProvider}.
+ */
 export function useLocaleFilter(): string | null {
   return useContext(LocaleFilterContext);
 }
@@ -64,14 +84,13 @@ export function LocaleFiltered({
   const projectLocales = useProjectLocales();
   const schemaAtPath = useSchemaAtPath(path);
   const nodeSchema = "data" in schemaAtPath ? schemaAtPath.data : undefined;
-  // A block row's schema is the UNION, and a union has no fields of its own:
-  // the locale field is on the BRANCH the row takes. Which branch that is can
-  // only be read from the row's tag, so it takes a second lookup — and without
-  // it the filter would be a no-op on exactly the content it was written for.
+  // A block row's schema is the DISCRIMINATED UNION, and a union has no fields
+  // of its own: the locale field is on the VARIANT the row takes. Which variant
+  // that is can only be read from the row's tag, so it takes a second lookup —
+  // and without it the filter would be a no-op on exactly the content it was
+  // written for.
   const tagField =
-    nodeSchema?.type === "union" && typeof nodeSchema.key === "string"
-      ? nodeSchema.key
-      : null;
+    nodeSchema?.type === "discriminated-union" ? nodeSchema.key : null;
   const tagSource = useShallowSourceAtPath(
     tagField === null ? NO_PATH : sourcePathOfItem(path, tagField),
     "literal",
@@ -79,7 +98,7 @@ export function LocaleFiltered({
   const schema =
     tagField === null
       ? nodeSchema
-      : unionBranchOf(
+      : discriminatedUnionBranchOf(
           nodeSchema,
           "data" in tagSource ? tagSource.data : undefined,
         );
@@ -195,16 +214,12 @@ function localeScopeOf(
   if (!isRecord(source)) {
     return null;
   }
-  // A union row is a fork, not a level: the branch the value takes IS the node,
-  // and the locale field is on the branch. See `unionBranchOf`.
+  // A union row is a fork, not a level: the variant the value takes IS the
+  // node, and the locale field is on the variant. See
+  // `discriminatedUnionBranchOf`.
   const schema =
-    node.schema?.type === "union"
-      ? unionBranchOf(
-          node.schema,
-          typeof node.schema.key === "string"
-            ? source[node.schema.key]
-            : undefined,
-        )
+    node.schema?.type === "discriminated-union"
+      ? discriminatedUnionBranchOf(node.schema, source[node.schema.key])
       : node.schema;
   if (schema?.type !== "object") {
     return null;

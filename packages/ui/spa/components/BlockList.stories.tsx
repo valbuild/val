@@ -287,7 +287,7 @@ const sectionsModule = c.define(
   "/content/sections.val.ts",
   s.object({
     sections: s.array(
-      s.union(
+      s.discriminatedUnion(
         "type",
         s
           .object({

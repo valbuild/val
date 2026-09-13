@@ -30,7 +30,7 @@ import { array } from "@valbuild/core/fp";
 import { resolveEncodeSettings } from "../../utils/encodeImage";
 import type { ReadImageEncode } from "../../utils/readImage";
 import { useImageUpload } from "./useImageUpload";
-import { MediaSummaryRow, Section, readableFilename } from "./MediaSummaryRow";
+import { MediaSummaryRow, Section } from "./MediaSummaryRow";
 import { HotspotMarker } from "./HotspotMarker";
 import { Dialog, DialogContent, DialogTitle } from "../designSystem/dialog";
 
@@ -165,16 +165,16 @@ export function ImageField({
    *
    * The field's OWN `directory` option wins, then the gallery it references, and
    * `createFilePatch` falls back to `/public/val` when neither says. Only the
-   * referenced module was read before, so `s.image({ directory: "/public/x" })`
+   * referenced module was read before, so `s.image({ dir: "/public/x" })`
    * silently wrote to `/public/val` — the file landed somewhere the schema
    * forbids, and `files:check-directory` then reported the content as invalid.
    */
   const uploadDirectory = useMemo(() => {
-    if (imageSchema?.options?.directory) {
-      return imageSchema.options.directory;
+    if (imageSchema?.options?.dir) {
+      return imageSchema.options.dir;
     }
     return referencedModuleSchema?.type === "record"
-      ? referencedModuleSchema.directory
+      ? referencedModuleSchema.dir
       : undefined;
   }, [imageSchema, referencedModuleSchema]);
   /**
@@ -219,7 +219,7 @@ export function ImageField({
     addAndUploadPatchWithFileOps,
     addModuleFilePatch,
     remoteData,
-    directory: uploadDirectory,
+    dir: uploadDirectory,
     referencedModule,
     existingAlt,
     encode,
@@ -299,8 +299,10 @@ export function ImageField({
    * The description, as one place rather than inline in the input.
    *
    * The "add, never replace" rule below is the load-bearing part and the reason
-   * this is worth naming: it has to hold for every caller, and there are two now
-   * — typing, and the shortcut that fills it in from the file name.
+   * this is worth naming: it has to hold for every caller. Typing is the only
+   * one today — the shortcut that filled this in from the file name is gone —
+   * and the rule belongs to the patch rather than to the caller, so it holds
+   * for whatever writes here next.
    */
   const altText = typeof source?.alt === "string" ? source.alt : "";
   const setAltText = (alt: string) => {
@@ -478,30 +480,18 @@ export function ImageField({
             <span id={altPath} className="sr-only">
               Description
             </span>
+            {/*
+             * No "Missing" marker and no fill-it-from-the-filename shortcut:
+             * Val has no rule that alt text is required, so an empty field is
+             * not an error and must not be dressed as one. If a schema ever
+             * does require it, the validation error says so through the
+             * normal error path rather than through a badge invented here.
+             */}
             <Input
               value={altText}
               disabled={disabled}
               onChange={(ev) => setAltText(ev.target.value)}
             />
-            <div className="mt-1.5 flex items-center gap-3">
-              {altText === "" && (
-                // Said, not enforced: Val has no rule that alt is required, and
-                // an editor who has not filled it in should be told rather than
-                // blocked.
-                <span className="text-[0.6875rem] text-fg-error-on-surface">
-                  Missing
-                </span>
-              )}
-              {!disabled && fileName && altText === "" && (
-                <button
-                  type="button"
-                  onClick={() => setAltText(readableFilename(fileName))}
-                  className="text-[0.6875rem] text-fg-secondary underline underline-offset-2 hover:text-fg-primary"
-                >
-                  Use the filename
-                </button>
-              )}
-            </div>
           </Section>
         )}
         {source && url && (

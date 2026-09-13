@@ -138,7 +138,24 @@ export function ValShell() {
  * behind the login dialog.
  */
 function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme, themeStyle } = useTheme();
+  /**
+   * The outline colours to hand the canvas frame.
+   *
+   * `themeStyle` holds them because `themeCustomProperties` writes
+   * `--bg-page-selection` and its soft variant explicitly — see the note there
+   * on why they cannot be left to `var()`. Taking them from the same object the
+   * chrome uses is what keeps the page's outlines and the studio's pick button
+   * the same colour.
+   */
+  const canvasSelectionColors = useMemo(() => {
+    const selection = themeStyle["--bg-page-selection"];
+    const selectionSoft = themeStyle["--bg-page-selection-soft"];
+    if (typeof selection !== "string" || typeof selectionSoft !== "string") {
+      return undefined;
+    }
+    return { selection, selectionSoft };
+  }, [themeStyle]);
   const mode = useValMode();
   /**
    * Why there is no profile, when the studio expected one.
@@ -292,6 +309,12 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         canvasOpen: state.canvasOpen,
         canvasView: state.canvasView,
       }));
+      // Adopted directly rather than through `restoreViewState`: the locale is
+      // owned here, not by the shell. Without this, going back to an entry with
+      // a different `?locale=` left the filter on the language it had been
+      // moved to — and the next URL write put that language back into the
+      // address bar, so the entry could not be reached at all.
+      setLocale(state.locale);
     };
     window.addEventListener("popstate", listener);
     return () => window.removeEventListener("popstate", listener);
@@ -771,11 +794,12 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       height,
       reloadKey,
       isPicking,
-      onRequestReload,
       onRefreshingChange,
       onPinch,
       onZoom,
       onPicked,
+      enableKey,
+      onStatusChange,
     }: Parameters<NonNullable<PageWorkspaceProps["renderCanvas"]>>[0]) => (
       <CanvasFrame
         url={canvasUrl}
@@ -783,6 +807,15 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         height={height}
         reloadKey={reloadKey}
         isPicking={isPicking}
+        /*
+         * The project's accent, for the outlines drawn on the page itself.
+         *
+         * Read off `themeStyle` rather than recomputed: those are the very
+         * custom properties the rest of the studio resolves its outlines from,
+         * so the page and the chrome cannot end up a shade apart. Undefined
+         * when the project has no accent, which leaves Val's green.
+         */
+        selectionColors={canvasSelectionColors}
         /*
          * The field being edited is the one the route points at, so the outline
          * on the page follows the editor without a second source of truth for
@@ -811,7 +844,14 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         }}
         onPinch={onPinch}
         onZoom={onZoom}
-        onRequestReload={onRequestReload}
+        /*
+         * Preview mode, both ways. The button that turns it on is in the
+         * notice above the canvas - outside the zoom, where a status bar has
+         * to be - and the navigation that does it has to happen here, where
+         * the frame is. See `CanvasPreviewNotice`.
+         */
+        enableKey={enableKey}
+        onStatusChange={onStatusChange}
         onRefreshingChange={onRefreshingChange}
       />
     );
@@ -1010,7 +1050,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       <Shell
         renderHistory={renderHistory}
         data={data}
-        theme={theme === "light" ? "light" : "dark"}
+        theme={resolvedTheme}
+        themeStyle={themeStyle}
         onThemeChange={setTheme}
         mode={mode}
         selectionId={overrideEditor ? null : selectionId}

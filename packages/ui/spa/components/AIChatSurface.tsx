@@ -66,7 +66,8 @@ function ConnectedChat({ className }: { className?: string }) {
    * is the reason its panel looks different.
    */
   const unavailable = useAIConnectionError();
-  const { chatEditorRef, flushPendingFieldRefs } = useAIChatActions();
+  const { chatEditorRef, flushPendingFieldRefs, setAskAssistantImpl } =
+    useAIChatActions();
   const aiModels = useAIModelSelection();
   const { sessionParam, setSessionParam } = useSessionParam();
   // Read once, on the first render. Later URL changes — a navigation rewriting
@@ -129,6 +130,20 @@ function ConnectedChat({ className }: { className?: string }) {
     const frame = requestAnimationFrame(() => flushPendingFieldRefs());
     return () => cancelAnimationFrame(frame);
   }, [flushPendingFieldRefs]);
+
+  /**
+   * Hand the conversation's `sendMessage` to whoever wants to ask something
+   * from elsewhere in the Studio — "Generate from my content" in the settings
+   * panel is the first. See `askAssistant`.
+   *
+   * No frame needed here, unlike the mention above: a queued prompt is
+   * delivered by the registration itself, and `sendMessage` does not depend on
+   * a ProseMirror view existing.
+   */
+  useEffect(() => {
+    setAskAssistantImpl(sendMessage);
+    return () => setAskAssistantImpl(null);
+  }, [setAskAssistantImpl, sendMessage]);
 
   return (
     <AIChat

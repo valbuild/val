@@ -1,5 +1,6 @@
-import { expect, type Page, type ConsoleMessage } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { test } from "./studio";
+import { renderedText, watchForProblems } from "./pageProblems";
 
 /**
  * The fast smoke test: does the Studio come up, and does it render?
@@ -41,61 +42,6 @@ import { test } from "./studio";
  */
 
 /**
- * Errors this environment produces whatever the Studio does.
- *
- * Enumerated rather than filtered by severity, so a NEW error of any kind fails.
- * The AI ones need a personal access token that a local checkout has no reason
- * to have; the certificate one is the sandbox's proxy CA, hit by the Google
- * Fonts stylesheet the app links.
- */
-const ALLOWED_CONSOLE_ERRORS: { pattern: RegExp; why: string }[] = [
-  {
-    pattern: /ERR_CERT_AUTHORITY_INVALID/,
-    why: "the sandbox proxy's CA, on the Google Fonts stylesheet",
-  },
-  {
-    pattern: /\/api\/val\/ai\//,
-    why: "AI endpoints need a personal access token; a local checkout has none",
-  },
-  {
-    pattern: /Could not read personal access token file/,
-    why: "same, as the message rather than the URL",
-  },
-  {
-    pattern: /the server responded with a status of (401|500)/,
-    why: "the AI endpoints above, reported without their URL",
-  },
-];
-
-function unexplained(message: ConsoleMessage): boolean {
-  const text = message.text();
-  const url = message.location().url;
-  return !ALLOWED_CONSOLE_ERRORS.some(
-    ({ pattern }) => pattern.test(text) || pattern.test(url),
-  );
-}
-
-type PageProblems = {
-  /** Uncaught errors — a render loop lands here. */
-  thrown: string[];
-  /** Console errors that are not on the allowlist above. */
-  logged: string[];
-};
-
-function watchForProblems(page: Page): PageProblems {
-  const problems: PageProblems = { thrown: [], logged: [] };
-  page.on("pageerror", (error) => {
-    problems.thrown.push(error.message.split("\n")[0]);
-  });
-  page.on("console", (message) => {
-    if (message.type() === "error" && unexplained(message)) {
-      problems.logged.push(message.text().split("\n")[0]);
-    }
-  });
-  return problems;
-}
-
-/**
  * Open a Studio route and wait for the project to be taken in.
  *
  * Waits on the store system's own signal rather than a timeout: `received` is
@@ -114,14 +60,6 @@ async function openModule(page: Page, route: string): Promise<void> {
     null,
     { timeout: 60_000 },
   );
-}
-
-/** The Studio renders inside a shadow root, so `page.locator` cannot see in. */
-async function renderedText(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const host = document.getElementById("val-shadow-root");
-    return host?.shadowRoot?.textContent ?? "";
-  });
 }
 
 const ROUTES: { route: string; shape: string; expect: RegExp }[] = [

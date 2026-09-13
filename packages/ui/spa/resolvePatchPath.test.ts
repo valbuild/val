@@ -7,7 +7,7 @@ const testModule1 = c.define(
   s.record(
     s.object({
       "2": s.array(
-        s.union(
+        s.discriminatedUnion(
           "type",
           s.object({
             type: s.literal("type1"),
@@ -113,7 +113,7 @@ describe("resolvePatchPath", () => {
     ).toMatchObject({
       modulePath: `"1"."2".3`,
       schema: {
-        type: "union",
+        type: "discriminated-union",
       },
       source: {
         type: "type2",

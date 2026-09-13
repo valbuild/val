@@ -51,7 +51,7 @@ const project = () => {
         hero: s.image(),
         link: s.route(),
         body: s.richtext({ bold: true, ul: true }),
-        block: s.union(
+        block: s.discriminatedUnion(
           "type",
           s.object({ type: s.literal("a"), a: s.string() }),
           s.object({ type: s.literal("b"), b: s.number() }),

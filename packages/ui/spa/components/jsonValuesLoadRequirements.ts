@@ -1,6 +1,5 @@
 import {
   ModuleFilePath,
-  SerializedObjectSchema,
   SerializedRecordSchema,
   SerializedSchema,
 } from "@valbuild/core";
@@ -135,16 +134,13 @@ function containsReferrer(
     case "array":
     case "record":
       return containsReferrer(schema.item, query, seen);
-    case "union":
-      // Covers both the tagged form (object variants) and the literal form,
-      // whose items are literals and match nothing.
-      return (
-        schema.items as (SerializedObjectSchema | SerializedSchema)[]
-      ).some((item) => containsReferrer(item, query, seen));
+    case "discriminated-union":
+      return schema.items.some((item) => containsReferrer(item, query, seen));
     case "string":
     case "number":
     case "boolean":
     case "literal":
+    case "enum":
     case "date":
     case "dateTime":
     case "color":

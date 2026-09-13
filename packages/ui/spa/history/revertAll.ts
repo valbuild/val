@@ -42,7 +42,7 @@ export function containsJsonValues(schema: SerializedSchema): boolean {
   if (schema.type === "array") {
     return containsJsonValues(schema.item);
   }
-  if (schema.type === "union") {
+  if (schema.type === "discriminated-union") {
     return schema.items.some(containsJsonValues);
   }
   return false;

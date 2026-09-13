@@ -30,8 +30,7 @@ import {
   Json,
   SerializedSchema,
   SerializedArraySchema,
-  SerializedObjectUnionSchema,
-  SerializedUnionSchema,
+  SerializedDiscriminatedUnionSchema,
   SourcePath,
   isInlineRender,
 } from "@valbuild/core";
@@ -41,10 +40,9 @@ import { useSourceAtPath, useValField } from "./ValFieldProvider";
 import { useValidationErrors } from "./ValErrorProvider";
 import { AnyField } from "./AnyField";
 import {
-  isObjectUnion,
-  ObjectUnionTagSelect,
-  useObjectUnion,
-} from "./fields/UnionField";
+  DiscriminatedUnionTagSelect,
+  useDiscriminatedUnion,
+} from "./fields/DiscriminatedUnionField";
 import { RefPreview } from "./RefPreview";
 import { useRefPreview } from "./useRefPreview";
 import { useNavigation } from "./ValRouter";
@@ -331,14 +329,13 @@ function BlockRow({
   // An inline object gets a header row (index, summary, collapse) above its
   // fields; an inline leaf is a single line with the editor in it.
   //
-  // A union is headered too: it is an object once the tag is chosen, and a
-  // page-builder list is a union of blocks, so these are the rows that most
-  // need a title to collapse to.
+  // A discriminated union is headered too: it is an object once the tag is
+  // chosen, and a page-builder list is a union of blocks, so these are the
+  // rows that most need a title to collapse to. An enum is one select — a
+  // leaf, not a block — so it is not headered.
   const headered =
     isInline &&
-    (itemSchema.type === "object" ||
-      // A union of string literals is one select — a leaf, not a block.
-      (itemSchema.type === "union" && isObjectUnion(itemSchema)));
+    (itemSchema.type === "object" || itemSchema.type === "discriminated-union");
 
   const grip = (
     <button
@@ -411,8 +408,8 @@ function BlockRow({
         // Right padding only: nested lists reach the left border (see the row
         // class above); leaf fields add their own small left inset.
         <div className="pr-1.5 pb-1.5 pt-0.5">
-          {itemSchema.type === "union" ? (
-            <InlineUnionBody
+          {itemSchema.type === "discriminated-union" ? (
+            <InlineDiscriminatedUnionBody
               path={path}
               itemSchema={itemSchema}
               depth={depth}
@@ -466,61 +463,34 @@ function BlockRow({
 }
 
 /**
- * One inline union item: the tag selector, then the variant's own fields laid
- * out by {@link InlineObjectBody} — so a block in a page-builder list reads
- * like every other row instead of like a stack of folding cards.
+ * One inline discriminated union item: the tag selector, then the variant's own
+ * fields laid out by {@link InlineObjectBody} — so a block in a page-builder
+ * list reads like every other row instead of like a stack of folding cards.
  *
- * The selection itself comes from `useObjectUnion`, which the union FIELD uses
- * too. Switching a tag is not a `replace` of the discriminator: it remembers
- * the source of each tag you leave, so switching away and back gives you what
- * you typed. Two implementations of that would be two answers.
+ * The selection itself comes from `useDiscriminatedUnion`, which the union
+ * FIELD uses too. Switching a tag is not a `replace` of the discriminator: it
+ * remembers the source of each tag you leave, so switching away and back gives
+ * you what you typed. Two implementations of that would be two answers.
  */
-function InlineUnionBody({
+function InlineDiscriminatedUnionBody({
   path,
   itemSchema,
   depth,
   readonly,
 }: {
   path: SourcePath;
-  itemSchema: SerializedUnionSchema;
+  itemSchema: SerializedDiscriminatedUnionSchema;
   depth: number;
   readonly?: boolean;
 }) {
-  // A union of string literals has no variant to lay out — it is one select,
-  // drawn by the leaf branch above. Narrowed HERE rather than inside the body
-  // below, so that `useObjectUnion` is never called behind a condition.
-  if (!isObjectUnion(itemSchema)) {
-    return null;
-  }
-  return (
-    <InlineObjectUnionBody
-      path={path}
-      itemSchema={itemSchema}
-      depth={depth}
-      readonly={readonly}
-    />
-  );
-}
-
-function InlineObjectUnionBody({
-  path,
-  itemSchema,
-  depth,
-  readonly,
-}: {
-  path: SourcePath;
-  itemSchema: SerializedObjectUnionSchema;
-  depth: number;
-  readonly?: boolean;
-}) {
-  const state = useObjectUnion(path, itemSchema);
+  const state = useDiscriminatedUnion(path, itemSchema);
   if (state.status === "loading") {
     return null;
   }
   return (
     <div className="flex flex-col gap-1.5">
       <div className="pl-2">
-        <ObjectUnionTagSelect
+        <DiscriminatedUnionTagSelect
           state={state}
           readonly={readonly}
           className="h-7 w-auto min-w-24 px-2 py-1 text-[13px]"

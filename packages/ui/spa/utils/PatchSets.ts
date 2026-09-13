@@ -313,7 +313,16 @@ export class PatchSets {
           }
         } else if (
           schemaTypesAtPath.size === 1 &&
-          schemaTypesAtPath.has("record")
+          (schemaTypesAtPath.has("record") ||
+            // A settings SECTION is addressed like a record: its keys are
+            // named, and an `add` at ["theme", "accent"] modifies exactly that
+            // one. Without this it fell to the throw below — every settings
+            // edit terminated the whole module into one patch set, which is why
+            // the publish diff said "Settings" where `settingsChangeLabels` has
+            // a name for the field. Both sections write `add` this way; see
+            // `useWriteAssistantSetting`, which has to create an absent section
+            // in a single op.
+            schemaTypesAtPath.has("settings"))
         ) {
           // If we know this is a record, we can be more specific and only insert the path that is being modified
           const path = op.path;

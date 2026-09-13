@@ -63,22 +63,19 @@ describe("Review, Preview, Publish", () => {
     ).toBe(true);
   });
 
-  test("the space Review holds is to the left of Preview too", () => {
-    // Nothing pending: the button is invisible but still in the layout, so the
-    // bar must not reflow when the first change lands. See `ReviewButton`.
-    render(topBar({ pendingChanges: 0, reviewCount: 0 }));
+  test("Review is offered with nothing pending, and still comes first", () => {
     /*
-     * By label, not by role, and this is the one query that works.
-     *
-     * With nothing pending the button carries `aria-hidden`, and the
-     * accessible NAME of an element hidden from the accessibility tree
-     * computes as the empty string — so
-     * `getByRole("button", { name: "Review changes", hidden: true })` matches
-     * nothing, `hidden: true` included: that option widens which elements are
-     * considered, not how their names are computed. `getByLabelText` reads the
-     * `aria-label` attribute itself, which is unaffected.
+     * It used to be `invisible` here - in the layout so the bar would not
+     * reflow, but unreachable and hidden from assistive tech, which made "is
+     * anything of mine still unpublished?" unanswerable from the bar. Queried
+     * by ROLE and NAME, which is what a keyboard or screen reader user gets:
+     * under the old behaviour this query matched nothing at all, `hidden: true`
+     * included, because the accessible name of an `aria-hidden` element
+     * computes as the empty string.
      */
-    const review = screen.getByLabelText("Review changes");
+    render(topBar({ pendingChanges: 0, reviewCount: 0 }));
+    const review = screen.getByRole("button", { name: "Review changes" });
+    expect(review.getAttribute("aria-hidden")).toBeNull();
     expect(
       precedes(review, screen.getByRole("button", { name: "Preview" })),
     ).toBe(true);

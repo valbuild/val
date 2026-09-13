@@ -843,7 +843,7 @@ describe("PatchSet", () => {
       "/content/projects.val.ts" as ModuleFilePath,
       s.object({
         record: s.record(
-          s.union(
+          s.discriminatedUnion(
             "type",
             s.object({
               type: s.literal("blog"),
@@ -959,12 +959,12 @@ describe("PatchSet", () => {
             author: "author1",
             createdAt: "2021-01-02T00:00:00Z",
             opType: "add",
-            schemaTypes: ["union", "object"],
+            schemaTypes: ["discriminated-union", "object"],
           },
         ],
         authors: ["author2", "author1"],
         opTypes: ["replace", "add"],
-        schemaTypes: ["union", "object"],
+        schemaTypes: ["discriminated-union", "object"],
         lastUpdated: "2021-01-03T00:00:00Z",
         lastUpdatedBy: "author2",
       },
@@ -977,11 +977,11 @@ describe("PatchSet", () => {
       "/content/projects.val.ts" as ModuleFilePath,
       s.object({
         record: s.record(
-          s.union(
+          s.discriminatedUnion(
             "type",
             s.object({
               type: s.literal("type1"),
-              value: s.union(
+              value: s.discriminatedUnion(
                 "sub-type",
                 s.object({
                   "sub-type": s.literal("sub-type1"),
@@ -995,7 +995,7 @@ describe("PatchSet", () => {
             }),
             s.object({
               type: s.literal("type1"),
-              value: s.union(
+              value: s.discriminatedUnion(
                 "sub-type",
                 s.object({
                   "sub-type": s.literal("sub-type1"),
@@ -1051,12 +1051,12 @@ describe("PatchSet", () => {
             author: "author1",
             createdAt: "2021-01-02T00:00:00Z",
             opType: "add",
-            schemaTypes: ["union", "object"],
+            schemaTypes: ["discriminated-union", "object"],
           },
         ],
         authors: ["author1"],
         opTypes: ["add"],
-        schemaTypes: ["union", "object"],
+        schemaTypes: ["discriminated-union", "object"],
         lastUpdated: "2021-01-02T00:00:00Z",
         lastUpdatedBy: "author1",
       },
@@ -1088,7 +1088,7 @@ describe("PatchSet", () => {
       "/content/projects.val.ts" as ModuleFilePath,
       s.object({
         record: s.record(
-          s.union(
+          s.discriminatedUnion(
             "type",
             s.object({
               type: s.literal("type1"),
@@ -1096,7 +1096,7 @@ describe("PatchSet", () => {
             }),
             s.object({
               type: s.literal("type1"),
-              value: s.union(
+              value: s.discriminatedUnion(
                 "sub-type",
                 s.object({
                   "sub-type": s.literal("sub-type1"),
@@ -1193,18 +1193,127 @@ describe("PatchSet", () => {
             author: "author1",
             createdAt: "2021-01-02T00:00:00Z",
             opType: "add",
-            schemaTypes: ["union", "object"],
+            schemaTypes: ["discriminated-union", "object"],
           },
         ],
         authors: ["author1"],
         opTypes: ["add"],
-        schemaTypes: ["union", "object"],
+        schemaTypes: ["discriminated-union", "object"],
         lastUpdated: "2021-01-02T00:00:00Z",
         lastUpdatedBy: "author1",
       },
     ];
     expect(patchSet.serialize()).toEqual(expected);
   });
+
+  // #region settings
+  /**
+   * A settings section is addressed like a record, so each field is its own
+   * patch set.
+   *
+   * Both sections write `add` rather than `replace`, because the first write to
+   * an absent section has to create it (see `useWriteAssistantSetting`) — and
+   * `add` resolves the PARENT of its path, which for `["theme", "accent"]` is a
+   * `settings` schema. That used to fall through to "cannot perform op on
+   * non-array or non-record schema", which the caller catches by terminating
+   * the WHOLE module into one patch set: two unrelated settings edits merged,
+   * and the publish diff said "Settings" where `settingsChangeLabels` has a
+   * name for the field.
+   */
+  test("settings: two fields in one section are two patch sets", async () => {
+    const patchSet = testPatchSet(
+      "/settings.val.ts" as ModuleFilePath,
+      s.settings(),
+      [
+        {
+          patchId: "123" as PatchId,
+          patch: [{ op: "add", path: ["theme", "accent"], value: "#2563eb" }],
+          createdAt: "2021-01-01T00:00:00Z",
+          author: "author1",
+        },
+        {
+          patchId: "234" as PatchId,
+          patch: [{ op: "add", path: ["theme", "radius"], value: "tight" }],
+          createdAt: "2021-01-02T00:00:00Z",
+          author: "author1",
+        },
+      ],
+    );
+    // Newest first, as every other patch set is ordered.
+    const serialized = patchSet.serialize();
+    expect(serialized.map((set) => set.patchPath)).toEqual([
+      ["theme", "radius"],
+      ["theme", "accent"],
+    ]);
+    // The field's own schema type, not the section's: this is what the publish
+    // diff reads to decide how to render the change. An enum reports `string`
+    // alongside itself, because an enum's value IS a string — see
+    // `schemaTypesOfPath`.
+    expect(serialized.map((set) => set.schemaTypes)).toEqual([
+      ["enum", "string"],
+      ["color"],
+    ]);
+  });
+
+  test("settings: the write that creates a section is its own patch set", async () => {
+    // The first write to `{}`: one `add` at the section, carrying the other
+    // fields as null. Its parent is the settings MODULE, which is also a
+    // `settings` schema — so this exercises the same branch one level up.
+    const patchSet = testPatchSet(
+      "/settings.val.ts" as ModuleFilePath,
+      s.settings(),
+      [
+        {
+          patchId: "123" as PatchId,
+          patch: [
+            {
+              op: "add",
+              path: ["theme"],
+              value: { accent: "#2563eb", radius: null, mode: null },
+            },
+          ],
+          createdAt: "2021-01-01T00:00:00Z",
+          author: "author1",
+        },
+      ],
+    );
+    const serialized = patchSet.serialize();
+    expect(serialized.map((set) => set.patchPath)).toEqual([["theme"]]);
+    expect(serialized[0].schemaTypes).toEqual(["settings"]);
+  });
+
+  test("settings: sections stay separate from each other", async () => {
+    // The assistant and the theme are edited in different tabs and published
+    // together; a reviewer has to see two changes, not one.
+    const patchSet = testPatchSet(
+      "/settings.val.ts" as ModuleFilePath,
+      s.settings(),
+      [
+        {
+          patchId: "123" as PatchId,
+          patch: [{ op: "add", path: ["assistant", "tone"], value: "Formal." }],
+          createdAt: "2021-01-01T00:00:00Z",
+          author: "author1",
+        },
+        {
+          patchId: "234" as PatchId,
+          patch: [{ op: "add", path: ["theme", "accent"], value: "#2563eb" }],
+          createdAt: "2021-01-02T00:00:00Z",
+          author: "author2",
+        },
+      ],
+    );
+    const serialized = patchSet.serialize();
+    expect(serialized.map((set) => set.patchPath)).toEqual([
+      ["theme", "accent"],
+      ["assistant", "tone"],
+    ]);
+    expect(serialized.map((set) => set.lastUpdatedBy)).toEqual([
+      "author2",
+      "author1",
+    ]);
+  });
+  // #endregion settings
 });
 
 function testPatchSet(

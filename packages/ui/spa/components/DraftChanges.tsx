@@ -28,7 +28,6 @@ import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
 import {
   Bell,
-  Check,
   ChevronDown,
   Download,
   Loader2,
@@ -63,7 +62,10 @@ import {
   SheetTrigger,
 } from "./designSystem/sheet";
 import * as RadixAccordion from "@radix-ui/react-accordion";
-import { ValEnrichedDeployment } from "../utils/mergeCommitsAndDeployments";
+import {
+  commitSubject,
+  ValEnrichedDeployment,
+} from "../utils/mergeCommitsAndDeployments";
 import {
   Tooltip,
   TooltipContent,
@@ -89,8 +91,7 @@ export function DraftChanges({ className }: { className?: string }) {
     }
     return count;
   }, [allValidationErrors]);
-  const { deployments, dismissDeployment, observedCommitShas } =
-    useDeployments();
+  const { deployments, observedCommitShas } = useDeployments();
   const { deletePatches } = useDeletePatches();
   const { patchErrors } = useAllPatchErrors();
 
@@ -101,7 +102,6 @@ export function DraftChanges({ className }: { className?: string }) {
           <Deployments
             deployments={deployments}
             observedCommitShas={observedCommitShas}
-            onDismiss={dismissDeployment}
           />
         </div>
       )}
@@ -510,24 +510,34 @@ export function TransientErrorsList({
   );
 }
 
+/**
+ * The publishes still on their way out, in the classic layout.
+ *
+ * In flight only, which is what the spinner in its header has always claimed.
+ * It used to list whatever the deploy feed held and clear rows as they landed:
+ * a five-second `setTimeout` per observed commit, dismissing it from the shared
+ * feed. That was already a leak - no cleanup, and it re-armed on every render -
+ * and it stopped being possible when the feed became the last N publishes
+ * rather than a list to be emptied. A publish leaves this block when Val sees
+ * the site answering with its commit, which is the same moment the timer was
+ * approximating.
+ *
+ * Note this whole layout is unrendered today: the shell replaced it, and only
+ * `TransientErrorsList` is still imported out of this file.
+ */
 function Deployments({
   deployments,
   observedCommitShas,
-  onDismiss,
 }: {
   deployments: ValEnrichedDeployment[];
   observedCommitShas: Set<string>;
-  onDismiss: (commitSha: string) => void;
 }) {
-  useEffect(() => {
-    for (const deployment of deployments) {
-      if (observedCommitShas.has(deployment.commitSha)) {
-        setTimeout(() => {
-          onDismiss(deployment.commitSha);
-        }, 5000);
-      }
-    }
-  }, [deployments, observedCommitShas]);
+  const inFlight = deployments.filter(
+    (deployment) => !observedCommitShas.has(deployment.commitSha),
+  );
+  if (inFlight.length === 0) {
+    return null;
+  }
   return (
     <div>
       <div className="flex justify-between items-center p-2 font-bold">
@@ -535,21 +545,14 @@ function Deployments({
         <Loader2 size={16} className="inline animate-spin" />
       </div>
       <div>
-        {[...deployments]
+        {[...inFlight]
           .sort(
             (a, b) =>
               new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
           )
           .map((deployment) => {
             return (
-              <Deployment
-                key={deployment.commitSha}
-                deployment={deployment}
-                isFinished={observedCommitShas.has(deployment.commitSha)}
-                onDismiss={() => {
-                  onDismiss(deployment.commitSha);
-                }}
-              />
+              <Deployment key={deployment.commitSha} deployment={deployment} />
             );
           })}
       </div>
@@ -557,15 +560,7 @@ function Deployments({
   );
 }
 
-function Deployment({
-  deployment,
-  isFinished,
-  onDismiss,
-}: {
-  deployment: ValEnrichedDeployment;
-  isFinished: boolean;
-  onDismiss: () => void;
-}) {
+function Deployment({ deployment }: { deployment: ValEnrichedDeployment }) {
   const profilesById = useProfilesByAuthorId();
   const portalContainer = useValPortal();
   const author = deployment.creator && profilesById[deployment.creator];
@@ -583,8 +578,14 @@ function Deployment({
         <Tooltip>
           <TooltipPortal container={portalContainer} />
           <TooltipTrigger>
+            {/*
+              The subject line only: this row is one truncated line, and
+              `truncate` collapses a git message's newlines into spaces - so a
+              message with a body arrived as "Subject The body went on like
+              this…". The tooltip below still has the whole of it.
+            */}
             <div className="max-w-[180px] overflow-clip font-light truncate">
-              {deployment.commitMessage}
+              {commitSubject(deployment.commitMessage)}
             </div>
           </TooltipTrigger>
           <TooltipContent className="max-w-[320px]">
@@ -594,21 +595,7 @@ function Deployment({
           </TooltipContent>
         </Tooltip>
       </div>
-      {isFinished && (
-        <div className="flex gap-2 items-start">
-          <span className="text-xs font-light text-fg-quaternary">
-            Deployed
-          </span>
-          <button
-            onClick={() => {
-              onDismiss();
-            }}
-          >
-            <Check size={14} />
-          </button>
-        </div>
-      )}
-      {!isFinished && <TimeSpent since={new Date(deployment.createdAt)} />}
+      <TimeSpent since={new Date(deployment.createdAt)} />
     </div>
   );
 }

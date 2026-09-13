@@ -112,6 +112,10 @@ const GetApplicablePatches = z.object({
         deploymentState: z.string(),
         createdAt: z.string(),
         updatedAt: z.string(),
+        // The git message, where the content service knows it. See
+        // `ValDeployment`: this is the only source for a deployment that Val
+        // did not publish, and zod would otherwise strip it here.
+        commitMessage: z.string().nullable().optional(),
       }),
     )
     .optional(),
@@ -873,6 +877,7 @@ export class ValOpsHttp extends ValOps {
                 deploymentState: deployment.deploymentState,
                 createdAt: deployment.createdAt,
                 updatedAt: deployment.updatedAt,
+                commitMessage: deployment.commitMessage,
               });
             }
           }

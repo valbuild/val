@@ -7,7 +7,8 @@ import {
   type SerializedNumberSchema as SerializedNumberSchemaT,
   type SerializedObjectSchema as SerializedObjectSchemaT,
   type SerializedArraySchema as SerializedArraySchemaT,
-  type SerializedUnionSchema as SerializedUnionSchemaT,
+  type SerializedDiscriminatedUnionSchema as SerializedDiscriminatedUnionSchemaT,
+  type SerializedEnumSchema as SerializedEnumSchemaT,
   type SerializedRichTextSchema as SerializedRichTextSchemaT,
   type SerializedRichTextOptions as SerializedRichTextOptionsT,
   type SerializedRecordSchema as SerializedRecordSchemaT,
@@ -137,26 +138,23 @@ export const SerializedArraySchema: z.ZodType<SerializedArraySchemaT> = z.lazy(
   },
 );
 
-export const SerializedUnionSchema: z.ZodType<SerializedUnionSchemaT> = z.lazy(
-  () => {
-    return z.union([
-      z.object({
-        ...commonSchemaFields,
-        type: z.literal("union"),
-        key: SerializedLiteralSchema,
-        items: z.array(SerializedLiteralSchema),
-        opt: z.boolean(),
-      }),
-      z.object({
-        ...commonSchemaFields,
-        type: z.literal("union"),
-        key: z.string(),
-        items: z.array(SerializedObjectSchema),
-        opt: z.boolean(),
-      }),
-    ]);
-  },
-);
+export const SerializedDiscriminatedUnionSchema: z.ZodType<SerializedDiscriminatedUnionSchemaT> =
+  z.lazy(() => {
+    return z.object({
+      ...commonSchemaFields,
+      type: z.literal("discriminated-union"),
+      key: z.string(),
+      items: z.array(SerializedObjectSchema),
+      opt: z.boolean(),
+    });
+  });
+
+export const SerializedEnumSchema: z.ZodType<SerializedEnumSchemaT> = z.object({
+  ...commonSchemaFields,
+  type: z.literal("enum"),
+  values: z.array(z.string()),
+  opt: z.boolean(),
+});
 
 export const ImageEncodeOption = z.union([
   z.literal(false),
@@ -167,11 +165,41 @@ export const ImageEncodeOption = z.union([
     maxHeight: z.number().optional(),
   }),
 ]);
-export const ImageOptions = z.object({
-  directory: z.string().optional(),
-  accept: z.string().optional(),
-  encode: ImageEncodeOption.optional(),
-});
+/**
+ * Accept the pre-rename `directory` key and read it as `dir`.
+ *
+ * Serialized schemas are not only computed from live code: a commit record
+ * stores the schema each module was under (`StoredModuleVersion`), and the
+ * history view parses those back. Commits made before `directory` became `dir`
+ * therefore still carry the old key, and dropping it would show a historical
+ * gallery with no directory at all — silently, since the rest of the schema
+ * parses fine.
+ *
+ * Only fills `dir` when it is absent, so a schema carrying both (which should
+ * not happen) keeps the current key.
+ */
+const readLegacyDirectoryAsDir = (value: unknown): unknown => {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    !("directory" in value) ||
+    "dir" in value
+  ) {
+    return value;
+  }
+  const { directory, ...rest } = value as Record<string, unknown>;
+  return { ...rest, dir: directory };
+};
+
+export const ImageOptions = z.preprocess(
+  readLegacyDirectoryAsDir,
+  z.object({
+    dir: z.string().optional(),
+    accept: z.string().optional(),
+    encode: ImageEncodeOption.optional(),
+  }),
+);
 export const SerializedImageSchema: z.ZodType<SerializedImageSchemaT> =
   z.object({
     ...commonSchemaFields,
@@ -220,27 +248,30 @@ export const SerializedRichTextSchema: z.ZodType<SerializedRichTextSchemaT> =
 
 export const SerializedRecordSchema: z.ZodType<SerializedRecordSchemaT> =
   z.lazy(() => {
-    return z
-      .object({
-        ...commonSchemaFields,
-        type: z.literal("record"),
-        item: SerializedSchema,
-        opt: z.boolean(),
-        // Optional gallery marker for files/images
-        mediaType: z
-          .union([z.literal("files"), z.literal("images")])
-          .optional(),
-        // Optional legacy gallery metadata
-        accept: z.string().optional(),
-        directory: z.string().optional(),
-        remote: z.boolean().optional(),
-        encode: ImageEncodeOption.optional(),
-        alt: SerializedSchema.optional(),
-        moduleMetadata: z
-          .record(z.string(), z.record(z.string(), z.any()))
-          .optional(),
-      })
-      .passthrough();
+    return z.preprocess(
+      readLegacyDirectoryAsDir,
+      z
+        .object({
+          ...commonSchemaFields,
+          type: z.literal("record"),
+          item: SerializedSchema,
+          opt: z.boolean(),
+          // Optional gallery marker for files/images
+          mediaType: z
+            .union([z.literal("files"), z.literal("images")])
+            .optional(),
+          // Optional legacy gallery metadata
+          accept: z.string().optional(),
+          dir: z.string().optional(),
+          remote: z.boolean().optional(),
+          encode: ImageEncodeOption.optional(),
+          alt: SerializedSchema.optional(),
+          moduleMetadata: z
+            .record(z.string(), z.record(z.string(), z.any()))
+            .optional(),
+        })
+        .passthrough(),
+    );
   });
 
 export const SerializedKeyOfSchema: z.ZodType<SerializedKeyOfSchemaT> = z.lazy(
@@ -386,7 +417,8 @@ export const SerializedSchema: z.ZodType<SerializedSchemaT> = z.union([
   SerializedNumberSchema,
   SerializedObjectSchema,
   SerializedArraySchema,
-  SerializedUnionSchema,
+  SerializedDiscriminatedUnionSchema,
+  SerializedEnumSchema,
   SerializedRichTextSchema,
   SerializedRecordSchema,
   SerializedKeyOfSchema,

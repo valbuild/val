@@ -5,9 +5,9 @@ import { ObjectSchema } from "./object";
 import { StringSchema } from "./string";
 
 /**
- * Options for s.files()
+ * Options for s.fileset()
  */
-export type FilesOptions = {
+export type FilesetOptions = {
   /**
    * The accepted mime type pattern (e.g., "application/pdf", "text/*", "*\/*")
    */
@@ -21,20 +21,20 @@ export type FilesOptions = {
    * collection that had simply not said where it wanted its files silently shared
    * a directory with every other one.
    */
-  directory: "/public" | `/public/${string}`;
+  dir: "/public" | `/public/${string}`;
 };
 
 /**
  * Metadata for a file entry in the files record
  */
-export type FilesEntryMetadata = {
+export type FilesetEntryMetadata = {
   mimeType: string;
 };
 
-export type SerializedFilesSchema = SerializedRecordSchema;
+export type SerializedFilesetSchema = SerializedRecordSchema;
 
-type FilesItemProps = { mimeType: StringSchema<string> };
-type FilesItemSrc = { mimeType: string };
+type FilesetItemProps = { mimeType: StringSchema<string> };
+type FilesetItemSrc = { mimeType: string };
 
 /**
  * Define a collection of files.
@@ -43,9 +43,9 @@ type FilesItemSrc = { mimeType: string };
  *
  * @example
  * ```typescript
- * const schema = s.files({
+ * const schema = s.fileset({
  *   accept: "application/pdf",
- *   directory: "/public/val/documents",
+ *   dir: "/public/val/documents",
  * });
  * export default c.define("/content/documents.val.ts", schema, {
  *   "/public/val/documents/report.pdf": {
@@ -54,22 +54,22 @@ type FilesItemSrc = { mimeType: string };
  * });
  * ```
  */
-export const files = (
-  options: FilesOptions,
+export const fileset = (
+  options: FilesetOptions,
 ): RecordSchema<
-  ObjectSchema<FilesItemProps, FilesItemSrc>,
+  ObjectSchema<FilesetItemProps, FilesetItemSrc>,
   Schema<string>,
-  Record<string, FilesEntryMetadata>
+  Record<string, FilesetEntryMetadata>
 > => {
-  const directory = options.directory;
-  const itemSchema = new ObjectSchema<FilesItemProps, FilesItemSrc>(
+  const dir = options.dir;
+  const itemSchema = new ObjectSchema<FilesetItemProps, FilesetItemSrc>(
     { mimeType: new StringSchema({}, false) },
     false,
   );
   return new RecordSchema(itemSchema, false, [], null, null, {
     type: "files",
     accept: options.accept,
-    directory,
+    dir,
     remote: false,
   });
 };

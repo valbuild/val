@@ -46,7 +46,13 @@ const ValPortalContext = React.createContext<ValPortalContextValue>(
  */
 export function ValPortalProvider({ children }: { children: React.ReactNode }) {
   const [portalNode, setPortalNode] = useState<HTMLDivElement | null>(null);
-  const { theme } = useTheme();
+  /*
+   * `resolvedTheme` and `themeStyle`, because everything portalled in here is
+   * OUTSIDE the shell's own root: a dropdown, a dialog, a tooltip. Without the
+   * style it would draw Val's green inside a themed Studio, and without a
+   * stamped mode it would draw light inside a dark one.
+   */
+  const { resolvedTheme, themeStyle } = useTheme();
   // Memoised, because a context value built inline is a fresh object every
   // render — harmless until something downstream takes it as a dependency, and
   // then it is the whole subtree recomputing. See `quirks.md`.
@@ -60,7 +66,8 @@ export function ValPortalProvider({ children }: { children: React.ReactNode }) {
       <div
         data-val-portal="true"
         ref={setPortalNode}
-        {...(theme ? { "data-mode": theme } : {})}
+        data-mode={resolvedTheme}
+        style={themeStyle}
       ></div>
       {children}
     </ValPortalContext.Provider>

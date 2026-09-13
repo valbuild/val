@@ -1,5 +1,10 @@
-import { ReactNode, useEffect, useState } from "react";
-import { LucideIcon } from "lucide-react";
+import type { Json } from "@valbuild/core";
+import { ReactNode, useEffect, useId, useState } from "react";
+import { ImagePlus, LucideIcon, Sparkles } from "lucide-react";
+import { THEME_RADIUS_STEPS, ThemeRadius } from "@valbuild/core";
+// From `ColorFieldPure`, not from `ColorField`: the connected field in that
+// module reaches the whole editor tree, and this panel is presentational.
+import { ColorFieldPure } from "../fields/ColorFieldPure";
 import { FloatingPanel, PanelEmptyState } from "./FloatingPanel";
 import { PanelErrorState, PanelSkeleton } from "./PanelPrimitives";
 import { Switch } from "../designSystem/switch";
@@ -185,6 +190,14 @@ export type AssistantSettingsFieldsProps = {
   maxLength: number;
   /** Validation messages, keyed by field, as the Studio has them. */
   errors?: Partial<Record<keyof AssistantSettingsValue, string>>;
+  /**
+   * Ask the assistant to write the tone of voice from the project's content.
+   *
+   * Absent where there is no assistant to ask — a project that has turned it
+   * off, or a layout with no chat surface — in which case the button is not
+   * drawn rather than drawn and dead. See `ValSettingsSections`.
+   */
+  onGenerateTone?: () => void;
   readonly?: boolean;
 };
 
@@ -201,6 +214,7 @@ export function AssistantSettingsFields({
   onChange,
   maxLength,
   errors,
+  onGenerateTone,
   readonly,
 }: AssistantSettingsFieldsProps) {
   /**
@@ -236,16 +250,14 @@ export function AssistantSettingsFields({
           onCheckedChange={(next) => onChange("enabled", next)}
         />
       </div>
-      <SettingsTextField
-        label="Context"
-        description="What this site is, who runs it, names and spellings that matter."
-        placeholder="A CMS for developers, run by a team of four…"
-        value={value.context}
-        onChange={(next) => onChange("context", next)}
-        maxLength={maxLength}
-        error={errors?.context}
-        readonly={readonly || value.enabled === false}
-      />
+      {/*
+       * Tone of voice first, context second.
+       *
+       * Not the order the schema declares them in, and the panel wins: tone is
+       * the field an editor comes here to write, and the one with something to
+       * offer while it is empty. Context is background you fill in once and do
+       * not look at again.
+       */}
       <SettingsTextField
         label="Tone of voice"
         description="How it should write: formal or playful, British or American, how headings are cased."
@@ -254,6 +266,32 @@ export function AssistantSettingsFields({
         onChange={(next) => onChange("tone", next)}
         maxLength={maxLength}
         error={errors?.tone}
+        readonly={readonly || value.enabled === false}
+        /*
+         * Offered only while the field is empty, and that is the whole rule:
+         * with something in it the button would be an invitation to overwrite
+         * what somebody wrote, and there is no undo in a settings panel. To
+         * regenerate, clear it.
+         */
+        action={
+          onGenerateTone && !value.tone?.trim() ? (
+            <SettingsFieldAction
+              icon={Sparkles}
+              label="Generate from my content"
+              onClick={onGenerateTone}
+              disabled={readonly || value.enabled === false}
+            />
+          ) : undefined
+        }
+      />
+      <SettingsTextField
+        label="Context"
+        description="What this site is, who runs it, names and spellings that matter."
+        placeholder="A CMS for developers, run by a team of four…"
+        value={value.context}
+        onChange={(next) => onChange("context", next)}
+        maxLength={maxLength}
+        error={errors?.context}
         readonly={readonly || value.enabled === false}
       />
     </SettingsSection>
@@ -277,6 +315,7 @@ export function SettingsTextField({
   onChange,
   maxLength,
   error,
+  action,
   readonly,
 }: {
   label: string;
@@ -286,8 +325,15 @@ export function SettingsTextField({
   onChange: (value: string | null) => void;
   maxLength: number;
   error?: string;
+  /** Drawn on the label's row, right-aligned. See `SettingsFieldAction`. */
+  action?: ReactNode;
   readonly?: boolean;
 }) {
+  // `useId` rather than a slug of the label: two fields could share a label,
+  // and an id that collides silently points a label at the wrong box.
+  const fieldId = useId();
+  const descriptionId = `${fieldId}-description`;
+  const errorId = `${fieldId}-error`;
   const [current, setCurrent] = useState(value ?? "");
   const write: DebouncedFieldWrite<string> = useDebouncedFieldWrite<string>(
     (next) => onChange(next === "" ? null : next),
@@ -303,9 +349,39 @@ export function SettingsTextField({
   }, [value, write]);
   const overBy = current.length - maxLength;
   return (
-    <label className="block">
-      <span className="text-xs font-medium">{label}</span>
-      <span className="block mt-0.5 text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
+    /*
+     * A `<div>` with a `<label htmlFor>`, not a `<label>` wrapping everything.
+     *
+     * The wrapping form is shorter and was what this had, and it makes two
+     * things wrong that nothing on screen shows:
+     *
+     * A BUTTON INSIDE A LABEL TAKES THE LABEL'S NAME. Add "Generate from my
+     * content" to a wrapping label and it is announced as "Tone of voice,
+     * button" — the label's text wins the accessible-name computation over the
+     * button's own contents. It also swallows the click, since a label forwards
+     * clicks to its control, so pressing it put the caret in the box.
+     *
+     * AND THE DESCRIPTION BECAME PART OF THE FIELD'S NAME. Everything inside a
+     * wrapping label names the control, so the textarea was called "Tone of
+     * voice How it should write: formal or playful, British or American, how
+     * headings are cased." It is a description; `aria-describedby` is where a
+     * description goes.
+     */
+    <div className="block">
+      {/*
+       * The action is a SIBLING of the label, on its row: next to the name of
+       * the thing it fills in, and outside the label for the reason above.
+       */}
+      <span className="flex items-start justify-between gap-2">
+        <label htmlFor={fieldId} className="text-xs font-medium">
+          {label}
+        </label>
+        {action}
+      </span>
+      <span
+        id={descriptionId}
+        className="block mt-0.5 text-[0.6875rem] text-fg-secondary-alt leading-relaxed"
+      >
         {description}
       </span>
       {/*
@@ -318,7 +394,12 @@ export function SettingsTextField({
        * scrolls instead, and can be dragged taller.
        */}
       <textarea
+        id={fieldId}
         rows={4}
+        // The description and, when there is one, the validation message: both
+        // are about the value rather than part of its name.
+        aria-describedby={error ? `${descriptionId} ${errorId}` : descriptionId}
+        aria-invalid={error ? true : undefined}
         className="mt-1.5 w-full resize-y max-h-56 rounded-md border border-border-primary bg-bg-primary px-3 py-2 text-xs leading-relaxed placeholder:text-fg-secondary-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
         placeholder={placeholder}
         value={current}
@@ -330,7 +411,10 @@ export function SettingsTextField({
         onBlur={() => write.flush()}
       />
       <span className="mt-1 flex items-start justify-between gap-2">
-        <span className="text-[0.6875rem] text-fg-error-on-surface leading-relaxed">
+        <span
+          id={errorId}
+          className="text-[0.6875rem] text-fg-error-on-surface leading-relaxed"
+        >
           {error}
         </span>
         <span
@@ -342,7 +426,7 @@ export function SettingsTextField({
           {overBy > 0 ? `${overBy} over` : `${current.length} / ${maxLength}`}
         </span>
       </span>
-    </label>
+    </div>
   );
 }
 
@@ -358,9 +442,46 @@ export function NoSettingsModule() {
   );
 }
 
+export type ThemeSettingsValue = {
+  /** A hex colour, or `null` for Val's own green. */
+  accent: string | null;
+  radius: ThemeRadius | null;
+  /** The project's default mode, or `null` for "no preference". */
+  mode: "dark" | "light" | null;
+};
+
+export type ThemeSettingsFieldsProps = {
+  value: ThemeSettingsValue;
+  /** One field changed. Per field for the same reason the assistant's is. */
+  onChange: (field: keyof ThemeSettingsValue, value: string | null) => void;
+  /** Validation messages, keyed by field, as the Studio has them. */
+  errors?: Partial<Record<keyof ThemeSettingsValue, string>>;
+  /**
+   * The logo's field, as an element.
+   *
+   * A slot rather than props, for the reason the sections themselves are a slot
+   * in {@link SettingsPanel}: uploading an image is `ImageField`'s whole job —
+   * the ref from the file's hash, the two-phase upload, the progress, local or
+   * remote — and none of that can be reimplemented in a presentational panel
+   * without being a worse copy of it. `ValSettingsSections` passes the real
+   * field; the stories pass a still of one.
+   */
+  logoField?: ReactNode;
+  readonly?: boolean;
+};
+
 export type LocalesSettingsValue = {
-  /** The declared languages, in the project's own order. */
-  available: string[];
+  /**
+   * Every POSITION the source has, in the project's own order — not only the
+   * ones holding a language.
+   *
+   * `Json` rather than `string[]` because a settings module is a file people
+   * edit by hand, and dropping what is not a string would take the row with it:
+   * validation reports by index, so the message for `available.0` would land on
+   * whatever survived to position 0, and the value that caused it would have no
+   * row to be removed from. A panel has to be able to repair what it reports.
+   */
+  available: Json[];
 };
 
 export type LocalesSettingsFieldsProps = {
@@ -377,6 +498,151 @@ export type LocalesSettingsFieldsProps = {
   errors?: { byIndex?: Record<number, string> };
   readonly?: boolean;
 };
+
+/**
+ * The presets, in swatch order.
+ *
+ * A fast path, not the whole feature: the field below them takes any hex, and
+ * both go through the same generator — so these are eight values in an array
+ * rather than eight themes with anything of their own. Chosen to be
+ * distinguishable from each other at 22px, which rules out having both an
+ * indigo and a violet.
+ */
+const ACCENT_PRESETS: { hex: string; name: string }[] = [
+  { hex: "#2563eb", name: "Blue" },
+  { hex: "#7c3aed", name: "Violet" },
+  { hex: "#db2777", name: "Pink" },
+  { hex: "#dc2626", name: "Red" },
+  { hex: "#ea580c", name: "Orange" },
+  { hex: "#ca8a04", name: "Amber" },
+  { hex: "#0891b2", name: "Cyan" },
+  { hex: "#64748b", name: "Slate" },
+];
+
+const RADIUS_LABELS: Record<ThemeRadius, string> = {
+  square: "Square",
+  tight: "Tight",
+  default: "Default",
+  soft: "Soft",
+};
+
+/**
+ * How the Studio looks in this project: one colour, and how round the corners
+ * are.
+ *
+ * Chrome, and only chrome — nothing here reaches a visitor to the site. It is
+ * content all the same: it is edited as a draft, it shows up in the publish
+ * diff, and it is the same for everyone working on the project. Which is what
+ * makes the preview free: the draft is what the Studio reads, so the colour
+ * changes as it is picked.
+ */
+export function ThemeSettingsFields({
+  value,
+  onChange,
+  errors,
+  logoField,
+  readonly,
+}: ThemeSettingsFieldsProps) {
+  const accent = value.accent?.trim().toLowerCase() ?? null;
+  return (
+    <SettingsSection description="The Studio's own chrome, for everyone working on this project. Nothing here changes the site.">
+      <div>
+        <span className="text-xs font-medium">Accent</span>
+        <span className="block mt-0.5 text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
+          One colour, and the whole chrome is built from it. Anything is
+          allowed: the shades are generated so text stays legible on them.
+        </span>
+        <div
+          role="radiogroup"
+          aria-label="Accent"
+          className="mt-2 flex flex-wrap gap-1.5"
+        >
+          {/*
+           * Val's green is the first swatch rather than a "reset" button
+           * somewhere else, because it is not a reset — it is one of the
+           * choices, and the one the project starts on. It writes `null`: the
+           * absence of an accent, so an untouched settings module stays empty.
+           */}
+          <AccentSwatch
+            name="Val green"
+            css="var(--brand-val-green)"
+            selected={accent === null}
+            disabled={readonly}
+            onSelect={() => onChange("accent", null)}
+          />
+          {ACCENT_PRESETS.map((preset) => (
+            <AccentSwatch
+              key={preset.hex}
+              name={preset.name}
+              css={preset.hex}
+              selected={accent === preset.hex}
+              disabled={readonly}
+              onSelect={() => onChange("accent", preset.hex)}
+            />
+          ))}
+        </div>
+        <div className="mt-2">
+          {/*
+           * The same field the Studio uses for any `s.color()`, in hex — so a
+           * brand colour can be pasted in, and the OS picker is the OS picker.
+           * It never writes `null`, which is what the first swatch is for.
+           */}
+          <ColorFieldPure
+            id="val-theme-accent"
+            value={value.accent}
+            onChange={(next) => onChange("accent", next)}
+            format="hex"
+            readonly={readonly}
+          />
+        </div>
+        {errors?.accent && (
+          <span className="block mt-1 text-[0.6875rem] text-fg-error-on-surface leading-relaxed">
+            {errors.accent}
+          </span>
+        )}
+      </div>
+      <SettingsChoice
+        label="Corners"
+        description="How round every panel, field and button in the Studio is."
+        options={THEME_RADIUS_STEPS.map((step) => ({
+          // `default` writes `null`: it is the same value the stylesheet
+          // already has, and writing it would put a setting in the file that
+          // changes nothing.
+          id: step === "default" ? null : step,
+          label: RADIUS_LABELS[step],
+        }))}
+        selected={value.radius === "default" ? null : value.radius}
+        onSelect={(next) => onChange("radius", next)}
+        readonly={readonly}
+        error={errors?.radius}
+      />
+      {logoField && (
+        <div>
+          <span className="text-xs font-medium">Logo</span>
+          <span className="block mt-0.5 text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
+            Shown where Val&apos;s mark is, at the top of the rail. A square-ish
+            mark rather than a wordmark — the slot is small, and a wide image is
+            fitted into it rather than cropped.
+          </span>
+          <div className="mt-2">{logoField}</div>
+        </div>
+      )}
+      <SettingsChoice
+        label="Opens in"
+        description="What an editor who has never picked a mode sees. It does not change the mode for anyone who has."
+        options={[
+          { id: null, label: "No preference" },
+          { id: "dark", label: "Dark" },
+          { id: "light", label: "Light" },
+        ]}
+        selected={value.mode}
+        onSelect={(next) => onChange("mode", next)}
+        readonly={readonly}
+        error={errors?.mode}
+      />
+    </SettingsSection>
+  );
+}
 
 /**
  * The languages a project publishes.
@@ -423,13 +689,13 @@ export function LocalesSettingsFields({
             No languages yet. Add one and this project becomes translated.
           </p>
         )}
-        {value.available.map((tag, index) => (
+        {value.available.map((entry, index) => (
           // Keyed by position for the same reason: a tag is not unique, so a
           // duplicate would collide. Safe here because a row holds no state of
           // its own and the list is never reordered.
           <LocaleRow
             key={index}
-            tag={tag}
+            entry={entry}
             error={errors?.byIndex?.[index]}
             readonly={readonly}
             onRemove={() => remove(index)}
@@ -471,18 +737,220 @@ export function LocalesSettingsFields({
   );
 }
 
+/**
+ * One preset colour.
+ *
+ * A radio rather than a button: the row is a choice of one, and a screen reader
+ * should say which is chosen — the ring alone says it only to people who can
+ * see it.
+ */
+function AccentSwatch({
+  name,
+  css,
+  selected,
+  disabled,
+  onSelect,
+}: {
+  name: string;
+  /** Any CSS colour: the presets are hex, Val's green is its own token. */
+  css: string;
+  selected: boolean;
+  disabled?: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      aria-label={name}
+      title={name}
+      disabled={disabled}
+      onClick={onSelect}
+      className={cn(
+        "w-6 h-6 rounded-full border",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+        "disabled:cursor-not-allowed disabled:opacity-50",
+        // The selected ring carries no offset, deliberately: `ring-offset-*`
+        // resolves `--tw-ring-offset-color` from `--background`, which is dead
+        // inside the shadow root, and an invalid colour voids the whole
+        // box-shadow — so the ring would vanish rather than lose its gap. The
+        // outline of the swatch itself provides the separation instead.
+        selected
+          ? "border-bg-float ring-2 ring-fg-primary"
+          : "border-border-primary",
+      )}
+      style={{ backgroundColor: css }}
+    />
+  );
+}
+
+/**
+ * A settings field that is a choice between a few named options.
+ *
+ * The same radio group the account panel draws for light and dark, because it
+ * is the same question shape — and a `<select>` for four options hides three of
+ * them behind a click.
+ */
+function SettingsChoice<Id extends string | null>({
+  label,
+  description,
+  options,
+  selected,
+  onSelect,
+  readonly,
+  error,
+}: {
+  label: string;
+  description: string;
+  options: { id: Id; label: string }[];
+  selected: Id;
+  onSelect: (id: Id) => void;
+  readonly?: boolean;
+  error?: string;
+}) {
+  return (
+    <div>
+      <span className="text-xs font-medium">{label}</span>
+      <span className="block mt-0.5 text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
+        {description}
+      </span>
+      <div
+        role="radiogroup"
+        aria-label={label}
+        className="mt-2 flex p-0.5 rounded-md bg-bg-float-raised"
+      >
+        {options.map((option) => (
+          <button
+            key={option.id ?? "unset"}
+            type="button"
+            role="radio"
+            aria-checked={selected === option.id}
+            disabled={readonly}
+            onClick={() => onSelect(option.id)}
+            className={cn(
+              "flex-1 inline-flex items-center justify-center h-7 rounded text-[0.6875rem]",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+              "disabled:cursor-not-allowed disabled:opacity-50",
+              selected === option.id
+                ? "bg-bg-float text-fg-primary shadow-sm font-medium"
+                : "text-fg-secondary hover:text-fg-primary",
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      {error && (
+        <span className="block mt-1 text-[0.6875rem] text-fg-error-on-surface leading-relaxed">
+          {error}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A small button beside a settings field's label.
+ *
+ * A sibling of the label rather than inside it, which is `SettingsTextField`'s
+ * doing and is the whole reason that component is a `<div>` with a
+ * `<label htmlFor>`: a button inside a label is announced with the LABEL's text
+ * and has its click forwarded to the control.
+ */
+export function SettingsFieldAction({
+  icon: Icon,
+  label,
+  onClick,
+  disabled,
+}: {
+  icon: LucideIcon;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded",
+        "text-[0.6875rem] text-fg-secondary hover:text-fg-primary",
+        "bg-bg-float-raised hover:bg-bg-secondary-hover",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+        "disabled:cursor-not-allowed disabled:opacity-50",
+      )}
+    >
+      <Icon size={11} />
+      {label}
+    </button>
+  );
+}
+
+/**
+ * Where the logo field goes before the project has a `theme` section at all.
+ *
+ * Not politeness — a necessity, and the reason is patch semantics meeting an
+ * optional section. `ImageField` writes `replace`, which fails for a key that
+ * does not exist, so `useWriteThemeSetting`'s section-creating write leaves a
+ * `logo: null` for it to replace. Until something has written that section,
+ * there is no key: the field's source never resolves and it renders a spinner
+ * that never stops. (An absent optional key resolving as pending rather than as
+ * null is the underlying thing, and it is not this feature's to fix — every
+ * optional nested key has it.)
+ *
+ * So this button, whose only job is to create the section. It writes a change
+ * an editor asked for by pressing it, rather than one the panel wrote for
+ * everybody who merely looked at the tab.
+ */
+export function SettingsLogoPlaceholder({
+  onAdd,
+  disabled,
+}: {
+  onAdd: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onAdd}
+      className={cn(
+        "w-full inline-flex items-center justify-center gap-1.5 h-16 rounded-md",
+        "border border-dashed border-border-primary",
+        "text-[0.6875rem] text-fg-secondary hover:text-fg-primary hover:bg-bg-float-raised",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+        "disabled:cursor-not-allowed disabled:opacity-50",
+      )}
+    >
+      <ImagePlus size={13} />
+      Add a logo
+    </button>
+  );
+}
+
+/**
+ * One declared position.
+ *
+ * Usually a language. Where it is not — a number, an object, whatever a hand
+ * edit left behind — the row still draws, showing the value as it is written so
+ * it can be recognised and removed. Validation has already said what is wrong
+ * with it; the row's job is to be the thing that can be deleted.
+ */
 function LocaleRow({
-  tag,
+  entry,
   error,
   readonly,
   onRemove,
 }: {
-  tag: string;
+  entry: Json;
   error?: string;
   readonly?: boolean;
   onRemove: () => void;
 }) {
-  const name = localeName(tag);
+  const tag = typeof entry === "string" ? entry : JSON.stringify(entry);
+  const name = typeof entry === "string" ? localeName(entry) : undefined;
   return (
     <div className="flex flex-col gap-1 rounded-md border border-border-primary px-3 py-2">
       <div className="flex items-center gap-2">

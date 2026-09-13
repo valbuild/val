@@ -5,7 +5,8 @@ import { object } from "./object";
 import { literal } from "./literal";
 import { record } from "./record";
 import { string } from "./string";
-import { union } from "./union";
+import { discriminatedUnion } from "./discriminatedUnion";
+import { enumSchema } from "./enum";
 
 /**
  * `executeCustomValidateAt` runs ONE node's user-supplied validators, which is
@@ -94,12 +95,12 @@ describe("executeCustomValidateAt", () => {
     expect(schema["executeCustomValidateAt"](path, ["x"])).toEqual([]);
   });
 
-  describe("tagged union", () => {
+  describe("discriminated union", () => {
     // A union's variants SHARE the union's path, so the caller's `resolvePath`
     // stops at the union and never reaches the variant. The union is the only node
     // that knows which variant a value takes, so it has to dispatch itself — the
     // one place where "only THIS node's validators" cannot hold.
-    const taggedUnion = union(
+    const taggedUnion = discriminatedUnion(
       "type",
       object({
         type: literal("a"),
@@ -135,7 +136,7 @@ describe("executeCustomValidateAt", () => {
     });
 
     test("the union's own validator runs alongside the variant's", () => {
-      const withBoth = union(
+      const withBoth = discriminatedUnion(
         "type",
         object({ type: literal("a") }).validate(() => "variant says no"),
       ).validate(() => "union says no");
@@ -153,14 +154,14 @@ describe("executeCustomValidateAt", () => {
       ).toEqual([]);
     });
 
-    test("a literal union has no variant to descend into", () => {
-      const literalUnion = union(literal("a"), literal("b")).validate((src) =>
+    test("an enum has no variant to descend into", () => {
+      const asEnum = enumSchema("a", "b").validate((src) =>
         src === "b" ? "not b" : false,
       );
-      expect(literalUnion["executeCustomValidateAt"](path, "b")).toEqual([
+      expect(asEnum["executeCustomValidateAt"](path, "b")).toEqual([
         { message: "not b", value: "b" },
       ]);
-      expect(literalUnion["executeCustomValidateAt"](path, "a")).toEqual([]);
+      expect(asEnum["executeCustomValidateAt"](path, "a")).toEqual([]);
     });
   });
 });

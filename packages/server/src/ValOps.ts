@@ -1101,9 +1101,9 @@ export abstract class ValOps {
       if (
         serialized.type === "record" &&
         serialized.mediaType &&
-        serialized.directory
+        serialized.dir
       ) {
-        const dir = serialized.directory;
+        const dir = serialized.dir;
         const existing = galleryDirectoryToModules.get(dir);
         if (existing) {
           existing.push(moduleFilePath);
@@ -1216,11 +1216,10 @@ export abstract class ValOps {
                 });
               } else {
                 const directory =
-                  "directory" in validationError.value &&
-                  validationError.value.directory;
+                  "dir" in validationError.value && validationError.value.dir;
                 if (typeof directory !== "string") {
                   addError({
-                    message: `Expected gallery validation error 'value' to have property 'directory' of type 'string'. Found: ${typeof directory}. ${TYPE_ERROR_MESSAGE}`,
+                    message: `Expected gallery validation error 'value' to have property 'dir' of type 'string'. Found: ${typeof directory}. ${TYPE_ERROR_MESSAGE}`,
                     typeError: true,
                   });
                 } else {

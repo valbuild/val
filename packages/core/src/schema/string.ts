@@ -77,6 +77,22 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is shown next to the field's label in the Val editor, so
+   * it is where you say what an editor needs to know but the field name cannot
+   * carry. It also travels in the serialized schema, which is what the AI
+   * assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s
+   *   .string()
+   *   .describe("Shown in the browser tab and in search results");
+   * export default c.define("/example.val.ts", schema, "Hello");
+   */
   describe(description: string | null): StringSchema<Src> {
     return new StringSchema<Src>(
       this.options,
@@ -94,11 +110,22 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
 
   /**
    * @deprecated Use `minLength` instead
+   *
+   * @example
+   * const schema = s.string().minLength(2);
+   * export default c.define("/example.val.ts", schema, "Hi");
    */
   min(minLength: number): StringSchema<Src> {
     return this.minLength(minLength);
   }
 
+  /**
+   * Validate that the string is at least `minLength` characters long.
+   *
+   * @example
+   * const schema = s.string().minLength(2);
+   * export default c.define("/example.val.ts", schema, "Hi");
+   */
   minLength(minLength: number): StringSchema<Src> {
     return new StringSchema<Src>(
       { ...this.options, minLength },
@@ -116,11 +143,22 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
 
   /**
    * @deprecated Use `maxLength` instead
+   *
+   * @example
+   * const schema = s.string().maxLength(60);
+   * export default c.define("/example.val.ts", schema, "A title that fits");
    */
   max(maxLength: number): StringSchema<Src> {
     return this.maxLength(maxLength);
   }
 
+  /**
+   * Validate that the string is at most `maxLength` characters long.
+   *
+   * @example
+   * const schema = s.string().maxLength(60);
+   * export default c.define("/example.val.ts", schema, "A title that fits");
+   */
   maxLength(maxLength: number): StringSchema<Src> {
     return new StringSchema<Src>(
       { ...this.options, maxLength },
@@ -136,6 +174,18 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
+  /**
+   * Validate that the string matches `regexp`.
+   *
+   * `message` is what the editor is shown when it does not match. Without one
+   * the error names the pattern, which is rarely what a non-developer needs.
+   *
+   * @example
+   * const schema = s
+   *   .string()
+   *   .regexp(/^[a-z0-9-]+$/, "Lower case letters, digits and dashes only");
+   * export default c.define("/example.val.ts", schema, "my-slug");
+   */
   regexp(regexp: RegExp, message?: string): StringSchema<Src> {
     return new StringSchema<Src>(
       { ...this.options, regexp, regExpMessage: message },
@@ -151,6 +201,26 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * @example
+   * const schema = s.string().validate((val) =>
+   *   val.trim() === val ? false : "Must not start or end with a space",
+   * );
+   * export default c.define("/example.val.ts", schema, "Hello");
+   */
   validate(
     validationFunction: (src: Src) => false | string,
   ): StringSchema<Src> {
@@ -296,6 +366,25 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
+  /**
+   * Do not stega encode this string.
+   *
+   * Val normally encodes an invisible pointer back to the source into every
+   * string it hands your app, which is what makes click-to-edit work. A raw
+   * string is handed over exactly as written — use it wherever the value is
+   * not rendered as visible text: a slug, a class name, an `id`, a URL,
+   * anything parsed or compared.
+   *
+   * @example
+   * const schema = s.object({
+   *   title: s.string(),
+   *   slug: s.string().raw(),
+   * });
+   * export default c.define("/example.val.ts", schema, {
+   *   title: "Hello",
+   *   slug: "hello",
+   * });
+   */
   raw(): StringSchema<Src extends null ? RawString | null : RawString> {
     return new StringSchema(
       this.options,
@@ -387,6 +476,10 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
    *
    * Static configuration, not a callback — see `render.ts`. What a CONTAINER
    * shows for its items is a `preview`, which is a different thing entirely.
+   *
+   * @example
+   * const schema = s.array(s.string().render({ as: "inline" }));
+   * export default c.define("/example.val.ts", schema, ["First", "Second"]);
    */
   render(input: FieldRender): StringSchema<Src> {
     return new StringSchema<Src>(
@@ -407,6 +500,12 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
    * How this VALUE is shown where a preview of it is needed — a row in a
    * sortable list, a reference dropdown, a search hit. Never how the field
    * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * const schema = s.array(
+   *   s.string().preview(({ val }) => ({ title: val })),
+   * );
+   * export default c.define("/example.val.ts", schema, ["First", "Second"]);
    */
   preview(select: ItemPreviewInput<Src>): StringSchema<Src> {
     return new StringSchema<Src>(

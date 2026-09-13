@@ -61,9 +61,20 @@ function useLocalesFromSettings(): string[] {
     if (!("data" in source) || !Array.isArray(source.data)) {
       return EMPTY;
     }
-    return (source.data as Json[]).filter(
-      (tag): tag is string => typeof tag === "string",
-    );
+    // Deduplicated, in first-declared order. A hand-edited settings module can
+    // name the same language twice — the Settings panel deliberately keeps both
+    // rows so the duplicate can be removed by position — but a language is
+    // either one of this project's or it is not, and a list that repeats one
+    // gives every picker two identical options under one React key.
+    // Validation still sees the duplicate: it reads the settings source, not
+    // this.
+    return [
+      ...new Set(
+        (source.data as Json[]).filter(
+          (tag): tag is string => typeof tag === "string",
+        ),
+      ),
+    ];
   }, [source]);
   /**
    * The same array back until the languages themselves change.

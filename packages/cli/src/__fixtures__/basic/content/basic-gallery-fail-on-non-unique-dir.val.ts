@@ -2,8 +2,8 @@ import { c, s } from "../val.config";
 
 export default c.define(
   "/content/basic-gallery-fail-on-non-unique-dir.val.ts",
-  s.images({
-    directory: "/public/val/images",
+  s.imageset({
+    dir: "/public/val/images",
     accept: "image/*",
   }),
   {

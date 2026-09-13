@@ -53,7 +53,7 @@ export async function createFilePatch(
     schema: SerializedImageSchema | SerializedFileSchema;
     remoteHost: string;
   } | null,
-  directory: string | undefined = "/public/val",
+  dir: string | undefined = "/public/val",
   /**
    * True when the field is backed by a gallery. The dimensions and mime type
    * then live in the gallery module, so the field carries only the path.
@@ -70,7 +70,7 @@ export async function createFilePatch(
     return { patch: [], filePath: "" };
   }
 
-  const filePath = `${directory}/${newFilePath}`;
+  const filePath = `${dir}/${newFilePath}`;
   const remoteFileHash = Internal.remote.hashToRemoteFileHash(fileHash);
   const ref = remote
     ? Internal.remote.createRemoteRef(remote.remoteHost, {
@@ -87,7 +87,7 @@ export async function createFilePatch(
         ),
         fileHash: remoteFileHash,
         filePath:
-          `${(directory ?? "/public/val").slice(1)}/${newFilePath}` as `public/${string}`,
+          `${(dir ?? "/public/val").slice(1)}/${newFilePath}` as `public/${string}`,
       })
     : filePath;
   return {
@@ -235,13 +235,13 @@ export function FileField({
    * Where an upload from this field is stored: the gallery it references, or
    * `createFilePatch`'s `/public/val` default.
    *
-   * Unlike `s.image()`, `FileOptions` has no `directory` — so a standalone
+   * Unlike `s.image()`, `FileOptions` has no `dir` — so a standalone
    * `s.file()` cannot choose one. Left as it is rather than added here: that is
    * an API change to `packages/core`, not a fix.
    */
   const uploadDirectory = useMemo(() => {
     return referencedModuleSchema?.type === "record"
-      ? referencedModuleSchema.directory
+      ? referencedModuleSchema.dir
       : undefined;
   }, [referencedModuleSchema]);
   if (schemaAtPath.status === "error") {

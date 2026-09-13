@@ -18,9 +18,14 @@ import { usePrefersReducedMotion } from "./canvas/usePrefersReducedMotion";
  * hole's edge. Without them the mark reads as a flat sticker; the original is
  * lit.
  *
- * Always this green, in both themes: `--colors-brand-green-400` is a fixed brand
- * value declared once outside the light/dark blocks. The mark it replaced took
- * `currentColor`, which made the logo a different colour on every surface.
+ * Always this green, in both themes: `--brand-val-green` is declared once,
+ * outside the light/dark blocks. The mark it replaced took `currentColor`,
+ * which made the logo a different colour on every surface.
+ *
+ * That token exists so this stays true when a project sets `theme.accent`,
+ * which regenerates the whole `--colors-brand-green-*` ramp. The mark used to
+ * name a step of that ramp, so it recoloured with the chrome — which was an
+ * accident, not the rule in architecture/logo.md.
  *
  * The artwork is 105x149 — much taller than wide — so a square box letterboxes
  * it to the height, which is what the rail and the round launcher both want.
@@ -136,7 +141,51 @@ export function ValLogo({
 /**
  * The one colour in the mark.
  *
- * A brand value rather than a theme token: theme tokens are the point at which
- * light and dark diverge, and this must not.
+ * A brand value rather than a theme token, in both senses of "theme": theme
+ * tokens are the point at which light and dark diverge, and the brand ramp is
+ * what a project's own accent replaces. This must not follow either.
  */
-const BRAND_GREEN = "var(--colors-brand-green-400)";
+const BRAND_GREEN = "var(--brand-val-green)";
+
+/**
+ * The project's own mark where Val's would be, or Val's when it has none.
+ *
+ * One component for the two slots that show a mark in the Studio — the top of
+ * the left rail, and beside the menu button on mobile — so that "which mark,
+ * and how is it sized" is answered once.
+ *
+ * `object-contain`, and that is the decision worth knowing about. The slot is
+ * 32px wide, so it is a slot for a MARK: a wide wordmark put in it is contained
+ * rather than cropped, which makes it small but keeps all of it. Cropping would
+ * be worse in the way that matters — a logo with its ends cut off looks like a
+ * bug in Val rather than a picture that does not fit.
+ *
+ * The blink belongs to the Val mark alone. It is a terminal cursor waiting, and
+ * an `<img>` cannot do it; a project with a logo therefore shows Val's mark
+ * blinking while the Studio loads and its own once the settings arrive, which
+ * is the same "the theme turns up with the content" the accent has.
+ */
+export function StudioMark({
+  logo,
+  className,
+  blinking,
+}: {
+  /** From `s.settings()`'s `theme.logo`, already resolved. See `ShellLogo`. */
+  logo?: { url: string; alt?: string };
+  className?: string;
+  blinking?: boolean;
+}) {
+  if (logo) {
+    return (
+      <img
+        src={logo.url}
+        // Empty rather than absent when there is no name for it: an unnamed
+        // image inside a navigation landmark is announced as an image with a
+        // URL for a name, and a decorative one is better skipped.
+        alt={logo.alt ?? ""}
+        className={cn("w-full h-full object-contain", className)}
+      />
+    );
+  }
+  return <ValLogo className={className} blinking={blinking} />;
+}

@@ -35,7 +35,7 @@ import { declaredKeySetOf, type DeclaredKeySet } from "./declaredKeys";
 type MediaOptions = {
   type: "files" | "images";
   accept: string;
-  directory: string;
+  dir: string;
   remote: boolean;
   altSchema?: Schema<SelectorSource>;
   /** Images only: how uploads are re-encoded in the browser. See `image.ts`. */
@@ -60,7 +60,7 @@ export type SerializedRecordSchema = {
   // Optional media collection marker for files/images that are backed by a record
   mediaType?: "files" | "images";
   accept?: string;
-  directory?: string;
+  dir?: string;
   remote?: boolean;
   encode?: ImageEncodeOption;
   alt?: SerializedSchema;
@@ -143,6 +143,22 @@ export class RecordSchema<
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is shown next to the field's label in the Val editor, so
+   * it is where you say what an editor needs to know but the field name cannot
+   * carry. It also travels in the serialized schema, which is what the AI
+   * assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s
+   *   .record(s.string())
+   *   .describe("Button labels, keyed by locale");
+   * export default c.define("/example.val.ts", schema, { en: "Read more" });
+   */
   describe(description: string | null): RecordSchema<T, K, Src> {
     return new RecordSchema(
       this.item,
@@ -161,6 +177,31 @@ export class RecordSchema<
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * The function is given the whole record. To validate one entry, put a
+   * `.validate(...)` on the ITEM schema instead — that reports the error on
+   * the entry's own row, and on a `.jsonValues()` record it does not force
+   * every entry to be loaded.
+   *
+   * @example
+   * const schema = s.record(s.string()).validate((val) =>
+   *   "en" in val ? false : "There has to be an 'en' entry",
+   * );
+   * export default c.define("/example.val.ts", schema, { en: "Read more" });
+   */
   validate(
     validationFunction: (src: Src) => false | string,
   ): RecordSchema<T, K, Src> {
@@ -236,9 +277,9 @@ export class RecordSchema<
           ? ("images:check-unique-folder" as const)
           : ("files:check-unique-folder" as const);
       const uniqueCheckError: ValidationError = {
-        message: `Gallery directory '${this.mediaOptions.directory}' must be unique across all galleries`,
+        message: `Gallery directory '${this.mediaOptions.dir}' must be unique across all galleries`,
         value: {
-          directory: this.mediaOptions.directory,
+          dir: this.mediaOptions.dir,
           type: this.mediaOptions.type,
         },
         fixes: [checkFix],
@@ -257,9 +298,9 @@ export class RecordSchema<
           ? ("images:check-all-files" as const)
           : ("files:check-all-files" as const);
       const allFilesCheckError: ValidationError = {
-        message: `Directory '${this.mediaOptions.directory}' may have files not tracked by this gallery`,
+        message: `Directory '${this.mediaOptions.dir}' may have files not tracked by this gallery`,
         value: {
-          directory: this.mediaOptions.directory,
+          dir: this.mediaOptions.dir,
           type: this.mediaOptions.type,
         },
         fixes: [allFilesCheckFix],
@@ -441,13 +482,13 @@ export class RecordSchema<
     if (!this.mediaOptions) {
       return false;
     }
-    const { directory, remote: isRemote, type } = this.mediaOptions;
+    const { dir, remote: isRemote, type } = this.mediaOptions;
     const mediaLabel = type === "images" ? "images" : "files";
     const checkRemoteFix =
       type === "images" ? "images:check-remote" : "files:check-remote";
 
     const isRemoteUrl = this.isRemoteUrl(key);
-    const isLocalPath = key === directory || key.startsWith(directory + "/");
+    const isLocalPath = key === dir || key.startsWith(dir + "/");
 
     if (isRemote) {
       // When remote is enabled, accept either remote URLs or local paths
@@ -467,14 +508,11 @@ export class RecordSchema<
         }
         // Check that the file path in the remote URL matches our directory constraint
         const remotePath = "/" + remoteResult.filePath;
-        if (
-          remotePath !== directory &&
-          !remotePath.startsWith(directory + "/")
-        ) {
+        if (remotePath !== dir && !remotePath.startsWith(dir + "/")) {
           return {
             [path]: [
               {
-                message: `Remote file path '${remotePath}' is not in expected directory '${directory}'. Use Val tooling to upload ${mediaLabel} to the correct directory.`,
+                message: `Remote file path '${remotePath}' is not in expected directory '${dir}'. Use Val tooling to upload ${mediaLabel} to the correct directory.`,
                 value: key,
                 fixes: [checkRemoteFix],
               },
@@ -487,7 +525,7 @@ export class RecordSchema<
         return {
           [path]: [
             {
-              message: `Expected a remote URL (https://...) or a local path starting with ${directory}/. Got: ${key}`,
+              message: `Expected a remote URL (https://...) or a local path starting with ${dir}/. Got: ${key}`,
               value: key,
             },
           ],
@@ -526,7 +564,7 @@ export class RecordSchema<
         return {
           [path]: [
             {
-              message: `File path must be within the ${directory}/ directory. Got: ${key}`,
+              message: `File path must be within the ${dir}/ directory. Got: ${key}`,
               value: key,
             },
           ],
@@ -718,6 +756,10 @@ export class RecordSchema<
    * must come BEFORE `.external()`: afterwards the value is a `Schema`, and
    * there is no `.readonly()` left to call — which is the error the compiler
    * gives, and a clearer one than a runtime throw.
+   *
+   * @example
+   * const schema = s.record(s.string()).readonly();
+   * export default c.define("/example.val.ts", schema, { en: "Read more" });
    */
   readonly<B extends boolean = true>(
     isReadonly: B = true as B,
@@ -757,6 +799,23 @@ export class RecordSchema<
     );
   }
 
+  /**
+   * Turn this record into a page router: its keys are route paths of your
+   * application, and they are validated against the router's conventions.
+   *
+   * `s.router(router, item)` builds the same thing in one call and is what
+   * most code should use — this is for adding a router to a record that
+   * already exists.
+   *
+   * @example
+   * import { nextAppRouter } from "../val.config";
+   * const schema = s
+   *   .record(s.object({ title: s.string() }))
+   *   .router(nextAppRouter);
+   * export default c.define("/app/[slug]/page.val.ts", schema, {
+   *   "/a-page-slug": { title: "First Page" },
+   * });
+   */
   router(router: ValRouter): RecordSchema<T, K, Src> {
     return new RecordSchema(
       this.item,
@@ -775,6 +834,30 @@ export class RecordSchema<
     );
   }
 
+  /**
+   * Allow the files in this gallery to be stored on Val's remote content host
+   * instead of in your repository.
+   *
+   * For `s.imageset()` and `s.fileset()`, which are records of media. Remote is off
+   * until this is called.
+   *
+   * Each entry is then keyed by its URL on the content host rather than by a
+   * path under `/public`. That key is not something to write by hand: upload
+   * in the Studio, or add a local path and let `npx val validate --fix`
+   * upload it and rewrite the key.
+   *
+   * @example
+   * const schema = s.imageset({ dir: "/public/val/images" }).remote();
+   * export default c.define("/content/images.val.ts", schema, {
+   *   "https://remote.val.build/file/p/my-project/b/01/v/1.0.0/h/8f2a1c/f/3b9d70/p/public/val/images/hero.webp":
+   *     {
+   *       width: 1920,
+   *       height: 1080,
+   *       mimeType: "image/webp",
+   *       alt: "Hero image",
+   *     },
+   * });
+   */
   remote(): RecordSchema<T, K, Src> {
     return new RecordSchema(
       this.item,
@@ -800,17 +883,31 @@ export class RecordSchema<
    * which lets the runtime, the Studio and validation work one entry at a time
    * so a record/router can scale to many thousands of entries.
    *
-   * Not supported on image/file galleries (`s.images()` / `s.files()`).
+   * Not supported on image/file galleries (`s.imageset()` / `s.fileset()`).
    *
    * Only supported on a module's ROOT record/router — a `.jsonValues()` record
    * nested inside an object/array/record is rejected at startup with a module
    * error, because the single-entry fetch endpoint, the Studio's content
    * substitution and content validation are all root-only.
+   *
+   * Must come BEFORE `.validate()` and `.preview()`: those are typed against
+   * the un-lazy source shape, so a validator or preview declared first cannot
+   * be carried over, and declaring one first throws rather than silently
+   * dropping it.
+   *
+   * @example
+   * import { nextAppRouter } from "../val.config";
+   * const schema = s
+   *   .router(nextAppRouter, s.object({ title: s.string(), body: s.string() }))
+   *   .jsonValues();
+   * export default c.define("/app/support/[slug]/page.val.ts", schema, {
+   *   "/support/faq": c.json(() => import("./content/faq.val.json")),
+   * });
    */
   jsonValues(): RecordSchema<T, K, JsonValuesRecordSrc<T, K>> {
     if (this.mediaOptions) {
       throw new Error(
-        ".jsonValues() cannot be used with image/file galleries (s.images()/s.files())",
+        ".jsonValues() cannot be used with image/file galleries (s.imageset()/s.fileset())",
       );
     }
     if (this.customValidateFunctions.length > 0) {
@@ -856,7 +953,7 @@ export class RecordSchema<
    * bucket — instead of in the module.
    *
    * Available on every record-derived schema, which is `s.record()`,
-   * `s.router()`, `s.images()` and `s.files()` alike: a router is a
+   * `s.router()`, `s.imageset()` and `s.fileset()` alike: a router is a
    * `RecordSchema` with a `ValRouter`, a gallery one with media options, so all
    * four get external storage from this one method.
    *
@@ -869,6 +966,19 @@ export class RecordSchema<
    * nested external record would leave a hole in the middle of a module's
    * source, and the Studio, patching and validation all assume a module's
    * source is complete apart from its entries.
+   *
+   * @example
+   * const schema = s.record(s.object({ title: s.string() })).external("posts");
+   * export default c.define("/content/posts.val.ts", schema, c.external());
+   *
+   * @example
+   * // A read-only external record: `.readonly()` must come FIRST, because
+   * // afterwards there is no `.readonly()` left on the type to call.
+   * const schema = s
+   *   .record(s.object({ title: s.string() }))
+   *   .readonly()
+   *   .external("posts");
+   * export default c.define("/content/posts.val.ts", schema, c.external());
    */
   external<L extends string>(
     label: L,
@@ -1050,7 +1160,7 @@ export class RecordSchema<
     if (this.mediaOptions) {
       result.mediaType = this.mediaOptions.type;
       result.accept = this.mediaOptions.accept;
-      result.directory = this.mediaOptions.directory;
+      result.dir = this.mediaOptions.dir;
       result.remote = this.mediaOptions.remote;
       if (this.mediaOptions.encode !== undefined) {
         result.encode = this.mediaOptions.encode;
@@ -1179,6 +1289,25 @@ export class RecordSchema<
    * is the item of another container, in search, in references. What its
    * entries show is the ITEM schema's `preview`, not this. Never how the field
    * is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * // The preview of the RECORD, for where it is an item of something else.
+   * // What its own rows show is the ITEM schema's preview — see below.
+   * const labels = s.record(s.string()).preview(({ val }) => ({
+   *   title: `${Object.keys(val).length} locales`,
+   * }));
+   * export default c.define("/example.val.ts", s.array(labels), [
+   *   { en: "Read more" },
+   * ]);
+   *
+   * @example
+   * // Rows of a record come from the ITEM's preview, not the record's:
+   * const author = s
+   *   .object({ name: s.string(), role: s.string() })
+   *   .preview(({ val }) => ({ title: val.name, subtitle: val.role }));
+   * export default c.define("/example.val.ts", s.record(author), {
+   *   ada: { name: "Ada", role: "Engineer" },
+   * });
    */
   preview(select: ItemPreviewInput<Src>): RecordSchema<T, K, Src> {
     return new RecordSchema(
@@ -1204,6 +1333,10 @@ export class RecordSchema<
    * instead of a preview row that navigates to it.
    *
    * Static configuration, not a callback — see `render.ts`.
+   *
+   * @example
+   * const schema = s.array(s.record(s.string()).render({ as: "inline" }));
+   * export default c.define("/example.val.ts", schema, [{ en: "Read more" }]);
    */
   render(input: FieldRender): RecordSchema<T, K, Src> {
     return new RecordSchema(

@@ -269,7 +269,7 @@ function hiddenKinds(schema: SerializedSchema | undefined): Set<ReferenceKind> {
       case "record":
         go(at.item);
         return;
-      case "union":
+      case "discriminated-union":
         for (const item of at.items) go(item);
         return;
       default:
@@ -375,7 +375,7 @@ function collectReferences(
       }
       return;
     }
-    case "union": {
+    case "discriminated-union": {
       // The variant is not resolved here: a union's variants are structurally
       // distinct, so a key that exists in the source belongs to at most one of
       // them, and walking all of them finds it without needing the discriminant.

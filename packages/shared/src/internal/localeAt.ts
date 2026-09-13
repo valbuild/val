@@ -5,7 +5,7 @@ import {
   type JsonObject,
   type SerializedSchema,
   type SourcePath,
-  unionBranchOf,
+  discriminatedUnionBranchOf,
 } from "@valbuild/core";
 import {
   declaredLocales,
@@ -110,10 +110,11 @@ function walk(
 /**
  * Arrive at a node: resolve what it really is, and read the scope it opens.
  *
- * A union is a fork rather than a level — the branch the value takes IS the
- * node — so it is resolved here, before anything asks what the node holds.
- * Doing that on arrival rather than on the way down is the difference between
- * a block's own path answering with its language and answering with nothing.
+ * A discriminated union is a fork rather than a level — the variant the value
+ * takes IS the node — so it is resolved here, before anything asks what the
+ * node holds. Doing that on arrival rather than on the way down is the
+ * difference between a block's own path answering with its language and
+ * answering with nothing.
  */
 function enter(
   schema: SerializedSchema | undefined,
@@ -121,7 +122,9 @@ function enter(
   available: string[],
 ): { schema: SerializedSchema | undefined; locale: string | null } {
   const resolved =
-    schema?.type === "union" ? branchOfUnion(schema, source) : schema;
+    schema?.type === "discriminated-union"
+      ? variantOfUnion(schema, source)
+      : schema;
   return {
     schema: resolved,
     locale:
@@ -162,22 +165,21 @@ function localeOfObjectField(
 }
 
 /**
- * The union branch a value takes, or `undefined` if the tag matches none.
+ * The variant a value takes, or `undefined` if the tag matches none.
  *
- * The tag is read off the source here; picking the branch is
- * {@link unionBranchOf}, shared with the Studio's locale filter so the two
- * cannot disagree about which branch a row is.
+ * The tag is read off the source here; picking the variant is
+ * {@link discriminatedUnionBranchOf}, shared with the Studio's locale filter so
+ * the two cannot disagree about which variant a row is. `s.enum()` never
+ * reaches this — it is a leaf, with nothing under it to walk into.
  */
-function branchOfUnion(
-  schema: SerializedSchema & { type: "union" },
+function variantOfUnion(
+  schema: SerializedSchema & { type: "discriminated-union" },
   source: Json,
 ): SerializedSchema | undefined {
-  const key = schema.key;
-  if (typeof key !== "string" || !isJsonObject(source)) {
-    // A string union is a leaf: there is nothing under it to walk into.
+  if (!isJsonObject(source)) {
     return undefined;
   }
-  return unionBranchOf(schema, source[key]);
+  return discriminatedUnionBranchOf(schema, source[schema.key]);
 }
 
 /** The child of a source value at a segment, or `null` where there is none. */

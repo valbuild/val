@@ -39,6 +39,20 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is shown next to the field's label in the Val editor, so
+   * it is where you say what an editor needs to know but the field name cannot
+   * carry. It also travels in the serialized schema, which is what the AI
+   * assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s.boolean().describe("Show this item in the main menu");
+   * export default c.define("/example.val.ts", schema, true);
+   */
   describe(description: string | null): BooleanSchema<Src> {
     return new BooleanSchema(
       this.opt,
@@ -51,6 +65,26 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * @example
+   * const schema = s.boolean().validate((val) =>
+   *   val === true ? false : "This has to be on for now",
+   * );
+   * export default c.define("/example.val.ts", schema, true);
+   */
   validate(
     validationFunction: (src: Src) => false | string,
   ): BooleanSchema<Src> {
@@ -124,7 +158,7 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
   nullable(): BooleanSchema<Src | null> {
     return new BooleanSchema<Src | null>(
       true,
-      [],
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.isReadonly,
       this.isHidden,
       this.description,
@@ -174,6 +208,10 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
    * instead of a preview row that navigates to it.
    *
    * Static configuration, not a callback — see `render.ts`.
+   *
+   * @example
+   * const schema = s.array(s.boolean().render({ as: "inline" }));
+   * export default c.define("/example.val.ts", schema, [true, false]);
    */
   render(input: FieldRender): BooleanSchema<Src> {
     return new BooleanSchema(
@@ -191,6 +229,12 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
    * How this VALUE is shown where a preview of it is needed — a row in a
    * sortable list, a reference dropdown, a search hit. Never how the field
    * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * const schema = s.array(
+   *   s.boolean().preview(({ val }) => ({ title: val ? "On" : "Off" })),
+   * );
+   * export default c.define("/example.val.ts", schema, [true, false]);
    */
   preview(select: ItemPreviewInput<Src>): BooleanSchema<Src> {
     return new BooleanSchema(

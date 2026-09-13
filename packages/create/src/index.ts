@@ -6,6 +6,7 @@ import { confirm, input, select } from "@inquirer/prompts";
 import chalk from "chalk";
 import { applyFeatures, type Features } from "./features";
 import { parseFeatureFlags, reconcile } from "./featureFlags";
+import { pruneTemplateRepoFiles } from "./templateRepoFiles";
 import {
   DEFAULT_FRAMEWORK,
   dropUnsupportedFeatures,
@@ -476,6 +477,9 @@ async function main() {
     // and not something to download and then throw away.
     applyFeatures(projectPath, features);
     pruneForeignLockFiles(projectPath, packageManager);
+    // The template's own CI, which is about the template rather than about
+    // anything in this new project. See `templateRepoFiles.ts`.
+    pruneTemplateRepoFiles(projectPath);
 
     // Change to project directory and install dependencies
     process.stdout.write(

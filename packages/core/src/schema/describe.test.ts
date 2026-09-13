@@ -13,7 +13,8 @@ import { record } from "./record";
 import { richtext } from "./richtext";
 import { route } from "./route";
 import { string } from "./string";
-import { union } from "./union";
+import { discriminatedUnion } from "./discriminatedUnion";
+import { enumSchema } from "./enum";
 
 describe("Schema.describe()", () => {
   test("string: describe is serialized", () => {
@@ -346,21 +347,31 @@ describe("Schema.describe() survives serialize → deserialize round-trip", () =
     });
   });
 
-  test("union (and nested member description)", () => {
+  test("enum", () => {
+    const serialized = roundTrip(enumSchema("a", "b").describe("Either"));
+    expect(serialized).toMatchObject({ type: "enum", description: "Either" });
+    // An enum's values are strings, so there is no member to describe.
+    expect((serialized as { values: unknown }).values).toEqual(["a", "b"]);
+  });
+
+  test("discriminated union (and nested variant description)", () => {
     const serialized = roundTrip(
-      union(
-        literal("a").describe("First"),
-        literal("b").describe("Second"),
+      discriminatedUnion(
+        "type",
+        object({ type: literal("a") }).describe("First"),
+        object({ type: literal("b") }).describe("Second"),
       ).describe("Either"),
     );
-    expect(serialized).toMatchObject({ type: "union", description: "Either" });
-    // The first literal becomes the union `key`; the rest land in `items`.
-    expect((serialized as { key: unknown }).key).toMatchObject({
-      type: "literal",
-      description: "First",
+    expect(serialized).toMatchObject({
+      type: "discriminated-union",
+      description: "Either",
     });
     expect((serialized as { items: unknown[] }).items[0]).toMatchObject({
-      type: "literal",
+      type: "object",
+      description: "First",
+    });
+    expect((serialized as { items: unknown[] }).items[1]).toMatchObject({
+      type: "object",
       description: "Second",
     });
   });

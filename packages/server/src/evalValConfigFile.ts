@@ -4,7 +4,7 @@ import vm from "node:vm";
 import ts from "typescript"; // TODO: make this dependency optional (only required if the file is val.config.ts not val.config.js)
 import z from "zod";
 import { ValConfig } from "@valbuild/core";
-import { createRequire } from "node:module";
+import { createNodeRequire } from "./createNodeRequire";
 
 /**
  * NOTE: this is intentionally NOT `SharedValConfig` from `@valbuild/shared`.
@@ -104,7 +104,7 @@ export async function evalValConfigFile(
     fileName: valConfigPath,
   });
 
-  const projectRootRequire = createRequire(valConfigPath);
+  const projectRootRequire = createNodeRequire(valConfigPath);
   const exportsObj = {};
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sandbox: Record<string, any> = {

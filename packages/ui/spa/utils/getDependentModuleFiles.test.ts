@@ -37,7 +37,7 @@ describe("getDependentModuleFiles", () => {
     ).toStrictEqual([getModuleFilePath(module2)]);
   });
 
-  test("union", () => {
+  test("discriminated union", () => {
     const { c, s } = initVal();
     const module1 = c.define(
       "/module1.val.ts",
@@ -76,7 +76,7 @@ describe("getDependentModuleFiles", () => {
       "/module4.val.ts",
       s.array(
         s.object({
-          value: s.union(
+          value: s.discriminatedUnion(
             "type",
             s.object({
               type: s.literal("type1"),

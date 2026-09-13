@@ -2,7 +2,7 @@
  * Types for the media field designs.
  *
  * These mirror what Val actually stores, which is the whole point of the
- * exercise: `s.image()` keeps its metadata on the field, `s.images()` keeps
+ * exercise: `s.image()` keeps its metadata on the field, `s.imageset()` keeps
  * a record of entries keyed by file path, and `s.image(collection)` is a
  * field that points into one of those records. A design that does not know
  * which of the three it is showing will get the alt text wrong.
@@ -18,7 +18,7 @@ export type MediaFieldSource =
    */
   | { kind: "collection"; name: string; moduleFilePath: string };
 
-/** One image, as `s.images()` stores it plus what the file itself tells us. */
+/** One image, as `s.imageset()` stores it plus what the file itself tells us. */
 export type ImageEntry = {
   kind: "image";
   /** The `_ref`, e.g. "/public/val/images/hero_a1b2c.jpg". */
@@ -36,7 +36,7 @@ export type ImageEntry = {
   hotspot?: { x: number; y: number };
 };
 
-/** One non-image file. `s.files()` stores only the mime type. */
+/** One non-image file. `s.fileset()` stores only the mime type. */
 export type FileEntry = {
   kind: "file";
   ref: string;

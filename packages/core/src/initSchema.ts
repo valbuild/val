@@ -5,13 +5,15 @@ import { object } from "./schema/object";
 import { string } from "./schema/string";
 import { boolean } from "./schema/boolean";
 import { union } from "./schema/union";
+import { discriminatedUnion } from "./schema/discriminatedUnion";
+import { enumSchema } from "./schema/enum";
 import { richtext } from "./schema/richtext";
 import { image } from "./schema/image";
 import { literal } from "./schema/literal";
 import { keyOf } from "./schema/keyOf";
 import { record } from "./schema/record";
 import { file } from "./schema/file";
-import { files } from "./schema/files";
+import { fileset } from "./schema/fileset";
 import { date } from "./schema/date";
 import { datetime } from "./schema/datetime";
 import { code } from "./schema/code";
@@ -19,7 +21,7 @@ import { color } from "./schema/color";
 import { locale } from "./schema/locale";
 import { route } from "./schema/route";
 import { router } from "./schema/router";
-import { images } from "./schema/images";
+import { imageset } from "./schema/imageset";
 import { settings } from "./schema/settings";
 // import { i18n, I18n } from "./schema/future/i18n";
 // import { oneOf } from "./schema/future/oneOf";
@@ -72,24 +74,49 @@ export type InitSchema = {
    */
   readonly number: typeof number;
   /**
-   * Define a union.
+   * Define one of several object shapes, told apart by a tag field.
    *
-   * @example // union of string literals
-   * const schema = s.union(s.literal("test"), s.literal("test2"));
-   * export default c.define("/example.val.ts", schema, "test");
+   * The first argument names the field that carries the tag; every object must
+   * set it to a distinct `s.literal(...)`. The editor shows a dropdown of the
+   * tags and the fields of whichever one is selected.
    *
-   * @example // union of string literals
-   * const schema = s.union("type", s.object({
-   *   type: s.literal("test"),
-   *   value: s.string()
-   * }), s.object({
-   *   type: s.literal("test2"),
-   *   value: s.string()
-   * }));
+   * @example
+   * const schema = s.discriminatedUnion("type",
+   *   s.object({ type: s.literal("text"), value: s.string() }),
+   *   s.object({ type: s.literal("image"), value: s.image() }),
+   * );
    * export default c.define("/example.val.ts", schema, {
-   *   type: "test",
+   *   type: "text",
    *   value: "test"
    * });
+   *
+   */
+  readonly discriminatedUnion: typeof discriminatedUnion;
+  /**
+   * Define a string that must be one of a fixed set of values.
+   *
+   * The editor shows a dropdown of the values, in the order they are given.
+   *
+   * @example
+   * const schema = s.enum("primary", "secondary", "ghost");
+   * export default c.define("/example.val.ts", schema, "primary");
+   *
+   */
+  readonly enum: typeof enumSchema;
+  /**
+   * Define a union.
+   *
+   * @deprecated Use `s.discriminatedUnion` for a tagged union of objects, or
+   * `s.enum` for one of a fixed set of strings.
+   *
+   * @example // was: a union of string literals
+   * const schema = s.enum("test", "test2");
+   *
+   * @example // was: a tagged union of objects
+   * const schema = s.discriminatedUnion("type",
+   *   s.object({ type: s.literal("test"), value: s.string() }),
+   *   s.object({ type: s.literal("test2"), value: s.string() }),
+   * );
    *
    */
   readonly union: typeof union;
@@ -97,7 +124,8 @@ export type InitSchema = {
    * Define a rich text.
    *
    * @example
-   * const schema = s.richtext();
+   * // Every tag and style is off until the options ask for it.
+   * const schema = s.richtext({ h1: true, bold: true });
    * export default c.define("/example.val.ts", schema, [
    *   { tag: "h1", children: ["Title 1"] },
    * ]);
@@ -124,6 +152,7 @@ export type InitSchema = {
    *
    * @example
    * // Backed by a gallery: width, height and mimeType live there.
+   * import galleryVal from "./gallery.val"; // an s.imageset() module
    * const schema = s.image(galleryVal);
    * export default c.define("/example.val.ts", schema, {
    *   path: "/public/val/example.png",
@@ -241,6 +270,7 @@ export type InitSchema = {
    * export default c.define("/example.val.ts", schema, "/a-page-slug");
    * ```
    */
+  readonly route: typeof route;
   /**
    * Define one of the project's languages.
    *
@@ -255,7 +285,6 @@ export type InitSchema = {
    * const schema = s.record(s.locale(), s.object({ title: s.string() }));
    */
   readonly locale: typeof locale;
-  readonly route: typeof route;
   /**
    * Create a page router.
    * Each key is the path of the page.
@@ -286,9 +315,9 @@ export type InitSchema = {
    *
    * @example
    * ```typescript
-   * const schema = s.images({
+   * const schema = s.imageset({
    *   accept: "image/webp",
-   *   directory: "/public/val/images",
+   *   dir: "/public/val/images",
    *   alt: s.string().minLength(4),
    * });
    * export default c.define("/content/images.val.ts", schema, {
@@ -301,15 +330,15 @@ export type InitSchema = {
    * });
    * ```
    */
-  readonly images: typeof images;
+  readonly imageset: typeof imageset;
   /**
    * Define a collection of files.
    *
    * @example
    * ```typescript
-   * const schema = s.files({
+   * const schema = s.fileset({
    *   accept: "application/pdf",
-   *   directory: "/public/val/documents",
+   *   dir: "/public/val/documents",
    * });
    * export default c.define("/content/documents.val.ts", schema, {
    *   "/public/val/documents/report.pdf": {
@@ -318,7 +347,7 @@ export type InitSchema = {
    * });
    * ```
    */
-  readonly files: typeof files;
+  readonly fileset: typeof fileset;
   /**
    * Define the project's settings.
    *
@@ -356,6 +385,8 @@ export function initSchema() {
     array,
     object,
     number,
+    discriminatedUnion,
+    enum: enumSchema,
     union,
     // oneOf,
     richtext,
@@ -364,7 +395,7 @@ export function initSchema() {
     keyOf,
     record,
     file,
-    files,
+    fileset,
     date,
     datetime,
     color,
@@ -372,7 +403,7 @@ export function initSchema() {
     locale,
     route,
     router,
-    images,
+    imageset,
     settings,
     // i18n: i18n(locales),
   };

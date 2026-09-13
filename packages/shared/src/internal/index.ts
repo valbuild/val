@@ -42,3 +42,8 @@ export * from "./search/searchIndex";
 export * from "./search/traverseSchemaSource";
 export * from "./search/getFilenameFromRef";
 export * from "./search/sourcePath";
+// The Studio's chrome, generated from `s.settings()`'s `theme.accent`. Shared
+// rather than in @valbuild/ui because the contrast guarantee is data, not code:
+// `BRAND_CONTRAST_PAIRS` is run both over generated ramps here and over the
+// ramp resolved out of the real index.css by the UI's own contrast test.
+export * from "./theme/accentRamp";

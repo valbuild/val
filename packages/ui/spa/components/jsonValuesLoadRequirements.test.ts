@@ -128,7 +128,7 @@ describe("jsonValuesLoadRequirements", () => {
         PAGES,
         s
           .record(
-            s.union(
+            s.discriminatedUnion(
               "type",
               s.object({ type: s.literal("plain"), text: s.string() }),
               s.object({ type: s.literal("ref"), author: s.keyOf(authors) }),
@@ -212,11 +212,7 @@ describe("jsonValuesLoadRequirements", () => {
   });
 
   test("file refs match the referenced gallery module", () => {
-    const gallery = c.define(
-      GALLERY,
-      s.images({ directory: "/public/val" }),
-      {},
-    );
+    const gallery = c.define(GALLERY, s.imageset({ dir: "/public/val" }), {});
     const schemas = getSchemas([
       gallery,
       c.define(

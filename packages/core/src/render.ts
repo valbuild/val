@@ -60,10 +60,11 @@ export type FieldRender = InlineRender;
  * question, and a disagreement between them is a row you can edit in place but
  * that "add" navigates away from.
  *
- * A tagged union counts as inline when the union itself declares it OR when
- * ANY of its variants does. A page-builder list is `s.array(s.union("type",
- * block, block, ...))` and the natural place to write the render is on the
- * blocks, one per block type — the union is a dispatch, not something the
+ * A discriminated union counts as inline when the union itself declares it OR
+ * when ANY of its variants does. A page-builder list is
+ * `s.array(s.discriminatedUnion("type", block, block, ...))` and the natural
+ * place to write the render is on the blocks, one per block type — the union
+ * is a dispatch, not something the
  * author thinks of as the field. `some` rather than `every` because the row
  * draws the union's own editor (the tag selector plus the matched variant's
  * fields), which handles every variant either way: with `every`, adding one
@@ -79,7 +80,7 @@ export function isInlineRender(schema: SerializedSchema): boolean {
   if (schema.render?.as === "inline") {
     return true;
   }
-  if (schema.type === "union") {
+  if (schema.type === "discriminated-union") {
     return schema.items.some((item) => item.render?.as === "inline");
   }
   return false;
