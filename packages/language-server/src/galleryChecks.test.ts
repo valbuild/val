@@ -11,12 +11,12 @@ const GALLERY_PATH = "/content/gallery.val.ts?p=" as SourcePath;
 const uniqueFolder: ValidationError = {
   message:
     "Gallery directory '/public/img' must be unique across all galleries",
-  value: { directory: "/public/img", type: "images" },
+  value: { dir: "/public/img", type: "images" },
   fixes: ["images:check-unique-folder"],
 };
 const allFiles: ValidationError = {
   message: "Directory '/public/img' may have files not tracked by this gallery",
-  value: { directory: "/public/img", type: "images" },
+  value: { dir: "/public/img", type: "images" },
   fixes: ["images:check-all-files"],
 };
 

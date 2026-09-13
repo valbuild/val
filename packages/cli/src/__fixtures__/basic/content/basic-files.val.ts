@@ -2,8 +2,8 @@ import { c, s } from "../val.config";
 
 export default c.define(
   "/content/basic-files.val.ts",
-  s.files({
-    directory: "/public/val/files",
+  s.fileset({
+    dir: "/public/val/files",
     accept: "*/*",
   }),
   {

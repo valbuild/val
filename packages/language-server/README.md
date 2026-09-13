@@ -154,7 +154,7 @@ shape, or changed semantics an older client would misread.
 | `fix/download-remote`      | Download a remote file back into the project.                                                                                                                                |
 | `login`                    | The `val.login` command (device flow; writes `.val/pat.json`, the same file the CLI uses).                                                                                   |
 | `completions/mediaPath`    | The `path` of an image or file, with `width`/`height`/`mimeType` filled in on accept.                                                                                        |
-| `completions/galleryKey`   | Keys of an `s.images()` / `s.files()` collection.                                                                                                                            |
+| `completions/galleryKey`   | Keys of an `s.imageset()` / `s.fileset()` collection.                                                                                                                        |
 | `completions/keyOf`        | Keys of the record or object an `s.keyOf()` field points at.                                                                                                                 |
 | `completions/route`        | Routes the project defines.                                                                                                                                                  |
 | `completions/richtextLink` | Route completion inside a richtext inline link's `href`.                                                                                                                     |

@@ -298,8 +298,8 @@ function createSchemaDrivenCompletions({
       return [];
     }
     const directory =
-      "directory" in container && typeof container.directory === "string"
-        ? container.directory
+      "dir" in container && typeof container.dir === "string"
+        ? container.dir
         : undefined;
     const galleryFiles =
       container.mediaType === "images"
@@ -404,15 +404,14 @@ function mediaPathItems({
     typeof container.referencedModule === "string"
       ? container.referencedModule
       : undefined;
-  const options = container.options as { directory?: unknown } | undefined;
-  let directory =
-    typeof options?.directory === "string" ? options.directory : undefined;
+  const options = container.options as { dir?: unknown } | undefined;
+  let directory = typeof options?.dir === "string" ? options.dir : undefined;
   if (directory === undefined && referencedModule) {
     const gallery = snapshot.schemas[referencedModule as never] as
-      | { type?: string; directory?: unknown }
+      | { type?: string; dir?: unknown }
       | undefined;
-    if (gallery?.type === "record" && typeof gallery.directory === "string") {
-      directory = gallery.directory;
+    if (gallery?.type === "record" && typeof gallery.dir === "string") {
+      directory = gallery.dir;
     }
   }
   const candidates =

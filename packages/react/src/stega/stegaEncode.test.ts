@@ -634,7 +634,7 @@ describe("media is resolved from the schema, not from the value", () => {
   test("a gallery-backed image gets its dimensions and alt from the gallery", () => {
     const gallery = c.define(
       "/gallery.val.ts",
-      s.images({ directory: "/public/img" }),
+      s.imageset({ dir: "/public/img" }),
       {
         "/public/img/hero.png": {
           width: 8,
@@ -663,7 +663,7 @@ describe("media is resolved from the schema, not from the value", () => {
   test("a per-image alt beats the gallery's", () => {
     const gallery = c.define(
       "/gallery2.val.ts",
-      s.images({ directory: "/public/img" }),
+      s.imageset({ dir: "/public/img" }),
       {
         "/public/img/hero.png": {
           width: 8,

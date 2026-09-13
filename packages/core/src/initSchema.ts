@@ -13,7 +13,7 @@ import { literal } from "./schema/literal";
 import { keyOf } from "./schema/keyOf";
 import { record } from "./schema/record";
 import { file } from "./schema/file";
-import { files } from "./schema/files";
+import { fileset } from "./schema/fileset";
 import { date } from "./schema/date";
 import { datetime } from "./schema/datetime";
 import { code } from "./schema/code";
@@ -21,7 +21,7 @@ import { color } from "./schema/color";
 import { locale } from "./schema/locale";
 import { route } from "./schema/route";
 import { router } from "./schema/router";
-import { images } from "./schema/images";
+import { imageset } from "./schema/imageset";
 import { settings } from "./schema/settings";
 // import { i18n, I18n } from "./schema/future/i18n";
 // import { oneOf } from "./schema/future/oneOf";
@@ -152,7 +152,7 @@ export type InitSchema = {
    *
    * @example
    * // Backed by a gallery: width, height and mimeType live there.
-   * import galleryVal from "./gallery.val"; // an s.images() module
+   * import galleryVal from "./gallery.val"; // an s.imageset() module
    * const schema = s.image(galleryVal);
    * export default c.define("/example.val.ts", schema, {
    *   path: "/public/val/example.png",
@@ -315,9 +315,9 @@ export type InitSchema = {
    *
    * @example
    * ```typescript
-   * const schema = s.images({
+   * const schema = s.imageset({
    *   accept: "image/webp",
-   *   directory: "/public/val/images",
+   *   dir: "/public/val/images",
    *   alt: s.string().minLength(4),
    * });
    * export default c.define("/content/images.val.ts", schema, {
@@ -330,15 +330,15 @@ export type InitSchema = {
    * });
    * ```
    */
-  readonly images: typeof images;
+  readonly imageset: typeof imageset;
   /**
    * Define a collection of files.
    *
    * @example
    * ```typescript
-   * const schema = s.files({
+   * const schema = s.fileset({
    *   accept: "application/pdf",
-   *   directory: "/public/val/documents",
+   *   dir: "/public/val/documents",
    * });
    * export default c.define("/content/documents.val.ts", schema, {
    *   "/public/val/documents/report.pdf": {
@@ -347,7 +347,7 @@ export type InitSchema = {
    * });
    * ```
    */
-  readonly files: typeof files;
+  readonly fileset: typeof fileset;
   /**
    * Define the project's settings.
    *
@@ -395,7 +395,7 @@ export function initSchema() {
     keyOf,
     record,
     file,
-    files,
+    fileset,
     date,
     datetime,
     color,
@@ -403,7 +403,7 @@ export function initSchema() {
     locale,
     route,
     router,
-    images,
+    imageset,
     settings,
     // i18n: i18n(locales),
   };

@@ -6,9 +6,9 @@ import { c, s } from "../val.config";
  * Four shapes, because they are four different code paths and each has had its
  * own bugs:
  *
- * - `s.images()` with a directory that is NOT the default, which is where the
- *   ref is built from `schema.directory` rather than from `/public/val`,
- * - `s.files()`, which goes through the same gallery with `imageMode` off,
+ * - `s.imageset()` with a directory that is NOT the default, which is where the
+ *   ref is built from `schema.dir` rather than from `/public/val`,
+ * - `s.fileset()`, which goes through the same gallery with `imageMode` off,
  * - a single `s.image()` field, which builds its patch in `FileField` instead,
  * - a single `s.file()` field, the same path with a different subtype.
  *
@@ -23,10 +23,10 @@ import { c, s } from "../val.config";
  */
 export default c.define(
   "/content/mediaFixtures.val.ts",
-  s.images({
+  s.imageset({
     // Deliberately not `/public/val`: a gallery that stores somewhere else is
     // the case the default silently swallows.
-    directory: "/public/test/subdir",
+    dir: "/public/test/subdir",
   }),
   {
     "/public/test/subdir/red-8x8_bfbd0.png": {

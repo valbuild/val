@@ -220,11 +220,11 @@ export const mockExternalPages: ShellExternalPage[] = [
  */
 function galleryFiles(
   moduleFilePath: string,
-  directory: string,
+  dir: string,
   names: string[],
 ): ShellMediaFile[] {
   return names.map((name) => {
-    const ref = `${directory}/${name}`;
+    const ref = `${dir}/${name}`;
     return { ref, sourcePath: `${moduleFilePath}?p=${JSON.stringify(ref)}` };
   });
 }
@@ -256,7 +256,7 @@ export const mockMedia: ShellMediaGallery[] = [
   {
     id: "/content/media.val.ts",
     name: "images",
-    directory: "/public/val/images",
+    dir: "/public/val/images",
     moduleFilePath: "/content/media.val.ts",
     itemCount: IMAGE_NAMES.length,
     mediaType: "images",
@@ -269,7 +269,7 @@ export const mockMedia: ShellMediaGallery[] = [
   {
     id: "/content/illustrations.val.ts",
     name: "illustrations",
-    directory: "/public/val/illustrations",
+    dir: "/public/val/illustrations",
     moduleFilePath: "/content/illustrations.val.ts",
     itemCount: 3,
     mediaType: "images",
@@ -282,7 +282,7 @@ export const mockMedia: ShellMediaGallery[] = [
   {
     id: "/content/people.val.ts",
     name: "people",
-    directory: "/public/val/people",
+    dir: "/public/val/people",
     moduleFilePath: "/content/people.val.ts",
     itemCount: 0,
     mediaType: "images",
@@ -293,7 +293,7 @@ export const mockMedia: ShellMediaGallery[] = [
   {
     id: "/content/documents.val.ts",
     name: "docs",
-    directory: "/public/val/docs",
+    dir: "/public/val/docs",
     moduleFilePath: "/content/documents.val.ts",
     itemCount: 4,
     mediaType: "files",

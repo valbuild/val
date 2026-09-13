@@ -2,8 +2,8 @@ import { c, s } from "../val.config";
 
 export default c.define(
   "/content/basic-gallery-2.val.ts",
-  s.images({
-    directory: "/public/val/images2",
+  s.imageset({
+    dir: "/public/val/images2",
     accept: "image/*",
   }),
   {

@@ -156,7 +156,7 @@ export function writeTools(): ValToolImpl[] {
           "Remove one image from an image gallery module by its file path. This deletes the entry and the file it refers to.",
         inputSchema: z.object({
           moduleFilePath: ModuleFilePathSchema.describe(
-            "The gallery module, i.e. one declared with s.images() or s.files().",
+            "The gallery module, i.e. one declared with s.imageset() or s.fileset().",
           ),
           filePath: z
             .string()

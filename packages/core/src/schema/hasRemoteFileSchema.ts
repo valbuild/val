@@ -6,7 +6,7 @@ import type { SerializedSchema } from "./index";
  * The one answer to that question. There used to be two — `hasRemoteFileSchema`
  * in the server, gating whether `/save` demands remote credentials, and
  * `findRequiredRemoteFiles` in the Studio, gating the `/remote/settings` fetch —
- * and they disagreed about `s.images({ ... }).remote()`: the Studio's version
+ * and they disagreed about `s.imageset({ ... }).remote()`: the Studio's version
  * counted a remote media record, the server's did not, because a media
  * collection serializes as a `record` of metadata rather than as an image
  * schema.
@@ -45,7 +45,7 @@ export function hasRemoteFileSchema(schema: SerializedSchema): boolean {
     return hasRemoteFileSchema(schema.item);
   } else if (schema.type === "record") {
     /**
-     * A media collection — `s.images()` / `s.files()` — is the case both of the
+     * A media collection — `s.imageset()` / `s.fileset()` — is the case both of the
      * old functions were written around, and the one they disagreed on.
      *
      * It has no file or image schema inside it to find: `item` is an object of
@@ -108,8 +108,8 @@ export function hasRemoteFileSchema(schema: SerializedSchema): boolean {
  *
  * It is a walk over the SERIALIZED schema for the reasons given above, and for
  * one more that is specific to this question: the two cases most likely to be
- * missed are invisible to a value type. A media collection (`s.images()` /
- * `s.files()`) serializes as a record of metadata with no image schema inside
+ * missed are invisible to a value type. A media collection (`s.imageset()` /
+ * `s.fileset()`) serializes as a record of metadata with no image schema inside
  * it, and a richtext inline image lives in a constructor argument. A check
  * written against the item TYPE would silently pass both — and the gallery case
  * already has a data-loss incident attached to it (see above).

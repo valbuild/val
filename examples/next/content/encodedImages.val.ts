@@ -18,8 +18,8 @@ import { c, s } from "../val.config";
  */
 export default c.define(
   "/content/encodedImages.val.ts",
-  s.images({
-    directory: "/public/test/encoded",
+  s.imageset({
+    dir: "/public/test/encoded",
     encode: { type: "webp", maxWidth: 400, maxHeight: 400 },
   }),
   {},

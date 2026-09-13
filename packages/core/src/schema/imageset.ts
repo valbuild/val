@@ -15,9 +15,9 @@ export type AltSchema =
   | RecordSchema<StringSchema<string>, Schema<string>, Record<string, string>>;
 
 /**
- * Options for s.images()
+ * Options for s.imageset()
  */
-export type ImagesOptions<Accept extends `image/${string}`> = {
+export type ImagesetOptions<Accept extends `image/${string}`> = {
   /**
    * The accepted mime type pattern. Must be an image type (e.g., "image/png", "image/webp", "image/*")
    * @default "image/*"
@@ -32,7 +32,7 @@ export type ImagesOptions<Accept extends `image/${string}`> = {
    * gallery that had simply not said where it wanted its files silently shared a
    * directory with every other one.
    */
-  directory: "/public" | `/public/${string}`;
+  dir: "/public" | `/public/${string}`;
   /**
    * Alt text schema. Can be:
    * - s.string() for required alt text
@@ -52,7 +52,7 @@ export type ImagesOptions<Accept extends `image/${string}`> = {
 /**
  * Metadata for an image entry in the images record
  */
-export type ImagesEntryMetadata = {
+export type ImagesetEntryMetadata = {
   width: number;
   height: number;
   mimeType: string;
@@ -63,16 +63,16 @@ export type ImagesEntryMetadata = {
   };
 };
 
-export type SerializedImagesSchema = SerializedRecordSchema;
+export type SerializedImagesetSchema = SerializedRecordSchema;
 
 // Item schema types for images (alt simplified to string | null for typing)
-type ImagesItemProps = {
+type ImagesetItemProps = {
   width: NumberSchema<number>;
   height: NumberSchema<number>;
   mimeType: StringSchema<string>;
   alt: StringSchema<string | null>;
 };
-type ImagesItemSrc = {
+type ImagesetItemSrc = {
   width: number;
   height: number;
   mimeType: string;
@@ -88,9 +88,9 @@ type ImagesItemSrc = {
  *
  * @example
  * ```typescript
- * const schema = s.images({
+ * const schema = s.imageset({
  *   accept: "image/webp",
- *   directory: "/public/val/images",
+ *   dir: "/public/val/images",
  *   alt: s.string().minLength(4),
  * });
  * export default c.define("/content/images.val.ts", schema, {
@@ -103,14 +103,14 @@ type ImagesItemSrc = {
  * });
  * ```
  */
-export const images = <Accept extends `image/${string}`>(
-  options: ImagesOptions<Accept>,
+export const imageset = <Accept extends `image/${string}`>(
+  options: ImagesetOptions<Accept>,
 ): RecordSchema<
-  ObjectSchema<ImagesItemProps, ImagesItemSrc>,
+  ObjectSchema<ImagesetItemProps, ImagesetItemSrc>,
   Schema<string>,
-  Record<string, ImagesEntryMetadata>
+  Record<string, ImagesetEntryMetadata>
 > => {
-  const directory = options.directory;
+  const dir = options.dir;
   const altSchema = options.alt ?? string().nullable();
   const itemSchema = new ObjectSchema(
     {
@@ -120,11 +120,11 @@ export const images = <Accept extends `image/${string}`>(
       alt: altSchema,
     },
     false,
-  ) as ObjectSchema<ImagesItemProps, ImagesItemSrc>;
+  ) as ObjectSchema<ImagesetItemProps, ImagesetItemSrc>;
   return new RecordSchema(itemSchema, false, [], null, null, {
     type: "images",
     accept: options.accept ?? "image/*",
-    directory,
+    dir,
     remote: false,
     altSchema,
     encode: options.encode,

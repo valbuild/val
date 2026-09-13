@@ -164,9 +164,7 @@ export function RichTextField({
 
   const imageModuleDirectory = useMemo(
     () =>
-      imageModuleSchema?.type === "record"
-        ? imageModuleSchema.directory
-        : undefined,
+      imageModuleSchema?.type === "record" ? imageModuleSchema.dir : undefined,
     [imageModuleSchema],
   );
 

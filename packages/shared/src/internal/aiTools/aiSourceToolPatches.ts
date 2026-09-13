@@ -38,10 +38,10 @@ const GALLERY_REDIRECT: Extract<OpDecision, { kind: "wrong-tool" }> = {
   kind: "wrong-tool",
   suggestedTool: "add_session_image_to_gallery",
   reason:
-    "Destination is a media gallery (s.images() / s.files()). Gallery entries are keyed by file path and carry a file on disk, so they cannot be created with a plain patch. Use add_session_image_to_gallery.",
+    "Destination is a media gallery (s.imageset() / s.fileset()). Gallery entries are keyed by file path and carry a file on disk, so they cannot be created with a plain patch. Use add_session_image_to_gallery.",
 };
 
-/** An `s.images()` / `s.files()` record: a gallery, not an ordinary record. */
+/** An `s.imageset()` / `s.fileset()` record: a gallery, not an ordinary record. */
 function isGallery(schema: SerializedSchema): boolean {
   return schema.type === "record" && schema.mediaType !== undefined;
 }

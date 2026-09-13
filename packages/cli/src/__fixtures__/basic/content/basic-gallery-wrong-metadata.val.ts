@@ -2,8 +2,8 @@ import { c, s } from "../val.config";
 
 export default c.define(
   "/content/basic-gallery-wrong-metadata.val.ts",
-  s.images({
-    directory: "/public/val/images3",
+  s.imageset({
+    dir: "/public/val/images3",
     accept: "image/*",
   }),
   {

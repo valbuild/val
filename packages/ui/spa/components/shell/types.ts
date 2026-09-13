@@ -73,12 +73,12 @@ export type ShellSettings = {
   hasDraft?: boolean;
 };
 
-/** A media gallery (an `s.images()` / `s.files()` module). */
+/** A media gallery (an `s.imageset()` / `s.fileset()` module). */
 export type ShellMediaGallery = {
   id: string;
   name: string;
   /** Directory the gallery is constrained to, e.g. "/public/val/images". */
-  directory: string;
+  dir: string;
   /**
    * The gallery module itself. Selecting a gallery opens this module, which
    * is what renders the grid of files.
@@ -226,7 +226,7 @@ export type DeploymentProgress = "building" | "failed" | "settled";
  * A destination: what the left rail switches between.
  *
  * Its own type because a project does not necessarily have all of them — a site
- * with no `s.router` has no Pages, a project with no `s.images()`/`s.files()`
+ * with no `s.router` has no Pages, a project with no `s.imageset()`/`s.fileset()`
  * has no Media, a project with no `s.settings()` module has no Settings — and
  * several pieces of the shell have to agree on which are on offer: the rail,
  * the mobile switcher, the quick actions, and whichever panel a fresh session

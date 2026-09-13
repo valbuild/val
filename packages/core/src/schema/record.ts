@@ -35,7 +35,7 @@ import { declaredKeySetOf, type DeclaredKeySet } from "./declaredKeys";
 type MediaOptions = {
   type: "files" | "images";
   accept: string;
-  directory: string;
+  dir: string;
   remote: boolean;
   altSchema?: Schema<SelectorSource>;
   /** Images only: how uploads are re-encoded in the browser. See `image.ts`. */
@@ -60,7 +60,7 @@ export type SerializedRecordSchema = {
   // Optional media collection marker for files/images that are backed by a record
   mediaType?: "files" | "images";
   accept?: string;
-  directory?: string;
+  dir?: string;
   remote?: boolean;
   encode?: ImageEncodeOption;
   alt?: SerializedSchema;
@@ -277,9 +277,9 @@ export class RecordSchema<
           ? ("images:check-unique-folder" as const)
           : ("files:check-unique-folder" as const);
       const uniqueCheckError: ValidationError = {
-        message: `Gallery directory '${this.mediaOptions.directory}' must be unique across all galleries`,
+        message: `Gallery directory '${this.mediaOptions.dir}' must be unique across all galleries`,
         value: {
-          directory: this.mediaOptions.directory,
+          dir: this.mediaOptions.dir,
           type: this.mediaOptions.type,
         },
         fixes: [checkFix],
@@ -298,9 +298,9 @@ export class RecordSchema<
           ? ("images:check-all-files" as const)
           : ("files:check-all-files" as const);
       const allFilesCheckError: ValidationError = {
-        message: `Directory '${this.mediaOptions.directory}' may have files not tracked by this gallery`,
+        message: `Directory '${this.mediaOptions.dir}' may have files not tracked by this gallery`,
         value: {
-          directory: this.mediaOptions.directory,
+          dir: this.mediaOptions.dir,
           type: this.mediaOptions.type,
         },
         fixes: [allFilesCheckFix],
@@ -482,13 +482,13 @@ export class RecordSchema<
     if (!this.mediaOptions) {
       return false;
     }
-    const { directory, remote: isRemote, type } = this.mediaOptions;
+    const { dir, remote: isRemote, type } = this.mediaOptions;
     const mediaLabel = type === "images" ? "images" : "files";
     const checkRemoteFix =
       type === "images" ? "images:check-remote" : "files:check-remote";
 
     const isRemoteUrl = this.isRemoteUrl(key);
-    const isLocalPath = key === directory || key.startsWith(directory + "/");
+    const isLocalPath = key === dir || key.startsWith(dir + "/");
 
     if (isRemote) {
       // When remote is enabled, accept either remote URLs or local paths
@@ -508,14 +508,11 @@ export class RecordSchema<
         }
         // Check that the file path in the remote URL matches our directory constraint
         const remotePath = "/" + remoteResult.filePath;
-        if (
-          remotePath !== directory &&
-          !remotePath.startsWith(directory + "/")
-        ) {
+        if (remotePath !== dir && !remotePath.startsWith(dir + "/")) {
           return {
             [path]: [
               {
-                message: `Remote file path '${remotePath}' is not in expected directory '${directory}'. Use Val tooling to upload ${mediaLabel} to the correct directory.`,
+                message: `Remote file path '${remotePath}' is not in expected directory '${dir}'. Use Val tooling to upload ${mediaLabel} to the correct directory.`,
                 value: key,
                 fixes: [checkRemoteFix],
               },
@@ -528,7 +525,7 @@ export class RecordSchema<
         return {
           [path]: [
             {
-              message: `Expected a remote URL (https://...) or a local path starting with ${directory}/. Got: ${key}`,
+              message: `Expected a remote URL (https://...) or a local path starting with ${dir}/. Got: ${key}`,
               value: key,
             },
           ],
@@ -567,7 +564,7 @@ export class RecordSchema<
         return {
           [path]: [
             {
-              message: `File path must be within the ${directory}/ directory. Got: ${key}`,
+              message: `File path must be within the ${dir}/ directory. Got: ${key}`,
               value: key,
             },
           ],
@@ -841,7 +838,7 @@ export class RecordSchema<
    * Allow the files in this gallery to be stored on Val's remote content host
    * instead of in your repository.
    *
-   * For `s.images()` and `s.files()`, which are records of media. Remote is off
+   * For `s.imageset()` and `s.fileset()`, which are records of media. Remote is off
    * until this is called.
    *
    * Each entry is then keyed by its URL on the content host rather than by a
@@ -850,7 +847,7 @@ export class RecordSchema<
    * upload it and rewrite the key.
    *
    * @example
-   * const schema = s.images({ directory: "/public/val/images" }).remote();
+   * const schema = s.imageset({ dir: "/public/val/images" }).remote();
    * export default c.define("/content/images.val.ts", schema, {
    *   "https://remote.val.build/file/p/my-project/b/01/v/1.0.0/h/8f2a1c/f/3b9d70/p/public/val/images/hero.webp":
    *     {
@@ -886,7 +883,7 @@ export class RecordSchema<
    * which lets the runtime, the Studio and validation work one entry at a time
    * so a record/router can scale to many thousands of entries.
    *
-   * Not supported on image/file galleries (`s.images()` / `s.files()`).
+   * Not supported on image/file galleries (`s.imageset()` / `s.fileset()`).
    *
    * Only supported on a module's ROOT record/router — a `.jsonValues()` record
    * nested inside an object/array/record is rejected at startup with a module
@@ -910,7 +907,7 @@ export class RecordSchema<
   jsonValues(): RecordSchema<T, K, JsonValuesRecordSrc<T, K>> {
     if (this.mediaOptions) {
       throw new Error(
-        ".jsonValues() cannot be used with image/file galleries (s.images()/s.files())",
+        ".jsonValues() cannot be used with image/file galleries (s.imageset()/s.fileset())",
       );
     }
     if (this.customValidateFunctions.length > 0) {
@@ -956,7 +953,7 @@ export class RecordSchema<
    * bucket — instead of in the module.
    *
    * Available on every record-derived schema, which is `s.record()`,
-   * `s.router()`, `s.images()` and `s.files()` alike: a router is a
+   * `s.router()`, `s.imageset()` and `s.fileset()` alike: a router is a
    * `RecordSchema` with a `ValRouter`, a gallery one with media options, so all
    * four get external storage from this one method.
    *
@@ -1163,7 +1160,7 @@ export class RecordSchema<
     if (this.mediaOptions) {
       result.mediaType = this.mediaOptions.type;
       result.accept = this.mediaOptions.accept;
-      result.directory = this.mediaOptions.directory;
+      result.dir = this.mediaOptions.dir;
       result.remote = this.mediaOptions.remote;
       if (this.mediaOptions.encode !== undefined) {
         result.encode = this.mediaOptions.encode;
