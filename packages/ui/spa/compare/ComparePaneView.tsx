@@ -1,0 +1,358 @@
+import type { ReactNode } from "react";
+import { cn } from "../components/designSystem/cn";
+import {
+  ChangeKindIcon,
+  changeKindLabel,
+  sideRailClass,
+} from "./ChangeKindIcon";
+import type {
+  CompareFieldRow,
+  CompareGroup,
+  CompareListItemRow,
+  ComparePane,
+} from "./types";
+
+/**
+ * One selected thing, as two columns of rows.
+ *
+ * The layout contract with {@link CompareColumns} is the only subtle part:
+ * this renders the LEFT column and the RIGHT column as two separate calls, and
+ * the two have to line up row for row. So every row occupies the same vertical
+ * space on both sides whether or not it has a value there — an added field is
+ * an empty, dashed placeholder on the left, not a missing row that shifts
+ * everything below it out of step.
+ *
+ * That is also why the labels are drawn on BOTH sides rather than once in a
+ * gutter. A label in the middle would align the two columns at the cost of
+ * making each one unreadable on its own, which is exactly what the phone
+ * layout needs them to be.
+ */
+export function ComparePaneSide({
+  pane,
+  side,
+  showUnchanged,
+}: {
+  pane: ComparePane;
+  side: "before" | "after";
+  showUnchanged: boolean;
+}) {
+  return (
+    <div className="min-w-0">
+      {pane.groups.map((group) => (
+        <GroupSide
+          key={group.id}
+          group={group}
+          side={side}
+          showUnchanged={showUnchanged}
+        />
+      ))}
+      {pane.groups.length === 0 && (
+        <p className="px-1 py-6 text-sm text-fg-tertiary">
+          Nothing changed in this module.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function GroupSide({
+  group,
+  side,
+  showUnchanged,
+}: {
+  group: CompareGroup;
+  side: "before" | "after";
+  showUnchanged: boolean;
+}) {
+  if (group.kind === "fields") {
+    const rows = visibleFieldRows(group.rows, showUnchanged);
+    if (rows.length === 0) {
+      return null;
+    }
+    return (
+      <section className="mb-4">
+        {group.title !== undefined && <GroupHeading title={group.title} />}
+        {rows.map((row) => (
+          <FieldRowSide key={row.id} row={row} side={side} />
+        ))}
+      </section>
+    );
+  }
+  return (
+    <section className="mb-4">
+      <GroupHeading title={group.title} summary={group.summary} />
+      {group.rows.map((row) => (
+        <ListItemRowSide
+          key={row.id}
+          row={row}
+          side={side}
+          showUnchanged={showUnchanged}
+        />
+      ))}
+    </section>
+  );
+}
+
+/**
+ * A heading drawn on both sides, identically.
+ *
+ * Repeated rather than placed once in a gutter, for the alignment reason in
+ * this file's header: the two columns are separate grids, so a heading present
+ * in one and absent in the other puts every row below it out of step. Repeating
+ * it is also what lets either column stand alone, which is what the phone
+ * layout needs.
+ */
+function GroupHeading({ title, summary }: { title: string; summary?: string }) {
+  return (
+    <div className="mb-1 flex min-w-0 items-baseline gap-2 border-b border-border-secondary pb-1">
+      <span className="truncate text-sm font-medium text-fg-primary">
+        {title}
+      </span>
+      {summary !== undefined && (
+        <span className="truncate text-xs text-fg-tertiary">{summary}</span>
+      )}
+    </div>
+  );
+}
+
+function visibleFieldRows(
+  rows: CompareFieldRow[],
+  showUnchanged: boolean,
+): CompareFieldRow[] {
+  return showUnchanged
+    ? rows
+    : rows.filter((row) => row.change !== "unchanged");
+}
+
+/** How many rows the "show all" toggle would reveal. */
+export function hiddenFieldCount(pane: ComparePane): number {
+  let count = 0;
+  for (const group of pane.groups) {
+    if (group.kind === "fields") {
+      count += group.rows.filter((row) => row.change === "unchanged").length;
+    } else {
+      for (const item of group.rows) {
+        count += (item.fields ?? []).filter(
+          (row) => row.change === "unchanged",
+        ).length;
+      }
+    }
+  }
+  return count;
+}
+
+function FieldRowSide({
+  row,
+  side,
+  indent = false,
+}: {
+  row: CompareFieldRow;
+  side: "before" | "after";
+  indent?: boolean;
+}) {
+  const value = side === "before" ? row.before : row.after;
+  /*
+   * An unchanged row is the same value twice, and drawing it with rails on both
+   * sides would make it look like something happened. It gets no rail and a
+   * dimmed value, so the eye skips it — which is the whole reason it is allowed
+   * on screen at all.
+   */
+  const isUnchanged = row.change === "unchanged";
+  const absent = value === undefined;
+  return (
+    <div className={cn("py-1", indent && "pl-3")}>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <ChangeKindIcon kind={row.change} size={12} hideLabel />
+        <span className="min-w-0 truncate text-xs text-fg-secondary">
+          {row.label}
+        </span>
+        {row.path !== undefined && (
+          <span className="min-w-0 truncate text-xs text-fg-tertiary">
+            {row.path}
+          </span>
+        )}
+      </div>
+      {absent ? (
+        <AbsentValue side={side} change={row.change} />
+      ) : (
+        <div
+          className={cn(
+            "mt-0.5 min-w-0 py-0.5 pl-2 text-sm",
+            isUnchanged ? "text-fg-tertiary" : sideRailClass(side),
+          )}
+        >
+          {value}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The hole where a value would be, on the side that never had one.
+ *
+ * Not blank: a blank cell is indistinguishable from a value that is an empty
+ * string, which is a real and different thing. The dash says "there was nothing
+ * here", and the sentence says which nothing it is.
+ */
+function AbsentValue({
+  side,
+  change,
+}: {
+  side: "before" | "after";
+  change: CompareFieldRow["change"];
+}) {
+  const what =
+    change === "added"
+      ? side === "before"
+        ? "Did not exist"
+        : null
+      : change === "removed"
+        ? side === "after"
+          ? "Removed"
+          : null
+        : "—";
+  return (
+    <div className="mt-0.5 min-w-0 border-l-2 border-l-border-secondary py-0.5 pl-2 text-sm italic text-fg-tertiary">
+      {what ?? "—"}
+    </div>
+  );
+}
+
+/**
+ * One entry of a record or array.
+ *
+ * Added and removed entries are one line — a key and a preview — because that
+ * is the whole statement, and opening them into a field-by-field diff against
+ * nothing would be noise. Only a `changed` entry expands, and then only to the
+ * fields inside it that actually differ.
+ */
+function ListItemRowSide({
+  row,
+  side,
+  showUnchanged,
+}: {
+  row: CompareListItemRow;
+  side: "before" | "after";
+  showUnchanged: boolean;
+}) {
+  const fields = visibleFieldRows(row.fields ?? [], showUnchanged);
+  /*
+   * An added entry has no left side and a removed one has no right side, but
+   * the ROW still has to exist on both so the columns stay in step. The empty
+   * side keeps the key, dimmed, which also happens to be the most useful thing
+   * it could say.
+   */
+  const presentOnThisSide =
+    row.change === "added"
+      ? side === "after"
+      : row.change === "removed"
+        ? side === "before"
+        : true;
+
+  return (
+    <div className="border-b border-border-secondary py-1.5 last:border-b-0">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <ChangeKindIcon kind={row.change} size={12} hideLabel />
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate font-mono text-xs",
+            presentOnThisSide ? "text-fg-primary" : "text-fg-tertiary",
+          )}
+        >
+          {row.label}
+        </span>
+        <span className="shrink-0 text-[10px] uppercase tracking-wider text-fg-tertiary">
+          {row.change === "moved"
+            ? movedLabel(row)
+            : presentOnThisSide
+              ? changeKindLabel(row.change)
+              : ""}
+        </span>
+      </div>
+      {/*
+       * The preview, or a placeholder of the same height where there is none.
+       *
+       * The two columns are separate grids that have to stay in step row for
+       * row, so an added entry — which has a preview on the right and nothing
+       * on the left — cannot simply omit the block: everything below it on the
+       * left would ride up, and two lists that disagree about which row is
+       * which are worse than no diff at all.
+       */}
+      {row.preview !== undefined &&
+        (presentOnThisSide ? (
+          <div
+            className={cn(
+              "mt-1 min-w-0 py-0.5 pl-2 text-sm",
+              /*
+               * A moved entry gets a NEUTRAL rail, not a red one and a green
+               * one. Its value is the same on both sides — only its position
+               * changed — and the before/after rails would claim an edit that
+               * did not happen. The position badge on the row is the change.
+               */
+              row.change === "moved"
+                ? "border-l-2 border-l-border-secondary"
+                : sideRailClass(side),
+            )}
+          >
+            {row.preview}
+          </div>
+        ) : (
+          <div
+            className="mt-1 min-w-0 border-l-2 border-l-border-secondary py-0.5 pl-2 text-sm italic text-fg-tertiary"
+            aria-hidden
+          >
+            {row.change === "added" ? "Did not exist" : "Removed"}
+          </div>
+        ))}
+      {fields.length > 0 && (
+        <div className="mt-1">
+          {fields.map((field) => (
+            <FieldRowSide key={field.id} row={field} side={side} indent />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function movedLabel(row: CompareListItemRow): string {
+  if (row.movedFrom === undefined || row.movedTo === undefined) {
+    return "Moved";
+  }
+  return `${row.movedFrom + 1} → ${row.movedTo + 1}`;
+}
+
+/** The "Show all fields" control, and what it would reveal. */
+export function ShowAllFieldsToggle({
+  showUnchanged,
+  onChange,
+  hiddenCount,
+}: {
+  showUnchanged: boolean;
+  onChange: (next: boolean) => void;
+  hiddenCount: number;
+}) {
+  if (hiddenCount === 0 && !showUnchanged) {
+    /*
+     * Nothing to reveal, so no control. A toggle that changes nothing when
+     * clicked teaches people to distrust it.
+     */
+    return null;
+  }
+  return (
+    <button
+      onClick={() => onChange(!showUnchanged)}
+      className="rounded border border-border-primary px-2 py-1 text-xs text-fg-secondary hover:bg-bg-secondary"
+    >
+      {showUnchanged
+        ? "Changed fields only"
+        : `Show all fields (${hiddenCount} hidden)`}
+    </button>
+  );
+}
+
+/** A plain string value, for stories and for values with no field renderer. */
+export function CompareTextValue({ children }: { children: ReactNode }) {
+  return <span className="break-words">{children}</span>;
+}
