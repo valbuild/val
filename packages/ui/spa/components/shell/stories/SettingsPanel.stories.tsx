@@ -63,6 +63,8 @@ type HarnessProps = {
   /** No settings module in the project at all. */
   missing?: boolean;
   errors?: Partial<Record<keyof AssistantSettingsValue, string>>;
+  /** Whether there is an assistant to ask. See `onGenerateTone`. */
+  canAskAssistant?: boolean;
   /** The settings module's `theme` section, as source. */
   initialTheme?: ThemeSettingsValue;
   themeErrors?: Partial<Record<keyof ThemeSettingsValue, string>>;
@@ -96,6 +98,7 @@ function SettingsPanelHarness({
   initial = UNSET,
   missing,
   errors,
+  canAskAssistant = true,
   initialTheme = UNSET_THEME,
   themeErrors,
   appearance,
@@ -127,6 +130,21 @@ function SettingsPanelHarness({
         }
         maxLength={ASSISTANT_SETTINGS_MAX_LENGTH}
         errors={errors}
+        onGenerateTone={
+          canAskAssistant
+            ? () => {
+                // The real one opens the assistant and sends a prompt; there
+                // is no assistant here, so it writes what one would plausibly
+                // have written. What the story is for is the button's own
+                // rule: it is offered while the field is empty and gone once
+                // it is not.
+                setValue((current) => ({
+                  ...current,
+                  tone: "Plain and direct. British English, sentence case in headings, no exclamation marks. Contractions are fine. Sentences run short.",
+                }));
+              }
+            : undefined
+        }
         readonly={readonly}
       />
     ),
@@ -372,5 +390,35 @@ export const AppearanceReadonly: Story = {
     appearance: true,
     initialTheme: { accent: "#ea580c", radius: "soft", mode: "dark" },
     readonly: true,
+  },
+};
+
+/**
+ * An empty tone of voice, offering to write itself.
+ *
+ * The button asks the assistant to read a spread of the project's content and
+ * write the field — through the ordinary chat, with the ordinary patch, so the
+ * editor sees which modules it read and gets a draft they can edit. Pressing it
+ * here fills the field with something a real run might produce, which is enough
+ * to show the rule: the offer is gone once there is something to overwrite.
+ */
+export const GenerateToneOfVoice: Story = {
+  args: {
+    initial: { enabled: true, context: null, tone: null },
+  },
+};
+
+/**
+ * Nothing to ask, so nothing offered.
+ *
+ * `onGenerateTone` is absent whenever the chat cannot take a message — an
+ * assistant the project turned off, one whose socket has not connected, or a
+ * layout with no chat surface at all. The button is not drawn rather than drawn
+ * and dead, which is the same rule the "mention this field" button follows.
+ */
+export const NoAssistantToAsk: Story = {
+  args: {
+    initial: { enabled: true, context: null, tone: null },
+    canAskAssistant: false,
   },
 };

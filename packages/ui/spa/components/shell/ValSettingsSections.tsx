@@ -8,7 +8,10 @@ import {
   THEME_RADIUS_STEPS,
   ThemeRadius,
 } from "@valbuild/core";
+import { useCallback } from "react";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
+import { useAIChatActions } from "../AIChatActionsContext";
+import { toneOfVoicePrompt } from "../../hooks/toneOfVoicePrompt";
 import {
   useSchemaAtPath,
   useShallowSourceAtPath,
@@ -75,6 +78,21 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
   const contextErrors = useValidationErrors(contextPath);
   const toneErrors = useValidationErrors(tonePath);
   const writeAssistantSetting = useWriteAssistantSetting(moduleFilePath);
+  /**
+   * "Generate from my content", or nothing.
+   *
+   * `canMentionField` rather than `isAIChatEnabled`, and the difference is the
+   * button being dead or absent: an assistant that is configured but whose
+   * socket has not connected — or a layout with no chat surface at all — has
+   * nowhere for the prompt to land, and `askAssistant` would open nothing.
+   * A project that has said no to the assistant does not get offered a button
+   * that asks it something either.
+   */
+  const { canMentionField, askAssistant } = useAIChatActions();
+  const generateTone = useCallback(() => {
+    askAssistant(toneOfVoicePrompt(moduleFilePath));
+  }, [askAssistant, moduleFilePath]);
+
   const localesPath = sourcePathOfItem(moduleFilePath, "locales");
   const localesValue = useLocalesSection(localesPath);
   const localesErrors = useLocalesErrors(localesPath, localesValue.available);
@@ -121,6 +139,11 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
                 context: contextErrors[0]?.message,
                 tone: toneErrors[0]?.message,
               }}
+              onGenerateTone={
+                canMentionField && enabledValue !== false
+                  ? generateTone
+                  : undefined
+              }
               readonly={readonly}
             />
           ),

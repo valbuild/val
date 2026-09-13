@@ -85,3 +85,107 @@ describe("canMentionField", () => {
     expect(canMention()).toBe("no");
   });
 });
+
+/**
+ * Asking the assistant something from elsewhere in the Studio.
+ *
+ * The hard case is the ordinary one: `askAssistant` OPENS the assistant, and in
+ * the shell that is what mounts the surface owning `sendMessage` — so at the
+ * moment of asking there is nothing to send with. The prompt is queued and
+ * delivered by the registration, which is what makes one click enough.
+ */
+describe("askAssistant", () => {
+  /** The surface, registering the send it owns. */
+  function AskSurface({ sent }: { sent: string[] }) {
+    const { setAskAssistantImpl } = useAIChatActions();
+    useEffect(() => {
+      setAskAssistantImpl((prompt) => sent.push(prompt));
+      return () => setAskAssistantImpl(null);
+    }, [setAskAssistantImpl, sent]);
+    return null;
+  }
+
+  /** A button somewhere else entirely, e.g. the settings panel. */
+  function Asker({ prompt }: { prompt: string }) {
+    const { askAssistant } = useAIChatActions();
+    return (
+      <button type="button" onClick={() => askAssistant(prompt)}>
+        ask
+      </button>
+    );
+  }
+
+  test("sends straight away when the surface is already there", () => {
+    const sent: string[] = [];
+    render(
+      <AIChatActionsProvider isAIChatEnabled isAIChatOnline>
+        <AskSurface sent={sent} />
+        <Asker prompt="write the tone of voice" />
+      </AIChatActionsProvider>,
+    );
+    screen.getByText("ask").click();
+    expect(sent).toEqual(["write the tone of voice"]);
+  });
+
+  test("a prompt asked before the surface exists is delivered when it arrives", () => {
+    // The real sequence: the button is in a panel, the assistant is not open,
+    // and clicking is what opens it. Without the queue the click did nothing
+    // and said nothing.
+    const sent: string[] = [];
+    const { rerender } = render(
+      <AIChatActionsProvider isAIChatEnabled isAIChatOnline>
+        <Asker prompt="write the tone of voice" />
+      </AIChatActionsProvider>,
+    );
+    screen.getByText("ask").click();
+    expect(sent).toEqual([]);
+    rerender(
+      <AIChatActionsProvider isAIChatEnabled isAIChatOnline>
+        <AskSurface sent={sent} />
+        <Asker prompt="write the tone of voice" />
+      </AIChatActionsProvider>,
+    );
+    expect(sent).toEqual(["write the tone of voice"]);
+  });
+
+  test("a queued prompt is delivered once, not once per registration", () => {
+    // `sendMessage` is a `useCallback` whose identity changes, and StrictMode
+    // registers twice on mount — so the queue has to be emptied by the first
+    // delivery rather than by whatever comes after it.
+    const sent: string[] = [];
+    const { rerender } = render(
+      <AIChatActionsProvider isAIChatEnabled isAIChatOnline>
+        <Asker prompt="once" />
+      </AIChatActionsProvider>,
+    );
+    screen.getByText("ask").click();
+    const tree = (key: string) => (
+      <AIChatActionsProvider isAIChatEnabled isAIChatOnline>
+        <AskSurface key={key} sent={sent} />
+        <Asker prompt="once" />
+      </AIChatActionsProvider>
+    );
+    rerender(tree("a"));
+    // A remount, as StrictMode's double effect and a changed `sendMessage`
+    // both produce.
+    rerender(tree("b"));
+    expect(sent).toEqual(["once"]);
+  });
+
+  test("unregistering does not deliver anything", () => {
+    const sent: string[] = [];
+    const { rerender } = render(
+      <AIChatActionsProvider isAIChatEnabled isAIChatOnline>
+        <AskSurface sent={sent} />
+        <Asker prompt="gone" />
+      </AIChatActionsProvider>,
+    );
+    rerender(
+      <AIChatActionsProvider isAIChatEnabled isAIChatOnline>
+        <Asker prompt="gone" />
+      </AIChatActionsProvider>,
+    );
+    screen.getByText("ask").click();
+    expect(sent).toEqual([]);
+  });
+});
