@@ -1,5 +1,117 @@
 # @valbuild/core
 
+## 0.128.0
+
+### Minor Changes
+
+- [#637](https://github.com/valbuild/val/pull/637) [`8b52b33`](https://github.com/valbuild/val/commit/8b52b33e1f629f14f66cc71dcc7cf415d210c7d4) Thanks [@freekh](https://github.com/freekh)! - **Breaking:** the `directory` option is now `dir`, on every schema that takes
+  it — `s.imageset()`, `s.fileset()` and `s.image()`.
+
+  ```ts
+  // before
+  s.imageset({ directory: "/public/val/images" });
+  s.fileset({ accept: "application/pdf", directory: "/public/val/docs" });
+  s.image({ directory: "/public/val/heroes" });
+
+  // after
+  s.imageset({ dir: "/public/val/images" });
+  s.fileset({ accept: "application/pdf", dir: "/public/val/docs" });
+  s.image({ dir: "/public/val/heroes" });
+  ```
+
+  Same meaning: where uploads for that schema land. Still required on
+  `s.imageset()` and `s.fileset()`, still optional on `s.image()`.
+
+  **`files.directory` in `val.config.ts` is NOT renamed.** That is the
+  project-wide files directory, a different option with a different scope, and it
+  keeps its name.
+
+  `dir` is the serialized name too, and two things follow from that. Neither
+  needs any action, but both are worth knowing:
+
+  - **History still reads pre-rename commits.** A commit record stores the schema
+    each module was under, so commits from before this release carry `directory`.
+    The serialized-schema parser accepts that key and reads it as `dir`, which is
+    what keeps a historical gallery from showing up with no directory at all.
+  - **Published remote files re-validate once.** The serialized schema is what a
+    remote file's validation hash is computed from, so a file uploaded under a
+    schema that sets this option gets one re-download and re-check, after which
+    the ref is rewritten with the new hash. This is the same self-healing path a
+    core version bump already takes.
+
+- [#643](https://github.com/valbuild/val/pull/643) [`362fb49`](https://github.com/valbuild/val/commit/362fb49f30d2b04c4ff78d54dca2bf5ad978a05c) Thanks [@freekh](https://github.com/freekh)! - `s.imageset({ alt })` now types an entry's `alt` from the `alt` schema, instead
+  of always calling it `string | null`.
+
+  That single hard-coded type made the locale-record form **unusable** and the
+  required form **unsound**, in opposite directions:
+
+  ```ts
+  // Before: documented, but the source could not be typed.
+  //   Type '{ en: string; no: string; }' is not assignable to type 'string'
+  s.imageset({ dir: "/public/val/img", alt: s.record(s.string()) });
+
+  // Before: this compiled, then failed validation with
+  //   Expected 'string', got 'null'
+  s.imageset({ dir: "/public/val/img", alt: s.string() });
+  // → { width, height, mimeType, alt: null }
+  ```
+
+  Both now behave as the schema says: a locale record types as
+  `Record<string, string>`, a required alt as `string`, and an omitted or
+  `.nullable()` alt as `string | null` exactly as before.
+
+  `ImagesetEntryMetadata` takes an optional alt parameter and defaults to
+  `string | null`, so existing references keep working unchanged. Where a gallery
+  of any alt shape is acceptable — `s.image(galleryModule)` is the one that
+  matters, since a field carries its own alt and never reads the gallery's — write
+  `ImagesetEntryMetadata<AltSource>`.
+
+  The one thing to know if you had worked around this: an explicit
+  `Record<string, ImagesetEntryMetadata>` annotation on the source of a
+  **required**-alt gallery is now too wide and will not compile. Name the alt type
+  (`ImagesetEntryMetadata<string>`), or drop the annotation and let the schema
+  type it.
+
+- [#637](https://github.com/valbuild/val/pull/637) [`c595799`](https://github.com/valbuild/val/commit/c59579977a436ec530c6c69f2b340ab9829d97ab) Thanks [@freekh](https://github.com/freekh)! - **Breaking:** `s.images()` is now `s.imageset()`, and `s.files()` is now
+  `s.fileset()`.
+
+  ```ts
+  // before
+  s.images({ directory: "/public/val/images" });
+  s.files({ accept: "application/pdf", directory: "/public/val/docs" });
+
+  // after
+  s.imageset({ dir: "/public/val/images" });
+  s.fileset({ accept: "application/pdf", dir: "/public/val/docs" });
+  ```
+
+  Nothing about their behaviour changed — same `.remote()`, same
+  record-of-metadata content keyed by file path. (`directory` is renamed to
+  `dir` in the same release; see the separate note.)
+
+  The old names were a trap. `s.images()` and `s.image()` differ by one letter,
+  which reads as "the same thing, but several" — while the real difference is that
+  `s.imageset()` defines a **whole module** and `s.image()` defines a **field**.
+  They are not variants of each other, and the plural spelling suggested they were.
+  `-set` names the container instead, so the two now look as different as they are.
+
+  `s.image(imagesetModule)` and `s.file(filesetModule)` are unchanged: that is
+  still how a field picks one entry out of a set.
+
+  If you are also moving off the `remote` option (removed in the same release),
+  the combined migration is:
+
+  ```ts
+  // before
+  s.images({ directory: "/public/val/images", remote: true });
+
+  // after
+  s.imageset({ dir: "/public/val/images" }).remote();
+  ```
+
+  The rename is a hard error rather than a silent one: `s.images` no longer
+  exists, so an un-migrated call fails immediately in TypeScript and at runtime.
+
 ## 0.127.0
 
 ### Minor Changes
