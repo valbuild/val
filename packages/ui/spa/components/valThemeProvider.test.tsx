@@ -162,3 +162,125 @@ describe("ValThemeProvider: the project's theme as custom properties", () => {
     expect(accent).not.toBe("none");
   });
 });
+
+/**
+ * The config arrives late, and the storage key is named after it.
+ *
+ * `runtimeConfig` comes out of `/stat`, so this provider's first render has no
+ * project — and the key a personal choice is kept under is per project. Read
+ * once, on mount, the provider asked `val-theme-unknown` every time and an
+ * editor's saved choice was ignored on every single load. The account switch is
+ * on screen during that window too, so a toggle made in it was WRITTEN under
+ * that key as well.
+ */
+describe("ValThemeProvider: the project id arriving after mount", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  /** Mount with no config, then supply it, as `/stat` does. */
+  function renderThenLearnProject(settingsTheme?: Partial<ThemeSettings>) {
+    cleanup();
+    const settings: ThemeSettings = {
+      accent: null,
+      radius: null,
+      mode: null,
+      ...settingsTheme,
+    };
+    const tree = (config: ValConfig | undefined) => (
+      <ValThemeProvider
+        theme="dark"
+        setTheme={() => undefined}
+        config={config}
+        settingsTheme={settings}
+      >
+        <Probe />
+      </ValThemeProvider>
+    );
+    const rendered = render(tree(undefined));
+    const beforeStat = screen.getByTestId("resolved").textContent;
+    rendered.rerender(tree(CONFIG));
+    return {
+      beforeStat,
+      afterStat: screen.getByTestId("resolved").textContent,
+    };
+  }
+
+  test("a stored choice is picked up once the project is known", () => {
+    localStorage.setItem(PERSONAL_KEY, "dark");
+    const { beforeStat, afterStat } = renderThenLearnProject({
+      mode: "light",
+    });
+    // Before `/stat` the project's default is all there is to go on, which is
+    // correct — there is no way to know whose storage to read yet.
+    expect(beforeStat).toBe("light");
+    expect(afterStat).toBe("dark");
+  });
+
+  test("a choice made before the project was known is carried across", () => {
+    // The other half: the switch is live during that window, and `setTheme`
+    // writes the key it has, which is the unknown one.
+    localStorage.setItem("val-theme-unknown", "dark");
+    const { afterStat } = renderThenLearnProject({ mode: "light" });
+    expect(afterStat).toBe("dark");
+    expect(localStorage.getItem(PERSONAL_KEY)).toBe("dark");
+    // Moved rather than copied, so it cannot be adopted by a second project.
+    expect(localStorage.getItem("val-theme-unknown")).toBeNull();
+  });
+
+  test("the project's own key wins over one left behind", () => {
+    localStorage.setItem(PERSONAL_KEY, "light");
+    localStorage.setItem("val-theme-unknown", "dark");
+    const { afterStat } = renderThenLearnProject();
+    expect(afterStat).toBe("light");
+    expect(localStorage.getItem(PERSONAL_KEY)).toBe("light");
+  });
+});
+
+/**
+ * `config.defaultTheme` is the last thing with an opinion, and it has to stay
+ * reachable.
+ *
+ * Normally the caller has already resolved it into `theme`. But clearing a
+ * personal choice calls `setTheme(null)`, which puts `theme` back to null — and
+ * without an explicit fallback a project whose only answer was the config
+ * default landed on plain "dark" rather than back on that default, which is the
+ * opposite of what clearing a choice is supposed to do.
+ */
+describe("ValThemeProvider: the config default as a fallback", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  test("applies when nothing else has an answer", () => {
+    cleanup();
+    render(
+      <ValThemeProvider
+        theme={null}
+        setTheme={() => undefined}
+        config={{ project: "acme/site", defaultTheme: "light" }}
+        settingsTheme={{ accent: null, radius: null, mode: null }}
+      >
+        <Probe />
+      </ValThemeProvider>,
+    );
+    expect(screen.getByTestId("resolved").textContent).toBe("light");
+  });
+
+  test("does not beat the project's own default", () => {
+    cleanup();
+    render(
+      <ValThemeProvider
+        theme={null}
+        setTheme={() => undefined}
+        config={{ project: "acme/site", defaultTheme: "light" }}
+        settingsTheme={{ accent: null, radius: null, mode: "dark" }}
+      >
+        <Probe />
+      </ValThemeProvider>,
+    );
+    expect(screen.getByTestId("resolved").textContent).toBe("dark");
+  });
+});

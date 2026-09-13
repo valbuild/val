@@ -100,7 +100,16 @@ type Rgb = readonly [number, number, number];
 /** OKLCH: lightness 0-1, chroma, hue in degrees. */
 type Lch = readonly [number, number, number];
 
-const HEX = /^#[0-9a-f]{6}$/i;
+/**
+ * Every hex form `s.color({ format: "hex" })` accepts.
+ *
+ * Three and four digits as well as six and eight, because that is what the
+ * schema validates — `detectColorFormat` calls anything starting with `#` hex,
+ * and `#fff` parses. A generator that took only six digits left a
+ * schema-VALID accent doing nothing at all: no ramp, no error, and a Studio
+ * still on Val green with a colour sitting in the settings module.
+ */
+const HEX = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 
 function srgbToLinear(c: number): number {
   return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
@@ -110,17 +119,28 @@ function linearToSrgb(c: number): number {
   return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
 }
 
-/** `null` for anything that is not a six-digit hex. */
+/**
+ * `null` for anything that is not a hex colour.
+ *
+ * Alpha is read and discarded. The ramp is a set of opaque surfaces and text
+ * colours, and `s.color()` rejects a non-opaque value anyway unless the field
+ * enabled alpha — which `theme.accent` does not. So `#0f08` is the same accent
+ * as `#0f0`, rather than nothing at all.
+ */
 function hexToRgb(hex: string): Rgb | null {
   const trimmed = hex.trim();
   if (!HEX.test(trimmed)) {
     return null;
   }
-  return [
-    parseInt(trimmed.slice(1, 3), 16) / 255,
-    parseInt(trimmed.slice(3, 5), 16) / 255,
-    parseInt(trimmed.slice(5, 7), 16) / 255,
-  ];
+  const digits = trimmed.slice(1);
+  const short = digits.length <= 4;
+  const channel = (index: number): number => {
+    const slice = short
+      ? digits[index].repeat(2)
+      : digits.slice(index * 2, index * 2 + 2);
+    return parseInt(slice, 16) / 255;
+  };
+  return [channel(0), channel(1), channel(2)];
 }
 
 function rgbToHex(rgb: Rgb): string {

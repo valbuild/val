@@ -98,7 +98,9 @@ export function CodeEditor({
   const root =
     document.getElementById("val-shadow-root")?.shadowRoot ?? undefined;
   const theme = useMemo(() => {
-    if (uiTheme.theme === "dark") {
+    // `resolvedTheme`, not `theme`: the unresolved value does not carry the
+    // project's default, so the editor stayed dark in a light Studio.
+    if (uiTheme.resolvedTheme === "dark") {
       return valDarkTheme;
     } else {
       return valLightTheme;
