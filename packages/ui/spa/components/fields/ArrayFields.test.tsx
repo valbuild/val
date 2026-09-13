@@ -22,18 +22,23 @@ import { initVal, Schema, SelectorSource, SourcePath } from "@valbuild/core";
  */
 const mockSchema = jest.fn();
 const mockSource = jest.fn();
+const mockAddPatch = jest.fn();
 
 jest.mock("../ValFieldProvider", () => ({
   __esModule: true,
   usePreviewAtPath: () => undefined,
   useSourceAtPath: () => mockSource(),
   useShallowSourceAtPath: () => mockSource(),
+  // `FieldNull` reads the schema (through `useParent`) and writes through
+  // `useAddPatch`, so the null branch needs both.
+  useSchemaAtPath: () => mockSchema(),
+  useAddPatch: () => ({ patchPath: [], addPatch: mockAddPatch }),
   useValField: () => ({
     schema: mockSchema(),
     source: mockSource(),
     hasUnsavedOwnEdit: false,
     patchPath: [],
-    addPatch: jest.fn(),
+    addPatch: mockAddPatch,
   }),
 }));
 
@@ -98,6 +103,15 @@ function mount(item: Schema<SelectorSource>) {
   });
 }
 
+/** Mount the same array with NO source: the list has not been created. */
+function mountNull(item: Schema<SelectorSource>) {
+  mockSchema.mockReturnValue({
+    status: "success",
+    data: s.array(item).nullable()["executeSerialize"](),
+  });
+  mockSource.mockReturnValue({ status: "success", data: null });
+}
+
 const textBlock = s
   .object({ type: s.literal("text"), text: s.string() })
   .render({ as: "inline" });
@@ -158,5 +172,52 @@ describe("ArrayFields picks its list from the item schema", () => {
     render(<ArrayFields path={PATH} />);
     expect(screen.queryByTestId("sortable-list")).not.toBeNull();
     expect(screen.queryByTestId("block-list")).toBeNull();
+  });
+});
+
+/**
+ * A `null` array is not an empty one. Rendering the sortable list over it
+ * offered an "add" whose patch would have written index 0 into `null`, and
+ * showed an empty list where the truth is that the list does not exist.
+ */
+describe("ArrayFields on a null source", () => {
+  beforeEach(() => {
+    mockAddPatch.mockClear();
+  });
+
+  test("draws the create button, and neither list", () => {
+    mountNull(s.object({ title: s.string() }));
+    render(<ArrayFields path={PATH} />);
+    expect(screen.queryByTestId("sortable-list")).toBeNull();
+    expect(screen.queryByTestId("block-list")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^create$/i })).not.toBeNull();
+  });
+
+  test("an inline item does not reach the block list either", () => {
+    // The inline branch runs BEFORE the list is drawn, so the null check has
+    // to come before it too.
+    mountNull(s.object({ title: s.string() }).render({ as: "inline" }));
+    render(<ArrayFields path={PATH} />);
+    expect(screen.queryByTestId("block-list")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^create$/i })).not.toBeNull();
+  });
+
+  test("creating writes an empty array, not null", () => {
+    mountNull(s.object({ title: s.string() }));
+    render(<ArrayFields path={PATH} />);
+    screen.getByRole("button").click();
+    expect(mockAddPatch).toHaveBeenCalledWith(
+      [{ op: "replace", path: [], value: [] }],
+      "array",
+    );
+  });
+
+  test("readonly cannot create it", () => {
+    mountNull(s.object({ title: s.string() }));
+    render(<ArrayFields path={PATH} readonly />);
+    const button = screen.getByRole("button");
+    expect(button).toHaveProperty("disabled", true);
+    button.click();
+    expect(mockAddPatch).not.toHaveBeenCalled();
   });
 });
