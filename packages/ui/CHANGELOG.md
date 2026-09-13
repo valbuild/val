@@ -1,5 +1,177 @@
 # @valbuild/ui
 
+## 0.129.0
+
+### Minor Changes
+
+- [#655](https://github.com/valbuild/val/pull/655) [`7d34ecc`](https://github.com/valbuild/val/commit/7d34ecce787a0709025ae7b4764cb6c3ad1f766b) Thanks [@freekh](https://github.com/freekh)! - A project can now make Val Studio look like its own.
+
+  `s.settings()` has a new `theme` section, edited under **Settings → Appearance**
+  in the Studio. It is content like everything else: edited as a draft, shown in
+  the publish diff, and the same for everyone working on the project.
+
+  ```ts
+  export default c.define("/settings.val.ts", s.settings(), {
+    theme: {
+      accent: "#2563eb",
+      radius: "tight",
+      mode: "light",
+    },
+  });
+  ```
+
+  **`accent` is one hex, and it restyles the whole chrome** — Publish, the active
+  rail item, focus rings, switches, the caret in a rich text field, and the
+  outlines the canvas draws around editable elements on your own page. Any colour
+  is allowed, not a list of approved ones, because what the accent replaces is a
+  ten-step ramp that is _generated_ from it: each step keeps the lightness of the
+  step it replaces and changes only the hue. WCAG contrast is almost entirely a
+  function of lightness, so every foreground/background pair the chrome renders
+  stays at AA — which is asserted across the hue circle, pure black and a
+  saturated yellow included, rather than argued for. One value drives both light
+  and dark mode, since the semantic tokens pick different steps of the ramp in
+  each.
+
+  **`radius`** is `square`, `tight`, `default` or `soft`, and moves every corner
+  in the Studio.
+
+  The accent also moves the outlines the canvas draws around editable elements on
+  your own page. Those are drawn inside your document, which has none of Val's
+  stylesheet, so the colour is sent to the page over the canvas protocol — which
+  means a project on an older `@valbuild/next` or `@valbuild/tanstack` than its
+  Studio keeps Val's green there until it upgrades, rather than breaking.
+
+  **`mode`** is the mode the Studio opens in for an editor who has never picked
+  one. It never overrides an editor who has — that choice stays theirs, per
+  person and per browser, behind the account button.
+
+  Every field is optional, and unset means Val's own look, so an existing
+  settings module needs no change.
+
+  Two smaller fixes that came with it:
+
+  - **A settings change is its own entry in the publish diff.** Editing the
+    assistant's tone used to collapse the entire settings module into one change
+    card labelled "Settings", because the patch that writes a settings field is
+    an `add`, and `PatchSets` had no case for a settings section — so it gave up
+    and grouped the whole module. Two unrelated settings edits now show as two
+    changes, each under the name the panel gives it.
+  - **The Val mark keeps its green.** It named a step of the brand ramp, so it
+    would have recoloured along with a project's accent. It has its own token now.
+
+- [#657](https://github.com/valbuild/val/pull/657) [`0c351c4`](https://github.com/valbuild/val/commit/0c351c4f97ae7f09772eab0e856ae69821b803b7) Thanks [@freekh](https://github.com/freekh)! - A project can put its own logo in Val Studio.
+
+  `s.settings()`'s `theme` section takes a `logo`, uploaded from **Settings →
+  Appearance**. It replaces Val's mark at the top of the left rail, and beside the
+  menu button below the desktop breakpoint — the two slots that say which
+  workspace you are in.
+
+  ```ts
+  export default c.define("/settings.val.ts", s.settings(), {
+    theme: {
+      logo: {
+        path: "/public/val/brand/mark_a1b2c.png",
+        width: 512,
+        height: 512,
+        mimeType: "image/png",
+      },
+    },
+  });
+  ```
+
+  It is an ordinary image field, so it comes with the upload, the alt text and
+  everything else `s.image()` has, and the file lands in `/public/val/brand` so it
+  does not sit in the middle of your content's media. A draft logo shows
+  immediately and publishes with the rest of your changes.
+
+  Two things are deliberate:
+
+  - **A square-ish mark, not a wordmark.** The slot is 32px wide. A wide image is
+    fitted into it rather than cropped, so all of it is there and none of it is
+    large.
+  - **Val's mark stays on the launcher that floats on your own site.** In the
+    Studio the mark labels the workspace, so your logo belongs there. On your own
+    page it labels the tool — it is the button that opens Val — and your logo
+    floating over your own website says nothing.
+
+- [#656](https://github.com/valbuild/val/pull/656) [`41a0d76`](https://github.com/valbuild/val/commit/41a0d76636a2dce3f1e506d93170d97e46041d98) Thanks [@freekh](https://github.com/freekh)! - Tone of voice comes first in the assistant's settings, and an empty one can
+  write itself.
+
+  **Generate from my content** appears on Tone of voice while it is empty. It asks
+  the assistant to read a spread of what the project has already published and
+  describe how it is written — sentence case or title case, British or American,
+  how formal, whether it uses exclamation marks — and then write that into
+  `assistant.tone`.
+
+  It goes through the ordinary assistant rather than a new endpoint, and that is
+  worth knowing because of what it means for you: the conversation shows which
+  modules it read and what it concluded, the answer arrives as a draft you can
+  edit or discard like any other change, and "shorter" or "we are not that formal"
+  is just the next message.
+
+  The button is only offered while the field is empty — with something in it, a
+  button that regenerates is a button that loses what you wrote, and a settings
+  panel has no undo. Clear the field to ask again.
+
+  Also: Context now sits below Tone of voice, which is the order you fill them in.
+
+  Two accessibility fixes in the same panel, both from these fields being wrapped
+  in a `<label>`:
+
+  - A button inside a label takes the LABEL's accessible name, so the new one
+    would have been announced as "Tone of voice, button".
+  - Everything inside a wrapping label names the control, so each box was
+    announced with its whole help text as part of its name. The description is
+    `aria-describedby` now, and a validation message goes there too.
+
+### Patch Changes
+
+- [#670](https://github.com/valbuild/val/pull/670) [`e20f6fb`](https://github.com/valbuild/val/commit/e20f6fbcc215c310eef49a44c1a592c1e2081613) Thanks [@freekh](https://github.com/freekh)! - Global search no longer offers route patterns as pages
+
+  Searching (⌘K) listed a row for every node in the site map, including the rows
+  that are only path segments. `/blogs` is in the site map because
+  `/blogs/blog-1` is; it has no content of its own, and the only URL it has is
+  the route PATTERN its children share. So the second row of the search in a
+  project with an `/app/blogs/[blog]/page.val.ts` was `/blogs/[blog]` — a page
+  that does not exist.
+
+  Selecting it made that concrete. Such a row has no source path, so
+  `findShellSelection` could not resolve it, and the fallback — which exists for
+  content hits, whose id IS a source path — took the row's id (the pattern) and
+  navigated to it, landing the Studio on `/val/~/blogs/[blog]`.
+
+  These rows are now skipped when the search rows are collected, and their
+  children are still walked, so the pages under a folder are found as before. The
+  Pages panel is unchanged: there a folder row expands, which is what it is for.
+  The fallback is now taken only for the two kinds of row whose id is a source
+  path, so an unresolvable navigation row does nothing instead of navigating
+  somewhere that is not there.
+
+- [#672](https://github.com/valbuild/val/pull/672) [`9e0ebb0`](https://github.com/valbuild/val/commit/9e0ebb00430f05ef92dff031309f73b8075a7d99) Thanks [@freekh](https://github.com/freekh)! - Republish the Studio so it reads `dir`, the key `@valbuild/core` now serializes.
+
+  0.128.0 renamed the media schema option `directory` to `dir`, and that rename
+  reaches the serialized schema the Studio reads. `@valbuild/ui` was not
+  republished with it — it declares `@valbuild/core` and `@valbuild/shared` as
+  devDependencies, so changesets did not see it as a dependent — and
+  `@valbuild/server`, `@valbuild/next`, `@valbuild/react` and `@valbuild/tanstack`
+  all pin `@valbuild/ui` exactly. So 0.128.0 shipped a Studio built before the
+  rename, reading a key that core no longer emits.
+
+  Two things broke for anyone on 0.128.0, both silently:
+
+  - **Uploads landed in the wrong directory.** `ImageField` and `FileField`
+    resolve where a file goes from `options.dir` or, for a gallery-backed field,
+    the gallery's `dir`. Reading the old key gave `undefined`, so every upload
+    fell back to `/public/val` — outside the directory the schema names, which
+    then fails validation. This is the same failure the example app records as
+    previously fixed.
+  - **The Media nav lost its labels.** Galleries are listed and sorted by their
+    directory; with the old key that fell back to the module path, so every
+    gallery was labelled by file rather than by the directory an editor thinks in.
+
+  Nothing in the Studio's source changed here — 0.128.0 already had the correct
+  code. This publishes it.
+
 ## 0.127.0
 
 ### Minor Changes
