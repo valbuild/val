@@ -59,6 +59,7 @@ function renderProvider(
         accent: null,
         radius: null,
         mode: null,
+        logo: null,
         ...settingsTheme,
       }}
     >

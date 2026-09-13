@@ -48,6 +48,7 @@ const LABELS: Record<string, string> = {
   "theme.accent": "Appearance · Accent",
   "theme.radius": "Appearance · Corners",
   "theme.mode": "Appearance · Opens in",
+  "theme.logo": "Appearance · Logo",
   locales: "Locales",
   // "Languages", not "Available": the tab is read as a list of languages —
   // "No languages yet", "Add a language" — and `available` is the key's name,

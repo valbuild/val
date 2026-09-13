@@ -932,6 +932,7 @@ export function Shell({
             user={data.user}
             hasDraftChanges={pendingChanges > 0}
             accountError={accountError}
+            logo={data.logo}
             isLoading={isLoading}
           />
         )}
@@ -940,6 +941,7 @@ export function Shell({
           breakpoint={breakpoint}
           projectName={data.projectName}
           projectHref={data.admin?.project}
+          logo={data.logo}
           openPanel={openPanel}
           onTogglePanel={togglePanel}
           // The menu button opens the first destination this project has, which

@@ -170,6 +170,7 @@ export {
   type ThemeSettingsSource,
   type ThemeRadius,
   ASSISTANT_SETTINGS_MAX_LENGTH,
+  THEME_LOGO_DIRECTORY,
   THEME_RADIUS_STEPS,
   THEME_RADIUS_LENGTHS,
   assistantAvailability,

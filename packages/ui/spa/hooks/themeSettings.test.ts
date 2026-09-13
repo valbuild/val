@@ -1,4 +1,4 @@
-import { THEME_RADIUS_STEPS } from "@valbuild/core";
+import { Json, THEME_RADIUS_STEPS } from "@valbuild/core";
 import { NO_THEME_SETTINGS, readThemeSettings } from "./themeSettings";
 
 describe("readThemeSettings", () => {
@@ -12,7 +12,12 @@ describe("readThemeSettings", () => {
       readThemeSettings({
         theme: { accent: "#2563eb", radius: "tight", mode: "light" },
       }),
-    ).toEqual({ accent: "#2563eb", radius: "tight", mode: "light" });
+    ).toEqual({
+      accent: "#2563eb",
+      radius: "tight",
+      mode: "light",
+      logo: null,
+    });
   });
 
   test("a partial theme leaves the rest unset", () => {
@@ -22,6 +27,7 @@ describe("readThemeSettings", () => {
       accent: "#2563eb",
       radius: null,
       mode: null,
+      logo: null,
     });
   });
 
@@ -74,5 +80,52 @@ describe("readThemeSettings", () => {
     expect(readThemeSettings({ theme: { accent: "cornflower" } }).accent).toBe(
       "cornflower",
     );
+  });
+
+  test("reads a logo's path and alt text", () => {
+    expect(
+      readThemeSettings({
+        theme: {
+          logo: {
+            path: "/public/val/brand/mark_a1b2c.png",
+            width: 512,
+            height: 512,
+            mimeType: "image/png",
+            alt: "The Acme mark",
+          },
+        },
+      }).logo,
+    ).toEqual({
+      path: "/public/val/brand/mark_a1b2c.png",
+      alt: "The Acme mark",
+    });
+  });
+
+  test("a logo with no alt text is still a logo", () => {
+    // `alt` is authored and usually is not. The mark still has to be drawn, and
+    // the rail falls back to naming it after the project.
+    expect(
+      readThemeSettings({
+        theme: { logo: { path: "/public/val/brand/mark_a1b2c.png" } },
+      }).logo,
+    ).toEqual({ path: "/public/val/brand/mark_a1b2c.png", alt: null });
+  });
+
+  test("a logo with no path is not a logo", () => {
+    // `path` is the whole of what is needed to draw it, and the one field a
+    // media value cannot be missing. Passing it through would render
+    // `<img src="undefined">`, which is a broken-image icon where the mark
+    // should be.
+    const bads: Json[] = [
+      {},
+      { path: "" },
+      { path: "   " },
+      { path: 3 },
+      "x",
+      1,
+    ];
+    for (const bad of bads) {
+      expect(readThemeSettings({ theme: { logo: bad } }).logo).toBeNull();
+    }
   });
 });

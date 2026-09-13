@@ -16,12 +16,22 @@ export type ThemeSettings = {
   radius: ThemeRadius | null;
   /** The project's default, which never overrides an editor's own choice. */
   mode: "dark" | "light" | null;
+  /**
+   * The project's own mark, as a path and its alt text.
+   *
+   * A path rather than a URL: turning one into the other needs the patch id of
+   * whatever uploaded it, which lives in a different store — see `refToUrl`.
+   * Resolving it here would mean this function reading two stores instead of
+   * being a pure read of one module's source.
+   */
+  logo: { path: string; alt: string | null } | null;
 };
 
 export const NO_THEME_SETTINGS: ThemeSettings = {
   accent: null,
   radius: null,
   mode: null,
+  logo: null,
 };
 
 /**
@@ -46,7 +56,29 @@ export function readThemeSettings(source: Json | undefined): ThemeSettings {
     accent: nonEmptyString(theme["accent"]),
     radius: radiusOrNull(theme["radius"]),
     mode: modeOrNull(theme["mode"]),
+    logo: logoOrNull(theme["logo"]),
   };
+}
+
+/**
+ * The logo's path and alt text, or `null`.
+ *
+ * `path` is the only field required: a media value is `{ path, ... }` and
+ * everything else on it — the dimensions, the mime type — was read from the
+ * bytes and is not needed to draw it in a 32px box. An entry with no path is
+ * not a half-usable logo, it is a `<img src="undefined">`.
+ */
+function logoOrNull(
+  value: Json | undefined,
+): { path: string; alt: string | null } | null {
+  if (typeof value !== "object" || value === null || isJsonArray(value)) {
+    return null;
+  }
+  const path = value["path"];
+  if (typeof path !== "string" || path.trim() === "") {
+    return null;
+  }
+  return { path, alt: nonEmptyString(value["alt"]) };
 }
 
 function nonEmptyString(value: Json | undefined): string | null {

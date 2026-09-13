@@ -58,6 +58,19 @@ export type ShellExternalPage = {
 };
 
 /** The project's settings module (an `s.settings()` module). */
+export type ShellLogo = {
+  url: string;
+  /**
+   * The image's own alt text, where the editor wrote one.
+   *
+   * Absent is normal, and the rail names it after the project instead — a mark
+   * at the top of the rail is the project's name in picture form, so that is
+   * what it should be announced as. Never empty: an unlabelled image in a
+   * navigation landmark is a link with no name.
+   */
+  alt?: string;
+};
+
 export type ShellSettings = {
   /**
    * Branded, unlike the other rows here.
@@ -268,6 +281,18 @@ export type ShellBreakpoint = "mobile" | "tablet" | "desktop";
  */
 export type ShellData = {
   projectName: string;
+  /**
+   * The project's own mark, from `s.settings()`'s `theme.logo`.
+   *
+   * Already a URL, resolved where the patch ids are — a just-uploaded logo is
+   * only readable through `/api/val/files` with its patch id, and a published
+   * one is served from `/public`. See `refToUrl`; getting this wrong is how a
+   * freshly uploaded image renders as a broken one.
+   *
+   * Absent for a project that has not set one, which is what leaves the Val
+   * mark in place.
+   */
+  logo?: ShellLogo;
   /**
    * Where this project lives in Val Build. Absent when there is nowhere to
    * go — see `toAdminLinks`.

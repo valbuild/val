@@ -1,4 +1,5 @@
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
+import { refToUrl } from "../MediaPicker/refToUrl";
 import { ExplorerItem, SitemapItem } from "../NavMenu/types";
 import { AvailableRoute } from "../NavMenu/NewPageForm";
 import { routePatternToString } from "../NavMenu/SitemapItem";
@@ -15,6 +16,7 @@ import {
   ShellDeployActivity,
   ShellDeployment,
   ShellDestination,
+  ShellLogo,
   ShellExternalPage,
   ShellMediaFile,
   ShellPage,
@@ -530,5 +532,28 @@ export function collectNewPageRoutes(root: SitemapItem): {
       (route): AvailableRoute => ({ ...route, existingKeys: existingUrls }),
     ),
     existingUrls,
+  };
+}
+
+/**
+ * The logo as the shell wants it: a URL and a name.
+ *
+ * `alt` falls back to the project's name, because a mark at the top of the rail
+ * IS the project's name in picture form — announcing it as "Acme" is right, and
+ * announcing it as nothing at all is a nameless image inside a navigation
+ * landmark. The image's own `alt` wins where an editor wrote one.
+ */
+export function toShellLogo(
+  logo: { path: string; alt: string | null } | null,
+  filePatchIds: ReadonlyMap<string, string>,
+  projectName: string | undefined,
+): ShellLogo | undefined {
+  if (logo === null) {
+    return undefined;
+  }
+  const alt = logo.alt ?? projectName;
+  return {
+    url: refToUrl(logo.path, filePatchIds),
+    ...(alt ? { alt } : {}),
   };
 }

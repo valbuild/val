@@ -587,6 +587,9 @@ const mockNewPageRoutes: ShellNewPageRoutes = {
 
 export const mockShellData: ShellData = {
   projectName: "val-demo/val-demo-project",
+  // No logo: the resting mock is a project that has not set one, so the
+  // stories show Val's own mark unless they ask for otherwise. See
+  // `mockProjectLogo`.
   admin: {
     project: "https://admin.val.build/~/val-demo/val-demo-project",
     members: "https://admin.val.build/manage-members/val-demo",
@@ -647,4 +650,45 @@ export const emptyShellData: ShellData = {
   activity: [],
   validationErrors: [],
   deployments: [],
+};
+
+/**
+ * A project's own mark, for the stories that show one.
+ *
+ * A data URI rather than a file, so a story does not depend on anything being
+ * served: a story is often the only place a reviewer looks at this, and an
+ * `<img>` with a broken src looks exactly like the feature not working. Two
+ * shapes, because the interesting thing about the slot is what it does with an
+ * aspect ratio it was not designed for — see `StudioMark`.
+ */
+export const mockProjectLogo = {
+  /** A square mark, which is what the slot is for. */
+  square: {
+    url:
+      "data:image/svg+xml;utf8," +
+      encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
+          '<rect width="64" height="64" rx="14" fill="#ea580c"/>' +
+          '<path d="M20 40 L32 18 L44 40 Z" fill="#fff"/></svg>',
+      ),
+    alt: "Nordic Retail",
+  },
+  /**
+   * A wordmark, five times wider than it is tall.
+   *
+   * Contained rather than cropped, so all of it is there and none of it is
+   * readable at 32px. Kept as a story because it is the honest picture of the
+   * trade-off rather than something to discover after shipping.
+   */
+  wide: {
+    url:
+      "data:image/svg+xml;utf8," +
+      encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 60">' +
+          '<rect width="300" height="60" rx="8" fill="#2563eb"/>' +
+          '<text x="150" y="40" font-family="sans-serif" font-size="28" ' +
+          'font-weight="700" fill="#fff" text-anchor="middle">NORDIC</text></svg>',
+      ),
+    alt: "Nordic Retail",
+  },
 };
