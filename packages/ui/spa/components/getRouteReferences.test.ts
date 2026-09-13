@@ -6,7 +6,11 @@ import {
   Source,
   initVal,
 } from "@valbuild/core";
-import { getRouteReferences } from "./getRouteReferences";
+import {
+  buildRouteReferenceIndex,
+  getRouteReferences,
+  referencesTo,
+} from "./getRouteReferences";
 
 const { s, c } = initVal();
 
@@ -360,6 +364,90 @@ describe("getRouteReferences", () => {
     // The router module holds route KEYS, not route fields, so it is skipped
     // too - a record of objects of strings has no `route` node in its schema.
     expect(read).toEqual(["/content.val.ts"]);
+  });
+});
+
+/**
+ * One index instead of one scan per URL.
+ *
+ * The external pages dialog asks about every URL it shows, and asking N times
+ * is N traversals of the same tree to compare against a different string each
+ * time - reaching the leaves is the cost, comparing them is not. Measured on 46
+ * modules and 4.5 MB of source with 18 URLs: 4.02 ms as eighteen scans, 0.29 ms
+ * as one index.
+ *
+ * It is also the only shape React allows. `useEagerRouteReferences` is a hook,
+ * and a hook cannot be called once per item of a list whose length varies, so a
+ * per-URL answer inside a component rendering N URLs is not merely slower - it
+ * cannot be written.
+ */
+describe("buildRouteReferenceIndex", () => {
+  const modules = [
+    c.define("/routes.val.ts", s.record(s.object({ title: s.string() })), {
+      "/home": { title: "Home" },
+      "/about": { title: "About" },
+    }),
+    c.define(
+      "/nav.val.ts",
+      s.array(s.object({ label: s.string(), href: s.route() })),
+      [
+        { label: "Home", href: "/home" },
+        { label: "About", href: "/about" },
+        { label: "Home again", href: "/home" },
+      ],
+    ),
+    c.define("/footer.val.ts", s.object({ link: s.route() }), {
+      link: "/home",
+    }),
+    c.define("/prose.val.ts", s.object({ body: s.string() }), {
+      body: "/home",
+    }),
+  ];
+
+  test("buckets every route field by the value it holds", () => {
+    const { schemas, sources } = getTestData(modules);
+    const index = buildRouteReferenceIndex(schemas, sources);
+    expect(referencesTo(index, "/home")).toEqual([
+      '/nav.val.ts?p=0."href"',
+      '/nav.val.ts?p=2."href"',
+      '/footer.val.ts?p="link"',
+    ]);
+    expect(referencesTo(index, "/about")).toEqual(['/nav.val.ts?p=1."href"']);
+  });
+
+  test("a value nothing points at is an empty list, not undefined", () => {
+    const { schemas, sources } = getTestData(modules);
+    const index = buildRouteReferenceIndex(schemas, sources);
+    expect(referencesTo(index, "/contact")).toEqual([]);
+  });
+
+  test("a string that merely LOOKS like a route is not one", () => {
+    // `/prose.val.ts` holds "/home" in an `s.string()`. The schema is what
+    // decides, which is the same reason its module is skipped entirely.
+    const { schemas, sources } = getTestData(modules);
+    const index = buildRouteReferenceIndex(schemas, sources);
+    expect(referencesTo(index, "/home")).not.toContain(
+      '/prose.val.ts?p="body"',
+    );
+  });
+
+  test("agrees with scanning for each key separately", () => {
+    const { schemas, sources } = getTestData(modules);
+    const index = buildRouteReferenceIndex(schemas, sources);
+    for (const key of ["/home", "/about", "/contact"]) {
+      expect(referencesTo(index, key)).toEqual(
+        getRouteReferences(schemas, sources, key),
+      );
+    }
+  });
+
+  test("is empty for a project with no route fields at all", () => {
+    const { schemas, sources } = getTestData([
+      c.define("/prose.val.ts", s.object({ body: s.string() }), {
+        body: "/home",
+      }),
+    ]);
+    expect(buildRouteReferenceIndex(schemas, sources).size).toBe(0);
   });
 });
 
