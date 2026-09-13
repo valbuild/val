@@ -778,7 +778,7 @@ export const revertBasisModel: CompareModel = {
   undo: {
     kind: "revert",
     all: {
-      label: "Revert everything in this commit",
+      label: "Restore everything from this commit",
       /*
        * The shape `revertAll` really returns: a reason per module. Two here,
        * for the two kinds that actually occur — a schema this Val cannot read

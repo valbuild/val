@@ -72,16 +72,33 @@ const MAX_CHAR_DIFF_LENGTH = 80;
  */
 export function valueDiff(before: string, after: string): DiffSegment[] {
   const byWord = wordDiff(before, after);
-  if (isWorthDiffing(byWord)) return byWord;
+  if (isWorthDiffing(byWord, WORD_THRESHOLD)) return byWord;
   if (
     before.length <= MAX_CHAR_DIFF_LENGTH &&
     after.length <= MAX_CHAR_DIFF_LENGTH
   ) {
     const byChar = diffTokens([...before], [...after]);
-    if (isWorthDiffing(byChar)) return byChar;
+    if (isWorthDiffing(byChar, CHAR_THRESHOLD)) return byChar;
   }
   return byWord;
 }
+
+/**
+ * How much of the longer value must survive for a diff to be worth showing.
+ *
+ * Both thresholds were found the same way: by looking at a screen. Two
+ * rewritten sentences that happen to share a few short words produced exactly
+ * the confetti this file exists to avoid — "Hard-coded content, without the
+ * hard-coding." against "Content that ships with your code, and stays
+ * editable." — and the first version accepted it, because "any shared word at
+ * all" was the rule.
+ *
+ * The character pass is held to a higher bar than the word pass. Characters
+ * find spurious common ground far more easily (every English sentence shares
+ * its vowels), so it has to clear more before it is believed.
+ */
+const WORD_THRESHOLD = 0.3;
+const CHAR_THRESHOLD = 0.5;
 
 export function wordDiff(before: string, after: string): DiffSegment[] {
   if (before === after) {
@@ -167,16 +184,43 @@ function diffTokens(a: string[], b: string[]): DiffSegment[] {
  * whole of both sides in that case is worse than highlighting neither: it says
  * "look here" about the entire value.
  *
- * The threshold is any shared content at all, whitespace excluded — two values
- * that share only the spaces between their words share nothing a reader can
- * use. It is deliberately generous otherwise: a single shared word in a
- * rewritten sentence still anchors the eye.
+ * Two conditions. There has to be shared content that is not whitespace — two
+ * values sharing only the spaces between their words share nothing a reader can
+ * use — and enough of it to be worth pointing at, which is what `threshold`
+ * measures. A single shared preposition in a rewritten sentence passes the
+ * first and fails the second, which is the whole point of having both.
  *
- * `valueDiff` calls this twice, which is the whole mechanism by which it falls
- * back from words to characters.
+ * `valueDiff` calls this twice with different thresholds, which is the
+ * mechanism by which it falls back from words to characters.
  */
-export function isWorthDiffing(segments: DiffSegment[]): boolean {
-  return segments.some(
+export function isWorthDiffing(
+  segments: DiffSegment[],
+  threshold = WORD_THRESHOLD,
+): boolean {
+  const hasRealCommonGround = segments.some(
     (segment) => segment.kind === "same" && segment.text.trim() !== "",
   );
+  if (!hasRealCommonGround) return false;
+  return sharedRatio(segments) >= threshold;
+}
+
+/**
+ * How much of the longer side the two values have in common, 0 to 1.
+ *
+ * Measured against the LONGER side rather than against either one or an
+ * average: appending a paragraph to a sentence leaves the sentence entirely
+ * shared, and scoring that as a perfect match would highlight a wall of new
+ * text as though one word had changed.
+ */
+function sharedRatio(segments: DiffSegment[]): number {
+  let same = 0;
+  let before = 0;
+  let after = 0;
+  for (const segment of segments) {
+    if (segment.kind !== "added") before += segment.text.length;
+    if (segment.kind !== "removed") after += segment.text.length;
+    if (segment.kind === "same") same += segment.text.length;
+  }
+  const longer = Math.max(before, after);
+  return longer === 0 ? 0 : same / longer;
 }

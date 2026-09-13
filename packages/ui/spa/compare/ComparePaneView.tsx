@@ -217,6 +217,7 @@ function RowQuickUndoControl({
   return (
     <RowQuickUndo
       kind={ctx.undo.kind}
+      tone={ctx.undo.tone}
       consequence={ctx.undo.consequenceOf(rowId)}
       profiles={ctx.profiles}
       onConfirm={() => ctx.undo?.onQuickUndo(rowId)}

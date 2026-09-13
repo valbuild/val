@@ -196,6 +196,15 @@ export type CompareUndo =
       reason?: string;
     };
 
+/**
+ * Which undo mechanic a basis offers.
+ *
+ * `discard` drops a staged patch that was never published; `revert` writes an
+ * old value forward as a new change. These are the MECHANICS — the words shown
+ * to an editor are in `undoWords.ts`, and they do not line up one-to-one.
+ */
+export type CompareUndoKind = "discard" | "revert";
+
 /** One field, at one path, on both sides. */
 export type CompareFieldRow = {
   id: string;
@@ -326,7 +335,7 @@ export type CompareModel = {
    * no selectable rows in it.
    */
   undo?: {
-    kind: "discard" | "revert";
+    kind: CompareUndoKind;
     /**
      * The whole-commit escape hatch, when the basis has one.
      *

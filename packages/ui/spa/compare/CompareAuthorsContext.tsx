@@ -1,6 +1,8 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { Profile } from "../components/ValProvider";
 import type { UndoConsequence } from "./undoSelection";
+import type { UndoTone } from "./undoWords";
+import type { CompareUndoKind } from "./types";
 
 /**
  * What every row needs in order to draw an avatar, without being handed it.
@@ -44,7 +46,9 @@ export type CompareAuthorsContextValue = {
    * why every consumer treats it as the default rather than as a special case.
    */
   undo: {
-    kind: "discard" | "revert";
+    kind: CompareUndoKind;
+    /** How loud the mode is allowed to be. See `UndoTone`. */
+    tone: UndoTone;
     /**
      * What undoing this one row actually takes with it.
      *

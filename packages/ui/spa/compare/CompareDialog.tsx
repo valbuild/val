@@ -19,6 +19,7 @@ import { useValPortal } from "../components/ValPortalProvider";
 import { CompareAuthorFilterMenu, authorsInModel } from "./CompareAuthorFilter";
 import { CompareAuthorsProvider } from "./CompareAuthorsContext";
 import { CompareUndoBar } from "./CompareUndoBar";
+import { undoWords, type UndoTone } from "./undoWords";
 import {
   canUndo,
   consequenceOfUndoing,
@@ -32,7 +33,7 @@ import {
   ShowAllFieldsToggle,
   hiddenFieldCount,
 } from "./ComparePaneView";
-import type { CompareModel, CompareNavNode } from "./types";
+import type { CompareModel, CompareNavNode, CompareUndoKind } from "./types";
 
 /**
  * "What am I about to publish", as a room you can walk around in.
@@ -106,6 +107,7 @@ export function CompareDialog({
   currentAuthorId = null,
   onUndo,
   onRevertAll,
+  tone = "calm",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -118,8 +120,15 @@ export function CompareDialog({
   initialUndoMode?: boolean;
   currentAuthorId?: string | null;
   /** Called with everything that will go — picks and their dependents. */
-  onUndo?: (kind: "discard" | "revert", rowIds: string[]) => void;
+  onUndo?: (kind: CompareUndoKind, rowIds: string[]) => void;
   onRevertAll?: () => void;
+  /**
+   * How loud undo mode is allowed to be. See `UndoTone`.
+   *
+   * Temporary, while the two are being compared on screen. Once one is chosen
+   * this goes and the survivor is the only behaviour.
+   */
+  tone?: UndoTone;
 }) {
   const firstId = useMemo(() => firstNodeId(model), [model]);
   const [selectedId, setSelectedId] = useState<string | null>(firstId);
@@ -215,6 +224,7 @@ export function CompareDialog({
           undoing && undoKind !== null
             ? {
                 kind: undoKind,
+                tone,
                 consequenceOf: (rowId) =>
                   consequenceOfUndoing(rowId, model, currentAuthorId),
                 onQuickUndo: (rowId) =>
@@ -309,10 +319,10 @@ export function CompareDialog({
                    * repetition in the tightest row in the dialog.
                    */}
                   <span className="hidden sm:inline">
-                    {undoKind === "discard" ? "Discard changes" : "Revert"}
+                    {undoWords(undoKind).mode}
                   </span>
                   <span className="sm:hidden">
-                    {undoKind === "discard" ? "Discard" : "Revert"}
+                    {undoWords(undoKind).shortMode}
                   </span>
                 </Button>
               )}
@@ -322,20 +332,18 @@ export function CompareDialog({
           {undoing && undoKind !== null && (
             <CompareUndoBar
               kind={undoKind}
+              tone={tone}
               revertAll={model.undo?.all}
               onRevertAll={onRevertAll}
               portalContainer={portalContainer}
               undoAll={{
                 /*
-                 * No number on this one, deliberately. `allUndoableIds` counts
-                 * undoable ROWS — a changed list entry and each changed field
-                 * inside it are separate rows — and the header counts CHANGES.
-                 * On this fixture that is 25 against 14, and a button reading
-                 * "Discard all 25" beside a header reading "14 changes in this
-                 * publish" is two answers to one question. "All" is exact and
-                 * cannot disagree with anything.
+                 * The label carries no number, deliberately — see `undoWords`.
+                 * `allUndoableIds` counts undoable ROWS (a changed list entry
+                 * and each changed field inside it are separate rows) and the
+                 * header counts CHANGES. On this fixture that is 25 against 14,
+                 * and two numbers answering one question is worse than none.
                  */
-                label: undoKind === "discard" ? "Discard all" : "Revert all",
                 onUndoAll: () => {
                   onUndo?.(undoKind, allUndoableIds);
                   setUndoing(false);

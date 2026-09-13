@@ -8,6 +8,8 @@ import { Button } from "../components/designSystem/button";
 import { cn } from "../components/designSystem/cn";
 import type { Profile } from "../components/ValProvider";
 import type { UndoConsequence } from "./undoSelection";
+import type { CompareUndoKind } from "./types";
+import { undoButtonVariant, undoWords, type UndoTone } from "./undoWords";
 
 /**
  * What is about to be undone, and what that drags along.
@@ -28,9 +30,10 @@ export function CompareUndoBar({
   onRevertAll,
   revertAll,
   undoAll,
+  tone,
   portalContainer,
 }: {
-  kind: "discard" | "revert";
+  kind: CompareUndoKind;
   onCancel: () => void;
   onRevertAll?: () => void;
   /** The whole-commit escape hatch, when this basis has one. */
@@ -39,10 +42,13 @@ export function CompareUndoBar({
     blocked?: { moduleFilePath: string; reason: string }[];
   };
   /** The whole-publish escape hatch, in place of a batch. */
-  undoAll?: { label: string; onUndoAll: () => void };
+  undoAll?: { onUndoAll: () => void };
+  /** How loud this mode is allowed to be. See `UndoTone`. */
+  tone: UndoTone;
   /** Where popovers portal to. */
   portalContainer?: HTMLElement | null;
 }) {
+  const words = undoWords(kind);
   return (
     /*
      * A neutral surface with a brand top-and-bottom rule, not a brand FILL.
@@ -54,7 +60,7 @@ export function CompareUndoBar({
     <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-y border-border-brand-primary bg-bg-secondary px-4 py-2">
       <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-fg-primary">
         <Undo2 size={13} aria-hidden />
-        {kind === "discard" ? "Discard changes" : "Revert to this version"}
+        {words.mode}
       </span>
 
       {/*
@@ -64,7 +70,17 @@ export function CompareUndoBar({
        * line is the one part here that can afford its own row.
        */}
       <span className="order-last w-full min-w-0 text-xs text-fg-secondary sm:order-none sm:w-auto sm:flex-1">
-        Hover a change to undo it.
+        {words.hint}
+        {/*
+         * The reassurance only in the calm tone, and only because it is the
+         * thing that makes the mode safe to open: whether what you are about to
+         * change is live. In the alarm tone the red button is making the
+         * opposite claim, and printing both would be the screen arguing with
+         * itself.
+         */}
+        {tone === "calm" && (
+          <span className="ml-1 text-fg-tertiary">{words.reassurance}</span>
+        )}
       </span>
 
       <span className="flex shrink-0 items-center gap-2">
@@ -129,10 +145,10 @@ export function CompareUndoBar({
         {undoAll !== undefined && (
           <Button
             size="sm"
-            variant={kind === "discard" ? "destructive" : "default"}
+            variant={undoButtonVariant(kind, tone, "all")}
             onClick={undoAll.onUndoAll}
           >
-            {undoAll.label}
+            {words.all}
           </Button>
         )}
       </span>
@@ -182,19 +198,21 @@ export function UndoBlocked({ reason }: { reason?: string }) {
  */
 export function RowQuickUndo({
   kind,
+  tone,
   consequence,
   profiles,
   onConfirm,
   portalContainer,
 }: {
-  kind: "discard" | "revert";
+  kind: CompareUndoKind;
+  tone: UndoTone;
   /** What goes if this row goes. Computed where the model is. */
   consequence: UndoConsequence;
   profiles: Record<string, Profile>;
   onConfirm: () => void;
   portalContainer?: HTMLElement | null;
 }) {
-  const verb = kind === "discard" ? "Discard" : "Revert";
+  const words = undoWords(kind);
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -204,10 +222,10 @@ export function RowQuickUndo({
             "opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100",
             "text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
           )}
-          aria-label={`${verb} this change`}
+          aria-label={`${words.verb} this change`}
         >
           <Undo2 size={11} className="mr-0.5 inline" aria-hidden />
-          {verb}
+          {words.verb}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -217,10 +235,8 @@ export function RowQuickUndo({
       >
         <p className="text-xs text-fg-primary">
           {consequence.pulledIn === 0
-            ? `${verb} this change?`
-            : `${verb} this change and ${consequence.pulledIn} later ${
-                consequence.pulledIn === 1 ? "one" : "ones"
-              }?`}
+            ? words.ask
+            : words.askWithDependents(consequence.pulledIn)}
         </p>
         {consequence.pulledIn > 0 && (
           /*
@@ -248,12 +264,12 @@ export function RowQuickUndo({
         <div className="mt-3 flex justify-end">
           <Button
             size="sm"
-            variant={kind === "discard" ? "destructive" : "default"}
+            variant={undoButtonVariant(kind, tone, "one")}
             onClick={onConfirm}
           >
             {consequence.ids.length === 1
-              ? verb
-              : `${verb} ${consequence.ids.length}`}
+              ? words.verb
+              : `${words.verb} ${consequence.ids.length}`}
           </Button>
         </div>
       </PopoverContent>

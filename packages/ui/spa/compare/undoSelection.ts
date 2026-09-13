@@ -1,6 +1,7 @@
 import type {
   CompareGroup,
   CompareModel,
+  CompareUndoKind,
   CompareUndo,
   ComparePane,
 } from "./types";
@@ -169,6 +170,6 @@ export function canUndo(undo: CompareUndo | undefined): boolean {
 }
 
 /** The undo kind this model offers, or null when the dialog is read-only. */
-export function undoKindOf(model: CompareModel): "discard" | "revert" | null {
+export function undoKindOf(model: CompareModel): CompareUndoKind | null {
   return model.undo?.kind ?? null;
 }

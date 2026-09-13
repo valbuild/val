@@ -34,11 +34,13 @@ function Harness({
   layout,
   authorFilter,
   undoMode,
+  tone,
 }: {
   model: CompareModel;
   layout?: "desktop" | "mobile";
   authorFilter?: string | null;
   undoMode?: boolean;
+  tone?: "alarm" | "calm";
 }) {
   const [basisId, setBasisId] = useState(model.selectedBasisId);
   return (
@@ -51,6 +53,7 @@ function Harness({
         forceLayout={layout}
         initialAuthorFilter={authorFilter ?? null}
         initialUndoMode={undoMode}
+        tone={tone}
         currentAuthorId="profile-linus"
         onUndo={() => undefined}
         onRevertAll={() => undefined}
@@ -259,4 +262,37 @@ export const Mobile: Story = { args: { layout: "mobile" } };
 export const MobileLight: Story = {
   args: { layout: "mobile" },
   globals: { theme: "light" },
+};
+
+/**
+ * The same mode in the louder tone, for comparison.
+ *
+ * `alarm` paints the bulk action red whatever the mode is doing. `calm` — the
+ * default — reserves red for the one action that destroys something: reverting
+ * a staged change, confirmed on a single row. See `UndoTone`.
+ *
+ * Read this against `UndoMode`. The question is not which is prettier but
+ * whether the red is telling the truth: the bulk button here reverts every
+ * staged change in the publish, which IS the most destructive thing on the
+ * screen, so there is a real case for it.
+ */
+export const UndoModeAlarmTone: Story = {
+  args: { undoMode: true, tone: "alarm" },
+};
+
+/**
+ * Restoring from a commit, in the calm tone.
+ *
+ * Nothing here is destructive and the words say so: "Restore", not "Revert",
+ * because the change already shipped and what this does is bring an old value
+ * back as a NEW staged change — reviewable, publishable, and revertable in
+ * turn. The bar says that under the hint.
+ */
+export const RestoreFromCommit: Story = {
+  args: { model: revertBasisModel, undoMode: true },
+};
+
+/** The same restore in the louder tone, where the bulk action goes solid. */
+export const RestoreFromCommitAlarmTone: Story = {
+  args: { model: revertBasisModel, undoMode: true, tone: "alarm" },
 };

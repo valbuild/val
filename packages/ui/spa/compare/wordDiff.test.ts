@@ -110,6 +110,21 @@ describe("valueDiff", () => {
     expect(valueDiff(before, after)).toEqual(wordDiff(before, after));
   });
 
+  test("refuses two rewritten sentences that share a few short words", () => {
+    /*
+     * The case that was caught on screen rather than here. Both sides are under
+     * the identifier length, so the character pass ran and produced confetti:
+     * scattered highlights on the vowels and prepositions two English sentences
+     * have in common. "Any shared content at all" was the wrong bar.
+     */
+    const segments = valueDiff(
+      "Hard-coded content, without the hard-coding.",
+      "Content that ships with your code, and stays editable.",
+    );
+
+    expect(isWorthDiffing(segments)).toBe(false);
+  });
+
   test("refuses a character diff on a long value", () => {
     // Past the identifier length a character diff is confetti, so two prose
     // values with no shared word get no highlighting rather than bad
