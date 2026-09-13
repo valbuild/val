@@ -152,7 +152,7 @@ export type InitSchema = {
    *
    * @example
    * // Backed by a gallery: width, height and mimeType live there.
-   * import galleryVal from "./gallery.val"; // an s.images() module
+   * import galleryVal from "./gallery.val"; // an s.imageset() module
    * const schema = s.image(galleryVal);
    * export default c.define("/example.val.ts", schema, {
    *   path: "/public/val/example.png",

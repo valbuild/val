@@ -160,7 +160,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
    *
    * @example
    * const schema = s
-   *   .image({ accept: "image/webp", directory: "/public/val/images" })
+   *   .image({ accept: "image/webp", dir: "/public/val/images" })
    *   .remote();
    * export default c.define("/example.val.ts", schema, {
    *   path: "https://remote.val.build/file/p/my-project/b/01/v/1.0.0/h/8f2a1c/f/3b9d70/p/public/val/images/example.webp",

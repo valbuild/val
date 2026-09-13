@@ -838,7 +838,7 @@ export class RecordSchema<
    * Allow the files in this gallery to be stored on Val's remote content host
    * instead of in your repository.
    *
-   * For `s.images()` and `s.files()`, which are records of media. Remote is off
+   * For `s.imageset()` and `s.fileset()`, which are records of media. Remote is off
    * until this is called.
    *
    * Each entry is then keyed by its URL on the content host rather than by a
@@ -847,7 +847,7 @@ export class RecordSchema<
    * upload it and rewrite the key.
    *
    * @example
-   * const schema = s.images({ directory: "/public/val/images" }).remote();
+   * const schema = s.imageset({ dir: "/public/val/images" }).remote();
    * export default c.define("/content/images.val.ts", schema, {
    *   "https://remote.val.build/file/p/my-project/b/01/v/1.0.0/h/8f2a1c/f/3b9d70/p/public/val/images/hero.webp":
    *     {

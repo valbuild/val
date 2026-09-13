@@ -179,7 +179,7 @@ export default c.define(
  *
  * It is `.remote()` and not `{ remote: true }`, and the difference is not
  * cosmetic here: this fixture is a STRING compiled at runtime, so nothing
- * typechecks it. `s.images({ remote: true })` therefore compiles, silently
+ * typechecks it. `s.imageset({ remote: true })` therefore compiles, silently
  * drops the unknown key, and builds a LOCAL gallery — which is what every
  * assertion in `remoteImages.test.ts` was failing on.
  */

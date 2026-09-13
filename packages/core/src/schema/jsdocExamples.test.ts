@@ -110,7 +110,7 @@ const authorsVal = c.define("/authors.val.ts", s.record(s.string()), {
 });
 const galleryVal = c.define(
   "/gallery.val.ts",
-  s.images({ directory: "/public/val/images" }),
+  s.imageset({ dir: "/public/val/images" }),
   {},
 );
 
@@ -143,8 +143,8 @@ export const probes = {
   locale: s.locale(),
   route: s.route(),
   router: s.router(nextAppRouter, s.object({ title: s.string() })),
-  images: s.images({ directory: "/public/val/images" }),
-  files: s.files({ accept: "*/*", directory: "/public/val/files" }),
+  imageset: s.imageset({ dir: "/public/val/images" }),
+  fileset: s.fileset({ accept: "*/*", dir: "/public/val/files" }),
   settings: s.settings(),
 };
 export const galleryBackedImage = s.image(galleryVal);
@@ -397,7 +397,7 @@ export default c.define("/other.val.ts", s.record(s.string()), {
     `import { s, c } from "./val.config";
 export default c.define(
   "/gallery.val.ts",
-  s.images({ directory: "/public/val/images" }),
+  s.imageset({ dir: "/public/val/images" }),
   {},
 );
 `,
