@@ -49,6 +49,8 @@ export type CompareAuthorsContextValue = {
     /** Only what the closure added, drawn differently. */
     pulledIn: ReadonlySet<string>;
     onToggle: (rowId: string) => void;
+    /** Tick or untick a whole nav row or group heading at once. */
+    onToggleMany: (rowIds: readonly string[], next: boolean) => void;
   } | null;
 };
 

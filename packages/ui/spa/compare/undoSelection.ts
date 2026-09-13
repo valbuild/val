@@ -1,6 +1,7 @@
 import type {
   CompareGroup,
   CompareModel,
+  CompareNavNode,
   CompareUndo,
   ComparePane,
 } from "./types";
@@ -79,23 +80,116 @@ export function undoableRows(
 }
 
 /**
- * The `requires` map for one pane.
+ * The `requires` map for a whole model.
  *
- * Per pane rather than per model: a selection is cleared when the selected nav
- * row changes — undoing is about the thing you are looking at, and carrying a
- * selection across a navigation would mean a bar reporting a count whose rows
- * are no longer on screen.
+ * Model-wide, not per pane. It was per pane while rows were the only thing you
+ * could select and the selection was cleared on navigation — the reasoning
+ * being that a bar counting rows you cannot see is a trap. Nav-level controls
+ * change that: a nav row spans panes by construction, so the selection has to
+ * as well, and the nav is now where a cross-pane selection is visible. The bar
+ * counts what the nav shows.
+ *
+ * Dependencies can cross panes for a second reason: a patch set is scoped to a
+ * module, but one module is one pane, so `requires` edges stay within a pane in
+ * practice. Building the map across the model costs nothing and removes the
+ * assumption.
  */
-export function requiresMapOf(
-  pane: ComparePane,
+export function requiresMapOfModel(
+  model: CompareModel,
 ): Map<string, readonly string[]> {
   const map = new Map<string, readonly string[]>();
-  for (const row of undoableRows(pane)) {
-    if (row.undo.kind === "discard" && row.undo.requires !== undefined) {
-      map.set(row.id, row.undo.requires);
+  for (const pane of Object.values(model.panes)) {
+    for (const row of undoableRows(pane)) {
+      if (row.undo.kind === "discard" && row.undo.requires !== undefined) {
+        map.set(row.id, row.undo.requires);
+      }
     }
   }
   return map;
+}
+
+/** Every undoable row in the model, across every pane. */
+export function undoableRowsOfModel(
+  model: CompareModel,
+): { id: string; undo: CompareUndo; authors: readonly string[] }[] {
+  return Object.values(model.panes).flatMap(undoableRows);
+}
+
+/**
+ * The selectable rows one group heading stands for.
+ *
+ * Its own field rows, or — for a list — each entry plus the changed fields
+ * inside it. A heading's checkbox is an aggregate over exactly this set, so
+ * what it covers is defined here rather than at the checkbox.
+ */
+export function selectableRowIdsOfGroup(group: CompareGroup): string[] {
+  const ids: string[] = [];
+  const push = (id: string, undo: CompareUndo | undefined): void => {
+    if (isSelectable(undo)) ids.push(id);
+  };
+  if (group.kind === "fields") {
+    for (const row of group.rows) push(row.id, row.undo);
+    return ids;
+  }
+  for (const item of group.rows) {
+    push(item.id, item.undo);
+    for (const field of item.fields ?? []) push(field.id, field.undo);
+  }
+  return ids;
+}
+
+/**
+ * The selectable rows one nav node stands for: its own pane, and its children's.
+ *
+ * Recursive because a folder is structure with no pane of its own — ticking
+ * `blogs` has to mean every changed page under it, which is the only reading
+ * that makes a folder checkbox useful.
+ */
+export function selectableRowIdsOfNavNode(
+  model: CompareModel,
+  node: CompareNavNode,
+): string[] {
+  const own = model.panes[node.id];
+  const ids =
+    own === undefined ? [] : own.groups.flatMap(selectableRowIdsOfGroup);
+  for (const child of node.children ?? []) {
+    ids.push(...selectableRowIdsOfNavNode(model, child));
+  }
+  return ids;
+}
+
+/** Every nav node's row ids, by node id, computed once per model. */
+export function navRowIdsOf(model: CompareModel): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  const walk = (node: CompareNavNode): void => {
+    map.set(node.id, selectableRowIdsOfNavNode(model, node));
+    for (const child of node.children ?? []) walk(child);
+  };
+  for (const section of model.sections) {
+    for (const node of section.nodes) walk(node);
+  }
+  return map;
+}
+
+/**
+ * How a group of rows stands relative to the selection.
+ *
+ * Three states, because two would lie: a heading whose list is half selected
+ * has to say so, or ticking it looks like it did nothing and unticking it
+ * looks like it did too much.
+ */
+export type AggregateState = "none" | "some" | "all";
+
+export function aggregateOf(
+  ids: readonly string[],
+  selected: ReadonlySet<string>,
+): AggregateState {
+  if (ids.length === 0) return "none";
+  let hits = 0;
+  for (const id of ids) {
+    if (selected.has(id)) hits++;
+  }
+  return hits === 0 ? "none" : hits === ids.length ? "all" : "some";
 }
 
 export type UndoSummary = {
@@ -115,12 +209,15 @@ export type UndoSummary = {
 
 export function summarizeUndo(
   picked: ReadonlySet<string>,
-  pane: ComparePane,
+  model: CompareModel,
   currentAuthorId: string | null,
 ): UndoSummary {
-  const { selected, pulledIn } = closeOverRequired(picked, requiresMapOf(pane));
+  const { selected, pulledIn } = closeOverRequired(
+    picked,
+    requiresMapOfModel(model),
+  );
   const others: string[] = [];
-  for (const row of undoableRows(pane)) {
+  for (const row of undoableRowsOfModel(model)) {
     if (!pulledIn.has(row.id)) continue;
     for (const authorId of row.authors) {
       if (authorId !== currentAuthorId && !others.includes(authorId)) {
@@ -183,6 +280,33 @@ function reaches(
     }
   }
   return false;
+}
+
+/**
+ * Tick or untick a whole set of rows at once — a nav row or a group heading.
+ *
+ * Ticking adds every selectable id; the closure then pulls in whatever they
+ * compel, exactly as a single pick does. Unticking goes through
+ * {@link dropRequiring} PER ID rather than just subtracting the set, because
+ * a row outside the set may have compelled one inside it, and leaving that pick
+ * standing would put the row straight back on the next render.
+ */
+export function toggleMany(
+  picked: ReadonlySet<string>,
+  ids: readonly string[],
+  next: boolean,
+  requiresById: ReadonlyMap<string, readonly string[]>,
+): Set<string> {
+  if (next) {
+    const out = new Set(picked);
+    for (const id of ids) out.add(id);
+    return out;
+  }
+  let out = new Set(picked);
+  for (const id of ids) {
+    out = dropRequiring(out, id, requiresById);
+  }
+  return out;
 }
 
 /** Whether a row can be picked at all, given what undoing means here. */

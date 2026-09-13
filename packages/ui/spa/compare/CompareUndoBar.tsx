@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { AlertTriangle, Undo2, X, Zap } from "lucide-react";
 import {
   Popover,
@@ -66,7 +67,14 @@ export function CompareUndoBar({
         {kind === "discard" ? "Discard changes" : "Revert to this version"}
       </span>
 
-      <span className="min-w-0 flex-1 text-xs text-fg-secondary">
+      {/*
+       * Last and full-width when the bar has to wrap, inline when it does not.
+       * Squeezed between the label and the buttons at phone width it broke
+       * "Pick what to undo." across two lines and pushed the row to double
+       * height; the status line is the one part here that can afford its own
+       * row.
+       */}
+      <span className="order-last w-full min-w-0 text-xs text-fg-secondary sm:order-none sm:w-auto sm:flex-1">
         {total === 0 ? (
           "Pick what to undo."
         ) : (
@@ -228,6 +236,49 @@ export function UndoBlocked({ reason }: { reason?: string }) {
     >
       {reason ?? "Cannot revert"}
     </span>
+  );
+}
+
+/**
+ * The checkbox a nav row or a group heading grows in undo mode.
+ *
+ * Tri-state, and `indeterminate` is a DOM PROPERTY with no HTML attribute — it
+ * cannot be set from JSX, so it goes on through a ref after every render. Two
+ * states would lie here: a heading whose list is half selected has to say so,
+ * or ticking it looks like it did nothing and unticking it looks like it did
+ * too much.
+ *
+ * Clicking a partially selected box selects the rest rather than clearing it.
+ * "Some" reads as an unfinished selection, and finishing it is the likelier
+ * intent than abandoning it — and unticking is one more click away either way.
+ */
+export function UndoAggregateCheckbox({
+  state,
+  onToggle,
+  label,
+}: {
+  state: "none" | "some" | "all";
+  onToggle: (next: boolean) => void;
+  label: string;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current !== null) {
+      ref.current.indeterminate = state === "some";
+    }
+  }, [state]);
+  return (
+    <label className="flex shrink-0 cursor-pointer items-center" title={label}>
+      <input
+        ref={ref}
+        type="checkbox"
+        checked={state === "all"}
+        onChange={() => onToggle(state !== "all")}
+        aria-label={label}
+        aria-checked={state === "some" ? "mixed" : state === "all"}
+        className="h-3.5 w-3.5 cursor-pointer accent-[var(--bg-brand-primary)]"
+      />
+    </label>
   );
 }
 

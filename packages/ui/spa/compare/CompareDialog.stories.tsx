@@ -189,6 +189,28 @@ export const ShowAllFields: Story = { args: { model: singleModuleModel } };
 export const UndoMode: Story = { args: { undoPicks: [] } };
 
 /**
+ * Undo from the nav and from a group heading.
+ *
+ * A nav row stands for every selectable row in its pane and its children's —
+ * so ticking `blogs` means every changed page under it. A group heading stands
+ * for its own rows. Both are tri-state, because a half-selected set has to say
+ * so: ticking a two-state box that was already "some" looks like it did
+ * nothing, and unticking it looks like it did too much.
+ *
+ * Ticking one entry in `authors.val.ts` therefore puts its group heading AND
+ * its nav row into the indeterminate state — three levels agreeing.
+ *
+ * This is why the selection is model-wide rather than cleared on navigation: a
+ * nav row spans panes by construction, and the nav is where that is visible.
+ */
+export const UndoFromNavAndGroups: Story = { args: { undoPicks: [] } };
+
+/** Undo mode on a phone, where the nav is a drawer. */
+export const UndoModeMobile: Story = {
+  args: { undoPicks: [], layout: "mobile" },
+};
+
+/**
  * A discard that drags two later changes along, one of them somebody else's.
  *
  * `brand` cannot go alone: `badge` and `legacyNote` were written against a

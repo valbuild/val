@@ -6,8 +6,17 @@ import {
   sideRailClass,
 } from "./ChangeKindIcon";
 import { FieldPatchAuthorsPure } from "../components/FieldPatchAuthors";
-import { UndoBlocked, UndoCheckbox, UndoSpacer } from "./CompareUndoBar";
-import { isSelectable } from "./undoSelection";
+import {
+  UndoAggregateCheckbox,
+  UndoBlocked,
+  UndoCheckbox,
+  UndoSpacer,
+} from "./CompareUndoBar";
+import {
+  aggregateOf,
+  isSelectable,
+  selectableRowIdsOfGroup,
+} from "./undoSelection";
 import { passesAuthorFilter, useCompareAuthors } from "./CompareAuthorsContext";
 import type {
   CompareAuthorship,
@@ -80,7 +89,9 @@ function GroupSide({
     }
     return (
       <section className="mb-4">
-        {group.title !== undefined && <GroupHeading title={group.title} />}
+        {group.title !== undefined && (
+          <GroupHeading title={group.title} group={group} side={side} />
+        )}
         {rows.map((row) => (
           <FieldRowSide key={row.id} row={row} side={side} />
         ))}
@@ -95,7 +106,12 @@ function GroupSide({
   }
   return (
     <section className="mb-4">
-      <GroupHeading title={group.title} summary={group.summary} />
+      <GroupHeading
+        title={group.title}
+        summary={group.summary}
+        group={group}
+        side={side}
+      />
       {items.map((row) => (
         <ListItemRowSide
           key={row.id}
@@ -117,9 +133,38 @@ function GroupSide({
  * it is also what lets either column stand alone, which is what the phone
  * layout needs.
  */
-function GroupHeading({ title, summary }: { title: string; summary?: string }) {
+function GroupHeading({
+  title,
+  summary,
+  group,
+  side,
+}: {
+  title: string;
+  summary?: string;
+  /** Present when the heading stands for a set that can be undone at once. */
+  group?: CompareGroup;
+  side?: "before" | "after";
+}) {
+  const ctx = useCompareAuthors();
+  const ids = group === undefined ? [] : selectableRowIdsOfGroup(group);
+  const showAggregate = side === "after" && ctx?.undo != null && ids.length > 0;
   return (
-    <div className="mb-1 flex min-w-0 items-baseline gap-2 border-b border-border-secondary pb-1">
+    <div className="mb-1 flex min-w-0 items-center gap-2 border-b border-border-secondary pb-1">
+      {/*
+       * Drawn on the RIGHT column only, like every other undo control, but the
+       * heading itself is repeated on both sides — so the left one gets a
+       * spacer to keep the two grids in step.
+       */}
+      {ctx?.undo != null &&
+        (showAggregate ? (
+          <UndoAggregateCheckbox
+            state={aggregateOf(ids, ctx.undo.selected)}
+            onToggle={(next) => ctx.undo?.onToggleMany(ids, next)}
+            label={`Undo everything in ${title}`}
+          />
+        ) : (
+          <UndoSpacer />
+        ))}
       <span className="truncate text-sm font-medium text-fg-primary">
         {title}
       </span>

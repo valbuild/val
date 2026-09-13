@@ -1,10 +1,12 @@
 import {
+  aggregateOf,
   closeOverRequired,
   dropRequiring,
   isSelectable,
   summarizeUndo,
+  toggleMany,
 } from "./undoSelection";
-import type { ComparePane } from "./types";
+import type { CompareModel, ComparePane } from "./types";
 
 /**
  * What a pick actually takes with it.
@@ -55,14 +57,21 @@ describe("closeOverRequired", () => {
   });
 });
 
-function paneWith(
+/**
+ * A one-pane model.
+ *
+ * `summarizeUndo` takes a MODEL rather than a pane: nav-level controls select
+ * across panes, so the closure and the "whose work did this drag in" question
+ * are model-wide.
+ */
+function modelWith(
   rows: {
     id: string;
     requires?: string[];
     authors?: Record<string, never[]>;
   }[],
-): ComparePane {
-  return {
+): CompareModel {
+  const pane: ComparePane = {
     title: "t",
     groups: [
       {
@@ -78,6 +87,23 @@ function paneWith(
       },
     ],
   };
+  return {
+    sections: [
+      {
+        id: "s",
+        title: "S",
+        nodes: [{ id: "n", label: "n", kind: "module", change: "changed" }],
+      },
+    ],
+    panes: { n: pane },
+    left: { label: "L" },
+    right: { label: "R" },
+    basisOptions: [],
+    selectedBasisId: "b",
+    changeCount: rows.length,
+    profiles: {},
+    undo: { kind: "discard" },
+  };
 }
 
 describe("summarizeUndo", () => {
@@ -85,24 +111,24 @@ describe("summarizeUndo", () => {
     // The consequence nobody expects: discarding your own change is legal only
     // if a colleague's later change goes with it. That has to be said before
     // the click.
-    const pane = paneWith([
+    const model = modelWith([
       { id: "mine", requires: ["theirs"], authors: { ada: [] } },
       { id: "theirs", authors: { linus: [] } },
     ]);
 
-    const res = summarizeUndo(new Set(["mine"]), pane, "ada");
+    const res = summarizeUndo(new Set(["mine"]), model, "ada");
 
     expect([...res.pulledIn]).toEqual(["theirs"]);
     expect(res.othersAffected).toEqual(["linus"]);
   });
 
   test("does not warn about your own dependent changes", () => {
-    const pane = paneWith([
+    const model = modelWith([
       { id: "first", requires: ["second"], authors: { ada: [] } },
       { id: "second", authors: { ada: [] } },
     ]);
 
-    const res = summarizeUndo(new Set(["first"]), pane, "ada");
+    const res = summarizeUndo(new Set(["first"]), model, "ada");
 
     expect([...res.pulledIn]).toEqual(["second"]);
     expect(res.othersAffected).toEqual([]);
@@ -176,5 +202,55 @@ describe("isSelectable", () => {
 
   test("a row with no undo descriptor is not selectable", () => {
     expect(isSelectable(undefined)).toBe(false);
+  });
+});
+
+/**
+ * Aggregate state for a nav row or a group heading.
+ *
+ * Three states rather than two, because two would lie: a heading whose list is
+ * half selected has to say so, or ticking it looks like it did nothing and
+ * unticking it looks like it did too much.
+ */
+describe("aggregateOf", () => {
+  test("reports none, some and all", () => {
+    const ids = ["a", "b"];
+    expect(aggregateOf(ids, new Set())).toBe("none");
+    expect(aggregateOf(ids, new Set(["a"]))).toBe("some");
+    expect(aggregateOf(ids, new Set(["a", "b"]))).toBe("all");
+  });
+
+  test("an empty set is none, not all", () => {
+    // A nav row with nothing selectable under it must not render as ticked —
+    // `[].every(...)` is `true`, which is the trap this guards.
+    expect(aggregateOf([], new Set(["a"]))).toBe("none");
+  });
+});
+
+describe("toggleMany", () => {
+  test("ticking adds every id", () => {
+    const res = toggleMany(new Set(["x"]), ["a", "b"], true, new Map());
+    expect([...res].sort()).toEqual(["a", "b", "x"]);
+  });
+
+  test("unticking also drops a pick from OUTSIDE the set that compelled one inside it", () => {
+    // `outsider` requires `a`. Unticking the group containing `a` has to drop
+    // `outsider` too, or the next render puts `a` straight back and the click
+    // looks ignored.
+    const requires = new Map<string, string[]>([["outsider", ["a"]]]);
+
+    const res = toggleMany(
+      new Set(["outsider", "a"]),
+      ["a", "b"],
+      false,
+      requires,
+    );
+
+    expect([...res]).toEqual([]);
+  });
+
+  test("unticking leaves unrelated picks alone", () => {
+    const res = toggleMany(new Set(["a", "keep"]), ["a"], false, new Map());
+    expect([...res]).toEqual(["keep"]);
   });
 });

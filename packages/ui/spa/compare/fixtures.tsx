@@ -247,18 +247,22 @@ const listsPane: ComparePane = {
         item("kw-history", "history", "added", {
           preview: text("history"),
           authors: by("profile-ada", "add", 25),
+          undo: DISCARD,
         }),
         item("kw-restore", "restore", "added", {
           preview: text("restore"),
           authors: by("profile-ada", "add", 25),
+          undo: DISCARD,
         }),
         item("kw-content", "content", "removed", {
           preview: text("content"),
           authors: by("profile-linus", "remove", 60),
+          undo: DISCARD,
         }),
         item("kw-publish", "publish", "moved", {
           preview: text("publish"),
           authors: by("profile-linus", "move", 60),
+          undo: DISCARD,
           move: { kind: "reorder", from: 3, to: 0 },
         }),
       ],
@@ -271,6 +275,7 @@ const listsPane: ComparePane = {
       rows: [
         item("prio-2", "[2]", "changed", {
           authors: by("profile-ada", "replace", 15),
+          undo: DISCARD,
           fields: [field("prio-2-v", "value", "changed", text("3"), text("5"))],
         }),
       ],
@@ -287,16 +292,28 @@ const newBlogPane: ComparePane = {
       kind: "fields",
       id: "new-page",
       rows: [
-        field("title", "title", "added", undefined, text("History, restored")),
         field(
-          "ingress",
+          "nb-title",
+          "title",
+          "added",
+          undefined,
+          text("History, restored"),
+          undefined,
+          by("profile-ada", "add", 40),
+          DISCARD,
+        ),
+        field(
+          "nb-ingress",
           "ingress",
           "added",
           undefined,
           text("Val can now look back, and put part of it back."),
+          undefined,
+          by("profile-ada", "add", 40),
+          DISCARD,
         ),
         field(
-          "hero",
+          "nb-hero",
           "hero",
           "added",
           undefined,
@@ -304,6 +321,9 @@ const newBlogPane: ComparePane = {
             "hero-a1b2c.jpg · 1600×900",
             "linear-gradient(135deg,#334155,#0f172a)",
           ),
+          undefined,
+          by("profile-ada", "file", 18),
+          DISCARD,
         ),
       ],
     },
@@ -320,18 +340,24 @@ const removedBlogPane: ComparePane = {
       id: "removed-page",
       rows: [
         field(
-          "title",
+          "rb-title",
           "title",
           "removed",
           text("Announcing the beta"),
           undefined,
+          undefined,
+          by("profile-ada", "remove", 50),
+          DISCARD,
         ),
         field(
-          "ingress",
+          "rb-ingress",
           "ingress",
           "removed",
           text("The beta channel is open."),
           undefined,
+          undefined,
+          by("profile-ada", "remove", 50),
+          DISCARD,
         ),
       ],
     },
@@ -359,6 +385,7 @@ const routesPane: ComparePane = {
       rows: [
         item("route-renamed", "/blogs/history-and-restore", "moved", {
           authors: by("profile-linus", "move", 90),
+          undo: DISCARD,
           preview: text("History, restored"),
           move: {
             kind: "rename",
@@ -368,6 +395,7 @@ const routesPane: ComparePane = {
         }),
         item("route-edited", "/blogs/getting-started", "changed", {
           authors: by("profile-ada", "replace", 20),
+          undo: DISCARD,
           fields: [
             field(
               "gs-title",
@@ -396,6 +424,7 @@ const mediaPane: ComparePane = {
       rows: [
         item("img-hero", "hero-a1b2c.jpg", "added", {
           authors: by("profile-ada", "file", 18),
+          undo: DISCARD,
           preview: swatch(
             "1600×900 · image/jpeg",
             "linear-gradient(135deg,#334155,#0f172a)",
@@ -403,6 +432,7 @@ const mediaPane: ComparePane = {
         }),
         item("img-old", "old-banner-9f3e1.png", "removed", {
           authors: by("profile-linus", "file", 70),
+          undo: DISCARD,
           preview: swatch(
             "1200×400 · image/png",
             "linear-gradient(135deg,#7f1d1d,#450a0a)",
@@ -430,6 +460,7 @@ const settingsPane: ComparePane = {
           text("Val Examples — Next"),
           undefined,
           by("profile-ada", "replace", 5),
+          DISCARD,
         ),
         field("locale", "locale", "unchanged", text("en"), text("en")),
         field("analytics", "analytics", "unchanged", text("off"), text("off")),
@@ -608,6 +639,9 @@ export const compareModel: CompareModel = {
                 "1600×900 · image/jpeg · 284 KB",
                 "linear-gradient(135deg,#334155,#0f172a)",
               ),
+              undefined,
+              by("profile-ada", "file", 18),
+              DISCARD,
             ),
             field(
               "hero-alt",
@@ -615,6 +649,9 @@ export const compareModel: CompareModel = {
               "added",
               undefined,
               text("The Studio, mid-restore"),
+              undefined,
+              by("profile-ada", "add", 16),
+              DISCARD,
             ),
           ],
         },
@@ -638,6 +675,9 @@ export const compareModel: CompareModel = {
                 "linear-gradient(135deg,#7f1d1d,#450a0a)",
               ),
               undefined,
+              undefined,
+              by("profile-linus", "file", 70),
+              DISCARD,
             ),
           ],
         },

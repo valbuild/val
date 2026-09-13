@@ -21,8 +21,10 @@ import { CompareAuthorsProvider } from "./CompareAuthorsContext";
 import { CompareUndoBar } from "./CompareUndoBar";
 import {
   dropRequiring,
-  requiresMapOf,
+  navRowIdsOf,
+  requiresMapOfModel,
   summarizeUndo,
+  toggleMany,
   undoKindOf,
 } from "./undoSelection";
 import { CompareColumns, CompareMobileColumns } from "./CompareColumns";
@@ -166,29 +168,26 @@ export function CompareDialog({
   );
 
   const pane = selectedId === null ? undefined : model.panes[selectedId];
+  /*
+   * Model-wide, not pane-scoped.
+   *
+   * It was pane-scoped and cleared on navigation while rows were the only
+   * selectable thing — the reasoning being that a bar counting rows you cannot
+   * see is a trap. Nav-level controls change that: a nav row spans panes by
+   * construction, so the selection must too, and the nav is now where a
+   * cross-pane selection is visible. The bar counts what the nav shows.
+   */
+  const requiresMap = useMemo(() => requiresMapOfModel(model), [model]);
+  const navRowIds = useMemo(() => navRowIdsOf(model), [model]);
   const undoSummary = useMemo(
-    () =>
-      pane === undefined
-        ? {
-            selected: new Set<string>(),
-            pulledIn: new Set<string>(),
-            othersAffected: [],
-          }
-        : summarizeUndo(picked, pane, currentAuthorId),
-    [picked, pane, currentAuthorId],
+    () => summarizeUndo(picked, model, currentAuthorId),
+    [picked, model, currentAuthorId],
   );
   const selectRow = (id: string): void => {
-    /*
-     * Selection is cleared when the pane changes, by keying it to the pane —
-     * see `requiresMapOf`. Undoing is about the thing you are looking at, and
-     * a bar reporting a count whose rows are off screen is a trap.
-     */
     setSelectedId(id);
-    setPicked(new Set());
   };
   const toggleRow = (rowId: string): void => {
-    if (pane === undefined) return;
-    const requires = requiresMapOf(pane);
+    const requires = requiresMap;
     setPicked((prev) => {
       /*
        * Unticking anything that is currently going — whether it was picked or
@@ -234,6 +233,10 @@ export function CompareDialog({
                 selected: undoSummary.selected,
                 pulledIn: undoSummary.pulledIn,
                 onToggle: toggleRow,
+                onToggleMany: (rowIds, next) =>
+                  setPicked((prev) =>
+                    toggleMany(prev, rowIds, next, requiresMap),
+                  ),
               }
             : null,
       }}
@@ -407,6 +410,7 @@ export function CompareDialog({
                     sections={model.sections}
                     selectedId={selectedId}
                     authorFilter={authorFilter}
+                    navRowIds={navRowIds}
                     onSelect={(id) => {
                       selectRow(id);
                       setNavOpen(false);
@@ -422,6 +426,7 @@ export function CompareDialog({
                 sections={model.sections}
                 selectedId={selectedId}
                 authorFilter={authorFilter}
+                navRowIds={navRowIds}
                 onSelect={selectRow}
               />
               <div className="flex min-w-0 flex-1 flex-col px-4 py-3">
