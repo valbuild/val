@@ -25,23 +25,26 @@ const MARKS: Record<
   added: {
     Icon: Plus,
     label: "Added",
-    /*
-     * There is no `--fg-success` token in the theme, and this is the one place
-     * that needs a green: every other affirmative surface in the Studio uses
-     * the brand colour, which here would collide with selection. Named with the
-     * palette's own scale so a token, when there is one, is a find-and-replace.
-     */
-    className: "text-emerald-600 dark:text-emerald-400",
+    // Matches the "added" rail. See `segmentClass` for why blue and not green.
+    className: "text-sky-600 dark:text-sky-400",
   },
   removed: {
     Icon: Minus,
     label: "Removed",
-    className: "text-fg-error-primary",
+    className: "text-rose-600 dark:text-rose-400",
   },
   changed: {
     Icon: Pencil,
     label: "Changed",
-    className: "text-fg-brand-primary",
+    /*
+     * Neutral, not the brand colour.
+     *
+     * A pencil in the accent read as an edit BUTTON rather than as a status —
+     * it is the only accent-coloured thing on a row, and everything else in the
+     * Studio that colour is clickable. The change it marks is already carried
+     * by the highlighted words inside the value.
+     */
+    className: "text-fg-tertiary",
   },
   moved: {
     Icon: ArrowRightLeft,
@@ -66,8 +69,34 @@ export function changeKindLabel(kind: CompareChangeKind): string {
  */
 export function sideRailClass(side: "before" | "after"): string {
   return side === "before"
-    ? "border-l-2 border-l-fg-error-primary"
-    : "border-l-2 border-l-emerald-600 dark:border-l-emerald-400";
+    ? "border-l-2 border-l-rose-600 dark:border-l-rose-400"
+    : "border-l-2 border-l-sky-600 dark:border-l-sky-400";
+}
+
+/**
+ * Added is BLUE, not green — Payload's choice, for two reasons that both apply
+ * here.
+ *
+ * The first is that Val's accent is themable and this project's is a mint
+ * green, so an emerald "added" rail sat a few degrees from the brand colour and
+ * read as "this row is highlighted" rather than "this content is new". Red and
+ * blue cannot collide with an accent the same way, because nothing else on this
+ * screen is either.
+ *
+ * The second is red/green, which roughly one man in twelve cannot separate. Red
+ * and blue differ in hue AND in lightness, so the distinction survives being
+ * desaturated.
+ *
+ * Fixed palette steps rather than theme tokens, deliberately: these are
+ * statements about the diff, not about the product, and a project that themed
+ * its accent red would otherwise make "removed" mean two things. The `dark:`
+ * pair is the existing convention in this file.
+ */
+export function segmentClass(kind: "same" | "removed" | "added"): string {
+  if (kind === "same") return "";
+  return kind === "removed"
+    ? "bg-rose-500/20 text-rose-700 line-through decoration-rose-500/60 dark:text-rose-200"
+    : "bg-sky-500/20 text-sky-800 dark:text-sky-100";
 }
 
 export function ChangeKindIcon({

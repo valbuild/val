@@ -28,7 +28,7 @@ import {
 import { CompareColumns, CompareMobileColumns } from "./CompareColumns";
 import { CompareNav } from "./CompareNav";
 import {
-  ComparePaneSide,
+  ComparePaneRows,
   ShowAllFieldsToggle,
   hiddenFieldCount,
 } from "./ComparePaneView";
@@ -228,6 +228,18 @@ export function CompareDialog({
     >
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
+          /*
+           * Do not hand focus to the first control in the header.
+           *
+           * Radix focuses the first focusable child on open. That used to be
+           * the basis picker, which is harmless; moving "Discard changes" to
+           * the left of the header made it the destructive-mode button, so
+           * opening the dialog and pressing Enter would arm a discard. Focus
+           * stays on the content element itself (Radix gives it `tabIndex=-1`),
+           * so the dialog is still focused for the Escape key and tabbing still
+           * starts at the top.
+           */
+          onOpenAutoFocus={(event) => event.preventDefault()}
           className={cn(
             "flex h-[85vh] max-h-[85vh] w-[95vw] max-w-[1200px] flex-col gap-0 overflow-hidden p-0",
             forceLayout === "mobile" && "h-[720px] w-[390px] max-w-[390px]",
@@ -243,40 +255,38 @@ export function CompareDialog({
            * lost and rendered as "R." over "1…".
            */}
           <header className="flex shrink-0 flex-col gap-2 border-b border-border-primary px-4 py-3 pr-10 sm:flex-row sm:items-center sm:gap-3">
-            <div className="min-w-0 sm:flex-1">
-              <DialogTitle className="truncate text-base">
-                Review changes
-              </DialogTitle>
+            <div className="flex min-w-0 items-center gap-3 sm:flex-1">
+              <div className="min-w-0">
+                <DialogTitle className="truncate text-base">
+                  Review changes
+                </DialogTitle>
+                {/*
+                 * The count describes the whole publish, so under a filter it
+                 * would be describing something other than what is on screen.
+                 * Rather than compute a filtered total — which the model does
+                 * not carry, and which would have to agree exactly with what
+                 * the panes render — the line says whose changes are shown.
+                 */}
+                <DialogDescription className="truncate text-xs text-fg-tertiary">
+                  {authorFilter === null
+                    ? `${model.changeCount} ${
+                        model.changeCount === 1 ? "change" : "changes"
+                      } in this publish`
+                    : `Showing changes by ${
+                        model.profiles[authorFilter]?.fullName ?? authorFilter
+                      }`}
+                </DialogDescription>
+              </div>
               {/*
-               * The count describes the whole publish, so under a filter it
-               * would be describing something other than what is on screen.
-               * Rather than compute a filtered total — which the model does
-               * not carry, and which would have to agree exactly with what the
-               * panes render — the line says whose changes are shown instead.
+               * Next to the title, not next to the close button.
+               *
+               * It sat between the basis picker and the dialog's own X, which
+               * put the control that opens a destructive mode one target away
+               * from the control that dismisses the dialog. Its own row would
+               * have cost a whole band — which is what the previous pass was
+               * spent removing — so it moves left instead, into space the
+               * title was not using, leaving the picker and the X together.
                */}
-              <DialogDescription className="truncate text-xs text-fg-tertiary">
-                {authorFilter === null
-                  ? `${model.changeCount} ${
-                      model.changeCount === 1 ? "change" : "changes"
-                    } in this publish`
-                  : `Showing changes by ${
-                      model.profiles[authorFilter]?.fullName ?? authorFilter
-                    }`}
-              </DialogDescription>
-            </div>
-            {/*
-             * One row below `sm`, three flex children above it.
-             *
-             * `sm:contents` dissolves this wrapper at desktop so the picker and
-             * the button go back to being direct children of the header. Below
-             * that it groups them, which fixes two things at once: the header
-             * was stacking into three rows on a phone and eating half the
-             * screen, and the button — a stretched flex child in a column —
-             * came out full width and centred, reading as a stray link rather
-             * than as a control next to the one it belongs beside.
-             */}
-            <div className="flex min-w-0 items-center gap-2 sm:contents">
-              <BasisPicker model={model} onSelectBasis={onSelectBasis} />
               {undoKind !== null && !undoing && (
                 <Button
                   size="sm"
@@ -307,6 +317,7 @@ export function CompareDialog({
                 </Button>
               )}
             </div>
+            <BasisPicker model={model} onSelectBasis={onSelectBasis} />
           </header>
           {undoing && undoKind !== null && (
             <CompareUndoBar
@@ -356,21 +367,13 @@ export function CompareDialog({
                   showing={showing}
                   onShow={setShowing}
                   toolbar={toggle}
-                  left={
-                    <ComparePaneSide
-                      pane={pane}
-                      side="before"
-                      showUnchanged={showUnchanged}
-                    />
-                  }
-                  right={
-                    <ComparePaneSide
-                      pane={pane}
-                      side="after"
-                      showUnchanged={showUnchanged}
-                    />
-                  }
-                />
+                >
+                  <ComparePaneRows
+                    pane={pane}
+                    showUnchanged={showUnchanged}
+                    showing={showing === "left" ? "before" : "after"}
+                  />
+                </CompareMobileColumns>
               )}
               {navOpen && (
                 <div className="absolute inset-0 z-20 flex flex-col bg-bg-primary">
@@ -426,21 +429,13 @@ export function CompareDialog({
                       leftSide={model.left}
                       rightSide={model.right}
                       toolbar={toggle}
-                      left={
-                        <ComparePaneSide
-                          pane={pane}
-                          side="before"
-                          showUnchanged={showUnchanged}
-                        />
-                      }
-                      right={
-                        <ComparePaneSide
-                          pane={pane}
-                          side="after"
-                          showUnchanged={showUnchanged}
-                        />
-                      }
-                    />
+                    >
+                      <ComparePaneRows
+                        pane={pane}
+                        showUnchanged={showUnchanged}
+                        showing="both"
+                      />
+                    </CompareColumns>
                   </>
                 )}
               </div>

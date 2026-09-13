@@ -3,11 +3,13 @@ import { cn } from "../components/designSystem/cn";
 import {
   ChangeKindIcon,
   changeKindLabel,
+  segmentClass,
   sideRailClass,
 } from "./ChangeKindIcon";
 import { FieldPatchAuthorsPure } from "../components/FieldPatchAuthors";
 import { RowQuickUndo, UndoBlocked } from "./CompareUndoBar";
 import { canUndo } from "./undoSelection";
+import { isWorthDiffing, valueDiff, type DiffSegment } from "./wordDiff";
 import { passesAuthorFilter, useCompareAuthors } from "./CompareAuthorsContext";
 import type {
   CompareAuthorship,
@@ -20,37 +22,47 @@ import type {
 } from "./types";
 
 /**
- * One selected thing, as two columns of rows.
+ * One selected thing, as a list of rows with two cells each.
  *
- * The layout contract with {@link CompareColumns} is the only subtle part:
- * this renders the LEFT column and the RIGHT column as two separate calls, and
- * the two have to line up row for row. So every row occupies the same vertical
- * space on both sides whether or not it has a value there — an added field is
- * an empty, dashed placeholder on the left, not a missing row that shifts
- * everything below it out of step.
+ * The label spans BOTH columns and is drawn once. That is the whole layout, and
+ * it is a change from the previous shape, where each column was rendered by its
+ * own call and therefore repeated every label, every change icon and every
+ * badge. Two independent grids had to be kept in step row for row, which is why
+ * an added field needed an empty placeholder of matching height on the left —
+ * without one, everything below it rode up and the two columns stopped
+ * describing the same rows.
  *
- * That is also why the labels are drawn on BOTH sides rather than once in a
- * gutter. A label in the middle would align the two columns at the cost of
- * making each one unreadable on its own, which is exactly what the phone
- * layout needs them to be.
+ * Payload's compare view puts the field name once, full width, above the pair.
+ * Nothing then has to be kept in step, because the two cells are in the same
+ * grid row by construction. The placeholder that remains (see `AbsentValue`)
+ * survives for the OTHER reason it existed: "did not exist" and "removed" are
+ * statements, and a blank cell would be indistinguishable from a value that is
+ * an empty string.
+ *
+ * It also gives the row's chrome one home. The undo action and the avatars used
+ * to be drawn in the right column only — the one place they belong — which put
+ * them in the middle of the screen. In the spanning head they sit at its end.
+ *
+ * `showing` is what the phone layout narrows: the same rows, one cell each.
  */
-export function ComparePaneSide({
+export function ComparePaneRows({
   pane,
-  side,
   showUnchanged,
+  showing,
 }: {
   pane: ComparePane;
-  side: "before" | "after";
   showUnchanged: boolean;
+  /** `"both"` on a wide screen; one side at a time on a phone. */
+  showing: CompareShowing;
 }) {
   return (
     <div className="min-w-0">
       {pane.groups.map((group) => (
-        <GroupSide
+        <Group
           key={group.id}
           group={group}
-          side={side}
           showUnchanged={showUnchanged}
+          showing={showing}
         />
       ))}
       {pane.groups.length === 0 && (
@@ -62,14 +74,47 @@ export function ComparePaneSide({
   );
 }
 
-function GroupSide({
+export type CompareShowing = "both" | "before" | "after";
+
+/**
+ * The two cells of one row, in one grid.
+ *
+ * The template matches `CompareColumns`' sticky headers exactly — the middle
+ * `auto` track is the arrow gutter — which is what makes the headers sit over
+ * the columns they name. Collapsing to a single cell when `showing` narrows is
+ * the entire phone layout.
+ */
+function Cells({
+  showing,
+  before,
+  after,
+}: {
+  showing: CompareShowing;
+  before: ReactNode;
+  after: ReactNode;
+}) {
+  if (showing !== "both") {
+    return (
+      <div className="min-w-0">{showing === "before" ? before : after}</div>
+    );
+  }
+  return (
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-x-3">
+      <div className="min-w-0">{before}</div>
+      <div className="w-4" aria-hidden />
+      <div className="min-w-0">{after}</div>
+    </div>
+  );
+}
+
+function Group({
   group,
-  side,
   showUnchanged,
+  showing,
 }: {
   group: CompareGroup;
-  side: "before" | "after";
   showUnchanged: boolean;
+  showing: CompareShowing;
 }) {
   const ctx = useCompareAuthors();
   const authorFilter = ctx?.authorFilter ?? null;
@@ -82,7 +127,7 @@ function GroupSide({
       <section className="mb-4">
         {group.title !== undefined && <GroupHeading title={group.title} />}
         {rows.map((row) => (
-          <FieldRowSide key={row.id} row={row} side={side} />
+          <FieldRow key={row.id} row={row} showing={showing} />
         ))}
       </section>
     );
@@ -97,26 +142,18 @@ function GroupSide({
     <section className="mb-4">
       <GroupHeading title={group.title} summary={group.summary} />
       {items.map((row) => (
-        <ListItemRowSide
+        <ListItemRow
           key={row.id}
           row={row}
-          side={side}
           showUnchanged={showUnchanged}
+          showing={showing}
         />
       ))}
     </section>
   );
 }
 
-/**
- * A heading drawn on both sides, identically.
- *
- * Repeated rather than placed once in a gutter, for the alignment reason in
- * this file's header: the two columns are separate grids, so a heading present
- * in one and absent in the other puts every row below it out of step. Repeating
- * it is also what lets either column stand alone, which is what the phone
- * layout needs.
- */
+/** A heading over a group of rows, spanning both columns like the rows do. */
 function GroupHeading({ title, summary }: { title: string; summary?: string }) {
   return (
     <div className="mb-1 flex min-w-0 items-center gap-2 border-b border-border-secondary pb-1">
@@ -143,25 +180,14 @@ function visibleFieldRows(
 }
 
 /**
- * Why this row cannot be reverted, at the end of the row.
+ * Why this row cannot be reverted, at the end of the head.
  *
  * Only in undo mode: outside it there is no control being explained, and a
  * standing "cannot revert" on a row nobody asked to revert is noise.
  */
-function RowUndoReason({
-  undo,
-  side,
-}: {
-  undo: CompareUndo | undefined;
-  side: "before" | "after";
-}) {
+function RowUndoReason({ undo }: { undo: CompareUndo | undefined }) {
   const ctx = useCompareAuthors();
-  if (
-    side !== "after" ||
-    ctx?.undo == null ||
-    undo === undefined ||
-    canUndo(undo)
-  ) {
+  if (ctx?.undo == null || undo === undefined || canUndo(undo)) {
     return null;
   }
   return (
@@ -170,30 +196,22 @@ function RowUndoReason({
 }
 
 /**
- * The hover action a row grows in quick style, at the END of the row.
+ * The hover action a row grows in undo mode, at the END of the head.
  *
- * At the end rather than the start, which is where the checkbox goes, because
- * the two are read at different moments: a checkbox is scanned down a column
- * while deciding, and an action is reached for after the row has already been
- * read. Google Docs and Sanity both put it after the content for the same
- * reason.
+ * At the end rather than the start because the two are reached for at different
+ * moments: a checkbox is scanned down a column while deciding, and an action is
+ * reached for after the row has already been read. Google Docs and Sanity both
+ * put it after the content for the same reason.
  */
 function RowQuickUndoControl({
   rowId,
   undo,
-  side,
 }: {
   rowId: string;
   undo: CompareUndo | undefined;
-  side: "before" | "after";
 }) {
   const ctx = useCompareAuthors();
-  if (
-    side !== "after" ||
-    ctx?.undo == null ||
-    undo === undefined ||
-    !canUndo(undo)
-  ) {
+  if (ctx?.undo == null || undo === undefined || !canUndo(undo)) {
     return null;
   }
   return (
@@ -208,22 +226,16 @@ function RowQuickUndoControl({
 }
 
 /**
- * The avatar stack for one row, on the right column only.
+ * The avatar stack for one row, in the head.
  *
- * `FieldPatchAuthorsPure` is the component the current review screen uses, so
- * attribution looks and behaves the same in both — one avatar stack, a popover
- * listing each patch with its op icon and a relative date. Rendering a second
- * one here would be a thing to keep in step for no gain.
+ * It used to be drawn in the right column only — attribution is about the
+ * staged side, and the left column is published content nobody is currently
+ * editing. With one spanning head there is no column to choose, and the claim
+ * it makes is unchanged: these are the people who staged this change.
  */
-function RowAuthors({
-  authors,
-  side,
-}: {
-  authors: CompareAuthorship | undefined;
-  side: "before" | "after";
-}) {
+function RowAuthors({ authors }: { authors: CompareAuthorship | undefined }) {
   const ctx = useCompareAuthors();
-  if (side !== "after" || authors === undefined || ctx === null) {
+  if (authors === undefined || ctx === null) {
     return null;
   }
   /*
@@ -285,16 +297,15 @@ export function hiddenFieldCount(
   return count;
 }
 
-function FieldRowSide({
+function FieldRow({
   row,
-  side,
+  showing,
   indent = false,
 }: {
   row: CompareFieldRow;
-  side: "before" | "after";
+  showing: CompareShowing;
   indent?: boolean;
 }) {
-  const value = side === "before" ? row.before : row.after;
   /*
    * An unchanged row is the same value twice, and drawing it with rails on both
    * sides would make it look like something happened. It gets no rail and a
@@ -302,7 +313,27 @@ function FieldRowSide({
    * on screen at all.
    */
   const isUnchanged = row.change === "unchanged";
-  const absent = value === undefined;
+  const segments = diffableSegments(row);
+  const cell = (side: "before" | "after"): ReactNode => {
+    const value = side === "before" ? row.before : row.after;
+    if (value === undefined) {
+      return <AbsentValue side={side} change={row.change} />;
+    }
+    return (
+      <div
+        className={cn(
+          "mt-0.5 min-w-0 py-0.5 pl-2 text-sm",
+          isUnchanged ? "text-fg-tertiary" : sideRailClass(side),
+        )}
+      >
+        {segments === null ? (
+          value
+        ) : (
+          <DiffedText segments={segments} side={side} />
+        )}
+      </div>
+    );
+  };
   return (
     <div className={cn("group/row py-1", indent && "pl-3")}>
       <div className="flex min-w-0 items-center gap-1.5">
@@ -316,30 +347,66 @@ function FieldRowSide({
           </span>
         )}
         {/*
-         * Pushed to the end of the row rather than placed after the label: a
-         * label's length varies per row, and avatars that started at a
-         * different x on every line would read as noise rather than as a
-         * column you can scan down.
+         * Pushed to the end of the head rather than placed after the label: a
+         * label's length varies per row, and controls that started at a
+         * different x on every line would read as noise rather than as a column
+         * you can scan down.
          */}
-        <RowUndoReason undo={row.undo} side={side} />
+        <RowUndoReason undo={row.undo} />
         <span className="ml-auto flex shrink-0 items-center gap-1">
-          <RowQuickUndoControl rowId={row.id} undo={row.undo} side={side} />
-          <RowAuthors authors={row.authors} side={side} />
+          <RowQuickUndoControl rowId={row.id} undo={row.undo} />
+          <RowAuthors authors={row.authors} />
         </span>
       </div>
-      {absent ? (
-        <AbsentValue side={side} change={row.change} />
-      ) : (
-        <div
-          className={cn(
-            "mt-0.5 min-w-0 py-0.5 pl-2 text-sm",
-            isUnchanged ? "text-fg-tertiary" : sideRailClass(side),
-          )}
-        >
-          {value}
-        </div>
-      )}
+      <Cells showing={showing} before={cell("before")} after={cell("after")} />
     </div>
+  );
+}
+
+/**
+ * The word diff for a row, or null when there is nothing to highlight.
+ *
+ * Only when BOTH values are plain strings. `ReactNode` already admits strings,
+ * so a field whose value is text says so by being text — a rendered cell (an
+ * image, a colour swatch, a rich text tree) is an element and is passed through
+ * untouched. That is why this needed no change to `CompareFieldRow`.
+ */
+function diffableSegments(row: CompareFieldRow): DiffSegment[] | null {
+  if (row.change !== "changed") return null;
+  if (typeof row.before !== "string" || typeof row.after !== "string") {
+    return null;
+  }
+  const segments = valueDiff(row.before, row.after);
+  return isWorthDiffing(segments) ? segments : null;
+}
+
+/**
+ * One side of a diffed value: the shared text, plus this side's own changes.
+ *
+ * Each cell drops the segments belonging to the other side, so the two together
+ * still show exactly the two stored values — `wordDiff.test.ts` pins that.
+ */
+function DiffedText({
+  segments,
+  side,
+}: {
+  segments: DiffSegment[];
+  side: "before" | "after";
+}) {
+  const drop = side === "before" ? "added" : "removed";
+  return (
+    <span className="break-words">
+      {segments
+        .filter((segment) => segment.kind !== drop)
+        .map((segment, index) => (
+          <span
+            key={index}
+            className={cn("rounded-sm", segmentClass(segment.kind))}
+          >
+            {segment.text}
+          </span>
+        ))}
+    </span>
   );
 }
 
@@ -381,15 +448,27 @@ function AbsentValue({
  * is the whole statement, and opening them into a field-by-field diff against
  * nothing would be noise. Only a `changed` entry expands, and then only to the
  * fields inside it that actually differ.
+ *
+ * The key is now stated ONCE, in the head. For a rename that means `from → to`
+ * on one line rather than a different key in each column plus a separate line
+ * repeating both — which is what the spanning layout buys here, and it is the
+ * row an editor scans a publish for.
+ *
+ * This is also where Payload gets it wrong, which is worth recording because
+ * the cost is invisible: it diffs arrays BY INDEX. Remove the first of three
+ * authors and it reports every remaining author as renamed, character by
+ * character, and the actual change — one removed, one added, one edited — does
+ * not appear anywhere. Everything here keys off `change` and `move` from
+ * `computeChangedSourcePaths` instead, which is what that machinery is for.
  */
-function ListItemRowSide({
+function ListItemRow({
   row,
-  side,
   showUnchanged,
+  showing,
 }: {
   row: CompareListItemRow;
-  side: "before" | "after";
   showUnchanged: boolean;
+  showing: CompareShowing;
 }) {
   const ctx = useCompareAuthors();
   const fields = visibleFieldRows(
@@ -397,125 +476,104 @@ function ListItemRowSide({
     showUnchanged,
     ctx?.authorFilter ?? null,
   );
-  /*
-   * An added entry has no left side and a removed one has no right side, but
-   * the ROW still has to exist on both so the columns stay in step. The empty
-   * side keeps the key, dimmed, which also happens to be the most useful thing
-   * it could say.
-   */
-  const presentOnThisSide =
-    row.change === "added"
-      ? side === "after"
-      : row.change === "removed"
-        ? side === "before"
-        : true;
-  /*
-   * A renamed entry is called something different on each side, so each column
-   * shows the key ITS side knows it by. Anything else makes one of the two
-   * columns a lie — and the left column is supposed to be readable on its own,
-   * which is what the phone layout depends on.
-   */
-  const keyOnThisSide =
-    row.change === "moved" && row.move?.kind === "rename"
-      ? side === "before"
-        ? row.move.from
-        : row.move.to
-      : row.label;
+  const rename = row.change === "moved" && row.move?.kind === "rename";
+  const cell = (side: "before" | "after"): ReactNode => {
+    const present =
+      row.change === "added"
+        ? side === "after"
+        : row.change === "removed"
+          ? side === "before"
+          : true;
+    if (row.preview === undefined) return null;
+    if (!present) {
+      return (
+        <div
+          className="mt-1 min-w-0 border-l-2 border-l-border-secondary py-0.5 pl-2 text-sm italic text-fg-tertiary"
+          aria-hidden
+        >
+          {row.change === "added" ? "Did not exist" : "Removed"}
+        </div>
+      );
+    }
+    return (
+      <div
+        className={cn(
+          "mt-1 min-w-0 py-0.5 pl-2 text-sm",
+          /*
+           * A moved entry gets a NEUTRAL rail, not a red one and a blue one.
+           * Its value is the same on both sides — only its position changed —
+           * and the before/after rails would claim an edit that did not happen.
+           * The badge on the head is the change.
+           */
+          row.change === "moved"
+            ? "border-l-2 border-l-border-secondary"
+            : sideRailClass(side),
+        )}
+      >
+        {row.preview}
+      </div>
+    );
+  };
 
   return (
     <div className="group/row border-b border-border-secondary py-1.5 last:border-b-0">
       <div className="flex min-w-0 items-center gap-1.5">
         <ChangeKindIcon kind={row.change} size={12} hideLabel />
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate font-mono text-xs",
-            presentOnThisSide ? "text-fg-primary" : "text-fg-tertiary",
-          )}
-        >
-          {keyOnThisSide}
-        </span>
+        {rename && row.move?.kind === "rename" ? (
+          /*
+           * Both keys on the head line, in order.
+           *
+           * For a router record the key is the URL, so this is a page changing
+           * address — the line most likely to break links. A badge reading
+           * "RENAMED" would say that something happened without saying what,
+           * and the two keys are the whole content of the change.
+           */
+          <span className="flex min-w-0 items-center gap-1 font-mono text-xs">
+            <span className="min-w-0 truncate text-fg-tertiary line-through decoration-rose-500/60">
+              {row.move.from}
+            </span>
+            <span className="shrink-0 text-fg-tertiary" aria-hidden>
+              →
+            </span>
+            <span className="min-w-0 truncate text-fg-primary">
+              {row.move.to}
+            </span>
+          </span>
+        ) : (
+          <span className="min-w-0 truncate font-mono text-xs text-fg-primary">
+            {row.label}
+          </span>
+        )}
+        {/*
+         * Beside the key, not at the end of the head.
+         *
+         * The head spans both columns now, so "pushed to the end" put the badge
+         * a thousand pixels from the key it describes on a wide screen. The
+         * controls keep the end — they are reached for rather than read, so
+         * distance costs them nothing and a fixed column is what makes them
+         * scannable.
+         */}
         <span className="shrink-0 text-[10px] uppercase tracking-wider text-fg-tertiary">
           {row.change === "moved"
             ? moveBadge(row.move)
-            : presentOnThisSide
-              ? changeKindLabel(row.change)
-              : ""}
+            : changeKindLabel(row.change)}
         </span>
-        <span className="flex shrink-0 items-center gap-1">
-          <RowQuickUndoControl rowId={row.id} undo={row.undo} side={side} />
-          <RowAuthors authors={row.authors} side={side} />
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          <RowQuickUndoControl rowId={row.id} undo={row.undo} />
+          <RowAuthors authors={row.authors} />
         </span>
       </div>
-      {/*
-       * A rename gets its own line, on both sides, showing the key each side
-       * knows it by.
-       *
-       * Not folded into the badge: for a router record the key is the URL, so
-       * this is a page changing address — the line most likely to break links,
-       * and the one an editor scans a publish for. A badge reading "RENAMED"
-       * would say that something happened without saying what, and the two keys
-       * are the whole content of the change.
-       */}
-      {row.change === "moved" && row.move?.kind === "rename" && (
-        <div className="mt-1 min-w-0 border-l-2 border-l-border-secondary py-0.5 pl-2 font-mono text-xs">
-          <span
-            className={
-              side === "before" ? "text-fg-primary" : "text-fg-tertiary"
-            }
-          >
-            {row.move.from}
-          </span>
-          <span className="px-1 text-fg-tertiary" aria-hidden>
-            →
-          </span>
-          <span
-            className={
-              side === "after" ? "text-fg-primary" : "text-fg-tertiary"
-            }
-          >
-            {row.move.to}
-          </span>
-        </div>
+      {row.preview !== undefined && (
+        <Cells
+          showing={showing}
+          before={cell("before")}
+          after={cell("after")}
+        />
       )}
-      {/*
-       * The preview, or a placeholder of the same height where there is none.
-       *
-       * The two columns are separate grids that have to stay in step row for
-       * row, so an added entry — which has a preview on the right and nothing
-       * on the left — cannot simply omit the block: everything below it on the
-       * left would ride up, and two lists that disagree about which row is
-       * which are worse than no diff at all.
-       */}
-      {row.preview !== undefined &&
-        (presentOnThisSide ? (
-          <div
-            className={cn(
-              "mt-1 min-w-0 py-0.5 pl-2 text-sm",
-              /*
-               * A moved entry gets a NEUTRAL rail, not a red one and a green
-               * one. Its value is the same on both sides — only its position
-               * changed — and the before/after rails would claim an edit that
-               * did not happen. The position badge on the row is the change.
-               */
-              row.change === "moved"
-                ? "border-l-2 border-l-border-secondary"
-                : sideRailClass(side),
-            )}
-          >
-            {row.preview}
-          </div>
-        ) : (
-          <div
-            className="mt-1 min-w-0 border-l-2 border-l-border-secondary py-0.5 pl-2 text-sm italic text-fg-tertiary"
-            aria-hidden
-          >
-            {row.change === "added" ? "Did not exist" : "Removed"}
-          </div>
-        ))}
       {fields.length > 0 && (
         <div className="mt-1">
           {fields.map((field) => (
-            <FieldRowSide key={field.id} row={field} side={side} indent />
+            <FieldRow key={field.id} row={field} showing={showing} indent />
           ))}
         </div>
       )}

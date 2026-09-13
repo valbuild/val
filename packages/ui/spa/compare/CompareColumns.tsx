@@ -29,8 +29,7 @@ import type { CompareSide } from "./types";
  * gestures for it would be worse than one.
  */
 export function CompareColumns({
-  left,
-  right,
+  children,
   leftSide,
   rightSide,
   /**
@@ -41,8 +40,16 @@ export function CompareColumns({
   toolbar,
   className,
 }: {
-  left: ReactNode;
-  right: ReactNode;
+  /**
+   * The rows. ONE body, not a left and a right.
+   *
+   * This used to take two nodes and lay them out as two grids side by side,
+   * which meant every label was drawn twice and the two halves had to be kept
+   * in step row for row. `ComparePaneRows` now owns the pairing — each row is
+   * one grid with two cells — so all this has to do is put the headers over the
+   * same column template the rows use.
+   */
+  children: ReactNode;
   leftSide: CompareSide;
   rightSide: CompareSide;
   toolbar?: ReactNode;
@@ -56,13 +63,7 @@ export function CompareColumns({
         </div>
       )}
       <ColumnHeaders leftSide={leftSide} rightSide={rightSide} />
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="grid grid-cols-1 gap-x-3 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
-          <div className="min-w-0">{left}</div>
-          <div className="hidden lg:block" aria-hidden />
-          <div className="min-w-0">{right}</div>
-        </div>
-      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
     </div>
   );
 }
@@ -84,13 +85,14 @@ function ColumnHeaders({
   return (
     <div
       className={cn(
-        "sticky top-0 z-10 hidden bg-bg-primary pb-2 lg:grid",
+        "sticky top-0 z-10 grid bg-bg-primary pb-2",
+        // The same template every row uses, so a header sits over its column.
         "grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-x-3",
       )}
     >
       <SideHeading side={leftSide} align="left" />
       <div
-        className="flex items-center justify-center pb-1 text-fg-tertiary"
+        className="flex w-4 items-center justify-center pb-1 text-fg-tertiary"
         /*
          * The relationship, for anyone not seeing the layout. The visual arrow
          * is decorative; this sentence is the actual statement, and it names
@@ -162,26 +164,26 @@ function SideHeading({
 /**
  * The phone form: one pane at a time, with the two sides as tabs.
  *
- * Both panes stay MOUNTED and the hidden one is hidden with `hidden`, for the
- * reason `HistorySplit` records: toggling would otherwise throw away scroll
- * position every time someone glanced at the other side, which in a diff is
- * constantly.
+ * Only the showing side's cells are rendered now, rather than both with one
+ * hidden. `HistorySplit` keeps both mounted to preserve scroll position across
+ * a toggle; here the rows themselves do not change — only which cell of each
+ * row is drawn — so the scroll position is the same list either way and there
+ * is nothing to lose.
  *
  * Which side is showing is local state, not URL state. It is a property of the
  * screen you are on rather than of what you are looking at, so a shared link
  * must not force someone else's phone to the other tab.
  */
 export function CompareMobileColumns({
-  left,
-  right,
+  children,
   leftSide,
   rightSide,
   showing,
   onShow,
   toolbar,
 }: {
-  left: ReactNode;
-  right: ReactNode;
+  /** The rows, already narrowed to the showing side by `ComparePaneRows`. */
+  children: ReactNode;
   leftSide: CompareSide;
   rightSide: CompareSide;
   showing: "left" | "right";
@@ -230,14 +232,7 @@ export function CompareMobileColumns({
       {toolbar !== undefined && (
         <div className="flex items-center justify-end gap-2">{toolbar}</div>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="min-w-0" hidden={showing !== "left"}>
-          {left}
-        </div>
-        <div className="min-w-0" hidden={showing !== "right"}>
-          {right}
-        </div>
-      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
     </div>
   );
 }
