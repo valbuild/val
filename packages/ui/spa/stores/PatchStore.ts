@@ -14,6 +14,7 @@ import type { StatStore } from "./StatStore";
 import type { SourceStore } from "./SourceStore";
 import { noopActivity, type ActivitySink } from "./activity";
 import { splitPatchFileOps } from "../hooks/splitPatchFileOps";
+import { randomUUID } from "../utils/randomUUID";
 import type { ParentRef } from "@valbuild/shared/internal";
 
 /**
@@ -452,8 +453,7 @@ export class PatchStore {
 
   constructor(
     private readonly fetchPatches: FetchPatches,
-    private readonly newPatchId: CreatePatchId = () =>
-      crypto.randomUUID() as PatchId,
+    private readonly newPatchId: CreatePatchId = () => randomUUID() as PatchId,
     private readonly activity: ActivitySink = noopActivity,
     /**
      * Absent means this store cannot accept a patch carrying files at all —

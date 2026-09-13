@@ -60,6 +60,21 @@ export class LocaleSchema<Src extends string | null> extends Schema<Src> {
     super();
   }
 
+  /**
+   * A note to whoever edits this field, shown under it in the Studio.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s.object({
+   *   locale: s.locale().describe("The language everything below is written in"),
+   *   title: s.string(),
+   * });
+   * export default c.define("/example.val.ts", schema, {
+   *   locale: "nb-NO",
+   *   title: "Vinterjakke",
+   * });
+   */
   describe(description: string | null): LocaleSchema<Src> {
     return new LocaleSchema<Src>(
       this.opt,
@@ -72,6 +87,26 @@ export class LocaleSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
+  /**
+   * A check of your own, on top of "is this one of the project's languages".
+   *
+   * Return a message when the value is WRONG and `false` when it is fine — the
+   * two answers are a complaint and no complaint, so write the check as a
+   * ternary rather than as `ok || "message"`, which returns `true` and `true`
+   * is neither.
+   *
+   * @example
+   * const schema = s.object({
+   *   locale: s.locale().validate((val) =>
+   *     val === "en-US" ? "This section is not translated into English yet" : false,
+   *   ),
+   *   title: s.string(),
+   * });
+   * export default c.define("/example.val.ts", schema, {
+   *   locale: "nb-NO",
+   *   title: "Vinterjakke",
+   * });
+   */
   validate(
     validationFunction: (src: Src) => false | string,
   ): LocaleSchema<Src> {
@@ -201,6 +236,10 @@ export class LocaleSchema<Src extends string | null> extends Schema<Src> {
   /**
    * How this field is laid out where it is the item of an array or a record.
    * Static configuration, not a callback — see `render.ts`.
+   *
+   * @example
+   * const schema = s.array(s.locale().render({ as: "inline" }));
+   * export default c.define("/example.val.ts", schema, ["nb-NO", "en-US"]);
    */
   render(input: FieldRender): LocaleSchema<Src> {
     return new LocaleSchema<Src>(
@@ -217,6 +256,12 @@ export class LocaleSchema<Src extends string | null> extends Schema<Src> {
   /**
    * How this VALUE is shown where a preview of it is needed. Never how the field
    * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * const schema = s.array(
+   *   s.locale().preview(({ val }) => ({ title: val })),
+   * );
+   * export default c.define("/example.val.ts", schema, ["nb-NO", "en-US"]);
    */
   preview(select: ItemPreviewInput<Src>): LocaleSchema<Src> {
     return new LocaleSchema<Src>(

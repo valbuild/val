@@ -246,6 +246,49 @@ module.exports = defineConfig([
       ],
     },
   },
+  {
+    /**
+     * The Studio is not always a secure context.
+     *
+     * It is served by the app's own dev server, and that server gets opened on
+     * a plain-http LAN address often enough that it has to be assumed: a phone,
+     * a VM, or a browser on Windows reaching a dev server inside WSL at
+     * `http://172.23.x.x:3000`. Outside a secure context `crypto.randomUUID`
+     * and `navigator.clipboard` do not exist at all, so calling either is not a
+     * feature that degrades — it is a TypeError, and `crypto.randomUUID` was
+     * one thrown during the Studio's first render, which left a blank screen.
+     *
+     * Both have a wrapper in `spa/utils` that falls back — to
+     * `crypto.getRandomValues`, which is not secure-context gated and is still
+     * cryptographically secure, because a patch id IS a secret: `/api/val/files`
+     * serves unpublished files to whoever holds one.
+     */
+    files: ["packages/ui/spa/**/*.{ts,tsx}"],
+    ignores: [
+      // The wrappers themselves, and the jsdom polyfill that fills the same gap
+      // for tests.
+      "packages/ui/spa/utils/randomUUID.ts",
+      "packages/ui/spa/utils/copyText.ts",
+      "packages/ui/spa/stores/react/testPolyfills.ts",
+    ],
+    rules: {
+      "no-restricted-properties": [
+        "error",
+        {
+          object: "crypto",
+          property: "randomUUID",
+          message:
+            "`crypto.randomUUID` is secure-context only and is absent when the Studio is opened over plain http on a LAN address. Use `randomUUID` from spa/utils/randomUUID.",
+        },
+        {
+          object: "navigator",
+          property: "clipboard",
+          message:
+            "`navigator.clipboard` is secure-context only and is absent when the Studio is opened over plain http on a LAN address. Use `copyText` from spa/utils/copyText.",
+        },
+      ],
+    },
+  },
   globalIgnores([
     /**
      * Git worktrees checked out inside the repo.

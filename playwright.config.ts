@@ -8,9 +8,35 @@ import {
   MOCK_SECRET,
   HTTP_APP_PORT,
 } from "./e2e/http/config";
+import { TANSTACK_APP_PORT } from "./e2e/tanstack/config";
 
 const PREINSTALLED_CHROMIUM =
   "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
+
+/**
+ * The projects named with `--project`, or none for "all of them".
+ *
+ * Read off argv because the config has to answer two questions before
+ * Playwright has resolved anything: which projects to declare, and which
+ * servers to start.
+ */
+const requestedProjects = new Set(
+  process.argv.flatMap((arg, index) => {
+    if (arg.startsWith("--project=")) {
+      return [arg.slice("--project=".length)];
+    }
+    if (arg === "--project") {
+      const next = process.argv[index + 1];
+      return next === undefined ? [] : [next];
+    }
+    return [];
+  }),
+);
+
+/** Whether a project will run, given what was asked for. */
+function willRun(project: string): boolean {
+  return requestedProjects.size === 0 || requestedProjects.has(project);
+}
 
 /**
  * Whether `--project=screens` was asked for by name.
@@ -21,11 +47,28 @@ const PREINSTALLED_CHROMIUM =
  * thing keeping it out of `chromium` was supposed to prevent. It has to be
  * absent from the config entirely unless it was named.
  */
-const screensRequested = process.argv.some(
-  (arg, index) =>
-    arg === "--project=screens" ||
-    (arg === "--project" && process.argv[index + 1] === "screens"),
-);
+const screensRequested = requestedProjects.has("screens");
+
+/**
+ * Which apps this run needs, and therefore which servers start.
+ *
+ * `webServer` is global with no per-project form, so for a long time every run
+ * started every server. That was affordable while they were all the same app —
+ * `next dev` compiles lazily, so an unused one cost a process — and stopped
+ * being obviously so once a second framework joined: a `chromium` shard has no
+ * use for a Vite server building a TanStack app, and the TanStack job has no
+ * use for two copies of Next and a mock content host.
+ *
+ * Each of these asks the same question of a DIFFERENT app, so they are separate
+ * rather than one flag:
+ */
+/** `examples/next`, in fs mode — the default app for most of the suite. */
+const needsNextApp =
+  willRun("chromium") || willRun("warmup") || willRun("screens");
+/** `examples/next` again, in proxy mode, plus the mock content host. */
+const needsHttpApp = willRun("chromium-http");
+/** `examples/tanstack`. */
+const needsTanstackApp = willRun("tanstack") || willRun("tanstack-warmup");
 
 /**
  * End-to-end tests for the Val Studio.
@@ -55,9 +98,12 @@ const screensRequested = process.argv.some(
  * arriving over a WebSocket. So a mock content host (`e2e/mock-content-host`) and
  * a second `next dev` configured to talk to it come up alongside the other two.
  *
- * They start on every run rather than only when the `http` project is selected —
- * Playwright's `webServer` is global, with no per-project form — but `next dev`
- * compiles lazily, so an FS-only run pays for a process, not a build.
+ * Which of these start depends on the project asked for. `webServer` is global
+ * with no per-project form, so the selection is made in the config itself (see
+ * `needsNextApp` and friends above): a `chromium` shard starts the SPA and the
+ * fs-mode app, `chromium-http` swaps in the mock host and the proxy-mode app,
+ * and `tanstack` starts neither copy of Next. A bare `playwright test` starts
+ * all of them, because it runs all of them.
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -106,7 +152,7 @@ export default defineConfig({
       // fixed schedule of `waitForTimeout`s that adds up to ~40s of its own —
       // and it should not be able to turn a run red or fail a CI gate. Run it
       // explicitly with the `screens` project below.
-      testIgnore: ["http/**", "screens.spec.ts"],
+      testIgnore: ["http/**", "tanstack/**", "screens.spec.ts"],
       use: {
         launchOptions: {
           /**
@@ -130,6 +176,43 @@ export default defineConfig({
       testMatch: "http/**/*.spec.ts",
       use: {
         baseURL: `http://localhost:${HTTP_APP_PORT}`,
+        launchOptions: {
+          ...(existsSync(PREINSTALLED_CHROMIUM)
+            ? { executablePath: PREINSTALLED_CHROMIUM }
+            : {}),
+          args: ["--no-sandbox", "--disable-dev-shm-usage"],
+        },
+      },
+    },
+    {
+      // Not a test: it loads the Studio once so no TanStack test is the one
+      // paying for Vite's first transform of the SPA. See `warm.setup.ts`.
+      name: "tanstack-warmup",
+      testMatch: "tanstack/warm.setup.ts",
+      use: {
+        baseURL: `http://localhost:${TANSTACK_APP_PORT}`,
+        launchOptions: {
+          ...(existsSync(PREINSTALLED_CHROMIUM)
+            ? { executablePath: PREINSTALLED_CHROMIUM }
+            : {}),
+          args: ["--no-sandbox", "--disable-dev-shm-usage"],
+        },
+      },
+    },
+    {
+      /**
+       * `examples/tanstack`, which nothing else in this suite touches.
+       *
+       * A catastrophe detector rather than a second full suite — see
+       * `e2e/tanstack/studio.spec.ts` for what it covers and what it
+       * deliberately does not. No `warmup` dependency: that project drives the
+       * NEXT app, which this one does not start.
+       */
+      name: "tanstack",
+      dependencies: ["tanstack-warmup"],
+      testMatch: "tanstack/**/*.spec.ts",
+      use: {
+        baseURL: `http://localhost:${TANSTACK_APP_PORT}`,
         launchOptions: {
           ...(existsSync(PREINSTALLED_CHROMIUM)
             ? { executablePath: PREINSTALLED_CHROMIUM }
@@ -163,66 +246,94 @@ export default defineConfig({
   ],
   webServer: [
     {
-      // The SPA. `/api/val/static` is where the Next app expects to find it.
+      // The SPA, which every app proxies at `/api/val/static` in dev. Always
+      // started: it is the thing under test in all three projects.
       command: "pnpm --filter @valbuild/ui run dev",
       url: "http://localhost:5173/api/val/static",
       reuseExistingServer: true,
       timeout: 120_000,
       cwd: ".",
     },
-    {
-      command: "pnpm run dev",
-      url: "http://localhost:3456",
-      reuseExistingServer: true,
-      timeout: 180_000,
-      cwd: "./examples/next",
-    },
-    {
-      // The fake content.val.build. Must be up before the app below: the app
-      // asks it for patches on the first `/stat`.
-      command: "pnpm exec tsx e2e/mock-content-host/server.ts",
-      url: `http://localhost:${MOCK_CONTENT_PORT}/__test__/ping`,
-      reuseExistingServer: true,
-      timeout: 60_000,
-      cwd: ".",
-      env: {
-        MOCK_CONTENT_PORT: String(MOCK_CONTENT_PORT),
-        MOCK_CONTENT_API_KEY: MOCK_API_KEY,
-        MOCK_CONTENT_PROJECT: MOCK_PROJECT,
-        MOCK_CONTENT_REPO_ROOT: process.cwd(),
-        MOCK_CONTENT_INITIAL_COMMIT: MOCK_INITIAL_COMMIT,
-      },
-    },
-    {
-      /**
-       * The same example app, in proxy mode.
-       *
-       * `initHandlerOptions` picks proxy mode from the environment alone —
-       * `VAL_API_KEY` and `VAL_SECRET` present means `http` — so this needs no
-       * product code and no second config file. `NEXT_DIST_DIR` keeps its build
-       * output away from the `fs`-mode server's.
-       */
-      // `--webpack` for the same reason the `dev` script has it, see next.config.js.
-      command: `pnpm exec next dev --webpack -p ${HTTP_APP_PORT}`,
-      url: `http://localhost:${HTTP_APP_PORT}`,
-      reuseExistingServer: true,
-      timeout: 180_000,
-      cwd: "./examples/next",
-      env: {
-        NEXT_DIST_DIR: ".next-http",
-        // The remote-file example, which only this server registers: a remote
-        // schema makes the Studio ask for remote settings and makes every publish
-        // require remote credentials, so the fs-mode server has to stay without
-        // one. See examples/next/val.modules.ts.
-        NEXT_PUBLIC_VAL_EXAMPLE_REMOTE_MEDIA: "true",
-        VAL_API_KEY: MOCK_API_KEY,
-        VAL_SECRET: MOCK_SECRET,
-        VAL_PROJECT: MOCK_PROJECT,
-        VAL_GIT_COMMIT: MOCK_INITIAL_COMMIT,
-        VAL_GIT_BRANCH: "main",
-        VAL_CONTENT_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
-        VAL_BUILD_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
-      },
-    },
+    ...(needsNextApp
+      ? [
+          {
+            command: "pnpm run dev",
+            url: "http://localhost:3456",
+            reuseExistingServer: true,
+            timeout: 180_000,
+            cwd: "./examples/next",
+          },
+        ]
+      : []),
+    ...(needsTanstackApp
+      ? [
+          {
+            /**
+             * `examples/tanstack`, on the port its own `dev` script binds.
+             *
+             * Waiting on `/` rather than on `/val`: Vite compiles on demand, so
+             * whichever URL is waited on here is the one compile the suite does
+             * not pay for inside a test timeout — and the site route is the
+             * cheaper of the two.
+             */
+            command: "pnpm run dev",
+            url: `http://localhost:${TANSTACK_APP_PORT}`,
+            reuseExistingServer: true,
+            timeout: 180_000,
+            cwd: "./examples/tanstack",
+          },
+        ]
+      : []),
+    ...(needsHttpApp
+      ? [
+          {
+            // The fake content.val.build. Must be up before the app below: the app
+            // asks it for patches on the first `/stat`.
+            command: "pnpm exec tsx e2e/mock-content-host/server.ts",
+            url: `http://localhost:${MOCK_CONTENT_PORT}/__test__/ping`,
+            reuseExistingServer: true,
+            timeout: 60_000,
+            cwd: ".",
+            env: {
+              MOCK_CONTENT_PORT: String(MOCK_CONTENT_PORT),
+              MOCK_CONTENT_API_KEY: MOCK_API_KEY,
+              MOCK_CONTENT_PROJECT: MOCK_PROJECT,
+              MOCK_CONTENT_REPO_ROOT: process.cwd(),
+              MOCK_CONTENT_INITIAL_COMMIT: MOCK_INITIAL_COMMIT,
+            },
+          },
+          {
+            /**
+             * The same example app, in proxy mode.
+             *
+             * `initHandlerOptions` picks proxy mode from the environment alone —
+             * `VAL_API_KEY` and `VAL_SECRET` present means `http` — so this needs no
+             * product code and no second config file. `NEXT_DIST_DIR` keeps its build
+             * output away from the `fs`-mode server's.
+             */
+            // `--webpack` for the same reason the `dev` script has it, see next.config.js.
+            command: `pnpm exec next dev --webpack -p ${HTTP_APP_PORT}`,
+            url: `http://localhost:${HTTP_APP_PORT}`,
+            reuseExistingServer: true,
+            timeout: 180_000,
+            cwd: "./examples/next",
+            env: {
+              NEXT_DIST_DIR: ".next-http",
+              // The remote-file example, which only this server registers: a remote
+              // schema makes the Studio ask for remote settings and makes every publish
+              // require remote credentials, so the fs-mode server has to stay without
+              // one. See examples/next/val.modules.ts.
+              NEXT_PUBLIC_VAL_EXAMPLE_REMOTE_MEDIA: "true",
+              VAL_API_KEY: MOCK_API_KEY,
+              VAL_SECRET: MOCK_SECRET,
+              VAL_PROJECT: MOCK_PROJECT,
+              VAL_GIT_COMMIT: MOCK_INITIAL_COMMIT,
+              VAL_GIT_BRANCH: "main",
+              VAL_CONTENT_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
+              VAL_BUILD_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
+            },
+          },
+        ]
+      : []),
   ],
 });
