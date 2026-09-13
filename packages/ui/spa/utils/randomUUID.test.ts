@@ -57,10 +57,16 @@ describe("randomUUID", () => {
     expect(uuid).toBe("ffffffff-ffff-4fff-bfff-ffffffffffff");
   });
 
-  test("no crypto at all still gets a v4", () => {
+  test("refuses to invent randomness when the browser has none", () => {
+    // Not a fallback to `Math.random`: `PatchStore` mints patch ids here, and
+    // `/api/val/files` serves unpublished files to anyone holding one. A
+    // guessable token is a worse outcome than a Studio that will not start.
     setCrypto(undefined);
 
-    expect(randomUUID()).toMatch(V4);
+    expect(() => randomUUID()).toThrow(/crypto\.getRandomValues/);
+
+    setCrypto({});
+    expect(() => randomUUID()).toThrow(/crypto\.getRandomValues/);
   });
 
   test("does not repeat itself without crypto.randomUUID", () => {

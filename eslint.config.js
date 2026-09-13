@@ -258,8 +258,10 @@ module.exports = defineConfig([
      * feature that degrades — it is a TypeError, and `crypto.randomUUID` was
      * one thrown during the Studio's first render, which left a blank screen.
      *
-     * Both have a wrapper in `spa/utils` that falls back. Nothing in these ids
-     * is a secret, so the fallback gives up nothing.
+     * Both have a wrapper in `spa/utils` that falls back — to
+     * `crypto.getRandomValues`, which is not secure-context gated and is still
+     * cryptographically secure, because a patch id IS a secret: `/api/val/files`
+     * serves unpublished files to whoever holds one.
      */
     files: ["packages/ui/spa/**/*.{ts,tsx}"],
     ignores: [

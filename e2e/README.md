@@ -42,8 +42,18 @@ nothing ran anywhere but a secure context (`insecureContext.ts` explains the
 second half, which is the one no amount of extra framework coverage would have
 caught).
 
-Those two specs are also the only e2e that BLOCK: `.github/workflows/check.yml`
-runs them as `smoke`, separately from the non-blocking sharded `e2e` job.
+**Not yet wired into CI.** `.github/workflows/check.yml` has no `smoke` job and
+its `e2e` matrix selects only `chromium` and `chromium-http`, so nothing here
+runs the TanStack project — the workflow change that adds a blocking `smoke`
+job (this project plus `insecure-context.spec.ts`) and a `build-tanstack` job
+is pending a maintainer, because the session that wrote these specs had no
+`workflow` scope on its credentials. Until it lands, run them by hand:
+
+```bash
+pnpm exec playwright test --project=tanstack
+pnpm exec playwright test --project=chromium e2e/smoke.spec.ts \
+  e2e/insecure-context.spec.ts
+```
 
 ## Why, with the receipts
 

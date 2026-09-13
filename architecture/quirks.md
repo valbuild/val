@@ -561,12 +561,20 @@ site from Windows ends up with `--host` and the VM's IP. Same bundle, same bug,
 different default.
 
 `randomUUID` and `copyText` in `packages/ui/spa/utils` fall back
-(`crypto.getRandomValues`, which IS available insecurely, then `Math.random`;
-`document.execCommand("copy")`), and an eslint rule over `packages/ui/spa`
-keeps the raw globals from coming back. Nothing identified this way is a
-secret — patch ids, chat message ids, a connection id — so the fallback gives
-up nothing. Before reaching for another web API in the Studio, check whether it
-is secure-context-only.
+(`crypto.getRandomValues`; `document.execCommand("copy")`), and an eslint rule
+over `packages/ui/spa` keeps the raw globals from coming back.
+
+`getRandomValues` is the right fallback for two independent reasons, and the
+second is easy to miss: it is not secure-context gated, AND it is
+cryptographically secure. **A patch id is a bearer token** — `/api/val/files`
+serves unpublished files with no auth at all, on the argument that a `patch_id`
+cannot be guessed, and `PatchStore` mints them through this helper. So there is
+no `Math.random` behind it: where neither source exists, `randomUUID` throws.
+A Studio that will not start is a better outcome than draft content served to
+whoever asks.
+
+Before reaching for another web API in the Studio, check whether it is
+secure-context-only.
 
 ## `createRequire` is imported in one place in `@valbuild/server`
 

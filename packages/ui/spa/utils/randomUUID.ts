@@ -10,11 +10,19 @@
  * present and `crypto.randomUUID` is not, so the Studio mounted and then died
  * while rendering with `crypto.randomUUID is not a function`.
  *
- * Everything the Studio names this way — patch ids, chat message ids, the
- * websocket connection id — has to be unique, never unguessable, so falling
- * back to `crypto.getRandomValues` (which IS available in an insecure context)
- * and, only if that is missing too, to `Math.random`, takes away nothing that
- * was being relied on.
+ * `crypto.getRandomValues` is the fallback because it is NOT secure-context
+ * gated — it is there over plain http, which is the whole of this problem — and
+ * it is cryptographically secure, which some of these ids need:
+ *
+ * **A patch id is a bearer token.** `/api/val/files` serves unpublished files
+ * with no auth at all, on the argument that a `patch_id` cannot be guessed
+ * (`ValServer.ts`, and it says so: "If we couldn't argue that patch ids are
+ * secret enough, then this would be a problem"). `PatchStore` mints them here.
+ * So this function must never degrade to `Math.random` — a seeded, 32-bit,
+ * sequentially-advancing PRNG would hand out guessable tokens in exactly the
+ * environment a user reaches over an untrusted network. Where neither source
+ * of randomness exists, it throws: the Studio was broken there anyway, and a
+ * crash that names the reason beats draft content served to whoever asks.
  *
  * Use this everywhere in the Studio instead of `crypto.randomUUID` directly —
  * the call that broke was three levels deep in a hook, and any of them would
@@ -27,14 +35,15 @@ export function randomUUID(): string {
   if (typeof webCrypto?.randomUUID === "function") {
     return webCrypto.randomUUID();
   }
-  const bytes = new Uint8Array(16);
-  if (typeof webCrypto?.getRandomValues === "function") {
-    webCrypto.getRandomValues(bytes);
-  } else {
-    for (let i = 0; i < bytes.length; i++) {
-      bytes[i] = Math.floor(Math.random() * 256);
-    }
+  if (typeof webCrypto?.getRandomValues !== "function") {
+    throw new Error(
+      "Val Studio needs crypto.getRandomValues, and this browser has neither " +
+        "it nor crypto.randomUUID. Patch ids are unguessable tokens, so there " +
+        "is no safe fallback: open the Studio in a current browser.",
+    );
   }
+  const bytes = new Uint8Array(16);
+  webCrypto.getRandomValues(bytes);
   // RFC 4122 §4.4: version 4 in the high nibble of byte 6, variant 10 in the
   // two high bits of byte 8. Without these the string is random hex that is
   // not a UUID, and something downstream is entitled to notice.

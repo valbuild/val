@@ -21,8 +21,11 @@ that works in any context. `navigator.clipboard`, which is secure-context only
 for the same reason, got the same treatment — copying a code block out of the
 assistant no longer throws there either.
 
-Nothing else changes: these ids have to be unique, never unguessable, and the
-ids themselves are unchanged where `crypto.randomUUID` does exist.
+The fallback is `crypto.getRandomValues`, which exists in an insecure context
+and is still cryptographically secure — which matters, because a patch id is
+what `/api/val/files` accepts instead of authentication when it serves an
+unpublished file. Where a browser has neither that nor `crypto.randomUUID`, the
+Studio now says so rather than inventing a guessable id.
 
 This is not specific to any framework, but it shows up most with TanStack
 Start: `vite dev` binds `localhost` only, so a WSL user who wants to see the
