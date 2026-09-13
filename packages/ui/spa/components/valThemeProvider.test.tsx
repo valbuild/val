@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { ValConfig } from "@valbuild/core";
 import { ValThemeProvider, useTheme } from "./ValThemeProvider";
-import { ThemeSettings } from "../hooks/themeSettings";
+import { NO_THEME_SETTINGS, ThemeSettings } from "../hooks/themeSettings";
 
 /**
  * Which mode the Studio opens in, when three different things have an opinion.
@@ -55,13 +55,10 @@ function renderProvider(
       theme={theme}
       setTheme={() => undefined}
       config={CONFIG}
-      settingsTheme={{
-        accent: null,
-        radius: null,
-        mode: null,
-        logo: null,
-        ...settingsTheme,
-      }}
+      // `NO_THEME_SETTINGS` rather than the fields written out: it is the
+      // module's own answer to "the project set nothing", so a field added to
+      // `ThemeSettings` reaches these tests instead of breaking them.
+      settingsTheme={{ ...NO_THEME_SETTINGS, ...settingsTheme }}
     >
       <Probe />
     </ValThemeProvider>,
@@ -183,9 +180,7 @@ describe("ValThemeProvider: the project id arriving after mount", () => {
   function renderThenLearnProject(settingsTheme?: Partial<ThemeSettings>) {
     cleanup();
     const settings: ThemeSettings = {
-      accent: null,
-      radius: null,
-      mode: null,
+      ...NO_THEME_SETTINGS,
       ...settingsTheme,
     };
     const tree = (config: ValConfig | undefined) => (
@@ -261,7 +256,7 @@ describe("ValThemeProvider: the config default as a fallback", () => {
         theme={null}
         setTheme={() => undefined}
         config={{ project: "acme/site", defaultTheme: "light" }}
-        settingsTheme={{ accent: null, radius: null, mode: null }}
+        settingsTheme={NO_THEME_SETTINGS}
       >
         <Probe />
       </ValThemeProvider>,
@@ -276,7 +271,7 @@ describe("ValThemeProvider: the config default as a fallback", () => {
         theme={null}
         setTheme={() => undefined}
         config={{ project: "acme/site", defaultTheme: "light" }}
-        settingsTheme={{ accent: null, radius: null, mode: "dark" }}
+        settingsTheme={{ ...NO_THEME_SETTINGS, mode: "dark" }}
       >
         <Probe />
       </ValThemeProvider>,
