@@ -264,13 +264,47 @@ function BasisPicker({
         value={model.selectedBasisId}
         onValueChange={(value) => onSelectBasis?.(value)}
       >
-        <SelectTrigger className="h-auto min-h-8 w-full py-1 text-xs sm:w-[210px]">
-          <SelectValue />
+        {/*
+         * `flex-1`, not `w-full`, below `sm`.
+         *
+         * The picker is a flex row holding a `shrink-0` label and this trigger,
+         * so `w-full` meant "100% of the row" — label plus trigger then added up
+         * to more than the row and the trigger hung off the right edge of the
+         * dialog. `w-auto` is there to neutralise the `w-[calc(100%-8px)]` the
+         * shared `SelectTrigger` sets for its usual full-width use.
+         */}
+        <SelectTrigger className="h-auto min-h-8 w-auto min-w-0 flex-1 py-1 text-xs sm:w-[210px] sm:flex-none">
+          {/*
+           * A wrapper, because `SelectValue` drops `className`.
+           *
+           * Radix renders `Select.Value` as its own span and does not forward
+           * the prop — measured: the element comes out with `class=""`. So the
+           * constraint has to go on an element we own.
+           *
+           * It is needed at all because `SelectTrigger` is
+           * `flex items-center justify-between`, which makes the value a flex
+           * child, and a flex child's `min-width` defaults to `auto` — it
+           * refuses to shrink below its content. A long commit message then
+           * made the value 665px wide inside a 210px button: `truncate` on the
+           * label had no bounded width to work against, the text ran out of
+           * the dialog and under the close button, and the chevron was
+           * squeezed to zero.
+           */}
+          <span className="min-w-0 flex-1 overflow-hidden text-left">
+            <SelectValue />
+          </span>
         </SelectTrigger>
         <SelectContent>
           {model.basisOptions.map((option) => (
             <SelectItem key={option.id} value={option.id}>
-              <span className="block truncate">{option.label}</span>
+              {/*
+               * `title` on both lines, because the trigger shows one clipped
+               * line of what may be a paragraph of commit message. Without it
+               * the only way to read the rest is to guess.
+               */}
+              <span className="block truncate" title={option.label}>
+                {option.label}
+              </span>
               {option.caption !== undefined && (
                 <span className="block truncate text-xs text-fg-tertiary">
                   {option.caption}

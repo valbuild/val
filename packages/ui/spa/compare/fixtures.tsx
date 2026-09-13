@@ -569,6 +569,36 @@ export const commitBasisModel: CompareModel = {
   right: { label: "After publish", caption: "14 staged changes" },
 };
 
+/**
+ * A basis whose label is a real commit message.
+ *
+ * Commit messages are prose and routinely run long — `ValServer` even generates
+ * one ("Val CMS update (N files changed)") and `commit-summary` writes them with
+ * a model. So the header, the dropdown trigger and the phone tabs all have to
+ * survive a label that is longer than the space it is given, and every one of
+ * those is a different clipping context. This exists so that is visible rather
+ * than discovered by a user with a verbose team.
+ */
+export const longCommitMessageModel: CompareModel = {
+  ...compareModel,
+  selectedBasisId: "commit-long",
+  basisOptions: [
+    ...compareModel.basisOptions,
+    {
+      id: "commit-long",
+      label:
+        "Rework the onboarding handbook, retint the accent colour and rename the history blog post so the URL matches the new title",
+      caption: "Linus Pauling · 3 days ago",
+    },
+  ],
+  left: {
+    label:
+      "Rework the onboarding handbook, retint the accent colour and rename the history blog post so the URL matches the new title",
+    caption: "Linus Pauling · 3 days ago",
+  },
+  right: { label: "After publish", caption: "14 staged changes" },
+};
+
 /** Nothing staged. The dialog still has to say something useful. */
 export const emptyModel: CompareModel = {
   changeCount: 0,

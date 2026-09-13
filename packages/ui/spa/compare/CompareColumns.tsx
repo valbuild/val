@@ -122,7 +122,19 @@ function SideHeading({
         align === "center" && "text-center",
       )}
     >
-      <div className="truncate text-xs font-semibold uppercase tracking-wider text-fg-secondary">
+      {/*
+       * `title`, because a side's label is not always a short word.
+       *
+       * "Published" and "After publish" fit; a commit message is prose and
+       * routinely does not — `ValServer` generates one and `commit-summary`
+       * writes them with a model. Truncation keeps the two columns aligned,
+       * which matters more than showing the whole string, so the whole string
+       * has to be available some other way.
+       */}
+      <div
+        className="truncate text-xs font-semibold uppercase tracking-wider text-fg-secondary"
+        title={side.label}
+      >
         {side.label}
       </div>
       {side.caption !== undefined && (
@@ -186,7 +198,10 @@ export function CompareMobileColumns({
                 : "text-fg-tertiary",
             )}
           >
-            <span className="block truncate text-sm font-medium">
+            <span
+              className="block truncate text-sm font-medium"
+              title={side.label}
+            >
               {side.label}
             </span>
             {side.caption !== undefined && (

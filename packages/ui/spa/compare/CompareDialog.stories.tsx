@@ -5,6 +5,7 @@ import {
   commitBasisModel,
   compareModel,
   emptyModel,
+  longCommitMessageModel,
   singleModuleModel,
 } from "./fixtures";
 import type { CompareModel } from "./types";
@@ -108,6 +109,25 @@ export const RenamedRoute: Story = {};
  * makes: one compare surface, reachable from Publish and from History.
  */
 export const AgainstACommit: Story = { args: { model: commitBasisModel } };
+
+/**
+ * A commit message long enough to break the header.
+ *
+ * Three different clipping contexts have to survive it, and each fails
+ * differently: the dropdown TRIGGER (a flex child, which will not shrink below
+ * its content unless told to, and overflowed the dialog and slid under the
+ * close button), the column HEADING (a grid cell, which clips but then hides
+ * the message), and the phone TAB. All three truncate and carry the full text
+ * in a `title`.
+ */
+export const LongCommitMessage: Story = {
+  args: { model: longCommitMessageModel },
+};
+
+/** The same long label on a phone, where the tab is the only header. */
+export const LongCommitMessageMobile: Story = {
+  args: { model: longCommitMessageModel, layout: "mobile" },
+};
 
 /**
  * One module, three fields, two of them unchanged.
