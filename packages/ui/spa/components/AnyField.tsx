@@ -19,6 +19,7 @@ import { CodeField } from "./fields/CodeField";
 import { ColorField } from "./fields/ColorField";
 import { FieldSchemaError } from "./FieldSchemaError";
 import { FileField } from "./fields/FileField";
+import { RefField } from "./fields/RefField";
 import { LiteralPreview } from "./fields/LiteralPreview";
 import { FieldValidationErrorCompact } from "./FieldValidationError";
 import { ValidationErrors } from "./ValidationError";
@@ -180,6 +181,16 @@ export function AnyField({
       <LiteralPreview path={path} />
     ) : (
       <FieldSchemaError path={path} error="Literal fields are not editable" />
+    );
+  } else if (schema.type === "ref") {
+    return (
+      <RefField
+        key={path}
+        path={path}
+        schema={schema}
+        readonly={readonly}
+        compact={compact}
+      />
     );
   } else {
     const exhaustiveCheck: never = schema;

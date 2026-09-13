@@ -54,7 +54,9 @@ export function getDependentModuleFiles(
       schemaNode.type === "image" ||
       schemaNode.type === "number" ||
       schemaNode.type === "route" ||
-      schemaNode.type === "locale"
+      schemaNode.type === "locale" ||
+      // TODO: a ref IS a dependency edge — see the note in the design doc.
+      schemaNode.type === "ref"
     ) {
       // ignore
     } else {

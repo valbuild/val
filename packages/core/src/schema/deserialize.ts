@@ -12,6 +12,7 @@ import { DateTimeSchema } from "./datetime";
 import { FileSchema } from "./file";
 import { ImageSchema } from "./image";
 import { KeyOfSchema } from "./keyOf";
+import { RefSchema } from "./ref";
 import { LiteralSchema } from "./literal";
 import { NumberSchema } from "./number";
 import { ObjectSchema } from "./object";
@@ -330,6 +331,15 @@ function deserializeSchemaImpl(
         [],
         false,
         false,
+        serialized.description,
+        serialized.render ?? null,
+      );
+    case "ref":
+      return new RefSchema(
+        serialized.moduleFilePath,
+        serialized.editable,
+        serialized.readonly ?? false,
+        serialized.hidden ?? false,
         serialized.description,
         serialized.render ?? null,
       );

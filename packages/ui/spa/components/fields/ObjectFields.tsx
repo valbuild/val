@@ -11,6 +11,7 @@ import { Preview } from "../../components/Preview";
 import { FieldSourceError } from "../../components/FieldSourceError";
 import { fixCapitalization } from "../../utils/fixCapitalization";
 import { FieldNull } from "../../components/FieldNull";
+import { RefField } from "./RefField";
 
 export function ObjectFields({
   path,
@@ -79,6 +80,25 @@ export function ObjectFields({
           }
           const subPath = sourcePathOfItem(path, key);
           const itemReadonly = readonly || itemSchema.readonly;
+          if (itemSchema.type === "ref") {
+            /**
+             * A ref key is absent from Source, so `safeResolvePath` cannot
+             * resolve `subPath` — it answers "object source did not have key".
+             * Everything `Field` does (source, validation errors, patch
+             * authors, restore) is therefore meaningless here, and it would
+             * render the field as an error. `RefField` addresses the TARGET
+             * module's own path instead, and needs no wrapper.
+             */
+            return (
+              <RefField
+                key={key}
+                path={subPath}
+                schema={itemSchema}
+                readonly={itemReadonly}
+                compact={compact}
+              />
+            );
+          }
           return (
             <Field
               key={subPath}

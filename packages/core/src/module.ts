@@ -45,7 +45,18 @@ export type ReplaceRawStringWithString<T extends SelectorSource> =
       ? string
       : T extends { [key in string]: SelectorSource }
         ? {
-            [key in keyof T]: ReplaceRawStringWithString<T[key]>;
+            // A key whose type is EXACTLY `undefined` is an `s.ref(...)` field:
+            // it is shown in the editor and stored nowhere, so it must not be
+            // written. `[T[key]] extends [undefined]` rather than
+            // `undefined extends T[key]`, which would also catch every ordinary
+            // optional key (`width?: number`) and forbid those too.
+            [key in keyof T as [T[key]] extends [undefined]
+              ? never
+              : key]: ReplaceRawStringWithString<T[key]>;
+          } & {
+            [key in keyof T as [T[key]] extends [undefined]
+              ? key
+              : never]?: never;
           }
         : T extends SelectorSource[]
           ? ReplaceRawStringWithString<T[number]>[]
