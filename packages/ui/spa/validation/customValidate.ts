@@ -32,10 +32,10 @@ export function hasCustomValidate(schema: SerializedSchema): boolean {
         // The KEY schema can carry validators too (`s.record(s.string().validate(...), …)`).
         (schema.key !== undefined && hasCustomValidate(schema.key))
       );
-    case "union":
-      return (
-        schema.items as (SerializedObjectSchema | SerializedSchema)[]
-      ).some(hasCustomValidate);
+    case "discriminated-union":
+      // An enum is a leaf, so `schema.customValidate` above is the whole
+      // answer for it.
+      return schema.items.some(hasCustomValidate);
     default:
       return false;
   }
@@ -142,10 +142,10 @@ export function collectCustomValidateTargets(
         }
         return;
       }
-      case "union": {
+      case "discriminated-union": {
         const schemaKey = schema.key;
-        if (typeof schemaKey !== "string" || !isRecordSource(source)) {
-          return; // a literal union is a leaf
+        if (!isRecordSource(source)) {
+          return;
         }
         const itemKey = source[schemaKey];
         if (typeof itemKey !== "string") {
@@ -163,9 +163,10 @@ export function collectCustomValidateTargets(
             );
           });
         if (branch) {
-          // The matched variant SHARES the union's path, so `resolvePath` stops at
-          // the union and `UnionSchema.executeCustomValidateAt` is what dispatches
-          // into the variant. Record the path once — `go(path, branch, ...)` would
+          // The matched variant SHARES the union's path, so `resolvePath` stops
+          // at the union and `DiscriminatedUnionSchema.executeCustomValidateAt`
+          // is what dispatches into the variant. Record the path once —
+          // `go(path, branch, ...)` would
           // push it a second time when both declare a validator — then walk the
           // variant's fields.
           if (

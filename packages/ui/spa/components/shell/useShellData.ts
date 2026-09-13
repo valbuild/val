@@ -148,10 +148,22 @@ export function useShellData(): ShellDataState {
           ? toDataModules(navData.explorer, modulesWithDrafts)
           : [],
         validationErrors: toValidationErrors(validationErrors),
-        activity:
-          patchSets.status === "success"
-            ? toActivity(patchSets.data, Date.now())
-            : undefined,
+        /*
+         * The publishes ride along: this list is "what has been happening",
+         * and a publish is the other half of that. See `toActivity`.
+         *
+         * Built from whatever is known, rather than only once the PATCH SETS
+         * are. The two halves load separately - patch sets come off a worker
+         * that has to group them, publishes off the stat feed - so gating the
+         * whole list on the first one hid every publish while that worker was
+         * still grouping, and for good if it failed. An empty change list is
+         * the honest input in that state, not a reason to say nothing.
+         */
+        activity: toActivity(
+          patchSets.status === "success" ? patchSets.data : [],
+          shellDeployments,
+          Date.now(),
+        ),
         pendingChanges: currentPatchIds.length - committedPatchIds.size,
         deployments: shellDeployments,
         user: profile

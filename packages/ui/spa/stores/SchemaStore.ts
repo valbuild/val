@@ -148,7 +148,7 @@ function declaresPreview(
       return Object.values(schema.items).some((item) =>
         declaresPreview(item, seen),
       );
-    case "union":
+    case "discriminated-union":
       return schema.items.some((item) => declaresPreview(item, seen));
     default:
       return false;

@@ -423,13 +423,27 @@ export const mockValidationErrors: ShellValidationError[] = [
 ];
 
 /**
- * Recent activity, as `toActivity` builds it: the module's file label followed
- * by the patch path, and the author id resolved to a name where a profile is
- * known. A local dev project has no profiles, which is why the last entry has
- * no author rather than a placeholder one.
+ * Recent activity, as `toActivity` builds it: the edits and the publishes,
+ * interleaved by time.
+ *
+ * A change row is the module's file label followed by the patch path, and the
+ * author id resolved to a name where a profile is known — a local dev project
+ * has no profiles, which is why the last entry has no author rather than a
+ * placeholder one. The deploy rows are the same publishes `mockDeployments`
+ * has, which is what the real mapping does with them.
  */
 export const mockActivity: ShellActivityEntry[] = [
   {
+    kind: "deploy",
+    id: "deploy-9f21c4ae0b7d1e5a3c8f2d6b04e7a915cd83f620",
+    title: "Update hero copy and pricing table",
+    state: "Building",
+    progress: "building",
+    timestamp: "just now",
+    author: "Fredrik Ekholdt",
+  },
+  {
+    kind: "change",
     id: '/app/page.val.ts?p="/"/hero/title-0',
     sourcePath: '/app/page.val.ts?p="/"."hero"."title"',
     title: "page › hero › title",
@@ -437,6 +451,16 @@ export const mockActivity: ShellActivityEntry[] = [
     author: "Fredrik Ekholdt",
   },
   {
+    kind: "deploy",
+    id: "deploy-3ab77c1902ef4d885b16c0da79f3e421ab5c9d08",
+    title: "Add customer story: nordic-retail",
+    state: "Live",
+    progress: "settled",
+    timestamp: "12 minutes ago",
+    author: "Ida Sørensen",
+  },
+  {
+    kind: "change",
     id: '/app/pricing/page.val.ts?p="/pricing"/plans-1',
     sourcePath: '/app/pricing/page.val.ts?p="/pricing"."plans"',
     title: "page › plans",
@@ -444,6 +468,7 @@ export const mockActivity: ShellActivityEntry[] = [
     author: "Fredrik Ekholdt",
   },
   {
+    kind: "change",
     id: "/content/navigation.val.ts?primary-2",
     sourcePath: '/content/navigation.val.ts?p="primary"',
     title: "navigation › primary",
@@ -451,6 +476,16 @@ export const mockActivity: ShellActivityEntry[] = [
     author: "Ida Sørensen",
   },
   {
+    kind: "deploy",
+    id: "deploy-c05e9182aab34f6072d1e5b8c4a09f37e6215dba",
+    title: "Swap footer links",
+    state: "Build failed",
+    progress: "failed",
+    timestamp: "1 hour ago",
+    author: "Fredrik Ekholdt",
+  },
+  {
+    kind: "change",
     id: '/app/blog/[slug]/page.val.ts?p="/blog/why-we-built-val"/text-3',
     sourcePath:
       '/app/blog/[slug]/page.val.ts?p="/blog/why-we-built-val"."text"',
@@ -495,6 +530,24 @@ export const mockDeployments: ShellDeployment[] = [
     timestamp: "1 hour ago",
     updatedAt: mockMinutesAgo(60),
     isLive: false,
+  },
+  /*
+   * A deployment nobody published from Val: a developer's push, a merged pull
+   * request, a revert. On most projects these are the majority of the feed.
+   *
+   * No `author`, because there is no Val commit and therefore no profile to
+   * resolve - and the message is the SUBJECT of a git message, which is what
+   * `commitSubject` leaves of one that has a body. The row is a single
+   * truncated line, so a body rendered into it arrives as "Subject The body
+   * went on like this…".
+   */
+  {
+    commitSha: "7d4e1b0c58a2946fbb31e70d5c8f2a6391e4c0af",
+    state: "success",
+    message: "Move the pricing table into its own component",
+    timestamp: "3 hours ago",
+    updatedAt: mockMinutesAgo(180),
+    isLive: true,
   },
 ];
 
