@@ -1,8 +1,10 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen } from "@testing-library/react";
 import { StudioTour, TourLauncher, placeCard } from "./StudioTour";
+import { EmptyEditorState } from "./EditorCanvas";
 import { TopBar } from "./TopBar";
 import { AccountPanel } from "./AccountPanel";
+import { StudioSettingsFields } from "./SettingsPanel";
 import { UtilityPanel } from "./UtilityPanel";
 import { TourStep } from "./studioTour";
 
@@ -209,6 +211,50 @@ describe("the tour launcher", () => {
     const button = screen.getByLabelText("Take a tour of the Studio");
     expect(button.className).toContain("motion-safe:animate-tour-glow");
   });
+
+  // Once it has been taken the button stays and goes quiet. A control that
+  // vanishes is one nobody can find again on purpose.
+  test("goes quiet rather than away", () => {
+    render(<TourLauncher onStart={() => undefined} glow={false} />);
+    const button = screen.getByLabelText("Take a tour of the Studio");
+    expect(button.className).not.toContain("animate-tour-glow");
+  });
+});
+
+/**
+ * The empty editor at `/val/~` is the first thing anybody sees, and one of the
+ * two places the tour is offered from. The other is Quick actions.
+ */
+describe("the empty editor", () => {
+  test("offers the tour, glowing while it is still new", () => {
+    const onStartTour = jest.fn();
+    render(<EmptyEditorState onStartTour={onStartTour} tourPrompt />);
+    const button = screen.getByLabelText("Take a tour of the Studio");
+    expect(button.className).toContain("motion-safe:animate-tour-glow");
+    fireEvent.click(button);
+    expect(onStartTour).toHaveBeenCalled();
+  });
+
+  test("keeps it, quietly, once it has been taken", () => {
+    render(
+      <EmptyEditorState onStartTour={() => undefined} tourPrompt={false} />,
+    );
+    expect(
+      screen.getByLabelText("Take a tour of the Studio").className,
+    ).not.toContain("animate-tour-glow");
+  });
+
+  /**
+   * It names the destinations this project HAS. Explaining Pages to a project
+   * with no router sends somebody looking for an icon that is not in the rail —
+   * which is the complaint this screen exists to answer, made worse.
+   */
+  test("defines only the destinations this project has", () => {
+    render(<EmptyEditorState destinations={["data"]} />);
+    expect(screen.queryByText("Data")).not.toBeNull();
+    expect(screen.queryByText("Pages")).toBeNull();
+    expect(screen.queryByText("Media")).toBeNull();
+  });
 });
 
 function topBar(props: Partial<Parameters<typeof TopBar>[0]> = {}) {
@@ -228,20 +274,17 @@ function topBar(props: Partial<Parameters<typeof TopBar>[0]> = {}) {
   );
 }
 
-describe("the top bar's offer", () => {
-  test("carries the launcher when the tour is still worth offering", () => {
-    render(topBar({ onStartTour: () => undefined }));
-    expect(screen.queryByLabelText("Take a tour of the Studio")).not.toBeNull();
-  });
-
+describe("the top bar", () => {
   /**
-   * Gone once it has been taken — this is what "never be annoying" comes down
-   * to. The tour itself stays reachable from Quick actions and the Account
-   * panel; what goes is the thing that shines.
+   * The top bar is Review, Preview and Publish — the controls for shipping a
+   * change. A permanent onboarding button among them is clutter for everyone
+   * who has already read it once, so the offer lives on the empty editor and
+   * in Quick actions instead.
    */
-  test("has no launcher once the tour has been taken", () => {
-    render(topBar());
+  test("carries no tour button", () => {
+    render(topBar({ onCompare: () => undefined }));
     expect(screen.queryByLabelText("Take a tour of the Studio")).toBeNull();
+    expect(screen.queryByText("Take a tour")).toBeNull();
   });
 
   test("the controls the tour points at are marked", () => {
@@ -271,35 +314,64 @@ function accountPanel(props: Partial<Parameters<typeof AccountPanel>[0]> = {}) {
 }
 
 /**
- * The setting, and why it is in the Account panel: it is per-browser, like the
- * theme and Auto save beside it. The Settings panel is `s.settings()` content
- * — published, and the same for everyone on the team.
+ * The Account panel runs the tour but does not decide whether it is offered.
+ *
+ * That decision is the project's, in `s.settings()` under `studio.tour` — see
+ * `StudioSettingsFields`. A team that finds the tour noisy turns it off once,
+ * for everyone, instead of each person dismissing it on each machine they use.
  */
-describe("the tour setting", () => {
-  test("is on unless it has been turned off", () => {
-    render(accountPanel({ onTourEnabledChange: () => undefined }));
-    const toggle = screen.getByRole("checkbox", { name: /Offer the tour/ });
-    expect(toggle.getAttribute("data-state")).toBe("checked");
-  });
-
-  test("reports being turned off", () => {
-    const onTourEnabledChange = jest.fn();
-    render(accountPanel({ tourEnabled: true, onTourEnabledChange }));
-    fireEvent.click(screen.getByRole("checkbox", { name: /Offer the tour/ }));
-    expect(onTourEnabledChange).toHaveBeenCalledWith(false);
-  });
-
-  test("keeps a way to run the tour even with the offer turned off", () => {
+describe("the account panel", () => {
+  test("keeps a way to run the tour", () => {
     const onStartTour = jest.fn();
-    render(
-      accountPanel({
-        tourEnabled: false,
-        onTourEnabledChange: () => undefined,
-        onStartTour,
-      }),
-    );
+    render(accountPanel({ onStartTour }));
     fireEvent.click(screen.getByText("Take a tour"));
     expect(onStartTour).toHaveBeenCalled();
+  });
+
+  test("holds no setting for whether it is offered", () => {
+    render(accountPanel({ onStartTour: () => undefined }));
+    expect(screen.queryByText(/Offer the tour/)).toBeNull();
+  });
+});
+
+/**
+ * The project's own switch: one place, and it is content — published with
+ * everything else, and the same for the whole team.
+ */
+describe("the project's tour setting", () => {
+  function studio(props: Partial<Parameters<typeof StudioSettingsFields>[0]>) {
+    return (
+      <StudioSettingsFields
+        value={{ tour: null }}
+        onChange={() => undefined}
+        {...props}
+      />
+    );
+  }
+
+  // Unset reads as on, and says which "on" it is: nobody has decided, and the
+  // offer stands. The same shape `assistant.enabled` uses.
+  test("unset draws as on", () => {
+    render(studio({}));
+    expect(
+      screen
+        .getByRole("switch", { name: /Offer the tour/ })
+        .getAttribute("data-state"),
+    ).toBe("checked");
+  });
+
+  test("turns off for the whole project", () => {
+    const onChange = jest.fn();
+    render(studio({ value: { tour: true }, onChange }));
+    fireEvent.click(screen.getByRole("switch", { name: /Offer the tour/ }));
+    expect(onChange).toHaveBeenCalledWith("tour", false);
+  });
+
+  // And says where the tour has gone, so turning it off is not mistaken for
+  // deleting it.
+  test("says the tour is still in Quick actions when it is off", () => {
+    render(studio({ value: { tour: false } }));
+    expect(screen.queryByText(/Quick actions/)).not.toBeNull();
   });
 });
 

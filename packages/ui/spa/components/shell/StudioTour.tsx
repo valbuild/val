@@ -356,26 +356,35 @@ export function StudioTour({ steps, onClose, onOpenPanel }: StudioTourProps) {
 }
 
 /**
- * The "Take a tour" button, glowing.
+ * The "Take a tour" button.
+ *
+ * It lives in exactly two places: the empty editor — the first thing anybody
+ * sees, at `/val/~` — and Quick actions. Deliberately NOT in the top bar: that
+ * row is the controls for shipping a change, and a permanent onboarding button
+ * among Review, Preview and Publish is clutter for everyone who has already
+ * read it once.
  *
  * Glowing rather than popping up. A tour that opens itself is the single most
- * annoying thing an editor can be given on their second visit, and the
- * feedback that produced this asked for help finding things — not for a
- * dialog to dismiss. So the offer is a button that catches the eye and can be
- * completely ignored; it stops glowing for good once the tour has been taken.
+ * annoying thing an editor can be given on their second visit, and the feedback
+ * that produced this asked for help finding things — not for a dialog to
+ * dismiss. So the offer is a button that catches the eye and can be completely
+ * ignored, and it stops glowing for good once the tour has been taken.
  *
- * The halo is behind `motion-safe:`, so a browser that has been told to
- * reduce motion gets an ordinary button in brand colours.
+ * The halo is behind `motion-safe:`, so a browser that has been told to reduce
+ * motion gets a still button in brand colours.
  */
 export function TourLauncher({
   onStart,
   className,
   /** Just the icon, for the bars where a word does not fit. */
   compact,
+  /** Whether this is still an offer. Quiet, but present, once it is not. */
+  glow = true,
 }: {
   onStart: () => void;
   className?: string;
   compact?: boolean;
+  glow?: boolean;
 }) {
   return (
     <button
@@ -383,12 +392,14 @@ export function TourLauncher({
       onClick={onStart}
       aria-label="Take a tour of the Studio"
       className={cn(
-        "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border-brand-secondary text-xs font-medium text-fg-primary",
+        "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border text-xs font-medium hover:bg-bg-float-raised",
         // The label is `fg-primary`, not `fg-brand-secondary`: that token is the
         // foreground for a FILLED brand surface and is near-black in dark mode,
-        // so on this outlined button it was unreadable. The green is the border
+        // so on an outlined button it was unreadable. The green is the border
         // and the glow, which is where it does the work.
-        "motion-safe:animate-tour-glow hover:bg-bg-float-raised",
+        glow
+          ? "border-border-brand-secondary text-fg-primary motion-safe:animate-tour-glow"
+          : "border-border-float text-fg-secondary hover:text-fg-primary",
         compact ? "w-8 justify-center" : "px-2.5",
         className,
       )}

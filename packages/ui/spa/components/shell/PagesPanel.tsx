@@ -18,7 +18,6 @@ import {
 import {
   FloatingPanel,
   PanelEmptyState,
-  PanelHint,
   PanelSectionLabel,
 } from "./FloatingPanel";
 import {
@@ -596,10 +595,6 @@ export function PagesPanel({
         <PanelErrorState message={loadError} onRetry={onRetryLoad} />
       ) : (
         <div className="pb-3">
-          <PanelHint>
-            One row per page of your site, nested the way its URLs are. Opening
-            a row edits that page and nothing else.
-          </PanelHint>
           <PanelSectionLabel className="pt-3">
             Pages
             <span className="ml-1.5 font-normal normal-case tracking-normal text-fg-secondary-alt">

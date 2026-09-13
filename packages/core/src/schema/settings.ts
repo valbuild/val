@@ -11,6 +11,7 @@ import {
   AssistantSettingsSource,
   LocalesSettingsSource,
   SettingsSource,
+  StudioSettingsSource,
   THEME_LOGO_DIRECTORY,
   ThemeSettingsSource,
 } from "../source/settings";
@@ -438,6 +439,13 @@ export function settings(): SettingsSchema<SettingsSource> {
         .nullable()
         .describe(
           "The project's own mark, shown where Val's is in the Studio. A square-ish mark rather than a wordmark: the slot is 32px wide.",
+        ),
+    }),
+    studio: new SettingsSchema<StudioSettingsSource>({
+      tour: boolean()
+        .nullable()
+        .describe(
+          "Whether editors are offered the guided tour of the Studio. Unset means yes. Off hides the offer for everyone on this project — the tour stays in Quick actions for anyone who wants it.",
         ),
     }),
     locales: new SettingsSchema<LocalesSettingsSource>(

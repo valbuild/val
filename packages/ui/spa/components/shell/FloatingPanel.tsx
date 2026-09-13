@@ -236,27 +236,6 @@ export function PanelSectionLabel({
   );
 }
 
-/**
- * One line at the top of a panel saying what the panel IS.
- *
- * The feedback that put it there was "it is hard to know what is what": Pages,
- * Media and Data are three words that mean something specific in Val and
- * something vaguer everywhere else, and a first-time editor has no way to find
- * out which. A rail tooltip cannot answer it — it is a hover, on desktop only,
- * and it says the same word again.
- *
- * Inside the scroll area rather than pinned under the header, deliberately: it
- * is for the first week, and it scrolls away with the first flick for everyone
- * past it. Keep it to one sentence — it is a definition, not documentation.
- */
-export function PanelHint({ children }: { children: ReactNode }) {
-  return (
-    <p className="px-4 pt-3 text-[0.6875rem] leading-relaxed text-fg-secondary-alt">
-      {children}
-    </p>
-  );
-}
-
 /** Empty-state copy inside a panel. */
 export function PanelEmptyState({ children }: { children: ReactNode }) {
   return (

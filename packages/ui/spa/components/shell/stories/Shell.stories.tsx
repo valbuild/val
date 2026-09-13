@@ -18,10 +18,12 @@ import {
   AssistantSettingsFields,
   AssistantSettingsValue,
   SettingsTabs,
+  StudioSettingsFields,
+  StudioSettingsValue,
   ThemeSettingsFields,
   ThemeSettingsValue,
 } from "../SettingsPanel";
-import { Palette, Sparkles } from "lucide-react";
+import { Compass, Palette, Sparkles } from "lucide-react";
 import {
   ASSISTANT_SETTINGS_MAX_LENGTH,
   THEME_RADIUS_LENGTHS,
@@ -273,6 +275,9 @@ function MockSettingsSections() {
     radius: null,
     mode: null,
   });
+  // Unset, which is what an untouched project has, and which means the tour IS
+  // offered — see `StudioSettingsFields`.
+  const [studio, setStudio] = useState<StudioSettingsValue>({ tour: null });
   return (
     <SettingsTabs
       tabs={[
@@ -299,6 +304,19 @@ function MockSettingsSections() {
               value={theme}
               onChange={(field, next) =>
                 setTheme((current) => ({ ...current, [field]: next }))
+              }
+            />
+          ),
+        },
+        {
+          id: "studio",
+          label: "Studio",
+          icon: Compass,
+          content: (
+            <StudioSettingsFields
+              value={studio}
+              onChange={(field, next) =>
+                setStudio((current) => ({ ...current, [field]: next }))
               }
             />
           ),

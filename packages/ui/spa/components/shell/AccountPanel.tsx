@@ -43,17 +43,13 @@ export type AccountPanelProps = {
   autoSave: boolean;
   onAutoSaveChange: (autoSave: boolean) => void;
   /**
-   * Whether the Studio may offer the guided tour.
+   * Run the guided tour now.
    *
-   * A per-browser preference, which is why it is here rather than in the
-   * Settings panel: everything in THAT panel is `s.settings()` content, gets
-   * published, and is the same for the whole team — and "I have seen the tour"
-   * is neither a property of the project nor something to publish. It sits
-   * beside Auto save and the theme, which are per-person for the same reason.
+   * Only the way to RUN it. Whether it is offered at all is the project's
+   * answer, in `s.settings()` under `studio.tour` and edited in the Settings
+   * panel — a team that finds it noisy turns it off once, for everyone, rather
+   * than each person dismissing it on each machine.
    */
-  tourEnabled?: boolean;
-  onTourEnabledChange?: (enabled: boolean) => void;
-  /** Run the tour now, whether or not the prompt is still on offer. */
   onStartTour?: () => void;
   branch?: string;
   /** Publishes in flight or recently finished. Absent when there is no feed. */
@@ -94,8 +90,6 @@ export function AccountPanel({
   mode,
   autoSave,
   onAutoSaveChange,
-  tourEnabled,
-  onTourEnabledChange,
   onStartTour,
   branch,
   deployments,
@@ -186,14 +180,6 @@ export function AccountPanel({
               description="Write changes to the working tree on a pause in typing."
               checked={autoSave}
               onChange={onAutoSaveChange}
-            />
-          )}
-          {onTourEnabledChange && (
-            <SettingsToggle
-              label="Offer the tour"
-              description="Glow the Take a tour button until someone has been through it."
-              checked={tourEnabled !== false}
-              onChange={onTourEnabledChange}
             />
           )}
           {onStartTour && (

@@ -32,9 +32,10 @@ import {
   NoSettingsModule,
   SettingsLogoPlaceholder,
   SettingsTabs,
+  StudioSettingsFields,
   ThemeSettingsFields,
 } from "./SettingsPanel";
-import { Languages, Palette, Sparkles } from "lucide-react";
+import { Compass, Languages, Palette, Sparkles } from "lucide-react";
 import { PanelSkeleton } from "./PanelPrimitives";
 
 /**
@@ -72,7 +73,7 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
   const assistantPath = sourcePathOfItem(moduleFilePath, "assistant");
   const contextPath = sourcePathOfItem(assistantPath, "context");
   const tonePath = sourcePathOfItem(assistantPath, "tone");
-  const enabledValue = useAssistantEnabledField(
+  const enabledValue = useSettingsBooleanField(
     sourcePathOfItem(assistantPath, "enabled"),
   );
   const contextValue = useAssistantField(contextPath);
@@ -102,6 +103,23 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
     moduleFilePath,
     "locales",
     LOCALES_FIELDS,
+  );
+
+  /**
+   * The `studio` section: how the Studio behaves for this project's editors.
+   *
+   * `STUDIO_FIELDS` rather than one key inline because `useWriteSettingsSection`
+   * needs every field the section has — the first write creates the section and
+   * nulls the siblings, so a list that is short by one silently drops it.
+   */
+  const studioPath = sourcePathOfItem(moduleFilePath, "studio");
+  const tourValue = useSettingsBooleanField(
+    sourcePathOfItem(studioPath, "tour"),
+  );
+  const writeStudioSetting = useWriteSettingsSection(
+    moduleFilePath,
+    "studio",
+    STUDIO_FIELDS,
   );
 
   const themePath = sourcePathOfItem(moduleFilePath, "theme");
@@ -198,6 +216,18 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
                   />
                 )
               }
+              readonly={readonly}
+            />
+          ),
+        },
+        {
+          id: "studio",
+          label: "Studio",
+          icon: Compass,
+          content: (
+            <StudioSettingsFields
+              value={{ tour: tourValue }}
+              onChange={(field, next) => writeStudioSetting({ [field]: next })}
               readonly={readonly}
             />
           ),
@@ -302,7 +332,17 @@ function useLocalesErrors(
  * Returns the tri-state rather than a boolean: unset is not `false`, and the
  * difference is what the whole setting is for — see `assistantAvailability`.
  */
-function useAssistantEnabledField(path: SourcePath): boolean | null {
+/** Every field of the `studio` section. See `useWriteSettingsSection`. */
+const STUDIO_FIELDS = ["tour"] as const;
+
+/**
+ * A settings boolean, or `null` where it is unset.
+ *
+ * Three-valued on purpose, and shared by every settings switch: an absent key
+ * is not an error here, and "nobody has decided" is a state each of these
+ * sections means something specific by.
+ */
+function useSettingsBooleanField(path: SourcePath): boolean | null {
   const source = useShallowSourceAtPath(path, "boolean");
   if ("data" in source && typeof source.data === "boolean") {
     return source.data;

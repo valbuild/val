@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Braces, ChevronDown, ChevronRight } from "lucide-react";
-import { FloatingPanel, PanelEmptyState, PanelHint } from "./FloatingPanel";
+import { FloatingPanel, PanelEmptyState } from "./FloatingPanel";
 import {
   PanelErrorState,
   PanelFilterInput,
@@ -287,13 +287,7 @@ export function DataPanel({
         ) : filtered.length === 0 ? (
           <PanelEmptyState>No data files match this filter.</PanelEmptyState>
         ) : (
-          <>
-            <PanelHint>
-              Content that is not tied to one page — menus, footers, shared
-              wording, lookup tables. Your developers decide what lives here.
-            </PanelHint>
-            {filtered.map((node) => renderNode(node, 0))}
-          </>
+          filtered.map((node) => renderNode(node, 0))
         )}
       </div>
     </FloatingPanel>

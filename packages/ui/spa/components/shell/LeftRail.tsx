@@ -19,9 +19,8 @@ export type RailItem = {
    *
    * "Pages", "Media" and "Data" are precise inside Val and vague everywhere
    * else, and a tooltip that repeats the label a reader has already read is
-   * the one place a definition costs nothing. Kept to a clause — the panels
-   * themselves carry the longer version (`PanelHint`), and the tour carries
-   * the longest.
+   * the one place a definition costs nothing. Kept to a clause: the tour is
+   * where the long version is.
    */
   description: string;
 };

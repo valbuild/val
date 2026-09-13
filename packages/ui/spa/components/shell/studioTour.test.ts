@@ -1,11 +1,10 @@
 /** @jest-environment jsdom */
 import {
   readTourCompleted,
-  readTourEnabled,
   studioTourSteps,
   writeTourCompleted,
-  writeTourEnabled,
 } from "./studioTour";
+import { isTourOffered, readStudioSettings } from "../../hooks/studioSettings";
 
 /**
  * Which stops the tour has, for a given project.
@@ -104,33 +103,29 @@ describe("studioTourSteps", () => {
   });
 });
 
-describe("the tour preferences", () => {
+/**
+ * The one thing about the tour that is per browser: whether this person has
+ * already been through it. Whether it is offered at all is the project's, and
+ * is tested below.
+ */
+describe("the completed flag", () => {
   beforeEach(() => localStorage.clear());
 
-  test("a fresh browser has not been through it, and may be offered it", () => {
+  test("a fresh browser has not been through it", () => {
     expect(readTourCompleted()).toBe(false);
-    expect(readTourEnabled()).toBe(true);
   });
 
-  test("both are remembered", () => {
+  test("is remembered", () => {
     writeTourCompleted(true);
-    writeTourEnabled(false);
     expect(readTourCompleted()).toBe(true);
-    expect(readTourEnabled()).toBe(false);
-  });
-
-  test("turning the offer back on works", () => {
-    writeTourEnabled(false);
-    writeTourEnabled(true);
-    expect(readTourEnabled()).toBe(true);
   });
 
   /**
    * Storage that throws — a private window, a browser told to block site data
-   * — must not take the Studio down, and must not read as a refusal either:
-   * the fallback is the fresh-browser answer, which is the helpful one.
+   * — must not take the Studio down, and must not read as "already seen"
+   * either: the fallback is the fresh-browser answer.
    */
-  test("storage that throws leaves the helpful defaults, not an error", () => {
+  test("storage that throws leaves the default, not an error", () => {
     const getItem = jest
       .spyOn(Storage.prototype, "getItem")
       .mockImplementation(() => {
@@ -141,10 +136,54 @@ describe("the tour preferences", () => {
       .mockImplementation(() => {
         throw new Error("denied");
       });
-    expect(readTourEnabled()).toBe(true);
     expect(readTourCompleted()).toBe(false);
     expect(() => writeTourCompleted(true)).not.toThrow();
     getItem.mockRestore();
     setItem.mockRestore();
+  });
+});
+
+/**
+ * Whether the tour is offered is the PROJECT's answer, in `s.settings()` under
+ * `studio.tour` — so a team that finds it noisy turns it off once, for
+ * everyone, instead of each person dismissing it on each machine.
+ *
+ * Read out of `Json`, so every shape a hand-written settings file can be in has
+ * to answer something sensible rather than throw.
+ */
+describe("the project's tour setting", () => {
+  const offered = (source: unknown) =>
+    // `readStudioSettings` takes `Json`; these are the shapes a settings module
+    // can actually be in, including the broken ones.
+    isTourOffered(
+      readStudioSettings(source as Parameters<typeof readStudioSettings>[0]),
+    );
+
+  test("an untouched project offers it", () => {
+    expect(offered({})).toBe(true);
+    expect(offered({ studio: {} })).toBe(true);
+    expect(offered({ studio: { tour: null } })).toBe(true);
+  });
+
+  test("a project that has turned it off does not", () => {
+    expect(offered({ studio: { tour: false } })).toBe(false);
+  });
+
+  test("a project that has turned it on does", () => {
+    expect(offered({ studio: { tour: true } })).toBe(true);
+  });
+
+  /**
+   * Unset is not "no". A settings module that is missing, still loading, or
+   * currently nonsense must not silently hide the tour from every project that
+   * never touched this.
+   */
+  test("anything unreadable still offers it", () => {
+    expect(offered(undefined)).toBe(true);
+    expect(offered(null)).toBe(true);
+    expect(offered([])).toBe(true);
+    expect(offered("nonsense")).toBe(true);
+    expect(offered({ studio: "nonsense" })).toBe(true);
+    expect(offered({ studio: { tour: "false" } })).toBe(true);
   });
 });

@@ -191,6 +191,61 @@ export function SettingsSection({
   );
 }
 
+export type StudioSettingsValue = {
+  /**
+   * Three states, not two.
+   *
+   * `null` is "nobody has decided", and it means the tour IS offered — the
+   * person it exists for is the one who has not answered any question. Only an
+   * explicit `false` turns it off.
+   */
+  tour: boolean | null;
+};
+
+/**
+ * How the Studio behaves for the people editing this project.
+ *
+ * One switch so far, and it is here rather than beside the theme and auto save
+ * in the Account panel because of what it is FOR: a team that finds the tour
+ * noisy turns it off once, for everyone, instead of each person dismissing it
+ * on each machine they use. That makes it a decision about the project, which
+ * makes it content — published, reviewable, and the same for the whole team.
+ *
+ * What stays per-browser is whether a given person has already been through it.
+ * That is not a decision and there is nothing to agree about.
+ */
+export function StudioSettingsFields({
+  value,
+  onChange,
+  readonly,
+}: {
+  value: StudioSettingsValue;
+  onChange: (field: keyof StudioSettingsValue, next: boolean) => void;
+  readonly?: boolean;
+}) {
+  const isOff = value.tour === false;
+  return (
+    <SettingsSection description="How the Studio behaves for the people editing this project.">
+      <div className="flex items-center justify-between gap-3">
+        <label htmlFor="val-studio-tour" className="text-xs font-medium">
+          Offer the tour
+          <span className="block mt-0.5 text-[0.6875rem] font-normal text-fg-secondary-alt">
+            {isOff
+              ? "Off. Nobody is prompted. The tour is still in Quick actions for anyone who wants it."
+              : "Editors who have not been through the guided tour are offered it once."}
+          </span>
+        </label>
+        <Switch
+          id="val-studio-tour"
+          checked={!isOff}
+          disabled={readonly}
+          onCheckedChange={(next) => onChange("tour", next)}
+        />
+      </div>
+    </SettingsSection>
+  );
+}
+
 export type AssistantSettingsValue = {
   /**
    * Three states, not two — see `assistantAvailability`.

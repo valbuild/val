@@ -51,10 +51,8 @@ import { availableDestinations } from "./shellDataMapping";
 import { StudioTour } from "./StudioTour";
 import {
   readTourCompleted,
-  readTourEnabled,
   studioTourSteps,
   writeTourCompleted,
-  writeTourEnabled,
 } from "./studioTour";
 import { servedPath } from "../../utils/mediaPath";
 import { useShellBreakpoint } from "./useShellBreakpoint";
@@ -123,6 +121,19 @@ export type ShellProps = {
    * `TourLauncher`.
    */
   initialTourOpen?: boolean;
+  /**
+   * Whether this PROJECT offers the tour — `studio.tour` in `s.settings()`.
+   *
+   * Defaults to true, which is also what an unset setting means: the person the
+   * tour exists for is the one who has not answered any question yet. False
+   * takes the prompt away for everyone on the project; the tour itself stays in
+   * Quick actions, so there is no way to make it unreachable by accident.
+   *
+   * A prop rather than a hook, like `theme` and `autoSave` beside it: the shell
+   * is the presentational half, and everything that decides how it behaves
+   * arrives the same way.
+   */
+  tourEnabled?: boolean;
   theme: "dark" | "light";
   /**
    * The project's theme, as CSS custom properties — see `ValThemeProvider`.
@@ -428,6 +439,7 @@ export function Shell({
   initialSelectionId = null,
   initialSearchOpen = false,
   initialTourOpen = false,
+  tourEnabled = true,
   theme,
   themeStyle,
   onThemeChange,
@@ -648,19 +660,15 @@ export function Shell({
 
   const [isTourOpen, setIsTourOpen] = useState(initialTourOpen);
   /**
-   * Whether this browser has been offered the tour, and whether it wants to be.
+   * Whether this browser has already been through the tour.
    *
-   * Read once, on mount: both are per-browser preferences rather than shared
-   * state, so nothing else can change them underneath us, and reading storage
-   * on every render to find out that the answer is still the same is not worth
-   * a try/catch per frame.
+   * Read once, on mount: it is a per-browser fact rather than shared state, so
+   * nothing else can change it underneath us, and reading storage on every
+   * render to find out the answer is still the same is not worth a try/catch
+   * per frame. Whether the tour is offered at all is `tourEnabled`, which is
+   * the PROJECT's answer and arrives as a prop.
    */
   const [tourCompleted, setTourCompleted] = useState(readTourCompleted);
-  const [tourEnabled, setTourEnabledState] = useState(readTourEnabled);
-  const setTourEnabled = useCallback((enabled: boolean) => {
-    setTourEnabledState(enabled);
-    writeTourEnabled(enabled);
-  }, []);
   const startTour = useCallback(() => setIsTourOpen(true), []);
   /**
    * The tour opening a panel. Stable, because the tour re-runs it whenever the
@@ -933,7 +941,11 @@ export function Shell({
   const editorColumn = editorOverride ? (
     editorOverride
   ) : selection === null ? (
-    <EmptyEditorState destinations={destinations} onStartTour={startTour} />
+    <EmptyEditorState
+      destinations={destinations}
+      onStartTour={startTour}
+      tourPrompt={showTourPrompt}
+    />
   ) : (
     /*
      * Held until the server's pending changes have landed — see
@@ -1052,9 +1064,6 @@ export function Shell({
           pendingChanges={pendingChanges}
           onCompare={onCompare}
           reviewCount={reviewCount ?? pendingChanges}
-          // Only while it is still worth offering — see `showTourPrompt`. The
-          // tour itself never goes: Quick actions and the Account panel keep it.
-          onStartTour={showTourPrompt ? startTour : undefined}
           publishState={
             publishState === "idle" && validationErrorCount > 0
               ? "blocked"
@@ -1228,8 +1237,6 @@ export function Shell({
             admin={data.admin}
             autoSave={autoSave}
             onAutoSaveChange={onAutoSaveChange}
-            tourEnabled={tourEnabled}
-            onTourEnabledChange={setTourEnabled}
             onStartTour={startTour}
             branch={data.branch}
             /**

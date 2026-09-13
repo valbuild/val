@@ -1,7 +1,6 @@
 import { ReactNode } from "react";
 import {
   ChevronDown,
-  Compass,
   FileText,
   GripVertical,
   ImageIcon,
@@ -9,6 +8,7 @@ import {
 } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { ShellDestination } from "./types";
+import { TourLauncher } from "./StudioTour";
 
 /** The content canvas is this wide at most, and never resizes. */
 export const CANVAS_MAX_WIDTH = 1048;
@@ -54,9 +54,19 @@ export function EmptyEditorState({
    */
   destinations,
   onStartTour,
+  /**
+   * Whether the tour is still worth pressing for.
+   *
+   * This screen is the whole of the offer — the tour is not advertised anywhere
+   * else in the chrome — so when it is still new the button glows here. Once
+   * somebody has been through it the button stays and goes quiet: a control
+   * that vanishes is one nobody can find again on purpose.
+   */
+  tourPrompt,
 }: {
   destinations?: readonly ShellDestination[];
   onStartTour?: () => void;
+  tourPrompt?: boolean;
 } = {}) {
   const offers = (destination: ShellDestination) =>
     destinations === undefined || destinations.includes(destination);
@@ -95,14 +105,11 @@ export function EmptyEditorState({
           )}
         </dl>
         {onStartTour && (
-          <button
-            type="button"
-            onClick={onStartTour}
-            className="mt-5 inline-flex h-8 items-center gap-1.5 rounded-md border border-border-float px-2.5 text-xs text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
-          >
-            <Compass size={13} />
-            Take a tour
-          </button>
+          <TourLauncher
+            onStart={onStartTour}
+            glow={tourPrompt}
+            className="mt-5"
+          />
         )}
       </div>
     </div>
