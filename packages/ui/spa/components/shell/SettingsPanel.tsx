@@ -1,3 +1,4 @@
+import type { Json } from "@valbuild/core";
 import { ReactNode, useEffect, useId, useState } from "react";
 import { LucideIcon, Sparkles } from "lucide-react";
 import { THEME_RADIUS_STEPS, ThemeRadius } from "@valbuild/core";
@@ -13,6 +14,7 @@ import {
   DebouncedFieldWrite,
   useDebouncedFieldWrite,
 } from "../fields/useDebouncedFieldWrite";
+import { localeName } from "../../utils/localeName";
 
 export type SettingsPanelProps = {
   breakpoint: ShellBreakpoint;
@@ -457,6 +459,35 @@ export type ThemeSettingsFieldsProps = {
   readonly?: boolean;
 };
 
+export type LocalesSettingsValue = {
+  /**
+   * Every POSITION the source has, in the project's own order — not only the
+   * ones holding a language.
+   *
+   * `Json` rather than `string[]` because a settings module is a file people
+   * edit by hand, and dropping what is not a string would take the row with it:
+   * validation reports by index, so the message for `available.0` would land on
+   * whatever survived to position 0, and the value that caused it would have no
+   * row to be removed from. A panel has to be able to repair what it reports.
+   */
+  available: Json[];
+};
+
+export type LocalesSettingsFieldsProps = {
+  value: LocalesSettingsValue;
+  onChange: (next: LocalesSettingsValue) => void;
+  /**
+   * What validation says about each language, by its POSITION in the list.
+   *
+   * By position and not by tag, because a tag is not a row: `available` can
+   * hold the same language twice — that is exactly what the duplicate-language
+   * rule reports, on the repeat — and a tag-keyed map would put that message on
+   * both rows, leaving the editor no way to see which one to delete.
+   */
+  errors?: { byIndex?: Record<number, string> };
+  readonly?: boolean;
+};
+
 /**
  * The presets, in swatch order.
  *
@@ -586,6 +617,99 @@ export function ThemeSettingsFields({
         readonly={readonly}
         error={errors?.mode}
       />
+    </SettingsSection>
+  );
+}
+
+/**
+ * The languages a project publishes.
+ *
+ * The list is the project's own order, and it is kept rather than sorted: it
+ * decides the order of the locale picker and of the rows in a locale-keyed
+ * record, so a team that works in Norwegian can put Norwegian at the top.
+ *
+ * There is no default. Every locale-specific field asks which language it is
+ * in, and a default is exactly the answer that lets that question go
+ * unanswered — content ends up filed under a language nobody chose.
+ *
+ * Each language is named as well as tagged. `Intl.DisplayNames` is asked in the
+ * language's OWN language, so Norwegian reads "norsk bokmål" rather than
+ * "Norwegian Bokmål" — the row is for the person who writes that language.
+ */
+export function LocalesSettingsFields({
+  value,
+  onChange,
+  errors,
+  readonly,
+}: LocalesSettingsFieldsProps) {
+  const [draft, setDraft] = useState("");
+  const add = () => {
+    const tag = draft.trim();
+    if (tag === "" || value.available.includes(tag)) {
+      setDraft("");
+      return;
+    }
+    onChange({ available: [...value.available, tag] });
+    setDraft("");
+  };
+  // By position, not by value. A hand-edited settings module can declare the
+  // same language twice, and removing "every en-US" would delete the good row
+  // along with the duplicate the editor came here to fix.
+  const remove = (index: number) => {
+    onChange({ available: value.available.filter((_, i) => i !== index) });
+  };
+  return (
+    <SettingsSection description="The languages this project publishes. Content is checked against this list, so removing a language reports every piece of content still written in it.">
+      <div className="flex flex-col gap-1.5">
+        {value.available.length === 0 && (
+          <p className="text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
+            No languages yet. Add one and this project becomes translated.
+          </p>
+        )}
+        {value.available.map((entry, index) => (
+          // Keyed by position for the same reason: a tag is not unique, so a
+          // duplicate would collide. Safe here because a row holds no state of
+          // its own and the list is never reordered.
+          <LocaleRow
+            key={index}
+            entry={entry}
+            error={errors?.byIndex?.[index]}
+            readonly={readonly}
+            onRemove={() => remove(index)}
+          />
+        ))}
+      </div>
+      <label className="block">
+        <span className="text-xs font-medium">Add a language</span>
+        <span className="block mt-0.5 text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
+          A BCP 47 tag: language, then region, separated by a hyphen — en-US,
+          nb-NO.
+        </span>
+        <span className="mt-1.5 flex gap-1.5">
+          <input
+            className="flex-1 min-w-0 rounded-md border border-border-primary bg-bg-primary px-3 h-8 text-xs placeholder:text-fg-secondary-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
+            placeholder="nb-NO"
+            value={draft}
+            disabled={readonly}
+            spellCheck={false}
+            onChange={(event) => setDraft(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                add();
+              }
+            }}
+          />
+          <button
+            type="button"
+            disabled={readonly || draft.trim() === ""}
+            onClick={add}
+            className="shrink-0 h-8 px-3 rounded-md border border-border-primary text-xs font-medium hover:bg-bg-float-raised disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Add
+          </button>
+        </span>
+      </label>
     </SettingsSection>
   );
 }
@@ -738,5 +862,58 @@ export function SettingsFieldAction({
       <Icon size={11} />
       {label}
     </button>
+  );
+}
+
+/**
+ * One declared position.
+ *
+ * Usually a language. Where it is not — a number, an object, whatever a hand
+ * edit left behind — the row still draws, showing the value as it is written so
+ * it can be recognised and removed. Validation has already said what is wrong
+ * with it; the row's job is to be the thing that can be deleted.
+ */
+function LocaleRow({
+  entry,
+  error,
+  readonly,
+  onRemove,
+}: {
+  entry: Json;
+  error?: string;
+  readonly?: boolean;
+  onRemove: () => void;
+}) {
+  const tag = typeof entry === "string" ? entry : JSON.stringify(entry);
+  const name = typeof entry === "string" ? localeName(entry) : undefined;
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-border-primary px-3 py-2">
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs font-medium truncate">
+            {name ?? tag}
+          </span>
+          {name !== undefined && (
+            <span className="block text-[0.6875rem] text-fg-secondary-alt tabular-nums">
+              {tag}
+            </span>
+          )}
+        </span>
+        <button
+          type="button"
+          disabled={readonly}
+          onClick={onRemove}
+          aria-label={`Remove ${name ?? tag}`}
+          className="shrink-0 text-[0.6875rem] text-fg-secondary hover:text-fg-error-on-surface disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Remove
+        </button>
+      </div>
+      {error && (
+        <span className="text-[0.6875rem] text-fg-error-on-surface leading-relaxed">
+          {error}
+        </span>
+      )}
+    </div>
   );
 }

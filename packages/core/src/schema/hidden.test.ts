@@ -58,7 +58,7 @@ describe("Schema.hidden()", () => {
     );
     expect(
       s
-        .union("type", s.object({ type: s.literal("a") }))
+        .discriminatedUnion("type", s.object({ type: s.literal("a") }))
         .hidden()
         ["executeSerialize"]().hidden,
     ).toBe(true);

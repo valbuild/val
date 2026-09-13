@@ -157,7 +157,24 @@ export type ShellValidationError = {
   count: number;
 };
 
-export type ShellActivityEntry = {
+/**
+ * One row of Recent activity.
+ *
+ * Two kinds, because "what has been happening here?" has always had two halves
+ * and the panel only ever answered one of them. An edit somebody made is
+ * something to go back to; a publish is something that happened to the site.
+ * Publishes were visible only in the status bar's deploy feed, which is a
+ * live-progress indicator that empties itself as builds land — so the moment a
+ * publish finished there was nowhere in the Studio that said it had.
+ *
+ * Both carry `title` and `timestamp` so the list can be rendered in one pass;
+ * everything that differs is behind `kind`.
+ */
+export type ShellActivityEntry = ShellChangeActivity | ShellDeployActivity;
+
+/** An unpublished edit, from the patch sets. */
+export type ShellChangeActivity = {
+  kind: "change";
   /**
    * A React key, not a target: two patch sets can share a module and a path, so
    * this carries an index to keep them apart. Use `sourcePath` to go anywhere.
@@ -170,6 +187,40 @@ export type ShellActivityEntry = {
   timestamp: string;
   author?: string;
 };
+
+/**
+ * A publish, from the deploy feed.
+ *
+ * Not selectable — there is nothing in the Studio a commit opens — so unlike a
+ * change row this carries no `sourcePath` and the panel renders it as a line
+ * rather than a button. What it does carry is the state, because a publish that
+ * is still building and one that failed are the two things worth reading here.
+ */
+export type ShellDeployActivity = {
+  kind: "deploy";
+  /** The commit sha, prefixed: it is unique per publish. */
+  id: string;
+  /** The commit message, or the short sha when there is none. */
+  title: string;
+  /** What happened to it, e.g. "Live", "Building", "Build failed". */
+  state: string;
+  /**
+   * The state as the row's icon reads it.
+   *
+   * `state` is the sentence and this is the shape: the same three cases the
+   * deploy feed's rows use, so a publish looks the same in both places.
+   */
+  progress: DeploymentProgress;
+  /** Already relative, e.g. "2 minutes ago". */
+  timestamp: string;
+  author?: string;
+};
+
+/**
+ * How a publish is doing, reduced to the three states anything rendering one
+ * cares about. See `deploymentProgress`.
+ */
+export type DeploymentProgress = "building" | "failed" | "settled";
 
 /**
  * A destination: what the left rail switches between.
@@ -261,7 +312,12 @@ export type ShellData = {
    * surface while the bell stays hidden until something populates it.
    */
   notifications?: ShellNotification[];
-  /** Derived from patch sets. Absent while they are still loading. */
+  /**
+   * The edits and the publishes, newest first. See `toActivity`.
+   *
+   * Built from whichever half has arrived: the patch sets and the deploy feed
+   * load separately, and a list that waits for both hides the one it has.
+   */
   activity?: ShellActivityEntry[];
   validationErrors: ShellValidationError[];
   /** Absent until a profile has loaded, and in modes that have none. */

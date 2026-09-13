@@ -296,6 +296,13 @@ export class PreviewStore {
         this.invalidate(event.modules);
       },
     );
+    // A drop is a source change that arrives as its OWN event, and a module
+    // whose whole chain was discarded gets nothing else: there is no surviving
+    // patch to re-apply, so no `source:patch-apply` follows. Listening to the
+    // apply alone left every preview of a discarded edit standing.
+    const offDrop = this.sourceStore.events.on("source:patch-drop", (event) => {
+      this.invalidate(event.modules);
+    });
     const offInit = this.sourceStore.events.on("source:init", (event) => {
       this.invalidate(event.sources);
     });
@@ -306,6 +313,7 @@ export class PreviewStore {
       offListen();
       offUnlisten();
       offApply();
+      offDrop();
       offInit();
       offSchema();
       // Timers outlive listeners otherwise, and a test that creates and

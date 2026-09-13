@@ -50,7 +50,6 @@ describe("the studio telling the page its accent", () => {
         isPicking
         highlightedPath={null}
         selectionColors={selectionColors}
-        onRequestReload={() => {}}
       />,
     );
     const found = rendered.container.querySelector("iframe");
@@ -91,7 +90,6 @@ describe("the studio telling the page its accent", () => {
         isPicking
         highlightedPath={null}
         selectionColors={selectionColors}
-        onRequestReload={() => {}}
       />,
     );
 

@@ -19,6 +19,42 @@ assertion. `const seen = await probe(page)` followed by `expect(seen.parentRef)`
 reads a variable and slips past it. A clean lint is not proof a spec is
 converted; it is proof nothing obvious was added.
 
+## The projects, and which app each one drives
+
+| project                      | app                         | what it is for                                                |
+| ---------------------------- | --------------------------- | ------------------------------------------------------------- |
+| `chromium`                   | `examples/next`, fs mode    | most of the suite                                             |
+| `chromium-http`              | `examples/next`, proxy mode | publishing, deployments, two editors — `e2e/http/`            |
+| `tanstack`                   | `examples/tanstack`         | "does the Studio come up on TanStack Start, and can it write" |
+| `warmup` / `tanstack-warmup` | the two above               | not tests: they pay the first compile so no test does         |
+| `screens`                    | `examples/next`             | screenshots for a human; opt-in by name, asserts nothing      |
+
+`playwright.config.ts` starts only the servers the selected project needs, so
+`--project=tanstack` never starts `next dev` and a `chromium` shard never starts
+the mock content host.
+
+The `tanstack` project is deliberately three tests. Everything about the stores
+is framework-independent and covered against the Next app; what is not covered
+anywhere else is `@valbuild/tanstack`'s provider, its `/api/val/$` route and the
+`/val` layout route. It exists because "the Studio does not come up at all"
+shipped in 0.125.0 with all of CI green — nothing ran the TanStack app, and
+nothing ran anywhere but a secure context (`insecureContext.ts` explains the
+second half, which is the one no amount of extra framework coverage would have
+caught).
+
+**Not yet wired into CI.** `.github/workflows/check.yml` has no `smoke` job and
+its `e2e` matrix selects only `chromium` and `chromium-http`, so nothing here
+runs the TanStack project — the workflow change that adds a blocking `smoke`
+job (this project plus `insecure-context.spec.ts`) and a `build-tanstack` job
+is pending a maintainer, because the session that wrote these specs had no
+`workflow` scope on its credentials. Until it lands, run them by hand:
+
+```bash
+pnpm exec playwright test --project=tanstack
+pnpm exec playwright test --project=chromium e2e/smoke.spec.ts \
+  e2e/insecure-context.spec.ts
+```
+
 ## Why, with the receipts
 
 Two flakes survived into CI after a week of fixing this suite. Both were the same

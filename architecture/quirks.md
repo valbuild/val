@@ -409,6 +409,31 @@ writes to a live store.
 
 ## Patches
 
+**A discard is `source:patch-drop` and, usually, nothing else.** The source
+store announces a drop as its own event and then re-applies whatever survives
+in the module's chain, which is what emits `source:patch-apply` — so a discard
+that empties the chain, which is the ordinary "discard my changes", is the drop
+event alone. Every store that invalidated on the apply and not on the drop
+(validation, previews, the search and reference staleness marks) therefore kept
+showing the discarded edit until something unrelated touched the module. The
+symptom that found it: rename a page (a record key) with the AI, discard, and a
+`keyOf` field elsewhere goes on reporting that the key "does not exist" —
+about a key that is back. If a store reads source, it listens to both events —
+or to `source:change`, which `SourceStore.bump` emits for every way a revision
+can move and which the validation store now uses instead of enumerating them.
+`crossModuleValidation.test.ts` pins validation, previews, search and
+references.
+
+**A `keyOf` field's validity lives in another module's keys.** The schema emits
+a `keyof:check-keys` marker and the answer is settled when the errors are READ,
+against the referenced record's current keys — so nothing about the referring
+module's own source says whether it is valid. `ValidationStore` remembers, per
+validated module, which records its markers resolve against and the keys they
+had (`resolvedAgainst`), and invalidates the module when those keys move.
+Compared on keys deliberately: a router module is a page module, so "the
+referenced module changed" would put every module with an `s.route()` field
+back in the queue on each keystroke into any page.
+
 **`GET /patches` with no `patch_id` returns every patch.** The filter is applied
 to a table the endpoint already holds, so an absent filter is not "none" — it is
 "all". Two ways to trip on it:
@@ -555,6 +580,61 @@ cleanup cancels, which is the only pass that writes to the editor that survives.
 **After `pnpm run build`, run `pnpm preconstruct dev`** or downstream packages keep
 resolving `dist/`. Also delete `examples/next/.next` — a production build left
 there makes the dev server 500 with `MODULE_NOT_FOUND` on Studio routes.
+
+## The Studio is not always a secure context
+
+`crypto.randomUUID` and `navigator.clipboard` exist on `https://` and on
+`localhost`, and NOWHERE ELSE. Not "throw when used" — absent, so
+`crypto.randomUUID()` is a TypeError.
+
+That is not theoretical for a dev tool: the Studio is served by the app's own
+dev server, and that gets opened on a plain-http address that is not
+`localhost` routinely — a phone on the LAN, a VM, or a browser on Windows
+reaching a dev server inside WSL at `http://172.23.x.x:3000`. The crash lands
+during the Studio's FIRST RENDER (`useStatus` names its websocket connection
+with one), so the symptom is a blank screen and
+`crypto.randomUUID is not a function` in the console, with a stack entirely
+inside minified bundle frames.
+
+This reads as TanStack-only and is not. It is about which URL you open: `next
+dev` binds `0.0.0.0` and prints a Local and a Network URL, so a WSL user stays
+on `localhost` and inside a secure context, while `vite dev` binds `localhost`
+only and says "use --host to expose" — so the WSL user who wants to see the
+site from Windows ends up with `--host` and the VM's IP. Same bundle, same bug,
+different default.
+
+`randomUUID` and `copyText` in `packages/ui/spa/utils` fall back
+(`crypto.getRandomValues`; `document.execCommand("copy")`), and an eslint rule
+over `packages/ui/spa` keeps the raw globals from coming back.
+
+`getRandomValues` is the right fallback for two independent reasons, and the
+second is easy to miss: it is not secure-context gated, AND it is
+cryptographically secure. **A patch id is a bearer token** — `/api/val/files`
+serves unpublished files with no auth at all, on the argument that a `patch_id`
+cannot be guessed, and `PatchStore` mints them through this helper. So there is
+no `Math.random` behind it: where neither source exists, `randomUUID` throws.
+A Studio that will not start is a better outcome than draft content served to
+whoever asks.
+
+Before reaching for another web API in the Studio, check whether it is
+secure-context-only.
+
+## `createRequire` is imported in one place in `@valbuild/server`
+
+webpack tries to resolve the argument of any `createRequire` call it can see,
+and warns `module.createRequire failed parsing argument.` when the argument is
+not a literal. `@valbuild/server` calls it twice — `evalValConfigFile` and
+`loadValModules` — and both times the argument is a path inside the user's
+project, known only at runtime. So there was nothing to resolve, nothing to fix,
+and the warning showed up on every `next build` of every app that has a Val API
+route, pointing into a `dist/` file the reader has no way to act on.
+
+`createNodeRequire` reaches the same function through the `Module` class, which
+webpack does not tag, and an eslint rule (`no-restricted-imports`, scoped to
+`packages/server/src`) stops the direct import coming back. It has to stay a
+real `node:module` import: jest hands out its own `node:module`, and a `require`
+obtained around it — through `process.getBuiltinModule`, say — would resolve
+against the real filesystem instead of the registry the tests run in.
 
 ## The `@valbuild/ui` build substitutes placeholders into bundler output
 

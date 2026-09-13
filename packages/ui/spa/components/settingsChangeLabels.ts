@@ -48,4 +48,11 @@ const LABELS: Record<string, string> = {
   "theme.accent": "Appearance · Accent",
   "theme.radius": "Appearance · Corners",
   "theme.mode": "Appearance · Opens in",
+  locales: "Locales",
+  // "Languages", not "Available": the tab is read as a list of languages —
+  // "No languages yet", "Add a language" — and `available` is the key's name,
+  // not the panel's word for it. Nothing for a row of the list, because a list
+  // of primitives is diffed as a list and its per-index rows are not rendered
+  // at all (see `RenderTree`), so there is no such label to give.
+  "locales.available": "Locales · Languages",
 };

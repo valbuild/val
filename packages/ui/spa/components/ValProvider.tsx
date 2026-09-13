@@ -50,6 +50,7 @@ import { LocalModulesErrorBanner } from "./LocalModulesErrorBanner";
 import { useSchemas } from "./ValFieldProvider";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
 import { ValErrorProvider } from "./ValErrorProvider";
+import { ProjectLocalesProvider } from "../hooks/ProjectLocalesProvider";
 import { ValPortalProvider } from "./ValPortalProvider";
 import { ValFieldProvider } from "./ValFieldProvider";
 import { ValStoreProvider } from "../stores/react/ValStoreProvider";
@@ -147,7 +148,6 @@ type ValContextValue = {
   authenticationState: AuthenticationState;
   profiles: Record<AuthorId, Profile>;
   deployments: ValEnrichedDeployment[];
-  dismissDeployment: (deploymentId: string) => void;
   observedCommitShas: Set<string>;
   remoteFiles:
     | {
@@ -563,7 +563,6 @@ export function ValProvider({
   }, [system, statProfileId]);
 
   const [deployments, setDeployments] = useState<ValEnrichedDeployment[]>([]);
-  const dismissedDeploymentsRef = useRef<Set<string>>(new Set());
   /**
    * What is worth re-merging for, as a value rather than a reference.
    *
@@ -578,7 +577,18 @@ export function ValProvider({
   const deploymentsFingerprint =
     "data" in stat && stat.data?.deployments
       ? stat.data.deployments
-          .map((d) => `${d.deploymentId}:${d.deploymentState}:${d.updatedAt}`)
+          .map(
+            (d) =>
+              // The message is part of what a poll can CHANGE, not just of what
+              // it carries: a content service that learns a deployment's git
+              // message after the fact - the webhook resolves it from GitHub,
+              // and that call can fail and be retried - sends the same
+              // deployment, in the same state, at the same instant, with a
+              // message where there was none. Left out of the fingerprint, that
+              // update reached `stat` and stopped there, and the row stayed on
+              // its short sha until something else moved.
+              `${d.deploymentId}:${d.deploymentState}:${d.updatedAt}:${d.commitMessage ?? ""}`,
+          )
           .join(",")
       : "";
   const commitsFingerprint =
@@ -596,18 +606,12 @@ export function ValProvider({
             prev,
             stat.data?.commits || [],
             stat.data?.deployments || [],
-          ).filter((d) => !dismissedDeploymentsRef.current.has(d.commitSha));
+          );
         }
         return prev;
       });
     }
   }, [deploymentsFingerprint, commitsFingerprint]);
-  const dismissDeployment = useCallback((commitSha: string) => {
-    setDeployments((prev) => {
-      return prev.filter((d) => d.commitSha !== commitSha);
-    });
-    dismissedDeploymentsRef.current.add(commitSha);
-  }, []);
   const [observedCommitShas, setObservedCommitShas] = useState<Set<string>>(
     new Set(),
   );
@@ -798,7 +802,6 @@ export function ValProvider({
         baseSha,
         observedCommitShas,
         deployments,
-        dismissDeployment,
         authenticationState,
         config: runtimeConfig,
         profiles:
@@ -871,7 +874,9 @@ export function ValProvider({
                         */}
                           <ValOverlayEmitter enabled={dispatchValEvents} />
                           <LocalModulesErrorBanner />
-                          {children}
+                          <ProjectLocalesProvider>
+                            {children}
+                          </ProjectLocalesProvider>
                           <SchemaOutOfDateGate />
                         </ValFieldProvider>
                       </ValRemoteProvider>
@@ -1222,9 +1227,8 @@ export function useAIModelSelection(): {
 }
 
 export function useDeployments() {
-  const { deployments, dismissDeployment, observedCommitShas } =
-    useContext(ValContext);
-  return { deployments, dismissDeployment, observedCommitShas };
+  const { deployments, observedCommitShas } = useContext(ValContext);
+  return { deployments, observedCommitShas };
 }
 
 /**
@@ -1515,10 +1519,9 @@ export function useCommittedPatches(): ReadonlySet<PatchId> {
  *
  * The deploy line is drawn over patches that shipped in a specific commit, and
  * that commit is the one thing they can be labelled with honestly. Reading the
- * newest entry of the deployment feed instead is wrong in three ways at once: the
- * feed is filtered by `dismissDeployment`, it can lag a commit the chain already
- * knows about, and two undeployed commits would both be described by whichever
- * one happened to be first.
+ * newest entry of the deployment feed instead is wrong in two ways at once: it
+ * can lag a commit the chain already knows about, and two undeployed commits
+ * would both be described by whichever one happened to be first.
  */
 export function useDeployingCommitShas(): string[] {
   const val = useValSystem();
@@ -2338,10 +2341,14 @@ export type ShallowSource = EnsureAllTypes<{
    */
   settings: Record<string, SourcePath>;
   record: Record<string, SourcePath>;
-  union: string | Record<string, SourcePath>;
+  /** The variant's own keys: a discriminated union's value IS an object. */
+  "discriminated-union": Record<string, SourcePath>;
+  /** One of the enum's values. */
+  enum: string;
   boolean: boolean;
   keyOf: string;
   route: string;
+  locale: string;
   number: number;
   string: string;
   date: string;
@@ -3152,13 +3159,29 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       status: "success",
       data: source as ShallowSource[SchemaType],
     };
-  } else if (type === "union") {
-    if (typeof source === "string") {
+  } else if (type === "locale") {
+    if (typeof source !== "string") {
       return {
-        status: "success",
-        data: source as ShallowSource[SchemaType],
+        status: "error",
+        error: `Expected string, got ${typeof source}`,
       };
     }
+    return {
+      status: "success",
+      data: source as ShallowSource[SchemaType],
+    };
+  } else if (type === "enum") {
+    if (typeof source !== "string") {
+      return {
+        status: "error",
+        error: `Expected string, got ${typeof source}`,
+      };
+    }
+    return {
+      status: "success",
+      data: source as ShallowSource[SchemaType],
+    };
+  } else if (type === "discriminated-union") {
     if (typeof source !== "object") {
       return {
         status: "error",
@@ -3171,7 +3194,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
         error: `Expected object, got array`,
       };
     }
-    const data: ShallowSource["union"] = {};
+    const data: ShallowSource["discriminated-union"] = {};
     for (const key of Object.keys(source)) {
       data[key] = concatModulePath(moduleFilePath, modulePath, key);
     }

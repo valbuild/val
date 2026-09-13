@@ -170,8 +170,8 @@ describe("stega transform", () => {
     expect(transformed.rawStr).toStrictEqual("two");
   });
 
-  test("skip stegaEncode on union of strings", () => {
-    const schema = s.union(s.literal("one"), s.literal("two"));
+  test("skip stegaEncode on enum", () => {
+    const schema = s.enum("one", "two");
     const transformed = stegaEncode(
       c.define("/test1.val.ts", schema, "one"),
       {},
@@ -179,8 +179,8 @@ describe("stega transform", () => {
     expect(transformed).toStrictEqual("one");
   });
 
-  test("skip stegaEncode on union of objects", () => {
-    const schema = s.union(
+  test("skip stegaEncode on discriminated union of objects", () => {
+    const schema = s.discriminatedUnion(
       "type",
       s.object({ type: s.literal("type1"), str: s.string() }),
       s.object({ type: s.literal("type2"), num: s.number() }),
@@ -193,6 +193,28 @@ describe("stega transform", () => {
       {},
     );
     expect(transformed.type).toStrictEqual("type1");
+    expect(vercelStegaSplit(transformed.str).cleaned).toStrictEqual("one");
+    expect(vercelStegaDecode(transformed.str)).toStrictEqual({
+      data: {
+        valPath: '/test1.val.ts?p="str"',
+      },
+      origin: "val.build",
+    });
+  });
+
+  // `""` is a legal `s.literal`, so it is a legal tag. The variant resolver
+  // used to test the tag for truthiness, so this arm was never matched and its
+  // strings came back unencoded — silently, since the value is unchanged.
+  test("a discriminated union tagged with an empty string still encodes its arm", () => {
+    const schema = s.discriminatedUnion(
+      "type",
+      s.object({ type: s.literal(""), str: s.string() }),
+      s.object({ type: s.literal("named"), num: s.number() }),
+    );
+    const transformed = stegaEncode(
+      c.define("/test1.val.ts", schema, { type: "", str: "one" }),
+      {},
+    );
     expect(vercelStegaSplit(transformed.str).cleaned).toStrictEqual("one");
     expect(vercelStegaDecode(transformed.str)).toStrictEqual({
       data: {
@@ -275,8 +297,8 @@ describe("stega transform", () => {
     expect(transformed.theme[1].fill).toStrictEqual("hsl(120 100% 50%)");
   });
 
-  test("skip stegaEncode on colors inside a tagged union", () => {
-    const schema = s.union(
+  test("skip stegaEncode on colors inside a discriminated union", () => {
+    const schema = s.discriminatedUnion(
       "type",
       s.object({ type: s.literal("solid"), fill: s.color() }),
       s.object({ type: s.literal("text"), body: s.string() }),
@@ -353,10 +375,10 @@ describe("stega transform", () => {
   });
 
   // The page-builder shape the example app uses: a code block as one variant of
-  // an inline union. Recursion into a union member is a separate path from the
+  // an inline union. Recursion into a variant is a separate path from the
   // record/array one above, and the skip has to survive it too.
-  test("skip stegaEncode on code inside a tagged union", () => {
-    const schema = s.union(
+  test("skip stegaEncode on code inside a discriminated union", () => {
+    const schema = s.discriminatedUnion(
       "type",
       s.object({
         type: s.literal("code"),
@@ -586,9 +608,9 @@ describe("media is resolved from the schema, not from the value", () => {
     expect(vercelStegaSplit(img.src.url).cleaned).toBe("/val/inline.png");
   });
 
-  test("an image inside a tagged union arm is resolved", () => {
+  test("an image inside a discriminated union arm is resolved", () => {
     const schema = s.object({
-      block: s.union(
+      block: s.discriminatedUnion(
         "type",
         s.object({ type: s.literal("hero"), image: s.image() }),
         s.object({ type: s.literal("text"), body: s.string() }),

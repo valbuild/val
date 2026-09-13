@@ -12,6 +12,7 @@ import {
 import { Patch, PatchId } from "./zod/Patch";
 import { SerializedSchema } from "./zod/SerializedSchema";
 import { ValCommit } from "./zod/ValCommit";
+import { ValDeployment } from "./zod/ValDeployment";
 import {
   HistoricalCommit,
   HistoricalModule,
@@ -56,6 +57,8 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("files:upload-remote"),
   z.literal("keyof:check-keys"),
   z.literal("router:check-route"),
+  z.literal("locale:check-locale"),
+  z.literal("record:fill-keys"),
   z.literal("images:check-unique-folder"),
   z.literal("files:check-unique-folder"),
   z.literal("images:check-all-files"),
@@ -630,6 +633,21 @@ export const Api = {
                */
               headCommitSha: z.string().optional(),
               commits: z.array(ValCommit),
+              /**
+               * The publishes the content service knows about.
+               *
+               * Declared, at last. `getStat` has always returned these in
+               * `http` mode and the Studio has always read them - the response
+               * validator strips unknown keys rather than rejecting them, and
+               * the raw json is what the client hands back, so they arrived
+               * while the contract said they could not. That was survivable
+               * until a deployment started carrying a commit MESSAGE: a field
+               * nobody has declared is a field the next person deletes.
+               *
+               * Optional, because a content service that reports no
+               * deployments sends none.
+               */
+              deployments: z.array(ValDeployment).optional(),
               config: ValConfig,
               profileId: z.string().nullable(),
               mode: z.union([z.literal("http"), z.literal("fs")]),

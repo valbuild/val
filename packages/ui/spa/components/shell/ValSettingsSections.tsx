@@ -1,3 +1,6 @@
+import { useMemo } from "react";
+import type { Json } from "@valbuild/core";
+import type { JSONValue } from "@valbuild/core/patch";
 import {
   ASSISTANT_SETTINGS_MAX_LENGTH,
   ModuleFilePath,
@@ -9,17 +12,27 @@ import { useCallback } from "react";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { useAIChatActions } from "../AIChatActionsContext";
 import { toneOfVoicePrompt } from "../../hooks/toneOfVoicePrompt";
-import { useSchemaAtPath, useShallowSourceAtPath } from "../ValFieldProvider";
+import {
+  useSchemaAtPath,
+  useShallowSourceAtPath,
+  useSourceAtPath,
+} from "../ValFieldProvider";
 import { useWriteAssistantSetting } from "../../hooks/useWriteAssistantSetting";
 import { useWriteThemeSetting } from "../../hooks/useWriteThemeSetting";
-import { useValidationErrors } from "../ValErrorProvider";
+import { useWriteSettingsSection } from "../../hooks/useWriteSettingsSection";
+import {
+  useAllValidationErrors,
+  useValidationErrors,
+} from "../ValErrorProvider";
 import {
   AssistantSettingsFields,
+  LocalesSettingsFields,
+  LocalesSettingsValue,
   NoSettingsModule,
   SettingsTabs,
   ThemeSettingsFields,
 } from "./SettingsPanel";
-import { Palette, Sparkles } from "lucide-react";
+import { Languages, Palette, Sparkles } from "lucide-react";
 import { PanelSkeleton } from "./PanelPrimitives";
 
 /**
@@ -79,6 +92,15 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
   const generateTone = useCallback(() => {
     askAssistant(toneOfVoicePrompt(moduleFilePath));
   }, [askAssistant, moduleFilePath]);
+
+  const localesPath = sourcePathOfItem(moduleFilePath, "locales");
+  const localesValue = useLocalesSection(localesPath);
+  const localesErrors = useLocalesErrors(localesPath, localesValue.available);
+  const writeLocalesSetting = useWriteSettingsSection(
+    moduleFilePath,
+    "locales",
+    LOCALES_FIELDS,
+  );
 
   const themePath = sourcePathOfItem(moduleFilePath, "theme");
   const accentPath = sourcePathOfItem(themePath, "accent");
@@ -147,9 +169,90 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
             />
           ),
         },
+        {
+          id: "locales",
+          label: "Locales",
+          icon: Languages,
+          content: (
+            <LocalesSettingsFields
+              value={localesValue}
+              onChange={(next) => {
+                // `Json` is the readonly spelling of the same shape a patch op
+                // takes — the same crossing `emptyOf` makes in
+                // `DiscriminatedUnionField`. The values are the source's own,
+                // carried through unchanged so a malformed entry is removed
+                // rather than rewritten.
+                writeLocalesSetting({
+                  available: next.available as JSONValue[],
+                });
+              }}
+              errors={localesErrors}
+              readonly={readonly}
+            />
+          ),
+        },
       ]}
     />
   );
+}
+
+/** Every field the locales section has. See `useWriteSettingsSection`. */
+const LOCALES_FIELDS = ["available"] as const;
+
+/**
+ * The locales section, as the panel needs it.
+ *
+ * Read defensively rather than asserted: a settings module is a file someone
+ * edits, so `available` can hold anything at the moment it is being typed, and
+ * the panel has to draw the rows it CAN rather than refusing to render.
+ */
+function useLocalesSection(localesPath: SourcePath): LocalesSettingsValue {
+  const availableSource = useSourceAtPath(
+    sourcePathOfItem(localesPath, "available"),
+  );
+  return useMemo<LocalesSettingsValue>(() => {
+    // Every position, unfiltered. Validation reports by index, and the panel
+    // removes by index, so dropping what is not a string here would put a
+    // message on the wrong row and leave the value that caused it with no row
+    // to be removed from. See `LocalesSettingsValue`.
+    return {
+      available:
+        "data" in availableSource && Array.isArray(availableSource.data)
+          ? availableSource.data
+          : [],
+    };
+  }, [availableSource]);
+}
+
+/**
+ * Validation for the locales section, arranged the way the fields want it.
+ *
+ * Errors arrive per source path — `available.2` — and the component takes them
+ * per POSITION, which is the same thing with the path parsed off. Not per tag:
+ * the duplicate-language rule reports on the repeat, and a tag-keyed map cannot
+ * tell the repeat from the original.
+ *
+ * Between a removal and the next validation pass these are the PREVIOUS pass's
+ * errors read against the new list, so a message can sit on a neighbour for a
+ * frame. That resolves itself, and is true of any keying — the errors are
+ * produced per index, so nothing the panel does can make them survive a shift.
+ */
+function useLocalesErrors(
+  localesPath: SourcePath,
+  available: Json[],
+): { byIndex?: Record<number, string> } {
+  const availablePath = sourcePathOfItem(localesPath, "available");
+  const allErrors = useAllValidationErrors() || {};
+  return useMemo(() => {
+    const byIndex: Record<number, string> = {};
+    for (let i = 0; i < available.length; i++) {
+      const errors = allErrors[sourcePathOfItem(availablePath, i)];
+      if (errors && errors.length > 0) {
+        byIndex[i] = errors[0].message;
+      }
+    }
+    return { byIndex };
+  }, [allErrors, availablePath, available]);
 }
 
 /**
@@ -207,7 +310,7 @@ function useThemeStringField(path: SourcePath): string | null {
  * as unset, and the validation error beside it says why.
  */
 function useThemeRadiusField(path: SourcePath): ThemeRadius | null {
-  const source = useShallowSourceAtPath(path, "union");
+  const source = useShallowSourceAtPath(path, "enum");
   if ("data" in source) {
     return THEME_RADIUS_STEPS.find((step) => step === source.data) ?? null;
   }
@@ -215,7 +318,7 @@ function useThemeRadiusField(path: SourcePath): ThemeRadius | null {
 }
 
 function useThemeModeField(path: SourcePath): "dark" | "light" | null {
-  const source = useShallowSourceAtPath(path, "union");
+  const source = useShallowSourceAtPath(path, "enum");
   if ("data" in source && (source.data === "dark" || source.data === "light")) {
     return source.data;
   }

@@ -162,6 +162,14 @@ type HarnessProps = {
   openPanel: ShellPanel | null;
   selectionId: string | null;
   empty: boolean;
+  /**
+   * Nothing queued, without emptying the project.
+   *
+   * Its own control because "no pending changes" and "a project with nothing
+   * in it" are different stories, and Review is the affordance that has to be
+   * there in both — see `ReviewButton`.
+   */
+  noPendingChanges: boolean;
   withoutRouters: boolean;
   searchOpen: boolean;
   aiEnabled: boolean;
@@ -289,6 +297,7 @@ function ShellHarness({
   openPanel,
   selectionId,
   empty,
+  noPendingChanges,
   withoutRouters,
   aiEnabled,
   searchOpen,
@@ -334,7 +343,7 @@ function ShellHarness({
   return (
     <Shell
       renderSettings={() => <MockSettingsSections />}
-      key={`${openPanel}-${selectionId}-${empty}-${withoutRouters}-${aiEnabled}-${searchOpen}-${isLoading}-${loadError}-${mode}-${deployments}-${deploymentsOpen}-${canvasOpen}-${canvasView}-${canvasReported}`}
+      key={`${openPanel}-${selectionId}-${empty}-${noPendingChanges}-${withoutRouters}-${aiEnabled}-${searchOpen}-${isLoading}-${loadError}-${mode}-${deployments}-${deploymentsOpen}-${canvasOpen}-${canvasView}-${canvasReported}`}
       data={data}
       initialPanel={openPanel}
       initialSelectionId={selectionId}
@@ -352,7 +361,15 @@ function ShellHarness({
         radius: THEME_RADIUS_LENGTHS[radius],
       })}
       onThemeChange={setCurrentTheme}
-      pendingChanges={empty ? 0 : 12}
+      pendingChanges={empty || noPendingChanges ? 0 : 12}
+      /*
+       * The review view, which every story has and none of them used to.
+       *
+       * Without `onCompare` the top bar renders no Review button at all, so
+       * the one control in the bar that answers "is anything of mine still
+       * unpublished?" could not be seen in Storybook - in either state.
+       */
+      onCompare={() => console.log("open the review view")}
       publishState={publishState}
       saveState={saveState}
       mode={mode}
@@ -422,6 +439,7 @@ export const Default: Story = {
     openPanel: null,
     selectionId: null,
     empty: false,
+    noPendingChanges: false,
     withoutRouters: false,
     searchOpen: false,
     aiEnabled: true,
@@ -440,6 +458,24 @@ export const Default: Story = {
     simulatePublish: false,
     canvasOpen: false,
     canvasView: "normal",
+  },
+};
+
+/**
+ * Nothing queued, in a project that is otherwise full.
+ *
+ * Review is in the bar all the same. It used to be `invisible` here - in the
+ * layout so the bar would not reflow, but unreachable by pointer, keyboard or
+ * screen reader - which made "is anything of mine still unpublished?"
+ * unanswerable from the bar: a hidden button and a button whose data has not
+ * loaded are the same picture. Publish is disabled, which is the difference
+ * between the two controls: one ships work, the other looks at it.
+ */
+export const NothingPendingToReview: Story = {
+  args: {
+    ...Default.args,
+    selectionId: mockSelectionIds.home,
+    noPendingChanges: true,
   },
 };
 

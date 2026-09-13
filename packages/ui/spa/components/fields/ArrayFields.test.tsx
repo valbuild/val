@@ -118,7 +118,7 @@ describe("ArrayFields picks its list from the item schema", () => {
    * array's item schema — the union — carries none of its own.
    */
   test("a union whose variants are inline is edited in the block list", () => {
-    mount(s.union("type", textBlock, codeBlock));
+    mount(s.discriminatedUnion("type", textBlock, codeBlock));
     render(<ArrayFields path={PATH} />);
     expect(screen.queryByTestId("block-list")).not.toBeNull();
     expect(screen.queryByTestId("sortable-list")).toBeNull();
