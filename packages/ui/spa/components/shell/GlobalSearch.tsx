@@ -65,12 +65,21 @@ export function collectSearchResults(data: ShellData): SearchResult[] {
   const results: SearchResult[] = [];
   const walkPages = (pages: ShellData["pages"]) => {
     for (const page of pages) {
-      results.push({
-        id: page.id,
-        kind: "page",
-        label: page.name,
-        detail: page.urlPath,
-      });
+      // A row without a source path is a path SEGMENT, not a page: `/blogs`
+      // exists in the site map only because `/blogs/blog-1` does. It has no
+      // content to open, and its `urlPath` is the route pattern
+      // (`/blogs/[blog]`) rather than a URL of the site, so offering it as a
+      // hit offers a page that does not exist. In the tree such a row expands;
+      // here there is nothing to expand into, so it is skipped and its
+      // children are walked anyway.
+      if (page.sourcePath !== undefined) {
+        results.push({
+          id: page.id,
+          kind: "page",
+          label: page.name,
+          detail: page.urlPath,
+        });
+      }
       walkPages(page.children ?? []);
     }
   };
