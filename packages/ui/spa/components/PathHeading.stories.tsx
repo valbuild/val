@@ -69,7 +69,7 @@ const portrait: ImageSource = {
  * last path segment, no subtitle, no image. For a page it is the URL, drawn as
  * a breadcrumb.
  */
-function TodayHeading({ text }: { text: ReactNode }) {
+function TodayHeading({ text, scope }: { text: ReactNode; scope?: ReactNode }) {
   return (
     <div className="flex flex-col gap-2 text-left">
       <div className="flex gap-4 justify-between items-start min-h-6">
@@ -79,6 +79,9 @@ function TodayHeading({ text }: { text: ReactNode }) {
           </div>
         </div>
       </div>
+      {/* `Module.tsx` renders the trail only when there is one — which is part
+          of why headings are different heights today. */}
+      {scope && <div className="text-sm text-fg-quaternary">{scope}</div>}
     </div>
   );
 }
@@ -178,7 +181,7 @@ export const TheHeading: Story = {
               `prettifyFilename`. A module root has no container, so its own
               `.preview(...)` is never run — emitting a self preview is the one
               core change this needs."
-        today={<TodayHeading text="Footer" />}
+        today={<TodayHeading text="Footer" scope="Components" />}
         proposed={
           <PathHeading
             description={{
@@ -192,6 +195,7 @@ export const TheHeading: Story = {
                 image: "fallback",
               },
             }}
+            scope={<span className="text-fg-quaternary">Components</span>}
           />
         }
       />
@@ -200,7 +204,7 @@ export const TheHeading: Story = {
         note="Today the heading is the key, verbatim. The fallback stays exactly
               that: a key is authored data, so it is never prettified into a
               name nobody can search for."
-        today={<TodayHeading text="fredrik-ekholdt" />}
+        today={<TodayHeading text="fredrik-ekholdt" scope="Authors" />}
         proposed={
           <PathHeading
             description={{
@@ -221,7 +225,7 @@ export const TheHeading: Story = {
         what='An array item — /app/(main)/page.val.ts?p="sections".2'
         note="Today the heading is `#2`. Nothing about an index says which of six
               near-identical sections you opened."
-        today={<TodayHeading text="#2" />}
+        today={<TodayHeading text="#2" scope="Page / Sections" />}
         proposed={
           <PathHeading
             description={{
@@ -256,28 +260,28 @@ const pageDescription: Description = {
 
 const URL_STYLES: { style: PageUrlStyle; name: string; tradeoff: string }[] = [
   {
-    style: "subtitle",
-    name: "1. URL as the subtitle",
+    style: "trail",
+    name: "1. URL in the scope trail ✓ chosen",
     tradeoff:
-      "Name leads, URL is the line under it in mono with a globe. Costs the subtitle line — a page cannot show both its URL and its byline here.",
+      "Name leads, URL joins the breadcrumb line that is already under every heading. No new chrome, and the subtitle line stays free for what the preview said — the only option that shows the name, the byline AND the route at once.",
+  },
+  {
+    style: "subtitle",
+    name: "2. URL as the subtitle",
+    tradeoff:
+      "Name leads, URL is the line under it. Costs the subtitle line — a page cannot show both its URL and its byline here.",
   },
   {
     style: "chip",
-    name: "2. URL as a chip beside the title",
+    name: "3. URL as a chip beside the title",
     tradeoff:
-      "Name leads, URL sits next to it and the subtitle line is still free. Long routes truncate early, and the title and the chip compete for one line.",
+      "Subtitle line stays free, but the title and the chip compete for one line and a real route truncates the title away.",
   },
   {
     style: "title",
-    name: "3. URL stays the title",
+    name: "4. URL stays the title",
     tradeoff:
       "Nothing moves; the preview title becomes the second line. Safest, and the least improvement — the heading still reads as a path.",
-  },
-  {
-    style: "trail",
-    name: "4. URL in the scope trail",
-    tradeoff:
-      "Name leads, URL joins the breadcrumb line that is already there. No new chrome at all, but the URL is then styled like provenance rather than identity.",
   },
 ];
 
@@ -291,7 +295,9 @@ const URL_STYLES: { style: PageUrlStyle; name: string; tradeoff: string }[] = [
  * `subtitle`, always, whether or not a preview named the page — and the only
  * open question is where the heading puts it.
  *
- * Four options, all four rendered from the same `Description`.
+ * Four options, all four rendered from the same `Description`. We picked the
+ * first: the scope trail is a line every heading already has, so the URL costs
+ * nothing to show there and the subtitle stays free for the byline.
  */
 export const PagesUrlOptions: Story = {
   render: () => (
@@ -311,11 +317,7 @@ export const PagesUrlOptions: Story = {
               <PathHeading
                 description={pageDescription}
                 pageUrlStyle={style}
-                scope={
-                  style === "trail" ? (
-                    <span className="text-fg-quaternary">Blogs</span>
-                  ) : undefined
-                }
+                scope={<span className="text-fg-quaternary">Blogs</span>}
               />
             </div>
             <p className="mt-2 text-xs text-fg-tertiary">{tradeoff}</p>
@@ -570,6 +572,147 @@ export const Fallbacks: Story = {
           </div>
         </div>
       ))}
+    </div>
+  ),
+};
+
+/* ------------------------------------------------------------------ */
+/* One height                                                          */
+/* ------------------------------------------------------------------ */
+
+const SHAPES: { what: string; description: Description; scope?: ReactNode }[] =
+  [
+    {
+      what: "No preview at all",
+      description: describePath({
+        path: "/components/footer.val.ts" as ModuleFilePath,
+        schema: arraySchema,
+      }),
+      scope: "Components",
+    },
+    {
+      what: "Title only",
+      description: {
+        title: "Footer links",
+        subtitle: null,
+        image: null,
+        url: null,
+        origin: { title: "preview", subtitle: "fallback", image: "fallback" },
+      },
+      scope: "Components",
+    },
+    {
+      what: "Title and subtitle",
+      description: {
+        title: "Fredrik Ekholdt",
+        subtitle: "Founder · 12 posts",
+        image: null,
+        url: null,
+        origin: { title: "preview", subtitle: "preview", image: "fallback" },
+      },
+      scope: "Authors",
+    },
+    {
+      what: "Title, subtitle and image",
+      description: {
+        title: "Fredrik Ekholdt",
+        subtitle: "Founder · 12 posts",
+        image: portrait,
+        url: null,
+        origin: { title: "preview", subtitle: "preview", image: "preview" },
+      },
+      scope: "Authors",
+    },
+    {
+      what: "A page: everything, plus a URL",
+      description: pageDescription,
+      scope: "Blogs",
+    },
+    {
+      what: "A page with no preview",
+      description: describePath({
+        path: '/app/blogs/[id]/page.val.ts?p="/blogs/launch"' as SourcePath,
+        parentSchema: routerSchema,
+      }),
+      scope: "Blogs",
+    },
+  ];
+
+/**
+ * ## One height, whatever the developer wrote
+ *
+ * A heading whose height depends on what a `.preview(...)` happened to return
+ * is a studio that jumps as you click through it: one module has a subtitle,
+ * the next does not, and the editor column and everything under it move.
+ *
+ * So all three lines — title, subtitle, scope — are always in the layout, at
+ * fixed `leading-*` heights, empty when there is nothing to put in them. The
+ * six shapes below are every combination the description can come back as, and
+ * the dashed guide is one fixed height they all land on. The image is sized to
+ * the two lines beside it rather than the other way round, so adding one
+ * changes nothing either.
+ */
+export const OneHeight: Story = {
+  render: () => (
+    <div className="mx-auto max-w-2xl">
+      {SHAPES.map(({ what, description, scope }, i) => (
+        <div key={i}>
+          <div className="mb-1.5 text-[11px] uppercase tracking-wide text-fg-quaternary">
+            {what}
+          </div>
+          <div className="mb-4 rounded-lg border border-dashed border-border-primary bg-bg-primary px-4 py-3">
+            <PathHeading
+              description={description}
+              scope={
+                scope && <span className="text-fg-quaternary">{scope}</span>
+              }
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  ),
+};
+
+/**
+ * The same rule one level down: rows of a list are all the same height because
+ * every row of one list comes from one closure. `subtitle` and `image` each
+ * have three states — a value, `null` (declared, absent here, so the line or
+ * the column is reserved) and `undefined` (not declared at all, so there is no
+ * line and no column) — and it is the middle one that keeps a list from
+ * collapsing row by row as authors fill fields in.
+ */
+export const OneRowHeight: Story = {
+  render: () => (
+    <div className="mx-auto grid max-w-4xl grid-cols-1 gap-4 md:grid-cols-2">
+      <div>
+        <div className="mb-1.5 text-[11px] uppercase tracking-wide text-fg-quaternary">
+          Subtitle declared — one row has not filled it in
+        </div>
+        <div className="divide-y divide-border-primary rounded-lg border border-border-primary bg-bg-primary">
+          <ListPreviewItem
+            title="Fredrik Ekholdt"
+            subtitle="Founder"
+            image={portrait}
+          />
+          <ListPreviewItem title="Erik Bakkevig" subtitle={null} image={null} />
+          <ListPreviewItem
+            title="Ada Lovelace"
+            subtitle="Notes on the analytical engine"
+            image={portrait}
+          />
+        </div>
+      </div>
+      <div>
+        <div className="mb-1.5 text-[11px] uppercase tracking-wide text-fg-quaternary">
+          No subtitle and no image declared — one line, no column
+        </div>
+        <div className="divide-y divide-border-primary rounded-lg border border-border-primary bg-bg-primary">
+          <ListPreviewItem title="Community" subtitle={undefined} />
+          <ListPreviewItem title="Legal &amp; Pricing" subtitle={undefined} />
+          <ListPreviewItem title="Product" subtitle={undefined} />
+        </div>
+      </div>
     </div>
   ),
 };

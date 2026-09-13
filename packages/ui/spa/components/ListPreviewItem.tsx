@@ -35,7 +35,20 @@ export function ListPreviewItem({
    * the title starts at the edge.
    */
   image?: ImageSource | null;
-  subtitle: string | null;
+  /**
+   * Three states, for the same reason {@link image} has three.
+   *
+   * A `string` is the subtitle; `null` means the preview declares a subtitle
+   * that this value does not have, so the line is still RESERVED and the rows
+   * of the list stay the same height; `undefined` means it declares no
+   * subtitle at all, so there is no second line and the row is one line tall.
+   *
+   * Reserving is the right default because every row of one list comes from
+   * one closure: if any row can have a subtitle, they all can, and a list whose
+   * rows are 44px or 56px depending on whether an author filled in a field is a
+   * list that moves under the cursor.
+   */
+  subtitle: string | null | undefined;
   className?: string;
   size?: "compact";
 }) {
@@ -58,20 +71,31 @@ export function ListPreviewItem({
         ) : (
           <Thumbnail src={image} alt={title} compact={compact} />
         ))}
-      <div className="flex flex-col flex-1 gap-0.5 min-w-0">
+      <div className="flex flex-col flex-1 min-w-0">
+        {/*
+         * Fixed line heights rather than `leading-tight` plus a gap, and
+         * chosen so the two lines TOGETHER are exactly the thumbnail: 20 + 20
+         * against `w-10 h-10`, and 16 + 16 against `w-8 h-8` when compact. So
+         * a row measures the same whether the value filled its subtitle in or
+         * not, and `PREVIEW_ROW_CONTENT_HEIGHT` in `RecordFields` — the
+         * virtualizer's estimate for an un-loaded row — stays true of a loaded
+         * one. Change one of these three numbers and change the others.
+         */}
         <div
-          className={cn("font-medium leading-tight truncate", {
-            "text-sm": compact,
-          })}
+          className={cn(
+            "font-medium truncate",
+            compact ? "text-sm leading-4" : "leading-5",
+          )}
         >
           {title}
         </div>
-        {subtitle && (
+        {subtitle !== undefined && (
           <div
             className={cn(
-              "leading-tight truncate text-fg-tertiary",
-              compact ? "text-xs" : "text-sm",
+              "truncate text-fg-tertiary",
+              compact ? "text-xs leading-4" : "text-sm leading-5",
             )}
+            aria-hidden={subtitle === null}
           >
             {subtitle}
           </div>

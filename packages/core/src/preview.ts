@@ -5,6 +5,23 @@ import { splitModuleFilePathAndModulePath, splitModulePath } from "./module";
 import { ModuleFilePath, SourcePath } from "./val";
 
 /**
+ * THE RULE, and the only sentence that needs to be remembered:
+ *
+ *   **`.describe()` annotates the FIELD and appears wherever that field's own
+ *   name appears; `.preview()` names the VALUE and appears wherever that value
+ *   appears instead of being opened; `.render()` lays out the FIELD and applies
+ *   only while you are looking at it.**
+ *
+ * So a description sits beside a label in the form you are editing — it is help
+ * text for whoever has to fill the field in, and it is a property of the schema
+ * that is true before any value exists. A preview is a NAME for one particular
+ * value — a list row, a reference, a search hit, the heading of what you
+ * navigated to — and it cannot exist without the value, which is why it is a
+ * closure. The three never compete for the same pixel, and none of them
+ * substitutes for another: a field with a good description still previews as
+ * `#3` until someone writes the preview.
+ */
+/**
  * A PREVIEW is how a VALUE is shown wherever a preview of it is needed — a row
  * in a sortable list, a key in a reference dropdown, a search hit, a
  * reference — which is everywhere the value is NAVIGABLE to rather than open.

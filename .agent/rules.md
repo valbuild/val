@@ -137,6 +137,29 @@ export type SelectorSource =
 
 If you see `Type 'X' does not satisfy the constraint 'Source'`, the fix is almost always adding a type to `SelectorSource`, NOT using intersections.
 
+## `describe` vs `preview` vs `render`
+
+**`.describe()` annotates the FIELD and appears wherever that field's own name
+appears; `.preview()` names the VALUE and appears wherever that value appears
+instead of being opened; `.render()` lays out the FIELD and applies only while
+you are looking at it.**
+
+A description sits beside a label in the form you are editing — help text for
+whoever fills the field in, true before any value exists, which is why it is
+plain data on the serialized schema. A preview is a NAME for one particular
+value — a list row, a reference dropdown, a search hit, the heading of what you
+navigated to — which is why it is a closure over the value. They never compete
+for the same pixel and none substitutes for another: a field with a good
+description still previews as `#3` until someone writes the preview.
+
+`describePath` (`packages/ui/spa/utils/describePath.ts`) is the one place the
+Studio turns a source path into the `{ title, subtitle, image, url }` a human
+is shown. It prefers the value's preview and falls back to the route, the key,
+the index or the file name. Anything that labels a path goes through it rather
+than deriving a name of its own — the heading, list rows, the scope trail,
+search hits, references and the sitemap disagreed with each other before it
+existed.
+
 ## Schema System
 
 ### Schema-Source Relationship
