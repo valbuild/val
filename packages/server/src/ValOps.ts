@@ -45,14 +45,21 @@ import type {
   CommitPatch,
   HistoricalCommit,
 } from "./history/types";
-import { analyzeJsonValuesEntries } from "./patch/ts/jsonValuesModule";
+import {
+  analyzeJsonValuesEntries,
+  jsonValuesRecordKeys,
+  type JsonValuesEntry,
+} from "./patch/ts/jsonValuesModule";
 import {
   applyJsonValuesEntryPatches,
   classifyJsonValuesOp,
+  expandJsonValuesRootOp,
   findNestedJsonValuesRecords,
   getNewJsonEntryPaths,
+  isJsonValuesRootOp,
   rebaseContentOp,
   resolveExistingJsonPath,
+  type CurrentJsonEntries,
 } from "./patch/jsonValuesPatch";
 import { validateJsonValuesEntries } from "./validateJsonValues";
 import ts from "typescript";
@@ -930,78 +937,150 @@ export abstract class ValOps {
         // poisoning the rest of this module's patch chain). See the per-op
         // routing below.
         const serializedSchema = jsonValuesSchemaFor(path);
-        for (const op of patchData.patch) {
-          if (op.op === "file") {
-            // A file op inside a `.jsonValues()` entry has nothing to inject
-            // HERE: the entry is an opaque marker in the module source, so an
-            // `add` reaching into it fails and poisons the rest of this
-            // module's chain. `applyJsonValuesEntryPatches` writes the patch_id
-            // into the entry's draft content instead.
-            const fileCls = serializedSchema
-              ? classifyJsonValuesOp(serializedSchema, op.path)
-              : ({ kind: "normal" } as const);
-            if (fileCls.kind === "entry" && fileCls.subPath.length > 0) {
-              continue;
-            }
-            if (op.value !== null) {
-              // NOTE: We insert the last patch_id that modify a file
-              // when constructing the url we use the patch id (and the file path)
-              // to fetch the right file
-              // NOTE: overwrite and use last patch_id if multiple patches modify the same file
-              fileFixOps[op.path.join("/")] = [
-                {
-                  op: "add",
-                  path: op.path
-                    .concat(...(op.nestedFilePath || []))
-                    .concat("patch_id"),
-                  value: patchId,
-                },
-              ];
-            }
-            // null value = delete: no patch_id to inject; the "remove" op in
-            // the patch already removes the metadata entry from the source
-          } else {
-            const cls = serializedSchema
-              ? classifyJsonValuesOp(serializedSchema, op.path)
-              : ({ kind: "normal" } as const);
-            if (cls.kind === "normal") {
-              applicableOps.push(op);
-            } else if (cls.subPath.length > 0) {
-              // Content edit inside an entry: the module source is genuinely
-              // unaffected (the content lives in the `*.val.json`), so skip it.
-              // Draft content is served by the single-entry `/json` endpoint.
-            } else if (op.op === "add" || op.op === "replace") {
-              // Whole-entry add/replace: keep the record's KEY SET correct for
-              // drafts by writing the marker rather than the content. Record
-              // validation only asserts `isJson`, and
-              // `validateJsonValuesEntries` skips thunkless markers by design.
-              applicableOps.push({
-                op: op.op,
-                path: op.path,
-                value: {
-                  [VAL_EXTENSION]: "json",
-                  patch_id: patchId,
-                } as JSONValue,
-              } as Operation);
-            } else if (op.op === "remove") {
-              applicableOps.push(op);
-            } else {
-              // move/copy of a whole entry: the destination key must appear, and
-              // for a move the source key must disappear. Both are key-set
-              // changes we can express with markers.
-              applicableOps.push({
-                op: "add",
-                path: op.path,
-                value: {
-                  [VAL_EXTENSION]: "json",
-                  patch_id: patchId,
-                } as JSONValue,
-              } as Operation);
-              if (op.op === "move" && array.isNonEmpty(op.from)) {
-                applicableOps.push({ op: "remove", path: op.from });
+        /**
+         * The record's keys as they stand while this patch is walked.
+         *
+         * Only the key set: the module source holds markers, so there is no
+         * content here to compare a whole-record write against. Seeded from the
+         * source and kept current as the ops below add and remove entries,
+         * because `patchedSources` is only written once the whole patch has
+         * been applied.
+         */
+        let entryKeys: Map<string, JSONValue | undefined> | null = null;
+        const currentEntryKeys = (): Map<string, JSONValue | undefined> => {
+          if (entryKeys === null) {
+            entryKeys = new Map();
+            const source = patchedSources[path];
+            if (
+              typeof source === "object" &&
+              source !== null &&
+              !Array.isArray(source)
+            ) {
+              for (const key of Object.keys(source)) {
+                entryKeys.set(key, undefined);
               }
             }
           }
+          return entryKeys;
+        };
+        /**
+         * Set when a whole-record write could not be expanded.
+         *
+         * Nothing of this patch is applied then: the ops before the failure are
+         * half of an edit, and half of a record write is a record missing
+         * entries.
+         */
+        let unexpandable = false;
+        for (const rawOp of patchData.patch) {
+          /**
+           * A write of the WHOLE record fans out into per-entry ops first,
+           * through the same expansion the commit flow and the entry read path
+           * use. Left as it is, a root write would put the value straight into
+           * the module source - where the entries are markers, so the record
+           * would hold content the Studio then tries to load as entries.
+           */
+          let ops: Operation[] = [rawOp];
+          if (serializedSchema && isJsonValuesRootOp(serializedSchema, rawOp)) {
+            const expandedRes = expandJsonValuesRootOp(
+              rawOp,
+              currentEntryKeys(),
+            );
+            if (result.isErr(expandedRes)) {
+              if (!errors[path]) {
+                errors[path] = [];
+              }
+              errors[path].push({
+                patchId,
+                skipped: false,
+                error: expandedRes.error,
+              });
+              unexpandable = true;
+              break;
+            }
+            ops = expandedRes.value;
+          }
+          for (const op of ops) {
+            if (op.op === "file") {
+              // A file op inside a `.jsonValues()` entry has nothing to inject
+              // HERE: the entry is an opaque marker in the module source, so an
+              // `add` reaching into it fails and poisons the rest of this
+              // module's chain. `applyJsonValuesEntryPatches` writes the patch_id
+              // into the entry's draft content instead.
+              const fileCls = serializedSchema
+                ? classifyJsonValuesOp(serializedSchema, op.path)
+                : ({ kind: "normal" } as const);
+              if (fileCls.kind === "entry" && fileCls.subPath.length > 0) {
+                continue;
+              }
+              if (op.value !== null) {
+                // NOTE: We insert the last patch_id that modify a file
+                // when constructing the url we use the patch id (and the file path)
+                // to fetch the right file
+                // NOTE: overwrite and use last patch_id if multiple patches modify the same file
+                fileFixOps[op.path.join("/")] = [
+                  {
+                    op: "add",
+                    path: op.path
+                      .concat(...(op.nestedFilePath || []))
+                      .concat("patch_id"),
+                    value: patchId,
+                  },
+                ];
+              }
+              // null value = delete: no patch_id to inject; the "remove" op in
+              // the patch already removes the metadata entry from the source
+            } else {
+              const cls = serializedSchema
+                ? classifyJsonValuesOp(serializedSchema, op.path)
+                : ({ kind: "normal" } as const);
+              if (cls.kind === "normal") {
+                applicableOps.push(op);
+              } else if (cls.subPath.length > 0) {
+                // Content edit inside an entry: the module source is genuinely
+                // unaffected (the content lives in the `*.val.json`), so skip it.
+                // Draft content is served by the single-entry `/json` endpoint.
+              } else if (op.op === "add" || op.op === "replace") {
+                // Whole-entry add/replace: keep the record's KEY SET correct for
+                // drafts by writing the marker rather than the content. Record
+                // validation only asserts `isJson`, and
+                // `validateJsonValuesEntries` skips thunkless markers by design.
+                applicableOps.push({
+                  op: op.op,
+                  path: op.path,
+                  value: {
+                    [VAL_EXTENSION]: "json",
+                    patch_id: patchId,
+                  } as JSONValue,
+                } as Operation);
+                currentEntryKeys().set(cls.entryKey, undefined);
+              } else if (op.op === "remove") {
+                applicableOps.push(op);
+                currentEntryKeys().delete(cls.entryKey);
+              } else {
+                // move/copy of a whole entry: the destination key must appear, and
+                // for a move the source key must disappear. Both are key-set
+                // changes we can express with markers.
+                applicableOps.push({
+                  op: "add",
+                  path: op.path,
+                  value: {
+                    [VAL_EXTENSION]: "json",
+                    patch_id: patchId,
+                  } as JSONValue,
+                } as Operation);
+                currentEntryKeys().set(cls.entryKey, undefined);
+                if (op.op === "move" && array.isNonEmpty(op.from)) {
+                  applicableOps.push({ op: "remove", path: op.from });
+                  if (op.from.length === 1) {
+                    currentEntryKeys().delete(op.from[0]);
+                  }
+                }
+              }
+            }
+          }
+        }
+        if (unexpandable) {
+          continue;
         }
         const patchRes = applyPatch(
           deepClone(patchedSources[path] as ReadonlyJSONValue) as JSONValue, // applyPatch mutates the source. On add operations it adds more than once? There is something strange going on... deepClone seems to fix, but is that the right solution?
@@ -1553,9 +1632,30 @@ export abstract class ValOps {
       // content ops in the same commit resolve to the freshly-created file.
       const entryKeyToJsonPath = new Map<string, string>();
 
-      // Lazily analyzed `c.json(() => import("..."))` entries of the ORIGINAL
-      // `.val.ts` (import paths are authoritative for existing/hand-placed files).
-      let analyzerEntries: Map<string, { importPath: string }> | null = null;
+      // Lazily analyzed entries of the ORIGINAL `.val.ts`: the
+      // `c.json(() => import("..."))` thunks (import paths are authoritative
+      // for existing/hand-placed files) and the record's whole key set, which
+      // is what a write of the whole record is expanded against.
+      let analyzed: {
+        thunks: Map<string, JsonValuesEntry>;
+        keys: string[];
+      } | null = null;
+      const analyzeEntries = (): result.Result<
+        { thunks: Map<string, JsonValuesEntry>; keys: string[] },
+        PatchSourceError
+      > => {
+        if (analyzed === null) {
+          const analysis = analyzeValModule(originalSourceFile);
+          if (result.isErr(analysis)) {
+            return result.err(analysis.error);
+          }
+          analyzed = {
+            thunks: analyzeJsonValuesEntries(analysis.value.source),
+            keys: jsonValuesRecordKeys(analysis.value.source),
+          };
+        }
+        return result.ok(analyzed);
+      };
       const resolveEntryJsonPath = (
         entryKey: string,
       ): result.Result<string, PatchSourceError> => {
@@ -1563,14 +1663,11 @@ export abstract class ValOps {
         if (added !== undefined) {
           return result.ok(added);
         }
-        if (analyzerEntries === null) {
-          const analysis = analyzeValModule(originalSourceFile);
-          if (result.isErr(analysis)) {
-            return result.err(analysis.error);
-          }
-          analyzerEntries = analyzeJsonValuesEntries(analysis.value.source);
+        const analyzedRes = analyzeEntries();
+        if (result.isErr(analyzedRes)) {
+          return analyzedRes;
         }
-        const entry = analyzerEntries.get(entryKey);
+        const entry = analyzedRes.value.thunks.get(entryKey);
         if (!entry) {
           return result.err({
             message: `Could not find jsonValues entry '${entryKey}' in ${path}`,
@@ -1608,6 +1705,64 @@ export abstract class ValOps {
             filePath: jsonPath,
           });
         }
+      };
+      /**
+       * Every entry the module has AS THINGS STAND, with its content.
+       *
+       * What {@link expandJsonValuesRootOp} expands a write of the whole record
+       * against. The keys come from the `.val.ts` the commit started from plus
+       * what this commit has already added or removed; the content comes from
+       * each entry's file, so an entry the write leaves as it is gets no op and
+       * its file is not rewritten.
+       *
+       * Content is read WITHOUT going through `loadEntryContent`, whose cache is
+       * also the write set: everything in it is written back at the flush, so
+       * reading 200 entries to compare them would rewrite all 200. Unreadable
+       * here means "content unknown", not an error - the expansion then emits a
+       * `replace`, which is what a module with a broken entry file needs anyway.
+       */
+      const currentJsonEntries = async (): Promise<
+        result.Result<CurrentJsonEntries, PatchSourceError>
+      > => {
+        const analyzedRes = analyzeEntries();
+        if (result.isErr(analyzedRes)) {
+          return analyzedRes;
+        }
+        const keys = new Set(analyzedRes.value.keys);
+        for (const [entryKey, content] of jsonEntryContentsByKey) {
+          if (content === null) {
+            keys.delete(entryKey);
+          } else {
+            keys.add(entryKey);
+          }
+        }
+        const entries = new Map<string, JSONValue | undefined>();
+        for (const entryKey of keys) {
+          const pending = jsonEntryContentsByKey.get(entryKey);
+          if (pending !== undefined && pending !== null) {
+            entries.set(entryKey, pending);
+            continue;
+          }
+          const jsonPathRes = resolveEntryJsonPath(entryKey);
+          if (result.isErr(jsonPathRes)) {
+            entries.set(entryKey, undefined);
+            continue;
+          }
+          const res = await this.getSourceFile(
+            jsonPathRes.value as ModuleFilePath,
+          );
+          if (res.error) {
+            entries.set(entryKey, undefined);
+            continue;
+          }
+          try {
+            const parsed: JSONValue = JSON.parse(res.data);
+            entries.set(entryKey, parsed);
+          } catch {
+            entries.set(entryKey, undefined);
+          }
+        }
+        return result.ok(entries);
       };
       const collectPatchError = (
         err: PatchError | ValSyntaxErrorTree,
@@ -1647,151 +1802,122 @@ export abstract class ValOps {
         // Where this patch's errors start, so the unappliable-patch report below
         // can name what went wrong rather than just that something did.
         const errorsBefore = errors.length;
-        for (const op of sourceFileOps) {
-          const cls = serializedSchema
-            ? classifyJsonValuesOp(serializedSchema, op.path)
-            : ({ kind: "normal" } as const);
-          // `move` / `copy` also READ from a path: classify that too, so an op
-          // that moves a value out of (or into) a jsonValues entry cannot slip
-          // through as a plain `.val.ts` op.
-          const fromCls =
-            serializedSchema && (op.op === "move" || op.op === "copy")
-              ? classifyJsonValuesOp(serializedSchema, op.from)
-              : ({ kind: "normal" } as const);
-          if (cls.kind === "normal" && fromCls.kind === "normal") {
-            const patchRes = applyPatch(tsSourceFile, tsOps, [op]);
-            if (result.isErr(patchRes)) {
-              collectPatchError(patchRes.error, patchId, op);
+        for (const rawOp of sourceFileOps) {
+          /**
+           * A write of the WHOLE record fans out into per-entry ops first.
+           *
+           * The only op `classifyJsonValuesOp` cannot route, because it finds
+           * the entry key by walking the op path and the root path has none. So
+           * a patch author never has to know whether a record is
+           * `.jsonValues()`: they write the module as if it were ordinary
+           * source, and it arrives here as adds, replaces and removes that name
+           * a key - the shapes everything below already handles. The read side
+           * expands through the same function, so a draft cannot show something
+           * other than what this writes.
+           */
+          let ops: Operation[] = [rawOp];
+          if (serializedSchema && isJsonValuesRootOp(serializedSchema, rawOp)) {
+            const currentRes = await currentJsonEntries();
+            if (result.isErr(currentRes)) {
+              errors.push(currentRes.error);
               patchHadError = true;
               break;
             }
-            tsSourceFile = patchRes.value;
-            tsChanged = true;
-            continue;
+            const expandedRes = expandJsonValuesRootOp(rawOp, currentRes.value);
+            if (result.isErr(expandedRes)) {
+              errors.push({
+                message: expandedRes.error.message,
+                filePath: path,
+              });
+              patchHadError = true;
+              break;
+            }
+            ops = expandedRes.value;
           }
-          if (cls.kind === "normal") {
-            errors.push({
-              message: `Cannot '${op.op}' a value out of a jsonValues entry and into the module source`,
-              filePath: path,
-            });
-            patchHadError = true;
-            break;
-          }
-          // Nested `.jsonValues()` records are not supported: only the read path
-          // for a module's ROOT record/router is implemented end to end. This is
-          // also rejected up front in `initSources`; this is defense in depth.
-          if (
-            cls.recordPath.length > 0 ||
-            (fromCls.kind === "entry" && fromCls.recordPath.length > 0)
-          ) {
-            errors.push({
-              message: `Nested .jsonValues() records are not supported: '${cls.recordPath.join(
-                ".",
-              )}' in ${path}. Use .jsonValues() only on a module's root record/router.`,
-              filePath: path,
-            });
-            patchHadError = true;
-            break;
-          }
-          // The op targets a `.jsonValues()` entry.
-          if (cls.subPath.length === 0) {
-            // Structural / whole-entry op.
-            if (op.op === "add") {
-              const newPathsRes = getNewJsonEntryPaths(path, cls.entryKey);
-              if (result.isErr(newPathsRes)) {
-                errors.push(newPathsRes.error);
+          for (const op of ops) {
+            const cls = serializedSchema
+              ? classifyJsonValuesOp(serializedSchema, op.path)
+              : ({ kind: "normal" } as const);
+            // `move` / `copy` also READ from a path: classify that too, so an op
+            // that moves a value out of (or into) a jsonValues entry cannot slip
+            // through as a plain `.val.ts` op.
+            const fromCls =
+              serializedSchema && (op.op === "move" || op.op === "copy")
+                ? classifyJsonValuesOp(serializedSchema, op.from)
+                : ({ kind: "normal" } as const);
+            if (cls.kind === "normal" && fromCls.kind === "normal") {
+              const patchRes = applyPatch(tsSourceFile, tsOps, [op]);
+              if (result.isErr(patchRes)) {
+                collectPatchError(patchRes.error, patchId, op);
                 patchHadError = true;
                 break;
               }
-              const { jsonPath, importPath } = newPathsRes.value;
-              const insRes = insertValJsonEntry(
-                tsSourceFile,
-                cls.recordPath,
-                cls.entryKey,
-                importPath,
-              );
-              if (result.isErr(insRes)) {
-                collectPatchError(insRes.error, patchId, op);
-                patchHadError = true;
-                break;
-              }
-              tsSourceFile = insRes.value;
+              tsSourceFile = patchRes.value;
               tsChanged = true;
-              jsonEntryContents.set(jsonPath, op.value);
-              jsonEntryContentsByKey.set(cls.entryKey, op.value);
-              entryKeyToJsonPath.set(cls.entryKey, jsonPath);
-            } else if (op.op === "remove") {
-              const jsonPathRes = resolveEntryJsonPath(cls.entryKey);
-              if (result.isErr(jsonPathRes)) {
-                errors.push(jsonPathRes.error);
-                patchHadError = true;
-                break;
-              }
-              const remRes = removeValJsonEntry(
-                tsSourceFile,
-                cls.recordPath,
-                cls.entryKey,
-              );
-              if (result.isErr(remRes)) {
-                collectPatchError(remRes.error, patchId, op);
-                patchHadError = true;
-                break;
-              }
-              tsSourceFile = remRes.value;
-              tsChanged = true;
-              jsonEntryContents.set(jsonPathRes.value, null);
-              jsonEntryContentsByKey.set(cls.entryKey, null);
-            } else if (op.op === "replace") {
-              const jsonPathRes = resolveEntryJsonPath(cls.entryKey);
-              if (result.isErr(jsonPathRes)) {
-                errors.push(jsonPathRes.error);
-                patchHadError = true;
-                break;
-              }
-              jsonEntryContents.set(jsonPathRes.value, op.value);
-              jsonEntryContentsByKey.set(cls.entryKey, op.value);
-            } else if (op.op === "move" || op.op === "copy") {
-              // Rename (move) or duplicate (copy) a whole entry. The new entry
-              // gets its own `*.val.json` written with the source entry's
-              // content plus a `c.json(...)` thunk; a move additionally drops
-              // the old thunk and deletes the old file.
-              if (
-                fromCls.kind !== "entry" ||
-                fromCls.subPath.length !== 0 ||
-                fromCls.recordPath.join("\0") !== cls.recordPath.join("\0")
-              ) {
-                errors.push({
-                  message: `Cannot '${
-                    op.op
-                  }' a jsonValues entry across records or from a non-entry path (from '${op.from.join(
-                    ".",
-                  )}' to '${op.path.join(".")}')`,
-                  filePath: path,
-                });
-                patchHadError = true;
-                break;
-              }
-              const fromKey = fromCls.entryKey;
-              const fromPathRes = resolveEntryJsonPath(fromKey);
-              if (result.isErr(fromPathRes)) {
-                errors.push(fromPathRes.error);
-                patchHadError = true;
-                break;
-              }
-              // Load BEFORE marking anything deleted: `loadEntryContent` errors
-              // on a path that has already been nulled in this commit.
-              const contentRes = await loadEntryContent(fromPathRes.value);
-              if (result.isErr(contentRes)) {
-                errors.push(contentRes.error);
-                patchHadError = true;
-                break;
-              }
-              const content = deepClone(contentRes.value);
-              if (op.op === "move") {
+              continue;
+            }
+            if (cls.kind === "normal") {
+              errors.push({
+                message: `Cannot '${op.op}' a value out of a jsonValues entry and into the module source`,
+                filePath: path,
+              });
+              patchHadError = true;
+              break;
+            }
+            // Nested `.jsonValues()` records are not supported: only the read path
+            // for a module's ROOT record/router is implemented end to end. This is
+            // also rejected up front in `initSources`; this is defense in depth.
+            if (
+              cls.recordPath.length > 0 ||
+              (fromCls.kind === "entry" && fromCls.recordPath.length > 0)
+            ) {
+              errors.push({
+                message: `Nested .jsonValues() records are not supported: '${cls.recordPath.join(
+                  ".",
+                )}' in ${path}. Use .jsonValues() only on a module's root record/router.`,
+                filePath: path,
+              });
+              patchHadError = true;
+              break;
+            }
+            // The op targets a `.jsonValues()` entry.
+            if (cls.subPath.length === 0) {
+              // Structural / whole-entry op.
+              if (op.op === "add") {
+                const newPathsRes = getNewJsonEntryPaths(path, cls.entryKey);
+                if (result.isErr(newPathsRes)) {
+                  errors.push(newPathsRes.error);
+                  patchHadError = true;
+                  break;
+                }
+                const { jsonPath, importPath } = newPathsRes.value;
+                const insRes = insertValJsonEntry(
+                  tsSourceFile,
+                  cls.recordPath,
+                  cls.entryKey,
+                  importPath,
+                );
+                if (result.isErr(insRes)) {
+                  collectPatchError(insRes.error, patchId, op);
+                  patchHadError = true;
+                  break;
+                }
+                tsSourceFile = insRes.value;
+                tsChanged = true;
+                jsonEntryContents.set(jsonPath, op.value);
+                jsonEntryContentsByKey.set(cls.entryKey, op.value);
+                entryKeyToJsonPath.set(cls.entryKey, jsonPath);
+              } else if (op.op === "remove") {
+                const jsonPathRes = resolveEntryJsonPath(cls.entryKey);
+                if (result.isErr(jsonPathRes)) {
+                  errors.push(jsonPathRes.error);
+                  patchHadError = true;
+                  break;
+                }
                 const remRes = removeValJsonEntry(
                   tsSourceFile,
                   cls.recordPath,
-                  fromKey,
+                  cls.entryKey,
                 );
                 if (result.isErr(remRes)) {
                   collectPatchError(remRes.error, patchId, op);
@@ -1799,91 +1925,156 @@ export abstract class ValOps {
                   break;
                 }
                 tsSourceFile = remRes.value;
-              }
-              // LOCKED convention: the destination always uses the generated
-              // path, so renaming a hand-placed file relocates it.
-              const newPathsRes = getNewJsonEntryPaths(path, cls.entryKey);
-              if (result.isErr(newPathsRes)) {
-                errors.push(newPathsRes.error);
+                tsChanged = true;
+                jsonEntryContents.set(jsonPathRes.value, null);
+                jsonEntryContentsByKey.set(cls.entryKey, null);
+              } else if (op.op === "replace") {
+                const jsonPathRes = resolveEntryJsonPath(cls.entryKey);
+                if (result.isErr(jsonPathRes)) {
+                  errors.push(jsonPathRes.error);
+                  patchHadError = true;
+                  break;
+                }
+                jsonEntryContents.set(jsonPathRes.value, op.value);
+                jsonEntryContentsByKey.set(cls.entryKey, op.value);
+              } else if (op.op === "move" || op.op === "copy") {
+                // Rename (move) or duplicate (copy) a whole entry. The new entry
+                // gets its own `*.val.json` written with the source entry's
+                // content plus a `c.json(...)` thunk; a move additionally drops
+                // the old thunk and deletes the old file.
+                if (
+                  fromCls.kind !== "entry" ||
+                  fromCls.subPath.length !== 0 ||
+                  fromCls.recordPath.join("\0") !== cls.recordPath.join("\0")
+                ) {
+                  errors.push({
+                    message: `Cannot '${
+                      op.op
+                    }' a jsonValues entry across records or from a non-entry path (from '${op.from.join(
+                      ".",
+                    )}' to '${op.path.join(".")}')`,
+                    filePath: path,
+                  });
+                  patchHadError = true;
+                  break;
+                }
+                const fromKey = fromCls.entryKey;
+                const fromPathRes = resolveEntryJsonPath(fromKey);
+                if (result.isErr(fromPathRes)) {
+                  errors.push(fromPathRes.error);
+                  patchHadError = true;
+                  break;
+                }
+                // Load BEFORE marking anything deleted: `loadEntryContent` errors
+                // on a path that has already been nulled in this commit.
+                const contentRes = await loadEntryContent(fromPathRes.value);
+                if (result.isErr(contentRes)) {
+                  errors.push(contentRes.error);
+                  patchHadError = true;
+                  break;
+                }
+                const content = deepClone(contentRes.value);
+                if (op.op === "move") {
+                  const remRes = removeValJsonEntry(
+                    tsSourceFile,
+                    cls.recordPath,
+                    fromKey,
+                  );
+                  if (result.isErr(remRes)) {
+                    collectPatchError(remRes.error, patchId, op);
+                    patchHadError = true;
+                    break;
+                  }
+                  tsSourceFile = remRes.value;
+                }
+                // LOCKED convention: the destination always uses the generated
+                // path, so renaming a hand-placed file relocates it.
+                const newPathsRes = getNewJsonEntryPaths(path, cls.entryKey);
+                if (result.isErr(newPathsRes)) {
+                  errors.push(newPathsRes.error);
+                  patchHadError = true;
+                  break;
+                }
+                const { jsonPath, importPath } = newPathsRes.value;
+                const insRes = insertValJsonEntry(
+                  tsSourceFile,
+                  cls.recordPath,
+                  cls.entryKey,
+                  importPath,
+                );
+                if (result.isErr(insRes)) {
+                  collectPatchError(insRes.error, patchId, op);
+                  patchHadError = true;
+                  break;
+                }
+                tsSourceFile = insRes.value;
+                tsChanged = true;
+                jsonEntryContents.set(jsonPath, content);
+                jsonEntryContentsByKey.set(cls.entryKey, content);
+                entryKeyToJsonPath.set(cls.entryKey, jsonPath);
+                if (op.op === "move" && fromPathRes.value !== jsonPath) {
+                  jsonEntryContents.set(fromPathRes.value, null);
+                  jsonEntryContentsByKey.set(fromKey, null);
+                }
+              } else {
+                errors.push({
+                  message: `Unsupported op '${op.op}' on jsonValues entry '${cls.entryKey}' (supported: add, remove, replace, move, copy)`,
+                  filePath: path,
+                });
                 patchHadError = true;
                 break;
-              }
-              const { jsonPath, importPath } = newPathsRes.value;
-              const insRes = insertValJsonEntry(
-                tsSourceFile,
-                cls.recordPath,
-                cls.entryKey,
-                importPath,
-              );
-              if (result.isErr(insRes)) {
-                collectPatchError(insRes.error, patchId, op);
-                patchHadError = true;
-                break;
-              }
-              tsSourceFile = insRes.value;
-              tsChanged = true;
-              jsonEntryContents.set(jsonPath, content);
-              jsonEntryContentsByKey.set(cls.entryKey, content);
-              entryKeyToJsonPath.set(cls.entryKey, jsonPath);
-              if (op.op === "move" && fromPathRes.value !== jsonPath) {
-                jsonEntryContents.set(fromPathRes.value, null);
-                jsonEntryContentsByKey.set(fromKey, null);
               }
             } else {
-              errors.push({
-                message: `Unsupported op '${op.op}' on jsonValues entry '${cls.entryKey}' (supported: add, remove, replace, move, copy)`,
-                filePath: path,
-              });
-              patchHadError = true;
-              break;
+              // Content sub-op: replay against the entry's `*.val.json`.
+              // `rebaseContentOp` slices `from` by the same prefix as `path`, so a
+              // cross-entry move/copy would silently corrupt the target entry.
+              if (
+                (op.op === "move" || op.op === "copy") &&
+                (fromCls.kind !== "entry" || fromCls.entryKey !== cls.entryKey)
+              ) {
+                errors.push({
+                  message: `Cannot '${op.op}' between different jsonValues entries`,
+                  filePath: path,
+                });
+                patchHadError = true;
+                break;
+              }
+              const jsonPathRes = resolveEntryJsonPath(cls.entryKey);
+              if (result.isErr(jsonPathRes)) {
+                errors.push(jsonPathRes.error);
+                patchHadError = true;
+                break;
+              }
+              const jsonPath = jsonPathRes.value;
+              const contentRes = await loadEntryContent(jsonPath);
+              if (result.isErr(contentRes)) {
+                errors.push(contentRes.error);
+                patchHadError = true;
+                break;
+              }
+              const rebasedRes = rebaseContentOp(op, cls.recordPath.length + 1);
+              if (result.isErr(rebasedRes)) {
+                errors.push({
+                  message: rebasedRes.error.message,
+                  filePath: jsonPath,
+                });
+                patchHadError = true;
+                break;
+              }
+              const applied = applyPatch(deepClone(contentRes.value), jsonOps, [
+                rebasedRes.value,
+              ]);
+              if (result.isErr(applied)) {
+                collectPatchError(applied.error, patchId, op);
+                patchHadError = true;
+                break;
+              }
+              jsonEntryContents.set(jsonPath, applied.value);
+              jsonEntryContentsByKey.set(cls.entryKey, applied.value);
             }
-          } else {
-            // Content sub-op: replay against the entry's `*.val.json`.
-            // `rebaseContentOp` slices `from` by the same prefix as `path`, so a
-            // cross-entry move/copy would silently corrupt the target entry.
-            if (
-              (op.op === "move" || op.op === "copy") &&
-              (fromCls.kind !== "entry" || fromCls.entryKey !== cls.entryKey)
-            ) {
-              errors.push({
-                message: `Cannot '${op.op}' between different jsonValues entries`,
-                filePath: path,
-              });
-              patchHadError = true;
-              break;
-            }
-            const jsonPathRes = resolveEntryJsonPath(cls.entryKey);
-            if (result.isErr(jsonPathRes)) {
-              errors.push(jsonPathRes.error);
-              patchHadError = true;
-              break;
-            }
-            const jsonPath = jsonPathRes.value;
-            const contentRes = await loadEntryContent(jsonPath);
-            if (result.isErr(contentRes)) {
-              errors.push(contentRes.error);
-              patchHadError = true;
-              break;
-            }
-            const rebasedRes = rebaseContentOp(op, cls.recordPath.length + 1);
-            if (result.isErr(rebasedRes)) {
-              errors.push({
-                message: rebasedRes.error.message,
-                filePath: jsonPath,
-              });
-              patchHadError = true;
-              break;
-            }
-            const applied = applyPatch(deepClone(contentRes.value), jsonOps, [
-              rebasedRes.value,
-            ]);
-            if (result.isErr(applied)) {
-              collectPatchError(applied.error, patchId, op);
-              patchHadError = true;
-              break;
-            }
-            jsonEntryContents.set(jsonPath, applied.value);
-            jsonEntryContentsByKey.set(cls.entryKey, applied.value);
+          }
+          if (patchHadError) {
+            break;
           }
         }
         if (patchHadError) {

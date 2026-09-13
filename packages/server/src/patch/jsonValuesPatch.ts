@@ -1,10 +1,16 @@
 import * as path from "path";
-import type { PatchId, SerializedSchema } from "@valbuild/core";
+import {
+  Internal,
+  VAL_EXTENSION,
+  type PatchId,
+  type SerializedSchema,
+} from "@valbuild/core";
 import type { PatchSourceError } from "../ValOps";
 import { array, result } from "@valbuild/core/fp";
 import {
   applyPatch,
   deepClone,
+  deepEqual,
   JSONOps,
   JSONValue,
   Operation,
@@ -84,6 +90,120 @@ function descend(
       // `.val.ts` edit.
       return undefined;
   }
+}
+
+/**
+ * Is this op a write of the WHOLE record at the root of a `.jsonValues()`
+ * module?
+ *
+ * The one op {@link classifyJsonValuesOp} cannot classify: it finds the entry
+ * key by walking the op path, and the root path has no segments to walk, so a
+ * root write reads as `normal` and gets applied to the `.val.ts` - writing
+ * markers over the `c.json(() => import(...))` calls that make the entries load
+ * at all. {@link expandJsonValuesRootOp} turns it into ops that DO name a key,
+ * which everything downstream already handles.
+ *
+ * `add` counts as well as `replace`: at the root both mean "the document is now
+ * this" (see `JSONOps`), so both have to be expanded or the unexpanded one is
+ * the same bug again.
+ */
+export function isJsonValuesRootOp(
+  schema: SerializedSchema,
+  op: Operation,
+): boolean {
+  return (
+    (op.op === "replace" || op.op === "add") &&
+    op.path.length === 0 &&
+    schema.type === "record" &&
+    schema.jsonValues === true
+  );
+}
+
+/**
+ * One entry as it stands right now, for {@link expandJsonValuesRootOp} to
+ * expand against.
+ *
+ * The key set decides add-vs-replace-vs-remove. The content, where the caller
+ * has it, decides whether an op is emitted at all: an entry whose content is
+ * already what the root write says is left alone rather than rewritten, so
+ * putting a module back does not touch every `*.val.json` it did not change.
+ * `undefined` means "this entry exists, content unknown" - which is what the
+ * Studio's draft source has, because the source holds markers - and yields a
+ * `replace`, the safe answer.
+ */
+export type CurrentJsonEntries = ReadonlyMap<string, JSONValue | undefined>;
+
+/**
+ * Fans a whole-record write at a `.jsonValues()` module's root out into ops
+ * that each name an entry key.
+ *
+ * This is THE conversion, and it has exactly one implementation on purpose: the
+ * commit flow (`ValOps.prepare`) and the read side that builds draft content
+ * ({@link applyJsonValuesEntryPatches}) both expand through here, so a draft
+ * cannot show something other than what publishing writes. A second
+ * implementation of the same rule would differ silently, which is the whole
+ * failure mode this exists to prevent.
+ *
+ * The value must be the entries' CONTENT. A module's Source is markers, not
+ * content, so a Source handed over here is refused rather than written: that is
+ * the shape of the original bug (a revert replaying the archived Source), and
+ * it is not recoverable afterwards - the markers replace the entries' content
+ * on disk.
+ */
+export function expandJsonValuesRootOp(
+  op: Operation,
+  currentEntries: CurrentJsonEntries,
+): result.Result<Operation[], PatchError> {
+  if (op.op !== "replace" && op.op !== "add") {
+    return result.err(
+      new PatchError(
+        `Cannot '${op.op}' the root of a .jsonValues() record: only add and replace write the whole record`,
+      ),
+    );
+  }
+  const value = op.value;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return result.err(
+      new PatchError(
+        "Cannot write the root of a .jsonValues() record with a non-record value: it must be an object of entry key to entry content",
+      ),
+    );
+  }
+  const expanded: Operation[] = [];
+  for (const [entryKey, content] of Object.entries(value)) {
+    /*
+     * A marker is what a module's Source holds WHERE THE CONTENT IS NOT: it
+     * says the content is in the entry's own file. Handed back as an entry's
+     * value - which is what replaying an archived Source does - it would
+     * replace that content with the note saying where it used to be, and
+     * nothing downstream could tell the difference.
+     */
+    if (Internal.isJson(content)) {
+      return result.err(
+        new PatchError(
+          `Cannot write the .jsonValues() entry '${entryKey}' from a '${VAL_EXTENSION}: "json"' marker: a marker says the content is in the entry's own file, so write the entry's CONTENT here, not the module's Source`,
+        ),
+      );
+    }
+    if (!currentEntries.has(entryKey)) {
+      expanded.push({ op: "add", path: [entryKey], value: content });
+      continue;
+    }
+    const current = currentEntries.get(entryKey);
+    if (current !== undefined && deepEqual(current, content)) {
+      // Unchanged: emitting a replace here would rewrite the entry's file with
+      // the bytes it already holds, so putting a module back would show up as a
+      // change to every entry in it.
+      continue;
+    }
+    expanded.push({ op: "replace", path: [entryKey], value: content });
+  }
+  for (const entryKey of currentEntries.keys()) {
+    if (!Object.prototype.hasOwnProperty.call(value, entryKey)) {
+      expanded.push({ op: "remove", path: [entryKey] });
+    }
+  }
+  return result.ok(expanded);
 }
 
 /**
@@ -265,84 +385,107 @@ export function applyJsonValuesEntryPatches(args: {
   const appliedPatchIds: PatchId[] = [];
   for (const { patchId, patch } of patches) {
     let touched = false;
-    for (const op of patch) {
-      const cls = serializedSchema
-        ? classifyJsonValuesOp(serializedSchema, op.path)
-        : ({ kind: "normal" } as const);
-      if (
-        cls.kind !== "entry" ||
-        cls.recordPath.length > 0 ||
-        cls.entryKey !== entryKey
-      ) {
-        continue;
+    for (const rawOp of patch) {
+      /**
+       * A write of the WHOLE record fans out into per-entry ops first.
+       *
+       * Through the same {@link expandJsonValuesRootOp} the commit flow uses,
+       * against the same view of this entry: present or not, and with what
+       * content. That is what makes the draft this produces and the files a
+       * publish writes agree - two expansions of one rule would not.
+       */
+      let ops: Operation[] = [rawOp];
+      if (serializedSchema && isJsonValuesRootOp(serializedSchema, rawOp)) {
+        const expanded = expandJsonValuesRootOp(
+          rawOp,
+          new Map(content === undefined ? [] : [[entryKey, content]]),
+        );
+        if (result.isErr(expanded)) {
+          return { kind: "error", message: expanded.error.message, patchId };
+        }
+        ops = expanded.value;
       }
-      touched = true;
-      // A file op does not edit the entry's content — its bytes go through the
-      // upload pipeline. What the entry needs is the `patch_id` saying those
-      // bytes are not committed yet, so `mediaUrl` serves them from the patch
-      // directory instead of a `/public` path that holds nothing. Without this a
-      // just-uploaded image inside an entry renders broken.
-      if (op.op === "file") {
-        if (op.value === null || content === undefined) {
-          // A delete carries no bytes to point at, and there is nothing to mark
-          // on an entry that does not exist.
+      for (const op of ops) {
+        const cls = serializedSchema
+          ? classifyJsonValuesOp(serializedSchema, op.path)
+          : ({ kind: "normal" } as const);
+        if (
+          cls.kind !== "entry" ||
+          cls.recordPath.length > 0 ||
+          cls.entryKey !== entryKey
+        ) {
           continue;
         }
+        touched = true;
+        // A file op does not edit the entry's content — its bytes go through the
+        // upload pipeline. What the entry needs is the `patch_id` saying those
+        // bytes are not committed yet, so `mediaUrl` serves them from the patch
+        // directory instead of a `/public` path that holds nothing. Without this a
+        // just-uploaded image inside an entry renders broken.
+        if (op.op === "file") {
+          if (op.value === null || content === undefined) {
+            // A delete carries no bytes to point at, and there is nothing to mark
+            // on an entry that does not exist.
+            continue;
+          }
+          const applied = applyPatch(deepClone(content), jsonOps, [
+            {
+              op: "add",
+              path: cls.subPath
+                .concat(...(op.nestedFilePath ?? []))
+                .concat("patch_id"),
+              value: patchId,
+            },
+          ]);
+          if (result.isErr(applied)) {
+            return { kind: "error", message: applied.error.message, patchId };
+          }
+          content = applied.value;
+          continue;
+        }
+        if (cls.subPath.length === 0) {
+          if (op.op === "add" || op.op === "replace") {
+            content = op.value as JSONValue;
+            deleted = false;
+          } else if (op.op === "remove") {
+            content = undefined;
+            deleted = true;
+          } else if (op.op === "test") {
+            // An assertion, not a mutation: the content is unchanged either way, and
+            // the commit path is where a failing `test` is reported. Falling through
+            // to the move/copy error below turned a no-op into a permanent load
+            // failure for the whole entry.
+            continue;
+          } else {
+            // move/copy INTO this key: the content comes from the source entry,
+            // which the caller must resolve (it is a different `*.val.json`).
+            return {
+              kind: "error",
+              message: `Cannot resolve '${op.op}' of jsonValues entry '${entryKey}' from its own content`,
+              patchId,
+            };
+          }
+          continue;
+        }
+        if (content === undefined) {
+          return {
+            kind: "error",
+            message: `Cannot edit jsonValues entry '${entryKey}': it does not exist`,
+            patchId,
+          };
+        }
+        const rebased = rebaseContentOp(op, cls.recordPath.length + 1);
+        if (result.isErr(rebased)) {
+          return { kind: "error", message: rebased.error.message, patchId };
+        }
         const applied = applyPatch(deepClone(content), jsonOps, [
-          {
-            op: "add",
-            path: cls.subPath
-              .concat(...(op.nestedFilePath ?? []))
-              .concat("patch_id"),
-            value: patchId,
-          },
+          rebased.value,
         ]);
         if (result.isErr(applied)) {
           return { kind: "error", message: applied.error.message, patchId };
         }
         content = applied.value;
-        continue;
       }
-      if (cls.subPath.length === 0) {
-        if (op.op === "add" || op.op === "replace") {
-          content = op.value as JSONValue;
-          deleted = false;
-        } else if (op.op === "remove") {
-          content = undefined;
-          deleted = true;
-        } else if (op.op === "test") {
-          // An assertion, not a mutation: the content is unchanged either way, and
-          // the commit path is where a failing `test` is reported. Falling through
-          // to the move/copy error below turned a no-op into a permanent load
-          // failure for the whole entry.
-          continue;
-        } else {
-          // move/copy INTO this key: the content comes from the source entry,
-          // which the caller must resolve (it is a different `*.val.json`).
-          return {
-            kind: "error",
-            message: `Cannot resolve '${op.op}' of jsonValues entry '${entryKey}' from its own content`,
-            patchId,
-          };
-        }
-        continue;
-      }
-      if (content === undefined) {
-        return {
-          kind: "error",
-          message: `Cannot edit jsonValues entry '${entryKey}': it does not exist`,
-          patchId,
-        };
-      }
-      const rebased = rebaseContentOp(op, cls.recordPath.length + 1);
-      if (result.isErr(rebased)) {
-        return { kind: "error", message: rebased.error.message, patchId };
-      }
-      const applied = applyPatch(deepClone(content), jsonOps, [rebased.value]);
-      if (result.isErr(applied)) {
-        return { kind: "error", message: applied.error.message, patchId };
-      }
-      content = applied.value;
     }
     if (touched) {
       appliedPatchIds.push(patchId);

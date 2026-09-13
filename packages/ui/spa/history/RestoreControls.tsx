@@ -1,14 +1,26 @@
 import type { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { Internal } from "@valbuild/core";
+import type { JSONValue } from "@valbuild/core/patch";
 import type { HistoricalPatchSet } from "@valbuild/shared/internal";
 import { useHistoryParams } from "../components/ValRouter";
 import { Button } from "../components/designSystem/button";
 import { enterRestore, exitRestore } from "./historyParams";
 import type { DirectedRestore } from "./useDirectedRestore";
 import { restorability } from "./HistoryPane";
-import { containsJsonValues, planRevertAll } from "./revertAll";
+import { planModuleRevert, planRevertAll } from "./revertAll";
 import { useAddPatch } from "../components/ValFieldProvider";
+import { useClient } from "../components/ValProvider";
 import { useState } from "react";
+
+/**
+ * How many entries of one module are read at a time.
+ *
+ * `/history/json` is one request per entry - the endpoint is built for a pane
+ * that opens one entry at a time - so a record with a thousand support pages
+ * would otherwise open a thousand sockets at once. Sequential would be honest
+ * and far too slow; this is the middle.
+ */
+const ENTRY_FETCH_CONCURRENCY = 8;
 
 /**
  * The controls at the top of the history pane.
@@ -34,7 +46,20 @@ export function RestoreControls({
   const { history, setHistory } = useHistoryParams();
   const { canRestore, reason } = restorability(patchSet);
   const [reverting, setReverting] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  /**
+   * `.jsonValues()` entry content at this commit, once something has asked for
+   * it. Keyed by module, then entry key.
+   *
+   * Held here rather than fetched with the commit: it is a request per entry,
+   * and only a restore needs it. Kept after a restore because the commit cannot
+   * change, so a second restore of the same module is free.
+   */
+  const [jsonEntries, setJsonEntries] = useState<
+    Record<ModuleFilePath, Record<string, JSONValue>>
+  >({});
   const { addModuleFilePatch } = useAddPatch(path ?? ("" as SourcePath));
+  const client = useClient();
 
   if (!patchSet) {
     return null;
@@ -56,65 +81,183 @@ export function RestoreControls({
   const moduleHere =
     moduleFilePath !== null ? patchSet.modules[moduleFilePath] : undefined;
   /*
-   * Whether this module can be put back WHOLE.
+   * Whether this module can be put back WHOLE, asked of the same function "Put
+   * everything back" asks.
    *
-   * The `.jsonValues()` exclusion is the same one `planRevertAll` makes, and
-   * for the same reason: a jsonValues record's entries are not in the module's
-   * Source. The Source holds `{ _type: "json" }` markers and the content lives
-   * in each entry's `*.val.json`, so a root `replace` with the recorded Source
-   * writes those markers into the `.val.ts` over the `c.json(() => import(…))`
-   * calls — and nothing downstream catches it, because `classifyJsonValuesOp`
-   * walks the op path to find a jsonValues record and an empty path never gets
-   * there. Restoring one FIELD of such a module is fine; it is the ROOT op that
-   * is not, so the exclusion belongs on this button and not on the chrome.
+   * One function for both, because they write the same thing: a `.jsonValues()`
+   * module's value is its entries' CONTENT, read at the commit, never the
+   * recorded Source - which holds `{_type:"json"}` markers, and writing those
+   * back would put markers where the content is. Two answers to that question
+   * is how one button comes to write what the other refuses.
    */
-  const restorableHere =
-    moduleHere !== undefined &&
-    moduleHere.schema !== null &&
-    moduleHere.source !== null &&
-    !containsJsonValues(moduleHere.schema);
+  const revertHere =
+    moduleHere === undefined || moduleFilePath === null
+      ? null
+      : planModuleRevert(moduleHere, jsonEntries[moduleFilePath]);
+  const restorableHere = revertHere !== null && revertHere.kind !== "blocked";
   /*
    * What "Put everything back" would actually stage, asked of the plan itself.
    *
    * Counting the commit's modules here instead would give a number that drifts
-   * from the button the moment the plan excludes one — which it does, for the
-   * same jsonValues reason — and a scope note that overstates the scope is
-   * worse than none.
+   * from the button the moment the plan excludes one, and a scope note that
+   * overstates the scope is worse than none. Modules whose entry content has
+   * not been read yet COUNT: they are put back too, after a read the click
+   * pays for.
    */
-  const revertPlan = planRevertAll(patchSet);
-  const revertCount = revertPlan.modules.length;
+  const revertPlan = planRevertAll(patchSet, jsonEntries);
+  const revertCount =
+    revertPlan.modules.length + revertPlan.needsJsonEntries.length;
   const revertTouchesThisModule =
     moduleFilePath !== null &&
-    revertPlan.modules.some((entry) => entry.moduleFilePath === moduleFilePath);
+    (revertPlan.modules.some(
+      (entry) => entry.moduleFilePath === moduleFilePath,
+    ) ||
+      revertPlan.needsJsonEntries.some(
+        (entry) => entry.moduleFilePath === moduleFilePath,
+      ));
 
-  const restoreWholeModule = () => {
+  /**
+   * One module's `.jsonValues()` entries, as they were at this commit.
+   *
+   * The content is not in the commit's record of the module - that is markers -
+   * so each entry is read from `/history/json`, the same endpoint the pane uses
+   * to render one. Returns a message instead of content when an entry cannot be
+   * read: a restore that silently left an entry out would write a record
+   * missing it, which deletes the entry.
+   */
+  const loadJsonEntries = async (
+    forModule: ModuleFilePath,
+    entryKeys: string[],
+  ): Promise<{ entries: Record<string, JSONValue> } | { message: string }> => {
+    const loaded: Record<string, JSONValue> = {};
+    for (let i = 0; i < entryKeys.length; i += ENTRY_FETCH_CONCURRENCY) {
+      const batch = entryKeys.slice(i, i + ENTRY_FETCH_CONCURRENCY);
+      const results = await Promise.all(
+        batch.map(
+          async (
+            key,
+          ): Promise<
+            { key: string; content: JSONValue } | { message: string }
+          > => {
+            try {
+              const res = await client("/history/json", "GET", {
+                query: {
+                  commit_sha: patchSet.commit.commitSha,
+                  path: forModule,
+                  key,
+                },
+              });
+              if (res.status !== 200) {
+                return {
+                  message: `Could not read '${key}' of ${forModule} as it was at this commit${
+                    "message" in res.json ? `: ${res.json.message}` : ""
+                  }`,
+                };
+              }
+              return { key, content: res.json.content as JSONValue };
+            } catch (err) {
+              // A network failure rather than a refusal, reported the same way:
+              // what matters is that the content is not all here.
+              return {
+                message: `Could not read '${key}' of ${forModule} as it was at this commit: ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+              };
+            }
+          },
+        ),
+      );
+      for (const entry of results) {
+        if ("message" in entry) {
+          return { message: entry.message };
+        }
+        loaded[entry.key] = entry.content;
+      }
+    }
+    return { entries: loaded };
+  };
+
+  const restoreWholeModule = async () => {
     if (
       moduleFilePath === null ||
       moduleHere === undefined ||
       moduleHere.schema === null ||
-      moduleHere.source === null ||
-      !restorableHere
+      revertHere === null ||
+      revertHere.kind === "blocked"
     ) {
       return;
     }
+    if (revertHere.kind === "patch") {
+      setReverting(null);
+      restore.restoreWholeModule(
+        moduleFilePath,
+        revertHere.value,
+        moduleHere.schema,
+      );
+      return;
+    }
+    setBusy(true);
+    setReverting("Reading this module's entries as they were…");
+    const loaded = await loadJsonEntries(moduleFilePath, revertHere.entryKeys);
+    setBusy(false);
+    if ("message" in loaded) {
+      setReverting(loaded.message);
+      return;
+    }
+    setJsonEntries((current) => ({
+      ...current,
+      [moduleFilePath]: loaded.entries,
+    }));
+    const planned = planModuleRevert(moduleHere, loaded.entries);
+    if (planned.kind !== "patch") {
+      setReverting(
+        planned.kind === "blocked"
+          ? planned.reason
+          : `Could not read every entry of ${moduleFilePath} as it was at this commit.`,
+      );
+      return;
+    }
+    setReverting(null);
     restore.restoreWholeModule(
       moduleFilePath,
-      moduleHere.source,
+      planned.value,
       moduleHere.schema,
     );
   };
 
-  const revertEverything = () => {
-    const plan = revertPlan;
+  const revertEverything = async () => {
+    /*
+     * The entry content first, for the modules that need it, and only then the
+     * staging: a module put back from half its entries is a module with the
+     * other half deleted, so nothing is staged until the read is complete.
+     */
+    let entries = jsonEntries;
+    const unreadable: ModuleFilePath[] = [];
+    if (revertPlan.needsJsonEntries.length > 0) {
+      setBusy(true);
+      setReverting("Reading the entries as they were…");
+      for (const { moduleFilePath, entryKeys } of revertPlan.needsJsonEntries) {
+        const loaded = await loadJsonEntries(moduleFilePath, entryKeys);
+        if ("message" in loaded) {
+          unreadable.push(moduleFilePath);
+          continue;
+        }
+        entries = { ...entries, [moduleFilePath]: loaded.entries };
+      }
+      setBusy(false);
+      setJsonEntries(entries);
+    }
+    const plan = planRevertAll(patchSet, entries);
     for (const { moduleFilePath, patch } of plan.modules) {
       addModuleFilePatch(moduleFilePath, patch, "object");
     }
+    const left: ModuleFilePath[] = plan.blocked
+      .map((entry) => entry.moduleFilePath)
+      .concat(unreadable);
     setReverting(
-      plan.blocked.length === 0
+      left.length === 0
         ? `Staged ${plan.modules.length} module${plan.modules.length === 1 ? "" : "s"}. Review and publish when you are ready.`
-        : `Staged ${plan.modules.length}. ${plan.blocked.length} could not be put back: ${plan.blocked
-            .map((entry) => entry.moduleFilePath)
-            .join(", ")}`,
+        : `Staged ${plan.modules.length}. ${left.length} could not be put back: ${left.join(", ")}`,
     );
   };
 
@@ -146,14 +289,19 @@ export function RestoreControls({
          * field chrome cannot offer because the root is not a `Field`.
          */}
         {inRestoreMode && !restore.from && restorableHere && (
-          <Button variant="outline" size="sm" onClick={restoreWholeModule}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={restoreWholeModule}
+          >
             Restore this whole module
           </Button>
         )}
         <Button
           variant="outline"
           size="sm"
-          disabled={!canRestore}
+          disabled={!canRestore || busy}
           onClick={revertEverything}
         >
           Put everything back
