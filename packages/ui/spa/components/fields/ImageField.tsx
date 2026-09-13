@@ -165,16 +165,16 @@ export function ImageField({
    *
    * The field's OWN `directory` option wins, then the gallery it references, and
    * `createFilePatch` falls back to `/public/val` when neither says. Only the
-   * referenced module was read before, so `s.image({ directory: "/public/x" })`
+   * referenced module was read before, so `s.image({ dir: "/public/x" })`
    * silently wrote to `/public/val` — the file landed somewhere the schema
    * forbids, and `files:check-directory` then reported the content as invalid.
    */
   const uploadDirectory = useMemo(() => {
-    if (imageSchema?.options?.directory) {
-      return imageSchema.options.directory;
+    if (imageSchema?.options?.dir) {
+      return imageSchema.options.dir;
     }
     return referencedModuleSchema?.type === "record"
-      ? referencedModuleSchema.directory
+      ? referencedModuleSchema.dir
       : undefined;
   }, [imageSchema, referencedModuleSchema]);
   /**
@@ -219,7 +219,7 @@ export function ImageField({
     addAndUploadPatchWithFileOps,
     addModuleFilePatch,
     remoteData,
-    directory: uploadDirectory,
+    dir: uploadDirectory,
     referencedModule,
     existingAlt,
     encode,

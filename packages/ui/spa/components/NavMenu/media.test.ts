@@ -3,16 +3,16 @@ import { collectMediaModules, excludePathsFromTree } from "./media";
 
 const gallery = (
   mediaType: "files" | "images",
-  directory: string,
+  dir: string,
 ): SerializedSchema => ({
   type: "record",
   item: { type: "object", items: {}, opt: false },
   opt: false,
   mediaType,
-  directory,
+  dir,
 });
 
-/** A gallery whose schema carries no `directory` (the fallback path). */
+/** A gallery whose schema carries no `dir` (the fallback path). */
 const galleryWithoutDirectory = (): SerializedSchema => ({
   type: "record",
   item: { type: "object", items: {}, opt: false },
@@ -48,20 +48,20 @@ describe("collectMediaModules", () => {
     expect(media).toStrictEqual([
       {
         moduleFilePath: "/content/docs.val.ts",
-        directory: "/public/val/docs",
+        dir: "/public/val/docs",
         mediaType: "files",
         errors: undefined,
       },
       {
         moduleFilePath: "/content/photos.val.ts",
-        directory: "/public/val/photos",
+        dir: "/public/val/photos",
         mediaType: "images",
         errors: undefined,
       },
     ]);
   });
 
-  test("a gallery with no directory still gets a row", () => {
+  test("a gallery with no dir option still gets a row", () => {
     const media = collectMediaModules(
       {
         ["/content/photos.val.ts" as ModuleFilePath]: galleryWithoutDirectory(),
@@ -69,7 +69,7 @@ describe("collectMediaModules", () => {
       () => undefined,
     );
     expect(media).toHaveLength(1);
-    expect(media[0].directory).toBe("/content/photos.val.ts");
+    expect(media[0].dir).toBe("/content/photos.val.ts");
   });
 });
 

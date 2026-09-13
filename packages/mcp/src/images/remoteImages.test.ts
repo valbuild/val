@@ -145,12 +145,12 @@ describe("a remote gallery", () => {
     if (split.status !== "success") throw new Error("expected a remote ref");
 
     // What `handleRemoteGalleryFileUpload` synthesizes for a gallery entry: an
-    // image schema carrying the RECORD's accept and directory. `s.images()`
+    // image schema carrying the RECORD's accept and directory. `s.imageset()`
     // defaults accept to "image/*".
     const expected: SerializedImageSchema = {
       type: "image",
       opt: false,
-      options: { accept: "image/*", directory: "/public/val/remote" },
+      options: { accept: "image/*", dir: "/public/val/remote" },
     };
     expect(split.validationHash).toBe(
       Internal.remote.getValidationHash(

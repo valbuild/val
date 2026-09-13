@@ -84,8 +84,8 @@ const nullableAfterValidate: Record<
     .file()
     .validate(() => MESSAGE)
     .nullable(),
-  files: s
-    .files({ accept: "application/pdf", directory: "/public/val/files" })
+  fileset: s
+    .fileset({ accept: "application/pdf", dir: "/public/val/files" })
     .validate(() => MESSAGE)
     .nullable(),
   date: s
@@ -116,8 +116,8 @@ const nullableAfterValidate: Record<
     .router(nextAppRouter, s.object({ title: s.string() }))
     .validate(() => MESSAGE)
     .nullable(),
-  images: s
-    .images({ directory: "/public/val/images" })
+  imageset: s
+    .imageset({ dir: "/public/val/images" })
     .validate(() => MESSAGE)
     .nullable(),
 };

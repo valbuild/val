@@ -56,7 +56,7 @@ import {
  * that installs Val. So the host builds this one and hands it in — see
  * `createValTools`'s `extraTools`, and `@valbuild/mcp/sharp`.
  *
- * What it deliberately does NOT do: remote files. `s.image({ remote: true })`
+ * What it deliberately does NOT do: remote files. `s.image().remote()`
  * uploads straight to Val's content host through a presigned nonce, which is
  * the one path in local mode that needs a personal access token
  * (`docs/plans/mcp.md` D.1). Refused with a message that says so rather than
@@ -121,7 +121,7 @@ export function createValImageTools(
         name: "upload_image",
         title: "Upload an image",
         description:
-          "Upload an image file and put it in an image field, or add it to an image gallery module (one declared with s.images()). Give it either imageFilePath — a path to a file on the machine this app runs on — or imageBase64. The image is re-encoded first if the schema asks for that. Works for remotely stored images too (s.image({ remote: true })), which need the project to be connected to Val Build.",
+          "Upload an image file and put it in an image field, or add it to an image gallery module (one declared with s.imageset()). Give it either imageFilePath — a path to a file on the machine this app runs on — or imageBase64. The image is re-encoded first if the schema asks for that. Works for remotely stored images too (s.image().remote()), which need the project to be connected to Val Build.",
         inputSchema: z.object({
           moduleFilePath: ModuleFilePathSchema,
           path: z
@@ -218,7 +218,7 @@ export function createValImageTools(
         // Where the bytes live, always: a `/public/...` path in the patch
         // store. For a remote image the CONTENT points somewhere else, but the
         // bytes still land here and stay here until publish pushes them.
-        const storedPath = `${target.directory}/${generated}`;
+        const storedPath = `${target.dir}/${generated}`;
         const resolvedRef = await resolveRef(target, settingsFor(deps.config), {
           bytes: prepared.bytes,
           storedPath,
@@ -307,7 +307,7 @@ async function resolveRef(
     return err(
       "invalid-args",
       `A remote image has to be stored under /public, and this schema's directory is ${JSON.stringify(
-        target.directory,
+        target.dir,
       )}.`,
     );
   }
@@ -342,7 +342,7 @@ type ImageTarget =
       status: "ok";
       kind: "gallery";
       gallerySchema: SerializedSchema;
-      directory: string;
+      dir: string;
       accept: string | undefined;
       encode: EncodeSettings | null;
       altRequired: boolean;
@@ -353,7 +353,7 @@ type ImageTarget =
       kind: "field";
       referencedModule: string | undefined;
       galleryBacked: boolean;
-      directory: string;
+      dir: string;
       accept: string | undefined;
       encode: EncodeSettings | null;
       altRequired: boolean;
@@ -393,7 +393,7 @@ function resolveTarget(
       status: "ok",
       kind: "gallery",
       gallerySchema: moduleSchema,
-      directory: moduleSchema.directory ?? DEFAULT_DIRECTORY,
+      dir: moduleSchema.dir ?? DEFAULT_DIRECTORY,
       accept: moduleSchema.accept,
       encode: resolveEncodeSettings(undefined, moduleSchema.encode),
       altRequired: altIsRequired(moduleSchema),
@@ -463,10 +463,7 @@ function resolveTarget(
     kind: "field",
     referencedModule,
     galleryBacked: referencedModule !== undefined,
-    directory:
-      schema.options?.directory ??
-      galleryRecord?.directory ??
-      DEFAULT_DIRECTORY,
+    dir: schema.options?.dir ?? galleryRecord?.dir ?? DEFAULT_DIRECTORY,
     accept: schema.options?.accept ?? galleryRecord?.accept,
     encode: resolveEncodeSettings(
       schema.options?.encode,
@@ -498,7 +495,7 @@ function galleryEntryImageSchema(
     opt: false,
     options: {
       ...(gallery.accept ? { accept: gallery.accept } : {}),
-      ...(gallery.directory ? { directory: gallery.directory } : {}),
+      ...(gallery.dir ? { dir: gallery.dir } : {}),
     },
   };
 }
@@ -506,8 +503,8 @@ function galleryEntryImageSchema(
 /**
  * Does this gallery insist on alt text?
  *
- * `s.images()` gives `alt` a nullable string by default, and an entry written
- * without one stores `null`. A gallery that passed its own — `s.images({ alt:
+ * `s.imageset()` gives `alt` a nullable string by default, and an entry written
+ * without one stores `null`. A gallery that passed its own — `s.imageset({ alt:
  * s.string().minLength(4) })`, which the example app does — has made it
  * required, and an upload with no `alt` cannot satisfy it however it is
  * written. Asked here so the caller is told what to pass, rather than shown a

@@ -36,7 +36,7 @@ export interface ImageUploadConfig {
     schema: SerializedImageSchema | SerializedFileSchema;
     remoteHost: string;
   } | null;
-  directory: string | undefined;
+  dir: string | undefined;
   referencedModule: string | undefined;
   existingAlt?: string;
   /**
@@ -101,7 +101,7 @@ export function useImageUpload(
           metadata,
           "image",
           config.remoteData,
-          config.directory,
+          config.dir,
           !!config.referencedModule,
         );
 
