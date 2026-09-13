@@ -1,5 +1,131 @@
 # @valbuild/shared
 
+## 0.127.0
+
+### Minor Changes
+
+- [#608](https://github.com/valbuild/val/pull/608) [`7fa8699`](https://github.com/valbuild/val/commit/7fa869974bc895af992a7d5c18b76253636d7d65) Thanks [@freekh](https://github.com/freekh)! - A record whose schema declares its keys now holds every one of them.
+
+  Two key schemas enumerate their keys: `s.locale()`, whose set is the project's
+  `locales.available`, and a union of literals. For those, the keys are part of the
+  schema, so a missing one is a hole in the content rather than content nobody has
+  written yet — and validation now says so, naming what is missing.
+
+  ```typescript
+  s.record(s.locale(), s.object({ title: s.string() }));
+  // Missing key: 'nb-NO'. This record's keys are declared by its schema, so
+  // every one of them is an entry — an entry nobody has written yet is null,
+  // not absent.
+  ```
+
+  **An entry nobody has written yet is `null`.** Not an absent key: a null entry is
+  data you can count, filter and see in a diff, and it means half-translated
+  content stays _valid_ rather than blocking a publish. The value type of such a
+  record widens by `null` to match, so writing one in a `.val.ts` type-checks:
+
+  ```typescript
+  c.define(
+    "/content/jacket.val.ts",
+    s.record(s.locale(), s.object({ title: s.string() })),
+    {
+      "en-US": { title: "Winter jacket" },
+      "nb-NO": null, // nobody has translated this yet
+    },
+  );
+  ```
+
+  **This changes `s.record(s.union(...), item)`**, and closes a gap that was
+  already there: `s.record(s.union(s.literal("a"), s.literal("b")), item)` types as
+  `Record<"a" | "b", T>`, so TypeScript demanded both keys while the validator only
+  checked the ones present. It now checks them too, and — as above — accepts `null`
+  for an entry that has not been filled in. If you have such a record with keys
+  missing, validation will report them; adding the keys with `null` values is the
+  fix, and creating one from the Studio does it for you.
+
+  `emptyOf` creates these records with every key already in them rather than
+  empty, since an empty one is already missing keys. In the Studio use the
+  `useEmptyOf()` hook rather than importing `emptyOf` directly: a locale record's
+  keys are in the settings module, and the hook is what has read it.
+
+- [#608](https://github.com/valbuild/val/pull/608) [`5b7fe05`](https://github.com/valbuild/val/commit/5b7fe05cec6365f9cd1de9ba31e65ed4a87edb63) Thanks [@freekh](https://github.com/freekh)! - `s.locale()`: one of the project's languages.
+
+  The languages themselves are declared in the settings module (`locales.available`);
+  this says that a value is one of them.
+
+  ```typescript
+  // a field: everything in this entry is in this language
+  s.record(s.string(), s.object({ locale: s.locale(), title: s.string() }));
+
+  // a key: one entry per language
+  s.record(s.locale(), s.object({ title: s.string() }));
+  ```
+
+  Every locale in content is checked against the project's list, the way `keyOf`
+  and `route` are checked against what they point at. An undeclared language names
+  the ones the project has; a project that has declared none is told to declare
+  them rather than told the value is wrong.
+
+  A locale is stored as the tag itself — the value in content is `nb-NO`, and a
+  record keyed by `s.locale()` has `nb-NO` as its key. Spelling one differently
+  where it is stored (`/no/…` as a URL segment) is a real need and is deliberately
+  not in this release: it changes what is accepted as well as what is shown, so it
+  is being designed on its own rather than folded in here.
+
+  A locale is **never stega encoded**: it ends up in `<html lang>`, in `hreflang`
+  and in `Intl` constructors, none of which survive invisible characters.
+
+  `assistant.translation` joins the settings module alongside `context` and `tone`
+  — a note per language, keyed by language, so only the target language's rules are
+  sent when translating into it.
+
+- [#608](https://github.com/valbuild/val/pull/608) [`88262ac`](https://github.com/valbuild/val/commit/88262ac8db068650a664981ef73556457d87741a) Thanks [@freekh](https://github.com/freekh)! - Locale scopes: a subtree in one language, and one function that answers which.
+
+  A **locale scope** is content governed by a single language. Two things open one
+  today (a third, locale segments in routes, follows):
+
+  ```typescript
+  // a locale field: this object and everything below it is in one language
+  s.object({ locale: s.locale(), title: s.string(), body: s.richtext() });
+
+  // a locale-keyed record: each entry is in the language its key names
+  s.record(s.locale(), s.object({ title: s.string() }));
+  ```
+
+  **A scope may not contain another scope**, and an object may have only one
+  locale field. Both are reported as schema errors, naming what to move:
+
+  ```
+  An object can be in one language, so it can have one locale field.
+  Found 'locale', 'language'.
+
+  Everything here is already in one language, so 'byLanguage' cannot set
+  another. Move the locale-keyed record out of this object, or take the outer
+  one away.
+  ```
+
+  A scope three levels deep is reported once, by the scope immediately enclosing
+  it, rather than by every ancestor.
+
+  The rule is **validated rather than typed**. Expressing "no scope below this
+  one" as a type constraint means threading it through every schema class's type
+  parameter, and the errors a recursive constraint like that produces name the
+  whole tree — an unrelated typo in a `.val.ts` would print pages.
+
+  `localeAt(path, snapshot)` (from `@valbuild/shared/internal`) answers which
+  language governs a path, and is the one implementation of that question, so the
+  Studio, the server and the validation worker cannot disagree. It returns the
+  tag, which is what `<html lang>`, `Intl` and `locales.available` all want.
+
+  It answers `null` where no scope governs the path, where the project has
+  declared no languages, and where a locale field holds something that is not one
+  of them — validation is already reporting the last, and guessing would put a
+  language in `<html lang>` that nobody chose.
+
+### Patch Changes
+
+- Updated dependencies [[`7fa8699`](https://github.com/valbuild/val/commit/7fa869974bc895af992a7d5c18b76253636d7d65), [`5b7fe05`](https://github.com/valbuild/val/commit/5b7fe05cec6365f9cd1de9ba31e65ed4a87edb63), [`88262ac`](https://github.com/valbuild/val/commit/88262ac8db068650a664981ef73556457d87741a), [`7072e07`](https://github.com/valbuild/val/commit/7072e07623c953a09ac14388ae22dada0b431ce3), [`29811c3`](https://github.com/valbuild/val/commit/29811c3f8c7e001a950e6f4833af6888e6a4efea)]:
+  - @valbuild/core@0.127.0
+
 ## 0.126.0
 
 ### Minor Changes

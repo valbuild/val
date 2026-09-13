@@ -1,5 +1,47 @@
 # @valbuild/react
 
+## 0.127.0
+
+### Minor Changes
+
+- [#608](https://github.com/valbuild/val/pull/608) [`5b7fe05`](https://github.com/valbuild/val/commit/5b7fe05cec6365f9cd1de9ba31e65ed4a87edb63) Thanks [@freekh](https://github.com/freekh)! - `s.locale()`: one of the project's languages.
+
+  The languages themselves are declared in the settings module (`locales.available`);
+  this says that a value is one of them.
+
+  ```typescript
+  // a field: everything in this entry is in this language
+  s.record(s.string(), s.object({ locale: s.locale(), title: s.string() }));
+
+  // a key: one entry per language
+  s.record(s.locale(), s.object({ title: s.string() }));
+  ```
+
+  Every locale in content is checked against the project's list, the way `keyOf`
+  and `route` are checked against what they point at. An undeclared language names
+  the ones the project has; a project that has declared none is told to declare
+  them rather than told the value is wrong.
+
+  A locale is stored as the tag itself — the value in content is `nb-NO`, and a
+  record keyed by `s.locale()` has `nb-NO` as its key. Spelling one differently
+  where it is stored (`/no/…` as a URL segment) is a real need and is deliberately
+  not in this release: it changes what is accepted as well as what is shown, so it
+  is being designed on its own rather than folded in here.
+
+  A locale is **never stega encoded**: it ends up in `<html lang>`, in `hreflang`
+  and in `Intl` constructors, none of which survive invisible characters.
+
+  `assistant.translation` joins the settings module alongside `context` and `tone`
+  — a note per language, keyed by language, so only the target language's rules are
+  sent when translating into it.
+
+### Patch Changes
+
+- Updated dependencies [[`7fa8699`](https://github.com/valbuild/val/commit/7fa869974bc895af992a7d5c18b76253636d7d65), [`600308d`](https://github.com/valbuild/val/commit/600308d0174990ad9f5c417147d160273489c65a), [`5b7fe05`](https://github.com/valbuild/val/commit/5b7fe05cec6365f9cd1de9ba31e65ed4a87edb63), [`88262ac`](https://github.com/valbuild/val/commit/88262ac8db068650a664981ef73556457d87741a), [`7072e07`](https://github.com/valbuild/val/commit/7072e07623c953a09ac14388ae22dada0b431ce3), [`29811c3`](https://github.com/valbuild/val/commit/29811c3f8c7e001a950e6f4833af6888e6a4efea), [`9983116`](https://github.com/valbuild/val/commit/99831164c5151aad7ca69de79e1d0d59878be251)]:
+  - @valbuild/core@0.127.0
+  - @valbuild/shared@0.127.0
+  - @valbuild/ui@0.127.0
+
 ## 0.126.0
 
 ### Minor Changes

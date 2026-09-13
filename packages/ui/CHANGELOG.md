@@ -1,5 +1,199 @@
 # @valbuild/ui
 
+## 0.127.0
+
+### Minor Changes
+
+- [#608](https://github.com/valbuild/val/pull/608) [`7fa8699`](https://github.com/valbuild/val/commit/7fa869974bc895af992a7d5c18b76253636d7d65) Thanks [@freekh](https://github.com/freekh)! - A record whose schema declares its keys now holds every one of them.
+
+  Two key schemas enumerate their keys: `s.locale()`, whose set is the project's
+  `locales.available`, and a union of literals. For those, the keys are part of the
+  schema, so a missing one is a hole in the content rather than content nobody has
+  written yet — and validation now says so, naming what is missing.
+
+  ```typescript
+  s.record(s.locale(), s.object({ title: s.string() }));
+  // Missing key: 'nb-NO'. This record's keys are declared by its schema, so
+  // every one of them is an entry — an entry nobody has written yet is null,
+  // not absent.
+  ```
+
+  **An entry nobody has written yet is `null`.** Not an absent key: a null entry is
+  data you can count, filter and see in a diff, and it means half-translated
+  content stays _valid_ rather than blocking a publish. The value type of such a
+  record widens by `null` to match, so writing one in a `.val.ts` type-checks:
+
+  ```typescript
+  c.define(
+    "/content/jacket.val.ts",
+    s.record(s.locale(), s.object({ title: s.string() })),
+    {
+      "en-US": { title: "Winter jacket" },
+      "nb-NO": null, // nobody has translated this yet
+    },
+  );
+  ```
+
+  **This changes `s.record(s.union(...), item)`**, and closes a gap that was
+  already there: `s.record(s.union(s.literal("a"), s.literal("b")), item)` types as
+  `Record<"a" | "b", T>`, so TypeScript demanded both keys while the validator only
+  checked the ones present. It now checks them too, and — as above — accepts `null`
+  for an entry that has not been filled in. If you have such a record with keys
+  missing, validation will report them; adding the keys with `null` values is the
+  fix, and creating one from the Studio does it for you.
+
+  `emptyOf` creates these records with every key already in them rather than
+  empty, since an empty one is already missing keys. In the Studio use the
+  `useEmptyOf()` hook rather than importing `emptyOf` directly: a locale record's
+  keys are in the settings module, and the hook is what has read it.
+
+- [#608](https://github.com/valbuild/val/pull/608) [`600308d`](https://github.com/valbuild/val/commit/600308d0174990ad9f5c417147d160273489c65a) Thanks [@freekh](https://github.com/freekh)! - A locale filter in the Studio: work through one language at a time.
+
+  Pick a language from the filter in the top bar — the bottom bar on a phone — and
+  the Studio shows that language's content. **Content in no language at all is
+  always shown**, which in most projects is most of it: the filter narrows a
+  translated section rather than emptying the Studio.
+
+  It changes what is **listed**, never what is reachable. A link to a Norwegian
+  page opens that page while the filter says English, because the filter is for
+  working through one language and not a permission on the content.
+
+  The default is all locales, and it is deep-linked as `?locale=nb-NO`, so a link
+  carries the view you are on. A project that has declared no languages has no
+  filter at all: a picker offering only "All locales" is furniture that explains
+  nothing.
+
+  Filtering is a per-node question rather than a walk, and that falls out of the
+  scope rule: only a node that OPENS a locale scope is ever filtered, and content
+  inside a scope is reachable only through the node that opened it — so hiding
+  that node takes its subtree with it. Two of the three ways a scope opens are
+  answerable from what a list already has: an entry of a locale-keyed record (the
+  key IS the language) and an object with a `locale` field.
+
+  The filter reaches record entries, array items and blocks. A locale-keyed record
+  filters its KEYS, so a row in another language is never rendered at all; every
+  other row asks its own content, because a list has paths and the language is in
+  the row.
+
+  A locale field nobody has filled in stays listed. Hiding it would hide the field
+  someone has to fill in to un-hide it — and a row that has not loaded yet stays
+  listed too, so a list does not shed rows as it arrives.
+
+  **While the filter is on one language, `s.locale()` fields are fixed to it.** A
+  new item created under the filter arrives already set — filtered to Norwegian,
+  you are writing Norwegian, and an item that defaulted to unset would fail
+  validation and disappear from the list you are looking at, in that order. An
+  existing field is shown but cannot be changed, with a tooltip saying why and
+  naming the way out: clear the filter. Letting one field say another language
+  while everything around it says this one would make the thing you are editing
+  vanish as you saved it, which reads as the Studio losing your work rather than
+  as a filter doing its job.
+
+  Not yet filtered: the Pages and Data panels. A page is a tree rather than a list,
+  so hiding one is a different question from hiding a row, and it is worth its own
+  change.
+
+- [#608](https://github.com/valbuild/val/pull/608) [`5b7fe05`](https://github.com/valbuild/val/commit/5b7fe05cec6365f9cd1de9ba31e65ed4a87edb63) Thanks [@freekh](https://github.com/freekh)! - `s.locale()`: one of the project's languages.
+
+  The languages themselves are declared in the settings module (`locales.available`);
+  this says that a value is one of them.
+
+  ```typescript
+  // a field: everything in this entry is in this language
+  s.record(s.string(), s.object({ locale: s.locale(), title: s.string() }));
+
+  // a key: one entry per language
+  s.record(s.locale(), s.object({ title: s.string() }));
+  ```
+
+  Every locale in content is checked against the project's list, the way `keyOf`
+  and `route` are checked against what they point at. An undeclared language names
+  the ones the project has; a project that has declared none is told to declare
+  them rather than told the value is wrong.
+
+  A locale is stored as the tag itself — the value in content is `nb-NO`, and a
+  record keyed by `s.locale()` has `nb-NO` as its key. Spelling one differently
+  where it is stored (`/no/…` as a URL segment) is a real need and is deliberately
+  not in this release: it changes what is accepted as well as what is shown, so it
+  is being designed on its own rather than folded in here.
+
+  A locale is **never stega encoded**: it ends up in `<html lang>`, in `hreflang`
+  and in `Intl` constructors, none of which survive invisible characters.
+
+  `assistant.translation` joins the settings module alongside `context` and `tone`
+  — a note per language, keyed by language, so only the target language's rules are
+  sent when translating into it.
+
+- [#608](https://github.com/valbuild/val/pull/608) [`29811c3`](https://github.com/valbuild/val/commit/29811c3f8c7e001a950e6f4833af6888e6a4efea) Thanks [@freekh](https://github.com/freekh)! - Settings: declare the languages a project publishes.
+
+  A new `locales` section in the settings module says which languages a project
+  has:
+
+  ```typescript
+  export default c.define("/settings.val.ts", s.settings(), {
+    locales: {
+      available: ["en-US", "fr-FR", "nb-NO"],
+    },
+  });
+  ```
+
+  The order is the project's own and is kept rather than sorted: it is the order
+  of the Studio's locale picker and of the rows in a locale-keyed record. There
+  is no default language — every locale-specific field asks which language it is
+  in, and a default is the answer that lets that question go unanswered.
+
+  Like every other settings section it is optional, so a project that is not
+  translated writes nothing and sees nothing: no locale controls appear anywhere
+  until `available` has something in it.
+
+  This is content rather than configuration, and deliberately: which languages a
+  site has is a decision the people who write it make, and under a build-time
+  constant it took a developer and a deploy. It is the same move `assistant`
+  already makes with `enabled`.
+
+  Tags are BCP 47 (`en-US`, `nb-NO`), checked through `Intl.getCanonicalLocales` —
+  the same implementation `<html lang>` and every `Intl` constructor use — and
+  they have to be in canonical form. `nb-no` parses, but nothing else in the stack
+  agrees it is the same string as `nb-NO`, and a locale is compared as a string
+  everywhere it is used. Validation names the spelling to use, and reports a
+  language declared twice on the repeat rather than on the list — that is the row
+  to delete, and a message on the list itself would not say which.
+
+  Edited under Settings → Locales in the Studio, which names each language in its
+  own language.
+
+### Patch Changes
+
+- [#669](https://github.com/valbuild/val/pull/669) [`9983116`](https://github.com/valbuild/val/commit/99831164c5151aad7ca69de79e1d0d59878be251) Thanks [@freekh](https://github.com/freekh)! - Fix the Studio crashing with `crypto.randomUUID is not a function` when it is
+  opened over plain http on something that is not `localhost`
+
+  Opening `/val` at an address like `http://172.23.135.172:3000` — a LAN IP, a
+  VM, or a dev server inside WSL viewed from a browser on Windows — left a blank
+  screen and this in the console:
+
+  ```
+  crypto.randomUUID is not a function
+  ```
+
+  `crypto.randomUUID` is secure-context only: it exists on `https://` and on
+  `localhost`, and is simply absent anywhere else. The Studio called it while
+  rendering, to name its websocket connection, so it died before it drew
+  anything. Every id the Studio generates this way now goes through a fallback
+  that works in any context. `navigator.clipboard`, which is secure-context only
+  for the same reason, got the same treatment — copying a code block out of the
+  assistant no longer throws there either.
+
+  The fallback is `crypto.getRandomValues`, which exists in an insecure context
+  and is still cryptographically secure — which matters, because a patch id is
+  what `/api/val/files` accepts instead of authentication when it serves an
+  unpublished file. Where a browser has neither that nor `crypto.randomUUID`, the
+  Studio now says so rather than inventing a guessable id.
+
+  This is not specific to any framework, but it shows up most with TanStack
+  Start: `vite dev` binds `localhost` only, so a WSL user who wants to see the
+  site from Windows runs it with `--host` and opens the VM's IP, while `next dev`
+  binds `0.0.0.0` and `localhost` keeps working.
+
 ## 0.126.0
 
 ### Minor Changes
