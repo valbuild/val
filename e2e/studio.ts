@@ -283,20 +283,27 @@ export async function openNavPanel(
 /**
  * Expand a row in the Pages panel, by name.
  *
- * Nothing is expanded on mount — a real site map has sections with hundreds of
- * rows — so reaching a nested page means opening the rows above it. A row that
- * is also a page selects itself as well, which is what clicking it does in the
- * app too.
+ * Reaching a nested page means opening the rows above it — except where the
+ * panel has already opened them. A SMALL site map arrives expanded (see
+ * `SMALL_SITE` in `PagesPanel`), and the example app is a small site, so a
+ * click here is as likely to close a row as to open one. A row that is a
+ * disclosure says which it is; a leaf page has no `aria-expanded` at all and is
+ * always clicked, because on a leaf the click is the selection.
  */
 export async function expandRow(studio: Locator, name: string): Promise<void> {
-  await studio.getByRole("button", { name, exact: true }).first().click();
+  const row = studio.getByRole("button", { name, exact: true }).first();
+  if ((await row.getAttribute("aria-expanded")) === "true") {
+    return;
+  }
+  await row.click();
 }
 
 /**
  * Open the Pages panel and expand the site map down to the top level.
  *
  * The root of the site map is the home page on this project, so every other
- * page is nested under it: without opening `/` there is nothing else to click.
+ * page is nested under it: without `/` open there is nothing else to click.
+ * `expandRow` leaves it alone when the panel has already opened it.
  */
 export async function openSiteMap(page: Page): Promise<Locator> {
   const studio = await openNavPanel(page, "Pages");

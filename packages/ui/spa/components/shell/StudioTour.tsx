@@ -46,6 +46,47 @@ function measureTarget(root: HTMLElement, target?: string): Box | null {
 }
 
 /**
+ * The open panel, if there is one, in the same coordinates.
+ *
+ * A step that opens a panel is a step ABOUT that panel, and the card was
+ * landing on top of it: the spotlight is on a 32px rail icon at the left edge,
+ * "below the target" is directly over the panel that just slid out, and the
+ * reader was told to look at something the tour was covering.
+ *
+ * Whichever panel is on screen rather than the one this step asked for — a
+ * panel left open from before is just as much in the way.
+ */
+function measureAvoid(root: HTMLElement): Box | null {
+  const scope = root.getRootNode();
+  if (!(scope instanceof Document || scope instanceof ShadowRoot)) return null;
+  const rootRect = root.getBoundingClientRect();
+  for (const node of scope.querySelectorAll("[data-val-tour-surface]")) {
+    if (!(node instanceof HTMLElement)) continue;
+    const rect = node.getBoundingClientRect();
+    // A panel rendered but hidden — the assistant, which is never unmounted —
+    // measures zero and is not in anybody's way.
+    if (rect.width === 0 || rect.height === 0) continue;
+    return {
+      top: rect.top - rootRect.top,
+      left: rect.left - rootRect.left,
+      width: rect.width,
+      height: rect.height,
+    };
+  }
+  return null;
+}
+
+/** Whether two boxes share any pixels. */
+function overlaps(a: Box, b: Box): boolean {
+  return (
+    a.left < b.left + b.width &&
+    b.left < a.left + a.width &&
+    a.top < b.top + b.height &&
+    b.top < a.top + a.height
+  );
+}
+
+/**
  * Where to put the card, given what it is pointing at and how much room there
  * is.
  *
@@ -57,6 +98,8 @@ export function placeCard(
   target: Box | null,
   shell: { width: number; height: number },
   card: { width: number; height: number },
+  /** A region the card must not cover, when it can be helped. See `measureAvoid`. */
+  avoid?: Box | null,
 ): { top: number; left: number } {
   if (!target) {
     return {
@@ -74,10 +117,27 @@ export function placeCard(
         : Math.max(MARGIN, (shell.height - card.height) / 2);
   // Aligned to the target's left edge, so the card reads as belonging to it,
   // then pulled back inside the shell.
-  const left = Math.min(
-    Math.max(MARGIN, target.left),
-    Math.max(MARGIN, shell.width - card.width - MARGIN),
-  );
+  const clamp = (value: number) =>
+    Math.min(
+      Math.max(MARGIN, value),
+      Math.max(MARGIN, shell.width - card.width - MARGIN),
+    );
+  const left = clamp(target.left);
+  if (!avoid || !overlaps({ top, left, ...card }, avoid)) {
+    return { top, left };
+  }
+  // Beside the panel rather than over it, on whichever side it fits. If it
+  // fits on neither — a phone, where a sheet is most of the screen — the
+  // original placement stands: a card half off the screen is worse than a
+  // card over a panel.
+  const beyond = avoid.left + avoid.width + GAP;
+  const before = avoid.left - GAP - card.width;
+  if (beyond + card.width + MARGIN <= shell.width) {
+    return { top, left: beyond };
+  }
+  if (before >= MARGIN) {
+    return { top, left: before };
+  }
   return { top, left };
 }
 
@@ -144,17 +204,27 @@ export function StudioTour({ steps, onClose, onOpenPanel }: StudioTourProps) {
           box,
           { width: rootRect.width, height: rootRect.height },
           { width: card.offsetWidth, height: card.offsetHeight },
+          measureAvoid(root),
         ),
       );
     };
     measure();
-    // A panel sliding in, a phone rotating, the browser resizing: all of them
-    // move the thing being pointed at. A second pass on the next frame catches
-    // the panel that had not laid out when the step changed.
-    const frame = requestAnimationFrame(measure);
+    /*
+     * A panel sliding in, a phone rotating, the browser resizing: all of them
+     * move what is being pointed at, or what has to be kept clear.
+     *
+     * Two more passes, because the panel a step opens is mounted by an effect
+     * of its own: on the frame the step changes there is nothing to measure
+     * yet, and one frame later it may be laid out but not settled.
+     */
+    const frames = [
+      requestAnimationFrame(measure),
+      window.setTimeout(measure, 120),
+    ];
     window.addEventListener("resize", measure);
     return () => {
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(frames[0]);
+      window.clearTimeout(frames[1]);
       window.removeEventListener("resize", measure);
     };
   }, [index, step?.target]);
@@ -228,9 +298,15 @@ export function StudioTour({ steps, onClose, onOpenPanel }: StudioTourProps) {
         className="absolute rounded-lg border border-border-float bg-bg-float p-3.5 shadow-lg"
       >
         <div className="flex items-start gap-2">
+          {/*
+           * The same green as the spotlight ring, which is the tour's colour.
+           * NOT `text-fg-brand-secondary`: that token is the foreground FOR a
+           * filled `bg-bg-brand-secondary` surface — in dark mode it is
+           * near-black — and on an unfilled card it disappeared.
+           */}
           <Compass
             size={15}
-            className="mt-0.5 shrink-0 text-fg-brand-secondary"
+            className="mt-0.5 shrink-0 text-border-brand-secondary"
           />
           <div className="min-w-0 flex-1">
             <h2 className="text-[0.8125rem] font-semibold tracking-tight">
@@ -307,7 +383,11 @@ export function TourLauncher({
       onClick={onStart}
       aria-label="Take a tour of the Studio"
       className={cn(
-        "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border-brand-secondary text-xs font-medium text-fg-brand-secondary",
+        "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border-brand-secondary text-xs font-medium text-fg-primary",
+        // The label is `fg-primary`, not `fg-brand-secondary`: that token is the
+        // foreground for a FILLED brand surface and is near-black in dark mode,
+        // so on this outlined button it was unreadable. The green is the border
+        // and the glow, which is where it does the work.
         "motion-safe:animate-tour-glow hover:bg-bg-float-raised",
         compact ? "w-8 justify-center" : "px-2.5",
         className,

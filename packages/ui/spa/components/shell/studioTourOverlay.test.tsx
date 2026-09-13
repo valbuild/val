@@ -153,6 +153,44 @@ describe("placeCard", () => {
     expect(at.left).toBe((shell.width - card.width) / 2);
     expect(at.top).toBe((shell.height - card.height) / 2);
   });
+
+  /**
+   * The step that opens a panel must not cover it. The spotlight is a 32px rail
+   * icon at the left edge, so "below the target" is squarely on top of the
+   * panel that just slid out — the tour was telling people to look at something
+   * it was hiding.
+   */
+  const panel = { top: 64, left: 76, width: 300, height: 600 };
+
+  test("steps aside for the panel it just opened", () => {
+    const at = placeCard(
+      { top: 100, left: 12, width: 32, height: 32 },
+      shell,
+      card,
+      panel,
+    );
+    expect(at.left).toBeGreaterThanOrEqual(panel.left + panel.width);
+  });
+
+  test("stays where it was when it was never in the way", () => {
+    const target = { top: 100, left: 600, width: 80, height: 32 };
+    expect(placeCard(target, shell, card, panel)).toEqual(
+      placeCard(target, shell, card),
+    );
+  });
+
+  /**
+   * A phone: the sheet is most of the screen, so there is no "beside" to move
+   * to. Overlapping is then better than hanging off the edge, where the card's
+   * own buttons would be unreachable.
+   */
+  test("rather overlaps than goes off the screen", () => {
+    const phone = { width: 390, height: 780 };
+    const sheet = { top: 0, left: 0, width: 340, height: 780 };
+    const at = placeCard(null, phone, { width: 296, height: 200 }, sheet);
+    expect(at.left).toBeGreaterThanOrEqual(0);
+    expect(at.left + 296).toBeLessThanOrEqual(phone.width);
+  });
 });
 
 describe("the tour launcher", () => {

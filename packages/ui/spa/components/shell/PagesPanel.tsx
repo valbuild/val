@@ -503,6 +503,11 @@ export function PagesPanel({
           depth={depth}
           selected={selectedId === page.id}
           title={page.urlPath}
+          // A row with children is a disclosure and has to say whether it is
+          // open — the media panel's rows always did. It matters more now that
+          // a small site map arrives expanded: without this, neither a screen
+          // reader nor a test can tell "open it" from "close it".
+          expanded={hasChildren ? isOpen : undefined}
           onClick={() => {
             onSelectPage(page);
             if (hasChildren && !forcedExpanded) toggle(page.id);

@@ -47,7 +47,21 @@ function willRun(project: string): boolean {
  * thing keeping it out of `chromium` was supposed to prevent. It has to be
  * absent from the config entirely unless it was named.
  */
-const screensRequested = requestedProjects.has("screens");
+const screensRequested =
+  requestedProjects.has("screens") || process.env.VAL_E2E_SCREENS === "1";
+/*
+ * Carried to the workers in the environment, because argv does not reach them.
+ *
+ * A worker re-evaluates this file in its own process, and its argv is
+ * Playwright's own — no `--project=screens` in it. So the project was declared
+ * in the runner and absent in every worker, and `--project=screens` failed with
+ * "Project "screens" not found in the worker process" no matter how it was
+ * invoked: the script could not be run at all. Workers are forked after the
+ * config is evaluated, so they inherit whatever is set here.
+ */
+if (requestedProjects.has("screens")) {
+  process.env.VAL_E2E_SCREENS = "1";
+}
 
 /**
  * Which apps this run needs, and therefore which servers start.
