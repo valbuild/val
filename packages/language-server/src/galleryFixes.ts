@@ -69,7 +69,7 @@ export async function createGalleryMembershipActions({
     actions.push(register);
   }
 
-  if (allowRename && gallery.directory && onDisk) {
+  if (allowRename && gallery.dir && onDisk) {
     const move = createMoveIntoGalleryDirectoryAction({
       document,
       gallery,
@@ -100,7 +100,7 @@ async function createRegisterInGalleryAction({
     // a "file does not exist" one.
     return undefined;
   }
-  if (gallery.directory && !gallery.path.startsWith(`${gallery.directory}/`)) {
+  if (gallery.dir && !gallery.path.startsWith(`${gallery.dir}/`)) {
     // Outside the gallery's directory: registering it would break the gallery's
     // own directory check. Moving is the remedy, not registering.
     return undefined;
@@ -154,7 +154,7 @@ function createMoveIntoGalleryDirectoryAction({
   gallery: GalleryMembership;
   valRoot: string;
 }): CodeAction | undefined {
-  const directory = gallery.directory;
+  const directory = gallery.dir;
   if (!directory || gallery.path.startsWith(`${directory}/`)) {
     return undefined;
   }

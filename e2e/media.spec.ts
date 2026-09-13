@@ -11,7 +11,7 @@ import {
 } from "./studio";
 
 /**
- * Media: `s.images()`, `s.files()`, `s.image()` and `s.file()`.
+ * Media: `s.imageset()`, `s.fileset()`, `s.image()` and `s.file()`.
  *
  * This feature has had more bugs than any other in the Studio, and every one of
  * them was invisible to the unit suite because the failure was always the same
@@ -22,9 +22,9 @@ import {
  *
  * The fixtures are in `examples/next/content/`:
  *
- * - `mediaFixtures.val.ts`  `s.images({ directory: "/public/test/subdir" })`
- * - `fileGallery.val.ts`    `s.files({ directory: "/public/test/files" })`
- * - `mediaFields.val.ts`    `s.image()`, `s.image({ directory })`,
+ * - `mediaFixtures.val.ts`  `s.imageset({ dir: "/public/test/subdir" })`
+ * - `fileGallery.val.ts`    `s.fileset({ dir: "/public/test/files" })`
+ * - `mediaFields.val.ts`    `s.image()`, `s.image({ dir })`,
  *                           `s.image(gallery)`, `s.file()`, and the same inside
  *                           a union
  *
@@ -233,7 +233,7 @@ test.describe("the Media section", () => {
   });
 });
 
-test.describe("an s.images() gallery in a non-default directory", () => {
+test.describe("an s.imageset() gallery in a non-default directory", () => {
   const MODULE = "/content/mediaFixtures.val.ts";
 
   test("shows the entry it already has", async ({ page }) => {
@@ -303,7 +303,7 @@ test.describe("an s.images() gallery in a non-default directory", () => {
   });
 });
 
-test.describe("an s.files() gallery", () => {
+test.describe("an s.fileset() gallery", () => {
   const MODULE = "/content/fileGallery.val.ts";
 
   test("uploads a non-image into its own directory", async ({
@@ -317,7 +317,7 @@ test.describe("an s.files() gallery", () => {
     await expect
       .poll(() => uploadedRefs(page), { timeout: 30_000 })
       .toEqual(["/public/test/files/blue-8x8_8b441.png"]);
-    // `s.files()` records only a mime type; there is no width to get wrong.
+    // `s.fileset()` records only a mime type; there is no width to get wrong.
     await expect
       .poll(async () => JSON.stringify(await moduleSource(page, MODULE)))
       .toContain("image/png");
@@ -368,7 +368,7 @@ test.describe("single media fields", () => {
    * of a referenced module, so this silently wrote to `/public/val` — outside the
    * directory the schema allows, which then failed validation.
    */
-  test("s.image({ directory }) stores where the field says", async ({
+  test("s.image({ dir }) stores where the field says", async ({
     page,
     request,
   }) => {
@@ -501,7 +501,7 @@ test.describe("single media fields", () => {
 });
 
 /**
- * Re-encoding an upload in the browser (`encode` on `s.image()` / `s.images()`).
+ * Re-encoding an upload in the browser (`encode` on `s.image()` / `s.imageset()`).
  *
  * The conversion happens before the bytes are hashed, so getting it wrong is
  * not subtle: the filename suffix, the recorded mimeType and the remote
@@ -523,7 +523,7 @@ test.describe("re-encoding uploads", () => {
   const GALLERY = "/content/encodedImages.val.ts";
   const FIELDS = "/content/encodedFields.val.ts";
 
-  test("an s.images({ encode }) gallery converts and downscales", async ({
+  test("an s.imageset({ encode }) gallery converts and downscales", async ({
     page,
   }) => {
     await openStudio(page, `/val/~${GALLERY}`);

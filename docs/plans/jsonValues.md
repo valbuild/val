@@ -263,7 +263,7 @@
 
 ## Goal (one paragraph)
 
-Let `s.record(...)` and `s.router(...)` (NOT `s.images()` / `s.files()` galleries) opt into
+Let `s.record(...)` and `s.router(...)` (NOT `s.imageset()` / `s.fileset()` galleries) opt into
 `.jsonValues()`, so each entry's value lives in its own `*.val.json` file referenced by a lazy
 thunk `c.json(() => import("./x.val.json"))`. Keeps `.val.ts` tiny at 10K+
 entries; runtime/Studio/validation work one entry at a time; zero overhead when Val is disabled.
@@ -1195,7 +1195,7 @@ abstract `getStat` contract so its absence is part of the type, not an accident.
   could run `select`.
 - **Session 5 (2026-07-28)**: enabled/draft runtime path (server + RSC) and edit tags.
   - Merged `main` (which fixed an unrelated blocker: the publish gate read the RAW
-    `errors.validationErrors` instead of the surfaced snapshot, so every `s.images()`/`s.files()`
+    `errors.validationErrors` instead of the surfaced snapshot, so every `s.imageset()`/`s.fileset()`
     gallery's always-on `check-unique-folder`/`check-all-files` errors blocked publish while the
     Studio showed none — `0fcfecf0`).
   - `getSources` jsonValues-aware — entry-content ops no longer poison the module's patch chain.

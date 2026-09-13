@@ -21,10 +21,10 @@ import { FileEntry, ImageEntry, MediaEntry } from "../types";
  *
  * - `s.image()` — the field owns the file. Alt text and the focal point are
  *   stored on the field, and nothing else refers to them.
- * - `s.image(collection)` — the field points into an `s.images()` module. The
+ * - `s.image(collection)` — the field points into an `s.imageset()` module. The
  *   metadata lives in the collection, and the field keeps its own copy of the
  *   alt text, so it can say something different for this one use.
- * - `s.images()` — the collection itself: a record keyed by file path. This
+ * - `s.imageset()` — the collection itself: a record keyed by file path. This
  *   is the module an editor opens to manage the library, and the same view a
  *   field opens to pick from it.
  *
@@ -161,7 +161,7 @@ export const ImageFieldFromCollection: Story = {
   render: () => (
     <Frame
       title="s.image(media)"
-      description="Points into an s.images() collection. Alt text comes from the library, and can be overridden per field."
+      description="Points into an s.imageset() collection. Alt text comes from the library, and can be overridden per field."
     >
       <CollectionImageHarness start={mockImage} />
     </Frame>
@@ -255,7 +255,7 @@ export const FileFieldFromCollection: Story = {
   render: () => (
     <Frame
       title="s.file(documents)"
-      description="Points into an s.files() collection, which is named in the details."
+      description="Points into an s.fileset() collection, which is named in the details."
     >
       <FileHarness start={mockFile} fromCollection />
     </Frame>
@@ -269,7 +269,7 @@ function CollectionHarness({
   entries: initial,
   name,
   moduleFilePath,
-  directory,
+  dir,
   accept,
   folders,
 }: {
@@ -277,7 +277,7 @@ function CollectionHarness({
   entries: MediaEntry[];
   name: string;
   moduleFilePath: string;
-  directory: string;
+  dir: string;
   accept: string;
   folders?: typeof mockImageFolders;
 }) {
@@ -295,7 +295,7 @@ function CollectionHarness({
         name={name}
         entries={entries}
         folders={folders}
-        directory={directory}
+        dir={dir}
         accept={accept}
         mode={mode}
         selectedRef={selectedRef}
@@ -318,7 +318,7 @@ function CollectionHarness({
 }
 
 /**
- * `s.images()` open as a module: the collection an editor manages.
+ * `s.imageset()` open as a module: the collection an editor manages.
  *
  * Alt text and the focal point are edited here because they belong to the
  * image — every field pointing at it starts from what this says.
@@ -330,7 +330,7 @@ export const ImagesCollection: Story = {
       entries={mockImages}
       name="Media"
       moduleFilePath="/content/media.val.ts"
-      directory="/public/val/images"
+      dir="/public/val/images"
       accept="image/*"
       folders={mockImageFolders}
     />
@@ -345,14 +345,14 @@ export const ImagesCollectionBrowsing: Story = {
       entries={mockImages}
       name="Media"
       moduleFilePath="/content/media.val.ts"
-      directory="/public/val/images"
+      dir="/public/val/images"
       accept="image/*"
       folders={mockImageFolders}
     />
   ),
 };
 
-/** `s.files()`: no thumbnails, no alt text, no focal point. */
+/** `s.fileset()`: no thumbnails, no alt text, no focal point. */
 export const FilesCollection: Story = {
   render: () => (
     <CollectionHarness
@@ -360,7 +360,7 @@ export const FilesCollection: Story = {
       entries={mockFiles}
       name="Documents"
       moduleFilePath="/content/documents.val.ts"
-      directory="/public/val/files"
+      dir="/public/val/files"
       accept="application/*"
       folders={mockFileFolders}
     />
@@ -374,7 +374,7 @@ export const FilesCollectionBrowsing: Story = {
       entries={mockFiles}
       name="Documents"
       moduleFilePath="/content/documents.val.ts"
-      directory="/public/val/files"
+      dir="/public/val/files"
       accept="application/*"
     />
   ),
@@ -388,7 +388,7 @@ export const CollectionEmpty: Story = {
       entries={[]}
       name="Media"
       moduleFilePath="/content/media.val.ts"
-      directory="/public/val/images"
+      dir="/public/val/images"
       accept="image/*"
     />
   ),

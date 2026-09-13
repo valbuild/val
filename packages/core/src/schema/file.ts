@@ -19,7 +19,7 @@ import {
 import { Internal, ValModule } from "..";
 import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
 import { FieldRender } from "../render";
-import { FilesEntryMetadata } from "./files";
+import { FilesetEntryMetadata } from "./fileset";
 import { getSource } from "../module";
 import { mimeTypeMatchesAccept } from "../mimeType";
 
@@ -51,7 +51,7 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly moduleMetadata: Record<
       ModulePath,
-      Record<string, FilesEntryMetadata>
+      Record<string, FilesetEntryMetadata>
     > = {},
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
@@ -363,7 +363,7 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
    * The entries of the gallery this field points at, or null when it is a
    * standalone field.
    */
-  private galleryEntries(): Record<string, FilesEntryMetadata> | null {
+  private galleryEntries(): Record<string, FilesetEntryMetadata> | null {
     const modulePaths = Object.keys(this.moduleMetadata);
     if (modulePaths.length === 0) {
       return null;
@@ -580,22 +580,22 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
  * field carries only the path.
  */
 export function file(
-  galleryModule: ValModule<Record<string, FilesEntryMetadata>>,
+  galleryModule: ValModule<Record<string, FilesetEntryMetadata>>,
 ): FileSchema<GalleryFileSource>;
 /** A file of its own, carrying its own mime type. */
 export function file(options?: FileOptions): FileSchema<FileSource>;
 export function file(
-  options?: FileOptions | ValModule<Record<string, FilesEntryMetadata>>,
+  options?: FileOptions | ValModule<Record<string, FilesetEntryMetadata>>,
 ): FileSchema<FileSource> | FileSchema<GalleryFileSource> {
   const isModule =
     !!options &&
     !!Internal.getValPath(
-      options as ValModule<Record<string, FilesEntryMetadata>>,
+      options as ValModule<Record<string, FilesetEntryMetadata>>,
     );
   if (isModule) {
-    const allModules: Record<string, Record<string, FilesEntryMetadata>> = {};
+    const allModules: Record<string, Record<string, FilesetEntryMetadata>> = {};
     for (const valModule of [
-      options as ValModule<Record<string, FilesEntryMetadata>>,
+      options as ValModule<Record<string, FilesetEntryMetadata>>,
     ]) {
       const modulePath = getValPath(valModule) as ModulePath | undefined;
       if (modulePath === undefined) {
@@ -605,7 +605,7 @@ export function file(
       }
       allModules[modulePath] = getSource(valModule) as Record<
         string,
-        FilesEntryMetadata
+        FilesetEntryMetadata
       >;
     }
     return new FileSchema<GalleryFileSource>({}, false, false, [], allModules);

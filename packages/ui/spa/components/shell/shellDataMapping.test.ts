@@ -507,7 +507,7 @@ describe("availableDestinations", () => {
   const gallery: ShellMediaGallery = {
     id: "/content/media.val.ts",
     name: "images",
-    directory: "/public/val/images",
+    dir: "/public/val/images",
     moduleFilePath: "/content/media.val.ts",
     itemCount: 0,
     mediaType: "images",
