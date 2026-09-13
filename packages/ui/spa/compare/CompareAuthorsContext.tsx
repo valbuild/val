@@ -1,5 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { Profile } from "../components/ValProvider";
+import type { UndoConsequence } from "./undoSelection";
 
 /**
  * What every row needs in order to draw an avatar, without being handed it.
@@ -32,30 +33,12 @@ export type CompareAuthorsContextValue = {
    */
   authorFilter: string | null;
   /**
-   * How much chrome a row carries.
-   *
-   * `"full"` draws every signal at all times — checkbox, change icon, label,
-   * timestamp, avatars. `"reduced"` keeps the two a row is being SCANNED for
-   * (what changed, and what it changed to) at full strength and demotes the
-   * rest to hover.
-   *
-   * A setting rather than a rewrite because the reduction is a claim about
-   * which signals are load-bearing, and that claim is worth being able to put
-   * two screenshots of side by side before it is made permanent.
-   *
-   * Authorship is the interesting case: it is demoted but never hidden, because
-   * the one moment it is genuinely urgent — a row about to be undone that
-   * somebody else wrote — is exactly the moment a hover-only signal would fail.
-   * See `RowAuthors`.
-   */
-  density: "full" | "reduced";
-  /**
    * Undo mode, when it is on.
    *
-   * In the same context as attribution for the same reason: the checkbox
-   * belongs on rows nested three deep, and threading mode, selection and a
-   * toggle callback through every component in between would put three
-   * parameters on each of them that they are otherwise not about.
+   * In the same context as attribution for the same reason: the action belongs
+   * on rows nested three deep, and threading mode and two callbacks through
+   * every component in between would put parameters on each of them that they
+   * are otherwise not about.
    *
    * `null` is the normal, read-only dialog — which is most of the time, and is
    * why every consumer treats it as the default rather than as a special case.
@@ -63,39 +46,14 @@ export type CompareAuthorsContextValue = {
   undo: {
     kind: "discard" | "revert";
     /**
-     * How a row offers to be undone.
-     *
-     * `"select"` is the checkbox-and-batch model: every row grows a checkbox,
-     * the bar counts them, one action at the end. `"quick"` is the Sanity /
-     * Google Docs model: no checkbox anywhere, a hover action per row, confirmed
-     * in place.
-     *
-     * The two are alternatives rather than layers, which is why this is one
-     * field and not two booleans — a row showing both would be asking the same
-     * question twice with two different answers.
-     */
-    style: "select" | "quick";
-    /**
      * What undoing this one row actually takes with it.
      *
      * Supplied by the dialog because the closure needs the whole model and a
-     * row has no access to it. Only called in `"quick"` style, where there is
-     * no bar to carry the running total.
+     * row has no access to it.
      */
-    consequenceOf: (rowId: string) => {
-      total: number;
-      pulledIn: number;
-      others: string[];
-    };
+    consequenceOf: (rowId: string) => UndoConsequence;
     /** Undo this row and everything its closure compels, now. */
     onQuickUndo: (rowId: string) => void;
-    /** Everything that will go, picks and their forced dependents. */
-    selected: ReadonlySet<string>;
-    /** Only what the closure added, drawn differently. */
-    pulledIn: ReadonlySet<string>;
-    onToggle: (rowId: string) => void;
-    /** Tick or untick a whole nav row or group heading at once. */
-    onToggleMany: (rowIds: readonly string[], next: boolean) => void;
   } | null;
 };
 

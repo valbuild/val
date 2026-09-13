@@ -33,14 +33,12 @@ function Harness({
   model,
   layout,
   authorFilter,
-  undoPicks,
-  density,
+  undoMode,
 }: {
   model: CompareModel;
   layout?: "desktop" | "mobile";
   authorFilter?: string | null;
-  undoPicks?: string[];
-  density?: "full" | "reduced";
+  undoMode?: boolean;
 }) {
   const [basisId, setBasisId] = useState(model.selectedBasisId);
   return (
@@ -52,8 +50,7 @@ function Harness({
         onSelectBasis={setBasisId}
         forceLayout={layout}
         initialAuthorFilter={authorFilter ?? null}
-        initialUndoPicks={undoPicks}
-        density={density}
+        initialUndoMode={undoMode}
         currentAuthorId="profile-linus"
         onUndo={() => undefined}
         onRevertAll={() => undefined}
@@ -181,84 +178,66 @@ export const LongCommitMessageMobile: Story = {
 export const ShowAllFields: Story = { args: { model: singleModuleModel } };
 
 /**
- * Undo mode, with nothing picked yet.
+ * Undo mode.
  *
- * Entered from the header rather than always on: this is a reading surface,
- * and the old review screen's problem was mixing reading with discarding. The
- * bar is visible from the moment the mode opens — one that appeared on first
- * selection would shift the rows under the cursor at the exact moment someone
- * is aiming at a checkbox.
+ * Entered from the header rather than always on: this is a reading surface, and
+ * the old review screen's problem was mixing reading with discarding. There is
+ * no checkbox column and no running count — each row carries its own action on
+ * hover, confirmed in place, which is how Sanity's Review Changes and Google
+ * Docs' suggestion mode both do it.
+ *
+ * Hover a row on the right to see the action; the bar carries only the mode,
+ * the way out, and "Discard all" for the other extreme.
  */
-export const UndoMode: Story = { args: { undoPicks: [] } };
+export const UndoMode: Story = { args: { undoMode: true } };
 
 /**
- * Undo from the nav and from a group heading.
+ * What a single undo drags along, said before the click.
  *
- * A nav row stands for every selectable row in its pane and its children's —
- * so ticking `blogs` means every changed page under it. A group heading stands
- * for its own rows. Both are tri-state, because a half-selected set has to say
- * so: ticking a two-state box that was already "some" looks like it did
- * nothing, and unticking it looks like it did too much.
+ * `brand` compels two later changes by the prefix invariant — a later patch's
+ * indices were computed against a state in which its predecessors applied — and
+ * one of them is somebody else's. Hover the `brand` row and open its action:
+ * the confirmation names the count AND the person, which is the whole reason
+ * this dialog computes a closure at all.
  *
- * Ticking one entry in `authors.val.ts` therefore puts its group heading AND
- * its nav row into the indeterminate state — three levels agreeing.
- *
- * This is why the selection is model-wide rather than cleared on navigation: a
- * nav row spans panes by construction, and the nav is where that is visible.
+ * This replaced a bar that counted the same thing continuously across an
+ * arbitrary selection. The truth did not change; only where it is said.
  */
-export const UndoFromNavAndGroups: Story = { args: { undoPicks: [] } };
-
-/** Undo mode on a phone, where the nav is a drawer. */
-export const UndoModeMobile: Story = {
-  args: { undoPicks: [], layout: "mobile" },
-};
-
-/**
- * A discard that drags two later changes along, one of them somebody else's.
- *
- * `brand` cannot go alone: `badge` and `legacyNote` were written against a
- * state in which it applied, so the prefix invariant compels them. They are
- * ticked and marked as required rather than silently included, and the bar
- * counts them apart from the pick and names Ada, whose work is in there.
- *
- * This is the outcome the whole design is arranged around — a click that
- * quietly discards a colleague's edit is the worst thing this feature could
- * do.
- */
-export const DiscardPullsInDependents: Story = {
-  args: { undoPicks: ["brand"] },
-};
-
-/**
- * Two independent picks, so unticking can be shown to be surgical.
- *
- * `brand` compels `badge` and `legacyNote`; `heading` compels nothing. Untick
- * `legacyNote` and the whole `brand` group goes — it has to, a dependent cannot
- * stay behind once its predecessor is refused — while `heading` is untouched.
- *
- * The earlier version cleared the entire selection on any untick. Never wrong,
- * always annoying: it threw away picks that had nothing to do with the row
- * being unticked, and left no way to say "not that one" without starting over.
- */
-export const DiscardUntickIsSurgical: Story = {
-  args: { undoPicks: ["brand", "heading"] },
-};
+export const UndoPullsInDependents: Story = { args: { undoMode: true } };
 
 /**
  * Reverting to a commit, where the schema is the question.
  *
- * All three of `checkCompatibility`'s answers on one screen: `heading` is
- * fine, `intro` is rich text and therefore `unknown` — offered anyway, because
- * this gate cannot see the value and the real check runs at confirm — and
- * `cta` became a union with no variant of the old shape, so it is refused with
- * the reason where its checkbox would be.
+ * All three of `checkCompatibility`'s answers on one screen: `heading` is fine,
+ * `intro` is rich text and therefore `unknown` — offered anyway, because this
+ * gate cannot see the value and the real check runs at confirm — and `cta`
+ * became a union with no variant of the old shape, so it is refused with the
+ * reason where its action would be.
  *
  * The bar also carries `revertAll`, which exists because "a publish went wrong
  * and they want it undone, all of it, now" is the case people actually have.
  */
 export const RevertToCommit: Story = {
-  args: { model: revertBasisModel, undoPicks: [] },
+  args: { model: revertBasisModel, undoMode: true },
 };
+
+/** Undo mode on a phone. */
+export const UndoModeMobile: Story = {
+  args: { undoMode: true, layout: "mobile" },
+};
+
+/**
+ * The author filter, which lives on the nav rather than in a band of its own.
+ *
+ * Open the menu at the top of the nav. GitHub's Files-changed tree puts the
+ * equivalent "owned by you or your team" filter on the tree for the same
+ * reason: whose changes you are looking at narrows the LIST, not the
+ * comparison.
+ *
+ * What a permanent band did for free — "who else is publishing right now",
+ * answered with no interaction — is reduced to the count on the trigger.
+ */
+export const AuthorMenu: Story = {};
 
 /**
  * Nothing staged.
@@ -280,68 +259,4 @@ export const Mobile: Story = { args: { layout: "mobile" } };
 export const MobileLight: Story = {
   args: { layout: "mobile" },
   globals: { theme: "light" },
-};
-
-/**
- * The same publish with the chrome cut back — the density proposal, for
- * comparison against `Default`.
- *
- * Three things are gone from every screen, and the research each came from is
- * on the component that implements it:
- *
- * 1. **The author filter band.** Now a menu on the nav, where GitHub's
- *    Files-changed tree puts the equivalent "owned by you or your team" filter.
- *    Whose changes you are looking at narrows the LIST, so it belongs on the
- *    list. See `CompareAuthorFilterMenu`.
- * 2. **Per-row avatars, unless you hover.** Google Docs shows a suggestion's
- *    author on hover rather than beside every one. The demotion is suspended
- *    for rows an undo has pulled in, which is the one case where authorship is
- *    a consequence rather than a curiosity. See `RowAuthors`.
- * 3. **The checkbox column and the counting bar.** Replaced by a per-row hover
- *    action confirmed in place — Sanity's Review Changes model. See
- *    `RowQuickUndo`.
- *
- * Read this story against `Default` rather than on its own. The question is not
- * whether it is calmer — it is — but whether anything you needed went with the
- * noise.
- */
-export const ReducedChrome: Story = { args: { density: "reduced" } };
-
-/** Reduced chrome in light mode. */
-export const ReducedChromeLight: Story = {
-  args: { density: "reduced" },
-  globals: { theme: "light" },
-};
-
-/**
- * Reduced chrome, in undo mode, where the per-row action replaces the column.
- *
- * `undoPicks: []` enters the mode. In this density that no longer means a bar
- * and eleven checkboxes; it means each row offers its own action on hover, and
- * the dependency consequence is stated in the confirmation rather than counted
- * continuously in a bar.
- *
- * The cost is visible here too: undoing four related changes is four hovers and
- * four confirmations, where the selection model did it in one click on a group
- * heading.
- */
-export const ReducedChromeUndo: Story = {
-  args: { density: "reduced", undoPicks: [] },
-};
-
-/**
- * The author filter where it now lives.
- *
- * Open the menu at the top of the nav. What the band did for free — "who else
- * is publishing right now", answered with no interaction — is reduced to the
- * count on the trigger. That is the trade, and it is the part to disagree with
- * if you are going to.
- */
-export const ReducedChromeAuthorMenu: Story = {
-  args: { density: "reduced" },
-};
-
-/** The reduced form on a phone, where the saved bands matter most. */
-export const ReducedChromeMobile: Story = {
-  args: { density: "reduced", layout: "mobile" },
 };

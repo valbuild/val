@@ -16,20 +16,12 @@ import {
 import { Button } from "../components/designSystem/button";
 import { cn } from "../components/designSystem/cn";
 import { useValPortal } from "../components/ValPortalProvider";
-import {
-  CompareAuthorFilter,
-  CompareAuthorFilterMenu,
-  authorsInModel,
-} from "./CompareAuthorFilter";
+import { CompareAuthorFilterMenu, authorsInModel } from "./CompareAuthorFilter";
 import { CompareAuthorsProvider } from "./CompareAuthorsContext";
 import { CompareUndoBar } from "./CompareUndoBar";
 import {
-  dropRequiring,
-  isSelectable,
-  navRowIdsOf,
-  requiresMapOfModel,
-  summarizeUndo,
-  toggleMany,
+  canUndo,
+  consequenceOfUndoing,
   undoKindOf,
   undoableRowsOfModel,
 } from "./undoSelection";
@@ -108,13 +100,12 @@ export function CompareDialog({
   now,
   /** Start filtered to one person. For stories; the dialog opens unfiltered. */
   initialAuthorFilter = null,
-  /** Start in undo mode with these rows picked. For stories. */
-  initialUndoPicks,
+  /** Start in undo mode. For stories; the dialog opens read-only. */
+  initialUndoMode = false,
   /** Who is looking, so the bar can say whose work a closure dragged in. */
   currentAuthorId = null,
   onUndo,
   onRevertAll,
-  density = "full",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -124,18 +115,11 @@ export function CompareDialog({
   mode?: "fs" | "http" | "unknown";
   now?: Date;
   initialAuthorFilter?: string | null;
-  initialUndoPicks?: string[];
+  initialUndoMode?: boolean;
   currentAuthorId?: string | null;
   /** Called with everything that will go — picks and their dependents. */
   onUndo?: (kind: "discard" | "revert", rowIds: string[]) => void;
   onRevertAll?: () => void;
-  /**
-   * How much chrome every row and band carries. See
-   * `CompareAuthorsContextValue.density`.
-   *
-   * Defaults to `"full"`, so this changes nothing until it is asked for.
-   */
-  density?: "full" | "reduced";
 }) {
   const firstId = useMemo(() => firstNodeId(model), [model]);
   const [selectedId, setSelectedId] = useState<string | null>(firstId);
@@ -168,66 +152,16 @@ export function CompareDialog({
    * something a thing you decided to do rather than a thing the cursor was
    * near.
    */
-  const [undoing, setUndoing] = useState(initialUndoPicks !== undefined);
-  /*
-   * Only the user's OWN picks.
-   *
-   * What the closure compels is derived on every render rather than stored:
-   * keeping both in one set would make unticking ambiguous, since a row that is
-   * present because something else required it has to be told apart from one
-   * that was chosen.
-   */
-  const [picked, setPicked] = useState<ReadonlySet<string>>(
-    () => new Set(initialUndoPicks ?? []),
-  );
-
+  const [undoing, setUndoing] = useState(initialUndoMode);
   const pane = selectedId === null ? undefined : model.panes[selectedId];
-  /*
-   * Model-wide, not pane-scoped.
-   *
-   * It was pane-scoped and cleared on navigation while rows were the only
-   * selectable thing — the reasoning being that a bar counting rows you cannot
-   * see is a trap. Nav-level controls change that: a nav row spans panes by
-   * construction, so the selection must too, and the nav is now where a
-   * cross-pane selection is visible. The bar counts what the nav shows.
-   */
-  const requiresMap = useMemo(() => requiresMapOfModel(model), [model]);
-  const navRowIds = useMemo(() => navRowIdsOf(model), [model]);
-  const undoSummary = useMemo(
-    () => summarizeUndo(picked, model, currentAuthorId),
-    [picked, model, currentAuthorId],
-  );
   const selectRow = (id: string): void => {
     setSelectedId(id);
-  };
-  const toggleRow = (rowId: string): void => {
-    const requires = requiresMap;
-    setPicked((prev) => {
-      /*
-       * Unticking anything that is currently going — whether it was picked or
-       * compelled — means refusing it, and refusing a row refuses every pick
-       * that forced it. `dropRequiring` walks the graph backwards; picks that
-       * cannot reach this row are left alone, which is what makes "not that
-       * one" possible without starting the selection over.
-       */
-      if (undoSummary.selected.has(rowId)) {
-        return dropRequiring(prev, rowId, requires);
-      }
-      const next = new Set(prev);
-      next.add(rowId);
-      return next;
-    });
   };
   const hidden = pane === undefined ? 0 : hiddenFieldCount(pane, authorFilter);
   const isMobile = forceLayout === "mobile";
 
   /*
-   * Built once and handed to whichever nav is on screen. Two call sites (the
-   * desktop rail and the phone drawer) already drifted apart once over
-   * `navRowIds`, which is what a shared local avoids.
-   */
-  /*
-   * Every row that could be undone, for the quick style's "discard all".
+   * Every row that could be undone, for "Discard all".
    *
    * The closure is not applied: this IS the closure — a set containing every
    * undoable row is closed over `requires` by construction, since anything a
@@ -236,13 +170,18 @@ export function CompareDialog({
   const allUndoableIds = useMemo(
     () =>
       undoableRowsOfModel(model)
-        .filter((row) => isSelectable(row.undo))
+        .filter((row) => canUndo(row.undo))
         .map((row) => row.id),
     [model],
   );
 
+  /*
+   * Built once and handed to whichever nav is on screen. The desktop rail and
+   * the phone drawer already drifted apart once over a prop only one of them
+   * was given, which is what a shared local avoids.
+   */
   const navFilter =
-    density === "reduced" && people.length > 1 ? (
+    people.length > 1 ? (
       <CompareAuthorFilterMenu
         profiles={model.profiles}
         authorIds={people}
@@ -272,38 +211,16 @@ export function CompareDialog({
         // screenshotted twice and compared.
         now: now ?? new Date(),
         authorFilter,
-        density,
         undo:
           undoing && undoKind !== null
             ? {
                 kind: undoKind,
-                style: density === "reduced" ? "quick" : "select",
-                selected: undoSummary.selected,
-                pulledIn: undoSummary.pulledIn,
-                consequenceOf: (rowId) => {
-                  const one = summarizeUndo(
-                    new Set([rowId]),
-                    model,
-                    currentAuthorId,
-                  );
-                  return {
-                    total: one.selected.size,
-                    pulledIn: one.pulledIn.size,
-                    others: one.othersAffected,
-                  };
-                },
-                onQuickUndo: (rowId) => {
-                  const one = summarizeUndo(
-                    new Set([rowId]),
-                    model,
-                    currentAuthorId,
-                  );
-                  onUndo?.(undoKind, [...one.selected]);
-                },
-                onToggle: toggleRow,
-                onToggleMany: (rowIds, next) =>
-                  setPicked((prev) =>
-                    toggleMany(prev, rowIds, next, requiresMap),
+                consequenceOf: (rowId) =>
+                  consequenceOfUndoing(rowId, model, currentAuthorId),
+                onQuickUndo: (rowId) =>
+                  onUndo?.(
+                    undoKind,
+                    consequenceOfUndoing(rowId, model, currentAuthorId).ids,
                   ),
               }
             : null,
@@ -394,13 +311,9 @@ export function CompareDialog({
           {undoing && undoKind !== null && (
             <CompareUndoBar
               kind={undoKind}
-              summary={undoSummary}
-              pickedCount={picked.size}
-              profiles={model.profiles}
               revertAll={model.undo?.all}
               onRevertAll={onRevertAll}
               portalContainer={portalContainer}
-              style={density === "reduced" ? "quick" : "select"}
               undoAll={{
                 /*
                  * No number on this one, deliberately. `allUndoableIds` counts
@@ -417,34 +330,9 @@ export function CompareDialog({
                   setUndoing(false);
                 },
               }}
-              onCancel={() => {
-                setUndoing(false);
-                setPicked(new Set());
-              }}
-              onConfirm={() => {
-                onUndo?.(undoKind, [...undoSummary.selected]);
-                setUndoing(false);
-                setPicked(new Set());
-              }}
+              onCancel={() => setUndoing(false)}
             />
           )}
-          {/*
-           * The band exists only at full density. In reduced density the same
-           * filter is a menu on the nav — see `CompareAuthorFilterMenu` for why
-           * that is where it belongs, and what is lost by moving it.
-           */}
-          {density === "full" && people.length > 1 && (
-            <div className="shrink-0 border-b border-border-primary px-4 py-2">
-              <CompareAuthorFilter
-                profiles={model.profiles}
-                authorIds={people}
-                selected={authorFilter}
-                onSelect={setAuthorFilter}
-                mode={mode}
-              />
-            </div>
-          )}
-
           {isMobile ? (
             <div className="relative flex min-h-0 flex-1 flex-col px-3 py-3">
               <div className="mb-2 flex min-w-0 items-center gap-2">
@@ -500,7 +388,6 @@ export function CompareDialog({
                     sections={model.sections}
                     selectedId={selectedId}
                     authorFilter={authorFilter}
-                    navRowIds={navRowIds}
                     filterSlot={navFilter}
                     onSelect={(id) => {
                       selectRow(id);
@@ -517,7 +404,6 @@ export function CompareDialog({
                 sections={model.sections}
                 selectedId={selectedId}
                 authorFilter={authorFilter}
-                navRowIds={navRowIds}
                 filterSlot={navFilter}
                 onSelect={selectRow}
               />

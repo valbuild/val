@@ -10,9 +10,6 @@ import {
 } from "lucide-react";
 import { cn } from "../components/designSystem/cn";
 import { ChangeKindIcon, changeKindLabel } from "./ChangeKindIcon";
-import { UndoAggregateCheckbox } from "./CompareUndoBar";
-import { useCompareAuthors } from "./CompareAuthorsContext";
-import { aggregateOf } from "./undoSelection";
 import type {
   CompareNavKind,
   CompareNavNode,
@@ -67,7 +64,6 @@ export function CompareNav({
   selectedId,
   onSelect,
   authorFilter = null,
-  navRowIds,
   filterSlot,
   className,
 }: {
@@ -76,14 +72,6 @@ export function CompareNav({
   onSelect: (id: string) => void;
   /** Show only rows this person touched. Null shows everyone's. */
   authorFilter?: string | null;
-  /**
-   * The selectable rows each nav node stands for, by node id.
-   *
-   * Computed once per model by `navRowIdsOf` rather than per row: a folder's
-   * set is the union of its descendants', so deriving it at the row would walk
-   * the same subtree once per rendered node.
-   */
-  navRowIds?: ReadonlyMap<string, readonly string[]>;
   /**
    * Controls that filter this list — currently the author menu.
    *
@@ -134,7 +122,6 @@ export function CompareNav({
                     selectedId={selectedId}
                     onSelect={onSelect}
                     authorFilter={authorFilter}
-                    navRowIds={navRowIds}
                   />
                 ))}
               </ul>
@@ -152,17 +139,13 @@ function NavRow({
   selectedId,
   onSelect,
   authorFilter,
-  navRowIds,
 }: {
   node: CompareNavNode;
   depth: number;
   selectedId: string | null;
   onSelect: (id: string) => void;
   authorFilter: string | null;
-  navRowIds?: ReadonlyMap<string, readonly string[]>;
 }) {
-  const ctx = useCompareAuthors();
-  const undoIds = navRowIds?.get(node.id) ?? [];
   const children = (node.children ?? []).filter((child) =>
     navNodeMatches(child, authorFilter),
   );
@@ -188,25 +171,6 @@ function NavRow({
         )}
         style={{ paddingLeft: depth * 12 }}
       >
-        {/*
-         * The undo checkbox sits OUTSIDE the navigate button, before the
-         * disclosure arrow.
-         *
-         * Nesting it would put a control inside a control — clicking to tick a
-         * page would also navigate to it, which is not what a checkbox means
-         * anywhere else. Keeping it first also lines every checkbox up in one
-         * column regardless of depth, which is what makes a partially selected
-         * folder readable at a glance.
-         */}
-        {ctx?.undo?.style === "select" && undoIds.length > 0 && (
-          <span style={{ marginLeft: depth === 0 ? 0 : 2 }}>
-            <UndoAggregateCheckbox
-              state={aggregateOf(undoIds, ctx.undo.selected)}
-              onToggle={(next) => ctx.undo?.onToggleMany(undoIds, next)}
-              label={`Undo all changes in ${node.label}`}
-            />
-          </span>
-        )}
         {hasChildren ? (
           <button
             onClick={() => setOpen((prev) => !prev)}
@@ -299,7 +263,6 @@ function NavRow({
               selectedId={selectedId}
               onSelect={onSelect}
               authorFilter={authorFilter}
-              navRowIds={navRowIds}
             />
           ))}
         </ul>
