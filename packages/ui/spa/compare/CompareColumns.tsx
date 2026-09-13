@@ -137,8 +137,23 @@ function SideHeading({
       >
         {side.label}
       </div>
-      {side.caption !== undefined && (
-        <div className="truncate text-xs text-fg-tertiary">{side.caption}</div>
+      {/*
+       * The byline and the caption on one line.
+       *
+       * A commit has ONE author, so naming them in the header is the whole
+       * attribution for that side — the per-row avatars on the right answer a
+       * different question (who staged this particular change) and would be
+       * wrong here. "Published" has no byline: it is the accumulation of many
+       * commits and no single person made it.
+       */}
+      {(side.caption !== undefined || side.byline !== undefined) && (
+        <div className="truncate text-xs text-fg-tertiary">
+          {side.byline !== undefined && (
+            <span className="text-fg-secondary">by {side.byline}</span>
+          )}
+          {side.byline !== undefined && side.caption !== undefined && " · "}
+          {side.caption}
+        </div>
       )}
     </div>
   );

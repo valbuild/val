@@ -14,6 +14,9 @@ import {
   SelectValue,
 } from "../components/designSystem/select";
 import { cn } from "../components/designSystem/cn";
+import { useValPortal } from "../components/ValPortalProvider";
+import { CompareAuthorFilter, authorsInModel } from "./CompareAuthorFilter";
+import { CompareAuthorsProvider } from "./CompareAuthorsContext";
 import { CompareColumns, CompareMobileColumns } from "./CompareColumns";
 import { CompareNav } from "./CompareNav";
 import {
@@ -71,12 +74,20 @@ export function CompareDialog({
    * the phone form in a desktop-sized Storybook frame without a viewport addon.
    */
   forceLayout,
+  mode = "http",
+  /** Fixed clock, so relative dates in the author popover are screenshottable. */
+  now,
+  /** Start filtered to one person. For stories; the dialog opens unfiltered. */
+  initialAuthorFilter = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   model: CompareModel;
   onSelectBasis?: (basisId: string) => void;
   forceLayout?: "desktop" | "mobile";
+  mode?: "fs" | "http" | "unknown";
+  now?: Date;
+  initialAuthorFilter?: string | null;
 }) {
   const firstId = useMemo(() => firstNodeId(model), [model]);
   const [selectedId, setSelectedId] = useState<string | null>(firstId);
@@ -90,9 +101,17 @@ export function CompareDialog({
    * header names what you are looking at, so the list is never lost.
    */
   const [navOpen, setNavOpen] = useState(false);
+  const [authorFilter, setAuthorFilter] = useState<string | null>(
+    initialAuthorFilter,
+  );
+  const portalContainer = useValPortal();
+  const people = useMemo(
+    () => authorsInModel(model.sections),
+    [model.sections],
+  );
 
   const pane = selectedId === null ? undefined : model.panes[selectedId];
-  const hidden = pane === undefined ? 0 : hiddenFieldCount(pane);
+  const hidden = pane === undefined ? 0 : hiddenFieldCount(pane, authorFilter);
   const isMobile = forceLayout === "mobile";
 
   const toggle = (
@@ -104,147 +123,184 @@ export function CompareDialog({
   );
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className={cn(
-          "flex h-[85vh] max-h-[85vh] w-[95vw] max-w-[1200px] flex-col gap-0 overflow-hidden p-0",
-          forceLayout === "mobile" && "h-[720px] w-[390px] max-w-[390px]",
-        )}
-      >
-        {/*
-         * Stacked below `sm`, and `pr-10` at every width.
-         *
-         * Both are about the same corner. `DialogContent` draws its own close
-         * button absolutely in the top right, so a header that runs to the edge
-         * puts the basis dropdown underneath it; and a single row put the title
-         * and the dropdown in the same flex line, where on a phone the title
-         * lost and rendered as "R." over "1…".
-         */}
-        <header className="flex shrink-0 flex-col gap-2 border-b border-border-primary px-4 py-3 pr-10 sm:flex-row sm:items-center sm:gap-3">
-          <div className="min-w-0 sm:flex-1">
-            <DialogTitle className="truncate text-base">
-              Review changes
-            </DialogTitle>
-            <DialogDescription className="truncate text-xs text-fg-tertiary">
-              {`${model.changeCount} ${
-                model.changeCount === 1 ? "change" : "changes"
-              } in this publish`}
-            </DialogDescription>
-          </div>
-          <BasisPicker model={model} onSelectBasis={onSelectBasis} />
-        </header>
-
-        {isMobile ? (
-          <div className="relative flex min-h-0 flex-1 flex-col px-3 py-3">
-            <div className="mb-2 flex min-w-0 items-center gap-2">
-              <button
-                onClick={() => setNavOpen(true)}
-                className="flex shrink-0 items-center gap-1 rounded border border-border-primary px-2 py-1 text-xs text-fg-secondary"
-              >
-                <PanelLeft size={12} aria-hidden />
-                Changes
-              </button>
-              <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg-primary">
-                {pane?.title ?? "Nothing selected"}
-              </span>
+    <CompareAuthorsProvider
+      value={{
+        profiles: model.profiles,
+        portalContainer,
+        mode,
+        // A fixed clock when one is given: the author popover renders relative
+        // dates, and a component that reads `new Date()` itself cannot be
+        // screenshotted twice and compared.
+        now: now ?? new Date(),
+        authorFilter,
+      }}
+    >
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent
+          className={cn(
+            "flex h-[85vh] max-h-[85vh] w-[95vw] max-w-[1200px] flex-col gap-0 overflow-hidden p-0",
+            forceLayout === "mobile" && "h-[720px] w-[390px] max-w-[390px]",
+          )}
+        >
+          {/*
+           * Stacked below `sm`, and `pr-10` at every width.
+           *
+           * Both are about the same corner. `DialogContent` draws its own close
+           * button absolutely in the top right, so a header that runs to the edge
+           * puts the basis dropdown underneath it; and a single row put the title
+           * and the dropdown in the same flex line, where on a phone the title
+           * lost and rendered as "R." over "1…".
+           */}
+          <header className="flex shrink-0 flex-col gap-2 border-b border-border-primary px-4 py-3 pr-10 sm:flex-row sm:items-center sm:gap-3">
+            <div className="min-w-0 sm:flex-1">
+              <DialogTitle className="truncate text-base">
+                Review changes
+              </DialogTitle>
+              {/*
+               * The count describes the whole publish, so under a filter it
+               * would be describing something other than what is on screen.
+               * Rather than compute a filtered total — which the model does
+               * not carry, and which would have to agree exactly with what the
+               * panes render — the line says whose changes are shown instead.
+               */}
+              <DialogDescription className="truncate text-xs text-fg-tertiary">
+                {authorFilter === null
+                  ? `${model.changeCount} ${
+                      model.changeCount === 1 ? "change" : "changes"
+                    } in this publish`
+                  : `Showing changes by ${
+                      model.profiles[authorFilter]?.fullName ?? authorFilter
+                    }`}
+              </DialogDescription>
             </div>
-            {pane === undefined ? (
-              <EmptyPane />
-            ) : (
-              <CompareMobileColumns
-                leftSide={model.left}
-                rightSide={model.right}
-                showing={showing}
-                onShow={setShowing}
-                toolbar={toggle}
-                left={
-                  <ComparePaneSide
-                    pane={pane}
-                    side="before"
-                    showUnchanged={showUnchanged}
-                  />
-                }
-                right={
-                  <ComparePaneSide
-                    pane={pane}
-                    side="after"
-                    showUnchanged={showUnchanged}
-                  />
-                }
+            <BasisPicker model={model} onSelectBasis={onSelectBasis} />
+          </header>
+          {people.length > 1 && (
+            <div className="shrink-0 border-b border-border-primary px-4 py-2">
+              <CompareAuthorFilter
+                profiles={model.profiles}
+                authorIds={people}
+                selected={authorFilter}
+                onSelect={setAuthorFilter}
+                mode={mode}
               />
-            )}
-            {navOpen && (
-              <div className="absolute inset-0 z-20 flex flex-col bg-bg-primary">
-                <div className="flex items-center gap-2 border-b border-border-primary px-3 py-2">
-                  <button
-                    onClick={() => setNavOpen(false)}
-                    className="flex items-center gap-1 text-sm text-fg-secondary"
-                  >
-                    <ChevronLeft size={14} aria-hidden />
-                    Back
-                  </button>
-                </div>
-                <CompareNav
-                  className="flex-1 px-2 py-2"
-                  sections={model.sections}
-                  selectedId={selectedId}
-                  onSelect={(id) => {
-                    setSelectedId(id);
-                    setNavOpen(false);
-                  }}
-                />
+            </div>
+          )}
+
+          {isMobile ? (
+            <div className="relative flex min-h-0 flex-1 flex-col px-3 py-3">
+              <div className="mb-2 flex min-w-0 items-center gap-2">
+                <button
+                  onClick={() => setNavOpen(true)}
+                  className="flex shrink-0 items-center gap-1 rounded border border-border-primary px-2 py-1 text-xs text-fg-secondary"
+                >
+                  <PanelLeft size={12} aria-hidden />
+                  Changes
+                </button>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg-primary">
+                  {pane?.title ?? "Nothing selected"}
+                </span>
               </div>
-            )}
-          </div>
-        ) : (
-          <div className="flex min-h-0 flex-1">
-            <CompareNav
-              className="w-[260px] shrink-0 border-r border-border-primary px-2 py-3"
-              sections={model.sections}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-            />
-            <div className="flex min-w-0 flex-1 flex-col px-4 py-3">
               {pane === undefined ? (
                 <EmptyPane />
               ) : (
-                <>
-                  <div className="mb-2 min-w-0">
-                    <h2 className="truncate text-sm font-medium text-fg-primary">
-                      {pane.title}
-                    </h2>
-                    {pane.subtitle !== undefined && (
-                      <p className="truncate text-xs text-fg-tertiary">
-                        {pane.subtitle}
-                      </p>
-                    )}
+                <CompareMobileColumns
+                  leftSide={model.left}
+                  rightSide={model.right}
+                  showing={showing}
+                  onShow={setShowing}
+                  toolbar={toggle}
+                  left={
+                    <ComparePaneSide
+                      pane={pane}
+                      side="before"
+                      showUnchanged={showUnchanged}
+                    />
+                  }
+                  right={
+                    <ComparePaneSide
+                      pane={pane}
+                      side="after"
+                      showUnchanged={showUnchanged}
+                    />
+                  }
+                />
+              )}
+              {navOpen && (
+                <div className="absolute inset-0 z-20 flex flex-col bg-bg-primary">
+                  <div className="flex items-center gap-2 border-b border-border-primary px-3 py-2">
+                    <button
+                      onClick={() => setNavOpen(false)}
+                      className="flex items-center gap-1 text-sm text-fg-secondary"
+                    >
+                      <ChevronLeft size={14} aria-hidden />
+                      Back
+                    </button>
                   </div>
-                  <CompareColumns
-                    leftSide={model.left}
-                    rightSide={model.right}
-                    toolbar={toggle}
-                    left={
-                      <ComparePaneSide
-                        pane={pane}
-                        side="before"
-                        showUnchanged={showUnchanged}
-                      />
-                    }
-                    right={
-                      <ComparePaneSide
-                        pane={pane}
-                        side="after"
-                        showUnchanged={showUnchanged}
-                      />
-                    }
+                  <CompareNav
+                    className="flex-1 px-2 py-2"
+                    sections={model.sections}
+                    selectedId={selectedId}
+                    authorFilter={authorFilter}
+                    onSelect={(id) => {
+                      setSelectedId(id);
+                      setNavOpen(false);
+                    }}
                   />
-                </>
+                </div>
               )}
             </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+          ) : (
+            <div className="flex min-h-0 flex-1">
+              <CompareNav
+                className="w-[260px] shrink-0 border-r border-border-primary px-2 py-3"
+                sections={model.sections}
+                selectedId={selectedId}
+                authorFilter={authorFilter}
+                onSelect={setSelectedId}
+              />
+              <div className="flex min-w-0 flex-1 flex-col px-4 py-3">
+                {pane === undefined ? (
+                  <EmptyPane />
+                ) : (
+                  <>
+                    <div className="mb-2 min-w-0">
+                      <h2 className="truncate text-sm font-medium text-fg-primary">
+                        {pane.title}
+                      </h2>
+                      {pane.subtitle !== undefined && (
+                        <p className="truncate text-xs text-fg-tertiary">
+                          {pane.subtitle}
+                        </p>
+                      )}
+                    </div>
+                    <CompareColumns
+                      leftSide={model.left}
+                      rightSide={model.right}
+                      toolbar={toggle}
+                      left={
+                        <ComparePaneSide
+                          pane={pane}
+                          side="before"
+                          showUnchanged={showUnchanged}
+                        />
+                      }
+                      right={
+                        <ComparePaneSide
+                          pane={pane}
+                          side="after"
+                          showUnchanged={showUnchanged}
+                        />
+                      }
+                    />
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </CompareAuthorsProvider>
   );
 }
 

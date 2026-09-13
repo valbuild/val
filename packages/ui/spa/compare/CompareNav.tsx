@@ -42,15 +42,35 @@ const KIND_ICONS: Record<CompareNavKind, typeof FileText> = {
   "media-file": ImageIcon,
 };
 
+/**
+ * Whether a row survives the author filter.
+ *
+ * A row with no `authorIds` is KEPT — it is structure (a folder) or a node the
+ * adapter has not attributed, and hiding it would silently shorten the tree
+ * rather than narrow it. A folder therefore has to carry the union of its
+ * children's authors, which it does.
+ */
+function navNodeMatches(
+  node: CompareNavNode,
+  authorFilter: string | null,
+): boolean {
+  if (authorFilter === null) return true;
+  if (node.authorIds === undefined) return true;
+  return node.authorIds.includes(authorFilter);
+}
+
 export function CompareNav({
   sections,
   selectedId,
   onSelect,
+  authorFilter = null,
   className,
 }: {
   sections: CompareNavSection[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  /** Show only rows this person touched. Null shows everyone's. */
+  authorFilter?: string | null;
   className?: string;
 }) {
   return (
@@ -58,34 +78,44 @@ export function CompareNav({
       className={cn("min-w-0 overflow-y-auto", className)}
       aria-label="Changed content"
     >
-      {sections.map((section) => (
-        <div key={section.id} className="mb-4 last:mb-0">
-          <div className="px-2 pb-1 text-xs font-semibold uppercase tracking-wider text-fg-tertiary">
-            {section.title}
+      {sections.map((section) => {
+        const nodes = section.nodes.filter((node) =>
+          navNodeMatches(node, authorFilter),
+        );
+        return (
+          <div key={section.id} className="mb-4 last:mb-0">
+            <div className="px-2 pb-1 text-xs font-semibold uppercase tracking-wider text-fg-tertiary">
+              {section.title}
+            </div>
+            {nodes.length === 0 ? (
+              /*
+               * Said rather than left blank. An empty Media section is a real
+               * answer to "did this publish touch any images" — and a section
+               * that vanished when empty would make its absence mean two things:
+               * nothing changed, or this project has no galleries at all.
+               */
+              <div className="px-2 py-1 text-xs text-fg-tertiary">
+                {authorFilter === null
+                  ? "No changes"
+                  : "Nothing by this person"}
+              </div>
+            ) : (
+              <ul className="min-w-0">
+                {nodes.map((node) => (
+                  <NavRow
+                    key={node.id}
+                    node={node}
+                    depth={0}
+                    selectedId={selectedId}
+                    onSelect={onSelect}
+                    authorFilter={authorFilter}
+                  />
+                ))}
+              </ul>
+            )}
           </div>
-          {section.nodes.length === 0 ? (
-            /*
-             * Said rather than left blank. An empty Media section is a real
-             * answer to "did this publish touch any images" — and a section
-             * that vanished when empty would make its absence mean two things:
-             * nothing changed, or this project has no galleries at all.
-             */
-            <div className="px-2 py-1 text-xs text-fg-tertiary">No changes</div>
-          ) : (
-            <ul className="min-w-0">
-              {section.nodes.map((node) => (
-                <NavRow
-                  key={node.id}
-                  node={node}
-                  depth={0}
-                  selectedId={selectedId}
-                  onSelect={onSelect}
-                />
-              ))}
-            </ul>
-          )}
-        </div>
-      ))}
+        );
+      })}
     </nav>
   );
 }
@@ -95,13 +125,18 @@ function NavRow({
   depth,
   selectedId,
   onSelect,
+  authorFilter,
 }: {
   node: CompareNavNode;
   depth: number;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  authorFilter: string | null;
 }) {
-  const hasChildren = node.children !== undefined && node.children.length > 0;
+  const children = (node.children ?? []).filter((child) =>
+    navNodeMatches(child, authorFilter),
+  );
+  const hasChildren = children.length > 0;
   /*
    * Open by default, at every depth.
    *
@@ -191,23 +226,30 @@ function NavRow({
            * The count sits on rows that have children, where it says how much
            * is hidden when collapsed. On a leaf it would only ever say "1",
            * next to an icon that already said which kind of 1 it is.
+           *
+           * Under a filter it counts the children that SURVIVED it. The stored
+           * `changedCount` is the unfiltered total, and showing "3" above one
+           * visible row reads as two rows having failed to render.
            */}
-          {hasChildren && node.changedCount !== undefined && (
+          {hasChildren && (
             <span className="shrink-0 text-xs tabular-nums text-fg-tertiary">
-              {node.changedCount}
+              {authorFilter === null
+                ? (node.changedCount ?? children.length)
+                : children.length}
             </span>
           )}
         </button>
       </div>
       {hasChildren && open && (
         <ul className="min-w-0">
-          {node.children?.map((child) => (
+          {children.map((child) => (
             <NavRow
               key={child.id}
               node={child}
               depth={depth + 1}
               selectedId={selectedId}
               onSelect={onSelect}
+              authorFilter={authorFilter}
             />
           ))}
         </ul>

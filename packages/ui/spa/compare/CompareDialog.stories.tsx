@@ -31,9 +31,11 @@ import type { CompareModel } from "./types";
 function Harness({
   model,
   layout,
+  authorFilter,
 }: {
   model: CompareModel;
   layout?: "desktop" | "mobile";
+  authorFilter?: string | null;
 }) {
   const [basisId, setBasisId] = useState(model.selectedBasisId);
   return (
@@ -44,6 +46,7 @@ function Harness({
         model={{ ...model, selectedBasisId: basisId }}
         onSelectBasis={setBasisId}
         forceLayout={layout}
+        initialAuthorFilter={authorFilter ?? null}
       />
     </div>
   );
@@ -103,10 +106,40 @@ export const ArrayWithMoves: Story = {};
 export const RenamedRoute: Story = {};
 
 /**
+ * Who staged each change.
+ *
+ * Avatars sit on the RIGHT column only: the left is published content nobody
+ * is currently editing, so there is no editor to name there. Clicking one opens
+ * `FieldPatchAuthorsPure` — the same popover the current review screen uses,
+ * listing every patch behind that row with its op icon and time — rather than a
+ * second attribution component to keep in step.
+ *
+ * `heading` is the one to look at: two people, three patches.
+ */
+export const Authors: Story = {};
+
+/**
+ * Narrowed to one person.
+ *
+ * The nav drops rows nobody-but-them touched, and the diff drops their
+ * colleagues' rows. Rows with no author at all — group headings, unchanged
+ * rows revealed by the toggle — survive, because they are structure rather
+ * than somebody else's work.
+ */
+export const FilteredToOneAuthor: Story = {
+  args: { authorFilter: "profile-linus" },
+};
+
+/**
  * Comparing against a commit instead of against published.
  *
  * Only the side labels differ, which is the whole claim the basis dropdown
  * makes: one compare surface, reachable from Publish and from History.
+ *
+ * Attribution changes shape here, though: a commit has ONE author, so the left
+ * column names them in its header ("by Linus Pauling") rather than per row.
+ * The right column keeps its per-row avatars, because those answer a different
+ * question — who staged this particular change.
  */
 export const AgainstACommit: Story = { args: { model: commitBasisModel } };
 

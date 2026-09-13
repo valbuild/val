@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import type { AuthorPatchInfo } from "../components/FieldPatchAuthors";
+import type { Profile } from "../components/ValProvider";
 
 /**
  * The view model the compare dialog renders, and nothing else.
@@ -41,6 +43,21 @@ export type CompareChangeKind =
   | "moved"
   | "unchanged";
 
+/**
+ * Who wrote the patches behind one change, keyed by author id.
+ *
+ * Exactly `FieldPatchAuthorsPure`'s `patchesByAuthorIds`, and deliberately the
+ * same shape rather than a summary: that component already renders this as an
+ * avatar stack opening a per-patch history, it is what the current review
+ * screen uses, and a second attribution component would drift from it.
+ *
+ * It is a MAP rather than a list of names because one change routinely has
+ * several patches by several people — `PatchSets` groups by path, not by
+ * author — and "who touched this, and when" needs the patches, not just the
+ * set of ids.
+ */
+export type CompareAuthorship = Record<string, AuthorPatchInfo[]>;
+
 /** What kind of thing a nav row points at, which decides its icon and grouping. */
 export type CompareNavKind =
   | "page"
@@ -74,6 +91,14 @@ export type CompareNavNode = {
    * this line.
    */
   renamedFrom?: string;
+  /**
+   * Everyone with a staged change at or under this row.
+   *
+   * Ids only: the nav shows no avatars — attribution lives in the right column
+   * — but filtering the dialog to one person has to be able to drop a nav row
+   * without walking into its pane to find out whether it would be empty.
+   */
+  authorIds?: string[];
   /** How many changed things sit at or under this row. */
   changedCount?: number;
   children?: CompareNavNode[];
@@ -97,6 +122,15 @@ export type CompareNavSection = {
 export type CompareSide = {
   label: string;
   caption?: string;
+  /**
+   * Who made this side, when one person did — a commit's committer.
+   *
+   * Only ever set on the left, and only on a commit basis: a commit has one
+   * author, whereas "Published" is the accumulation of many and "After
+   * publish" is attributed per row instead. So this is the header-level
+   * counterpart of the per-row avatars, not a duplicate of them.
+   */
+  byline?: string;
 };
 
 /** An entry in the "comparing against" dropdown. */
@@ -119,6 +153,15 @@ export type CompareFieldRow = {
   before?: ReactNode;
   /** Absent for `removed`. */
   after?: ReactNode;
+  /**
+   * Who staged this, shown on the RIGHT column only.
+   *
+   * The left column is published content that nobody is currently editing, so
+   * there is no editor to name there; every staged change belongs to the side
+   * it is being staged into. Putting it on both would also mean drawing the
+   * same person twice for one change, once per column.
+   */
+  authors?: CompareAuthorship;
 };
 
 /**
@@ -138,6 +181,8 @@ export type CompareListItemRow = {
   fields?: CompareFieldRow[];
   /** Where it went, for `moved`. Required to say anything useful about one. */
   move?: CompareMove;
+  /** Who staged it. Right column only — see `CompareFieldRow.authors`. */
+  authors?: CompareAuthorship;
 };
 
 /**
@@ -206,4 +251,12 @@ export type CompareModel = {
   selectedBasisId: string;
   /** Total changed things, shown under the dialog title. */
   changeCount: number;
+  /**
+   * Everyone who appears in `authors`, by id.
+   *
+   * Passed with the model rather than read from a store so a story can render
+   * attribution without mounting one — the same reason `ComparePatchSets`
+   * takes `profilesByAuthorIds` as a prop.
+   */
+  profiles: Record<string, Profile>;
 };

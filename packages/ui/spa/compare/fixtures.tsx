@@ -1,5 +1,8 @@
 import type { ReactNode } from "react";
+import type { AuthorPatchInfo } from "../components/FieldPatchAuthors";
+import type { Profile } from "../components/ValProvider";
 import type {
+  CompareAuthorship,
   CompareFieldRow,
   CompareListItemRow,
   CompareModel,
@@ -36,6 +39,49 @@ function swatch(label: string, color: string): ReactNode {
   );
 }
 
+/** The two editors the mock content host knows, so ids line up with e2e. */
+export const PROFILES: Record<string, Profile> = {
+  "profile-ada": {
+    fullName: "Ada Lovelace",
+    email: "ada@example.com",
+    avatar: null,
+  },
+  "profile-linus": {
+    fullName: "Linus Pauling",
+    email: "linus@example.com",
+    avatar: null,
+  },
+};
+
+/** Minutes ago, as an ISO string, so the popover's relative dates read sensibly. */
+function ago(minutes: number): string {
+  return new Date(Date.now() - minutes * 60_000).toISOString();
+}
+
+function patches(opType: string, minutes: number): AuthorPatchInfo[] {
+  return [{ opType, createdAt: ago(minutes) }];
+}
+
+/** One author. */
+function by(
+  authorId: keyof typeof PROFILES | string,
+  opType: string,
+  minutes: number,
+): CompareAuthorship {
+  return { [authorId]: patches(opType, minutes) };
+}
+
+/** Two people on one change, which `PatchSets` produces routinely. */
+function byBoth(): CompareAuthorship {
+  return {
+    "profile-ada": [
+      { opType: "replace", createdAt: ago(140) },
+      { opType: "replace", createdAt: ago(12) },
+    ],
+    "profile-linus": patches("replace", 55),
+  };
+}
+
 function field(
   id: string,
   label: string,
@@ -43,8 +89,9 @@ function field(
   before?: ReactNode,
   after?: ReactNode,
   path?: string,
+  authors?: CompareAuthorship,
 ): CompareFieldRow {
-  return { id, label, change, before, after, path };
+  return { id, label, change, before, after, path, authors };
 }
 
 function item(
@@ -71,6 +118,8 @@ const landingPane: ComparePane = {
           "changed",
           text("Content, super-charged"),
           text("Content, super-charged — and yours to edit"),
+          undefined,
+          byBoth(),
         ),
         field(
           "brand",
@@ -79,14 +128,25 @@ const landingPane: ComparePane = {
           swatch("hsl(217 91% 60%)", "hsl(217 91% 60%)"),
           swatch("hsl(262 83% 58%)", "hsl(262 83% 58%)"),
           "theme.brand",
+          by("profile-linus", "replace", 55),
         ),
-        field("badge", "badge", "added", undefined, text("New in 0.125")),
+        field(
+          "badge",
+          "badge",
+          "added",
+          undefined,
+          text("New in 0.125"),
+          undefined,
+          by("profile-ada", "add", 12),
+        ),
         field(
           "legacyNote",
           "legacyNote",
           "removed",
           text("Requires the beta channel."),
           undefined,
+          undefined,
+          by("profile-ada", "remove", 8),
         ),
         // Present so the "Show all fields" toggle has something to reveal.
         field(
@@ -122,11 +182,14 @@ const authorsPane: ComparePane = {
       rows: [
         item("kimmid", "kimmid", "added", {
           preview: text("Kim Midtlid"),
+          authors: by("profile-linus", "add", 200),
         }),
         item("erlamd", "erlamd", "removed", {
           preview: text("Erlend Åmdal"),
+          authors: by("profile-ada", "remove", 30),
         }),
         item("teddy", "teddy", "changed", {
+          authors: by("profile-linus", "replace", 45),
           fields: [
             field(
               "teddy-name",
@@ -160,11 +223,21 @@ const listsPane: ComparePane = {
       title: "keywords",
       summary: "2 added · 1 removed · 1 moved",
       rows: [
-        item("kw-history", "history", "added", { preview: text("history") }),
-        item("kw-restore", "restore", "added", { preview: text("restore") }),
-        item("kw-content", "content", "removed", { preview: text("content") }),
+        item("kw-history", "history", "added", {
+          preview: text("history"),
+          authors: by("profile-ada", "add", 25),
+        }),
+        item("kw-restore", "restore", "added", {
+          preview: text("restore"),
+          authors: by("profile-ada", "add", 25),
+        }),
+        item("kw-content", "content", "removed", {
+          preview: text("content"),
+          authors: by("profile-linus", "remove", 60),
+        }),
         item("kw-publish", "publish", "moved", {
           preview: text("publish"),
+          authors: by("profile-linus", "move", 60),
           move: { kind: "reorder", from: 3, to: 0 },
         }),
       ],
@@ -176,6 +249,7 @@ const listsPane: ComparePane = {
       summary: "1 changed",
       rows: [
         item("prio-2", "[2]", "changed", {
+          authors: by("profile-ada", "replace", 15),
           fields: [field("prio-2-v", "value", "changed", text("3"), text("5"))],
         }),
       ],
@@ -263,6 +337,7 @@ const routesPane: ComparePane = {
       summary: "1 renamed · 1 changed",
       rows: [
         item("route-renamed", "/blogs/history-and-restore", "moved", {
+          authors: by("profile-linus", "move", 90),
           preview: text("History, restored"),
           move: {
             kind: "rename",
@@ -271,6 +346,7 @@ const routesPane: ComparePane = {
           },
         }),
         item("route-edited", "/blogs/getting-started", "changed", {
+          authors: by("profile-ada", "replace", 20),
           fields: [
             field(
               "gs-title",
@@ -298,12 +374,14 @@ const mediaPane: ComparePane = {
       summary: "1 added · 1 removed",
       rows: [
         item("img-hero", "hero-a1b2c.jpg", "added", {
+          authors: by("profile-ada", "file", 18),
           preview: swatch(
             "1600×900 · image/jpeg",
             "linear-gradient(135deg,#334155,#0f172a)",
           ),
         }),
         item("img-old", "old-banner-9f3e1.png", "removed", {
+          authors: by("profile-linus", "file", 70),
           preview: swatch(
             "1200×400 · image/png",
             "linear-gradient(135deg,#7f1d1d,#450a0a)",
@@ -329,6 +407,8 @@ const settingsPane: ComparePane = {
           "changed",
           text("Val Examples"),
           text("Val Examples — Next"),
+          undefined,
+          by("profile-ada", "replace", 5),
         ),
         field("locale", "locale", "unchanged", text("en"), text("en")),
         field("analytics", "analytics", "unchanged", text("off"), text("off")),
@@ -339,6 +419,7 @@ const settingsPane: ComparePane = {
 
 export const compareModel: CompareModel = {
   changeCount: 14,
+  profiles: PROFILES,
   left: { label: "Published", caption: "3 days ago · mockcommit0" },
   right: { label: "After publish", caption: "14 staged changes" },
   selectedBasisId: "published",
@@ -368,12 +449,14 @@ export const compareModel: CompareModel = {
           kind: "page",
           change: "changed",
           changedCount: 4,
+          authorIds: ["profile-ada", "profile-linus"],
         },
         {
           id: "folder-blogs",
           label: "blogs",
           kind: "folder",
           changedCount: 3,
+          authorIds: ["profile-ada", "profile-linus"],
           children: [
             {
               id: "page-new-blog",
@@ -381,6 +464,7 @@ export const compareModel: CompareModel = {
               sublabel: "/blogs/history-restore",
               kind: "page",
               change: "added",
+              authorIds: ["profile-ada"],
             },
             {
               id: "page-removed-blog",
@@ -388,6 +472,7 @@ export const compareModel: CompareModel = {
               sublabel: "/blogs/old-announcement",
               kind: "page",
               change: "removed",
+              authorIds: ["profile-ada"],
             },
             {
               id: "page-renamed-blog",
@@ -398,6 +483,7 @@ export const compareModel: CompareModel = {
               renamedFrom: "/blogs/history-restore",
               kind: "page",
               change: "moved",
+              authorIds: ["profile-linus"],
             },
           ],
         },
@@ -414,6 +500,7 @@ export const compareModel: CompareModel = {
           kind: "module",
           change: "changed",
           changedCount: 3,
+          authorIds: ["profile-ada", "profile-linus"],
         },
         {
           id: "mod-lists",
@@ -422,6 +509,7 @@ export const compareModel: CompareModel = {
           kind: "module",
           change: "changed",
           changedCount: 5,
+          authorIds: ["profile-ada", "profile-linus"],
         },
         {
           id: "mod-settings",
@@ -430,6 +518,7 @@ export const compareModel: CompareModel = {
           kind: "module",
           change: "changed",
           changedCount: 1,
+          authorIds: ["profile-ada"],
         },
       ],
     },
@@ -444,18 +533,21 @@ export const compareModel: CompareModel = {
           kind: "media-dir",
           change: "changed",
           changedCount: 2,
+          authorIds: ["profile-ada", "profile-linus"],
           children: [
             {
               id: "media-hero",
               label: "hero-a1b2c.jpg",
               kind: "media-file",
               change: "added",
+              authorIds: ["profile-ada"],
             },
             {
               id: "media-old",
               label: "old-banner-9f3e1.png",
               kind: "media-file",
               change: "removed",
+              authorIds: ["profile-linus"],
             },
           ],
         },
@@ -530,6 +622,7 @@ export const compareModel: CompareModel = {
 /** One module only — the narrow case, and the one a story can read at a glance. */
 export const singleModuleModel: CompareModel = {
   changeCount: 1,
+  profiles: PROFILES,
   left: { label: "Published", caption: "3 days ago" },
   right: { label: "After publish", caption: "1 staged change" },
   selectedBasisId: "published",
@@ -546,6 +639,7 @@ export const singleModuleModel: CompareModel = {
           kind: "module",
           change: "changed",
           changedCount: 1,
+          authorIds: ["profile-ada"],
         },
       ],
     },
@@ -564,7 +658,8 @@ export const commitBasisModel: CompareModel = {
   selectedBasisId: "commit-ea4c",
   left: {
     label: "Rename an author and retint the accent",
-    caption: "Linus Pauling · 3 days ago",
+    caption: "3 days ago",
+    byline: "Linus Pauling",
   },
   right: { label: "After publish", caption: "14 staged changes" },
 };
@@ -594,7 +689,8 @@ export const longCommitMessageModel: CompareModel = {
   left: {
     label:
       "Rework the onboarding handbook, retint the accent colour and rename the history blog post so the URL matches the new title",
-    caption: "Linus Pauling · 3 days ago",
+    caption: "3 days ago",
+    byline: "Linus Pauling",
   },
   right: { label: "After publish", caption: "14 staged changes" },
 };
@@ -602,6 +698,7 @@ export const longCommitMessageModel: CompareModel = {
 /** Nothing staged. The dialog still has to say something useful. */
 export const emptyModel: CompareModel = {
   changeCount: 0,
+  profiles: PROFILES,
   left: { label: "Published", caption: "3 days ago" },
   right: { label: "After publish", caption: "Nothing staged" },
   selectedBasisId: "published",

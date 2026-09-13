@@ -5,7 +5,10 @@ import {
   changeKindLabel,
   sideRailClass,
 } from "./ChangeKindIcon";
+import { FieldPatchAuthorsPure } from "../components/FieldPatchAuthors";
+import { passesAuthorFilter, useCompareAuthors } from "./CompareAuthorsContext";
 import type {
+  CompareAuthorship,
   CompareFieldRow,
   CompareGroup,
   CompareListItemRow,
@@ -65,8 +68,10 @@ function GroupSide({
   side: "before" | "after";
   showUnchanged: boolean;
 }) {
+  const ctx = useCompareAuthors();
+  const authorFilter = ctx?.authorFilter ?? null;
   if (group.kind === "fields") {
-    const rows = visibleFieldRows(group.rows, showUnchanged);
+    const rows = visibleFieldRows(group.rows, showUnchanged, authorFilter);
     if (rows.length === 0) {
       return null;
     }
@@ -79,10 +84,16 @@ function GroupSide({
       </section>
     );
   }
+  const items = group.rows.filter((row) =>
+    passesAuthorFilter(row.authors, authorFilter),
+  );
+  if (items.length === 0) {
+    return null;
+  }
   return (
     <section className="mb-4">
       <GroupHeading title={group.title} summary={group.summary} />
-      {group.rows.map((row) => (
+      {items.map((row) => (
         <ListItemRowSide
           key={row.id}
           row={row}
@@ -119,23 +130,71 @@ function GroupHeading({ title, summary }: { title: string; summary?: string }) {
 function visibleFieldRows(
   rows: CompareFieldRow[],
   showUnchanged: boolean,
+  authorFilter: string | null,
 ): CompareFieldRow[] {
-  return showUnchanged
-    ? rows
-    : rows.filter((row) => row.change !== "unchanged");
+  return rows.filter(
+    (row) =>
+      (showUnchanged || row.change !== "unchanged") &&
+      passesAuthorFilter(row.authors, authorFilter),
+  );
 }
 
-/** How many rows the "show all" toggle would reveal. */
-export function hiddenFieldCount(pane: ComparePane): number {
+/**
+ * The avatar stack for one row, on the right column only.
+ *
+ * `FieldPatchAuthorsPure` is the component the current review screen uses, so
+ * attribution looks and behaves the same in both — one avatar stack, a popover
+ * listing each patch with its op icon and a relative date. Rendering a second
+ * one here would be a thing to keep in step for no gain.
+ */
+function RowAuthors({
+  authors,
+  side,
+}: {
+  authors: CompareAuthorship | undefined;
+  side: "before" | "after";
+}) {
+  const ctx = useCompareAuthors();
+  if (side !== "after" || authors === undefined || ctx === null) {
+    return null;
+  }
+  return (
+    <FieldPatchAuthorsPure
+      patchesByAuthorIds={authors}
+      profilesByAuthorIds={ctx.profiles}
+      now={ctx.now}
+      portalContainer={ctx.portalContainer}
+      mode={ctx.mode}
+    />
+  );
+}
+
+/**
+ * How many rows the "show all" toggle would reveal.
+ *
+ * Author-filtered rows are NOT counted. The toggle's label promises what
+ * clicking it will show, and counting rows the filter is going to drop anyway
+ * would make it promise more than it delivers.
+ */
+export function hiddenFieldCount(
+  pane: ComparePane,
+  authorFilter: string | null = null,
+): number {
   let count = 0;
+  const hidden = (rows: CompareFieldRow[]): number =>
+    rows.filter(
+      (row) =>
+        row.change === "unchanged" &&
+        passesAuthorFilter(row.authors, authorFilter),
+    ).length;
   for (const group of pane.groups) {
     if (group.kind === "fields") {
-      count += group.rows.filter((row) => row.change === "unchanged").length;
+      count += hidden(group.rows);
     } else {
       for (const item of group.rows) {
-        count += (item.fields ?? []).filter(
-          (row) => row.change === "unchanged",
-        ).length;
+        if (passesAuthorFilter(item.authors, authorFilter)) {
+          count += hidden(item.fields ?? []);
+        }
       }
     }
   }
@@ -172,6 +231,15 @@ function FieldRowSide({
             {row.path}
           </span>
         )}
+        {/*
+         * Pushed to the end of the row rather than placed after the label: a
+         * label's length varies per row, and avatars that started at a
+         * different x on every line would read as noise rather than as a
+         * column you can scan down.
+         */}
+        <span className="ml-auto shrink-0">
+          <RowAuthors authors={row.authors} side={side} />
+        </span>
       </div>
       {absent ? (
         <AbsentValue side={side} change={row.change} />
@@ -237,7 +305,12 @@ function ListItemRowSide({
   side: "before" | "after";
   showUnchanged: boolean;
 }) {
-  const fields = visibleFieldRows(row.fields ?? [], showUnchanged);
+  const ctx = useCompareAuthors();
+  const fields = visibleFieldRows(
+    row.fields ?? [],
+    showUnchanged,
+    ctx?.authorFilter ?? null,
+  );
   /*
    * An added entry has no left side and a removed one has no right side, but
    * the ROW still has to exist on both so the columns stay in step. The empty
@@ -281,6 +354,9 @@ function ListItemRowSide({
             : presentOnThisSide
               ? changeKindLabel(row.change)
               : ""}
+        </span>
+        <span className="shrink-0">
+          <RowAuthors authors={row.authors} side={side} />
         </span>
       </div>
       {/*
