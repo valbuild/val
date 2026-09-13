@@ -1,14 +1,20 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
-import { ASSISTANT_SETTINGS_MAX_LENGTH } from "@valbuild/core";
+import {
+  ASSISTANT_SETTINGS_MAX_LENGTH,
+  THEME_RADIUS_LENGTHS,
+} from "@valbuild/core";
+import { themeCustomProperties } from "@valbuild/shared/internal";
 import {
   AssistantSettingsFields,
   AssistantSettingsValue,
   NoSettingsModule,
   SettingsPanel,
   SettingsTabs,
+  ThemeSettingsFields,
+  ThemeSettingsValue,
 } from "../SettingsPanel";
-import { Sparkles } from "lucide-react";
+import { Palette, Sparkles } from "lucide-react";
 import { ShellBreakpoint } from "../types";
 import { EnableAssistantPromptView } from "../../EnableAssistantPrompt";
 
@@ -57,6 +63,11 @@ type HarnessProps = {
   /** No settings module in the project at all. */
   missing?: boolean;
   errors?: Partial<Record<keyof AssistantSettingsValue, string>>;
+  /** The settings module's `theme` section, as source. */
+  initialTheme?: ThemeSettingsValue;
+  themeErrors?: Partial<Record<keyof ThemeSettingsValue, string>>;
+  /** Open on the Appearance tab instead of Assistant. */
+  appearance?: boolean;
   readonly?: boolean;
   isLoading?: boolean;
   loadError?: string;
@@ -66,6 +77,12 @@ const UNSET: AssistantSettingsValue = {
   enabled: null,
   context: null,
   tone: null,
+};
+
+const UNSET_THEME: ThemeSettingsValue = {
+  accent: null,
+  radius: null,
+  mode: null,
 };
 
 /**
@@ -79,13 +96,58 @@ function SettingsPanelHarness({
   initial = UNSET,
   missing,
   errors,
+  initialTheme = UNSET_THEME,
+  themeErrors,
+  appearance,
   readonly,
   isLoading,
   loadError,
 }: HarnessProps) {
   const [value, setValue] = useState<AssistantSettingsValue>(initial);
+  const [theme, setTheme] = useState<ThemeSettingsValue>(initialTheme);
+  /*
+   * The theme is APPLIED here, not just edited, so a story shows what picking
+   * an accent does rather than only what the control looks like. In the real
+   * app this object is on the element that stamps `data-mode` — see
+   * `ValThemeProvider`; here the canvas the panel floats over stands in for it.
+   */
+  const themeStyle = themeCustomProperties({
+    accent: theme.accent,
+    radius: theme.radius === null ? null : THEME_RADIUS_LENGTHS[theme.radius],
+  });
+  const assistantTab = {
+    id: "assistant",
+    label: "Assistant",
+    icon: Sparkles,
+    content: (
+      <AssistantSettingsFields
+        value={value}
+        onChange={(field, next) =>
+          setValue((current) => ({ ...current, [field]: next }))
+        }
+        maxLength={ASSISTANT_SETTINGS_MAX_LENGTH}
+        errors={errors}
+        readonly={readonly}
+      />
+    ),
+  };
+  const appearanceTab = {
+    id: "theme",
+    label: "Appearance",
+    icon: Palette,
+    content: (
+      <ThemeSettingsFields
+        value={theme}
+        onChange={(field, next) =>
+          setTheme((current) => ({ ...current, [field]: next }))
+        }
+        errors={themeErrors}
+        readonly={readonly}
+      />
+    ),
+  };
   return (
-    <div className="relative w-full h-svh bg-bg-canvas">
+    <div className="relative w-full h-svh bg-bg-canvas" style={themeStyle}>
       <SettingsPanel
         breakpoint={breakpoint}
         onClose={() => undefined}
@@ -96,24 +158,11 @@ function SettingsPanelHarness({
           <NoSettingsModule />
         ) : (
           <SettingsTabs
-            tabs={[
-              {
-                id: "assistant",
-                label: "Assistant",
-                icon: Sparkles,
-                content: (
-                  <AssistantSettingsFields
-                    value={value}
-                    onChange={(field, next) =>
-                      setValue((current) => ({ ...current, [field]: next }))
-                    }
-                    maxLength={ASSISTANT_SETTINGS_MAX_LENGTH}
-                    errors={errors}
-                    readonly={readonly}
-                  />
-                ),
-              },
-            ]}
+            tabs={
+              appearance
+                ? [appearanceTab, assistantTab]
+                : [assistantTab, appearanceTab]
+            }
           />
         )}
       </SettingsPanel>
@@ -267,4 +316,61 @@ export const TheOfferEditorsSee: StoryObj<typeof EnableAssistantPromptView> = {
       </div>
     </div>
   ),
+};
+
+/**
+ * The Appearance tab as a project that has never touched it sees it.
+ *
+ * Val green selected, Default corners, no mode preference — which is the same
+ * state as `theme` being absent from the settings module altogether, because
+ * every one of those choices writes `null`. An untouched settings module stays
+ * `{}`.
+ */
+export const Appearance: Story = {
+  args: { appearance: true },
+};
+
+/**
+ * A themed Studio, live.
+ *
+ * The accent is applied to the canvas this panel floats over, so the swatches,
+ * the selected ring and the panel's own focus rings are all drawn from the
+ * generated ramp rather than from Val's green. This is what an editor sees
+ * while they pick: the theme is content, so the draft is what the Studio reads.
+ */
+export const AppearanceThemed: Story = {
+  args: {
+    appearance: true,
+    initialTheme: { accent: "#7c3aed", radius: "tight", mode: "light" },
+  },
+};
+
+/**
+ * An accent that is not a colour.
+ *
+ * Only reachable by hand-editing the settings file — the picker cannot produce
+ * it — and the reason the panel shows validation rather than trusting the
+ * field. Nothing is applied: `themeCustomProperties` returns an empty object
+ * for an accent it cannot parse, because half a ramp is worse than none.
+ */
+export const AppearanceInvalidAccent: Story = {
+  args: {
+    appearance: true,
+    initialTheme: { accent: "cornflower", radius: null, mode: null },
+    themeErrors: { accent: "Invalid color: 'cornflower'" },
+  },
+};
+
+/**
+ * The whole panel readonly, on a schema that says so.
+ *
+ * Both tabs: the swatches, the segmented controls and the colour field all go
+ * disabled together, since a readonly settings module is readonly as a whole.
+ */
+export const AppearanceReadonly: Story = {
+  args: {
+    appearance: true,
+    initialTheme: { accent: "#ea580c", radius: "soft", mode: "dark" },
+    readonly: true,
+  },
 };

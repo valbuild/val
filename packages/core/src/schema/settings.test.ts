@@ -2,6 +2,8 @@ import { initVal } from "../initVal";
 import {
   assistantAvailability,
   ASSISTANT_SETTINGS_MAX_LENGTH,
+  THEME_RADIUS_LENGTHS,
+  THEME_RADIUS_STEPS,
 } from "../source/settings";
 import { ModuleFilePath, SourcePath } from "../val";
 import { deserializeSchema } from "./deserialize";
@@ -142,6 +144,71 @@ describe("SettingsSchema", () => {
       },
     });
     expect(settingsVal).toBeDefined();
+  });
+
+  test("a settings module can be defined with a theme", () => {
+    const settingsVal = c.define("/settings.val.ts", s.settings(), {
+      theme: {
+        accent: "#2563eb",
+        radius: "tight",
+        mode: "light",
+      },
+    });
+    expect(settingsVal).toBeDefined();
+  });
+
+  test("the theme's fields are all optional, like every other section's", () => {
+    expect(
+      settings()["executeValidate"]("path" as SourcePath, { theme: {} }),
+    ).toEqual(false);
+    expect(
+      settings()["executeValidate"]("path" as SourcePath, {
+        theme: { accent: null, radius: null, mode: null },
+      }),
+    ).toEqual(false);
+  });
+
+  test("an accent that is not a colour is reported", () => {
+    // Through the deserialized schema: a hand-edited settings file is the only
+    // way this arrives, and that is the schema the validation worker runs.
+    const schema = deserializeSchema(settings()["executeSerialize"]());
+    const res = schema["executeValidate"]("path" as SourcePath, {
+      theme: { accent: "cornflower" },
+    });
+    expect(res).not.toEqual(false);
+    expect(Object.keys(res || {})).toEqual(['path?p="theme"."accent"']);
+  });
+
+  test("an accent in the wrong notation is reported", () => {
+    // `s.color({ format: "hex" })` stores hex, so an hsl() string is a value
+    // the Studio would round-trip into something the author did not write.
+    const schema = deserializeSchema(settings()["executeSerialize"]());
+    const res = schema["executeValidate"]("path" as SourcePath, {
+      theme: { accent: "hsl(217 91% 60%)" },
+    });
+    expect(res).not.toEqual(false);
+  });
+
+  test("a radius step that does not exist is reported", () => {
+    const schema = deserializeSchema(settings()["executeSerialize"]());
+    const res = schema["executeValidate"]("path" as SourcePath, {
+      theme: { radius: "rounded" },
+    });
+    expect(res).not.toEqual(false);
+  });
+
+  test("every radius step the source type allows also validates", () => {
+    // The two lists have to agree: `THEME_RADIUS_LENGTHS` is what the Studio
+    // turns a step into, and the schema is what lets the step be written. A
+    // step in one and not the other is a setting that cannot be saved, or one
+    // that saves and does nothing.
+    const schema = deserializeSchema(settings()["executeSerialize"]());
+    for (const radius of THEME_RADIUS_STEPS) {
+      expect(
+        schema["executeValidate"]("path" as SourcePath, { theme: { radius } }),
+      ).toEqual(false);
+      expect(THEME_RADIUS_LENGTHS[radius]).toBeDefined();
+    }
   });
 });
 

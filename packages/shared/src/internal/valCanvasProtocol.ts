@@ -54,6 +54,28 @@ export type ValCanvasElement = {
   rect: { top: number; left: number; width: number; height: number };
 };
 
+/**
+ * The colours Val outlines the page's content in, when nobody has said
+ * otherwise.
+ *
+ * They mirror `--bg-page-selection` and `--bg-page-selection-soft` in
+ * `packages/ui/spa/index.css`, and they are literals here because the page the
+ * bridge runs in has none of Val's stylesheet — no `:host`, no tokens, nothing
+ * to inherit. A CSS custom property genuinely cannot reach across that
+ * boundary, which is why the colours are SENT (see the `theme` message below)
+ * rather than derived.
+ *
+ * They live beside the protocol rather than with the theme code on purpose:
+ * `@valbuild/shared/client` is what the bridge imports, and it exists to keep
+ * production bundles small (see the docblock on that entrypoint). Two strings
+ * cost nothing; the accent generator that produces the non-default values is
+ * ~350 lines of colour maths that no visitor to a Val site should download.
+ *
+ * `canvasSelectionDefaults.test.ts` holds them equal to the stylesheet.
+ */
+export const DEFAULT_CANVAS_SELECTION = "#079455";
+export const DEFAULT_CANVAS_SELECTION_SOFT = "rgba(7, 148, 85, 0.4)";
+
 /** What the page tells the studio. */
 export type ValCanvasPageMessage =
   | {
@@ -204,6 +226,30 @@ export type ValCanvasStudioMessage =
       type: "sourcesSynced";
     }
   | {
+      /**
+       * What colour to outline the page's content in.
+       *
+       * Sent because it cannot be inherited: the bridge runs in the customer's
+       * document, which has no Val stylesheet, so the studio's custom
+       * properties are not merely overridden there — they do not exist. A
+       * project that sets `theme.accent` in `s.settings()` moves the studio's
+       * chrome by overriding tokens, and this message is the only way the same
+       * decision reaches the outlines drawn on the page itself.
+       *
+       * Both halves degrade on their own: a bridge that predates this message
+       * ignores it and stays Val green, and a bridge that never receives one
+       * falls back to {@link DEFAULT_CANVAS_SELECTION}. So an app on an older
+       * `@valbuild/next` than its studio, or the reverse, keeps working and
+       * simply does not follow the accent.
+       */
+      val: typeof VAL_CANVAS_MESSAGE;
+      type: "theme";
+      /** The outline on the element under the pointer, and on a highlight. */
+      selection: string;
+      /** The resting outline on every field the canvas found. */
+      selectionSoft: string;
+    }
+  | {
       val: typeof VAL_CANVAS_MESSAGE;
       type: "setPicking";
       /**
@@ -245,7 +291,8 @@ export function isValCanvasStudioMessage(
     message.type === "highlight" ||
     message.type === "setPicking" ||
     message.type === "sourceUpdate" ||
-    message.type === "sourcesSynced"
+    message.type === "sourcesSynced" ||
+    message.type === "theme"
   );
 }
 
