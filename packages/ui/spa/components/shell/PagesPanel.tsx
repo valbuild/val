@@ -20,6 +20,7 @@ import {
   PanelEmptyState,
   PanelSectionLabel,
 } from "./FloatingPanel";
+import { ExternalPagesButton } from "./ExternalPagesButton";
 import {
   PanelErrorState,
   PanelFilterInput,
@@ -211,6 +212,21 @@ export type PagesPanelProps = {
   onSelectPage: (page: ShellPage) => void;
   onSelectExternalPage: (page: ShellExternalPage) => void;
   /**
+   * Open the external pages dialog.
+   *
+   * When given, the external pages are a button in the panel's footer rather
+   * than a second list under the site map - see {@link ExternalPagesButton} for
+   * why. The inline list is what this panel did before, kept until the dialog
+   * is wired to real data so the Studio is never without a way to reach an
+   * external page.
+   */
+  onOpenExternalPages?: () => void;
+  /**
+   * How many external URLs have something wrong with them, for the button's
+   * badge. Computed by the caller, which is the one that has the URLs.
+   */
+  externalIssueCount?: number;
+  /**
    * Create a page under a route, given the URL that was built for it.
    *
    * The panel does not know what an empty page looks like — that comes from the
@@ -350,6 +366,8 @@ export function PagesPanel({
   selectedId,
   onSelectPage,
   onSelectExternalPage,
+  onOpenExternalPages,
+  externalIssueCount,
   onNewPage,
   onDuplicatePage,
   newPage,
@@ -543,6 +561,17 @@ export function PagesPanel({
           />
         )
       }
+      footer={
+        onOpenExternalPages && !isLoading && !loadError ? (
+          <div className="p-1.5">
+            <ExternalPagesButton
+              count={externalPages.length}
+              issueCount={externalIssueCount}
+              onClick={onOpenExternalPages}
+            />
+          </div>
+        ) : undefined
+      }
     >
       {isLoading ? (
         <PanelSkeleton rows={12} />
@@ -564,32 +593,39 @@ export function PagesPanel({
             filtered.map((page) => renderPage(page, 0))
           )}
 
-          <PanelSectionLabel>
-            External pages
-            <span className="ml-1.5 font-normal normal-case tracking-normal text-fg-secondary-alt">
-              {filteredExternal.length}
-            </span>
-          </PanelSectionLabel>
-          {filteredExternal.length === 0 ? (
-            <PanelEmptyState>
-              {query
-                ? "No external pages match this filter."
-                : "No external pages yet."}
-            </PanelEmptyState>
-          ) : (
-            filteredExternal.map((page) => (
-              <PanelRow
-                key={page.id}
-                selected={selectedId === page.id}
-                title={page.url}
-                onClick={() => onSelectExternalPage(page)}
-                leading={
-                  <ExternalLink size={12} className="text-fg-secondary-alt" />
-                }
-                label={page.name}
-                errorCount={page.errorCount}
-              />
-            ))
+          {onOpenExternalPages === undefined && (
+            <>
+              <PanelSectionLabel>
+                External pages
+                <span className="ml-1.5 font-normal normal-case tracking-normal text-fg-secondary-alt">
+                  {filteredExternal.length}
+                </span>
+              </PanelSectionLabel>
+              {filteredExternal.length === 0 ? (
+                <PanelEmptyState>
+                  {query
+                    ? "No external pages match this filter."
+                    : "No external pages yet."}
+                </PanelEmptyState>
+              ) : (
+                filteredExternal.map((page) => (
+                  <PanelRow
+                    key={page.id}
+                    selected={selectedId === page.id}
+                    title={page.url}
+                    onClick={() => onSelectExternalPage(page)}
+                    leading={
+                      <ExternalLink
+                        size={12}
+                        className="text-fg-secondary-alt"
+                      />
+                    }
+                    label={page.name}
+                    errorCount={page.errorCount}
+                  />
+                ))
+              )}
+            </>
           )}
         </div>
       )}

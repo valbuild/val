@@ -55,6 +55,55 @@ export type ShellExternalPage = {
   /** Where the entry's content lives, for navigation. */
   sourcePath?: string;
   errorCount?: number;
+  /**
+   * The entry's own fields, flattened for reading.
+   *
+   * The external router's item schema is whatever the project declared - a
+   * title, an icon, a description - so the list cannot know the shape. It gets
+   * the fields already rendered as text, which is enough for the one job the
+   * dialog has: showing what is behind a URL without leaving the list.
+   *
+   * Absent means "not loaded", which is not the same as an entry with no
+   * fields: a router whose item schema is `s.string()` has exactly one.
+   */
+  fields?: ShellExternalPageField[];
+  /**
+   * Where in the project this URL is linked from.
+   *
+   * The counterpart of the URL list itself: a list of links is only actionable
+   * if you can tell which of them anything points at. Absent while the scan is
+   * still running; empty means nothing points at it.
+   */
+  usages?: ShellExternalPageUsage[];
+  /**
+   * Whether {@link usages} is all of them.
+   *
+   * A route reference scan is blind to `.jsonValues()` entry content that has
+   * not been fetched (see `ReferenceScan`), so an empty list is not proof that
+   * a URL is unused - and "Unused" is exactly the label someone deletes on.
+   * False makes the dialog say "none found yet" instead.
+   */
+  usagesComplete?: boolean;
+};
+
+/** One field of an external page's entry, as the dialog shows it. */
+export type ShellExternalPageField = {
+  /** The field's name, e.g. "title". */
+  label: string;
+  /** Its value, already rendered as text. */
+  value: string;
+  /** Where the field itself lives, so it can be opened in the editor. */
+  sourcePath?: string;
+};
+
+/** One place an external URL is referenced from. */
+export type ShellExternalPageUsage = {
+  /** Where the reference lives, for navigation. */
+  sourcePath: string;
+  /** What to call it, e.g. "Footer / Social links / 2". */
+  label: string;
+  /** The module it is in, e.g. "/content/footer.val.ts". */
+  moduleFilePath: string;
 };
 
 /** The project's settings module (an `s.settings()` module). */
