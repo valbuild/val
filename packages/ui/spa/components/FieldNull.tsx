@@ -1,5 +1,4 @@
 import { SerializedSchema, SourcePath } from "@valbuild/core";
-import { JSONValue } from "@valbuild/core/patch";
 import { Plus } from "lucide-react";
 import { Button } from "./designSystem/button";
 import { useAddPatch } from "./ValFieldProvider";
@@ -68,7 +67,7 @@ export function FieldNull({
                 // `opt` stripped, the same way `Field`'s checkbox does it: the
                 // point of pressing this is to get a value, and `emptyOf` of an
                 // optional schema is `null`.
-                value: emptyOf({ ...schema, opt: false }) as JSONValue,
+                value: emptyOf({ ...schema, opt: false }),
               },
             ],
             schema.type,

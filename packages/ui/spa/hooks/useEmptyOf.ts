@@ -1,4 +1,5 @@
-import { Json, SerializedSchema } from "@valbuild/core";
+import { SerializedSchema } from "@valbuild/core";
+import { JSONValue } from "@valbuild/core/patch";
 import { emptyOf } from "@valbuild/shared/internal";
 import { useCallback } from "react";
 import { useProjectLocales } from "./useProjectLocales";
@@ -25,7 +26,7 @@ import { useLocaleFilter } from "../components/LocaleFilterProvider";
  * because any of their schemas can contain a locale field or a locale-keyed
  * record somewhere below.
  */
-export function useEmptyOf(): (schema: SerializedSchema) => Json {
+export function useEmptyOf(): (schema: SerializedSchema) => JSONValue {
   const locales = useProjectLocales();
   const filter = useLocaleFilter();
   return useCallback(

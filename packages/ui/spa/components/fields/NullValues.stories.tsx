@@ -65,6 +65,16 @@ function createMockData(
 
 type MockData = ReturnType<typeof createMockData>;
 
+/**
+ * Taken from the provider rather than restated, so the stub cannot drift from
+ * what the Studio actually asks for — and declared on the `useMemo` rather
+ * than pinned per-field with `as const`, so every branch of the union is
+ * checked against the contract instead of adding up to one.
+ */
+type UploadSettingsGetter = React.ComponentProps<
+  typeof ValFieldProvider
+>["getDirectFileUploadSettings"];
+
 function StoryProviders({
   children,
   mockData,
@@ -82,9 +92,9 @@ function StoryProviders({
       }),
     [mockData],
   );
-  const getDirectFileUploadSettings = useMemo(
+  const getDirectFileUploadSettings = useMemo<UploadSettingsGetter>(
     () => async () => ({
-      status: "success" as const,
+      status: "success",
       data: {
         nonce: null,
         baseUrl: "https://mock-upload.example.com",

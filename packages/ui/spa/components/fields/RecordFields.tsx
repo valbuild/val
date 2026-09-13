@@ -93,16 +93,20 @@ export function RecordFields({
       />
     );
   }
-  if (schemaAtPath.data.mediaType) {
-    return <ModuleGallery path={path} />;
-  }
   const source = sourceAtPath.data;
   const schema = schemaAtPath.data;
+  // BEFORE the media dispatch below, and that order is the point. A record
+  // that has not been created renders nothing on either path — which reads as
+  // "this record is empty", a different and writable state. A gallery is the
+  // case where that is not merely misleading: `s.imageset().nullable()` keeps
+  // its media options, so a null one reached `ModuleGallery`, looked like an
+  // empty gallery, and offered an upload whose `add` patch targeted `null`.
+  // See `FieldNull`.
   if (source === null) {
-    // A record that has not been created. Both branches below rendered
-    // nothing at all for it, which reads as "this record is empty" — a
-    // different, and writable, state. See `FieldNull`.
     return <FieldNull path={path} schema={schema} readonly={readonly} />;
+  }
+  if (schema.mediaType) {
+    return <ModuleGallery path={path} />;
   }
   /**
    * The keys the locale filter leaves on screen.

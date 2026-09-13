@@ -329,7 +329,15 @@ export function resolvePath<
       // part per level, the way the object branch below does: the path still
       // names a real place in the schema, and the caller wants the schema
       // there in order to say that nothing is written yet.
-      if (resolvedSource !== null && !(part in resolvedSource)) {
+      //
+      // `hasOwnProperty`, never `in`: `in` walks the prototype chain, so
+      // `"toString"` would resolve on every record and hand back
+      // `Object.prototype.toString` as if it were Source. Same reason
+      // `patch/json.ts` guards every key it reads.
+      if (
+        resolvedSource !== null &&
+        !Object.prototype.hasOwnProperty.call(resolvedSource, part)
+      ) {
         throw Error(
           `Invalid path: record source did not have key ${part} from path: ${path}`,
         );
@@ -611,7 +619,14 @@ export function safeResolvePath<
       // does — see the same note in `resolvePath`. Without it, indexing `null`
       // threw a TypeError out of the function whose whole point is not to
       // throw.
-      if (resolvedSource !== null && resolvedSource[part] === undefined) {
+      //
+      // Own properties only. Testing `resolvedSource[part] === undefined` let
+      // an inherited name through — `"toString"` is not undefined on any
+      // object — so the walk continued into `Object.prototype`.
+      if (
+        resolvedSource !== null &&
+        !Object.prototype.hasOwnProperty.call(resolvedSource, part)
+      ) {
         return {
           status: "source-undefined",
           path: origParts

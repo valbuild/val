@@ -439,6 +439,19 @@ describe("module", () => {
       expect(source).toBe(null);
     });
 
+    test("an INHERITED name is not an entry", () => {
+      // `in` walks the prototype chain, so a presence check written with it
+      // resolves `"toString"` on every record in the project and hands back
+      // `Object.prototype.toString` as Source.
+      const schema = record(string(), string());
+      expect(() =>
+        resolveAtPath('"toString"' as ModulePath, { real: "x" }, schema),
+      ).toThrow(/did not have key toString/);
+      expect(() =>
+        resolveAtPath('"__proto__"' as ModulePath, { real: "x" }, schema),
+      ).toThrow(/did not have key __proto__/);
+    });
+
     test("a key that is genuinely absent still throws", () => {
       const schema = record(string(), string());
       expect(() =>
@@ -461,6 +474,18 @@ describe("module", () => {
       expect(res.schema).toBeInstanceOf(StringSchema);
       expect(res.source).toBe(null);
     }
+  });
+
+  test("safeResolvePath: an INHERITED name is not an entry either", () => {
+    // The same hole, reached the other way: `resolvedSource[part] !== undefined`
+    // is true for every name on `Object.prototype`.
+    const schema = record(string(), string());
+    const res = safeResolveAtPath(
+      '"toString"' as ModulePath,
+      { real: "x" },
+      schema,
+    );
+    expect(res.status).toBe("source-undefined");
   });
 
   test("safeResolvePath: a record that is itself null resolves as null", () => {
