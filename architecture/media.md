@@ -78,8 +78,18 @@ repeating them is how two copies of one fact get to disagree. `s.image(galleryVa
 validation refuses a path the gallery does not track. `fillFromGallery` supplies
 them at resolve time — including `alt`, but only when the field has none, so a
 per-image override wins. A gallery whose `alt` is a locale record holds an object
-rather than a string; that one is left alone, and making the override
+rather than a string; the field's own override is still a string, and making that
 locale-shaped is a separate change.
+
+**An entry's `alt` type comes from the `alt` schema**, not from a fixed
+`string | null`: `s.string()` gives `string`, `s.record(s.string())` gives
+`Record<string, string>`, and an omitted or `.nullable()` alt gives
+`string | null`. `ImagesetEntryMetadata` defaults to that last one, so plain
+references keep working; `ImagesetEntryMetadata<AltSource>` is the any-alt form,
+and it is what `s.image(galleryModule)` takes — a field carries its own alt and
+never reads the gallery's, so any alt shape can back it. This was one type for
+all three until it was fixed, which made the locale form impossible to type and
+let `alt: null` compile against a required alt that then failed validation.
 
 `patch_id` also appears on a media source whose bytes are not committed yet. It
 is injected server-side, never authored, and `toExpression` drops it before

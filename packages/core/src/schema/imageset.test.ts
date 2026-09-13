@@ -4,6 +4,8 @@ import {
   ImagesetEntryMetadata,
   SerializedImagesetSchema,
 } from "./imageset";
+import { initVal } from "../initVal";
+import { record } from "./record";
 import { string } from "./string";
 
 // Strip deferred-check errors (require CLI/filesystem context, not schema validation)
@@ -209,7 +211,9 @@ describe("ImagesSchema", () => {
         accept: "image/webp",
         alt: string().minLength(10),
       });
-      const src: Record<string, ImagesetEntryMetadata> = {
+      // `ImagesetEntryMetadata<string>`, not the default: this schema's alt is
+      // a required string, so an entry cannot carry null.
+      const src: Record<string, ImagesetEntryMetadata<string>> = {
         "/public/val/test.webp": {
           width: 800,
           height: 600,
@@ -807,6 +811,126 @@ describe("ImagesSchema", () => {
         e.message.includes("At least one image is required"),
       );
       expect(hasCustomError).toBe(true);
+    });
+  });
+
+  describe("the entry type follows the alt schema", () => {
+    test("a locale record alt accepts a record of locales, and validates it", () => {
+      const schema = imageset({
+        dir: "/public/val",
+        accept: "image/webp",
+        alt: record(string()),
+      });
+      // The point of the change: this source is only expressible because the
+      // entry's alt follows the schema. Typed as the schema's own entry type,
+      // with no assertion, it would not compile if alt were still string | null.
+      const src: Record<
+        string,
+        ImagesetEntryMetadata<Record<string, string>>
+      > = {
+        "/public/val/test.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: { en: "A hero image", no: "Et heltebilde" },
+        },
+      };
+      const result = filterCheckErrors(
+        schema["executeValidate"]("path" as SourcePath, src),
+      );
+      expect(result).toBeFalsy();
+    });
+
+    test("a locale record alt still validates the strings inside it", () => {
+      const schema = imageset({
+        dir: "/public/val",
+        accept: "image/webp",
+        alt: record(string().minLength(10)),
+      });
+      const src: Record<
+        string,
+        ImagesetEntryMetadata<Record<string, string>>
+      > = {
+        "/public/val/test.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: { en: "Short" },
+        },
+      };
+      const result = filterCheckErrors(
+        schema["executeValidate"]("path" as SourcePath, src),
+      );
+      const messages = Object.values(result as object)
+        .flat()
+        .map((e: { message: string }) => e.message);
+      expect(messages.join(" ")).toContain("Expected string to be at least");
+    });
+
+    test("a required alt rejects null, which the old entry type let through", () => {
+      const schema = imageset({
+        dir: "/public/val",
+        accept: "image/webp",
+        alt: string(),
+      });
+      // `alt: null` used to typecheck here, because the entry type said
+      // `string | null` whatever the schema said, and was then refused at
+      // runtime. It no longer typechecks, so this pins the runtime half: the
+      // value has to be forced past the type to reach the validator at all.
+      const src = {
+        "/public/val/test.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: null,
+        },
+      } as unknown as Record<string, ImagesetEntryMetadata<string>>;
+      const result = filterCheckErrors(
+        schema["executeValidate"]("path" as SourcePath, src),
+      );
+      const messages = Object.values(result as object)
+        .flat()
+        .map((e: { message: string }) => e.message);
+      expect(messages.join(" ")).toContain("Expected 'string', got 'null'");
+    });
+
+    test("a locale-alt gallery can still back an s.image() field", () => {
+      const { s, c } = initVal();
+      // The widening in image.ts. A field carries its own alt and never reads
+      // the gallery's, so `s.image(gallery)` accepts a gallery of any alt
+      // shape — without this it would only accept `string | null` ones, which
+      // would have left the locale form unusable with fields.
+      const gallery = c.define(
+        "/content/localeGallery.val.ts",
+        s.imageset({ dir: "/public/val/locale", alt: s.record(s.string()) }),
+        {
+          "/public/val/locale/hero.png": {
+            width: 10,
+            height: 10,
+            mimeType: "image/png",
+            alt: { en: "Hero", no: "Helt" },
+          },
+        },
+      );
+      const field = s.image(gallery);
+      const serialized = field["executeSerialize"]();
+      expect(serialized.type).toBe("image");
+    });
+
+    test("alt defaults to a nullable string when the option is omitted", () => {
+      const schema = imageset({ dir: "/public/val", accept: "image/webp" });
+      const src: Record<string, ImagesetEntryMetadata> = {
+        "/public/val/test.webp": {
+          width: 800,
+          height: 600,
+          mimeType: "image/webp",
+          alt: null,
+        },
+      };
+      const result = filterCheckErrors(
+        schema["executeValidate"]("path" as SourcePath, src),
+      );
+      expect(result).toBeFalsy();
     });
   });
 });
