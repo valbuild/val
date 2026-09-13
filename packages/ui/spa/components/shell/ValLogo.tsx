@@ -146,3 +146,46 @@ export function ValLogo({
  * what a project's own accent replaces. This must not follow either.
  */
 const BRAND_GREEN = "var(--brand-val-green)";
+
+/**
+ * The project's own mark where Val's would be, or Val's when it has none.
+ *
+ * One component for the two slots that show a mark in the Studio — the top of
+ * the left rail, and beside the menu button on mobile — so that "which mark,
+ * and how is it sized" is answered once.
+ *
+ * `object-contain`, and that is the decision worth knowing about. The slot is
+ * 32px wide, so it is a slot for a MARK: a wide wordmark put in it is contained
+ * rather than cropped, which makes it small but keeps all of it. Cropping would
+ * be worse in the way that matters — a logo with its ends cut off looks like a
+ * bug in Val rather than a picture that does not fit.
+ *
+ * The blink belongs to the Val mark alone. It is a terminal cursor waiting, and
+ * an `<img>` cannot do it; a project with a logo therefore shows Val's mark
+ * blinking while the Studio loads and its own once the settings arrive, which
+ * is the same "the theme turns up with the content" the accent has.
+ */
+export function StudioMark({
+  logo,
+  className,
+  blinking,
+}: {
+  /** From `s.settings()`'s `theme.logo`, already resolved. See `ShellLogo`. */
+  logo?: { url: string; alt?: string };
+  className?: string;
+  blinking?: boolean;
+}) {
+  if (logo) {
+    return (
+      <img
+        src={logo.url}
+        // Empty rather than absent when there is no name for it: an unnamed
+        // image inside a navigation landmark is announced as an image with a
+        // URL for a name, and a decorative one is better skipped.
+        alt={logo.alt ?? ""}
+        className={cn("w-full h-full object-contain", className)}
+      />
+    );
+  }
+  return <ValLogo className={className} blinking={blinking} />;
+}

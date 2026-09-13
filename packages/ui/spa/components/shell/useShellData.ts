@@ -11,8 +11,9 @@ import {
   useShallowModulesAtPaths,
 } from "../ValProvider";
 import { useAllValidationErrors } from "../ValErrorProvider";
-import { useValConfig } from "../ValFieldProvider";
+import { useFilePatchIds, useValConfig } from "../ValFieldProvider";
 import { ShellData, ShellMediaGallery } from "./types";
+import { useThemeSettings } from "../../hooks/useThemeSettings";
 import {
   toActivity,
   toAdminLinks,
@@ -25,6 +26,7 @@ import {
   countKeys,
   countErrorsIn,
   toMediaFiles,
+  toShellLogo,
   collectNewPageRoutes,
 } from "./shellDataMapping";
 
@@ -90,6 +92,17 @@ export function useShellData(): ShellDataState {
     return new Set(patchSets.data.map((set) => set.moduleFilePath));
   }, [patchSets]);
 
+  /**
+   * The project's own mark, and the patch ids that say where its bytes are.
+   *
+   * Resolved here rather than in `LeftRail`, so the rail stays presentational
+   * and a story can hand it a logo. `useFilePatchIds` is the same map
+   * `getMediaFileUrl` uses in `ValShell`, for the same reason: a
+   * just-uploaded file is only readable with its patch id.
+   */
+  const themeSettings = useThemeSettings();
+  const filePatchIds = useFilePatchIds();
+
   return useMemo((): ShellDataState => {
     if (navMenu.status === "loading") {
       return { status: "loading" };
@@ -112,6 +125,7 @@ export function useShellData(): ShellDataState {
       status: "success",
       data: {
         projectName: config?.project ?? "Val",
+        logo: toShellLogo(themeSettings.logo, filePatchIds, config?.project),
         admin: toAdminLinks(config),
         branch: config?.gitBranch,
         hasRouters: navData?.hasRouters ?? false,
@@ -176,6 +190,8 @@ export function useShellData(): ShellDataState {
       },
     };
   }, [
+    themeSettings,
+    filePatchIds,
     navMenu,
     navData,
     records,

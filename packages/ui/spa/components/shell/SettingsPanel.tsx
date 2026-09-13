@@ -1,6 +1,6 @@
 import type { Json } from "@valbuild/core";
 import { ReactNode, useEffect, useId, useState } from "react";
-import { LucideIcon, Sparkles } from "lucide-react";
+import { ImagePlus, LucideIcon, Sparkles } from "lucide-react";
 import { THEME_RADIUS_STEPS, ThemeRadius } from "@valbuild/core";
 // From `ColorFieldPure`, not from `ColorField`: the connected field in that
 // module reaches the whole editor tree, and this panel is presentational.
@@ -456,6 +456,17 @@ export type ThemeSettingsFieldsProps = {
   onChange: (field: keyof ThemeSettingsValue, value: string | null) => void;
   /** Validation messages, keyed by field, as the Studio has them. */
   errors?: Partial<Record<keyof ThemeSettingsValue, string>>;
+  /**
+   * The logo's field, as an element.
+   *
+   * A slot rather than props, for the reason the sections themselves are a slot
+   * in {@link SettingsPanel}: uploading an image is `ImageField`'s whole job —
+   * the ref from the file's hash, the two-phase upload, the progress, local or
+   * remote — and none of that can be reimplemented in a presentational panel
+   * without being a worse copy of it. `ValSettingsSections` passes the real
+   * field; the stories pass a still of one.
+   */
+  logoField?: ReactNode;
   readonly?: boolean;
 };
 
@@ -529,6 +540,7 @@ export function ThemeSettingsFields({
   value,
   onChange,
   errors,
+  logoField,
   readonly,
 }: ThemeSettingsFieldsProps) {
   const accent = value.accent?.trim().toLowerCase() ?? null;
@@ -604,6 +616,17 @@ export function ThemeSettingsFields({
         readonly={readonly}
         error={errors?.radius}
       />
+      {logoField && (
+        <div>
+          <span className="text-xs font-medium">Logo</span>
+          <span className="block mt-0.5 text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
+            Shown where Val&apos;s mark is, at the top of the rail. A square-ish
+            mark rather than a wordmark — the slot is small, and a wide image is
+            fitted into it rather than cropped.
+          </span>
+          <div className="mt-2">{logoField}</div>
+        </div>
+      )}
       <SettingsChoice
         label="Opens in"
         description="What an editor who has never picked a mode sees. It does not change the mode for anyone who has."
@@ -861,6 +884,48 @@ export function SettingsFieldAction({
     >
       <Icon size={11} />
       {label}
+    </button>
+  );
+}
+
+/**
+ * Where the logo field goes before the project has a `theme` section at all.
+ *
+ * Not politeness — a necessity, and the reason is patch semantics meeting an
+ * optional section. `ImageField` writes `replace`, which fails for a key that
+ * does not exist, so `useWriteThemeSetting`'s section-creating write leaves a
+ * `logo: null` for it to replace. Until something has written that section,
+ * there is no key: the field's source never resolves and it renders a spinner
+ * that never stops. (An absent optional key resolving as pending rather than as
+ * null is the underlying thing, and it is not this feature's to fix — every
+ * optional nested key has it.)
+ *
+ * So this button, whose only job is to create the section. It writes a change
+ * an editor asked for by pressing it, rather than one the panel wrote for
+ * everybody who merely looked at the tab.
+ */
+export function SettingsLogoPlaceholder({
+  onAdd,
+  disabled,
+}: {
+  onAdd: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onAdd}
+      className={cn(
+        "w-full inline-flex items-center justify-center gap-1.5 h-16 rounded-md",
+        "border border-dashed border-border-primary",
+        "text-[0.6875rem] text-fg-secondary hover:text-fg-primary hover:bg-bg-float-raised",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+        "disabled:cursor-not-allowed disabled:opacity-50",
+      )}
+    >
+      <ImagePlus size={13} />
+      Add a logo
     </button>
   );
 }
