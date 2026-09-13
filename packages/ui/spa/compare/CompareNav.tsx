@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -68,6 +68,7 @@ export function CompareNav({
   onSelect,
   authorFilter = null,
   navRowIds,
+  filterSlot,
   className,
 }: {
   sections: CompareNavSection[];
@@ -83,6 +84,15 @@ export function CompareNav({
    * the same subtree once per rendered node.
    */
   navRowIds?: ReadonlyMap<string, readonly string[]>;
+  /**
+   * Controls that filter this list — currently the author menu.
+   *
+   * A slot rather than a prop for the filter itself, because the nav should not
+   * have to know what can narrow it. What it does know is that anything which
+   * narrows the list belongs ON the list, which is the whole argument for
+   * moving the author filter here out of a band of its own.
+   */
+  filterSlot?: ReactNode;
   className?: string;
 }) {
   return (
@@ -90,6 +100,9 @@ export function CompareNav({
       className={cn("min-w-0 overflow-y-auto", className)}
       aria-label="Changed content"
     >
+      {filterSlot !== undefined && (
+        <div className="px-1 pb-3">{filterSlot}</div>
+      )}
       {sections.map((section) => {
         const nodes = section.nodes.filter((node) =>
           navNodeMatches(node, authorFilter),
@@ -185,7 +198,7 @@ function NavRow({
          * column regardless of depth, which is what makes a partially selected
          * folder readable at a glance.
          */}
-        {ctx?.undo != null && undoIds.length > 0 && (
+        {ctx?.undo?.style === "select" && undoIds.length > 0 && (
           <span style={{ marginLeft: depth === 0 ? 0 : 2 }}>
             <UndoAggregateCheckbox
               state={aggregateOf(undoIds, ctx.undo.selected)}

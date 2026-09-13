@@ -7,6 +7,7 @@ import {
 } from "./ChangeKindIcon";
 import { FieldPatchAuthorsPure } from "../components/FieldPatchAuthors";
 import {
+  RowQuickUndo,
   UndoAggregateCheckbox,
   UndoBlocked,
   UndoCheckbox,
@@ -147,7 +148,15 @@ function GroupHeading({
 }) {
   const ctx = useCompareAuthors();
   const ids = group === undefined ? [] : selectableRowIdsOfGroup(group);
-  const showAggregate = side === "after" && ctx?.undo != null && ids.length > 0;
+  /*
+   * Quick style has no aggregates at all — not even a spacer. Its whole claim is
+   * that a publish review does not need a selection model, and a heading that
+   * still offered "undo all of this" would be that model returning through a
+   * side door with no bar to account for it.
+   */
+  const undoCtx = ctx?.undo ?? null;
+  const selecting = undoCtx !== null && undoCtx.style === "select";
+  const showAggregate = side === "after" && selecting && ids.length > 0;
   return (
     <div className="mb-1 flex min-w-0 items-center gap-2 border-b border-border-secondary pb-1">
       {/*
@@ -155,11 +164,11 @@ function GroupHeading({
        * heading itself is repeated on both sides — so the left one gets a
        * spacer to keep the two grids in step.
        */}
-      {ctx?.undo != null &&
+      {selecting &&
         (showAggregate ? (
           <UndoAggregateCheckbox
-            state={aggregateOf(ids, ctx.undo.selected)}
-            onToggle={(next) => ctx.undo?.onToggleMany(ids, next)}
+            state={aggregateOf(ids, undoCtx.selected)}
+            onToggle={(next) => undoCtx?.onToggleMany(ids, next)}
             label={`Undo everything in ${title}`}
           />
         ) : (
@@ -208,6 +217,11 @@ function RowUndoControl({
   if (side !== "after" || ctx?.undo == null || undo === undefined) {
     return null;
   }
+  // In quick style the affordance lives at the END of the row, on hover, and
+  // there is no column to hold open. See `RowQuickUndo`.
+  if (ctx.undo.style === "quick") {
+    return null;
+  }
   if (!isSelectable(undo)) {
     // The reason is rendered at the end of the row instead; this only holds
     // the column open. See `UndoSpacer`.
@@ -251,6 +265,45 @@ function RowUndoReason({
 }
 
 /**
+ * The hover action a row grows in quick style, at the END of the row.
+ *
+ * At the end rather than the start, which is where the checkbox goes, because
+ * the two are read at different moments: a checkbox is scanned down a column
+ * while deciding, and an action is reached for after the row has already been
+ * read. Google Docs and Sanity both put it after the content for the same
+ * reason.
+ */
+function RowQuickUndoControl({
+  rowId,
+  undo,
+  side,
+}: {
+  rowId: string;
+  undo: CompareUndo | undefined;
+  side: "before" | "after";
+}) {
+  const ctx = useCompareAuthors();
+  if (
+    side !== "after" ||
+    ctx?.undo == null ||
+    ctx.undo.style !== "quick" ||
+    undo === undefined ||
+    !isSelectable(undo)
+  ) {
+    return null;
+  }
+  return (
+    <RowQuickUndo
+      kind={ctx.undo.kind}
+      consequence={ctx.undo.consequenceOf(rowId)}
+      profiles={ctx.profiles}
+      onConfirm={() => ctx.undo?.onQuickUndo(rowId)}
+      portalContainer={ctx.portalContainer}
+    />
+  );
+}
+
+/**
  * The avatar stack for one row, on the right column only.
  *
  * `FieldPatchAuthorsPure` is the component the current review screen uses, so
@@ -261,22 +314,51 @@ function RowUndoReason({
 function RowAuthors({
   authors,
   side,
+  rowId,
 }: {
   authors: CompareAuthorship | undefined;
   side: "before" | "after";
+  rowId?: string;
 }) {
   const ctx = useCompareAuthors();
   if (side !== "after" || authors === undefined || ctx === null) {
     return null;
   }
+  /*
+   * Demoted to hover in reduced density — but not unconditionally.
+   *
+   * Google Docs shows the author of a suggestion on hover rather than beside
+   * every one of them, and the reason it can is that authorship there is
+   * curiosity, not consequence. Here it is sometimes consequence: a row the
+   * undo closure has PULLED IN may be somebody else's work, and that is the one
+   * fact this dialog must never make you hover to discover. So the demotion is
+   * suspended for exactly those rows.
+   *
+   * `opacity` rather than mounting on hover, so the avatars do not change the
+   * row's width as the cursor crosses it — a row that reflows under the pointer
+   * is how you mis-click the row below.
+   */
+  const forced =
+    rowId !== undefined &&
+    (ctx.undo?.pulledIn.has(rowId) === true ||
+      ctx.undo?.selected.has(rowId) === true);
+  const demoted = ctx.density === "reduced" && !forced;
   return (
-    <FieldPatchAuthorsPure
-      patchesByAuthorIds={authors}
-      profilesByAuthorIds={ctx.profiles}
-      now={ctx.now}
-      portalContainer={ctx.portalContainer}
-      mode={ctx.mode}
-    />
+    <span
+      className={cn(
+        "transition-opacity",
+        demoted &&
+          "opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100",
+      )}
+    >
+      <FieldPatchAuthorsPure
+        patchesByAuthorIds={authors}
+        profilesByAuthorIds={ctx.profiles}
+        now={ctx.now}
+        portalContainer={ctx.portalContainer}
+        mode={ctx.mode}
+      />
+    </span>
   );
 }
 
@@ -331,7 +413,7 @@ function FieldRowSide({
   const isUnchanged = row.change === "unchanged";
   const absent = value === undefined;
   return (
-    <div className={cn("py-1", indent && "pl-3")}>
+    <div className={cn("group/row py-1", indent && "pl-3")}>
       <div className="flex min-w-0 items-center gap-1.5">
         <RowUndoControl rowId={row.id} undo={row.undo} side={side} />
         <ChangeKindIcon kind={row.change} size={12} hideLabel />
@@ -350,8 +432,9 @@ function FieldRowSide({
          * column you can scan down.
          */}
         <RowUndoReason undo={row.undo} side={side} />
-        <span className="ml-auto shrink-0">
-          <RowAuthors authors={row.authors} side={side} />
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          <RowQuickUndoControl rowId={row.id} undo={row.undo} side={side} />
+          <RowAuthors authors={row.authors} side={side} rowId={row.id} />
         </span>
       </div>
       {absent ? (
@@ -450,7 +533,7 @@ function ListItemRowSide({
       : row.label;
 
   return (
-    <div className="border-b border-border-secondary py-1.5 last:border-b-0">
+    <div className="group/row border-b border-border-secondary py-1.5 last:border-b-0">
       <div className="flex min-w-0 items-center gap-1.5">
         <RowUndoControl rowId={row.id} undo={row.undo} side={side} />
         <ChangeKindIcon kind={row.change} size={12} hideLabel />
@@ -469,8 +552,9 @@ function ListItemRowSide({
               ? changeKindLabel(row.change)
               : ""}
         </span>
-        <span className="shrink-0">
-          <RowAuthors authors={row.authors} side={side} />
+        <span className="flex shrink-0 items-center gap-1">
+          <RowQuickUndoControl rowId={row.id} undo={row.undo} side={side} />
+          <RowAuthors authors={row.authors} side={side} rowId={row.id} />
         </span>
       </div>
       {/*

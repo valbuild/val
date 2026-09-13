@@ -33,11 +33,25 @@ export function CompareUndoBar({
   onRevertAll,
   revertAll,
   portalContainer,
+  style = "select",
+  undoAll,
 }: {
   kind: "discard" | "revert";
   summary: UndoSummary;
   /** How many rows the user picked themselves, before the closure. */
   pickedCount: number;
+  /**
+   * Which undo model is running — see `CompareAuthorsContextValue.undo.style`.
+   *
+   * In `"quick"` there is no selection to count and no batch to confirm, so the
+   * bar drops the running total and the confirm button and becomes what is left
+   * that is still true: which mode you are in, how to use it, and the way out.
+   * Keeping a disabled "Discard" on a bar that can never have a selection was
+   * a control advertising something the screen cannot do.
+   */
+  style?: "select" | "quick";
+  /** The whole-publish escape hatch, offered in quick style in place of a batch. */
+  undoAll?: { label: string; onUndoAll: () => void };
   profiles: Record<string, Profile>;
   onCancel: () => void;
   onConfirm: () => void;
@@ -75,7 +89,9 @@ export function CompareUndoBar({
        * row.
        */}
       <span className="order-last w-full min-w-0 text-xs text-fg-secondary sm:order-none sm:w-auto sm:flex-1">
-        {total === 0 ? (
+        {style === "quick" ? (
+          "Hover a change to undo it."
+        ) : total === 0 ? (
           "Pick what to undo."
         ) : (
           <>
@@ -96,7 +112,7 @@ export function CompareUndoBar({
         )}
       </span>
 
-      {summary.othersAffected.length > 0 && (
+      {style === "select" && summary.othersAffected.length > 0 && (
         <span className="flex min-w-0 items-center gap-1 text-xs text-fg-warning-primary">
           <AlertTriangle size={12} className="shrink-0" aria-hidden />
           <span className="truncate">
@@ -166,14 +182,26 @@ export function CompareUndoBar({
           <X size={13} aria-hidden />
           Cancel
         </Button>
-        <Button
-          size="sm"
-          variant={kind === "discard" ? "destructive" : "default"}
-          disabled={total === 0}
-          onClick={onConfirm}
-        >
-          {total === 0 ? verb : `${verb} ${total}`}
-        </Button>
+        {style === "quick" ? (
+          undoAll !== undefined && (
+            <Button
+              size="sm"
+              variant={kind === "discard" ? "destructive" : "default"}
+              onClick={undoAll.onUndoAll}
+            >
+              {undoAll.label}
+            </Button>
+          )
+        ) : (
+          <Button
+            size="sm"
+            variant={kind === "discard" ? "destructive" : "default"}
+            disabled={total === 0}
+            onClick={onConfirm}
+          >
+            {total === 0 ? verb : `${verb} ${total}`}
+          </Button>
+        )}
       </span>
     </div>
   );
@@ -291,4 +319,104 @@ export function UndoAggregateCheckbox({
  */
 export function UndoSpacer() {
   return <span className="w-3.5 shrink-0" aria-hidden />;
+}
+
+/**
+ * The undo affordance a row grows when selection is NOT the model.
+ *
+ * Sanity's Review Changes and Google Docs' suggestion mode both do it this way:
+ * no checkbox column, no batch, no running count — each change carries its own
+ * action, revealed on hover, confirmed in place. Figma's branch review goes
+ * further and offers no per-change undo at all, only an all-or-nothing merge.
+ *
+ * The argument for it here is density. A checkbox column is paid for by every
+ * row on every screen, including the overwhelming majority of visits where
+ * nobody undoes anything — and it is paid for twice, because a column of
+ * checkboxes only makes sense next to a bar that counts them.
+ *
+ * What it costs is the thing our checkboxes were for: undoing eleven related
+ * changes is eleven hovers and eleven confirmations. That is the trade to look
+ * at in the screenshots, not the pixel count.
+ *
+ * The dependency truth survives the move — it just relocates from a running
+ * count in the bar into this popover, said once, about this row, at the moment
+ * of the click.
+ */
+export function RowQuickUndo({
+  kind,
+  consequence,
+  profiles,
+  onConfirm,
+  portalContainer,
+}: {
+  kind: "discard" | "revert";
+  /** What goes if this row goes. Computed where the model is. */
+  consequence: { total: number; pulledIn: number; others: string[] };
+  profiles: Record<string, Profile>;
+  onConfirm: () => void;
+  portalContainer?: HTMLElement | null;
+}) {
+  const verb = kind === "discard" ? "Discard" : "Revert";
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className={cn(
+            "shrink-0 rounded px-1.5 py-0.5 text-[11px] transition-opacity",
+            "opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100",
+            "text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
+          )}
+          aria-label={`${verb} this change`}
+        >
+          <Undo2 size={11} className="mr-0.5 inline" aria-hidden />
+          {verb}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        container={portalContainer}
+        align="end"
+        className="z-[9001] w-[280px] p-3"
+      >
+        <p className="text-xs text-fg-primary">
+          {consequence.pulledIn === 0
+            ? `${verb} this change?`
+            : `${verb} this change and ${consequence.pulledIn} later ${
+                consequence.pulledIn === 1 ? "one" : "ones"
+              }?`}
+        </p>
+        {consequence.pulledIn > 0 && (
+          /*
+           * The same sentence the bar used to carry, said here instead. A later
+           * change in the same patch set cannot stay behind once its
+           * predecessor goes — see the prefix invariant in `undoSelection.ts` —
+           * so this is a consequence, not an option, and it is stated before
+           * the button rather than after it.
+           */
+          <p className="mt-1 text-xs text-fg-tertiary">
+            Later changes here were made on top of this one and cannot be kept
+            without it.
+          </p>
+        )}
+        {consequence.others.length > 0 && (
+          <p className="mt-2 flex items-start gap-1 text-xs text-fg-warning-primary">
+            <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden />
+            <span>
+              {`Includes work by ${consequence.others
+                .map((id) => profiles[id]?.fullName ?? id)
+                .join(", ")}`}
+            </span>
+          </p>
+        )}
+        <div className="mt-3 flex justify-end">
+          <Button
+            size="sm"
+            variant={kind === "discard" ? "destructive" : "default"}
+            onClick={onConfirm}
+          >
+            {consequence.total === 1 ? verb : `${verb} ${consequence.total}`}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
 }

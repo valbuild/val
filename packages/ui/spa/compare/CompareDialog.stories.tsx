@@ -34,11 +34,13 @@ function Harness({
   layout,
   authorFilter,
   undoPicks,
+  density,
 }: {
   model: CompareModel;
   layout?: "desktop" | "mobile";
   authorFilter?: string | null;
   undoPicks?: string[];
+  density?: "full" | "reduced";
 }) {
   const [basisId, setBasisId] = useState(model.selectedBasisId);
   return (
@@ -51,6 +53,7 @@ function Harness({
         forceLayout={layout}
         initialAuthorFilter={authorFilter ?? null}
         initialUndoPicks={undoPicks}
+        density={density}
         currentAuthorId="profile-linus"
         onUndo={() => undefined}
         onRevertAll={() => undefined}
@@ -277,4 +280,68 @@ export const Mobile: Story = { args: { layout: "mobile" } };
 export const MobileLight: Story = {
   args: { layout: "mobile" },
   globals: { theme: "light" },
+};
+
+/**
+ * The same publish with the chrome cut back — the density proposal, for
+ * comparison against `Default`.
+ *
+ * Three things are gone from every screen, and the research each came from is
+ * on the component that implements it:
+ *
+ * 1. **The author filter band.** Now a menu on the nav, where GitHub's
+ *    Files-changed tree puts the equivalent "owned by you or your team" filter.
+ *    Whose changes you are looking at narrows the LIST, so it belongs on the
+ *    list. See `CompareAuthorFilterMenu`.
+ * 2. **Per-row avatars, unless you hover.** Google Docs shows a suggestion's
+ *    author on hover rather than beside every one. The demotion is suspended
+ *    for rows an undo has pulled in, which is the one case where authorship is
+ *    a consequence rather than a curiosity. See `RowAuthors`.
+ * 3. **The checkbox column and the counting bar.** Replaced by a per-row hover
+ *    action confirmed in place — Sanity's Review Changes model. See
+ *    `RowQuickUndo`.
+ *
+ * Read this story against `Default` rather than on its own. The question is not
+ * whether it is calmer — it is — but whether anything you needed went with the
+ * noise.
+ */
+export const ReducedChrome: Story = { args: { density: "reduced" } };
+
+/** Reduced chrome in light mode. */
+export const ReducedChromeLight: Story = {
+  args: { density: "reduced" },
+  globals: { theme: "light" },
+};
+
+/**
+ * Reduced chrome, in undo mode, where the per-row action replaces the column.
+ *
+ * `undoPicks: []` enters the mode. In this density that no longer means a bar
+ * and eleven checkboxes; it means each row offers its own action on hover, and
+ * the dependency consequence is stated in the confirmation rather than counted
+ * continuously in a bar.
+ *
+ * The cost is visible here too: undoing four related changes is four hovers and
+ * four confirmations, where the selection model did it in one click on a group
+ * heading.
+ */
+export const ReducedChromeUndo: Story = {
+  args: { density: "reduced", undoPicks: [] },
+};
+
+/**
+ * The author filter where it now lives.
+ *
+ * Open the menu at the top of the nav. What the band did for free — "who else
+ * is publishing right now", answered with no interaction — is reduced to the
+ * count on the trigger. That is the trade, and it is the part to disagree with
+ * if you are going to.
+ */
+export const ReducedChromeAuthorMenu: Story = {
+  args: { density: "reduced" },
+};
+
+/** The reduced form on a phone, where the saved bands matter most. */
+export const ReducedChromeMobile: Story = {
+  args: { density: "reduced", layout: "mobile" },
 };

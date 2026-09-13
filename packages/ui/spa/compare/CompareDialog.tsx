@@ -16,16 +16,22 @@ import {
 import { Button } from "../components/designSystem/button";
 import { cn } from "../components/designSystem/cn";
 import { useValPortal } from "../components/ValPortalProvider";
-import { CompareAuthorFilter, authorsInModel } from "./CompareAuthorFilter";
+import {
+  CompareAuthorFilter,
+  CompareAuthorFilterMenu,
+  authorsInModel,
+} from "./CompareAuthorFilter";
 import { CompareAuthorsProvider } from "./CompareAuthorsContext";
 import { CompareUndoBar } from "./CompareUndoBar";
 import {
   dropRequiring,
+  isSelectable,
   navRowIdsOf,
   requiresMapOfModel,
   summarizeUndo,
   toggleMany,
   undoKindOf,
+  undoableRowsOfModel,
 } from "./undoSelection";
 import { CompareColumns, CompareMobileColumns } from "./CompareColumns";
 import { CompareNav } from "./CompareNav";
@@ -108,6 +114,7 @@ export function CompareDialog({
   currentAuthorId = null,
   onUndo,
   onRevertAll,
+  density = "full",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -122,6 +129,13 @@ export function CompareDialog({
   /** Called with everything that will go — picks and their dependents. */
   onUndo?: (kind: "discard" | "revert", rowIds: string[]) => void;
   onRevertAll?: () => void;
+  /**
+   * How much chrome every row and band carries. See
+   * `CompareAuthorsContextValue.density`.
+   *
+   * Defaults to `"full"`, so this changes nothing until it is asked for.
+   */
+  density?: "full" | "reduced";
 }) {
   const firstId = useMemo(() => firstNodeId(model), [model]);
   const [selectedId, setSelectedId] = useState<string | null>(firstId);
@@ -207,6 +221,38 @@ export function CompareDialog({
   const hidden = pane === undefined ? 0 : hiddenFieldCount(pane, authorFilter);
   const isMobile = forceLayout === "mobile";
 
+  /*
+   * Built once and handed to whichever nav is on screen. Two call sites (the
+   * desktop rail and the phone drawer) already drifted apart once over
+   * `navRowIds`, which is what a shared local avoids.
+   */
+  /*
+   * Every row that could be undone, for the quick style's "discard all".
+   *
+   * The closure is not applied: this IS the closure — a set containing every
+   * undoable row is closed over `requires` by construction, since anything a
+   * member compels is also a member.
+   */
+  const allUndoableIds = useMemo(
+    () =>
+      undoableRowsOfModel(model)
+        .filter((row) => isSelectable(row.undo))
+        .map((row) => row.id),
+    [model],
+  );
+
+  const navFilter =
+    density === "reduced" && people.length > 1 ? (
+      <CompareAuthorFilterMenu
+        profiles={model.profiles}
+        authorIds={people}
+        selected={authorFilter}
+        onSelect={setAuthorFilter}
+        mode={mode}
+        portalContainer={portalContainer}
+      />
+    ) : undefined;
+
   const toggle = (
     <ShowAllFieldsToggle
       showUnchanged={showUnchanged}
@@ -226,12 +272,34 @@ export function CompareDialog({
         // screenshotted twice and compared.
         now: now ?? new Date(),
         authorFilter,
+        density,
         undo:
           undoing && undoKind !== null
             ? {
                 kind: undoKind,
+                style: density === "reduced" ? "quick" : "select",
                 selected: undoSummary.selected,
                 pulledIn: undoSummary.pulledIn,
+                consequenceOf: (rowId) => {
+                  const one = summarizeUndo(
+                    new Set([rowId]),
+                    model,
+                    currentAuthorId,
+                  );
+                  return {
+                    total: one.selected.size,
+                    pulledIn: one.pulledIn.size,
+                    others: one.othersAffected,
+                  };
+                },
+                onQuickUndo: (rowId) => {
+                  const one = summarizeUndo(
+                    new Set([rowId]),
+                    model,
+                    currentAuthorId,
+                  );
+                  onUndo?.(undoKind, [...one.selected]);
+                },
                 onToggle: toggleRow,
                 onToggleMany: (rowIds, next) =>
                   setPicked((prev) =>
@@ -332,6 +400,23 @@ export function CompareDialog({
               revertAll={model.undo?.all}
               onRevertAll={onRevertAll}
               portalContainer={portalContainer}
+              style={density === "reduced" ? "quick" : "select"}
+              undoAll={{
+                /*
+                 * No number on this one, deliberately. `allUndoableIds` counts
+                 * undoable ROWS — a changed list entry and each changed field
+                 * inside it are separate rows — and the header counts CHANGES.
+                 * On this fixture that is 25 against 14, and a button reading
+                 * "Discard all 25" beside a header reading "14 changes in this
+                 * publish" is two answers to one question. "All" is exact and
+                 * cannot disagree with anything.
+                 */
+                label: undoKind === "discard" ? "Discard all" : "Revert all",
+                onUndoAll: () => {
+                  onUndo?.(undoKind, allUndoableIds);
+                  setUndoing(false);
+                },
+              }}
               onCancel={() => {
                 setUndoing(false);
                 setPicked(new Set());
@@ -343,7 +428,12 @@ export function CompareDialog({
               }}
             />
           )}
-          {people.length > 1 && (
+          {/*
+           * The band exists only at full density. In reduced density the same
+           * filter is a menu on the nav — see `CompareAuthorFilterMenu` for why
+           * that is where it belongs, and what is lost by moving it.
+           */}
+          {density === "full" && people.length > 1 && (
             <div className="shrink-0 border-b border-border-primary px-4 py-2">
               <CompareAuthorFilter
                 profiles={model.profiles}
@@ -411,6 +501,7 @@ export function CompareDialog({
                     selectedId={selectedId}
                     authorFilter={authorFilter}
                     navRowIds={navRowIds}
+                    filterSlot={navFilter}
                     onSelect={(id) => {
                       selectRow(id);
                       setNavOpen(false);
@@ -427,6 +518,7 @@ export function CompareDialog({
                 selectedId={selectedId}
                 authorFilter={authorFilter}
                 navRowIds={navRowIds}
+                filterSlot={navFilter}
                 onSelect={selectRow}
               />
               <div className="flex min-w-0 flex-1 flex-col px-4 py-3">

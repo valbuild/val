@@ -1,5 +1,11 @@
-import { Users } from "lucide-react";
+import { Check, ChevronDown, Users } from "lucide-react";
+import type { ReactNode } from "react";
 import { ProfileAvatar } from "../components/Avatar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/designSystem/popover";
 import { cn } from "../components/designSystem/cn";
 import type { Profile } from "../components/ValProvider";
 
@@ -120,4 +126,118 @@ export function authorsInModel(
     walk(section.nodes);
   }
   return seen;
+}
+
+/**
+ * The same filter, folded into a menu, for the nav.
+ *
+ * GitHub's Files-changed tree puts "owned by you or your team" in a filter menu
+ * on the tree rather than in a band above the diff, and that is the right place
+ * for the same reason it is here: whose changes you are looking at is a
+ * property of the LIST, not of the comparison. As a band it cost a full
+ * horizontal rule and a row of avatars on every screen, permanently, to serve
+ * the least-used of this dialog's jobs.
+ *
+ * The trade is real and worth naming: the band answered "who else is publishing
+ * right now" with no interaction at all, and a menu does not. What survives is
+ * the count on the trigger — two people is a different publish from five, and
+ * that is the part worth a glance.
+ */
+export function CompareAuthorFilterMenu({
+  profiles,
+  authorIds,
+  selected,
+  onSelect,
+  mode,
+  portalContainer,
+}: {
+  profiles: Record<string, Profile>;
+  authorIds: string[];
+  selected: string | null;
+  onSelect: (authorId: string | null) => void;
+  mode: "fs" | "http" | "unknown";
+  portalContainer?: HTMLElement | null;
+}) {
+  if (authorIds.length < 2) {
+    return null;
+  }
+  const current = selected === null ? null : (profiles[selected] ?? null);
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className={cn(
+            "flex w-full min-w-0 items-center gap-1.5 rounded border px-2 py-1 text-xs",
+            selected === null
+              ? "border-border-primary text-fg-secondary hover:bg-bg-secondary"
+              : "border-border-brand-primary text-fg-brand-primary",
+          )}
+        >
+          {selected === null ? (
+            <Users size={12} className="shrink-0" aria-hidden />
+          ) : (
+            <ProfileAvatar profile={current} mode={mode} size="xs" />
+          )}
+          <span className="min-w-0 flex-1 truncate text-left">
+            {selected === null
+              ? `By anyone (${authorIds.length})`
+              : (current?.fullName ?? selected)}
+          </span>
+          <ChevronDown size={12} className="shrink-0" aria-hidden />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        container={portalContainer}
+        align="start"
+        className="z-[9001] w-[220px] p-1"
+      >
+        <FilterOption
+          label="Anyone"
+          isSelected={selected === null}
+          onSelect={() => onSelect(null)}
+        />
+        {authorIds.map((authorId) => {
+          const profile = profiles[authorId] ?? null;
+          return (
+            <FilterOption
+              key={authorId}
+              label={profile?.fullName ?? authorId}
+              isSelected={selected === authorId}
+              onSelect={() => onSelect(selected === authorId ? null : authorId)}
+              avatar={<ProfileAvatar profile={profile} mode={mode} size="xs" />}
+            />
+          );
+        })}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function FilterOption({
+  label,
+  isSelected,
+  onSelect,
+  avatar,
+}: {
+  label: string;
+  isSelected: boolean;
+  onSelect: () => void;
+  avatar?: ReactNode;
+}) {
+  return (
+    <button
+      onClick={onSelect}
+      aria-pressed={isSelected}
+      className={cn(
+        "flex w-full min-w-0 items-center gap-2 rounded px-2 py-1.5 text-left text-xs",
+        isSelected
+          ? "bg-bg-brand-primary text-fg-brand-primary-alt"
+          : "text-fg-secondary hover:bg-bg-secondary",
+      )}
+    >
+      {avatar ?? <span className="w-4 shrink-0" aria-hidden />}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {isSelected && <Check size={12} className="shrink-0" aria-hidden />}
+    </button>
+  );
 }
