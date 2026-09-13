@@ -5,6 +5,8 @@ import {
   ASSISTANT_SETTINGS_MAX_LENGTH,
   ModuleFilePath,
   SourcePath,
+  THEME_RADIUS_STEPS,
+  ThemeRadius,
 } from "@valbuild/core";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import {
@@ -13,6 +15,7 @@ import {
   useSourceAtPath,
 } from "../ValFieldProvider";
 import { useWriteAssistantSetting } from "../../hooks/useWriteAssistantSetting";
+import { useWriteThemeSetting } from "../../hooks/useWriteThemeSetting";
 import { useWriteSettingsSection } from "../../hooks/useWriteSettingsSection";
 import {
   useAllValidationErrors,
@@ -24,8 +27,9 @@ import {
   LocalesSettingsValue,
   NoSettingsModule,
   SettingsTabs,
+  ThemeSettingsFields,
 } from "./SettingsPanel";
-import { Languages, Sparkles } from "lucide-react";
+import { Languages, Palette, Sparkles } from "lucide-react";
 import { PanelSkeleton } from "./PanelPrimitives";
 
 /**
@@ -80,6 +84,18 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
     LOCALES_FIELDS,
   );
 
+  const themePath = sourcePathOfItem(moduleFilePath, "theme");
+  const accentPath = sourcePathOfItem(themePath, "accent");
+  const radiusPath = sourcePathOfItem(themePath, "radius");
+  const modePath = sourcePathOfItem(themePath, "mode");
+  const accentValue = useThemeStringField(accentPath);
+  const radiusValue = useThemeRadiusField(radiusPath);
+  const modeValue = useThemeModeField(modePath);
+  const accentErrors = useValidationErrors(accentPath);
+  const radiusErrors = useValidationErrors(radiusPath);
+  const modeErrors = useValidationErrors(modePath);
+  const writeThemeSetting = useWriteThemeSetting(moduleFilePath);
+
   if (settings.status === "loading" || schema.status === "loading") {
     return <PanelSkeleton rows={4} />;
   }
@@ -104,6 +120,27 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
               errors={{
                 context: contextErrors[0]?.message,
                 tone: toneErrors[0]?.message,
+              }}
+              readonly={readonly}
+            />
+          ),
+        },
+        {
+          id: "theme",
+          label: "Appearance",
+          icon: Palette,
+          content: (
+            <ThemeSettingsFields
+              value={{
+                accent: accentValue,
+                radius: radiusValue,
+                mode: modeValue,
+              }}
+              onChange={writeThemeSetting}
+              errors={{
+                accent: accentErrors[0]?.message,
+                radius: radiusErrors[0]?.message,
+                mode: modeErrors[0]?.message,
               }}
               readonly={readonly}
             />
@@ -220,6 +257,46 @@ function useAssistantEnabledField(path: SourcePath): boolean | null {
 function useAssistantField(path: SourcePath): string | null {
   const source = useShallowSourceAtPath(path, "string");
   if ("data" in source && typeof source.data === "string") {
+    return source.data;
+  }
+  return null;
+}
+
+/**
+ * One of the theme's string fields, or `null` where it is unset.
+ *
+ * The same shape as `useAssistantField` and separate from it for the same
+ * reason: an absent key is not an error here, so this does not go through
+ * `useValField`.
+ */
+function useThemeStringField(path: SourcePath): string | null {
+  const source = useShallowSourceAtPath(path, "string");
+  if ("data" in source && typeof source.data === "string") {
+    return source.data;
+  }
+  return null;
+}
+
+/**
+ * `theme.radius`, checked against the steps that exist.
+ *
+ * Checked rather than passed through, for the reason `readThemeSettings` gives:
+ * an unknown step from a hand-edited file would be looked up in
+ * `THEME_RADIUS_LENGTHS` and produce `--radius: undefined`, which takes the
+ * declaration down and squares every corner in the Studio. The panel shows it
+ * as unset, and the validation error beside it says why.
+ */
+function useThemeRadiusField(path: SourcePath): ThemeRadius | null {
+  const source = useShallowSourceAtPath(path, "enum");
+  if ("data" in source) {
+    return THEME_RADIUS_STEPS.find((step) => step === source.data) ?? null;
+  }
+  return null;
+}
+
+function useThemeModeField(path: SourcePath): "dark" | "light" | null {
+  const source = useShallowSourceAtPath(path, "enum");
+  if ("data" in source && (source.data === "dark" || source.data === "light")) {
     return source.data;
   }
   return null;

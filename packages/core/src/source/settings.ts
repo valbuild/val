@@ -22,7 +22,87 @@
  */
 export type SettingsSource = {
   assistant?: AssistantSettingsSource;
+  theme?: ThemeSettingsSource;
   locales?: LocalesSettingsSource;
+};
+
+/**
+ * How the Studio looks in this project.
+ *
+ * Chrome, and only chrome: nothing here reaches a visitor to the site. It is
+ * the CMS that is being restyled, so that a project can make the tool it edits
+ * in feel like its own.
+ *
+ * This is deliberately NOT the light/dark switch. That one is per-person and
+ * per-machine (see `ValThemeProvider`, which keeps it in `localStorage`), and it
+ * has to stay that way — one editor working in a dark room is not a fact about
+ * the project. {@link ThemeSettingsSource.mode} is the project's DEFAULT for
+ * someone who has not chosen, which is a different statement.
+ */
+export type ThemeSettingsSource = {
+  /**
+   * The one colour the Studio's chrome is built from, as a hex string.
+   *
+   * Unset means Val's own green. What it replaces is not a single value but the
+   * whole ten-step brand ramp — `--colors-brand-green-100` through `-1000` —
+   * because every brand token in `index.css` points into that ramp, and light
+   * and dark pick different steps out of it. One accent therefore drives both
+   * modes, with nothing to keep in sync.
+   *
+   * Any hex is allowed rather than a list of approved ones, and that is safe
+   * for a measured reason rather than an optimistic one: the ramp is generated
+   * by reusing green's LIGHTNESS at each step and changing only the hue, and
+   * WCAG contrast is almost entirely a function of lightness. See
+   * `accentRamp` in `@valbuild/shared`, whose tests hold every
+   * foreground/background pair the chrome renders to AA across the hue circle.
+   */
+  accent?: string | null;
+  /**
+   * How round the Studio's corners are.
+   *
+   * Named steps rather than a length, for two reasons: a number input invites
+   * `7px`, which nothing in the chrome is drawn around, and the scale is Val's
+   * decision rather than the project's. See {@link THEME_RADIUS_LENGTHS} for
+   * what each one is worth.
+   */
+  radius?: ThemeRadius | null;
+  /**
+   * The mode the Studio opens in for someone who has not picked one.
+   *
+   * A default, not a setting: an editor who has flicked the switch behind the
+   * account button keeps their choice, and this never overrides it.
+   */
+  mode?: "dark" | "light" | null;
+};
+
+/** @see {@link ThemeSettingsSource.radius} */
+export type ThemeRadius = "square" | "tight" | "default" | "soft";
+
+export const THEME_RADIUS_STEPS: readonly ThemeRadius[] = [
+  "square",
+  "tight",
+  "default",
+  "soft",
+];
+
+/**
+ * What each radius step is worth, as a `--radius` value.
+ *
+ * `--radius` is the only length in the Studio's chrome that is a token:
+ * `rounded-sm`, `rounded-md` and `rounded-lg` are all `calc(var(--radius) …)`
+ * in `tailwind.config.js`, which is around three hundred call sites moving on
+ * one value. `default` is what `index.css` declares, so selecting it and
+ * clearing the setting look the same — which is what makes this list the whole
+ * of the feature.
+ *
+ * `rounded-full` and the hand-written `rounded-t` / `-r` / `-b` cases do not
+ * follow, and that is visible at `soft`: a pill stays a pill.
+ */
+export const THEME_RADIUS_LENGTHS: Record<ThemeRadius, string> = {
+  square: "0rem",
+  tight: "0.25rem",
+  default: "0.5rem",
+  soft: "1rem",
 };
 
 /**

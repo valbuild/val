@@ -11,13 +11,16 @@ import {
   AssistantSettingsSource,
   LocalesSettingsSource,
   SettingsSource,
+  ThemeSettingsSource,
 } from "../source/settings";
 import { ModuleFilePath, SourcePath } from "../val";
 import { array } from "./array";
 import { record } from "./record";
 import { locale } from "./locale";
 import { boolean } from "./boolean";
+import { color } from "./color";
 import { string } from "./string";
+import { enumSchema } from "./enum";
 import { localeTagError } from "../locale";
 import {
   ValidationError,
@@ -361,11 +364,17 @@ export class SettingsSchema<
  *     context: "Val is a CMS for developers. British English, and 'Val' is never 'VAL'.",
  *     tone: "Plain and direct. No exclamation marks, sentence case in headings.",
  *   },
+ *   theme: {
+ *     accent: "#2563eb",
+ *     radius: "tight",
+ *   },
  * });
  * ```
  *
- * The Studio edits it under the cog at the foot of the left rail, and the
- * assistant is told `assistant.context` and `assistant.tone` on every message.
+ * The Studio edits it under the cog at the foot of the left rail. The assistant
+ * is told `assistant.context` and `assistant.tone` on every message, and
+ * `theme` restyles the Studio's own chrome — see {@link ThemeSettingsSource},
+ * and note that it is the CMS being restyled, not the site.
  *
  * `s.settings()` takes no arguments: the shape is Val's, which is what lets the
  * Studio render a UI built for each field rather than a generic form. A
@@ -404,6 +413,23 @@ export function settings(): SettingsSchema<SettingsSource> {
         .nullable()
         .describe(
           "How to translate into each language: dialect, formality, and the words that stay untranslated.",
+        ),
+    }),
+    theme: new SettingsSchema<ThemeSettingsSource>({
+      accent: color({ format: "hex" })
+        .nullable()
+        .describe(
+          "The one colour the Studio's chrome is built from. Unset means Val's green. Any hex: the whole brand ramp is generated from it, keeping the lightness of each step, so contrast holds.",
+        ),
+      radius: enumSchema("square", "tight", "default", "soft")
+        .nullable()
+        .describe(
+          "How round the Studio's corners are. Unset is the same as 'default'.",
+        ),
+      mode: enumSchema("dark", "light")
+        .nullable()
+        .describe(
+          "The mode the Studio opens in for an editor who has not chosen one. Never overrides an editor who has.",
         ),
     }),
     locales: new SettingsSchema<LocalesSettingsSource>(

@@ -1,6 +1,10 @@
 import type { Json } from "@valbuild/core";
 import { ReactNode, useEffect, useState } from "react";
 import { LucideIcon } from "lucide-react";
+import { THEME_RADIUS_STEPS, ThemeRadius } from "@valbuild/core";
+// From `ColorFieldPure`, not from `ColorField`: the connected field in that
+// module reaches the whole editor tree, and this panel is presentational.
+import { ColorFieldPure } from "../fields/ColorFieldPure";
 import { FloatingPanel, PanelEmptyState } from "./FloatingPanel";
 import { PanelErrorState, PanelSkeleton } from "./PanelPrimitives";
 import { Switch } from "../designSystem/switch";
@@ -359,6 +363,23 @@ export function NoSettingsModule() {
   );
 }
 
+export type ThemeSettingsValue = {
+  /** A hex colour, or `null` for Val's own green. */
+  accent: string | null;
+  radius: ThemeRadius | null;
+  /** The project's default mode, or `null` for "no preference". */
+  mode: "dark" | "light" | null;
+};
+
+export type ThemeSettingsFieldsProps = {
+  value: ThemeSettingsValue;
+  /** One field changed. Per field for the same reason the assistant's is. */
+  onChange: (field: keyof ThemeSettingsValue, value: string | null) => void;
+  /** Validation messages, keyed by field, as the Studio has them. */
+  errors?: Partial<Record<keyof ThemeSettingsValue, string>>;
+  readonly?: boolean;
+};
+
 export type LocalesSettingsValue = {
   /**
    * Every POSITION the source has, in the project's own order — not only the
@@ -387,6 +408,139 @@ export type LocalesSettingsFieldsProps = {
   errors?: { byIndex?: Record<number, string> };
   readonly?: boolean;
 };
+
+/**
+ * The presets, in swatch order.
+ *
+ * A fast path, not the whole feature: the field below them takes any hex, and
+ * both go through the same generator — so these are eight values in an array
+ * rather than eight themes with anything of their own. Chosen to be
+ * distinguishable from each other at 22px, which rules out having both an
+ * indigo and a violet.
+ */
+const ACCENT_PRESETS: { hex: string; name: string }[] = [
+  { hex: "#2563eb", name: "Blue" },
+  { hex: "#7c3aed", name: "Violet" },
+  { hex: "#db2777", name: "Pink" },
+  { hex: "#dc2626", name: "Red" },
+  { hex: "#ea580c", name: "Orange" },
+  { hex: "#ca8a04", name: "Amber" },
+  { hex: "#0891b2", name: "Cyan" },
+  { hex: "#64748b", name: "Slate" },
+];
+
+const RADIUS_LABELS: Record<ThemeRadius, string> = {
+  square: "Square",
+  tight: "Tight",
+  default: "Default",
+  soft: "Soft",
+};
+
+/**
+ * How the Studio looks in this project: one colour, and how round the corners
+ * are.
+ *
+ * Chrome, and only chrome — nothing here reaches a visitor to the site. It is
+ * content all the same: it is edited as a draft, it shows up in the publish
+ * diff, and it is the same for everyone working on the project. Which is what
+ * makes the preview free: the draft is what the Studio reads, so the colour
+ * changes as it is picked.
+ */
+export function ThemeSettingsFields({
+  value,
+  onChange,
+  errors,
+  readonly,
+}: ThemeSettingsFieldsProps) {
+  const accent = value.accent?.trim().toLowerCase() ?? null;
+  return (
+    <SettingsSection description="The Studio's own chrome, for everyone working on this project. Nothing here changes the site.">
+      <div>
+        <span className="text-xs font-medium">Accent</span>
+        <span className="block mt-0.5 text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
+          One colour, and the whole chrome is built from it. Anything is
+          allowed: the shades are generated so text stays legible on them.
+        </span>
+        <div
+          role="radiogroup"
+          aria-label="Accent"
+          className="mt-2 flex flex-wrap gap-1.5"
+        >
+          {/*
+           * Val's green is the first swatch rather than a "reset" button
+           * somewhere else, because it is not a reset — it is one of the
+           * choices, and the one the project starts on. It writes `null`: the
+           * absence of an accent, so an untouched settings module stays empty.
+           */}
+          <AccentSwatch
+            name="Val green"
+            css="var(--brand-val-green)"
+            selected={accent === null}
+            disabled={readonly}
+            onSelect={() => onChange("accent", null)}
+          />
+          {ACCENT_PRESETS.map((preset) => (
+            <AccentSwatch
+              key={preset.hex}
+              name={preset.name}
+              css={preset.hex}
+              selected={accent === preset.hex}
+              disabled={readonly}
+              onSelect={() => onChange("accent", preset.hex)}
+            />
+          ))}
+        </div>
+        <div className="mt-2">
+          {/*
+           * The same field the Studio uses for any `s.color()`, in hex — so a
+           * brand colour can be pasted in, and the OS picker is the OS picker.
+           * It never writes `null`, which is what the first swatch is for.
+           */}
+          <ColorFieldPure
+            id="val-theme-accent"
+            value={value.accent}
+            onChange={(next) => onChange("accent", next)}
+            format="hex"
+            readonly={readonly}
+          />
+        </div>
+        {errors?.accent && (
+          <span className="block mt-1 text-[0.6875rem] text-fg-error-on-surface leading-relaxed">
+            {errors.accent}
+          </span>
+        )}
+      </div>
+      <SettingsChoice
+        label="Corners"
+        description="How round every panel, field and button in the Studio is."
+        options={THEME_RADIUS_STEPS.map((step) => ({
+          // `default` writes `null`: it is the same value the stylesheet
+          // already has, and writing it would put a setting in the file that
+          // changes nothing.
+          id: step === "default" ? null : step,
+          label: RADIUS_LABELS[step],
+        }))}
+        selected={value.radius === "default" ? null : value.radius}
+        onSelect={(next) => onChange("radius", next)}
+        readonly={readonly}
+        error={errors?.radius}
+      />
+      <SettingsChoice
+        label="Opens in"
+        description="What an editor who has never picked a mode sees. It does not change the mode for anyone who has."
+        options={[
+          { id: null, label: "No preference" },
+          { id: "dark", label: "Dark" },
+          { id: "light", label: "Light" },
+        ]}
+        selected={value.mode}
+        onSelect={(next) => onChange("mode", next)}
+        readonly={readonly}
+        error={errors?.mode}
+      />
+    </SettingsSection>
+  );
+}
 
 /**
  * The languages a project publishes.
@@ -478,6 +632,119 @@ export function LocalesSettingsFields({
         </span>
       </label>
     </SettingsSection>
+  );
+}
+
+/**
+ * One preset colour.
+ *
+ * A radio rather than a button: the row is a choice of one, and a screen reader
+ * should say which is chosen — the ring alone says it only to people who can
+ * see it.
+ */
+function AccentSwatch({
+  name,
+  css,
+  selected,
+  disabled,
+  onSelect,
+}: {
+  name: string;
+  /** Any CSS colour: the presets are hex, Val's green is its own token. */
+  css: string;
+  selected: boolean;
+  disabled?: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      aria-label={name}
+      title={name}
+      disabled={disabled}
+      onClick={onSelect}
+      className={cn(
+        "w-6 h-6 rounded-full border",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+        "disabled:cursor-not-allowed disabled:opacity-50",
+        // The selected ring carries no offset, deliberately: `ring-offset-*`
+        // resolves `--tw-ring-offset-color` from `--background`, which is dead
+        // inside the shadow root, and an invalid colour voids the whole
+        // box-shadow — so the ring would vanish rather than lose its gap. The
+        // outline of the swatch itself provides the separation instead.
+        selected
+          ? "border-bg-float ring-2 ring-fg-primary"
+          : "border-border-primary",
+      )}
+      style={{ backgroundColor: css }}
+    />
+  );
+}
+
+/**
+ * A settings field that is a choice between a few named options.
+ *
+ * The same radio group the account panel draws for light and dark, because it
+ * is the same question shape — and a `<select>` for four options hides three of
+ * them behind a click.
+ */
+function SettingsChoice<Id extends string | null>({
+  label,
+  description,
+  options,
+  selected,
+  onSelect,
+  readonly,
+  error,
+}: {
+  label: string;
+  description: string;
+  options: { id: Id; label: string }[];
+  selected: Id;
+  onSelect: (id: Id) => void;
+  readonly?: boolean;
+  error?: string;
+}) {
+  return (
+    <div>
+      <span className="text-xs font-medium">{label}</span>
+      <span className="block mt-0.5 text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
+        {description}
+      </span>
+      <div
+        role="radiogroup"
+        aria-label={label}
+        className="mt-2 flex p-0.5 rounded-md bg-bg-float-raised"
+      >
+        {options.map((option) => (
+          <button
+            key={option.id ?? "unset"}
+            type="button"
+            role="radio"
+            aria-checked={selected === option.id}
+            disabled={readonly}
+            onClick={() => onSelect(option.id)}
+            className={cn(
+              "flex-1 inline-flex items-center justify-center h-7 rounded text-[0.6875rem]",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+              "disabled:cursor-not-allowed disabled:opacity-50",
+              selected === option.id
+                ? "bg-bg-float text-fg-primary shadow-sm font-medium"
+                : "text-fg-secondary hover:text-fg-primary",
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      {error && (
+        <span className="block mt-1 text-[0.6875rem] text-fg-error-on-surface leading-relaxed">
+          {error}
+        </span>
+      )}
+    </div>
   );
 }
 

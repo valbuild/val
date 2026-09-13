@@ -18,9 +18,14 @@ import { usePrefersReducedMotion } from "./canvas/usePrefersReducedMotion";
  * hole's edge. Without them the mark reads as a flat sticker; the original is
  * lit.
  *
- * Always this green, in both themes: `--colors-brand-green-400` is a fixed brand
- * value declared once outside the light/dark blocks. The mark it replaced took
- * `currentColor`, which made the logo a different colour on every surface.
+ * Always this green, in both themes: `--brand-val-green` is declared once,
+ * outside the light/dark blocks. The mark it replaced took `currentColor`,
+ * which made the logo a different colour on every surface.
+ *
+ * That token exists so this stays true when a project sets `theme.accent`,
+ * which regenerates the whole `--colors-brand-green-*` ramp. The mark used to
+ * name a step of that ramp, so it recoloured with the chrome — which was an
+ * accident, not the rule in architecture/logo.md.
  *
  * The artwork is 105x149 — much taller than wide — so a square box letterboxes
  * it to the height, which is what the rail and the round launcher both want.
@@ -136,7 +141,8 @@ export function ValLogo({
 /**
  * The one colour in the mark.
  *
- * A brand value rather than a theme token: theme tokens are the point at which
- * light and dark diverge, and this must not.
+ * A brand value rather than a theme token, in both senses of "theme": theme
+ * tokens are the point at which light and dark diverge, and the brand ramp is
+ * what a project's own accent replaces. This must not follow either.
  */
-const BRAND_GREEN = "var(--colors-brand-green-400)";
+const BRAND_GREEN = "var(--brand-val-green)";

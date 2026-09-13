@@ -167,7 +167,11 @@ export {
   type AssistantSettingsSource,
   type LocalesSettingsSource,
   type AssistantAvailability,
+  type ThemeSettingsSource,
+  type ThemeRadius,
   ASSISTANT_SETTINGS_MAX_LENGTH,
+  THEME_RADIUS_STEPS,
+  THEME_RADIUS_LENGTHS,
   assistantAvailability,
 } from "./source/settings";
 export {
