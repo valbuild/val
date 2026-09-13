@@ -434,7 +434,7 @@ export function settings(): SettingsSchema<SettingsSource> {
         .describe(
           "The mode the Studio opens in for an editor who has not chosen one. Never overrides an editor who has.",
         ),
-      logo: image({ directory: THEME_LOGO_DIRECTORY })
+      logo: image({ dir: THEME_LOGO_DIRECTORY })
         .nullable()
         .describe(
           "The project's own mark, shown where Val's is in the Studio. A square-ish mark rather than a wordmark: the slot is 32px wide.",
