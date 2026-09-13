@@ -77,7 +77,7 @@ describe("a remote key that does not parse", () => {
   ])("is never reported missing (%s)", (_why, key) => {
     const result = checkGalleryFiles({
       entryKeys: [key],
-      directory: "/public/img",
+      dir: "/public/img",
       projectRoot: PROJECT_ROOT,
       fs: fakeFs([]),
     });
@@ -90,7 +90,7 @@ describe("a remote key that does not parse", () => {
     // beside it is still untracked and still reported.
     const result = checkGalleryFiles({
       entryKeys: ["https://remote.val.build/file/p/pub-1/b/01"],
-      directory: "/public/img",
+      dir: "/public/img",
       projectRoot: PROJECT_ROOT,
       fs: fakeFs(["/public/img/unclaimed.png"]),
     });
@@ -104,7 +104,7 @@ describe("a remote key that does not parse", () => {
     // the fix would make every missing local file invisible.
     const result = checkGalleryFiles({
       entryKeys: ["/public/img/gone.png"],
-      directory: "/public/img",
+      dir: "/public/img",
       projectRoot: PROJECT_ROOT,
       fs: fakeFs([]),
     });
@@ -117,7 +117,7 @@ describe("local entries", () => {
   it("reports one whose file is not on disk", () => {
     const result = checkGalleryFiles({
       entryKeys: ["/public/img/there.png", "/public/img/gone.png"],
-      directory: "/public/img",
+      dir: "/public/img",
       projectRoot: PROJECT_ROOT,
       fs: fakeFs(["/public/img/there.png"]),
     });
@@ -129,7 +129,7 @@ describe("local entries", () => {
   it("reports a file in the directory that no entry claims", () => {
     const result = checkGalleryFiles({
       entryKeys: ["/public/img/tracked.png"],
-      directory: "/public/img",
+      dir: "/public/img",
       projectRoot: PROJECT_ROOT,
       fs: fakeFs(["/public/img/tracked.png", "/public/img/stray.png"]),
     });
@@ -141,7 +141,7 @@ describe("local entries", () => {
   it("is happy when the two agree", () => {
     const result = checkGalleryFiles({
       entryKeys: ["/public/img/a.png", "/public/img/b.png"],
-      directory: "/public/img",
+      dir: "/public/img",
       projectRoot: PROJECT_ROOT,
       fs: fakeFs(["/public/img/a.png", "/public/img/b.png"]),
     });
@@ -159,7 +159,7 @@ describe("remote entries", () => {
     // is perfectly fine where it is.
     const result = checkGalleryFiles({
       entryKeys: [remoteRef("public/remote-images/photo.png")],
-      directory: "/public/remote-images",
+      dir: "/public/remote-images",
       projectRoot: PROJECT_ROOT,
       fs: fakeFs([]),
     });
@@ -173,7 +173,7 @@ describe("remote entries", () => {
     // which is what normalising the ref back to its local path is for.
     const result = checkGalleryFiles({
       entryKeys: [remoteRef("public/remote-images/photo.png")],
-      directory: "/public/remote-images",
+      dir: "/public/remote-images",
       projectRoot: PROJECT_ROOT,
       fs: fakeFs(["/public/remote-images/photo.png"]),
     });
@@ -184,7 +184,7 @@ describe("remote entries", () => {
   it("still reports an unclaimed file beside a remote entry", () => {
     const result = checkGalleryFiles({
       entryKeys: [remoteRef("public/remote-images/photo.png")],
-      directory: "/public/remote-images",
+      dir: "/public/remote-images",
       projectRoot: PROJECT_ROOT,
       fs: fakeFs(["/public/remote-images/stray.png"]),
     });
@@ -200,7 +200,7 @@ describe("remote entries", () => {
         remoteRef("public/img/uploaded.png"),
         "/public/img/not-yet.png",
       ],
-      directory: "/public/img",
+      dir: "/public/img",
       projectRoot: PROJECT_ROOT,
       fs: fakeFs([]),
     });

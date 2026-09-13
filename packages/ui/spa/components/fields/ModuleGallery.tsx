@@ -49,7 +49,7 @@ export function ModuleGallery({
   path: SourcePath;
   showChildPath?: SourcePath;
   /**
-   * `s.images().readonly()` — look, do not touch.
+   * `s.imageset().readonly()` — look, do not touch.
    *
    * The gallery had no notion of it at all, so a readonly module still offered
    * upload, delete and alt text, and every one of them wrote a patch. The three
@@ -124,7 +124,7 @@ export function ModuleGallery({
       : null;
 
   const imageMode = schema?.mediaType === "images";
-  const directory = schema?.directory ?? "/public/val";
+  const directory = schema?.dir ?? "/public/val";
   const accept = schema?.accept;
   /**
    * A gallery has no field to override it, so the gallery's own option is the

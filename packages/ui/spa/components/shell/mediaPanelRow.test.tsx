@@ -15,7 +15,7 @@ import { ShellMediaGallery } from "./types";
 const GALLERY: ShellMediaGallery = {
   id: "images",
   name: "Images",
-  directory: "/public/val/images",
+  dir: "/public/val/images",
   moduleFilePath: "/content/media.val.ts",
   itemCount: 1,
   mediaType: "images",

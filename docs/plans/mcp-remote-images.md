@@ -204,7 +204,7 @@ upload it later.
 **working tree** (`path.join(ctx.projectRoot, fileRef)`), and an MCP upload's
 bytes are in the patch store, not the tree — they only reach the tree at
 publish. So the promotion cannot run until after publish, and until then the
-field holds a local path that a `remote: true` schema reports as invalid. The
+field holds a local path that a `.remote()` schema reports as invalid. The
 agent's edit would look broken and the fix would be a CLI command nobody was
 told to run.
 
@@ -215,14 +215,14 @@ told to run.
 Not the credential. The **validation hash**, which is baked into the ref and
 computed from the serialized schema.
 
-For a single field (`s.image({ remote: true })`) the schema is the field's own,
+For a single field (`s.image().remote()`) the schema is the field's own,
 and it is right there in `deps.state.serializedSchemas`.
 
 For a **gallery** it is not. A gallery entry's schema is an `ObjectSchema`
 (width/height/mimeType/alt), and the validator compares against a _synthesized_
-`SerializedImageSchema` carrying the `accept` and `directory` of the **record
+`SerializedImageSchema` carrying the `accept` and `dir` of the **record
 that holds the entry** — resolved from the entry's parent path, not from the
-module root, because a nested gallery (`s.object({ gallery: s.images(…) })`)
+module root, because a nested gallery (`s.object({ gallery: s.imageset(…) })`)
 would otherwise synthesize empty options. `handleRemoteGalleryFileUpload`
 (`fixHandlers.ts:520`) does this and its comment names the failure exactly:
 
@@ -283,7 +283,7 @@ Assuming Option 2.
 
 7. **Verify against a real project.** The one thing tests cannot cover is
    whether the ref validates and the bytes publish. `examples/next` has
-   `content/remoteImages.val.ts` (`s.images({ remote: true })`) — upload through
+   `content/remoteImages.val.ts` (`s.imageset({...}).remote()`) — upload through
    MCP, then publish, then `val validate` and confirm the ref resolves.
 
 ---

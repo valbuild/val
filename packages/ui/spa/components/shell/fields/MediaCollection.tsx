@@ -17,7 +17,7 @@ import { ImageEntry, MediaEntry, MediaFolder } from "./types";
 /**
  * How the collection is being used right now.
  *
- * `manage` is the `s.images()` / `s.files()` module open in the editor:
+ * `manage` is the `s.imageset()` / `s.fileset()` module open in the editor:
  * everything is editable and nothing is being chosen. `browse` is the same
  * module opened from a field, where the point is to leave with one item.
  *
@@ -35,7 +35,7 @@ export type MediaCollectionProps = {
   entries: MediaEntry[];
   folders?: MediaFolder[];
   /** Directory the collection is constrained to, from the schema. */
-  directory: string;
+  dir: string;
   /** What the schema accepts, e.g. "image/*". */
   accept: string;
   mode: MediaCollectionMode;
@@ -54,7 +54,7 @@ export function MediaCollection({
   name,
   entries,
   folders = [],
-  directory,
+  dir,
   accept,
   mode,
   selectedRef = null,
@@ -123,7 +123,7 @@ export function MediaCollection({
          * the upload rather than in the error afterwards.
          */}
         <span className="hidden shrink-0 items-center gap-1.5 font-mono text-[0.625rem] text-fg-secondary-alt sm:inline-flex">
-          {accept} → {directory}
+          {accept} → {dir}
         </span>
       </div>
 

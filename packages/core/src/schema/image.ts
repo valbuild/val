@@ -17,7 +17,7 @@ import {
 import { Internal, ValModule } from "..";
 import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
 import { FieldRender } from "../render";
-import { ImagesEntryMetadata } from "./images";
+import { AltSource, ImagesetEntryMetadata } from "./imageset";
 import { getSource } from "../module";
 import { mimeTypeMatchesAccept } from "../mimeType";
 
@@ -59,7 +59,7 @@ export type GalleryImageOptions = {
 };
 
 export type ImageOptions = {
-  directory?: string;
+  dir?: string;
   accept?: string;
   encode?: ImageEncodeOption;
 };
@@ -98,7 +98,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly moduleMetadata: Record<
       ModulePath,
-      Record<string, ImagesEntryMetadata>
+      Record<string, ImagesetEntryMetadata<AltSource>>
     > = {},
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
@@ -160,7 +160,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
    *
    * @example
    * const schema = s
-   *   .image({ accept: "image/webp", directory: "/public/val/images" })
+   *   .image({ accept: "image/webp", dir: "/public/val/images" })
    *   .remote();
    * export default c.define("/example.val.ts", schema, {
    *   path: "https://remote.val.build/file/p/my-project/b/01/v/1.0.0/h/8f2a1c/f/3b9d70/p/public/val/images/example.webp",
@@ -446,8 +446,15 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
   /**
    * The entries of the gallery this field points at, or null when it is a
    * standalone field.
+   *
+   * `AltSource` rather than a specific alt type: a field never reads an entry's
+   * alt — it carries its own — so it only needs the entry keys and the
+   * dimensions, and a gallery of any alt shape can back it.
    */
-  private galleryEntries(): Record<string, ImagesEntryMetadata> | null {
+  private galleryEntries(): Record<
+    string,
+    ImagesetEntryMetadata<AltSource>
+  > | null {
     const modulePaths = Object.keys(this.moduleMetadata);
     if (modulePaths.length === 0) {
       return null;
@@ -678,24 +685,29 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
  * gallery, so the field carries only what a person typed.
  */
 export function image(
-  galleryModule: ValModule<Record<string, ImagesEntryMetadata>>,
+  galleryModule: ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryImageOptions,
 ): ImageSchema<GalleryImageSource>;
 /** An image of its own, carrying its own dimensions and mime type. */
 export function image(options?: ImageOptions): ImageSchema<ImageSource>;
 export function image(
-  options?: ImageOptions | ValModule<Record<string, ImagesEntryMetadata>>,
+  options?:
+    | ImageOptions
+    | ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryImageOptions,
 ): ImageSchema<ImageSource> | ImageSchema<GalleryImageSource> {
   const isModule =
     !!options &&
     !!Internal.getValPath(
-      options as ValModule<Record<string, ImagesEntryMetadata>>,
+      options as ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
     );
   if (isModule) {
-    const allModules: Record<string, Record<string, ImagesEntryMetadata>> = {};
+    const allModules: Record<
+      string,
+      Record<string, ImagesetEntryMetadata<AltSource>>
+    > = {};
     for (const valModule of [
-      options as ValModule<Record<string, ImagesEntryMetadata>>,
+      options as ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
     ]) {
       const modulePath = getValPath(valModule) as ModulePath | undefined;
       if (modulePath === undefined) {
@@ -705,7 +717,7 @@ export function image(
       }
       allModules[modulePath] = getSource(valModule) as Record<
         string,
-        ImagesEntryMetadata
+        ImagesetEntryMetadata<AltSource>
       >;
     }
     return new ImageSchema<GalleryImageSource>(
