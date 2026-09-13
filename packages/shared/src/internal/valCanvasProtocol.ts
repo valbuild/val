@@ -279,20 +279,54 @@ export function isValCanvasPageMessage(
   );
 }
 
+/**
+ * Whether a value is a colour a `theme` message may carry.
+ *
+ * A whitelist rather than an escape, and the reason is where these two strings
+ * end up: the bridge writes them into a `<style>` element in the CUSTOMER's
+ * document with `dangerouslySetInnerHTML`, so a value containing `</style>` is
+ * a script tag away from running in someone else's page. A page can be
+ * `postMessage`d by any window holding a handle on it, and this guard is the
+ * only thing between such a message and that sink.
+ *
+ * The two shapes are exactly what `themeCustomProperties` produces — a hex, and
+ * the `rgba()` it derives the soft outline as. Narrowing the contract is easier
+ * to keep true than sanitising an open one, and a forged message that passes
+ * this can do no more than pick a different colour.
+ */
+const CANVAS_SELECTION_COLOR =
+  /^(?:#[0-9a-f]{3,8}|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(?:,\s*(?:0|1|0?\.\d+)\s*)?\))$/i;
+
+function isCanvasSelectionColor(value: unknown): value is string {
+  return typeof value === "string" && CANVAS_SELECTION_COLOR.test(value);
+}
+
 /** Narrow an unknown `event.data` to a message from the studio. */
 export function isValCanvasStudioMessage(
   data: unknown,
 ): data is ValCanvasStudioMessage {
   if (typeof data !== "object" || data === null) return false;
-  const message = data as { val?: unknown; type?: unknown };
+  const message = data as {
+    val?: unknown;
+    type?: unknown;
+    selection?: unknown;
+    selectionSoft?: unknown;
+  };
   if (message.val !== VAL_CANVAS_MESSAGE) return false;
+  if (message.type === "theme") {
+    // Checked here and not in the bridge: a rejected message is never applied
+    // at all, and there is one guard rather than one per framework binding.
+    return (
+      isCanvasSelectionColor(message.selection) &&
+      isCanvasSelectionColor(message.selectionSoft)
+    );
+  }
   return (
     message.type === "rescan" ||
     message.type === "highlight" ||
     message.type === "setPicking" ||
     message.type === "sourceUpdate" ||
-    message.type === "sourcesSynced" ||
-    message.type === "theme"
+    message.type === "sourcesSynced"
   );
 }
 

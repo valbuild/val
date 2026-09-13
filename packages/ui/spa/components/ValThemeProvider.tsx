@@ -1,6 +1,7 @@
 import React, {
   useContext,
   useCallback,
+  useEffect,
   useMemo,
   useState,
   CSSProperties,
@@ -59,10 +60,25 @@ const ValThemeContext = React.createContext<ValThemeContextValue>(
   ) as ValThemeContextValue,
 );
 
-/** Where the person's OWN choice of mode is kept, and nothing else. */
-function personalThemeKey(config: ValConfig | undefined): string {
-  return "val-theme-" + (config?.project || "unknown");
+/**
+ * Where the person's OWN choice of mode is kept, and nothing else.
+ *
+ * Per project, because one person can work on several and does not
+ * necessarily want the same mode in each.
+ */
+function personalThemeKey(project: string | undefined): string {
+  return "val-theme-" + (project || UNKNOWN_PROJECT);
 }
+
+/**
+ * The project id before `/stat` has answered.
+ *
+ * Not a placeholder that can be ignored: this provider mounts before the
+ * config arrives, so the FIRST read and any toggle made in that window both
+ * go to this key. {@link adoptProjectThemeKey} moves it across once the real
+ * id is known, which is what keeps an early toggle from being lost.
+ */
+const UNKNOWN_PROJECT = "unknown";
 
 /**
  * The mode this person picked, or `null` if they never have.
@@ -73,9 +89,9 @@ function personalThemeKey(config: ValConfig | undefined): string {
  * says nothing about what anyone chose. This key is written in exactly one
  * place — `setTheme` below, when the switch is flicked.
  */
-function readPersonalTheme(config: ValConfig | undefined): Themes | null {
+function readPersonalTheme(project: string | undefined): Themes | null {
   try {
-    const stored = localStorage.getItem(personalThemeKey(config));
+    const stored = localStorage.getItem(personalThemeKey(project));
     if (stored === "dark" || stored === "light") {
       return stored;
     }
@@ -84,6 +100,32 @@ function readPersonalTheme(config: ValConfig | undefined): Themes | null {
     // blocked. Nobody chose, as far as we can tell.
   }
   return null;
+}
+
+/**
+ * Move a choice made before the project id arrived onto the project's key.
+ *
+ * `runtimeConfig` comes from `/stat`, so this provider's first render has no
+ * project and the account switch is on screen well before one exists. Without
+ * this, flicking it wrote `val-theme-unknown` — a key nothing ever reads again
+ * — and the choice was silently lost on the next load.
+ *
+ * The project's own key wins where both exist: it is the older, deliberate
+ * answer, and the unknown key is at most this session's.
+ */
+function adoptProjectThemeKey(project: string): void {
+  try {
+    const early = localStorage.getItem(personalThemeKey(UNKNOWN_PROJECT));
+    if (early === null) {
+      return;
+    }
+    if (localStorage.getItem(personalThemeKey(project)) === null) {
+      localStorage.setItem(personalThemeKey(project), early);
+    }
+    localStorage.removeItem(personalThemeKey(UNKNOWN_PROJECT));
+  } catch {
+    // Same as above: nothing to migrate if storage will not answer.
+  }
 }
 
 /**
@@ -124,15 +166,33 @@ export function ValThemeProvider({
    * State rather than a read on every render: it changes in exactly one place
    * (below), so tracking it is both cheaper and honest about when it moves.
    */
+  const project = config?.project;
   const [personalTheme, setPersonalTheme] = useState<Themes | null>(() =>
-    readPersonalTheme(config),
+    readPersonalTheme(project),
   );
+  /**
+   * Re-read once the project is known.
+   *
+   * The initialiser above ran on the first render, which is before `/stat` has
+   * said which project this is — so it asked `val-theme-unknown` and got
+   * nothing, and an editor who HAD chosen a mode for this project had their
+   * choice ignored every single load. Reading again when the id arrives is the
+   * whole fix; the migration beside it covers the other half, a toggle made
+   * during that window.
+   */
+  useEffect(() => {
+    if (project === undefined) {
+      return;
+    }
+    adoptProjectThemeKey(project);
+    setPersonalTheme(readPersonalTheme(project));
+  }, [project]);
   const wrappedSetTheme = useCallback(
     (newTheme: Themes | null) => {
       if (newTheme === "dark" || newTheme === "light") {
         try {
           sessionStorage.setItem(VAL_THEME_SESSION_STORAGE_KEY, newTheme);
-          localStorage.setItem(personalThemeKey(config), newTheme);
+          localStorage.setItem(personalThemeKey(project), newTheme);
         } catch (e) {
           console.error("Error setting theme in storage", e);
         }
@@ -141,7 +201,7 @@ export function ValThemeProvider({
       } else if (newTheme === null) {
         try {
           sessionStorage.removeItem(VAL_THEME_SESSION_STORAGE_KEY);
-          localStorage.removeItem(personalThemeKey(config));
+          localStorage.removeItem(personalThemeKey(project));
         } catch (e) {
           console.error("Error removing theme from storage", e);
         }
@@ -152,7 +212,7 @@ export function ValThemeProvider({
         console.warn(`Cannot set invalid theme: ${newTheme}`);
       }
     },
-    [setTheme, config],
+    [setTheme, project],
   );
   /**
    * Memoised on the PRIMITIVES rather than on `settingsTheme`.
@@ -176,15 +236,35 @@ export function ValThemeProvider({
   const value = useMemo<ValThemeContextValue>(
     () => ({
       theme,
-      // The person's choice wins, then the project's default, then whatever the
-      // config and the "dark" fallback already worked out. `theme` is only null
-      // when nothing at all has an answer, and the light palette is what an
-      // unstamped root renders — so this must never be null.
-      resolvedTheme: personalTheme ?? settingsTheme.mode ?? theme ?? "dark",
+      /*
+       * The person's choice wins, then the project's, then `val.config.ts`.
+       *
+       * `config.defaultTheme` is named twice over, and has to be: `theme` is
+       * normally already resolved from it by the caller, but `setTheme(null)`
+       * — clearing a personal choice — sets it back to null, and without the
+       * explicit fallback a project whose only answer was the config default
+       * would land on plain "dark" rather than back on that default.
+       *
+       * Never null: the light palette is the unqualified `:host, :root` block,
+       * so an unstamped root silently renders light rather than nothing.
+       */
+      resolvedTheme:
+        personalTheme ??
+        settingsTheme.mode ??
+        theme ??
+        config?.defaultTheme ??
+        "dark",
       setTheme: wrappedSetTheme,
       themeStyle,
     }),
-    [theme, personalTheme, settingsTheme.mode, wrappedSetTheme, themeStyle],
+    [
+      theme,
+      personalTheme,
+      settingsTheme.mode,
+      config?.defaultTheme,
+      wrappedSetTheme,
+      themeStyle,
+    ],
   );
 
   return (

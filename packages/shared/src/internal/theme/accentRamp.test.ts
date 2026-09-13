@@ -37,13 +37,13 @@ const ACCENTS = [
 ];
 
 describe("accentRamp", () => {
-  test("rejects anything that is not a six-digit hex", () => {
+  test("rejects anything that is not a hex colour", () => {
     // The schema validates what an editor picks, so these only arrive from a
     // hand-edited settings file. `null` lets the caller decide what to do.
     for (const bad of [
       "",
       "cornflower",
-      "#fff",
+      "#ff",
       "#2563e",
       "#2563ebb",
       "hsl(217 91% 60%)",
@@ -54,9 +54,24 @@ describe("accentRamp", () => {
     }
   });
 
-  test("accepts the hex forms that do arrive", () => {
+  /**
+   * Every hex form the SCHEMA lets through has to produce a ramp.
+   *
+   * `s.color({ format: "hex" })` calls anything starting with `#` hex and
+   * parses shorthand, so `theme.accent: "#fff"` validates, publishes, and used
+   * to do nothing whatsoever: no ramp, no error, a Studio still on Val green
+   * with a colour sitting in the settings module. A generator narrower than the
+   * schema in front of it is a silent failure by construction.
+   */
+  test("accepts every hex form the schema does", () => {
     expect(accentRamp("#2563EB")).not.toBeNull();
     expect(accentRamp("  #2563eb  ")).not.toBeNull();
+    // Shorthand expands by repeating each digit, which is what CSS does.
+    expect(accentRamp("#25e")).toEqual(accentRamp("#2255ee"));
+    // Alpha is read and discarded: the ramp is opaque, and `theme.accent` does
+    // not enable alpha, so an opaque eight-digit value is the same accent.
+    expect(accentRamp("#2563ebff")).toEqual(accentRamp("#2563eb"));
+    expect(accentRamp("#25ef")).toEqual(accentRamp("#2255ee"));
   });
 
   test("produces all ten steps, each a six-digit hex", () => {
