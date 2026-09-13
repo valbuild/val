@@ -9,13 +9,21 @@ import {
   ExternalUrlStatus,
   statusOf,
 } from "./externalUrlChecks";
+import { ExternalUrlProbe, probeIssues } from "./externalUrlReachability";
 
 /** One external page, with everything the list derives from its URL. */
 export type ExternalPageRowData = {
   page: ShellExternalPage;
   parsed: ParsedExternalUrl;
+  /**
+   * Everything wrong with this URL, from both halves of the check: what the
+   * string says, and what answered when it was opened. One list, because a row
+   * has one badge and a person has one question.
+   */
   issues: ExternalUrlIssue[];
   status: ExternalUrlStatus;
+  /** The reachability check, where one has been run. */
+  probe?: ExternalUrlProbe;
   /**
    * How many places link to it, or null while the scan has not finished.
    *
@@ -46,14 +54,20 @@ export function rowUsageCount(page: ShellExternalPage): number | null {
 export function toRows(
   pages: readonly ShellExternalPage[],
   issuesByUrl: ReadonlyMap<string, ExternalUrlIssue[]>,
+  probes?: ReadonlyMap<string, ExternalUrlProbe>,
 ): ExternalPageRowData[] {
   return pages.map((page) => {
-    const issues = issuesByUrl.get(page.url) ?? [];
+    const probe = probes?.get(page.url);
+    const issues = [
+      ...(issuesByUrl.get(page.url) ?? []),
+      ...(probe?.state === "done" ? probeIssues(page.url, probe.result) : []),
+    ];
     return {
       page,
       parsed: parseExternalUrl(page.url),
       issues,
       status: statusOf(issues),
+      probe,
       usageCount: rowUsageCount(page),
     };
   });

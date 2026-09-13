@@ -15,6 +15,7 @@ import { asHttps, canonicalExternalUrl } from "./externalUrls";
  * batch, which a row that quietly has no badge does not say.
  */
 export type ExternalUrlIssueCode =
+  // Shape: decided from the string, and from the strings beside it.
   | "not-absolute"
   | "unparseable"
   | "whitespace"
@@ -22,7 +23,15 @@ export type ExternalUrlIssueCode =
   | "insecure-scheme"
   | "duplicate"
   | "local-host"
-  | "tracking-params";
+  | "tracking-params"
+  // Reachability: decided by opening the URL. See `externalUrlReachability.ts`.
+  | "http-not-found"
+  | "http-client-error"
+  | "http-unverifiable"
+  | "http-server-error"
+  | "http-redirected"
+  | "unreachable"
+  | "check-timeout";
 
 export type ExternalUrlIssue = {
   code: ExternalUrlIssueCode;

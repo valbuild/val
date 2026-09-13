@@ -19,6 +19,7 @@ import {
   Earth,
   ExternalLink,
   Link2,
+  Loader2,
   Plus,
   ShieldCheck,
   Trash2,
@@ -50,6 +51,12 @@ import {
   toRows,
 } from "./externalPageGroups";
 import { checkExternalUrls, ExternalUrlIssue } from "./externalUrlChecks";
+import {
+  ExternalUrlProbe,
+  ExternalUrlProber,
+  partitionProbeTargets,
+  probeSummary,
+} from "./externalUrlReachability";
 
 export type ExternalPagesDialogProps = {
   open: boolean;
@@ -65,6 +72,16 @@ export type ExternalPagesDialogProps = {
   /** Remove a URL. Absent where the app cannot write. */
   onRemovePage?: (page: ShellExternalPage) => void;
   isLoading?: boolean;
+  /**
+   * Open each URL and report what answered.
+   *
+   * Supplied by the app because it cannot be done from here: a cross-origin
+   * request from the Studio cannot read a response status without CORS headers
+   * the target site has no reason to send. Absent when the app has no route to
+   * do it, and then Check reports the shape findings alone - which is a smaller
+   * answer, not a broken one.
+   */
+  onProbe?: ExternalUrlProber;
   /**
    * Where the dialog portals to - the Studio's node inside the shadow root.
    *
@@ -101,6 +118,7 @@ export function ExternalPagesDialog({
   onAddPage,
   onRemovePage,
   isLoading,
+  onProbe,
   portalContainer,
 }: ExternalPagesDialogProps) {
   const [query, setQuery] = useState("");
@@ -119,14 +137,26 @@ export function ExternalPagesDialog({
    * set of issues.
    */
   const [checked, setChecked] = useState<readonly string[] | null>(null);
+  /**
+   * What answered, per URL, for as long as this visit lasts.
+   *
+   * Kept beside the rows rather than merged into them because it arrives late
+   * and one URL at a time: a row's badge has to be able to change from "fine"
+   * to "404" without the list re-sorting or anything else moving.
+   */
+  const [probes, setProbes] = useState<ReadonlyMap<string, ExternalUrlProbe>>(
+    new Map(),
+  );
+  const abortRef = useRef<AbortController | null>(null);
+  const [running, setRunning] = useState(false);
 
   const issuesByUrl = useMemo(
     () => checkExternalUrls(pages.map((page) => page.url)),
     [pages],
   );
   const allRows = useMemo(
-    () => toRows(pages, issuesByUrl),
-    [pages, issuesByUrl],
+    () => toRows(pages, issuesByUrl, probes),
+    [pages, issuesByUrl, probes],
   );
   const visible = useMemo(
     () => filterRows(allRows, query, filter),
@@ -148,6 +178,13 @@ export function ExternalPagesDialog({
     [visible, selected],
   );
   const checkTargets = selectedVisible.length > 0 ? selectedVisible : visible;
+  const progress = useMemo(() => {
+    if (checked === null) return null;
+    return {
+      done: checked.filter((url) => probes.get(url)?.state === "done").length,
+      total: checked.length,
+    };
+  }, [checked, probes]);
   const checkedRows = useMemo(() => {
     if (checked === null) return null;
     const wanted = new Set(checked);
@@ -159,12 +196,19 @@ export function ExternalPagesDialog({
   // second visit opens on a list that is mysteriously not the whole list.
   useEffect(() => {
     if (open) return;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setRunning(false);
     setQuery("");
     setFilter("all");
     setSelected(new Set());
     setOpenUrl(null);
     setChecked(null);
+    setProbes(new Map());
   }, [open]);
+
+  // A check in flight when the dialog unmounts has nothing left to report to.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const isMobile = breakpoint === "mobile";
   // One pane at a time on a phone, both side by side everywhere else.
@@ -198,6 +242,60 @@ export function ExternalPagesDialog({
   const openDetail = (url: string) => {
     setChecked(null);
     setOpenUrl(url);
+  };
+
+  const stopCheck = () => {
+    abortRef.current?.abort();
+  };
+
+  /**
+   * Check whatever is selected, or everything visible when nothing is.
+   *
+   * The shape findings are already on the rows, so what this starts is the half
+   * that needs the network - and the report it opens is the record of both. A
+   * run always replaces the one before it: two overlapping checks would report
+   * into the same rows with no way to tell which answer is the current one.
+   */
+  const runCheck = () => {
+    const targets = checkTargets.map((row) => row.page.url);
+    setOpenUrl(null);
+    setChecked(targets);
+    if (onProbe === undefined) return;
+    const { probe: toProbe, skipped } = partitionProbeTargets(targets);
+    setProbes((prev) => {
+      const next = new Map(prev);
+      for (const [url, result] of skipped) {
+        next.set(url, { state: "done", result });
+      }
+      for (const url of toProbe) {
+        next.set(url, { state: "checking" });
+      }
+      return next;
+    });
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setRunning(true);
+    void onProbe(
+      toProbe,
+      (url, result) =>
+        setProbes((prev) => new Map(prev).set(url, { state: "done", result })),
+      controller.signal,
+    ).finally(() => {
+      // A later run has already taken over; it owns the state now.
+      if (abortRef.current !== controller) return;
+      abortRef.current = null;
+      setRunning(false);
+      // Whatever was stopped before it answered goes back to unchecked. A row
+      // left saying "checking" forever is worse than one that says nothing.
+      setProbes((prev) => {
+        const next = new Map(prev);
+        for (const [url, probe] of next) {
+          if (probe.state === "checking") next.delete(url);
+        }
+        return next;
+      });
+    });
   };
 
   const allVisibleSelected =
@@ -239,10 +337,10 @@ export function ExternalPagesDialog({
           onGroupedChange={setGrouped}
           totals={totals}
           checkCount={checkTargets.length}
-          onCheck={() => {
-            setOpenUrl(null);
-            setChecked(checkTargets.map((row) => row.page.url));
-          }}
+          onCheck={runCheck}
+          onStop={stopCheck}
+          running={running}
+          progress={progress}
           onAddPage={onAddPage}
         />
 
@@ -411,6 +509,9 @@ function Toolbar({
   totals,
   checkCount,
   onCheck,
+  onStop,
+  running,
+  progress,
   onAddPage,
 }: {
   query: string;
@@ -422,6 +523,9 @@ function Toolbar({
   totals: { ok: number; warning: number; error: number };
   checkCount: number;
   onCheck: () => void;
+  onStop: () => void;
+  running: boolean;
+  progress: { done: number; total: number } | null;
   onAddPage?: () => void;
 }) {
   const flagged = totals.warning + totals.error;
@@ -463,15 +567,25 @@ function Toolbar({
             Add URL
           </Button>
         )}
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={onCheck}
-          disabled={checkCount === 0}
-        >
-          <ShieldCheck size={14} className="mr-1" aria-hidden />
-          Check {checkCount}
-        </Button>
+        {running ? (
+          // Stop, not a progress bar: checking a few hundred links is a minute
+          // of waiting, and the way out of it has to be the same button.
+          <Button size="sm" variant="secondary" onClick={onStop}>
+            <Loader2 size={14} className="mr-1 animate-spin" aria-hidden />
+            Stop
+            {progress && ` · ${progress.done}/${progress.total}`}
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={onCheck}
+            disabled={checkCount === 0}
+          >
+            <ShieldCheck size={14} className="mr-1" aria-hidden />
+            Check {checkCount}
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -618,9 +732,10 @@ function Row({
   showHost: boolean;
   indented?: boolean;
 }) {
-  const { page, parsed, status, usageCount, issues } = row;
+  const { page, parsed, status, usageCount, issues, probe } = row;
   const notesId = useId();
   const notes = [
+    probe?.state === "checking" ? "Being checked" : null,
     usageCount === null
       ? "Still counting where this is used"
       : usageCount === 0
@@ -653,7 +768,15 @@ function Row({
             : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
         )}
       >
-        <StatusIcon status={status} issues={issues} />
+        {probe?.state === "checking" ? (
+          <Loader2
+            size={12}
+            aria-hidden
+            className="shrink-0 animate-spin text-fg-secondary-alt"
+          />
+        ) : (
+          <StatusIcon status={status} issues={issues} />
+        )}
         <span className="truncate font-mono text-[0.6875rem]">
           {showHost ? page.url : parsed.label}
         </span>
@@ -796,6 +919,23 @@ function EntryDetail({
 
       <Section title="Checks">
         <IssueList issues={issues} />
+        {row.probe?.state === "checking" && (
+          <p className="flex items-center gap-1.5 text-xs text-fg-secondary-alt">
+            <Loader2 size={12} aria-hidden className="animate-spin" />
+            Opening it…
+          </p>
+        )}
+        {row.probe?.state === "done" && (
+          <p className="text-[0.6875rem] text-fg-secondary-alt">
+            {probeSummary(row.probe.result)}
+          </p>
+        )}
+        {row.probe === undefined && (
+          <p className="text-[0.6875rem] text-fg-secondary-alt">
+            Not opened yet — these findings are from the URL itself. Press Check
+            to see what answers.
+          </p>
+        )}
       </Section>
 
       <Section title="Value">
@@ -957,21 +1097,31 @@ function CheckReport({
   onOpen: (url: string) => void;
   onDismiss: () => void;
 }) {
-  const totals = countStatuses(rows);
+  const opened = rows.some((row) => row.probe !== undefined);
+  const inFlight = rows.filter((row) => row.probe?.state === "checking").length;
+  // Counted over the rows that have answered. A URL still being opened is not
+  // "fine" — it is unknown, and a running total that calls it fine is a number
+  // that goes DOWN as the bad news arrives.
+  const totals = countStatuses(
+    rows.filter((row) => row.probe?.state !== "checking"),
+  );
   return (
     <div className="p-4 space-y-4">
       <div className="space-y-1">
         <h3 className="text-xs font-semibold text-fg-primary">
-          Checked {rows.length} URL{rows.length === 1 ? "" : "s"}
+          {inFlight > 0 ? "Checking" : "Checked"} {rows.length} URL
+          {rows.length === 1 ? "" : "s"}
         </h3>
         <p className="text-[0.6875rem] text-fg-secondary-alt">
           {totals.error > 0 && `${totals.error} with errors · `}
           {totals.warning > 0 && `${totals.warning} worth a look · `}
           {totals.ok} fine
+          {inFlight > 0 && ` · ${inFlight} still opening`}
         </p>
         <p className="text-[0.6875rem] text-fg-secondary-alt">
-          These checks read the URLs; they do not open them, so a link that has
-          gone dead still looks fine here.
+          {opened
+            ? "Each URL was read and opened. A page behind a login answers 403 to the server and fine to a visitor, so those are flagged rather than failed."
+            : "These findings are from the URLs themselves — nothing was opened, so a link that has gone dead still looks fine here."}
         </p>
       </div>
       <ul className="space-y-2.5">
@@ -982,14 +1132,29 @@ function CheckReport({
               onClick={() => onOpen(row.page.url)}
               className="flex items-start gap-1.5 w-full text-left"
             >
-              <StatusIcon status={row.status} issues={row.issues} />
+              {row.probe?.state === "checking" ? (
+                <Loader2
+                  size={12}
+                  aria-hidden
+                  className="shrink-0 animate-spin text-fg-secondary-alt"
+                />
+              ) : (
+                <StatusIcon status={row.status} issues={row.issues} />
+              )}
               <span className="min-w-0 font-mono text-[0.625rem] leading-4 text-fg-secondary break-all hover:text-fg-primary">
                 {row.page.url}
               </span>
             </button>
-            {row.issues.length === 0 ? (
+            {row.probe?.state === "checking" ? (
+              <p className="pl-5 flex items-center gap-1.5 text-[0.6875rem] text-fg-secondary-alt">
+                <Loader2 size={10} aria-hidden className="animate-spin" />
+                Opening…
+              </p>
+            ) : row.issues.length === 0 ? (
               <p className="pl-5 text-[0.6875rem] text-fg-secondary-alt">
-                No issues.
+                {row.probe?.state === "done"
+                  ? probeSummary(row.probe.result)
+                  : "No issues."}
               </p>
             ) : (
               <ul className="pl-5 space-y-1">

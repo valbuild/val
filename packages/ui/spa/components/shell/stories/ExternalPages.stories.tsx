@@ -9,6 +9,8 @@ import { mockExternalPages, mockPages, mockShellData } from "../mockShellData";
 import { fn } from "storybook/test";
 import { useValPortal } from "../../ValPortalProvider";
 import { checkExternalUrls, statusOf } from "../externalUrlChecks";
+import { createBatchedProber, ProbeBatch } from "../externalUrlProber";
+import { ExternalUrlProbeResult } from "../externalUrlReachability";
 
 /**
  * Every URL outside the site, in one dialog.
@@ -32,9 +34,19 @@ import { checkExternalUrls, statusOf } from "../externalUrlChecks";
  * into seven clusters you recognise. Toggle it off to see why: `Flat` is the
  * same list without the one bit of structure the URLs carry.
  *
- * Try: **Check** with nothing selected (checks everything visible), then tick
- * two rows and press it again. Filter to `Unused`. Open a row to see the
- * entry's own value and the places that link to it.
+ * **Check** is the half that needs the network, and a mock server answers it
+ * here. Press it with nothing selected to check everything visible, and watch
+ * the counter: URLs go up in batches of four (ten in the real one), so a
+ * project with a thousand links never becomes a thousand simultaneous requests
+ * out of the app's server. `val.substack.com` answers 503 twice before it
+ * answers 200, so it is the row that lags and then comes back fine - that is
+ * the retry, three attempts with a doubling backoff. **Stop** is the same
+ * button while it runs, and rows that never got an answer go back to unchecked
+ * rather than sitting on a spinner forever.
+ *
+ * Try: Check everything, then tick two rows and press it again. Filter to
+ * `Flagged` once the answers are in, or to `Unused`. Open a row to see the
+ * entry's own value, what answered, and the places that link to it.
  */
 const meta: Meta<typeof DialogHarness> = {
   title: "Shell/ExternalPages",
@@ -56,12 +68,18 @@ const meta: Meta<typeof DialogHarness> = {
       control: { type: "range", min: 0, max: 18, step: 1 },
       description: "How many of the mock URLs the project has.",
     },
+    canProbe: {
+      control: "boolean",
+      description:
+        "Whether the app can open the URLs. Off, Check reports the shape findings alone.",
+    },
   },
   args: {
     breakpoint: "desktop",
     canWrite: true,
     isLoading: false,
     pageCount: mockExternalPages.length,
+    canProbe: true,
   },
 };
 
@@ -72,15 +90,91 @@ type HarnessProps = {
   canWrite: boolean;
   isLoading: boolean;
   pageCount: number;
+  canProbe: boolean;
 };
+
+const answered = (
+  code: number,
+  finalUrl: string,
+  ms = 120,
+): ExternalUrlProbeResult => ({ kind: "answered", code, finalUrl, ms });
+
+/**
+ * What the mock server says about each URL.
+ *
+ * One of everything the report has to render, and two of the ones that are
+ * easy to get wrong: a redirect that still works (the link has moved, which is
+ * a finding), and a 403 that means "not from here" rather than "broken".
+ */
+function scriptedAnswer(url: string, attempt: number): ExternalUrlProbeResult {
+  switch (url) {
+    case "https://status.example.com":
+      return answered(404, url);
+    case "http://status.example.com":
+      return answered(301, "https://status.example.com");
+    case "https://x.com/valbuild":
+      return answered(301, "https://twitter.com/valbuild");
+    case "https://jobs.example.com/val":
+      return answered(403, url);
+    case "https://youtube.com/@valbuild":
+      return { kind: "timeout", ms: 5000 };
+    case "http://localhost:3000/preview":
+      return { kind: "unreachable", message: "connection refused" };
+    case "http://admin:hunter2@legacy.example.com/reports":
+      return { kind: "unreachable", message: "getaddrinfo ENOTFOUND" };
+    case "https://val.substack.com":
+      // Fails twice, then answers — the retry, visible as a row that takes
+      // longer than its neighbours and then comes back fine.
+      return attempt < 3 ? answered(503, url) : answered(200, url, 640);
+    default:
+      return answered(200, url, 90 + (url.length % 200));
+  }
+}
+
+/**
+ * A server that answers slowly enough to watch.
+ *
+ * Real batches are ten URLs to one request; this is four, so the progress
+ * counter moves several times in a story you can actually sit through.
+ */
+function mockProbeBatch(delayMs: number): ProbeBatch {
+  const attempts = new Map<string, number>();
+  return async (urls, signal) => {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    const results = new Map<string, ExternalUrlProbeResult>();
+    if (signal.aborted) return results;
+    for (const url of urls) {
+      const attempt = (attempts.get(url) ?? 0) + 1;
+      attempts.set(url, attempt);
+      results.set(url, scriptedAnswer(url, attempt));
+    }
+    return results;
+  };
+}
+
+function useMockProber(enabled: boolean) {
+  return useMemo(
+    () =>
+      enabled
+        ? createBatchedProber(mockProbeBatch(450), {
+            batchSize: 4,
+            attempts: 3,
+            backoffMs: 300,
+          })
+        : undefined,
+    [enabled],
+  );
+}
 
 function DialogHarness({
   breakpoint,
   canWrite,
   isLoading,
   pageCount,
+  canProbe,
 }: HarnessProps) {
   const portalContainer = useValPortal();
+  const onProbe = useMockProber(canProbe);
   const [open, setOpen] = useState(true);
   // Removal is tracked as a set of URLs rather than a copy of the list, so the
   // `pageCount` control keeps working after something has been removed.
@@ -105,6 +199,7 @@ function DialogHarness({
         breakpoint={breakpoint}
         pages={pages}
         portalContainer={portalContainer}
+        onProbe={onProbe}
         isLoading={isLoading}
         onOpenEntry={fn()}
         onOpenUsage={fn()}
@@ -137,6 +232,14 @@ export const AFewUrls: Story = { args: { pageCount: 5 } };
 
 /** While the record and the reference scan are still coming back. */
 export const Loading: Story = { args: { isLoading: true } };
+
+/**
+ * The app has no way to open the URLs.
+ *
+ * Check still works and still reports - on the shape findings alone, and the
+ * report says so rather than implying the links were opened and are fine.
+ */
+export const WithoutLinkChecking: Story = { args: { canProbe: false } };
 
 /**
  * A mode that cannot write: no Add, no Remove.
@@ -174,11 +277,18 @@ export const InThePagesPanel: StoryObj<typeof PagesPanelHarness> = {
     canWrite: true,
     isLoading: false,
     pageCount: mockExternalPages.length,
+    canProbe: true,
   },
 };
 
-function PagesPanelHarness({ breakpoint, canWrite, pageCount }: HarnessProps) {
+function PagesPanelHarness({
+  breakpoint,
+  canWrite,
+  pageCount,
+  canProbe,
+}: HarnessProps) {
   const portalContainer = useValPortal();
+  const onProbe = useMockProber(canProbe);
   const [open, setOpen] = useState(false);
   const pages = useMemo(
     () => mockExternalPages.slice(0, pageCount),
@@ -211,6 +321,7 @@ function PagesPanelHarness({ breakpoint, canWrite, pageCount }: HarnessProps) {
         breakpoint={breakpoint}
         pages={pages}
         portalContainer={portalContainer}
+        onProbe={onProbe}
         onOpenEntry={(page) => setSelectedId(page.id)}
         onOpenUsage={fn()}
         onAddPage={canWrite ? fn() : undefined}
