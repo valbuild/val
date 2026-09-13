@@ -19,10 +19,13 @@ export function RefPreview({
   path,
   className,
   size,
+  nullLabel,
 }: {
   path: SourcePath;
   className?: string;
   size?: "compact";
+  /** What an unwritten value is called here — see `PreviewNull`. */
+  nullLabel?: string;
 }) {
   const preview = useRefPreview(path);
 
@@ -42,7 +45,7 @@ export function RefPreview({
   }
   return (
     <div className={cn("p-2", className)}>
-      <Preview path={path} size={size} />
+      <Preview path={path} size={size} nullLabel={nullLabel} />
     </div>
   );
 }

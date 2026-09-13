@@ -25,6 +25,7 @@ import { Field } from "../../components/Field";
 import { AnyField } from "../../components/AnyField";
 import { InlineSortableItem } from "../../components/InlineSortableItem";
 import { LocaleFiltered } from "../LocaleFilterProvider";
+import { FieldNull } from "../../components/FieldNull";
 
 export function ArrayFields({
   path,
@@ -93,6 +94,14 @@ export function ArrayFields({
     );
   }
   const schema = schemaAtPath.data as SerializedArraySchema;
+  const arraySource =
+    "data" in shallowSourceAtPath ? shallowSourceAtPath.data : undefined;
+  if (arraySource === null) {
+    // Not an empty list — a list that does not exist. Rendering the sortable
+    // list over it offered an "add" that would have written index 0 into
+    // `null`. See `FieldNull`.
+    return <FieldNull path={path} schema={schema} readonly={readonly} />;
+  }
   const previewAtPathData =
     previewAtPath && "data" in previewAtPath ? previewAtPath.data : undefined;
 
@@ -141,10 +150,7 @@ export function ArrayFields({
     );
   }
   if (inline) {
-    const sourcePaths = shallowSourceAtPath.data as SourcePath[] | null;
-    if (sourcePaths === null) {
-      return null;
-    }
+    const sourcePaths = arraySource ?? [];
     return (
       <div id={path}>
         <SortableContainer
