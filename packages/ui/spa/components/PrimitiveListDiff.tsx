@@ -172,12 +172,12 @@ function ListDiffRow({ line }: { line: ListDiffLine }) {
           line.kind === "removed" && "text-fg-error",
           line.kind === "moved" && "text-fg-warning",
           line.kind === "changed" && "text-fg-warning",
-          line.kind === "unchanged" && "text-fg-quaternary",
+          line.kind === "unchanged" && "text-fg-secondary-alt",
         )}
       >
         {markerFor(line.kind)}
       </span>
-      <span className="w-8 shrink-0 text-right text-xs text-fg-quaternary">
+      <span className="w-8 shrink-0 text-right text-xs text-fg-secondary-alt">
         {index === null ? "" : index + 1}
       </span>
       <span className="min-w-0 flex-1 break-words">
@@ -211,7 +211,7 @@ function ListDiffValue({ line }: { line: ListDiffLine }) {
         <span className="text-fg-tertiary line-through decoration-fg-error/60">
           <Value value={line.before} />
         </span>
-        <span aria-hidden className="text-fg-quaternary">
+        <span aria-hidden className="text-fg-secondary-alt">
           →
         </span>
         <span>

@@ -657,7 +657,7 @@ export function KeyOfField({
             {/* Edits here go to the referenced module (this is the SHARED
                 entry, not a copy), which is what a reference means — but it is
                 worth a label so nobody mistakes it for row-local content. */}
-            <div className="pb-2 text-xs text-fg-quaternary truncate">
+            <div className="pb-2 text-xs text-fg-secondary-alt truncate">
               {source}
             </div>
             <AnyField

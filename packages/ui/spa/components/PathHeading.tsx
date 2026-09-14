@@ -194,7 +194,7 @@ export function PathHeading({
         {scope}
         {showUrlInTrail && (
           <>
-            {scope && <span className="shrink-0 text-fg-tertiary">/</span>}
+            {scope && <span className="shrink-0 text-fg-secondary-alt">/</span>}
             <PageUrl url={url} />
           </>
         )}
@@ -233,7 +233,7 @@ export function PageUrl({
         ) : (
           segments.map((segment, i) => (
             <span key={i}>
-              <span className="text-fg-tertiary">/</span>
+              <span className="text-fg-secondary-alt">/</span>
               <span className="text-fg-secondary">{segment}</span>
             </span>
           ))

@@ -224,7 +224,7 @@ export function SitemapItemNode({
            * point of it.
            */}
           {item.title && (
-            <span className="min-w-0 flex-1 truncate font-sans text-fg-tertiary">
+            <span className="min-w-0 flex-1 truncate font-sans text-fg-secondary-alt">
               {item.title}
             </span>
           )}

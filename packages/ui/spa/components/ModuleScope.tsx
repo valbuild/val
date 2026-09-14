@@ -83,7 +83,7 @@ function ScopeLink({
   if (part.isDirectory) {
     // Text, not a link: see `ScopePart.isDirectory`.
     return (
-      <span className={cn("truncate text-fg-quaternary", className)}>
+      <span className={cn("truncate text-fg-secondary-alt", className)}>
         {label}
       </span>
     );
@@ -108,7 +108,7 @@ function ScopeLink({
 /** The separator. Not an arrow — the line has exactly one of those. */
 function ScopeSeparator() {
   return (
-    <span aria-hidden className="shrink-0 text-fg-quaternary">
+    <span aria-hidden className="shrink-0 text-fg-secondary-alt">
       /
     </span>
   );
@@ -197,7 +197,7 @@ export function ScopeTrail({
     <nav
       aria-label="Scope"
       className={cn(
-        "flex min-w-0 items-center gap-1 text-xs text-fg-quaternary",
+        "flex min-w-0 items-center gap-1 text-xs text-fg-secondary-alt",
         className,
       )}
     >

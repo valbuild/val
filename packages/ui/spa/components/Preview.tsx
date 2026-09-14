@@ -117,7 +117,7 @@ export function PreviewNull({
   label?: string;
 }) {
   return (
-    <div id={path} key={path + "-null"} className="text-fg-quaternary">
+    <div id={path} key={path + "-null"} className="text-fg-secondary-alt">
       {label ?? "<empty>"}
     </div>
   );
