@@ -3,6 +3,7 @@ import {
   Internal,
   isPageRouter,
   ModuleFilePath,
+  ReifiedPreview,
   resolveSettingsModule,
   SerializedSchema,
   SourcePath,
@@ -12,7 +13,7 @@ import {
   useShallowModulesAtPaths,
   usePageRouterSrcFolder,
 } from "../ValProvider";
-import { useSchemas } from "../ValFieldProvider";
+import { useAllPreviews, useSchemas } from "../ValFieldProvider";
 import {
   getPageRouterSitemapTree,
   SitemapNode,
@@ -30,6 +31,7 @@ import {
 import { PathNode } from "../../utils/pathTree";
 import { Remote } from "../../utils/Remote";
 import { useAllValidationErrors } from "../ValErrorProvider";
+import { resolveRefPreview } from "../useRefPreview";
 
 /**
  * Transforms a SitemapNode (from shared/internal) to our SitemapItem type.
@@ -42,6 +44,7 @@ function transformSitemapNode(
   node: SitemapNode | PageNode,
   navErrors: NavErrorsIndex,
   schemas?: Record<ModuleFilePath, SerializedSchema>,
+  previews?: Record<ModuleFilePath, ReifiedPreview | null>,
 ): SitemapItem {
   const canAddChild = !!node.pattern?.includes("[");
   const routePattern =
@@ -61,6 +64,29 @@ function transformSitemapNode(
     canAddChild && moduleFilePath ? schemas?.[moduleFilePath] : undefined;
   const keyDescription =
     routerSchema?.type === "record" ? routerSchema.key?.description : undefined;
+
+  /*
+   * What a `.preview(...)` calls this page.
+   *
+   * A page is an entry of a router RECORD, so its preview is in that module's
+   * reified rows rather than at its own path — `resolveRefPreview` is the same
+   * lookup `useRefPreview` does, reused rather than re-derived (a route key is
+   * a quoted path segment, and getting the unquoting wrong here is how the
+   * lookup silently missed everywhere before).
+   */
+  const pageModuleFilePath = node.moduleFilePath as ModuleFilePath | undefined;
+  const pageSchema = pageModuleFilePath
+    ? schemas?.[pageModuleFilePath]
+    : undefined;
+  const title =
+    sourcePath && pageModuleFilePath && pageSchema
+      ? resolveRefPreview(
+          sourcePath,
+          pageModuleFilePath as unknown as SourcePath,
+          pageSchema,
+          previews?.[pageModuleFilePath]?.[pageModuleFilePath],
+        )?.title?.trim() || undefined
+      : undefined;
 
   // The URL this row resolves to, which is what navigation, key creation and
   // the row's own label all need. `pattern` is the route *pattern*
@@ -82,9 +108,10 @@ function transformSitemapNode(
     routePattern,
     existingKeys,
     keyDescription,
+    title,
     errors,
     children: node.children.map((child) =>
-      transformSitemapNode(child, navErrors, schemas),
+      transformSitemapNode(child, navErrors, schemas, previews),
     ),
   };
 }
@@ -142,6 +169,13 @@ export function useNavMenuData(): Remote<NavMenuData> {
   const srcFolder = usePageRouterSrcFolder();
   const validationErrors = useAllValidationErrors();
   const schemas = useSchemas();
+  /*
+   * Whatever the preview store has already computed — this hook registers no
+   * demand of its own, and does not need to: `useShallowModulesAtPaths` above
+   * listens to exactly these modules, and a listener IS the demand signal the
+   * preview store acts on. See `PreviewStore`.
+   */
+  const previews = useAllPreviews();
 
   return useMemo((): Remote<NavMenuData> => {
     if (trees.status !== "success") {
@@ -185,6 +219,7 @@ export function useNavMenuData(): Remote<NavMenuData> {
           sitemapTree,
           navErrors,
           schemas.status === "success" ? schemas.data : undefined,
+          previews,
         );
       } else if (
         srcFolder.status === "loading" ||

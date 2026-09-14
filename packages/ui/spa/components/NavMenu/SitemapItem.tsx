@@ -194,7 +194,7 @@ export function SitemapItemNode({
           onClick={handleClick}
         >
           <span
-            className={cn("truncate", {
+            className={cn("min-w-0 shrink-0 truncate", {
               "font-medium": isExactActive,
             })}
           >
@@ -208,6 +208,26 @@ export function SitemapItemNode({
               {ownSegment}
             </span>
           </span>
+          {/*
+           * The page's name, beside its route rather than instead of it.
+           *
+           * This tree IS the site's routes — dynamic-segment pills, route
+           * patterns, "add a page under this pattern" — so a row whose URL was
+           * replaced by a title would stop being part of a URL tree, and two
+           * drafts both called "Launch" would be indistinguishable. In sans and
+           * muted, so the mono column still reads as a column of paths and the
+           * name is what you recognise once you are in the right part of it.
+           *
+           * A sibling of the route rather than inside it, and the only one of
+           * the two that may shrink: a name is worth truncating, a route is
+           * what the row IS. One line either way — the tree's density is the
+           * point of it.
+           */}
+          {item.title && (
+            <span className="min-w-0 flex-1 truncate font-sans text-fg-tertiary">
+              {item.title}
+            </span>
+          )}
 
           {nextDynamicSegment && (
             <DynamicSegmentPill part={nextDynamicSegment} />

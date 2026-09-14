@@ -81,7 +81,7 @@ function TodayHeading({ text, scope }: { text: ReactNode; scope?: ReactNode }) {
       </div>
       {/* `Module.tsx` renders the trail only when there is one — which is part
           of why headings are different heights today. */}
-      {scope && <div className="text-sm text-fg-quaternary">{scope}</div>}
+      {scope && <div className="text-sm text-fg-tertiary">{scope}</div>}
     </div>
   );
 }
@@ -153,7 +153,7 @@ function Compare({
 function Panel({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <div className="mb-1.5 text-[11px] uppercase tracking-wide text-fg-quaternary">
+      <div className="mb-1.5 text-[11px] uppercase tracking-wide text-fg-tertiary">
         {label}
       </div>
       <div className="rounded-lg border border-border-primary bg-bg-primary p-4">
@@ -196,7 +196,7 @@ export const TheHeading: Story = {
                 image: "fallback",
               },
             }}
-            scope={<span className="text-fg-quaternary">Components</span>}
+            scope={<span className="text-fg-tertiary">Components</span>}
           />
         }
       />
@@ -314,14 +314,14 @@ export const PagesUrlOptions: Story = {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {URL_STYLES.map(({ style, name, tradeoff }) => (
           <div key={style}>
-            <div className="mb-1.5 text-[11px] uppercase tracking-wide text-fg-quaternary">
+            <div className="mb-1.5 text-[11px] uppercase tracking-wide text-fg-tertiary">
               {name}
             </div>
             <div className="rounded-lg border border-border-primary bg-bg-primary p-4">
               <PathHeading
                 description={pageDescription}
                 pageUrlStyle={style}
-                scope={<span className="text-fg-quaternary">Blogs</span>}
+                scope={<span className="text-fg-tertiary">Blogs</span>}
               />
             </div>
             <p className="mt-2 text-xs text-fg-tertiary">{tradeoff}</p>
@@ -562,7 +562,7 @@ export const Fallbacks: Story = {
           key={what}
           className="flex items-baseline gap-4 border-b border-border-primary p-3 last:border-b-0"
         >
-          <div className="w-36 shrink-0 text-xs text-fg-quaternary">{what}</div>
+          <div className="w-36 shrink-0 text-xs text-fg-tertiary">{what}</div>
           <div className="min-w-0 flex-1">
             <div className="truncate">{description.title}</div>
             {description.url && (
@@ -571,7 +571,7 @@ export const Fallbacks: Story = {
               </div>
             )}
           </div>
-          <div className="shrink-0 text-[11px] uppercase tracking-wide text-fg-quaternary">
+          <div className="shrink-0 text-[11px] uppercase tracking-wide text-fg-tertiary">
             {description.origin.title}
           </div>
         </div>
@@ -664,15 +664,13 @@ export const OneHeight: Story = {
     <div className="mx-auto max-w-2xl">
       {SHAPES.map(({ what, description, scope }, i) => (
         <div key={i}>
-          <div className="mb-1.5 text-[11px] uppercase tracking-wide text-fg-quaternary">
+          <div className="mb-1.5 text-[11px] uppercase tracking-wide text-fg-tertiary">
             {what}
           </div>
           <div className="mb-4 rounded-lg border border-dashed border-border-primary bg-bg-primary px-4 py-3">
             <PathHeading
               description={description}
-              scope={
-                scope && <span className="text-fg-quaternary">{scope}</span>
-              }
+              scope={scope && <span className="text-fg-tertiary">{scope}</span>}
             />
           </div>
         </div>
@@ -693,7 +691,7 @@ export const OneRowHeight: Story = {
   render: () => (
     <div className="mx-auto grid max-w-4xl grid-cols-1 gap-4 md:grid-cols-2">
       <div>
-        <div className="mb-1.5 text-[11px] uppercase tracking-wide text-fg-quaternary">
+        <div className="mb-1.5 text-[11px] uppercase tracking-wide text-fg-tertiary">
           Subtitle declared — one row has not filled it in
         </div>
         <div className="divide-y divide-border-primary rounded-lg border border-border-primary bg-bg-primary">
@@ -711,7 +709,7 @@ export const OneRowHeight: Story = {
         </div>
       </div>
       <div>
-        <div className="mb-1.5 text-[11px] uppercase tracking-wide text-fg-quaternary">
+        <div className="mb-1.5 text-[11px] uppercase tracking-wide text-fg-tertiary">
           No subtitle and no image declared — one line, no column
         </div>
         <div className="divide-y divide-border-primary rounded-lg border border-border-primary bg-bg-primary">
