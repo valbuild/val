@@ -52,6 +52,28 @@ const USER_AGENT =
  * no second chance, because there is only ever one resolution and it is this
  * one.
  */
+/**
+ * What a refused lookup tells the CALLER.
+ *
+ * Deliberately the same words `ENETUNREACH` gets, and deliberately without the
+ * address. The guard stops the connection, but the first version of it handed
+ * back the DNS answer it had just refused to use - "vault.prod.svc resolves to
+ * a private address (10.42.7.19)" - which travels through `readableError` into
+ * the response and onto the screen. That turns an endpoint that cannot reach
+ * the internal network into one that MAPS it: twenty names a request, existence
+ * confirmed and address included, without a single connection being made.
+ *
+ * True rather than evasive: this server genuinely did not reach the host. And
+ * because a real external host that is down produces the same sentence, the
+ * answer no longer says which of the two happened. The operator still gets the
+ * detail, in the log, where it belongs.
+ *
+ * A hostname the caller wrote as a literal address is different and keeps its
+ * specific message (see the literal check in `probeUrl`): repeating
+ * `127.0.0.1` to someone who just typed `127.0.0.1` reveals nothing.
+ */
+const REFUSED_MESSAGE = "the host could not be reached";
+
 export function guardedLookup(lookup: LookupFunction): LookupFunction {
   const guarded: LookupFunction = (hostname, options, callback) => {
     // The overloads differ only in whether `options` was passed; `net` always
@@ -74,13 +96,15 @@ export function guardedLookup(lookup: LookupFunction): LookupFunction {
         for (const entry of addresses) {
           const reason = blockedAddressReason(entry.address);
           if (reason !== null) {
-            callback(
-              new Error(
-                `${hostname} resolves to ${describeBlocked(reason)} (${entry.address})`,
-              ),
-              "",
-              0,
+            // Server-side only. This is the half an operator needs to work out
+            // why a link check refused a URL, and the half a caller must not
+            // be given.
+            console.warn(
+              `[val] link check refused ${hostname}: resolves to ${describeBlocked(
+                reason,
+              )} (${entry.address})`,
             );
+            callback(new Error(REFUSED_MESSAGE), "", 0);
             return;
           }
         }
@@ -317,6 +341,15 @@ function defaultLookup(): LookupFunction {
 
 /** What went wrong, in words rather than in errno. */
 function readableError(error: NodeJS.ErrnoException): string {
+  /*
+   * The guard's own refusal, recognised by its message rather than by a code.
+   * `net` destroys the socket with the Error the lookup gave it, and the
+   * message survives that trip verbatim; whether a custom `code` does is an
+   * implementation detail this does not need to bet on.
+   */
+  if (error.message === REFUSED_MESSAGE) {
+    return REFUSED_MESSAGE;
+  }
   switch (error.code) {
     case "ENOTFOUND":
     case "EAI_AGAIN":
@@ -336,6 +369,15 @@ function readableError(error: NodeJS.ErrnoException): string {
     case "SELF_SIGNED_CERT_IN_CHAIN":
       return "its certificate is self-signed";
     default:
-      return error.message;
+      /*
+       * A fixed string, not `error.message`.
+       *
+       * Whatever Node or OpenSSL put in there is written for a server log, and
+       * some of it names things the caller should not learn - a resolved
+       * address, a certificate's subject, a path. The cases above cover what is
+       * worth telling an editor; anything else is noise to them and a leak
+       * waiting to happen.
+       */
+      return "the request failed";
   }
 }

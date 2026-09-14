@@ -88,6 +88,26 @@ It is applied in **three** places, and it took all three:
 Also refused: a redirect whose `Location` leaves http(s) (the address guard
 never sees a `file:` URL), and more than five hops.
 
+## What a refusal is allowed to say
+
+Nothing about what it refused. The first version reported "vault.prod.svc
+resolves to a private address (10.42.7.19)", and that message travels through
+`readableError` into the response and onto the screen - which turns an endpoint
+that cannot REACH the internal network into one that maps it: twenty names per
+request, existence confirmed and address attached, without a single connection
+being made. A security review caught it.
+
+So a URL refused at the lookup says only "the host could not be reached", which
+is true and which a real dead host says too, and the detail goes to the server
+log. `readableError`'s default branch is a fixed string for the same reason:
+whatever Node or OpenSSL put in an error message is written for an operator,
+and some of it names a resolved address or a certificate subject.
+
+The exception is a hostname the CALLER wrote as a literal address, which keeps
+its specific message - repeating `127.0.0.1` to someone who just typed
+`127.0.0.1` discloses nothing, and "this is a loopback address" is the useful
+thing to say about it.
+
 Every request is made with `agent: false`. Node's default agent pools sockets
 between requests, and a pooled socket was resolved by a _previous_ lookup.
 

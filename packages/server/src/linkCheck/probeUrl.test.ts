@@ -207,6 +207,42 @@ describe("the address guard, on a real connection", () => {
     expect(hits).toBe(0);
   });
 
+  /**
+   * The refusal must not hand back what it refused.
+   *
+   * The first version of the guard reported "localhost resolves to a loopback
+   * address (127.0.0.1)", and that message travels all the way to the dialog.
+   * On a name the caller cannot otherwise resolve — `vault.prod.svc`, any
+   * split-horizon internal record — that is the endpoint mapping the internal
+   * network for them: existence confirmed and address attached, without ever
+   * connecting. Twenty names per request.
+   *
+   * So a lookup-refused URL says only that the host could not be reached,
+   * which is true, and which a real dead host says too.
+   */
+  test("and says nothing about what it resolved to", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = await probeUrl(`http://localhost:${port}/`);
+      const message = (result as { message: string }).message;
+      expect(message).not.toContain("127.0.0.1");
+      expect(message).not.toContain("loopback");
+      expect(message).not.toContain("resolves");
+      expect(message).toBe("the host could not be reached");
+      // The operator still gets it, where it is theirs to see.
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("127.0.0.1"));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("a URL the CALLER wrote as an address keeps its specific message", async () => {
+    // Nothing is disclosed by repeating `127.0.0.1` to whoever just typed it,
+    // and "this is a loopback address" is the useful thing to say about it.
+    const result = await probeUrl(`http://127.0.0.1:${port}/`);
+    expect((result as { message: string }).message).toContain("loopback");
+  });
+
   test("and the IPv6 spelling of it, for the RIGHT reason", async () => {
     // Asserting the message, not just the failure: `::1` would also fail with
     // a connection error here (the server binds IPv4 only), and a test that
