@@ -1,4 +1,4 @@
-import { Globe } from "lucide-react";
+import { FileCode2, Globe } from "lucide-react";
 import { ReactNode } from "react";
 import { Description } from "../utils/describePath";
 import { useMediaUrl } from "../utils/mediaUrl";
@@ -130,6 +130,21 @@ export function PathHeading({
     isPage &&
     pageUrlStyle === "trail" &&
     description.origin.title === "preview";
+  /*
+   * The same rule, for the other kind of path-shaped identity.
+   *
+   * A MODULE is identified by its file, the way a page is by its route — it is
+   * what a developer greps for, what a `c.define` names, and what an editor
+   * says when reporting that something is wrong. So a `.preview(...)` that
+   * renames `authors.val.ts` to "Foo fighters" is a better name and, on its
+   * own, a lost identity: the file appeared nowhere on the screen any more.
+   *
+   * Same answer as the route, then, and the same place: it joins the scope
+   * line. And the same guard — when nothing renamed the module the title is
+   * already its file name, so showing it would say it twice.
+   */
+  const showModulePathInTrail =
+    description.isModuleRoot && description.origin.title === "preview";
 
   return (
     <div className={cn("flex flex-col gap-2 text-left", className)}>
@@ -200,6 +215,12 @@ export function PathHeading({
             <PageUrl url={url} />
           </>
         )}
+        {showModulePathInTrail && (
+          <>
+            {scope && <span className="shrink-0 text-fg-secondary-alt">/</span>}
+            <ModulePath moduleFilePath={description.moduleFilePath} />
+          </>
+        )}
       </div>
       {below}
     </div>
@@ -241,6 +262,34 @@ export function PageUrl({
           ))
         )}
       </span>
+    </span>
+  );
+}
+
+/**
+ * A module's file, for when its name no longer says it.
+ *
+ * Selectable and in full, for the same reason {@link PageUrl} is: what an
+ * editor does with it is paste it into a message, and what a developer does is
+ * open it.
+ */
+export function ModulePath({
+  moduleFilePath,
+  className,
+}: {
+  moduleFilePath: string;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex min-w-0 items-center gap-1 font-mono text-fg-secondary-alt",
+        className,
+      )}
+      title={moduleFilePath}
+    >
+      <FileCode2 size={13} aria-hidden className="shrink-0" />
+      <span className="truncate">{moduleFilePath}</span>
     </span>
   );
 }

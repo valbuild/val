@@ -170,13 +170,64 @@ until after the value has been entered. None of the three substitutes for
 another: a field with a perfect description still previews as `#3` until
 someone writes the preview.
 
-`describePath` (`packages/ui/spa/utils/describePath.ts`) is the one place the
-Studio turns a source path into the `{ title, subtitle, image, url }` a human
-is shown — the preview side of the rule, and only that. It prefers the value's
-preview and falls back to the route, the key, the index or the file name.
+### Where a preview comes from
+
+A value's preview reaches it by ONE of two routes, and which one depends on
+whether it has a container:
+
+- **Its own `self`** — for a module root, or a field of an object: anything that
+  is nobody's row. `executePreview` emits it at the value's own path. Before
+  that existed, `.preview()` on a module's own schema was dead code.
+- **Its container's `rows`** — for an item of an array or record, reified by the
+  container from the ITEM schema's closure. Deliberately NOT also a `self`: it
+  is one closure, and array and record pass `selfIsReifiedByParent` to their
+  direct items so it runs once per row rather than twice.
+
+`ReifiedPreview` therefore maps a path to `{ self?, rows? }`. Two fields, not a
+union, because a path can have both: `s.array(section).preview(...)` where
+`section` also previews is a list that shows its rows AND names itself.
+
+Two traps, both of which shipped once:
+
+- **A module's `self` must never reach a path below it.** `PreviewStore` hands a
+  row the module-root entry so the row can find itself in that entry's windowed
+  `rows`; handing the entry over whole made every author read back the record's
+  own title. `asSeenFromBelow` strips `self`.
+- **A preview is computed for a module with a LISTENER on it, and no other.**
+  `get()` does not count. A nav reads sources without subscribing
+  (`useShallowModulesAtPaths` says so), so a nav that NAMES its rows must call
+  `usePreviewDemand` — one listener per module, never one per row. Without it
+  the titles appear only for the module the editor is currently in, which reads
+  as data missing rather than as a feature not used.
+
+### A name that replaces an identity must leave the identity visible
+
+Some things are identified by a path: a PAGE by its route, a MODULE by its file.
+A preview that renames one of those is a better name and, on its own, a lost
+identity — two drafts both called "Launch" are told apart by
+`/blog/launch-2026`, and a file is what a developer greps for and what an editor
+quotes when something is wrong.
+
+So both join the scope line under the heading, in the same slot, under the same
+guard: only when a preview actually replaced them. When nothing did, the title
+already IS the route or the file name, and showing it would say it twice. The
+SITEMAP inverts this and is the one place that is right to: that tree is the
+site's routes, so the route leads and the name rides beside it.
+
+### `describePath` is the one implementation
+
+`packages/ui/spa/utils/describePath.ts` turns a source path into the
+`{ title, subtitle, image, url, pathLabel, moduleFilePath, isModuleRoot }` a
+human is shown — the preview side of the rule, and only that. It prefers the
+value's preview and falls back to the route, the key, the index or the file
+name, and `origin` says which happened, so a surface can tell a name someone
+wrote from a key we had lying around.
+
 Anything that labels a path goes through it rather than deriving a name of its
-own: the heading, list rows, the scope trail, search hits, references and the
-sitemap disagreed with each other before it existed.
+own — the heading, list rows, the scope trail, search hits, references and the
+sitemap disagreed with each other before it existed. `useDescription` is the
+hook; `useRefPreview` is the rows lookup underneath it and stays the right call
+for a list row, which has no `self` to read.
 
 ## Schema System
 

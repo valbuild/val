@@ -14,6 +14,7 @@ import {
   usePageRouterSrcFolder,
 } from "../ValProvider";
 import { useAllPreviews, useSchemas } from "../ValFieldProvider";
+import { usePreviewDemand } from "../usePreviewDemand";
 import {
   getPageRouterSitemapTree,
   SitemapNode,
@@ -170,11 +171,16 @@ export function useNavMenuData(): Remote<NavMenuData> {
   const validationErrors = useAllValidationErrors();
   const schemas = useSchemas();
   /*
-   * Whatever the preview store has already computed — this hook registers no
-   * demand of its own, and does not need to: `useShallowModulesAtPaths` above
-   * listens to exactly these modules, and a listener IS the demand signal the
-   * preview store acts on. See `PreviewStore`.
+   * The sitemap NAMES its rows, so it has to ask for the previews that name
+   * them.
+   *
+   * `useShallowModulesAtPaths` above reads sources without subscribing, and a
+   * subscription is the only thing the preview store treats as demand — so
+   * without this the titles appeared for whichever router module the editor
+   * happened to be in and nowhere else. One listener per router module (there
+   * are rarely more than a handful), never one per page.
    */
+  usePreviewDemand(sitemapPaths);
   const previews = useAllPreviews();
 
   return useMemo((): Remote<NavMenuData> => {

@@ -193,3 +193,28 @@ describe("describePath: pathLabel", () => {
     expect(described.url).toBe("/blogs/launch");
   });
 });
+
+describe("describePath: a module's identity", () => {
+  test("a module root says so, and carries its file", () => {
+    const described = describePath({
+      path: "/components/footer.val.ts" as SourcePath,
+      schema: arraySchema,
+      preview: { title: "Foo fighters" },
+    });
+    expect(described.isModuleRoot).toBe(true);
+    expect(described.moduleFilePath).toBe("/components/footer.val.ts");
+    // The name replaced the file name, so the file has to stay reachable —
+    // `PathHeading` puts it in the scope line. See `showModulePathInTrail`.
+    expect(described.title).toBe("Foo fighters");
+    expect(described.pathLabel).toBe("Footer");
+  });
+
+  test("something inside a module is not a module root", () => {
+    const described = describePath({
+      path: '/content/authors.val.ts?p="teddy"' as SourcePath,
+      parentSchema: recordSchema,
+    });
+    expect(described.isModuleRoot).toBe(false);
+    expect(described.moduleFilePath).toBe("/content/authors.val.ts");
+  });
+});
