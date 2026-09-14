@@ -25,11 +25,25 @@ jest.mock("./ValRouter", () => ({
   useNavigation: () => ({ navigate: mockNavigate, hrefOf: mockHrefOf }),
 }));
 
+/** Title per path, as `describePath` would have resolved it. */
 const mockPreviews: Record<string, string> = {};
-jest.mock("./useRefPreview", () => ({
+jest.mock("./useDescription", () => ({
   __esModule: true,
-  useRefPreview: (path: string) =>
-    mockPreviews[path] ? { title: mockPreviews[path] } : undefined,
+  useDescription: (path: string) => ({
+    // The fallback `describePath` applies when nothing named the path. The
+    // trail's own `part.text` stands in for it here, so a segment with no
+    // preview keeps the name the caller gave it.
+    title: mockPreviews[path] ?? "",
+    pathLabel: mockPreviews[path] ?? "",
+    subtitle: null,
+    image: null,
+    url: null,
+    origin: {
+      title: mockPreviews[path] ? "preview" : "fallback",
+      subtitle: "fallback",
+      image: "fallback",
+    },
+  }),
 }));
 
 function part(text: string, sourcePath: string): ScopePart {
@@ -110,6 +124,43 @@ describe("the scope trail", () => {
     render(trail([part("Authors", AUTHORS), part("one", ONE)]));
     expect(screen.queryByText("one")).toBeNull();
     expect(screen.getByText("Ada Lovelace")).not.toBeNull();
+  });
+
+  /**
+   * The module's OWN `.preview(...)`, which reaches it as a self preview.
+   *
+   * A module root has no container to reify it, so the trail could only ever
+   * show its file name — `.preview()` on a module's own schema named it
+   * everywhere except the one line that says where you are.
+   */
+  test("a module is named by its own preview, not its file name", () => {
+    mockPreviews[AUTHORS] = "Foo fighters";
+    render(trail([part("Authors", AUTHORS), part("teddy", ONE)]));
+    expect(screen.queryByText("Authors")).toBeNull();
+    expect(screen.getByText("Foo fighters")).not.toBeNull();
+  });
+
+  /**
+   * ...and the FOLDER above it keeps its own name.
+   *
+   * `/content/authors.val.ts` splits into a folder and a module that are handed
+   * the same `sourcePath` — the module — so describing the folder describes the
+   * module. Read "Content / Foo fighters", not "Foo fighters / Foo fighters".
+   */
+  test("the folder above a named module keeps its name", () => {
+    mockPreviews[AUTHORS] = "Foo fighters";
+    render(
+      trail([
+        {
+          text: "Content",
+          sourcePath: AUTHORS as SourcePath,
+          isDirectory: true,
+        },
+        part("Authors", AUTHORS),
+      ]),
+    );
+    expect(screen.getByText("Content")).not.toBeNull();
+    expect(screen.getAllByText("Foo fighters")).toHaveLength(1);
   });
 
   test("a long path collapses its middle, and says how much is hidden", () => {
