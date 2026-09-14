@@ -682,12 +682,12 @@ function buildKeyPreviews(
   if (!previewAtPath || !("data" in previewAtPath) || !previewAtPath.data) {
     return undefined;
   }
-  const previewData = previewAtPath.data;
-  if (previewData.parent !== "record") {
+  const rows = previewAtPath.data.rows;
+  if (rows?.parent !== "record") {
     return undefined;
   }
   const out: Record<string, KeyPreview> = {};
-  for (const [key, value] of previewData.items) {
+  for (const [key, value] of rows.items) {
     out[key] = {
       title: value.title,
       subtitle: value.subtitle ?? null,

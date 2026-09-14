@@ -15,7 +15,7 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 import { Internal, ValModule } from "..";
-import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
+import { ItemPreviewInput, PreviewItem } from "../preview";
 import { FieldRender } from "../render";
 import { AltSource, ImagesetEntryMetadata } from "./imageset";
 import { getSource } from "../module";
@@ -676,10 +676,6 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
       hidden: this.isHidden,
       description: this.description,
     };
-  }
-
-  protected executePreview(): ReifiedPreview {
-    return {};
   }
 }
 

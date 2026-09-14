@@ -9,6 +9,7 @@ import {
   PreviewItem,
   ReifiedPreview,
   PreviewScope,
+  mergePreviewInto,
 } from "../preview";
 import { FieldRender } from "../render";
 import { createValPathOfItem } from "../selector/SelectorProxy";
@@ -646,6 +647,7 @@ export class DiscriminatedUnionSchema<
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
     scope?: PreviewScope,
+    selfIsReifiedByParent?: boolean,
   ): ReifiedPreview {
     const res: ReifiedPreview = {};
     if (src === null) {
@@ -680,10 +682,24 @@ export class DiscriminatedUnionSchema<
       },
     );
     if (thisSchema) {
-      const itemResult = thisSchema["executePreview"](sourcePath, src, scope);
-      for (const keyS in itemResult) {
-        const key = keyS as SourcePath | ModuleFilePath;
-        res[key] = itemResult[key];
+      // The variant owns the path — see the note on `executeCustomValidateAt`.
+      // It contributes a `self` of its own here; the union's comes second and
+      // wins, because `executePreviewItem` already encodes the precedence (the
+      // union's own closure if it has one, else the matched variant's) and
+      // there must not be a second copy of that rule.
+      // The variant SHARES this path, so the flag passes straight through: a
+      // union that is a row is a variant that is a row.
+      mergePreviewInto(
+        res,
+        thisSchema["executePreview"](
+          sourcePath,
+          src,
+          scope,
+          selfIsReifiedByParent,
+        ),
+      );
+      if (!selfIsReifiedByParent) {
+        mergePreviewInto(res, this.executeSelfPreview(sourcePath, src, scope));
       }
       return res;
     }

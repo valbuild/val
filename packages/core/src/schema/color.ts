@@ -4,7 +4,7 @@ import {
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
-import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
+import { ItemPreviewInput, PreviewItem } from "../preview";
 import { FieldRender } from "../render";
 import { SourcePath } from "../val";
 import {
@@ -376,10 +376,6 @@ export class ColorSchema<Src extends string | null> extends Schema<Src> {
       hidden: this.isHidden,
       description: this.description,
     };
-  }
-
-  protected executePreview(): ReifiedPreview {
-    return {};
   }
 }
 

@@ -17,7 +17,7 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 import { Internal, ValModule } from "..";
-import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
+import { ItemPreviewInput, PreviewItem } from "../preview";
 import { FieldRender } from "../render";
 import { FilesetEntryMetadata } from "./fileset";
 import { getSource } from "../module";
@@ -571,10 +571,6 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       hidden: this.isHidden,
       description: this.description,
     };
-  }
-
-  protected executePreview(): ReifiedPreview {
-    return {};
   }
 }
 

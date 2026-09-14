@@ -99,10 +99,10 @@ describe("scoped executePreview", () => {
 
     expect(calls()).toBe(3);
     const at = res[sp("/test.val.ts")];
-    if (at?.status !== "success" || at.data.parent !== "array") {
+    if (at?.status !== "success" || at.data.rows?.parent !== "array") {
       throw new Error("expected an array preview");
     }
-    expect(at.data.items.map(([index]) => index)).toEqual([0, 1, 2]);
+    expect(at.data.rows.items.map(([index]) => index)).toEqual([0, 1, 2]);
   });
 
   it("previews one row when only that row is wanted", () => {
@@ -116,10 +116,10 @@ describe("scoped executePreview", () => {
 
     expect(calls()).toBe(1);
     const at = res[sp("/test.val.ts")];
-    if (at?.status !== "success" || at.data.parent !== "array") {
+    if (at?.status !== "success" || at.data.rows?.parent !== "array") {
       throw new Error("expected an array preview");
     }
-    expect(at.data.items).toEqual([
+    expect(at.data.rows.items).toEqual([
       [1, { title: "Grace", subtitle: undefined, image: undefined }],
     ]);
   });
@@ -137,10 +137,10 @@ describe("scoped executePreview", () => {
     // would be a list with rows missing.
     expect(calls()).toBe(3);
     const at = res[sp("/test.val.ts")];
-    if (at?.status !== "success" || at.data.parent !== "array") {
+    if (at?.status !== "success" || at.data.rows?.parent !== "array") {
       throw new Error("expected an array preview");
     }
-    expect(at.data.items.map(([index]) => index)).toEqual([0, 1, 2]);
+    expect(at.data.rows.items.map(([index]) => index)).toEqual([0, 1, 2]);
   });
 
   /**
@@ -162,10 +162,10 @@ describe("scoped executePreview", () => {
     const res = schema["executePreview"](sp("/test.val.ts"), rows);
 
     const at = res[sp("/test.val.ts")];
-    if (at?.status !== "success" || at.data.parent !== "array") {
+    if (at?.status !== "success" || at.data.rows?.parent !== "array") {
       throw new Error("expected an array preview");
     }
-    expect(at.data.items.map(([index]) => index)).toEqual([0, 2]);
+    expect(at.data.rows.items.map(([index]) => index)).toEqual([0, 2]);
     expect(res[sp("/test.val.ts?p=1")]).toEqual({
       status: "error",
       message: "nope",
@@ -190,10 +190,10 @@ describe("scoped executePreview", () => {
 
     expect(calls).toBe(1);
     const at = res[sp("/test.val.ts")];
-    if (at?.status !== "success" || at.data.parent !== "record") {
+    if (at?.status !== "success" || at.data.rows?.parent !== "record") {
       throw new Error("expected a record preview");
     }
-    expect(at.data.items.map(([key]) => key)).toEqual(["b"]);
+    expect(at.data.rows.items.map(([key]) => key)).toEqual(["b"]);
   });
 
   /**

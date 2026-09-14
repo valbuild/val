@@ -14,7 +14,7 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 import { RawString } from "./string";
-import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
+import { ItemPreviewInput, PreviewItem } from "../preview";
 import { FieldRender } from "../render";
 import { ObjectSchema } from "./object";
 import { RecordSchema } from "./record";
@@ -501,10 +501,6 @@ export class KeyOfSchema<
       hidden: this.isHidden,
       description: this.description,
     } satisfies SerializedKeyOfSchema;
-  }
-
-  protected executePreview(): ReifiedPreview {
-    return {};
   }
 }
 

@@ -230,8 +230,8 @@ describe("preview is driven by demand, not by change", () => {
     if (read.status !== "previewed" || read.preview.status !== "success") {
       throw new Error("expected the list to preview");
     }
-    const data = read.preview.data;
-    if (data.parent !== "array") {
+    const data = read.preview.data.rows;
+    if (data?.parent !== "array") {
       throw new Error("expected an array preview");
     }
     expect(data.items.map(([index]) => index)).toEqual([0, 1, 2]);
@@ -258,8 +258,8 @@ describe("preview is driven by demand, not by change", () => {
     if (read.status !== "previewed" || read.preview.status !== "success") {
       throw new Error("expected a preview");
     }
-    const data = read.preview.data;
-    if (data.parent !== "array") {
+    const data = read.preview.data.rows;
+    if (data?.parent !== "array") {
       throw new Error("expected an array preview");
     }
     expect(data.items).toEqual([[1, { title: "item 1" }]]);
@@ -299,8 +299,8 @@ describe("preview is driven by demand, not by change", () => {
     if (read.status !== "previewed" || read.preview.status !== "success") {
       throw new Error("expected row 4 to be covered");
     }
-    const data = read.preview.data;
-    if (data.parent !== "array") {
+    const data = read.preview.data.rows;
+    if (data?.parent !== "array") {
       throw new Error("expected an array preview");
     }
     expect(data.items.map(([index]) => index)).toEqual([3, 4]);
@@ -349,8 +349,8 @@ describe("preview is driven by demand, not by change", () => {
     if (read.status !== "previewed" || read.preview.status !== "success") {
       throw new Error(`expected row 7 to be covered, got ${read.status}`);
     }
-    const data = read.preview.data;
-    if (data.parent !== "array") {
+    const data = read.preview.data.rows;
+    if (data?.parent !== "array") {
       throw new Error("expected an array preview");
     }
     expect(data.items.map(([index]) => index)).toEqual([3, 7]);

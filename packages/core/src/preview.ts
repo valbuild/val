@@ -106,14 +106,12 @@ export type ArrayPreview = {
 };
 
 /**
- * Main preview type.
- *
- * Deliberately not exported: `parent` is the discriminant, and every consumer
- * narrows on it rather than on the union as a whole. There is no `layout` here
- * on purpose - how a preview is laid out is the editor's business, not the
- * schema's.
+ * How a CONTAINER's children preview. `parent` is the discriminant, and every
+ * consumer narrows on it rather than on the union as a whole. There is no
+ * `layout` here on purpose - how a preview is laid out is the editor's
+ * business, not the schema's.
  */
-type PreviewTypes = RecordPreview | ArrayPreview;
+export type PreviewRows = RecordPreview | ArrayPreview;
 
 type WithStatus<T> =
   | {
@@ -129,10 +127,69 @@ type WithStatus<T> =
       status: "success";
       data: T;
     };
+/**
+ * Everything known about ONE path, which is two independent things.
+ *
+ * They are separate fields rather than a union because a path can have both,
+ * and that is not a corner case: `s.array(section).preview(...)` where
+ * `section` also previews is a section list that shows its rows AND names
+ * itself when it is nested in something. One of them would have had to win.
+ *
+ * - {@link self} - what THIS value is called, from its own schema's
+ *   `.preview(...)`. This is the only answer for a value with no container to
+ *   ask: a module root (whose `.preview` was never run before this existed) and
+ *   any field of an object.
+ * - {@link rows} - what its CHILDREN are called, from the ITEM schema's
+ *   `.preview(...)`, reified by the container. Kept alongside `self` rather
+ *   than derived from the children's `self` entries because a list needs every
+ *   row in one answer, and because an EMPTY list still has to preview as an
+ *   empty list - which is a fact about the schema, not about any value.
+ */
+export type PreviewNode = {
+  self?: PreviewItem;
+  rows?: PreviewRows;
+};
+
 export type ReifiedPreview = Record<
   SourcePath | ModuleFilePath,
-  WithStatus<PreviewTypes>
+  WithStatus<PreviewNode>
 >;
+
+/**
+ * Fold `incoming` into `target`, path by path. MUTATES `target`.
+ *
+ * Every `executePreview` used to copy child results across with a plain
+ * assignment, which was fine while one path held one thing. It no longer does:
+ * a container writes `rows` at its own path and its `self` arrives from the
+ * same walk, so an overwrite silently drops whichever landed first. Merging is
+ * per FIELD, and an error at a path beats any data there - a preview that threw
+ * must not be reported as a preview that is merely absent.
+ */
+export function mergePreviewInto(
+  target: ReifiedPreview,
+  incoming: ReifiedPreview,
+): void {
+  for (const keyS in incoming) {
+    const key = keyS as SourcePath | ModuleFilePath;
+    const next = incoming[key];
+    const current = target[key];
+    if (current === undefined || next.status === "error") {
+      target[key] = next;
+      continue;
+    }
+    if (current.status === "error" || next.status === "loading") {
+      continue;
+    }
+    if (current.status === "loading") {
+      target[key] = next;
+      continue;
+    }
+    target[key] = {
+      status: "success",
+      data: { ...current.data, ...next.data },
+    };
+  }
+}
 
 /**
  * Which paths a preview is being computed FOR.

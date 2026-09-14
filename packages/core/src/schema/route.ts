@@ -1,6 +1,6 @@
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { SourcePath } from "../val";
-import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
+import { ItemPreviewInput, PreviewItem } from "../preview";
 import { FieldRender } from "../render";
 import {
   ValidationError,
@@ -366,10 +366,6 @@ export class RouteSchema<Src extends string | null> extends Schema<Src> {
       hidden: this.isHidden,
       description: this.description,
     };
-  }
-
-  protected executePreview(): ReifiedPreview {
-    return {};
   }
 }
 
