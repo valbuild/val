@@ -179,12 +179,25 @@ function DialogHarness({
   // Removal is tracked as a set of URLs rather than a copy of the list, so the
   // `pageCount` control keeps working after something has been removed.
   const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set());
+  // Added URLs get the shape a real one has: no fields yet, and nothing
+  // linking to it — which is exactly what a just-created entry looks like.
+  const [added, setAdded] = useState<readonly string[]>([]);
   const pages: ShellExternalPage[] = useMemo(
     () =>
       mockExternalPages
         .slice(0, pageCount)
+        .concat(
+          added.map((url) => ({
+            id: url,
+            name: url,
+            url,
+            fields: [],
+            usages: [],
+            usagesComplete: true,
+          })),
+        )
         .filter((page) => !removed.has(page.url)),
-    [pageCount, removed],
+    [pageCount, removed, added],
   );
   return (
     <div className="w-full h-screen grid place-items-center bg-bg-canvas">
@@ -203,7 +216,9 @@ function DialogHarness({
         isLoading={isLoading}
         onOpenEntry={fn()}
         onOpenUsage={fn()}
-        onAddPage={canWrite ? fn() : undefined}
+        onAddPage={
+          canWrite ? (url) => setAdded((prev) => [...prev, url]) : undefined
+        }
         onRemovePage={
           canWrite
             ? (page) => setRemoved((prev) => new Set([...prev, page.url]))

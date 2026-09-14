@@ -1,5 +1,11 @@
+import { useCallback } from "react";
 import { ModuleFilePath } from "@valbuild/core";
 import { useNavigation } from "../ValRouter";
+import { useAddModuleFilePatch } from "../ValProvider";
+import {
+  useCreatableRouters,
+  useCreateRouteEntry,
+} from "../useCreateRouteEntry";
 import { ExternalPagesDialog } from "./ExternalPagesDialog";
 import { useExternalPages } from "./useExternalPages";
 import { ShellBreakpoint, ShellExternalPage } from "./types";
@@ -39,7 +45,45 @@ export function ConnectedExternalPages({
   onSelectExternalPage,
 }: ConnectedExternalPagesProps) {
   const { navigate } = useNavigation();
+  const { addModuleFilePatch } = useAddModuleFilePatch();
+  const { externalRouter } = useCreatableRouters();
+  const createRouteEntry = useCreateRouteEntry();
   const enriched = useExternalPages(pages, moduleFilePath, true);
+
+  /**
+   * Adding is the same operation the sitemap's Add page performs — the key,
+   * plus `emptyOf` the router's item schema — so it goes through the same
+   * function rather than building a second patch that has to agree with it.
+   *
+   * Absent when the router is not creatable, which is what makes the dialog
+   * hide the button instead of offering one that cannot work.
+   */
+  const onAddPage = useCallback(
+    (url: string) => {
+      if (externalRouter === null) return;
+      createRouteEntry(externalRouter, url);
+    },
+    [externalRouter, createRouteEntry],
+  );
+
+  /**
+   * Removing is one op, because the record's key IS the URL: there is no
+   * separate entry to clean up and no file to release. The dialog does the
+   * gating — nothing may link to it, and an unfinished scan is not an answer —
+   * and asks before calling this.
+   */
+  const onRemovePage = useCallback(
+    (page: ShellExternalPage) => {
+      if (moduleFilePath === undefined) return;
+      addModuleFilePatch(
+        moduleFilePath,
+        [{ op: "remove", path: [page.url] }],
+        "record",
+      );
+    },
+    [moduleFilePath, addModuleFilePatch],
+  );
+
   return (
     <ExternalPagesDialog
       open
@@ -54,6 +98,8 @@ export function ConnectedExternalPages({
       // the navigation, so it is navigated to directly. Same reason
       // `onOpenSearchResult` exists.
       onOpenUsage={(usage) => navigate(usage.sourcePath)}
+      onAddPage={externalRouter === null ? undefined : onAddPage}
+      onRemovePage={moduleFilePath === undefined ? undefined : onRemovePage}
     />
   );
 }

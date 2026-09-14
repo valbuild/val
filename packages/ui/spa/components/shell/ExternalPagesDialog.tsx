@@ -32,6 +32,12 @@ import {
 } from "../designSystem/dialog";
 import { Checkbox } from "../designSystem/checkbox";
 import { Button } from "../designSystem/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../designSystem/popover";
+import { NewExternalPageForm } from "../NewExternalPageForm";
 import { cn } from "../designSystem/cn";
 import { copyText } from "../../utils/copyText";
 import { PanelFilterInput, PanelSkeleton } from "./PanelPrimitives";
@@ -67,9 +73,16 @@ export type ExternalPagesDialogProps = {
   onOpenEntry: (page: ShellExternalPage) => void;
   /** Open one of the places a URL is linked from. */
   onOpenUsage?: (usage: ShellExternalPageUsage) => void;
-  /** Add a URL. Absent where the app cannot write. */
-  onAddPage?: () => void;
-  /** Remove a URL. Absent where the app cannot write. */
+  /**
+   * Add a URL to the router.
+   *
+   * Takes the URL rather than opening the app's own form, because the rule a
+   * new key has to satisfy is one this dialog already knows: it has every
+   * existing key in front of it, and `externalPageRouter` refuses anything that
+   * is not absolute. Absent where the app cannot write.
+   */
+  onAddPage?: (url: string) => void;
+  /** Remove a URL, and the entry with it. Absent where the app cannot write. */
   onRemovePage?: (page: ShellExternalPage) => void;
   isLoading?: boolean;
   /**
@@ -165,6 +178,7 @@ export function ExternalPagesDialog({
   const groups = useMemo(() => groupRows(visible), [visible]);
   const flat = useMemo(() => flatRows(visible), [visible]);
   const totals = useMemo(() => countStatuses(allRows), [allRows]);
+  const existingKeys = useMemo(() => pages.map((page) => page.url), [pages]);
 
   const openRow = useMemo(
     () => allRows.find((row) => row.page.url === openUrl) ?? null,
@@ -309,7 +323,23 @@ export function ExternalPagesDialog({
         container={portalContainer}
         className={cn(
           "p-0 gap-0 overflow-hidden border-border-float bg-bg-float",
-          "w-[min(60rem,calc(100vw-2rem))] max-w-none",
+          /*
+           * The size, and why it is a `max-width` rather than a `width`.
+           *
+           * `DialogContent` ships `w-full max-w-lg … md:w-full`, and that
+           * `md:` is Tailwind's own 768px breakpoint - the 1000px `md` in this
+           * repo's config is `container.screens`, which only affects the
+           * `container` utility. A responsive variant is a different twMerge
+           * group from the bare class, so `md:w-full` SURVIVES any `w-*` passed
+           * in here and wins by media-query source order. Setting the width was
+           * therefore doing nothing above 768px: this dialog was full-bleed on
+           * every desktop, with no gutter at all.
+           *
+           * So the width stays `w-full`, agreeing with the variant instead of
+           * fighting it, and both the cap and the gutter live in `max-width` -
+           * which twMerge does replace, `max-w-lg` being the same group.
+           */
+          "w-full max-w-[min(60rem,calc(100vw-2rem))]",
           "h-[min(42rem,calc(100vh-4rem))]",
           "grid grid-rows-[auto_auto_minmax(0,1fr)]",
         )}
@@ -336,6 +366,8 @@ export function ExternalPagesDialog({
           grouped={grouped}
           onGroupedChange={setGrouped}
           totals={totals}
+          existingKeys={existingKeys}
+          portalContainer={portalContainer}
           checkCount={checkTargets.length}
           onCheck={runCheck}
           onStop={stopCheck}
@@ -472,6 +504,7 @@ export function ExternalPagesDialog({
                     })
                   }
                   onRemove={onRemovePage && (() => onRemovePage(openRow.page))}
+                  portalContainer={portalContainer}
                 />
               ) : (
                 <DetailPlaceholder />
@@ -507,6 +540,8 @@ function Toolbar({
   grouped,
   onGroupedChange,
   totals,
+  existingKeys,
+  portalContainer,
   checkCount,
   onCheck,
   onStop,
@@ -521,12 +556,15 @@ function Toolbar({
   grouped: boolean;
   onGroupedChange: (value: boolean) => void;
   totals: { ok: number; warning: number; error: number };
+  /** Every key already in the router, so the add form can refuse a duplicate. */
+  existingKeys: string[];
+  portalContainer?: HTMLElement | null;
   checkCount: number;
   onCheck: () => void;
   onStop: () => void;
   running: boolean;
   progress: { done: number; total: number } | null;
-  onAddPage?: () => void;
+  onAddPage?: (url: string) => void;
 }) {
   const flagged = totals.warning + totals.error;
   return (
@@ -562,10 +600,11 @@ function Toolbar({
       />
       <div className="ml-auto flex items-center gap-2">
         {onAddPage && (
-          <Button size="sm" variant="ghost" onClick={onAddPage}>
-            <Plus size={14} className="mr-1" aria-hidden />
-            Add URL
-          </Button>
+          <AddUrlButton
+            existingKeys={existingKeys}
+            portalContainer={portalContainer}
+            onSubmit={onAddPage}
+          />
         )}
         {running ? (
           // Stop, not a progress bar: checking a few hundred links is a minute
@@ -889,11 +928,13 @@ function EntryDetail({
   onOpenEntry,
   onOpenUsage,
   onRemove,
+  portalContainer,
 }: {
   row: ExternalPageRowData;
   onOpenEntry: () => void;
   onOpenUsage?: (usage: ShellExternalPageUsage) => void;
   onRemove?: () => void;
+  portalContainer?: HTMLElement | null;
 }) {
   const { page, issues, usageCount } = row;
   return (
@@ -1014,23 +1055,12 @@ function EntryDetail({
           Open in editor
         </Button>
         {onRemove && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onRemove}
-            // Only where nothing points at it. The usage list is the check -
-            // that is what it is for - and an incomplete scan (`null`) is not
-            // an answer, so it blocks the delete too.
-            disabled={usageCount !== 0}
-            title={
-              usageCount === 0
-                ? undefined
-                : "Remove the links to this URL first"
-            }
-          >
-            <Trash2 size={14} className="mr-1" aria-hidden />
-            Remove
-          </Button>
+          <RemoveUrlButton
+            url={page.url}
+            usageCount={usageCount}
+            portalContainer={portalContainer}
+            onRemove={onRemove}
+          />
         )}
       </div>
     </div>
@@ -1175,6 +1205,130 @@ function CheckReport({
         Done
       </Button>
     </div>
+  );
+}
+
+/**
+ * Add a URL, with the form in a popover rather than a second dialog.
+ *
+ * The form is the same one the `s.route()` field's dropdown uses - one copy of
+ * the rule, which is the one `externalPageRouter.validate` enforces on the
+ * server. Checking it here means the editor sees "must start with https://"
+ * while typing rather than as a validation error on a key that is already
+ * saved.
+ */
+function AddUrlButton({
+  existingKeys,
+  portalContainer,
+  onSubmit,
+}: {
+  existingKeys: string[];
+  portalContainer?: HTMLElement | null;
+  onSubmit: (url: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button size="sm" variant="ghost">
+          <Plus size={14} className="mr-1" aria-hidden />
+          Add URL
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent container={portalContainer} className="w-80 p-0">
+        {/* Remounted per opening, so a cancelled entry is not still in the
+            field the next time the button is pressed. */}
+        {open && (
+          <NewExternalPageForm
+            existingKeys={existingKeys}
+            onSubmit={(url) => {
+              onSubmit(url);
+              setOpen(false);
+            }}
+            onCancel={() => setOpen(false)}
+          />
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Remove a URL, once.
+ *
+ * Two gates, and they answer different questions. The button is DISABLED
+ * unless nothing links to the URL - and "not counted yet" counts as not
+ * knowing, which is why an unfinished scan disables it too. The confirmation
+ * is for the other thing: the entry's content goes with the key, and that is
+ * not obvious from a list whose rows are URLs.
+ */
+function RemoveUrlButton({
+  url,
+  usageCount,
+  portalContainer,
+  onRemove,
+}: {
+  url: string;
+  usageCount: number | null;
+  portalContainer?: HTMLElement | null;
+  onRemove: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const blocked =
+    usageCount === null
+      ? "Still counting where this is used."
+      : usageCount > 0
+        ? usageCount === 1
+          ? "1 place still links here. Change it first."
+          : `${usageCount} places still link here. Change them first.`
+        : null;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={blocked !== null}
+          title={blocked ?? undefined}
+        >
+          <Trash2 size={14} className="mr-1" aria-hidden />
+          Remove
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        container={portalContainer}
+        className="w-80 p-3 space-y-3"
+      >
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-fg-primary">
+            Remove this URL?
+          </p>
+          <p className="text-xs text-fg-secondary">
+            Nothing links to it. The entry behind it goes too, and that cannot
+            be undone from here - only discarded along with your other unsaved
+            changes.
+          </p>
+          <p className="font-mono text-[0.625rem] text-fg-secondary-alt break-all">
+            {url}
+          </p>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => {
+              setOpen(false);
+              onRemove();
+            }}
+          >
+            Remove
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

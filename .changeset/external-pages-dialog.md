@@ -19,6 +19,9 @@ URLs.
   rename casually — and until now neither was visible.
 - **What is behind it**, without leaving the list: the entry's own fields in a
   detail pane beside the URLs.
+- **Add and remove.** A URL can be added from the dialog, and removed from it -
+  but only once nothing links to it, which is a thing you could not previously
+  find out without reading the project.
 - **Checks.** Press Check on a selection, or on everything, and Val reads the
   URLs for the mistakes that get made while typing and then never looked at
   again: a key the router will refuse, a password pasted into a URL, the same
