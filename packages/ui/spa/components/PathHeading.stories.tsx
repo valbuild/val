@@ -54,8 +54,6 @@ function described(
     subtitle: null,
     image: null,
     url: null,
-    moduleFilePath: "/content/example.val.ts" as ModuleFilePath,
-    isModuleRoot: false,
     origin: { title: "preview", subtitle: "preview", image: "preview" },
     ...over,
   };
@@ -663,61 +661,6 @@ const SHAPES: { what: string; description: Description; scope?: ReactNode }[] =
  * the two lines beside it rather than the other way round, so adding one
  * changes nothing either.
  */
-/**
- * ## A renamed module still says which file it is
- *
- * The same rule as the page URL, for the other path-shaped identity. A module
- * is identified by its file — what a developer greps for, what `c.define`
- * names, what an editor quotes when something is wrong — so a `.preview(...)`
- * that renames `authors.val.ts` to "Foo fighters" is a better name and, on its
- * own, a lost identity. It joins the scope line in the same slot a route does —
- * as the segment the folders above it were leading to, so the line reads
- * "Content / Authors" rather than repeating them as a path.
- *
- * And with the same guard: when nothing renamed the module, the title IS the
- * file name, so showing it would say it twice.
- */
-export const ARenamedModule: Story = {
-  render: () => (
-    <div className="mx-auto max-w-2xl">
-      <div className="mb-1.5 text-[11px] uppercase tracking-wide text-fg-secondary-alt">
-        Named by a preview — the module finishes the trail
-      </div>
-      <div className="mb-6 rounded-lg border border-border-primary bg-bg-primary px-4 py-3">
-        <PathHeading
-          description={described({
-            title: "Foo fighters",
-            pathLabel: "Authors",
-            subtitle: "12 authors",
-            moduleFilePath: "/content/authors.val.ts" as ModuleFilePath,
-            isModuleRoot: true,
-          })}
-          scope={<span className="text-fg-secondary-alt">Content</span>}
-        />
-      </div>
-      <div className="mb-1.5 text-[11px] uppercase tracking-wide text-fg-secondary-alt">
-        Not named — the title already is the file name
-      </div>
-      <div className="rounded-lg border border-border-primary bg-bg-primary px-4 py-3">
-        <PathHeading
-          description={described({
-            title: "Authors",
-            pathLabel: "Authors",
-            moduleFilePath: "/content/authors.val.ts" as ModuleFilePath,
-            isModuleRoot: true,
-            origin: {
-              title: "fallback",
-              subtitle: "fallback",
-              image: "fallback",
-            },
-          })}
-          scope={<span className="text-fg-secondary-alt">Content</span>}
-        />
-      </div>
-    </div>
-  ),
-};
-
 export const OneHeight: Story = {
   render: () => (
     <div className="mx-auto max-w-2xl">

@@ -56,16 +56,6 @@ export type Description = {
    * {@link PreviewItem}, not from here.
    */
   image: ImageSource | null;
-  /** The module this path is in. Always present; every path has one. */
-  moduleFilePath: ModuleFilePath;
-  /**
-   * Is this path the module ITSELF, rather than something inside it?
-   *
-   * Carried because a surface that renames a module has to decide whether to
-   * keep the file path visible, and that question only arises here — see
-   * `PathHeading`.
-   */
-  isModuleRoot: boolean;
   /**
    * What the PATH alone says this is called — the route, the key, `#3`, the
    * prettified file name — whether or not a preview overrode it.
@@ -149,8 +139,6 @@ export function describePath({
 
   return {
     title: previewTitle || pathLabel,
-    moduleFilePath,
-    isModuleRoot,
     pathLabel,
     subtitle: previewSubtitle || null,
     image: preview?.image ?? null,

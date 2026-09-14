@@ -151,7 +151,7 @@ The test that settles every case: **can the reader change something here?**
 | The input beside a field's label        | A list row                           |
 | The key box in "New entry" / "New page" | A reference, once it has been chosen |
 | "Rename key", "Duplicate entry"         | A search hit                         |
-| The key half of a reference dropdown    | A sitemap row                        |
+| The key half of a reference dropdown    | A card                               |
 | A field open in the overlay             | The heading of what you navigated to |
 
 So a record's `key` schema carries its own description ("The URL of this blog
@@ -200,34 +200,47 @@ Two traps, both of which shipped once:
   the titles appear only for the module the editor is currently in, which reads
   as data missing rather than as a feature not used.
 
-### A name that replaces an identity must leave the identity visible
+### A preview is a TITLE, never a LOCATION
 
-Some things are identified by a path: a PAGE by its route, a MODULE by its file.
-A preview that renames one of those is a better name and, on its own, a lost
-identity — two drafts both called "Launch" are told apart by
-`/blog/launch-2026`, and a file is what a developer greps for and what an editor
-quotes when something is wrong.
+This is the line that decides every surface, and it was got wrong once in each
+direction:
 
-So both join the scope line under the heading, in the same slot, under the same
-guard: only when a preview actually replaced them. When nothing did, the title
-already IS the route or the file name, and showing it would say it twice. The
-SITEMAP inverts this and is the one place that is right to: that tree is the
-site's routes, so the route leads and the name rides beside it.
+- **A title** is what a thing is CALLED, where the thing is shown as a thing:
+  the heading of what you opened, a card, a list row, a search hit, a reference
+  once it has been chosen. A preview belongs in all of these.
+- **A location** is WHERE YOU ARE, and it is made of path segments: the
+  breadcrumb under the heading, the Explorer tree, the Pages tree. A preview
+  belongs in NONE of these — not even for a module root, not even when it reads
+  better.
+
+Two reasons, and the second is the one that settles it:
+
+1. A trail of titles names three things and locates none of them.
+   `Content / Forfattere / Theodor René Carlsen` cannot be typed into a URL bar,
+   grepped for, or matched against the file an editor is looking at.
+2. A preview is a CLOSURE OVER SOURCE, so a title changes as an editor types.
+   A location that moves under you is not a location.
+
+The one thing a location may take from the heading is a page's ROUTE, because a
+route IS the page's location. And it takes it INSTEAD of the file path, not
+beside it: `/app/blogs/[blog]/page.val.ts?p="/blogs/blog2"` reads `/blogs/blog2`
+and nothing else, because nobody reaches a page through the file — the Pages
+panel is a tree of routes. `scopePartsBelowPageRouter` is that rule.
 
 ### `describePath` is the one implementation
 
 `packages/ui/spa/utils/describePath.ts` turns a source path into the
-`{ title, subtitle, image, url, pathLabel, moduleFilePath, isModuleRoot }` a
-human is shown — the preview side of the rule, and only that. It prefers the
+`{ title, subtitle, image, url, pathLabel }` a human is shown — the preview side of the rule, and only that. It prefers the
 value's preview and falls back to the route, the key, the index or the file
 name, and `origin` says which happened, so a surface can tell a name someone
 wrote from a key we had lying around.
 
-Anything that labels a path goes through it rather than deriving a name of its
-own — the heading, list rows, the scope trail, search hits, references and the
-sitemap disagreed with each other before it existed. `useDescription` is the
-hook; `useRefPreview` is the rows lookup underneath it and stays the right call
-for a list row, which has no `self` to read.
+Anything that TITLES a path goes through it rather than deriving a name of its
+own — the heading, list rows, search hits and references disagreed with each
+other before it existed. Anything that LOCATES a path does not go near it: the
+breadcrumb and the Explorer use path segments, per the rule above.
+`useDescription` is the hook; `useRefPreview` is the rows lookup underneath it
+and stays the right call for a list row, which has no `self` to read.
 
 ## Schema System
 

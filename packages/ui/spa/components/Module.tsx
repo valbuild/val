@@ -1,4 +1,4 @@
-import { SourcePath } from "@valbuild/core";
+import { Internal, isPageRouter, SourcePath } from "@valbuild/core";
 import { useSchemaAtPath } from "./ValFieldProvider";
 import { useValidationErrors } from "./ValErrorProvider";
 import { useValPortal } from "./ValPortalProvider";
@@ -36,7 +36,7 @@ import {
   PendingPatch,
 } from "./ValProvider";
 import { ModuleGallery } from "./fields/ModuleGallery";
-import { ScopeTrail } from "./ModuleScope";
+import { ScopeTrail, scopePartsBelowPageRouter } from "./ModuleScope";
 import { PathHeading } from "./PathHeading";
 import { useDescription } from "./useDescription";
 
@@ -68,6 +68,13 @@ export function Module({
   }, [pendingPatchesRes]);
   const portalContainer = useValPortal();
   const description = useDescription(path);
+  /*
+   * The MODULE's schema, not this path's — needed to answer "is this a page".
+   */
+  const [ownModuleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const moduleSchemaAtPath = useSchemaAtPath(
+    ownModuleFilePath as unknown as SourcePath,
+  );
   const parent = useParent(path);
   const isParentGallery = useMemo(() => {
     if (
@@ -102,8 +109,22 @@ export function Module({
 
   const schema = schemaAtPath.data;
   const parts = splitIntoInitAndLastParts(path);
-  const init = parts.slice(0, -1);
   const last = parts[parts.length - 1];
+
+  /* See `scopePartsBelowPageRouter`. */
+  const [, ownModulePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const moduleSchema =
+    "data" in moduleSchemaAtPath ? moduleSchemaAtPath.data : undefined;
+  const isInsidePageRouter =
+    ownModulePath !== "" &&
+    moduleSchema?.type === "record" &&
+    typeof moduleSchema.router === "string" &&
+    isPageRouter(moduleSchema.router);
+  const init = scopePartsBelowPageRouter(
+    parts.slice(0, -1),
+    ownModuleFilePath,
+    isInsidePageRouter,
+  );
   const isKey = isParentRecord(path, maybeParentPath, parentSchema);
   const keyErrors = validationErrors.filter((error) => !!error.keyError);
   const nonKeyErrors = validationErrors.filter((error) => !error.keyError);

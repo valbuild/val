@@ -130,24 +130,6 @@ export function PathHeading({
     isPage &&
     pageUrlStyle === "trail" &&
     description.origin.title === "preview";
-  /*
-   * The same rule, for the other kind of path-shaped identity.
-   *
-   * A MODULE is identified by its file, the way a page is by its route — it is
-   * what a developer greps for, what a `c.define` names, and what an editor
-   * says when reporting that something is wrong. So a `.preview(...)` that
-   * renames `authors.val.ts` to "Foo fighters" is a better name and, on its
-   * own, a lost identity: the file appeared nowhere on the screen any more.
-   *
-   * Same answer as the route, then, and the same place: it joins the scope
-   * line — as the segment the folders above it were leading to, so the line
-   * reads "Content / Authors". And the same guard: when nothing renamed the
-   * module the title is already its file name, so showing it would say it
-   * twice.
-   */
-  const showModulePathInTrail =
-    description.isModuleRoot && description.origin.title === "preview";
-
   return (
     <div className={cn("flex flex-col gap-2 text-left", className)}>
       <div className="flex items-start justify-between gap-4">
@@ -215,24 +197,6 @@ export function PathHeading({
           <>
             {scope && <span className="shrink-0 text-fg-secondary-alt">/</span>}
             <PageUrl url={url} />
-          </>
-        )}
-        {showModulePathInTrail && (
-          <>
-            {scope && <span className="shrink-0 text-fg-secondary-alt">/</span>}
-            {/*
-             * The module's own segment, finishing the trail the folders above
-             * it started: "Content / Authors". Not the whole module file path —
-             * that repeats every folder already on the line and switches the
-             * line's register halfway along, from prettified names to a mono
-             * path. The full path is on hover, where `ScopeLink` keeps it too.
-             */}
-            <span
-              title={description.moduleFilePath}
-              className="truncate text-fg-secondary-alt"
-            >
-              {description.pathLabel}
-            </span>
           </>
         )}
       </div>

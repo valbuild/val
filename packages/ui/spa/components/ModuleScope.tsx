@@ -3,7 +3,6 @@ import { ChevronLeft } from "lucide-react";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { cn } from "./designSystem/cn";
 import { useNavLink } from "./navLink";
-import { useDescription } from "./useDescription";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,11 +32,14 @@ import {
  *    link, with the same label. An arrow at the head of the line pointed at a
  *    destination three segments away from it. Separators are plain slashes,
  *    which are not directional and so cannot be mistaken for it.
- * 3. **The parent's own title.** Not the raw key: `useDescription` resolves the
- *    title a path is shown under everywhere else in the studio, so the scope
- *    names the parent the way the navigation named it — including a MODULE,
- *    whose own `.preview(...)` reaches it as a self preview. A folder keeps its
- *    name; see `useScopeLabel`.
+ * 3. **Path segments, never previews.** A `.preview(...)` is a TITLE — what a
+ *    thing is called where it is shown as a thing: the heading, a card, a list
+ *    row, a search hit. This line is not that. It is WHERE YOU ARE, and where
+ *    you are is a path: `Content / Authors / teddy`, the folder, the module and
+ *    the key, each as it is written. A trail that read
+ *    `Content / Forfattere / Theodor René Carlsen` names three things and
+ *    locates none of them — and it changes under an editor as they type, which
+ *    is the one thing a location must not do.
  */
 export type ScopePart = {
   /** What the path segment is called, before a render override improves on it. */
@@ -56,36 +58,42 @@ export type ScopePart = {
 };
 
 /**
+ * The trail for a path, with a PAGE's file location left out.
+ *
+ * `/app/blogs/[blog]/page.val.ts?p="/blogs/blog2"` used to read
+ * `App / … / Blog / Pages / /blogs/blog2` — four segments saying where the
+ * module is stored, then the one segment saying where the page is. Nobody
+ * reaches a page that way: the Pages panel is a tree of ROUTES, and a route is
+ * already the complete path. The file is provenance, and it stays on hover and
+ * in the address bar.
+ *
+ * So inside a page router the trail starts below the module. For the page
+ * itself that leaves nothing, and the heading's own route fills the line; for a
+ * field inside a page it leaves the route and then the field.
+ *
+ * Not applied to the router module ITSELF — "Pages" has no route of its own, so
+ * where its file is, is the only location it has.
+ */
+export function scopePartsBelowPageRouter(
+  parts: readonly ScopePart[],
+  moduleFilePath: string,
+  isInsidePageRouter: boolean,
+): ScopePart[] {
+  if (!isInsidePageRouter) {
+    return [...parts];
+  }
+  // Every module-file-path segment — the folders AND the module — is handed the
+  // module's own path as its `sourcePath`. See `splitIntoInitAndLastParts`.
+  return parts.filter((part) => (part.sourcePath as string) !== moduleFilePath);
+}
+
+/**
  * One segment, as a link.
  *
  * `isParent` adds the up arrow: the last segment of the trail is the level
  * directly above what is being edited, so it is both the last thing you read
  * and the thing you press to go up. One link, one label, one arrow.
  */
-/**
- * What one segment is called — the same name the rest of the studio uses.
- *
- * A record entry's key is `blog1`; the nav row, the reference list, the search
- * results and the heading all call it "Blog 1", because its schema's
- * `.preview(...)` says so. The scope has to agree with them: a path whose
- * segments do not match the names they were clicked under reads as a different
- * path. `describePath` is where that agreement lives.
- *
- * A DIRECTORY is the exception, and not a small one: `/content/authors.val.ts`
- * splits into a folder and a module that are handed the SAME `sourcePath` (the
- * module — see `ScopePart.isDirectory`), so describing the folder would
- * describe the module and the trail would read "Foo fighters / Foo fighters".
- * A folder is not a value, has no schema and cannot carry a preview; its name
- * is the only thing it has.
- */
-function useScopeLabel(part: ScopePart): string {
-  const description = useDescription(part.sourcePath);
-  if (part.isDirectory) {
-    return part.text;
-  }
-  return description.title.trim() || part.text;
-}
-
 function ScopeLink({
   part,
   isParent,
@@ -96,7 +104,7 @@ function ScopeLink({
   className?: string;
 }) {
   const link = useNavLink(part.sourcePath);
-  const label = useScopeLabel(part);
+  const label = part.text;
   if (part.isDirectory) {
     // Text, not a link: see `ScopePart.isDirectory`.
     return (
@@ -141,7 +149,7 @@ function ScopeSeparator() {
  */
 function ScopeMenuLink({ part }: { part: ScopePart }) {
   const link = useNavLink(part.sourcePath);
-  const label = useScopeLabel(part);
+  const label = part.text;
   if (part.isDirectory) {
     // A folder is not a destination here either — see `ScopePart.isDirectory`.
     return (
