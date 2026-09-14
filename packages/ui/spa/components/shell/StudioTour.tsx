@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Compass, X } from "lucide-react";
 import { cn } from "../designSystem/cn";
-import { TourStep } from "./studioTour";
+import { TourStep } from "./tourSteps";
 
 /** Where the card is drawn, in shell coordinates. */
 type Box = { top: number; left: number; width: number; height: number };

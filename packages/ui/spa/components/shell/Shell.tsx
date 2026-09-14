@@ -53,7 +53,7 @@ import {
   readTourCompleted,
   studioTourSteps,
   writeTourCompleted,
-} from "./studioTour";
+} from "./tourSteps";
 import { servedPath } from "../../utils/mediaPath";
 import { useShellBreakpoint } from "./useShellBreakpoint";
 import {

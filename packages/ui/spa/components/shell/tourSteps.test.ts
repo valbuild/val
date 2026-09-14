@@ -3,7 +3,7 @@ import {
   readTourCompleted,
   studioTourSteps,
   writeTourCompleted,
-} from "./studioTour";
+} from "./tourSteps";
 import { isTourOffered, readStudioSettings } from "../../hooks/studioSettings";
 
 /**

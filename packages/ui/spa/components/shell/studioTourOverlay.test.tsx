@@ -6,7 +6,7 @@ import { TopBar } from "./TopBar";
 import { AccountPanel } from "./AccountPanel";
 import { StudioSettingsFields } from "./SettingsPanel";
 import { UtilityPanel } from "./UtilityPanel";
-import { TourStep } from "./studioTour";
+import { TourStep } from "./tourSteps";
 
 /**
  * The tour overlay: what it puts on screen, and what it does to the shell

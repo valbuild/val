@@ -1,6 +1,17 @@
 import { ShellDestination, ShellPanel } from "./types";
 import { TOUR_COPY } from "./tourCopy";
 
+/*
+ * NOT `studioTour.ts`, which is what this was called.
+ *
+ * `StudioTour.tsx` sits beside it, and two files in one directory whose names
+ * differ only in case are one file on macOS and on Windows: `./StudioTour`
+ * resolved to THIS module there, and the Studio died on `does not provide an
+ * export named 'TourLauncher'`. Linux resolves both correctly, so CI, the e2e
+ * suite and every test here stayed green — see `caseCollisions.test.ts`, which
+ * is what actually catches it now.
+ */
+
 /**
  * One stop on the guided tour.
  *

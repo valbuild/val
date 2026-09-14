@@ -2,7 +2,7 @@
  * THE WORDS OF THE GUIDED TOUR. Edit them here.
  *
  * This file is only text. Which stops a given project actually gets, what each
- * one points at and what it opens are in `studioTour.ts`; nothing here decides
+ * one points at and what it opens are in `tourSteps.ts`; nothing here decides
  * anything, so rewriting any of it is safe and needs no other change.
  *
  * Two things to keep in mind while editing:
