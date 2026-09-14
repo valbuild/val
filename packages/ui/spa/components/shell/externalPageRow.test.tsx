@@ -2,6 +2,7 @@
 import { render, screen } from "@testing-library/react";
 import { ExternalPagesDialog } from "./ExternalPagesDialog";
 import { ShellExternalPage } from "./types";
+import { SourcePath } from "@valbuild/core";
 
 /**
  * What a URL row in the external pages dialog is called.
@@ -55,7 +56,11 @@ describe("an external page row", () => {
     renderDialog([
       page("https://example.com/a", {
         usages: [
-          { sourcePath: "s", label: "Footer", moduleFilePath: "/f.val.ts" },
+          {
+            sourcePath: "s" as SourcePath,
+            label: "Footer",
+            moduleFilePath: "/f.val.ts",
+          },
         ],
       }),
     ]);

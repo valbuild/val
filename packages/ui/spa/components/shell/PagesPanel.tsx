@@ -7,14 +7,7 @@ import {
   useState,
 } from "react";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
-import {
-  ChevronDown,
-  ChevronRight,
-  Copy,
-  ExternalLink,
-  File,
-  Plus,
-} from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, File, Plus } from "lucide-react";
 import {
   FloatingPanel,
   PanelEmptyState,
@@ -210,15 +203,11 @@ export type PagesPanelProps = {
   externalPages: ShellExternalPage[];
   selectedId: string | null;
   onSelectPage: (page: ShellPage) => void;
-  onSelectExternalPage: (page: ShellExternalPage) => void;
   /**
    * Open the external pages dialog.
    *
-   * When given, the external pages are a button in the panel's footer rather
-   * than a second list under the site map - see {@link ExternalPagesButton} for
-   * why. The inline list is what this panel did before, kept until the dialog
-   * is wired to real data so the Studio is never without a way to reach an
-   * external page.
+   * Absent in a project with no external router, and then there is no button:
+   * a way in to a list that cannot exist is worse than no button.
    */
   onOpenExternalPages?: () => void;
   /**
@@ -365,7 +354,6 @@ export function PagesPanel({
   externalPages,
   selectedId,
   onSelectPage,
-  onSelectExternalPage,
   onOpenExternalPages,
   externalIssueCount,
   onNewPage,
@@ -404,16 +392,6 @@ export function PagesPanel({
     () => (query ? new Set(collectIds(filtered)) : null),
     [query, filtered],
   );
-  const filteredExternal = useMemo(() => {
-    if (!query) return externalPages;
-    const q = query.toLowerCase();
-    return externalPages.filter(
-      (page) =>
-        page.name.toLowerCase().includes(q) ||
-        page.url.toLowerCase().includes(q),
-    );
-  }, [externalPages, query]);
-
   const toggle = (id: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -591,41 +569,6 @@ export function PagesPanel({
             </PanelEmptyState>
           ) : (
             filtered.map((page) => renderPage(page, 0))
-          )}
-
-          {onOpenExternalPages === undefined && (
-            <>
-              <PanelSectionLabel>
-                External pages
-                <span className="ml-1.5 font-normal normal-case tracking-normal text-fg-secondary-alt">
-                  {filteredExternal.length}
-                </span>
-              </PanelSectionLabel>
-              {filteredExternal.length === 0 ? (
-                <PanelEmptyState>
-                  {query
-                    ? "No external pages match this filter."
-                    : "No external pages yet."}
-                </PanelEmptyState>
-              ) : (
-                filteredExternal.map((page) => (
-                  <PanelRow
-                    key={page.id}
-                    selected={selectedId === page.id}
-                    title={page.url}
-                    onClick={() => onSelectExternalPage(page)}
-                    leading={
-                      <ExternalLink
-                        size={12}
-                        className="text-fg-secondary-alt"
-                      />
-                    }
-                    label={page.name}
-                    errorCount={page.errorCount}
-                  />
-                ))
-              )}
-            </>
           )}
         </div>
       )}

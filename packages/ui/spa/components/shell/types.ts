@@ -1,4 +1,4 @@
-import { ModuleFilePath } from "@valbuild/core";
+import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { AvailableRoute } from "../NavMenu/NewPageForm";
 
 /**
@@ -98,8 +98,14 @@ export type ShellExternalPageField = {
 
 /** One place an external URL is referenced from. */
 export type ShellExternalPageUsage = {
-  /** Where the reference lives, for navigation. */
-  sourcePath: string;
+  /**
+   * Where the reference lives.
+   *
+   * Branded, for the same reason `ShellSettings.moduleFilePath` is: it is
+   * handed straight to `navigate`, which takes a `SourcePath`, so widening it
+   * to `string` would buy nothing but an assertion at the other end.
+   */
+  sourcePath: SourcePath;
   /** What to call it, e.g. "Footer / Social links / 2". */
   label: string;
   /** The module it is in, e.g. "/content/footer.val.ts". */
@@ -370,6 +376,15 @@ export type ShellData = {
    */
   newPage?: ShellNewPageRoutes;
   externalPages: ShellExternalPage[];
+  /**
+   * The external router's module, when the project has one.
+   *
+   * The rows carry their own source paths, but the dialog needs the MODULE:
+   * that is where the entries' values live, and it is what says whether the
+   * project has an external router at all. Absent means no external pages
+   * button.
+   */
+  externalModuleFilePath?: ModuleFilePath;
   media: ShellMediaGallery[];
   /**
    * The project's settings module, when it has exactly one usable one.

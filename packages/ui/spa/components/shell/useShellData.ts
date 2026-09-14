@@ -137,6 +137,7 @@ export function useShellData(): ShellDataState {
         // say no.
         newPage: newPageRoutes,
         externalPages: toExternalPages(externalRecord),
+        externalModuleFilePath: externalPath,
         media: (navData?.media ?? []).map(
           (entry, index): ShellMediaGallery => ({
             id: entry.moduleFilePath,

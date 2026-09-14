@@ -308,7 +308,6 @@ function PagesPanelHarness({
         externalPages={pages}
         selectedId={selectedId}
         onSelectPage={(page) => setSelectedId(page.id)}
-        onSelectExternalPage={(page) => setSelectedId(page.id)}
         onOpenExternalPages={() => setOpen(true)}
         externalIssueCount={issueCount}
         onNewPage={fn()}

@@ -6,7 +6,19 @@ import {
   toRows,
 } from "./externalPageGroups";
 import { checkExternalUrls } from "./externalUrlChecks";
-import { ShellExternalPage } from "./types";
+import { ShellExternalPage, ShellExternalPageUsage } from "./types";
+import { SourcePath } from "@valbuild/core";
+
+/** A usage fixture. Branded here so the rows carry what `navigate` needs. */
+const usage = (
+  sourcePath: string,
+  label: string,
+  moduleFilePath: string,
+): ShellExternalPageUsage => ({
+  sourcePath: sourcePath as SourcePath,
+  label,
+  moduleFilePath,
+});
 
 function page(
   url: string,
@@ -31,9 +43,7 @@ describe("rowUsageCount", () => {
     expect(
       rowUsageCount(
         page("https://a.com", {
-          usages: [
-            { sourcePath: "a", label: "a", moduleFilePath: "/a.val.ts" },
-          ],
+          usages: [usage("a", "a", "/a.val.ts")],
         }),
       ),
     ).toBe(1);
@@ -52,9 +62,7 @@ describe("rowUsageCount", () => {
       rowUsageCount(
         page("https://a.com", {
           usagesComplete: false,
-          usages: [
-            { sourcePath: "a", label: "a", moduleFilePath: "/a.val.ts" },
-          ],
+          usages: [usage("a", "a", "/a.val.ts")],
         }),
       ),
     ).toBe(1);
@@ -113,13 +121,7 @@ describe("filterRows", () => {
   const pages = [
     page("https://instagram.com/valbuild", {
       fields: [{ label: "title", value: "Instagram" }],
-      usages: [
-        {
-          sourcePath: "s",
-          label: "Footer / Social / 1",
-          moduleFilePath: "/content/footer.val.ts",
-        },
-      ],
+      usages: [usage("s", "Footer / Social / 1", "/content/footer.val.ts")],
     }),
     page("https://unused.example.com"),
     page("http://insecure.example.com"),

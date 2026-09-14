@@ -13,6 +13,7 @@ import {
   ShellPage,
   ShellValidationError,
 } from "./types";
+import { sourcePathOfChild } from "../../utils/sourcePath";
 import { placeholderAvatar } from "../stories/placeholderAssets";
 
 /**
@@ -187,11 +188,24 @@ function usage(
   path: string,
   label: string,
 ): ShellExternalPageUsage {
-  return {
-    sourcePath: `${moduleFilePath}?p=${JSON.stringify(path)}`,
-    label,
-    moduleFilePath,
-  };
+  // Built segment by segment through `sourcePathOfChild` rather than as a
+  // template string: a module path quotes its string keys and leaves array
+  // indices bare, and a fixture that gets that wrong is a fixture that cannot
+  // be navigated to.
+  const key = (segment: string): string | number =>
+    /^\d+$/.test(segment) ? Number(segment) : segment;
+  const [first, ...rest] = path.split(".");
+  if (first === undefined) {
+    throw new Error(`A usage needs a path within ${moduleFilePath}`);
+  }
+  let sourcePath = sourcePathOfChild(
+    moduleFilePath as ModuleFilePath,
+    key(first),
+  );
+  for (const segment of rest) {
+    sourcePath = sourcePathOfChild(sourcePath, key(segment));
+  }
+  return { sourcePath, label, moduleFilePath };
 }
 
 /**
