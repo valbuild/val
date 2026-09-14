@@ -314,6 +314,22 @@ export class PatchSets {
         } else if (
           schemaTypesAtPath.size === 1 &&
           (schemaTypesAtPath.has("record") ||
+            // An OBJECT is keyed too, and `add`/`remove` on an object key is
+            // create-or-set (`addToNode` in `@valbuild/core/patch`) — there are
+            // no indices to shift, so the op affects exactly the key it names
+            // and nothing else. The studio emits `add` rather than `replace`
+            // here on purpose, so that the write survives the key having gone
+            // away in the meantime: see `ImageField`'s alt write and
+            // `ModuleGallery.handleAltTextChange`, which both say so.
+            //
+            // That last one is why this branch exists. `s.imageset()`
+            // serializes as a record whose ITEM is an object, so editing the
+            // alt text of a gallery entry resolves `object` here, hit the throw
+            // below, and terminated the whole media module into one patch set —
+            // once per keystroke. Staging any one change in that module then
+            // dragged every other change in it along, because a patch group has
+            // to contain a prefix of each patch set it touches.
+            schemaTypesAtPath.has("object") ||
             // A settings SECTION is addressed like a record: its keys are
             // named, and an `add` at ["theme", "accent"] modifies exactly that
             // one. Without this it fell to the throw below — every settings
@@ -355,10 +371,16 @@ export class PatchSets {
           schemaTypesAtPath.size === 1 &&
           !(schemaTypesAtPath.has("image") || schemaTypesAtPath.has("file"))
         ) {
+          // What is left here is a parent that cannot hold the key the op
+          // names: a primitive, most often, which means the path no longer fits
+          // the schema. That is a genuinely stale patch rather than a shape
+          // this function has not been taught, so it keeps reporting — the
+          // catch below terminates the module, which is the conservative thing
+          // to do when we no longer know what a change affects.
           throw new Error(
             `Cannot perform op: '${
               op.op
-            }' on non-array or non-record schema. Type: ${
+            }' on a schema that cannot hold the key it names. Type: ${
               schemaTypesAtPath.values().next().value
             }`,
           );

@@ -1206,6 +1206,176 @@ describe("PatchSet", () => {
     expect(patchSet.serialize()).toEqual(expected);
   });
 
+  // #region object
+  /**
+   * `add` on an OBJECT key is create-or-set, not an insert, so it affects
+   * exactly the key it names.
+   *
+   * The studio writes `add` rather than `replace` here deliberately — it
+   * survives the key having gone away in the meantime — and `add` resolves the
+   * PARENT of its path, which for `["Project A", "title"]` is an object. That
+   * used to fall through to "cannot perform op on non-array or non-record
+   * schema", which the caller catches by terminating the WHOLE module into one
+   * patch set.
+   */
+  test("object: add on a key is its own patch set", async () => {
+    const patchSet = testPatchSet(
+      "/content/projects.val.ts" as ModuleFilePath,
+      s.record(s.object({ title: s.string(), description: s.string() })),
+      [
+        {
+          patchId: "123" as PatchId,
+          patch: [{ op: "add", path: ["Project A", "title"], value: "A" }],
+          createdAt: "2021-01-01T00:00:00Z",
+          author: "author1",
+        },
+        {
+          patchId: "234" as PatchId,
+          patch: [
+            { op: "add", path: ["Project A", "description"], value: "B" },
+          ],
+          createdAt: "2021-01-02T00:00:00Z",
+          author: "author1",
+        },
+      ],
+    );
+    const serialized = patchSet.serialize();
+    expect(serialized.map((set) => set.patchPath)).toEqual([
+      ["Project A", "description"],
+      ["Project A", "title"],
+    ]);
+    expect(serialized.map((set) => set.schemaTypes)).toEqual([
+      ["string"],
+      ["string"],
+    ]);
+  });
+
+  /**
+   * The case that was reported: typing alt text on a gallery entry.
+   *
+   * `s.imageset()` serializes as a record whose ITEM is an object of metadata —
+   * the file is named by the record's KEY — so the alt write in
+   * `ModuleGallery.handleAltTextChange` resolves an `object` parent. Every
+   * keystroke logged "Could not resolve path while creating patch set" and
+   * collapsed the whole media module into one patch set, so staging any one
+   * change in it dragged along the upload and every other keystroke.
+   */
+  test("imageset: editing alt text does not terminate the module", async () => {
+    const entry = "/public/val/images/screenshot_7c28e.png";
+    const patchSet = testPatchSet(
+      "/content/media.val.ts" as ModuleFilePath,
+      s.imageset({
+        accept: "image/*",
+        dir: "/public/val/images",
+        alt: s.string().minLength(4),
+      }),
+      [
+        {
+          patchId: "123" as PatchId,
+          patch: [
+            {
+              op: "add",
+              path: [entry],
+              value: {
+                width: 496,
+                height: 582,
+                mimeType: "image/png",
+                alt: null,
+              },
+            },
+          ],
+          createdAt: "2021-01-01T00:00:00Z",
+          author: "author1",
+        },
+        {
+          patchId: "234" as PatchId,
+          patch: [{ op: "add", path: [entry, "alt"], value: "An example" }],
+          createdAt: "2021-01-02T00:00:00Z",
+          author: "author1",
+        },
+      ],
+    );
+    const serialized = patchSet.serialize();
+    // The alt write nests inside the patch set the upload created, because the
+    // entry cannot be published without the entry existing. What matters is
+    // that it is the ENTRY, not the module: a second entry stays separate.
+    expect(serialized.map((set) => set.patchPath)).toEqual([[entry]]);
+    expect(serialized[0].patches.map((patch) => patch.patchId)).toEqual([
+      "234",
+      "123",
+    ]);
+  });
+
+  test("imageset: two entries are two patch sets", async () => {
+    const a = "/public/val/images/a_11111.png";
+    const b = "/public/val/images/b_22222.png";
+    const patchSet = testPatchSet(
+      "/content/media.val.ts" as ModuleFilePath,
+      s.imageset({
+        accept: "image/*",
+        dir: "/public/val/images",
+        alt: s.string().minLength(4),
+      }),
+      [
+        {
+          patchId: "123" as PatchId,
+          patch: [{ op: "add", path: [a, "alt"], value: "Alt for A" }],
+          createdAt: "2021-01-01T00:00:00Z",
+          author: "author1",
+        },
+        {
+          patchId: "234" as PatchId,
+          patch: [{ op: "add", path: [b, "alt"], value: "Alt for B" }],
+          createdAt: "2021-01-02T00:00:00Z",
+          author: "author2",
+        },
+      ],
+    );
+    const serialized = patchSet.serialize();
+    expect(serialized.map((set) => set.patchPath)).toEqual([
+      [b, "alt"],
+      [a, "alt"],
+    ]);
+    expect(serialized.map((set) => set.lastUpdatedBy)).toEqual([
+      "author2",
+      "author1",
+    ]);
+  });
+
+  /**
+   * A path that no longer fits the schema still terminates the module.
+   *
+   * This is the case the throw was always for — a patch written against a
+   * schema that has since changed — and it has to keep working: when we cannot
+   * say what a change affects, the conservative answer is "all of it".
+   */
+  test("stale path: a primitive parent terminates the module", async () => {
+    const consoleError = jest
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      const patchSet = testPatchSet(
+        "/content/projects.val.ts" as ModuleFilePath,
+        s.object({ title: s.string() }),
+        [
+          {
+            patchId: "123" as PatchId,
+            // `title` used to be an object; it is a string now.
+            patch: [{ op: "add", path: ["title", "nb-NO"], value: "Tittel" }],
+            createdAt: "2021-01-01T00:00:00Z",
+            author: "author1",
+          },
+        ],
+      );
+      const serialized = patchSet.serialize();
+      expect(serialized.map((set) => set.patchPath)).toEqual([[]]);
+      expect(consoleError).toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+  // #endregion object
+
   // #region settings
   /**
    * A settings section is addressed like a record, so each field is its own
