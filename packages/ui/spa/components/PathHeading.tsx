@@ -1,7 +1,7 @@
-import { Internal } from "@valbuild/core";
 import { Globe } from "lucide-react";
 import { ReactNode } from "react";
 import { Description } from "../utils/describePath";
+import { useMediaUrl } from "../utils/mediaUrl";
 import { cn } from "./designSystem/cn";
 
 /**
@@ -101,6 +101,8 @@ export function PathHeading({
   className?: string;
 }) {
   const { title, subtitle, image, url } = description;
+  // See the note in `ListPreviewItem`: a draft upload is served from its patch.
+  const imageUrl = useMediaUrl(image);
   const isPage = url !== null;
   const titleText = isPage && pageUrlStyle === "title" ? url : title;
   /*
@@ -141,7 +143,7 @@ export function PathHeading({
              * something that pushed it open.
              */
             <img
-              src={Internal.mediaUrl(image)}
+              src={imageUrl ?? undefined}
               alt=""
               className={cn(
                 "w-[52px] shrink-0 rounded-md bg-bg-secondary object-cover",

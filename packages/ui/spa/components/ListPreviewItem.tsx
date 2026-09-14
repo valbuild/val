@@ -1,4 +1,5 @@
-import { ImageSource, Internal } from "@valbuild/core";
+import { ImageSource } from "@valbuild/core";
+import { useMediaUrl } from "../utils/mediaUrl";
 import { cn } from "./designSystem/cn";
 import { useState } from "react";
 
@@ -115,7 +116,10 @@ function Thumbnail({
   compact: boolean;
 }) {
   const [isLoaded, setIsLoaded] = useState(false);
-  const imageUrl = Internal.mediaUrl(src);
+  // `useMediaUrl`, not `Internal.mediaUrl`: a just-uploaded file is served from
+  // its PATCH, and the value alone cannot say which one. Without the lookup the
+  // row drew a broken image until the editor saved.
+  const imageUrl = useMediaUrl(src);
 
   return (
     <div
@@ -128,7 +132,7 @@ function Thumbnail({
         <div className="absolute inset-0 opacity-25 bg-bg-brand-secondary animate-in"></div>
       )}
       <img
-        src={imageUrl}
+        src={imageUrl ?? undefined}
         alt={alt}
         onLoad={() => setIsLoaded(true)}
         onError={() => setIsLoaded(false)}
