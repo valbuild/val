@@ -32,11 +32,12 @@ export type DescriptionOrigin = "preview" | "fallback";
  * itself. They did not agree: the same record entry was `blog1` in one place,
  * "Blog 1" in another and `/blogs/blog1` in a third.
  *
- * This is a PREVIEW concern and only that. A schema's `.describe()` is help
- * text for the FIELD and belongs beside that field's own name in the form; it
- * is never a subtitle here, and folding it in would put the same sentence on
- * every value the field ever holds. See the rule at the top of
- * `core/src/preview.ts`.
+ * This is a PREVIEW concern and only that. A schema's `.describe()` is input
+ * help — it belongs where the field, or a record's key, is being ENTERED, and
+ * a path being labelled is a path the reader cannot change anything on. It is
+ * never a subtitle here: folding it in would repeat one sentence under every
+ * row of a list, and would say it before the value it is supposed to describe
+ * even exists. See the rule at the top of `core/src/preview.ts`.
  *
  * `title` is never empty. Every other line is nullable, and `null` means "there
  * is nothing to show here", NOT "show the path instead" — a surface that wants

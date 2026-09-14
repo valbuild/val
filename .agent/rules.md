@@ -139,26 +139,44 @@ If you see `Type 'X' does not satisfy the constraint 'Source'`, the fix is almos
 
 ## `describe` vs `preview` vs `render`
 
-**`.describe()` annotates the FIELD and appears wherever that field's own name
-appears; `.preview()` names the VALUE and appears wherever that value appears
-instead of being opened; `.render()` lays out the FIELD and applies only while
-you are looking at it.**
+**`.describe()` is INPUT HELP and is shown wherever that field — or a record's
+key — is being ENTERED; `.preview()` is a NAME and is shown wherever the value
+is REFERRED TO rather than edited; `.render()` is LAYOUT and applies only while
+the field is open in front of you.**
 
-A description sits beside a label in the form you are editing — help text for
-whoever fills the field in, true before any value exists, which is why it is
-plain data on the serialized schema. A preview is a NAME for one particular
-value — a list row, a reference dropdown, a search hit, the heading of what you
-navigated to — which is why it is a closure over the value. They never compete
-for the same pixel and none substitutes for another: a field with a good
-description still previews as `#3` until someone writes the preview.
+The test that settles every case: **can the reader change something here?**
+
+| Yes — a description belongs here        | No — a preview belongs here          |
+| --------------------------------------- | ------------------------------------ |
+| The input beside a field's label        | A list row                           |
+| The key box in "New entry" / "New page" | A reference, once it has been chosen |
+| "Rename key", "Duplicate entry"         | A search hit                         |
+| The key half of a reference dropdown    | A sitemap row                        |
+| A field open in the overlay             | The heading of what you navigated to |
+
+So a record's `key` schema carries its own description ("The URL of this blog
+post. Lower case, no spaces.") and every form that asks for a key shows it —
+`AddRecordPopover`, `DuplicateRecordPopover`, `ChangeRecordPopover`,
+`NewPageForm`, `KeySelector`. A key description shown where the key cannot be
+edited is a bug, not a label.
+
+That asymmetry is why a description is plain data on the serialized schema and a
+preview is a closure: a description is true before any value exists and says the
+same thing to everyone filling the field in, and a preview cannot exist without
+the one value it names. A description must therefore never be used as a
+subtitle — it would repeat one sentence under every row of a list — and a
+preview must never be used as help text, because there is nothing to preview
+until after the value has been entered. None of the three substitutes for
+another: a field with a perfect description still previews as `#3` until
+someone writes the preview.
 
 `describePath` (`packages/ui/spa/utils/describePath.ts`) is the one place the
 Studio turns a source path into the `{ title, subtitle, image, url }` a human
-is shown. It prefers the value's preview and falls back to the route, the key,
-the index or the file name. Anything that labels a path goes through it rather
-than deriving a name of its own — the heading, list rows, the scope trail,
-search hits, references and the sitemap disagreed with each other before it
-existed.
+is shown — the preview side of the rule, and only that. It prefers the value's
+preview and falls back to the route, the key, the index or the file name.
+Anything that labels a path goes through it rather than deriving a name of its
+own: the heading, list rows, the scope trail, search hits, references and the
+sitemap disagreed with each other before it existed.
 
 ## Schema System
 
