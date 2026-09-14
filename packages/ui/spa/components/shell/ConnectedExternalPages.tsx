@@ -8,6 +8,7 @@ import {
 } from "../useCreateRouteEntry";
 import { ExternalPagesDialog } from "./ExternalPagesDialog";
 import { useExternalPages } from "./useExternalPages";
+import { useExternalUrlProber } from "./useExternalUrlProber";
 import { ShellBreakpoint, ShellExternalPage } from "./types";
 
 export type ConnectedExternalPagesProps = {
@@ -31,10 +32,10 @@ export type ConnectedExternalPagesProps = {
  * module's own source — do not run for a Studio nobody has opened it in.
  * Closing it unmounts them again.
  *
- * `onProbe` is not passed: opening the URLs needs a server route that does not
- * exist yet (`docs/plans/external-page-link-checks.md`). The dialog handles its
- * absence by reporting the shape findings and saying nothing was opened, which
- * is the honest version of not having it.
+ * `onProbe` goes through `/external-urls/check`, because opening a URL cannot
+ * be done from a browser: a cross-origin `fetch` cannot read a status without
+ * CORS headers no ordinary site sends. The server's side of that is an SSRF
+ * surface by construction - see `linkCheck/addressGuard.ts`.
  */
 export function ConnectedExternalPages({
   pages,
@@ -49,6 +50,7 @@ export function ConnectedExternalPages({
   const { externalRouter } = useCreatableRouters();
   const createRouteEntry = useCreateRouteEntry();
   const enriched = useExternalPages(pages, moduleFilePath, true);
+  const onProbe = useExternalUrlProber();
 
   /**
    * Adding is the same operation the sitemap's Add page performs — the key,
@@ -98,6 +100,7 @@ export function ConnectedExternalPages({
       // the navigation, so it is navigated to directly. Same reason
       // `onOpenSearchResult` exists.
       onOpenUsage={(usage) => navigate(usage.sourcePath)}
+      onProbe={onProbe}
       onAddPage={externalRouter === null ? undefined : onAddPage}
       onRemovePage={moduleFilePath === undefined ? undefined : onRemovePage}
     />

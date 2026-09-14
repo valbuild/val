@@ -27,4 +27,15 @@ URLs.
   again: a key the router will refuse, a password pasted into a URL, the same
   page listed twice, an `http://` link whose `https://` twin is already in the
   list, a localhost address someone added from their laptop, tracking
-  parameters. Nothing is opened over the network yet, and the report says so.
+  parameters.
+- **Link checking.** The same button also opens each URL through your own
+  server and reports what answered: 404 and 410 as errors, a redirect that
+  still works as a warning naming where it went, and 401/403/429 as "may be
+  fine for a visitor, cannot be checked from here" rather than as broken. URLs
+  go up ten at a time and failures are retried, so checking a few hundred links
+  is polite to the sites on the other end.
+
+  The endpoint this adds makes outbound requests to addresses your content
+  supplies, so it refuses to connect to anything that is not a public internet
+  address - loopback, private ranges, and the cloud metadata service that hands
+  out credentials - checked on the resolved address, at every redirect hop.

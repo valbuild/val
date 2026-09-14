@@ -37,42 +37,72 @@ type ExternalUrlProber = (
 Absent, Check still works and reports the shape findings alone — and says so,
 rather than implying the links were opened and are fine.
 
-## The endpoint (not built yet)
+## The endpoint
 
-`createBatchedProber` in `externalUrlProber.ts` already implements the client
-half — batching, retries, abort — on top of a `ProbeBatch` that does one
-request. What is missing is the route that `ProbeBatch` calls. Sketch:
+`POST /api/val/external-urls/check`, declared in `ApiRoutes.ts` and handled in
+`ValServer.ts`:
 
 ```
-POST /api/val/external-urls/check
-  { "urls": ["https://…", …] }          // at most one batch, see below
-→ { "results": { "https://…": { "kind": "answered", "code": 404,
-                                "finalUrl": "https://…", "ms": 312 }, … } }
+  { "urls": ["https://...", ...] }        // 1-20; the client sends 10
+-> { "results": { "https://...": { "kind": "answered", "code": 404,
+                                   "finalUrl": "https://...", "ms": 312 } } }
 ```
 
-Requirements, in the order they matter:
+The zod schema in `ApiRoutes.ts` is the one place the Studio's
+`ExternalUrlProbeResult` and the server's `ProbeResult` meet, so the two cannot
+drift without failing to parse.
 
-1. **It is a request-forger.** The endpoint makes outbound requests to
-   addresses a caller supplies, which is the definition of SSRF. It must refuse
-   anything that is not `http:`/`https:`, resolve the host and refuse private,
-   loopback, link-local and unique-local addresses **after** resolution (a
-   public name can resolve to `169.254.169.254`), refuse to follow a redirect
-   into one, and never attach the app's own credentials. `partitionProbeTargets`
-   drops the obvious cases client-side first, but that is an explanation, not a
-   guard — the server is the one being asked to make the request.
-2. **Authenticated like every other Studio route.** It is an editor tool, not a
-   public proxy.
-3. **`HEAD`, falling back to `GET`.** Some sites answer 405 to `HEAD`; a `GET`
-   whose body is discarded costs bandwidth, so only fall back on 405/501.
-4. **A timeout** — five seconds is the number the UI's copy assumes — reported
-   as `{ kind: "timeout", ms }` rather than as an error.
-5. **Follow redirects, report the final URL.** A link that 301s still works and
-   has still moved, which is one of the more useful findings; the dialog raises
-   it as a warning naming the destination.
-6. **Cap the batch.** The client sends ten at a time; the server should refuse
-   a batch much larger than that rather than trust it.
-7. **No caching of failures across sessions.** A 404 that was fixed an hour ago
-   must not still be reported.
+Authenticated like every other Studio route, which in FS mode means not at all:
+`getAuth` returns `{ error: null }` there by design, because local dev has no
+login, and this endpoint is no more open than `/patches`, which writes content.
+In http mode a caller with no session gets 401. `linkCheck/checkRoute.test.ts`
+holds both halves.
+
+## The address guard
+
+`linkCheck/addressGuard.ts` is the whole security boundary; everything else in
+this feature is presentation. It is a **deny list of address ranges** rather
+than an allow list of hostnames, because an editor is allowed to check any real
+site and nothing else - loopback, the four private ranges, CGNAT, link-local
+(where `169.254.169.254` hands out cloud credentials), unique-local, multicast,
+and the reserved and documentation ranges. IPv4-mapped IPv6 is judged as the
+IPv4 address it is, or the list would be one `::ffff:` away from useless.
+
+It is applied in **three** places, and it took all three:
+
+1. **In the DNS lookup** (`guardedLookup`), which is what closes the
+   check-then-connect window: the socket connects to the address the lookup
+   returned, so a name that resolves to a public address once and to 127.0.0.1
+   the next time gets no second resolution to exploit.
+2. **On a hostname that is already an address**, per redirect hop. `net.connect`
+   detects an IP literal and connects straight to it, so `guardedLookup` is
+   never called for `http://169.254.169.254/` - the single most valuable URL an
+   attacker could ask this server to open. This was a real hole, and the test
+   that found it was the one asserting a local server received _nothing_, not
+   the one asserting a function returned a string.
+3. **With the IPv6 brackets off.** `new URL("http://[::1]/").hostname` is
+   `"[::1]"`, and `net.isIP` says 0 to that, so the bracketed form sailed past
+   the literal check and failed later as "host could not be found" - which
+   looks like a refusal and is not one. Assert the reason, not just the failure.
+
+Also refused: a redirect whose `Location` leaves http(s) (the address guard
+never sees a `file:` URL), and more than five hops.
+
+Every request is made with `agent: false`. Node's default agent pools sockets
+between requests, and a pooled socket was resolved by a _previous_ lookup.
+
+## What is sent
+
+`HEAD`, falling back to `GET` only on 405 and 501 - where the server said the
+METHOD was the problem. A 403 is the tempting third case, and some WAFs do
+refuse HEAD with one, but retrying every 403 with a GET means downloading a
+page for each of them and buys little: 403 is already reported as "may be fine
+for a visitor" rather than as a broken link.
+
+The body is never read. A status and a `Location` is the whole answer, and
+downloading a page to throw it away is bandwidth spent on somebody else's
+server. The request carries a `User-Agent` naming itself and nothing else - no
+cookies, no authorization, none of the app's identity.
 
 ## Batching and retries
 
