@@ -70,6 +70,16 @@ export function EmptyEditorState({
 } = {}) {
   const offers = (destination: ShellDestination) =>
     destinations === undefined || destinations.includes(destination);
+  /**
+   * Whether there is a glossary to write at all.
+   *
+   * A project of nothing but a settings module has none of these three, and the
+   * sentence introducing the list was rendered over an empty list: "under one
+   * of these:" followed by nothing. Settings is a destination too, but it is
+   * not somewhere content is edited, so it is not on this list — which makes
+   * "no terms" a real case rather than an impossible one.
+   */
+  const hasGlossary = offers("pages") || offers("media") || offers("data");
   return (
     <div className="grid place-items-center min-h-[60svh]">
       <div className="max-w-sm">
@@ -82,7 +92,9 @@ export function EmptyEditorState({
           Pick something to edit
         </h2>
         <p className="mt-2 text-xs text-fg-secondary-alt leading-relaxed">
-          Everything in this project is in the navigation, under one of these:
+          {hasGlossary
+            ? "Everything in this project is in the navigation, under one of these:"
+            : "Pick something from the navigation to start editing."}
         </p>
         <dl className="mt-3 space-y-2">
           {offers("pages") && (

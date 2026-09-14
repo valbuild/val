@@ -107,6 +107,53 @@ describe("the studio tour", () => {
     const { container } = render(tour({ steps: [] }));
     expect(container.firstChild).toBeNull();
   });
+
+  /**
+   * The steps can get SHORTER while the tour is open.
+   *
+   * They are built from the project's destinations, and those arrive after
+   * mount — `availableDestinations` offers all three while the navigation
+   * loads, so the rail does not grow icons as data lands. A tour started in
+   * that window could be on a step that no longer exists, and an index past the
+   * end rendered nothing at all while the shell still believed the tour was
+   * open: no card, no X, no way out.
+   */
+  test("survives the step list shrinking under it", () => {
+    const { rerender } = render(tour());
+    fireEvent.click(screen.getByText("Next"));
+    fireEvent.click(screen.getByText("Next"));
+    expect(screen.queryByText("3 / 3")).not.toBeNull();
+
+    rerender(tour({ steps: steps.slice(0, 2) }));
+    // Still a card, and still a way out — rather than an open tour with
+    // nothing on screen.
+    expect(screen.queryByText("2 / 2")).not.toBeNull();
+    expect(screen.queryByLabelText("Close the tour")).not.toBeNull();
+  });
+
+  /**
+   * Focus goes into the card, or the keyboard is left on whatever started the
+   * tour — a button now under the overlay, and one the next step sometimes
+   * unmounts. Next and the X were then reachable only by tabbing blindly.
+   */
+  test("takes the keyboard into the card, on every step", () => {
+    const { container } = render(tour());
+    const card = container.querySelector('[tabindex="-1"]');
+    expect(card).not.toBeNull();
+    expect(document.activeElement).toBe(card);
+    fireEvent.click(screen.getByText("Next"));
+    expect(document.activeElement).toBe(card);
+  });
+
+  test("gives the keyboard back when it closes", () => {
+    const opener = document.createElement("button");
+    document.body.appendChild(opener);
+    opener.focus();
+    const { unmount } = render(tour());
+    unmount();
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
 });
 
 /**
@@ -271,6 +318,19 @@ describe("the empty editor", () => {
     expect(screen.queryByText("Pages")).toBeNull();
     expect(screen.queryByText("Media")).toBeNull();
   });
+
+  /**
+   * A project of nothing but a settings module has none of the three. The
+   * sentence introducing the list was still rendered — "under one of these:"
+   * over nothing at all.
+   */
+  test("does not introduce a list it has no terms for", () => {
+    render(<EmptyEditorState destinations={["settings"]} />);
+    expect(screen.queryByText(/under one of these/)).toBeNull();
+    expect(
+      screen.queryByText(/Pick something from the navigation/),
+    ).not.toBeNull();
+  });
 });
 
 function topBar(props: Partial<Parameters<typeof TopBar>[0]> = {}) {
@@ -330,22 +390,19 @@ function accountPanel(props: Partial<Parameters<typeof AccountPanel>[0]> = {}) {
 }
 
 /**
- * The Account panel runs the tour but does not decide whether it is offered.
+ * The Account panel has nothing to do with the tour.
  *
- * That decision is the project's, in `s.settings()` under `studio.tour` — see
- * `StudioSettingsFields`. A team that finds the tour noisy turns it off once,
- * for everyone, instead of each person dismissing it on each machine they use.
+ * It had both a launcher and the on/off switch at different points, and both
+ * moved: the switch is the project's (`s.settings()`, `studio.tour`, edited in
+ * the Settings panel) and the launcher belongs where the tour is offered — the
+ * empty editor and Quick actions, and nowhere else. A third permanent entry
+ * point is one more thing in a panel that is already the theme, auto save, the
+ * branch, deployments and signing out.
  */
 describe("the account panel", () => {
-  test("keeps a way to run the tour", () => {
-    const onStartTour = jest.fn();
-    render(accountPanel({ onStartTour }));
-    fireEvent.click(screen.getByText("Take a tour"));
-    expect(onStartTour).toHaveBeenCalled();
-  });
-
-  test("holds no setting for whether it is offered", () => {
-    render(accountPanel({ onStartTour: () => undefined }));
+  test("carries neither the tour nor its setting", () => {
+    render(accountPanel({ user: { name: "Someone" } }));
+    expect(screen.queryByText("Take a tour")).toBeNull();
     expect(screen.queryByText(/Offer the tour/)).toBeNull();
   });
 });

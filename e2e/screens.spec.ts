@@ -125,18 +125,23 @@ test("the shell", async ({ page }) => {
   await studio.getByRole("button", { name: "Settings" }).first().click();
   await page.waitForTimeout(1200);
   await shot(page, "08-settings");
-  // The Studio tab: the project's word on whether its editors are offered the
-  // tour. A team decision rather than a per-person one, which is why it is here
-  // — in content that gets published — and not in the account panel.
+  // The Studio tab: how the Studio looks and behaves for this project, as two
+  // sections — Appearance, and the tour. The tour setting is the project's word
+  // rather than each person's, which is why it is here, in content that gets
+  // published, and not in the account panel.
   await studio.getByRole("tab", { name: "Studio" }).click();
   await page.waitForTimeout(900);
   await shot(page, "08a-settings-studio");
+  // The tour section is below the fold of the Appearance one.
+  await studio.getByText("Offer the tour").scrollIntoViewIfNeeded();
+  await page.waitForTimeout(600);
+  await shot(page, "08b-settings-studio-tour");
   await page.keyboard.press("Escape");
 
   // The account, below it: the theme, auto save, the branch, signing out.
   await studio.getByRole("button", { name: "Account" }).first().click();
   await page.waitForTimeout(1200);
-  await shot(page, "08b-account");
+  await shot(page, "08c-account");
 });
 
 /**

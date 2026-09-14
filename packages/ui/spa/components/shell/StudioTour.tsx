@@ -171,13 +171,27 @@ export function StudioTour({ steps, onClose, onOpenPanel }: StudioTourProps) {
   const [index, setIndex] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  /**
+   * Never past the end, however the list got shorter.
+   *
+   * The steps are built from the project's destinations, and those arrive after
+   * mount: while the navigation loads, `availableDestinations` offers all three
+   * so the rail does not grow icons as data lands. A tour started in that
+   * window can be on step 5 of 9 when the real project turns out to have 6 —
+   * and an index past the end rendered NOTHING while the shell still believed
+   * the tour was open, so there was no card, no X and no way out.
+   *
+   * Clamped rather than closed: losing your place is better than being thrown
+   * out of something you are halfway through, and the last step is a real step.
+   */
+  const stepIndex = Math.min(index, Math.max(0, steps.length - 1));
   const [target, setTarget] = useState<Box | null>(null);
   const [placement, setPlacement] = useState<{
     top: number;
     left: number;
   } | null>(null);
-  const step = steps[index];
-  const isLast = index === steps.length - 1;
+  const step = steps[stepIndex];
+  const isLast = stepIndex === steps.length - 1;
 
   // The panel this step wants, before anything is measured: the rail button it
   // spotlights does not move, but the panel opening is what the step is FOR.
@@ -227,7 +241,7 @@ export function StudioTour({ steps, onClose, onOpenPanel }: StudioTourProps) {
       window.clearTimeout(frames[1]);
       window.removeEventListener("resize", measure);
     };
-  }, [index, step?.target]);
+  }, [stepIndex, step?.target]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -236,6 +250,44 @@ export function StudioTour({ steps, onClose, onOpenPanel }: StudioTourProps) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
+
+  /**
+   * Focus moves into the card, and back out again when the tour closes.
+   *
+   * Without it the keyboard was left on whatever started the tour — a button
+   * now underneath the overlay, and one that is sometimes unmounted by the step
+   * that follows — so Next and the X were reachable only by tabbing blindly
+   * through a shell the reader cannot see.
+   *
+   * On every step, not only on open: the card's heading is the step, so moving
+   * focus is also what announces it. The card itself takes focus rather than a
+   * button in it, so a screen reader reads the step before its controls.
+   *
+   * Not a focus TRAP. `aria-modal="false"` is the honest description of this
+   * overlay — the panel behind it is the thing being explained, and it stays in
+   * the accessibility tree — so tabbing out of the card is allowed to work.
+   */
+  useEffect(() => {
+    // Captured BEFORE the effect below moves focus into the card — effects run
+    // in declaration order, and declared the other way round this recorded the
+    // card it had just been handed and "restored" focus to a removed element.
+    //
+    // The shadow root's active element, not the document's: the document sees
+    // the Studio's host element and nothing inside it.
+    const scope = rootRef.current?.getRootNode();
+    const previous =
+      scope instanceof Document || scope instanceof ShadowRoot
+        ? scope.activeElement
+        : null;
+    return () => {
+      if (previous instanceof HTMLElement && previous.isConnected) {
+        previous.focus();
+      }
+    };
+  }, []);
+  useEffect(() => {
+    cardRef.current?.focus();
+  }, [stepIndex]);
 
   if (!step) return null;
 
@@ -288,6 +340,9 @@ export function StudioTour({ steps, onClose, onOpenPanel }: StudioTourProps) {
       />
       <div
         ref={cardRef}
+        // Focusable only programmatically: it is a container, and a tab stop of
+        // its own would put an extra empty stop before the buttons.
+        tabIndex={-1}
         style={{
           width: CARD_WIDTH,
           maxWidth: "calc(100% - 24px)",
@@ -295,7 +350,7 @@ export function StudioTour({ steps, onClose, onOpenPanel }: StudioTourProps) {
           // step is never the card in the top left corner.
           ...(placement ?? { top: -9999, left: 0 }),
         }}
-        className="absolute rounded-lg border border-border-float bg-bg-float p-3.5 shadow-lg"
+        className="absolute rounded-lg border border-border-float bg-bg-float p-3.5 shadow-lg focus-visible:outline-none"
       >
         <div className="flex items-start gap-2">
           {/*
@@ -327,13 +382,13 @@ export function StudioTour({ steps, onClose, onOpenPanel }: StudioTourProps) {
         </div>
         <div className="mt-3.5 flex items-center gap-2">
           <span className="text-[0.6875rem] tabular-nums text-fg-secondary-alt">
-            {index + 1} / {steps.length}
+            {stepIndex + 1} / {steps.length}
           </span>
           <div className="ml-auto flex items-center gap-1.5">
-            {index > 0 && (
+            {stepIndex > 0 && (
               <button
                 type="button"
-                onClick={() => setIndex((current) => current - 1)}
+                onClick={() => setIndex(stepIndex - 1)}
                 className="inline-flex h-7 items-center rounded-md border border-border-float px-2.5 text-xs text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
               >
                 Back
@@ -341,9 +396,7 @@ export function StudioTour({ steps, onClose, onOpenPanel }: StudioTourProps) {
             )}
             <button
               type="button"
-              onClick={() =>
-                isLast ? onClose() : setIndex((current) => current + 1)
-              }
+              onClick={() => (isLast ? onClose() : setIndex(stepIndex + 1))}
               className="inline-flex h-7 items-center rounded-md border border-border-brand-primary bg-bg-brand-primary px-2.5 text-xs font-medium text-fg-brand-primary hover:bg-bg-brand-primary-hover"
             >
               {isLast ? "Done" : "Next"}

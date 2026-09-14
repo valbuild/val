@@ -17,13 +17,14 @@ import { mockCanvasPage } from "../canvas/mockCanvasPage";
 import {
   AssistantSettingsFields,
   AssistantSettingsValue,
+  SettingsSectionDivider,
   SettingsTabs,
   StudioSettingsFields,
   StudioSettingsValue,
   ThemeSettingsFields,
   ThemeSettingsValue,
 } from "../SettingsPanel";
-import { Compass, Palette, Sparkles } from "lucide-react";
+import { AppWindow, Sparkles } from "lucide-react";
 import {
   ASSISTANT_SETTINGS_MAX_LENGTH,
   THEME_RADIUS_LENGTHS,
@@ -296,29 +297,27 @@ function MockSettingsSections() {
           ),
         },
         {
-          id: "theme",
-          label: "Appearance",
-          icon: Palette,
-          content: (
-            <ThemeSettingsFields
-              value={theme}
-              onChange={(field, next) =>
-                setTheme((current) => ({ ...current, [field]: next }))
-              }
-            />
-          ),
-        },
-        {
+          // Appearance and the tour together, as the app renders them — see
+          // `ValSettingsSections`.
           id: "studio",
           label: "Studio",
-          icon: Compass,
+          icon: AppWindow,
           content: (
-            <StudioSettingsFields
-              value={studio}
-              onChange={(field, next) =>
-                setStudio((current) => ({ ...current, [field]: next }))
-              }
-            />
+            <>
+              <ThemeSettingsFields
+                value={theme}
+                onChange={(field, next) =>
+                  setTheme((current) => ({ ...current, [field]: next }))
+                }
+              />
+              <SettingsSectionDivider />
+              <StudioSettingsFields
+                value={studio}
+                onChange={(field, next) =>
+                  setStudio((current) => ({ ...current, [field]: next }))
+                }
+              />
+            </>
           ),
         },
       ]}

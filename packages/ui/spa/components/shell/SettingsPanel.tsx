@@ -140,33 +140,47 @@ export function SettingsTabs({ tabs }: { tabs: SettingsTab[] }) {
   }
   return (
     <div className="flex flex-col">
-      <div
-        role="tablist"
-        aria-label="Settings sections"
-        // Left-aligned and natural width, not `flex-1`: with one tab, stretching
-        // it to the panel drew a full-width button rather than a tab, and a strip
-        // that re-flows every tab as sections are added is one that moves the tab
-        // an editor had learned the position of.
-        className="flex gap-0.5 m-3 p-0.5 rounded-md bg-bg-float-raised self-start w-fit"
-      >
-        {tabs.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={current.id === id}
-            onClick={() => setActive(id)}
-            className={cn(
-              "inline-flex items-center justify-center gap-1.5 h-7 px-3 rounded text-[0.6875rem]",
-              current.id === id
-                ? "bg-bg-float text-fg-primary shadow-sm font-medium"
-                : "text-fg-secondary hover:text-fg-primary",
-            )}
-          >
-            <Icon size={13} />
-            {label}
-          </button>
-        ))}
+      {/*
+       * The strip scrolls sideways when it does not fit.
+       *
+       * The panel is 360px and a tab is as wide as its label, so four of them
+       * already overflowed — and an overflowing flex row does not wrap, it
+       * squashes: the last tab was clipped with no way to reach it. Scrolling
+       * rather than wrapping because a strip that re-flows onto two lines moves
+       * every tab an editor had learned the position of, which is the same
+       * reason it is not `flex-1`.
+       *
+       * The scroller is the outer element and carries the margin; the strip
+       * inside keeps `w-fit` so the pill background is the width of the tabs
+       * rather than of the panel.
+       */}
+      <div className="m-3 overflow-x-auto overscroll-x-contain scrollbar-slim">
+        <div
+          role="tablist"
+          aria-label="Settings sections"
+          className="flex gap-0.5 p-0.5 rounded-md bg-bg-float-raised w-fit"
+        >
+          {tabs.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={current.id === id}
+              onClick={() => setActive(id)}
+              className={cn(
+                // `shrink-0`, or the flex row squashes the tabs to fit instead
+                // of letting the scroller do its job.
+                "inline-flex shrink-0 items-center justify-center gap-1.5 h-7 px-3 rounded text-[0.6875rem] whitespace-nowrap",
+                current.id === id
+                  ? "bg-bg-float text-fg-primary shadow-sm font-medium"
+                  : "text-fg-secondary hover:text-fg-primary",
+              )}
+            >
+              <Icon size={13} />
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
       <div role="tabpanel">{current.content}</div>
     </div>
@@ -175,20 +189,43 @@ export function SettingsTabs({ tabs }: { tabs: SettingsTab[] }) {
 
 /** One settings section: a lead paragraph and the fields under it. */
 export function SettingsSection({
+  title,
   description,
   children,
 }: {
+  /**
+   * The section's name, where a tab holds more than one.
+   *
+   * Absent for a tab that IS one section — a heading over the only thing on
+   * screen repeats the tab that is already selected above it.
+   */
+  title?: string;
   description: string;
   children: ReactNode;
 }) {
   return (
-    <section className="px-4 pb-4">
+    <section className="px-4 pb-5">
+      {title !== undefined && (
+        <h3 className="pb-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-fg-secondary-alt">
+          {title}
+        </h3>
+      )}
       <p className="text-xs text-fg-secondary-alt leading-relaxed">
         {description}
       </p>
       <div className="mt-3 flex flex-col gap-4">{children}</div>
     </section>
   );
+}
+
+/**
+ * A hairline between two sections in one tab.
+ *
+ * An element rather than a border on the section, so a section does not have to
+ * know whether it is the first one in whichever tab it has been put in.
+ */
+export function SettingsSectionDivider() {
+  return <hr className="mx-4 mb-5 border-t border-border-float" />;
 }
 
 export type StudioSettingsValue = {
@@ -225,7 +262,10 @@ export function StudioSettingsFields({
 }) {
   const isOff = value.tour === false;
   return (
-    <SettingsSection description="How the Studio behaves for the people editing this project.">
+    <SettingsSection
+      title="Tour"
+      description="The one-minute walkthrough of the Studio, for somebody opening it for the first time."
+    >
       <div className="flex items-center justify-between gap-3">
         <label htmlFor="val-studio-tour" className="text-xs font-medium">
           Offer the tour
@@ -630,7 +670,10 @@ export function ThemeSettingsFields({
 }: ThemeSettingsFieldsProps) {
   const accent = value.accent?.trim().toLowerCase() ?? null;
   return (
-    <SettingsSection description="The Studio's own chrome, for everyone working on this project. Nothing here changes the site.">
+    <SettingsSection
+      title="Appearance"
+      description="The Studio's own chrome, for everyone working on this project. Nothing here changes the site."
+    >
       <div>
         <span className="text-xs font-medium">Accent</span>
         <span className="block mt-0.5 text-[0.6875rem] text-fg-secondary-alt leading-relaxed">

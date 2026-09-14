@@ -143,24 +143,35 @@ export function MobileBottomBar({
        * they give up width in step, and each clips its own label (the Preview
        * split button is already `overflow-hidden`; Publish truncates).
        */}
-      <PreviewButton
-        onPreview={onPreview}
-        previewHref={previewHref}
-        onToggleCanvas={onToggleCanvas}
-        isCanvasOpen={isCanvasOpen}
-        canvasActionLabel={canvasActionLabel}
-        onExitCanvas={onExitCanvas}
-        menuPlacement="above"
-        alwaysShowLabel
-        className="h-9 min-w-0 flex-1"
-      />
-      {publishSlot ?? (
-        <PublishButton
-          pendingChanges={pendingChanges}
-          onPublish={onPublish}
+      {/*
+       * Wrapped so the tour has something to point at on a phone, where the top
+       * bar's copies of these are not drawn — the same markers `TopBar` puts on
+       * its own. Only one bar is ever rendered, so the lookup cannot find both.
+       * `flex-1 min-w-0` moves to the wrapper, or the control inside it stops
+       * being able to give up width.
+       */}
+      <span data-val-tour="preview" className="flex min-w-0 flex-1">
+        <PreviewButton
+          onPreview={onPreview}
+          previewHref={previewHref}
+          onToggleCanvas={onToggleCanvas}
+          isCanvasOpen={isCanvasOpen}
+          canvasActionLabel={canvasActionLabel}
+          onExitCanvas={onExitCanvas}
+          menuPlacement="above"
+          alwaysShowLabel
           className="h-9 min-w-0 flex-1"
         />
-      )}
+      </span>
+      <span data-val-tour="publish" className="flex min-w-0 flex-1">
+        {publishSlot ?? (
+          <PublishButton
+            pendingChanges={pendingChanges}
+            onPublish={onPublish}
+            className="h-9 min-w-0 flex-1"
+          />
+        )}
+      </span>
     </div>
   );
 }

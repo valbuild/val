@@ -31,11 +31,12 @@ import {
   LocalesSettingsValue,
   NoSettingsModule,
   SettingsLogoPlaceholder,
+  SettingsSectionDivider,
   SettingsTabs,
   StudioSettingsFields,
   ThemeSettingsFields,
 } from "./SettingsPanel";
-import { Compass, Languages, Palette, Sparkles } from "lucide-react";
+import { AppWindow, Languages, Sparkles } from "lucide-react";
 import { PanelSkeleton } from "./PanelPrimitives";
 
 /**
@@ -182,54 +183,61 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
           ),
         },
         {
-          id: "theme",
-          label: "Appearance",
-          icon: Palette,
-          content: (
-            <ThemeSettingsFields
-              value={{
-                accent: accentValue,
-                radius: radiusValue,
-                mode: modeValue,
-              }}
-              onChange={writeThemeSetting}
-              errors={{
-                accent: accentErrors[0]?.message,
-                radius: radiusErrors[0]?.message,
-                mode: modeErrors[0]?.message,
-              }}
-              /*
-               * The real image field, at the logo's own source path — it does
-               * its own upload and reports its own validation, so nothing about
-               * the logo goes through `writeThemeSetting`.
-               *
-               * Except the first write of all, which has to create the section
-               * the key lives in. See `SettingsLogoPlaceholder`.
-               */
-              logoField={
-                hasThemeSection ? (
-                  <ImageField path={logoPath} readonly={readonly} />
-                ) : (
-                  <SettingsLogoPlaceholder
-                    onAdd={() => writeThemeSetting("logo", null)}
-                    disabled={readonly}
-                  />
-                )
-              }
-              readonly={readonly}
-            />
-          ),
-        },
-        {
+          /*
+           * Appearance and the tour in one tab, as two sections.
+           *
+           * They are two SCHEMA sections — `theme` and `studio` — and that is
+           * not a reason to be two tabs: a tab is a place to look, and "how the
+           * Studio looks and behaves for this project" is one place. Four tabs
+           * also overflowed the 360px panel, which is what made the question
+           * worth asking rather than answering by scrolling past it.
+           */
           id: "studio",
           label: "Studio",
-          icon: Compass,
+          icon: AppWindow,
           content: (
-            <StudioSettingsFields
-              value={{ tour: tourValue }}
-              onChange={(field, next) => writeStudioSetting({ [field]: next })}
-              readonly={readonly}
-            />
+            <>
+              <ThemeSettingsFields
+                value={{
+                  accent: accentValue,
+                  radius: radiusValue,
+                  mode: modeValue,
+                }}
+                onChange={writeThemeSetting}
+                errors={{
+                  accent: accentErrors[0]?.message,
+                  radius: radiusErrors[0]?.message,
+                  mode: modeErrors[0]?.message,
+                }}
+                /*
+                 * The real image field, at the logo's own source path — it does
+                 * its own upload and reports its own validation, so nothing about
+                 * the logo goes through `writeThemeSetting`.
+                 *
+                 * Except the first write of all, which has to create the section
+                 * the key lives in. See `SettingsLogoPlaceholder`.
+                 */
+                logoField={
+                  hasThemeSection ? (
+                    <ImageField path={logoPath} readonly={readonly} />
+                  ) : (
+                    <SettingsLogoPlaceholder
+                      onAdd={() => writeThemeSetting("logo", null)}
+                      disabled={readonly}
+                    />
+                  )
+                }
+                readonly={readonly}
+              />
+              <SettingsSectionDivider />
+              <StudioSettingsFields
+                value={{ tour: tourValue }}
+                onChange={(field, next) =>
+                  writeStudioSetting({ [field]: next })
+                }
+                readonly={readonly}
+              />
+            </>
           ),
         },
         {

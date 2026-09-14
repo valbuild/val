@@ -44,10 +44,15 @@ export type UtilityPanelProps = {
   /**
    * Run the guided tour.
    *
-   * The tour's permanent home. The glowing button in the top bar is a one-time
-   * offer and goes away for good once it has been taken; this row does not, so
-   * there is somewhere to send a colleague who asks what any of this is —
-   * which is also what the tour's own last step says.
+   * The tour's permanent home, and the only one that does not depend on the
+   * project's `studio.tour` setting: the offer on the empty editor stops
+   * glowing once somebody has taken the tour and goes entirely when a team
+   * switches the offer off, and this row survives both — so there is always
+   * somewhere to send a colleague who asks what any of this is, which is what
+   * the tour's own last step says.
+   *
+   * Absent while the navigation loads: the steps are built from destinations
+   * that are still provisional then. See `canStartTour` in `Shell`.
    */
   onStartTour?: () => void;
   /**

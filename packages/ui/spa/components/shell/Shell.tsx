@@ -697,14 +697,25 @@ export function Shell({
     [destinations, mode, aiEnabled],
   );
   /**
-   * Whether to glow.
+   * Whether the tour can be STARTED at all right now.
    *
-   * Not while the navigation is still loading: the steps are built from the
-   * destinations, and offering a tour of Pages and Data to someone whose
-   * project turns out to have neither is worse than offering it a second later.
+   * Not while the navigation is loading, and this is not caution: the steps are
+   * built from `destinations`, and `availableDestinations` deliberately offers
+   * all three while `isLoading` so the rail does not grow icons as data
+   * arrives. A tour started in that window is a tour of Pages and Media for a
+   * project that turns out to have neither — and the list then SHRINKS under
+   * the open tour, which is the stuck state `stepIndex` clamps for.
+   */
+  const canStartTour = !isLoading;
+  /**
+   * Whether to offer it — the glow, and the button on the empty editor.
+   *
+   * `tourEnabled` is the project's answer (`studio.tour`), and false means
+   * nobody is prompted. Quick actions keeps the tour either way, which is what
+   * makes switching the offer off safe rather than destructive.
    */
   const showTourPrompt =
-    tourEnabled && !tourCompleted && !isTourOpen && !isLoading;
+    tourEnabled && !tourCompleted && !isTourOpen && canStartTour;
   /**
    * Opening a panel from deep inside the shell — a row in the publish diff
    * linking to Settings, say. The URL is read once on mount, so an in-app link
@@ -943,7 +954,12 @@ export function Shell({
   ) : selection === null ? (
     <EmptyEditorState
       destinations={destinations}
-      onStartTour={startTour}
+      /*
+       * One of the two places the tour is offered, so it follows the project's
+       * setting: with `studio.tour` off nobody is prompted anywhere, and the
+       * tour is reached from Quick actions by whoever wants it.
+       */
+      onStartTour={tourEnabled && canStartTour ? startTour : undefined}
       tourPrompt={showTourPrompt}
     />
   ) : (
@@ -1237,7 +1253,6 @@ export function Shell({
             admin={data.admin}
             autoSave={autoSave}
             onAutoSaveChange={onAutoSaveChange}
-            onStartTour={startTour}
             branch={data.branch}
             /**
              * No deploy feed in dev.
@@ -1275,7 +1290,9 @@ export function Shell({
             onOpenAI={aiEnabled ? () => setOpenPanel("ai") : undefined}
             onCompare={onCompare}
             reviewCount={reviewCount ?? pendingChanges}
-            onStartTour={startTour}
+            // The tour's permanent home, whatever the project's setting says —
+            // but not until the destinations it is built from are the real ones.
+            onStartTour={canStartTour ? startTour : undefined}
             onDiscardAll={onDiscardAll}
             discardAllDescription={discardAllDescription}
             portalContainer={portalContainer}

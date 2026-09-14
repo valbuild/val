@@ -1,6 +1,5 @@
 import { ReactNode } from "react";
 import {
-  Compass,
   ExternalLink,
   LogOut,
   LucideIcon,
@@ -42,15 +41,6 @@ export type AccountPanelProps = {
   mode?: "fs" | "http" | "unknown";
   autoSave: boolean;
   onAutoSaveChange: (autoSave: boolean) => void;
-  /**
-   * Run the guided tour now.
-   *
-   * Only the way to RUN it. Whether it is offered at all is the project's
-   * answer, in `s.settings()` under `studio.tour` and edited in the Settings
-   * panel — a team that finds it noisy turns it off once, for everyone, rather
-   * than each person dismissing it on each machine.
-   */
-  onStartTour?: () => void;
   branch?: string;
   /** Publishes in flight or recently finished. Absent when there is no feed. */
   deployments?: ShellDeployment[];
@@ -90,7 +80,6 @@ export function AccountPanel({
   mode,
   autoSave,
   onAutoSaveChange,
-  onStartTour,
   branch,
   deployments,
   onSignOut,
@@ -181,16 +170,6 @@ export function AccountPanel({
               checked={autoSave}
               onChange={onAutoSaveChange}
             />
-          )}
-          {onStartTour && (
-            <button
-              type="button"
-              onClick={onStartTour}
-              className="inline-flex items-center gap-1.5 h-7 px-2 -mx-2 rounded-md text-xs text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
-            >
-              <Compass size={13} />
-              Take a tour
-            </button>
           )}
           {branch && (
             <div className="flex items-baseline justify-between text-xs">

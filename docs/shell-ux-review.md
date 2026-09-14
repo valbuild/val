@@ -85,11 +85,14 @@ Small, and all of it copy or default state except the tour.
   is the first thing anybody sees, and Quick actions. Deliberately not the top
   bar — that row is Review, Preview and Publish, the controls for shipping a
   change, and a permanent onboarding button among them is clutter for everybody
-  who has read it once. On the empty editor the button glows while the tour is
-  new and stays, quietly, once it is not.
+  who has read it once. Not the Account panel either, which held one while the
+  setting lived there. On the empty editor the button glows while the tour is
+  new and stays, quietly, once it is not; switching `studio.tour` off takes it
+  away entirely and leaves Quick actions, which is what makes switching it off
+  safe rather than destructive.
 - **Its words are in one file**, `packages/ui/spa/components/shell/tourCopy.ts`,
   which holds nothing else. Which steps a project gets and what each points at
-  are in `studioTour.ts`; rewriting the prose needs no other change.
+  are in `tourSteps.ts`; rewriting the prose needs no other change.
 - **The steps are conditional on the project.** Explaining Pages to a project
   with no router sends somebody looking for an icon that is not in the rail, and
   the same goes for the assistant, which is explained only where one is
