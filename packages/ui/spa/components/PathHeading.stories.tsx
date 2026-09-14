@@ -186,6 +186,7 @@ export const TheHeading: Story = {
           <PathHeading
             description={{
               title: "Footer links",
+              pathLabel: "Footer",
               subtitle: "4 groups · 14 links",
               image: null,
               url: null,
@@ -209,6 +210,7 @@ export const TheHeading: Story = {
           <PathHeading
             description={{
               title: "Fredrik Ekholdt",
+              pathLabel: "fredrik-ekholdt",
               subtitle: "Founder · 12 posts",
               image: portrait,
               url: null,
@@ -230,6 +232,7 @@ export const TheHeading: Story = {
           <PathHeading
             description={{
               title: "Content is code",
+              pathLabel: "#2",
               subtitle: "Feature section",
               image: heroImage,
               url: null,
@@ -252,6 +255,7 @@ export const TheHeading: Story = {
 
 const pageDescription: Description = {
   title: "Building a scalable front-end architecture",
+  pathLabel: "/blogs/scalable-front-end-architecture",
   subtitle: "Fredrik Ekholdt · 1 Jan 2026",
   image: heroImage,
   url: "/blogs/scalable-front-end-architecture",
@@ -594,6 +598,7 @@ const SHAPES: { what: string; description: Description; scope?: ReactNode }[] =
       what: "Title only",
       description: {
         title: "Footer links",
+        pathLabel: "Footer",
         subtitle: null,
         image: null,
         url: null,
@@ -605,6 +610,7 @@ const SHAPES: { what: string; description: Description; scope?: ReactNode }[] =
       what: "Title and subtitle",
       description: {
         title: "Fredrik Ekholdt",
+        pathLabel: "fredrik-ekholdt",
         subtitle: "Founder · 12 posts",
         image: null,
         url: null,
@@ -616,6 +622,7 @@ const SHAPES: { what: string; description: Description; scope?: ReactNode }[] =
       what: "Title, subtitle and image",
       description: {
         title: "Fredrik Ekholdt",
+        pathLabel: "fredrik-ekholdt",
         subtitle: "Founder · 12 posts",
         image: portrait,
         url: null,

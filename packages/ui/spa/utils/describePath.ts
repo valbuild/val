@@ -57,6 +57,16 @@ export type Description = {
    */
   image: ImageSource | null;
   /**
+   * What the PATH alone says this is called — the route, the key, `#3`, the
+   * prettified file name — whether or not a preview overrode it.
+   *
+   * `title` is this when nothing better exists, and a surface that shows both
+   * needs them separately: a search hit leads with the name and keeps the key
+   * above it as provenance, because two hits in one module are told apart by
+   * their paths and by nothing else.
+   */
+  pathLabel: string;
+  /**
    * The URL this path is a page of, when it is one — the key of a router
    * record, verbatim.
    *
@@ -125,8 +135,11 @@ export function describePath({
       ? lastSegment
       : null;
 
+  const pathLabel = fallbackTitle();
+
   return {
-    title: previewTitle || fallbackTitle(),
+    title: previewTitle || pathLabel,
+    pathLabel,
     subtitle: previewSubtitle || null,
     image: preview?.image ?? null,
     url,

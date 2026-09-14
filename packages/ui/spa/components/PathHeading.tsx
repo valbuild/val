@@ -70,16 +70,32 @@ const TITLE_BLOCK = "h-[52px]";
  */
 export function PathHeading({
   description,
+  title: titleOverride,
   pageUrlStyle = "trail",
   tools,
+  below,
   scope,
   className,
 }: {
   description: Description;
+  /**
+   * Drawn instead of `description.title`, for the two things the studio renders
+   * richer than a string: a route as a segmented breadcrumb, and the page list
+   * behind a globe. It replaces the title TEXT and nothing else — the line it
+   * sits on, the subtitle and the scope are the same either way, so an override
+   * cannot make one heading a different shape from the next.
+   */
+  title?: ReactNode;
   /** Ignored unless `description.url` is set. */
   pageUrlStyle?: PageUrlStyle;
   /** The record tools, on the right of the title row. */
   tools?: ReactNode;
+  /**
+   * Anything that belongs to what is being EDITED rather than to the heading —
+   * the field's own `.describe()`, a validation error on the key. Under the
+   * fixed lines, so it cannot change the heading's height.
+   */
+  below?: ReactNode;
   /** The scope trail, on the line under the heading. */
   scope?: ReactNode;
   className?: string;
@@ -153,9 +169,9 @@ export function PathHeading({
               <div
                 role="heading"
                 aria-level={1}
-                className={cn("min-w-0 truncate", TITLE_LINE)}
+                className={cn("flex min-w-0 items-center truncate", TITLE_LINE)}
               >
-                {titleText}
+                {titleOverride ?? titleText}
               </div>
               {isPage && pageUrlStyle === "chip" && <PageUrlChip url={url} />}
             </div>
@@ -183,6 +199,7 @@ export function PathHeading({
           </>
         )}
       </div>
+      {below}
     </div>
   );
 }

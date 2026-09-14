@@ -11,7 +11,8 @@ import {
 } from "./designSystem/command";
 import { cn } from "./designSystem/cn";
 import { DropdownPreviewRow, DropdownPreviewImage } from "./DropdownPreviewRow";
-import { useRefPreview } from "./useRefPreview";
+import { useDescription } from "./useDescription";
+import { Description } from "../utils/describePath";
 import { useAllSources, useSchemas } from "./ValFieldProvider";
 import { getNavPathFromAll } from "./getNavPath";
 import { prettifyFilename } from "../utils/prettifyFilename";
@@ -127,9 +128,9 @@ export interface ConnectedReferencesListProps {
 }
 
 /**
- * Connected variant of {@link ReferencesList} that hydrates each row with
- * render-derived preview data (title/subtitle/image) from {@link useRefPreview}.
- * The pure component is preferred for stories and tests.
+ * Connected variant of {@link ReferencesList} that names each row with
+ * {@link useDescription} — the same name the value has everywhere else in the
+ * studio. The pure component is preferred for stories and tests.
  */
 export function ConnectedReferencesList({
   refs,
@@ -183,8 +184,8 @@ export function ConnectedReferencesList({
 }
 
 /**
- * Row used by the pure {@link ReferencesList}. The render-derived preview image
- * (if any) is taken from the item; the label is always derived from the path.
+ * Row used by the pure {@link ReferencesList}, whose caller has already put
+ * whatever preview it has on the item. Stories and tests use this one.
  */
 function ReferenceRow({
   item,
@@ -196,16 +197,11 @@ function ReferenceRow({
   onSelect: () => void;
 }) {
   return (
-    <ReferenceRowView
-      item={item}
-      isCurrent={isCurrent}
-      onSelect={onSelect}
-      image={item.preview?.image ?? null}
-    />
+    <ReferenceRowView item={item} isCurrent={isCurrent} onSelect={onSelect} />
   );
 }
 
-/** Connected row: only the preview image is hydrated; the label is path-derived. */
+/** Connected row: the name and the image come from the value's own preview. */
 function ConnectedReferenceRow({
   item,
   isCurrent,
@@ -215,13 +211,22 @@ function ConnectedReferenceRow({
   isCurrent: boolean;
   onSelect: () => void;
 }) {
-  const preview = useRefPreview(item.path);
+  /*
+   * The whole description, not just its image.
+   *
+   * A reference row used to be titled by its PATH and to borrow only the
+   * thumbnail from the preview, so the same entry read as "Fredrik Ekholdt"
+   * in the list you picked it from and as `fredrik-ekholdt` here. The path
+   * stays — it is how two references into the same module are told apart — but
+   * under the name, not as it.
+   */
+  const description = useDescription(item.path);
   return (
     <ReferenceRowView
       item={item}
       isCurrent={isCurrent}
       onSelect={onSelect}
-      image={preview?.image ?? null}
+      description={description}
     />
   );
 }
@@ -230,15 +235,32 @@ function ReferenceRowView({
   item,
   isCurrent,
   onSelect,
-  image,
+  description,
 }: {
   item: ReferencesListItem;
   isCurrent: boolean;
   onSelect: () => void;
-  image: DropdownPreviewImage;
+  /** Absent in the pure component, which is fed by stories and tests. */
+  description?: Description;
 }) {
   const hasPatchPath = item.patchPath.length > 0;
   const moduleFilePathLabel = prettifyModuleFilePath(item.moduleFilePath);
+  const pathLabel = hasPatchPath ? (
+    <ReferenceLabel
+      patchPath={item.patchPath}
+      isRouter={item.isRouter ?? false}
+    />
+  ) : (
+    moduleFilePathLabel
+  );
+  // A name only when someone wrote one: a `describePath` fallback here would be
+  // the path a second time, on two lines. The pure component gets its preview
+  // put on the item by its caller instead.
+  const name =
+    description?.origin.title === "preview"
+      ? description.title
+      : item.preview?.title;
+  const named = name !== undefined && name !== "";
   return (
     <CommandItem
       value={`${item.preview?.title ?? ""} ${item.fallbackLabel}`}
@@ -255,19 +277,12 @@ function ReferenceRowView({
       title={item.path}
     >
       <DropdownPreviewRow
-        title={
-          hasPatchPath ? (
-            <ReferenceLabel
-              patchPath={item.patchPath}
-              isRouter={item.isRouter ?? false}
-            />
-          ) : (
-            moduleFilePathLabel
-          )
-        }
-        // No module path here: the group heading above says it, once, instead of
-        // every row saying the same thing.
-        image={image}
+        title={named ? name : pathLabel}
+        // The path, demoted to the second line once there is a name above it.
+        // No module path either way: the group heading above says it, once,
+        // instead of every row saying the same thing.
+        subtitle={named ? pathLabel : undefined}
+        image={description?.image ?? item.preview?.image ?? null}
         imageSize="sm"
       />
     </CommandItem>

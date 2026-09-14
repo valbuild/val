@@ -160,3 +160,36 @@ describe("describePath: a router record is the page list", () => {
     ).toBe("Blog posts");
   });
 });
+
+describe("describePath: pathLabel", () => {
+  test("is what the path says, whether or not a preview won", () => {
+    const described = describePath({
+      path: '/content/blogs.val.ts?p="blog_1"' as SourcePath,
+      parentSchema: recordSchema,
+      preview: { title: "Launching Val 1.0" },
+    });
+    expect(described.title).toBe("Launching Val 1.0");
+    // Still the key: a search hit leads with the name and keeps this above it,
+    // because two hits in one module are told apart by their paths alone.
+    expect(described.pathLabel).toBe("blog_1");
+  });
+
+  test("equals the title when nothing overrode it", () => {
+    const described = describePath({
+      path: "/components/footer.val.ts" as SourcePath,
+      schema: arraySchema,
+    });
+    expect(described.pathLabel).toBe("Footer");
+    expect(described.title).toBe(described.pathLabel);
+  });
+
+  test("a page keeps its route as the path label", () => {
+    const described = describePath({
+      path: '/app/blogs/[id]/page.val.ts?p="/blogs/launch"' as SourcePath,
+      parentSchema: routerRecordSchema,
+      preview: { title: "Launching Val 1.0" },
+    });
+    expect(described.pathLabel).toBe("/blogs/launch");
+    expect(described.url).toBe("/blogs/launch");
+  });
+});

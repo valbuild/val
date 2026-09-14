@@ -12,7 +12,7 @@ import {
   ArrayAndRecordTools,
   splitIntoInitAndLastParts,
 } from "./ArrayAndRecordTools";
-import { isParentArray, isParentRecord, useParent } from "../hooks/useParent";
+import { isParentRecord, useParent } from "../hooks/useParent";
 import { FieldValidationError } from "./FieldValidationError";
 import { cn } from "./designSystem/cn";
 import {
@@ -37,6 +37,8 @@ import {
 } from "./ValProvider";
 import { ModuleGallery } from "./fields/ModuleGallery";
 import { ScopeTrail } from "./ModuleScope";
+import { PathHeading } from "./PathHeading";
+import { useDescription } from "./useDescription";
 
 export function Module({
   path,
@@ -65,6 +67,7 @@ export function Module({
     return byAuthors;
   }, [pendingPatchesRes]);
   const portalContainer = useValPortal();
+  const description = useDescription(path);
   const parent = useParent(path);
   const isParentGallery = useMemo(() => {
     if (
@@ -101,7 +104,6 @@ export function Module({
   const parts = splitIntoInitAndLastParts(path);
   const init = parts.slice(0, -1);
   const last = parts[parts.length - 1];
-  const showNumber = isParentArray(path, maybeParentPath, parentSchema);
   const isKey = isParentRecord(path, maybeParentPath, parentSchema);
   const keyErrors = validationErrors.filter((error) => !!error.keyError);
   const nonKeyErrors = validationErrors.filter((error) => !error.keyError);
@@ -147,19 +149,32 @@ export function Module({
     </div>
   );
 
-  /** What this module is called. */
-  const titleNode = showNumber ? (
-    <span className="shrink-0">#{Number(last.text)}</span>
-  ) : isParentRouter ? (
-    <UrlPathBreadcrumb path={last.text} portalContainer={portalContainer} />
-  ) : isCurrentRouter ? (
-    <span className="inline-flex items-center gap-2">
-      <Globe size={20} className="text-fg-tertiary shrink-0" />
-      <span>Pages</span>
-    </span>
-  ) : (
-    <span className="truncate block">{last.text}</span>
-  );
+  /*
+   * What this module is called comes from `describePath` — the same answer the
+   * nav, search and every reference give it, and the reason a developer's
+   * `.preview(...)` can now change it. Only two renderings are richer than the
+   * string it returns, and only those are overridden:
+   *
+   * - A PAGE nobody named: the title has already fallen back to the route, and
+   *   a route reads better segmented, with the full URL on hover. Once a
+   *   preview names the page the breadcrumb would be naming something else, so
+   *   it goes and the route moves to the scope line (see `PageUrlStyle`).
+   * - The PAGE LIST: "Pages" is a place, not a value, and the globe is how the
+   *   nav marks it. The label still comes from the description, so a router
+   *   record with a `.preview(...)` names itself.
+   *
+   * `#3`, a record key and a module's file name are all plain text, and all
+   * three are `describePath` fallbacks now.
+   */
+  const titleNode =
+    isParentRouter && description.origin.title === "fallback" ? (
+      <UrlPathBreadcrumb path={last.text} portalContainer={portalContainer} />
+    ) : isCurrentRouter ? (
+      <span className="inline-flex min-w-0 items-center gap-2">
+        <Globe size={20} className="text-fg-tertiary shrink-0" />
+        <span className="truncate">{description.title}</span>
+      </span>
+    ) : undefined;
 
   return (
     <div className="flex flex-col gap-6 pt-4 pb-40">
@@ -177,49 +192,37 @@ export function Module({
            * the path is provenance and sits under it as links. The other way
            * round — a line of grey crumbs above a smaller title — spent the top
            * of the column on the part that does not change.
+           *
+           * `PathHeading` owns the layout so that every heading is the same
+           * height whatever a developer wrote: see the note on `TITLE_BLOCK`.
            */}
-          <div className="flex gap-4 justify-between items-start min-h-6">
-            {/*
-             * The title, in its own column beside the tools.
-             *
-             * A column rather than a bare cell because whatever goes under the
-             * title has to measure from the TITLE's bottom, not the row's: the
-             * row is as tall as the tools on its right, so a sibling of the row
-             * sat a fixed 12px below no matter what was asked for — the same
-             * 12px that then separated it from the scope, three evenly spaced
-             * lines with nothing saying which one belonged to which.
-             */}
-            <div className="min-w-0 flex-1">
-              {/*
-               * A heading, in the role sense: the editor column had none, so
-               * nothing announced what was being edited and nothing could jump
-               * to it. Not an `<h1>` element, because the title of a router
-               * page is a breadcrumb — and a `<nav>` inside a heading element
-               * is not valid HTML.
-               */}
-              <div
-                role="heading"
-                aria-level={1}
-                className="text-2xl leading-tight"
-              >
-                {titleNode}
-              </div>
-            </div>
-            {tools}
-          </div>
-          {init.length > 0 && (
-            <ScopeTrail
-              parts={init}
-              portalContainer={portalContainer}
-              className="mt-1.5"
-            />
-          )}
-          {keyErrors.length > 0 && (
-            <FieldValidationError validationErrors={keyErrors} />
-          )}
-          {schema.description && (
-            <div className="text-sm text-fg-tertiary">{schema.description}</div>
-          )}
+          <PathHeading
+            description={description}
+            title={titleNode}
+            tools={tools}
+            scope={
+              init.length > 0 ? (
+                <ScopeTrail parts={init} portalContainer={portalContainer} />
+              ) : undefined
+            }
+            below={
+              <>
+                {keyErrors.length > 0 && (
+                  <FieldValidationError validationErrors={keyErrors} />
+                )}
+                {/*
+                 * The field's own `.describe()` — INPUT HELP for the editor
+                 * filling in what is rendered below, not a caption of the
+                 * title. See the rule at the top of `core/src/preview.ts`.
+                 */}
+                {schema.description && (
+                  <div className="text-sm text-fg-tertiary">
+                    {schema.description}
+                  </div>
+                )}
+              </>
+            }
+          />
         </div>
       </div>
       <div>
