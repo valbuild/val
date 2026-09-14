@@ -1,4 +1,4 @@
-import { FileCode2, Globe } from "lucide-react";
+import { Globe } from "lucide-react";
 import { ReactNode } from "react";
 import { Description } from "../utils/describePath";
 import { useMediaUrl } from "../utils/mediaUrl";
@@ -140,8 +140,10 @@ export function PathHeading({
    * own, a lost identity: the file appeared nowhere on the screen any more.
    *
    * Same answer as the route, then, and the same place: it joins the scope
-   * line. And the same guard — when nothing renamed the module the title is
-   * already its file name, so showing it would say it twice.
+   * line — as the segment the folders above it were leading to, so the line
+   * reads "Content / Authors". And the same guard: when nothing renamed the
+   * module the title is already its file name, so showing it would say it
+   * twice.
    */
   const showModulePathInTrail =
     description.isModuleRoot && description.origin.title === "preview";
@@ -218,7 +220,19 @@ export function PathHeading({
         {showModulePathInTrail && (
           <>
             {scope && <span className="shrink-0 text-fg-secondary-alt">/</span>}
-            <ModulePath moduleFilePath={description.moduleFilePath} />
+            {/*
+             * The module's own segment, finishing the trail the folders above
+             * it started: "Content / Authors". Not the whole module file path —
+             * that repeats every folder already on the line and switches the
+             * line's register halfway along, from prettified names to a mono
+             * path. The full path is on hover, where `ScopeLink` keeps it too.
+             */}
+            <span
+              title={description.moduleFilePath}
+              className="truncate text-fg-secondary-alt"
+            >
+              {description.pathLabel}
+            </span>
           </>
         )}
       </div>
@@ -262,34 +276,6 @@ export function PageUrl({
           ))
         )}
       </span>
-    </span>
-  );
-}
-
-/**
- * A module's file, for when its name no longer says it.
- *
- * Selectable and in full, for the same reason {@link PageUrl} is: what an
- * editor does with it is paste it into a message, and what a developer does is
- * open it.
- */
-export function ModulePath({
-  moduleFilePath,
-  className,
-}: {
-  moduleFilePath: string;
-  className?: string;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex min-w-0 items-center gap-1 font-mono text-fg-secondary-alt",
-        className,
-      )}
-      title={moduleFilePath}
-    >
-      <FileCode2 size={13} aria-hidden className="shrink-0" />
-      <span className="truncate">{moduleFilePath}</span>
     </span>
   );
 }
