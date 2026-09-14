@@ -364,7 +364,7 @@ function NewKeyForm({
           placeholder="Key"
           onChange={(ev) => setKey(ev.target.value)}
         />
-        {error && <p className="text-xs text-fg-error">{error}</p>}
+        {error && <p className="text-xs text-fg-error-on-surface">{error}</p>}
       </div>
       <div className="flex gap-2 justify-end pt-1">
         <Button size="sm" variant="ghost" type="button" onClick={onCancel}>

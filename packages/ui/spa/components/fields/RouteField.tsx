@@ -322,13 +322,13 @@ function NewExternalPageForm({
           className={cn(
             "w-full p-1 bg-bg-secondary border border-border-primary rounded text-fg-primary",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
-            { "border-fg-error": error !== null },
+            { "border-fg-error-on-surface": error !== null },
           )}
           placeholder="https://example.com"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
         />
-        {error && <p className="text-xs text-fg-error">{error}</p>}
+        {error && <p className="text-xs text-fg-error-on-surface">{error}</p>}
       </div>
       <div className="flex gap-2 justify-end pt-1">
         <Button size="sm" variant="ghost" type="button" onClick={onCancel}>

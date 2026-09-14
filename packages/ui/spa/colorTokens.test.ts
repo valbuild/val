@@ -19,6 +19,14 @@ import path from "path";
  * plausible-looking name can be invented for. Tailwind's built-in palette
  * (`text-white`, `bg-black/50`) is deliberately not checked — it is not ours to
  * hold a list of.
+ *
+ * There is no allowlist, deliberately. `fg-quaternary` was the name that
+ * prompted this, and the test found three more the same day — `fg-error` and
+ * `fg-warning` (error and warning ink on an ordinary surface, now
+ * `fg-error-on-surface` and `fg-warning-primary`, both held to AA by
+ * `contrast.test.ts`) and `bg-warning` (a banner's fill, now
+ * `bg-warning-primary`). A list of known-bad names is a list nobody reads and
+ * everybody appends to; every one of them was fixed instead.
  */
 
 const CONFIG = fs.readFileSync(
@@ -77,32 +85,9 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
 const TOKEN_CLASS =
   /(?:^|[\s"'`{([])(?:[a-z-]+:)*(?:text|bg|border|fill|stroke|ring|divide|outline|decoration|shadow|accent|caret|from|via|to)-((?:fg|bg|border)-[a-z0-9-]+)/g;
 
-/**
- * Tokens that are already invented, and that this test found rather than
- * caused. Each renders as the inherited colour today, so fixing one CHANGES
- * how an error, a warning or a button looks — a design call, not a typo, which
- * is why they are listed rather than swept:
- *
- * - `fg-error` / `fg-warning` — inline error and warning copy. The tokens that
- *   exist for that are `fg-error-on-surface` (documented as exactly this, and
- *   contrast-tested on every surface) and `fg-warning-primary`.
- * - `bg-warning` — a banner's fill, against `bg-warning-secondary`.
- *
- * Shrink this list; never add to it.
- */
-const KNOWN_UNDECLARED = new Set(["fg-error", "fg-warning", "bg-warning"]);
-
 describe("colour tokens", () => {
   const tokens = declaredTokens();
   const files = sourceFiles(__dirname);
-
-  test("every name on the known-undeclared list is still undeclared", () => {
-    // So the list shrinks when someone declares one, instead of going stale and
-    // quietly excusing a token that now exists.
-    for (const token of KNOWN_UNDECLARED) {
-      expect([token, tokens.has(token)]).toEqual([token, false]);
-    }
-  });
 
   test("the config has the tokens this test is about", () => {
     expect(tokens.has("fg-primary")).toBe(true);
@@ -118,7 +103,7 @@ describe("colour tokens", () => {
       const source = fs.readFileSync(file, "utf8");
       for (const match of source.matchAll(TOKEN_CLASS)) {
         const token = match[1];
-        if (!tokens.has(token) && !KNOWN_UNDECLARED.has(token)) {
+        if (!tokens.has(token)) {
           unknown.push(`${path.relative(__dirname, file)}: ${token}`);
         }
       }

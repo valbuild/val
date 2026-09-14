@@ -154,9 +154,10 @@ function ListDiffRow({ line }: { line: ListDiffLine }) {
         "flex min-w-0 items-baseline gap-2 rounded border-l-[3px] py-1 pl-2 pr-1",
         line.kind === "added" &&
           "border-fg-brand-primary bg-bg-brand-primary/5",
-        line.kind === "removed" && "border-fg-error bg-bg-error-secondary/30",
-        line.kind === "moved" && "border-fg-warning bg-bg-secondary/40",
-        line.kind === "changed" && "border-fg-warning",
+        line.kind === "removed" &&
+          "border-fg-error-on-surface bg-bg-error-secondary/30",
+        line.kind === "moved" && "border-fg-warning-primary bg-bg-secondary/40",
+        line.kind === "changed" && "border-fg-warning-primary",
         line.kind === "unchanged" && "border-transparent",
       )}
     >
@@ -169,9 +170,9 @@ function ListDiffRow({ line }: { line: ListDiffLine }) {
         className={cn(
           "w-3 shrink-0 select-none text-center",
           line.kind === "added" && "text-fg-brand-primary",
-          line.kind === "removed" && "text-fg-error",
-          line.kind === "moved" && "text-fg-warning",
-          line.kind === "changed" && "text-fg-warning",
+          line.kind === "removed" && "text-fg-error-on-surface",
+          line.kind === "moved" && "text-fg-warning-primary",
+          line.kind === "changed" && "text-fg-warning-primary",
           line.kind === "unchanged" && "text-fg-secondary-alt",
         )}
       >
@@ -208,7 +209,7 @@ function ListDiffValue({ line }: { line: ListDiffLine }) {
   if (line.kind === "changed") {
     return (
       <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <span className="text-fg-tertiary line-through decoration-fg-error/60">
+        <span className="text-fg-tertiary line-through decoration-fg-error-on-surface/60">
           <Value value={line.before} />
         </span>
         <span aria-hidden className="text-fg-secondary-alt">
@@ -254,7 +255,7 @@ function ListDiffTag({ line }: { line: ListDiffLine }) {
   if (line.kind === "moved") {
     const up = line.index < line.beforeIndex;
     return (
-      <span className="ml-auto flex shrink-0 items-center gap-1 whitespace-nowrap font-sans text-xs text-fg-warning">
+      <span className="ml-auto flex shrink-0 items-center gap-1 whitespace-nowrap font-sans text-xs text-fg-warning-primary">
         {up ? (
           <ArrowUp size={11} aria-hidden />
         ) : (
@@ -277,8 +278,8 @@ function ListDiffTag({ line }: { line: ListDiffLine }) {
       className={cn(
         "ml-auto shrink-0 whitespace-nowrap font-sans text-xs",
         line.kind === "added" && "text-fg-brand-primary",
-        line.kind === "removed" && "text-fg-error",
-        line.kind === "changed" && "text-fg-warning",
+        line.kind === "removed" && "text-fg-error-on-surface",
+        line.kind === "changed" && "text-fg-warning-primary",
       )}
     >
       {label}
