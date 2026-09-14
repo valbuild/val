@@ -314,12 +314,16 @@ export class PatchSets {
         } else if (
           schemaTypesAtPath.size === 1 &&
           (schemaTypesAtPath.has("record") ||
-            // An OBJECT is keyed too, and `add`/`remove` on an object key is
-            // create-or-set (`addToNode` in `@valbuild/core/patch`) — there are
-            // no indices to shift, so the op affects exactly the key it names
-            // and nothing else. The studio emits `add` rather than `replace`
-            // here on purpose, so that the write survives the key having gone
-            // away in the meantime: see `ImageField`'s alt write and
+            // An OBJECT is keyed too: its keys are named rather than
+            // positional, so neither `add` (create-or-set, `addToNode` in
+            // `@valbuild/core/patch`) nor `remove` (delete the property)
+            // disturbs any sibling. Either way the op affects exactly the key
+            // it names and nothing else, which is the property this branch
+            // needs — unlike an array, where both shift every later index.
+            //
+            // The studio emits `add` rather than `replace` here on purpose, so
+            // that the write survives the key having gone away in the meantime:
+            // see `ImageField`'s alt write and
             // `ModuleGallery.handleAltTextChange`, which both say so.
             //
             // That last one is why this branch exists. `s.imageset()`
@@ -354,7 +358,17 @@ export class PatchSets {
             op.path,
           );
           if (op.op === "move") {
-            const path = op.from;
+            // The SOURCE is classified on its own terms, not the
+            // destination's. A move out of an array item shifts every later
+            // index, so that side has to be the array — exactly as the branch
+            // above does for a move whose destination is an array. Only when
+            // the source parent is keyed too does `op.from` name the whole of
+            // what the move affects.
+            const fromParent = op.from.slice(0, -1);
+            const fromParentTypes = schemaTypesOfPath(schema, fromParent);
+            const isPositionalSource =
+              fromParentTypes.size === 1 && fromParentTypes.has("array");
+            const path = isPositionalSource ? fromParent : op.from;
             const schemaTypesAtPath = schemaTypesOfPath(schema, path);
             this.insertPath(
               moduleFilePath,
@@ -371,16 +385,19 @@ export class PatchSets {
           schemaTypesAtPath.size === 1 &&
           !(schemaTypesAtPath.has("image") || schemaTypesAtPath.has("file"))
         ) {
-          // What is left here is a parent that cannot hold the key the op
-          // names: a primitive, most often, which means the path no longer fits
-          // the schema. That is a genuinely stale patch rather than a shape
-          // this function has not been taught, so it keeps reporting — the
-          // catch below terminates the module, which is the conservative thing
-          // to do when we no longer know what a change affects.
+          // What is left is a parent this function cannot isolate a key
+          // inside. Two different reasons end up here, and the message covers
+          // both: a PRIMITIVE cannot hold the key at all, which means the path
+          // no longer fits the schema — a genuinely stale patch; and `richtext`
+          // can, but its children are positional, so isolating one would let a
+          // node insert be staged without the edits whose indices it shifted.
+          // Both keep reporting, and the catch below terminates the module,
+          // which is the conservative thing to do when we cannot say what a
+          // change affects.
           throw new Error(
-            `Cannot perform op: '${
+            `Cannot isolate a patch set for op: '${
               op.op
-            }' on a schema that cannot hold the key it names. Type: ${
+            }' — no addressable key inside schema type: ${
               schemaTypesAtPath.values().next().value
             }`,
           );

@@ -1343,6 +1343,45 @@ describe("PatchSet", () => {
   });
 
   /**
+   * A `move` names two places, and the two are classified separately.
+   *
+   * The destination here is an object key, so it is isolated — but the source
+   * is an array item, and removing one shifts every later index, so that side
+   * has to be the whole array. Taking `op.from` at face value because the
+   * DESTINATION happened to be keyed would let a sibling of the moved item be
+   * staged on its own, against indices the move has already changed.
+   */
+  test("move: an array source is grouped as the array, not the item", async () => {
+    const patchSet = testPatchSet(
+      "/content/page.val.ts" as ModuleFilePath,
+      s.object({
+        items: s.array(s.string()),
+        featured: s.object({ value: s.string() }),
+      }),
+      [
+        {
+          patchId: "123" as PatchId,
+          patch: [
+            {
+              op: "move",
+              from: ["items", "0"],
+              path: ["featured", "value"],
+            },
+          ],
+          createdAt: "2021-01-01T00:00:00Z",
+          author: "author1",
+        },
+      ],
+    );
+    const serialized = patchSet.serialize();
+    // Newest first: the source was inserted after the destination.
+    expect(serialized.map((set) => set.patchPath)).toEqual([
+      ["items"],
+      ["featured", "value"],
+    ]);
+  });
+
+  /**
    * A path that no longer fits the schema still terminates the module.
    *
    * This is the case the throw was always for — a patch written against a
