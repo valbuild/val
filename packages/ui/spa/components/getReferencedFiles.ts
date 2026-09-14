@@ -51,7 +51,9 @@ export function getReferencedFiles(
       schema.type === "file" ||
       schema.type === "richtext" ||
       schema.type === "route" ||
-      schema.type === "locale"
+      schema.type === "locale" ||
+      // A ref holds no source, so it references no file of its own.
+      schema.type === "ref"
     ) {
       // ignore these
     } else {

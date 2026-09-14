@@ -226,6 +226,12 @@ export function traverseSchemaSource(
     return;
   }
 
+  if (schema.type === "ref") {
+    // Nothing of the referenced module is stored here, so there is nothing to
+    // index: the module is indexed under its own path.
+    return;
+  }
+
   // Exhaustive check
   const exhaustiveCheck: never = schema;
   throw new Error(

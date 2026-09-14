@@ -2330,6 +2330,11 @@ type EnsureAllTypes<T extends Record<SerializedSchema["type"], unknown>> = T;
  * The general idea is to avoid re-rendering the entire source tree when a single value changes.
  */
 export type ShallowSource = EnsureAllTypes<{
+  /**
+   * A ref field stores nothing: the module it shows answers for its own source.
+   * `RefField` therefore never reads source at this path.
+   */
+  ref: undefined;
   array: SourcePath[];
   object: Record<string, SourcePath>;
   /**
@@ -3201,6 +3206,13 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     return {
       status: "success",
       data: data as ShallowSource[SchemaType],
+    };
+  } else if (type === "ref") {
+    // Nothing is stored at a ref path, and "not-found" would render as an
+    // error. `undefined` is the honest answer, and no field reads it.
+    return {
+      status: "success",
+      data: undefined as ShallowSource[SchemaType],
     };
   } else {
     const exhaustiveCheck: never = type;

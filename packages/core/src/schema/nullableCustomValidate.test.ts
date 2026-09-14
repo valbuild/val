@@ -23,7 +23,7 @@ const MESSAGE = "the validator ran";
  * `validate` at all; the test below pins that, so it fails if it gains one.
  */
 const nullableAfterValidate: Record<
-  Exclude<keyof typeof s, "settings">,
+  Exclude<keyof typeof s, "settings" | "ref">,
   Schema<SelectorSource>
 > = {
   string: s
