@@ -96,6 +96,10 @@ export function MobileBottomBar({
           onClick={onOpenAI}
           aria-label="AI assistant"
           aria-pressed={isAIOpen}
+          // The assistant step points here on a phone, where the top bar's
+          // button is not drawn. Only one of the two is ever on screen, so the
+          // tour's lookup cannot find the wrong one.
+          data-val-tour="ai"
           className={cn(
             "grid h-9 w-9 shrink-0 place-items-center rounded-md border border-border-float",
             // The open state is shown the same way the top bar's icon buttons

@@ -11,10 +11,10 @@ in three places — the rail tooltip, the panel header, the empty state — with
 ever defining any.
 
 **A guided tour**, offered by a glowing "Take a tour" button on the empty editor
-at `/val/~` and kept permanently in **Quick actions**: welcome, then Pages,
-Media and Data where the project has them, then Review, Preview and Publish. It
-never opens itself, and the glow stops for good once somebody has been through
-it on that browser.
+at `/val/~` and kept permanently in **Quick actions**: welcome, then Pages, Media
+and Data where the project has them, then the assistant where there is one, then
+Review, Preview and Publish. It never opens itself, and the glow stops for good
+once somebody has been through it on that browser.
 
 Turn it off for the whole project under **Settings → Studio** — a new
 `studio.tour` field on `s.settings()`, unset meaning the tour is offered. A team

@@ -174,6 +174,22 @@ describe("placeCard", () => {
     expect(at.left).toBeGreaterThanOrEqual(panel.left + panel.width);
   });
 
+  /**
+   * The assistant step is the one that opens a panel on the RIGHT, and its
+   * target is in the top right corner — so the card has to be able to step the
+   * other way round too.
+   */
+  test("steps the other way for a panel on the right", () => {
+    const right = { top: 64, left: 940, width: 340, height: 600 };
+    const at = placeCard(
+      { top: 40, left: 1196, width: 32, height: 32 },
+      shell,
+      card,
+      right,
+    );
+    expect(at.left + card.width).toBeLessThanOrEqual(right.left);
+  });
+
   test("stays where it was when it was never in the way", () => {
     const target = { top: 100, left: 600, width: 80, height: 32 };
     expect(placeCard(target, shell, card, panel)).toEqual(

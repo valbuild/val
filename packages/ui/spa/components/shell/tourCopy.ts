@@ -5,14 +5,25 @@
  * one points at and what it opens are in `tourSteps.ts`; nothing here decides
  * anything, so rewriting any of it is safe and needs no other change.
  *
- * Two things to keep in mind while editing:
+ * Four things to keep in mind while editing:
  *
  * 1. **Never say "this button here".** A step degrades to a plain card in the
  *    middle of the screen wherever the control it points at is not drawn — the
  *    left rail below 1200px, and half the top bar on a phone. The words have to
  *    stand on their own.
- * 2. **The body is a short paragraph**, three or four lines in a 296px card.
- *    Past about 60 words the card grows taller than the thing it is explaining.
+ * 2. **Never define a word with itself.** The title here used to be "Pages are
+ *    the pages of your site", which tells the one person who needs the step
+ *    precisely nothing. If a title can be read as a tautology, the definition
+ *    has not been written yet.
+ * 3. **Titles are short, and their shape says what kind of thing this is.** A
+ *    destination is a noun with a gloss — "Pages — every URL on your site" —
+ *    which is the same shape as its tooltip in the rail, so the two reinforce
+ *    each other. Something you DO is a verb: "Review before you send". Keep
+ *    them under about 40 characters, or they wrap to two lines in a 296px card.
+ * 4. **The body is a short paragraph**, two sentences and rarely three. Past
+ *    about 45 words the card grows taller than the thing it is explaining, and
+ *    the last clause is usually filler — "so this is the place to start when
+ *    you know which page you want to change" says only "use this to use this".
  */
 
 /** One step's words. */
@@ -30,6 +41,7 @@ export type TourStepId =
   | "pages"
   | "media"
   | "data"
+  | "ai"
   | "review"
   | "preview"
   | "publish"
@@ -39,38 +51,42 @@ export type TourStepId =
 export const TOUR_COPY: Record<TourStepId, TourText> = {
   welcome: {
     title: "Welcome to the Studio",
-    body: "This is where your site's content is edited. Navigation is on the left, the thing you picked opens in the middle, and everything along the top is about getting a change out. About a minute.",
+    body: "Your content is on the left and opens in the middle. Everything you change is a draft that nobody outside can see until you publish it, which is what the buttons along the top are for. About a minute.",
   },
   pages: {
-    title: "Pages are the pages of your site",
-    body: "One row per URL, nested the way your site is. Opening a row shows the content of that page and nothing else, so this is the place to start when you know which page you want to change.",
+    title: "Pages — every URL on your site",
+    body: "The rows mirror how your site is arranged, so a page is where you would expect to find it. Open one and you get that page's content, and nothing else.",
   },
   media: {
-    title: "Media is the shared library of images and files",
-    body: "Every picture and document that has been uploaded, in one place, so the same logo can be used on twenty pages and replaced once. You upload here; you pick an image from here in the field on the page itself.",
+    title: "Media — images and files, in one place",
+    body: "Upload a picture once and use it on as many pages as you like; replace it here and it changes on all of them. On a page you pick from this library rather than uploading again.",
   },
   data: {
-    title: "Data is the content that is not on one page",
-    body: "Menus, footers, opening hours, shared wording — anything used across the site or in no page at all. Your developers decide what lives here, which is why it is a list of files rather than a list of URLs.",
+    title: "Data — content that is not a page",
+    body: "Menus, footers, opening hours, shared wording: things used across the site, or on no page at all. If you cannot find something under Pages, it is probably here.",
+  },
+  ai: {
+    title: "Ask the assistant",
+    body: "It can find content, draft it and change it for you, in plain words. What it writes is a draft like any other, so nothing it does goes live until you publish — it is safe to ask, and easy to undo.",
   },
   review: {
-    title: "Review what you changed",
-    body: "Every edit is a draft until you send it. Review lists them side by side with what is live now, and it is also where an edit you regret is thrown away.",
+    title: "Review before you send",
+    body: "Every change you have made, side by side with what is live now. It is also where you throw away an edit you have changed your mind about.",
   },
   preview: {
-    title: "Preview it on the real page",
-    body: "The site as it will look with your drafts in it — beside the editor as a canvas, or in a tab of its own. Nobody else sees any of this yet.",
+    title: "Preview on the real page",
+    body: "Your drafts on the actual site, beside the editor or in a tab of its own. Still nobody's but yours.",
   },
   publish: {
     title: "Publish sends it live",
-    body: "One press ships everything in Review. It stays switched off while there are validation errors to fix, and it tells you which.",
+    body: "Everything in Review goes out at once. If something does not validate the button says so and stays off until it is fixed.",
   },
   save: {
     title: "Save writes it to your project",
-    body: "Running locally there is no live site to publish to, so this writes your drafts into the project on disk — where the rest of your tooling, and git, can see them.",
+    body: "There is no live site to publish to when you are running locally, so this writes your drafts to disk instead — where git and the rest of your tooling can see them.",
   },
   finish: {
-    title: "That is the whole thing",
-    body: "Quick actions keeps the tour, so you can run it again — or hand it to whoever edits next. Settings turns the offer off for the whole project.",
+    title: "That is everything",
+    body: "Quick actions keeps the tour, so you can run it again or hand it to whoever edits next. Settings turns the offer off for the whole project.",
   },
 };

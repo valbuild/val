@@ -91,7 +91,14 @@ Small, and all of it copy or default state except the tour.
   which holds nothing else. Which steps a project gets and what each points at
   are in `studioTour.ts`; rewriting the prose needs no other change.
 - **The steps are conditional on the project.** Explaining Pages to a project
-  with no router sends somebody looking for an icon that is not in the rail.
+  with no router sends somebody looking for an icon that is not in the rail, and
+  the same goes for the assistant, which is explained only where one is
+  configured.
+- **Titles never define a word with themselves.** "Pages are the pages of your
+  site" was the first draft, and it tells the one person who needs that step
+  precisely nothing. A destination's title is a noun with a gloss — "Pages —
+  every URL on your site" — matching the shape of its tooltip in the rail;
+  something you do gets a verb.
 - **It drives the real navigation.** Each destination step opens the actual
   panel behind the card, because what has to be recognisable tomorrow is the
   panel, not a picture of one.

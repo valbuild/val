@@ -48,24 +48,35 @@ export type TourStep = {
  */
 export type TourMode = "fs" | "http" | "unknown";
 
+/** What the tour has to know about this project to decide its stops. */
+export type TourProject = {
+  /** The destinations the rail offers. See `availableDestinations`. */
+  destinations: readonly ShellDestination[];
+  /** How Val is running, for the one step that is named differently in each. */
+  mode?: TourMode;
+  /** Whether this project has an assistant. See `ShellProps.aiEnabled`. */
+  aiEnabled?: boolean;
+};
+
 /**
  * The tour, for this project.
  *
- * The destination steps are conditional on the project HAVING that destination
- * — the same list the rail is built from — because the fastest way to make
- * someone more confused than they started is to explain a concept their
- * project does not use and then show them an icon that is not there. A project
- * of pure content files gets Data and not Pages; a marketing site gets the
- * other way round.
+ * Almost every stop is conditional on the project HAVING the thing, because the
+ * fastest way to make someone more confused than they started is to explain a
+ * concept their project does not use and then show them an icon that is not
+ * there. A project of pure content files gets Data and not Pages; a project
+ * with no assistant is not told about one.
  *
- * Review, Preview and Publish are unconditional: every project ships changes,
+ * Review, Preview and Publish are the exceptions: every project ships changes,
  * and they are in the order the top bar puts them, which is the order they are
- * done in.
+ * done in. The assistant comes before them because it is part of MAKING a
+ * change, and everything after it is about sending one.
  */
-export function studioTourSteps(
-  destinations: readonly ShellDestination[],
-  mode: TourMode = "http",
-): TourStep[] {
+export function studioTourSteps({
+  destinations,
+  mode = "http",
+  aiEnabled = false,
+}: TourProject): TourStep[] {
   const steps: TourStep[] = [{ id: "welcome", ...TOUR_COPY.welcome }];
   if (destinations.includes("pages")) {
     steps.push({
@@ -90,6 +101,12 @@ export function studioTourSteps(
       target: "data",
       panel: "data",
     });
+  }
+  if (aiEnabled) {
+    // The one step that opens a panel on the RIGHT, which is why the card has
+    // to be able to step either way around what it must not cover — see
+    // `placeCard`.
+    steps.push({ id: "ai", ...TOUR_COPY.ai, target: "ai", panel: "ai" });
   }
   steps.push({ id: "review", ...TOUR_COPY.review, target: "review" });
   steps.push({ id: "preview", ...TOUR_COPY.preview, target: "preview" });

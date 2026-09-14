@@ -2,8 +2,10 @@
 import {
   readTourCompleted,
   studioTourSteps,
+  TourMode,
   writeTourCompleted,
 } from "./tourSteps";
+import { TOUR_COPY } from "./tourCopy";
 import { isTourOffered, readStudioSettings } from "../../hooks/studioSettings";
 
 /**
@@ -14,15 +16,21 @@ import { isTourOffered, readStudioSettings } from "../../hooks/studioSettings";
  * rail, which leaves them more confused than the tour found them.
  */
 describe("studioTourSteps", () => {
-  const ids = (...args: Parameters<typeof studioTourSteps>) =>
-    studioTourSteps(...args).map((step) => step.id);
+  const ids = (project: Parameters<typeof studioTourSteps>[0]) =>
+    studioTourSteps(project).map((step) => step.id);
 
-  test("a project with everything gets every stop, in shipping order", () => {
-    expect(ids(["pages", "media", "data", "settings"])).toEqual([
+  test("a project with everything gets every stop, in the order it is done", () => {
+    expect(
+      ids({
+        destinations: ["pages", "media", "data", "settings"],
+        aiEnabled: true,
+      }),
+    ).toEqual([
       "welcome",
       "pages",
       "media",
       "data",
+      "ai",
       "review",
       "preview",
       "publish",
@@ -31,7 +39,7 @@ describe("studioTourSteps", () => {
   });
 
   test("a project of pure content files is not told about Pages or Media", () => {
-    expect(ids(["data"])).toEqual([
+    expect(ids({ destinations: ["data"] })).toEqual([
       "welcome",
       "data",
       "review",
@@ -42,13 +50,33 @@ describe("studioTourSteps", () => {
   });
 
   test("a marketing site is not told about Data", () => {
-    expect(ids(["pages", "media"])).not.toContain("data");
+    expect(ids({ destinations: ["pages", "media"] })).not.toContain("data");
+  });
+
+  /**
+   * The assistant is explained only where there is one. Every way into it is
+   * hidden for a project that has not configured one — see `ShellProps.aiEnabled`
+   * — so a step about it would point at nothing and describe nothing.
+   */
+  test("a project with no assistant is not told about one", () => {
+    expect(ids({ destinations: ["pages"] })).not.toContain("ai");
+    expect(ids({ destinations: ["pages"], aiEnabled: true })).toContain("ai");
+  });
+
+  /**
+   * It comes before Review: the assistant is part of MAKING a change, and
+   * everything from Review onwards is about sending one.
+   */
+  test("the assistant comes before the shipping steps", () => {
+    const order = ids({ destinations: ["pages"], aiEnabled: true });
+    expect(order.indexOf("ai")).toBeLessThan(order.indexOf("review"));
+    expect(order.indexOf("ai")).toBeGreaterThan(order.indexOf("pages"));
   });
 
   // Review, Preview and Publish are not conditional on anything: every project
   // ships changes, and those three are how.
   test("shipping is explained even to a project with no destinations at all", () => {
-    expect(ids([])).toEqual([
+    expect(ids({ destinations: [] })).toEqual([
       "welcome",
       "review",
       "preview",
@@ -57,41 +85,57 @@ describe("studioTourSteps", () => {
     ]);
   });
 
-  test("every step points at a control, or deliberately at nothing", () => {
-    for (const step of studioTourSteps(["pages", "media", "data"])) {
+  test("every step says something", () => {
+    for (const step of studioTourSteps({
+      destinations: ["pages", "media", "data"],
+      aiEnabled: true,
+    })) {
       expect(step.title).not.toBe("");
       expect(step.body).not.toBe("");
     }
   });
 
   /**
-   * The publish control says "Save" on a local checkout — see `PublishButton`
-   * — so a step that says "Publish sends it live" is pointing at a button with
-   * a different word on it, promising something that does not happen there.
+   * The publish control says "Save" on a local checkout — see `PublishButton` —
+   * so the step has to be the one written for that, or it points at a button
+   * with a different word on it and promises something that does not happen.
+   *
+   * Asserted as "this step carries THAT entry", never by matching the prose.
+   * `tourCopy.ts` exists to be rewritten, and a test that pins its wording
+   * fails on whoever does the rewriting for a reason that has nothing to do
+   * with what they changed.
    */
   test("the publish step follows what the button actually says", () => {
-    const http = studioTourSteps([], "http").find((s) => s.id === "publish");
-    const fs = studioTourSteps([], "fs").find((s) => s.id === "publish");
-    expect(http?.title).toMatch(/Publish/);
-    expect(fs?.title).toMatch(/Save/);
-    // And says where it actually goes, rather than promising a deploy.
-    expect(fs?.body).toMatch(/on disk/);
+    const stepFor = (mode: TourMode) =>
+      studioTourSteps({ destinations: [], mode }).find(
+        (s) => s.id === "publish",
+      );
+    expect(stepFor("http")).toMatchObject(TOUR_COPY.publish);
+    expect(stepFor("fs")).toMatchObject(TOUR_COPY.save);
   });
 
   // Both steps point at the same control, whatever it is called: the tour has
   // one marker to find, and the app decides which button carries it.
   test("both publish steps point at the same control", () => {
-    const http = studioTourSteps([], "http").find((s) => s.id === "publish");
-    const fs = studioTourSteps([], "fs").find((s) => s.id === "publish");
+    const http = studioTourSteps({ destinations: [], mode: "http" }).find(
+      (s) => s.id === "publish",
+    );
+    const fs = studioTourSteps({ destinations: [], mode: "fs" }).find(
+      (s) => s.id === "publish",
+    );
     expect(http?.target).toBe("publish");
     expect(fs?.target).toBe("publish");
   });
 
   test("a destination step opens the panel it is about", () => {
-    const steps = studioTourSteps(["pages", "media", "data"]);
+    const steps = studioTourSteps({
+      destinations: ["pages", "media", "data"],
+      aiEnabled: true,
+    });
     expect(steps.find((s) => s.id === "pages")?.panel).toBe("pages");
     expect(steps.find((s) => s.id === "media")?.panel).toBe("media");
     expect(steps.find((s) => s.id === "data")?.panel).toBe("data");
+    expect(steps.find((s) => s.id === "ai")?.panel).toBe("ai");
   });
 
   /**
@@ -99,7 +143,9 @@ describe("studioTourSteps", () => {
    * actions panel otherwise left that panel over the top of the welcome card.
    */
   test("the welcome step asks for no panel, which closes any open one", () => {
-    expect(studioTourSteps(["pages"])[0].panel).toBeUndefined();
+    expect(
+      studioTourSteps({ destinations: ["pages"] })[0].panel,
+    ).toBeUndefined();
   });
 });
 

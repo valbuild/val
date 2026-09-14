@@ -693,8 +693,8 @@ export function Shell({
     writeTourCompleted(true);
   }, []);
   const tourSteps = useMemo(
-    () => studioTourSteps(destinations, mode ?? "unknown"),
-    [destinations, mode],
+    () => studioTourSteps({ destinations, mode: mode ?? "unknown", aiEnabled }),
+    [destinations, mode, aiEnabled],
   );
   /**
    * Whether to glow.

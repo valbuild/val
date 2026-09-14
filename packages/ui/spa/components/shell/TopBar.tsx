@@ -272,6 +272,7 @@ export function TopBar({
             label="AI assistant"
             active={openPanel === "ai"}
             onClick={() => onTogglePanel("ai")}
+            tourTarget="ai"
           >
             <Sparkles size={16} />
           </IconButton>
