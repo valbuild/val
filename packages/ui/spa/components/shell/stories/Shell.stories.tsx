@@ -393,14 +393,18 @@ function ShellHarness({
       canvasPage={canvasReported ? mockCanvasPage : undefined}
       initialCanvasOpen={canvasOpen}
       initialCanvasView={canvasView}
-      // Both page writes, so the Pages panel shows the New page button and the
-      // per-row Duplicate control. The mock routes carry the URLs already in
-      // `mockPages`, so the "already exists" state is reachable in both forms.
+      // All three page writes, so the Pages panel shows the New page button and
+      // both items of the per-row actions menu. The mock routes carry the URLs
+      // already in `mockPages`, so the "already exists" state is reachable in
+      // every form.
       onNewPage={(moduleFilePath, urlPath) =>
         console.log("New page", moduleFilePath, urlPath)
       }
       onDuplicatePage={(moduleFilePath, fromUrlPath, toUrlPath) =>
         console.log("Duplicate page", moduleFilePath, fromUrlPath, toUrlPath)
+      }
+      onRenamePage={(moduleFilePath, fromUrlPath, toUrlPath) =>
+        console.log("Rename page", moduleFilePath, fromUrlPath, toUrlPath)
       }
     />
   );
