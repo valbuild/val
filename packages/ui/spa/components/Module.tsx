@@ -116,10 +116,22 @@ export function Module({
   // Check if the current schema is a router record
   const isCurrentRouter = schema.type === "record" && Boolean(schema.router);
   const isMediaGallery = schema.type === "record" && Boolean(schema.mediaType);
-  const keyDescription =
-    isKey && parentSchema?.type === "record"
-      ? parentSchema.key?.description
-      : undefined;
+  /*
+   * The parent record's `key.description` is NOT shown here, and that is the
+   * rule rather than an omission.
+   *
+   * A description is INPUT HELP: it belongs where the thing it describes is
+   * being ENTERED. Nothing about this key can be typed from the heading — it
+   * is the name of what you already opened — so a sentence like "The URL of
+   * this blog post. Lower case, no spaces." read as a caption of the title
+   * instead of as guidance, and once the title is a `.preview(...)` name
+   * rather than the key it is a caption of the wrong thing entirely.
+   *
+   * It is not lost: every form that ASKS for a key shows it — the rename form
+   * in `ChangeRecordPopover`, reachable from the tools on this very row, plus
+   * `AddRecordPopover`, `DuplicateRecordPopover`, `NewPageForm` and
+   * `KeySelector`. See the rule at the top of `core/src/preview.ts`.
+   */
 
   /** The record tools, beside the title. */
   const tools = !isMediaGallery && (
@@ -168,16 +180,14 @@ export function Module({
            */}
           <div className="flex gap-4 justify-between items-start min-h-6">
             {/*
-             * The title and its description, in ONE column.
+             * The title, in its own column beside the tools.
              *
-             * The description was a sibling of this whole row, so its top
-             * margin was measured from the row's bottom — and the row is as
-             * tall as the tools on its right, not as tall as the title. That
-             * put a fixed 12px between title and description no matter what
-             * was asked for, the same 12px that then separated it from the
-             * scope: three evenly spaced lines, with nothing saying which one
-             * the description belonged to. Inside the column it sits against
-             * the title, and the tools cannot push it around.
+             * A column rather than a bare cell because whatever goes under the
+             * title has to measure from the TITLE's bottom, not the row's: the
+             * row is as tall as the tools on its right, so a sibling of the row
+             * sat a fixed 12px below no matter what was asked for — the same
+             * 12px that then separated it from the scope, three evenly spaced
+             * lines with nothing saying which one belonged to which.
              */}
             <div className="min-w-0 flex-1">
               {/*
@@ -194,11 +204,6 @@ export function Module({
               >
                 {titleNode}
               </div>
-              {keyDescription && (
-                <div className="mt-1 text-sm text-fg-tertiary">
-                  {keyDescription}
-                </div>
-              )}
             </div>
             {tools}
           </div>
@@ -206,7 +211,7 @@ export function Module({
             <ScopeTrail
               parts={init}
               portalContainer={portalContainer}
-              className={keyDescription ? "mt-3" : "mt-1.5"}
+              className="mt-1.5"
             />
           )}
           {keyErrors.length > 0 && (
