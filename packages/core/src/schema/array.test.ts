@@ -30,11 +30,15 @@ describe("ArraySchema", () => {
       "/test.val.ts": {
         status: "success",
         data: {
-          parent: "array",
-          // `[index, value]`, matching the record shape: a windowed preview (see
-          // PreviewScope) carries only the rows that were asked for, so the
-          // index travels with the item rather than being its position.
-          items: [[0, { title: "Ada", subtitle: undefined, image: undefined }]],
+          rows: {
+            parent: "array",
+            // `[index, value]`, matching the record shape: a windowed preview (see
+            // PreviewScope) carries only the rows that were asked for, so the
+            // index travels with the item rather than being its position.
+            items: [
+              [0, { title: "Ada", subtitle: undefined, image: undefined }],
+            ],
+          },
         },
       },
     };

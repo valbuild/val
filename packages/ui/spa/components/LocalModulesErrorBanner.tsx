@@ -37,7 +37,7 @@ export function LocalModulesErrorBanner() {
   if (process.env.NODE_ENV === "production") return null;
   if (failures.length === 0) return null;
   return (
-    <div className="px-3 py-2 bg-bg-warning text-fg-warning text-sm">
+    <div className="px-3 py-2 bg-bg-warning-primary text-fg-warning-primary text-sm">
       <strong>Val: some modules could not be read.</strong> Their content will
       not appear in the Studio.
       <ul className="mt-1 list-disc list-inside">

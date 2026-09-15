@@ -37,7 +37,11 @@ export function RefPreview({
         // preview) and `null` (an image this value does not have) lay the row
         // out differently. See ListPreviewItem.
         image={preview.image}
-        subtitle={preview.subtitle ?? null}
+        // Passed through for the same reason `image` is: `undefined` (the
+        // preview declares no subtitle) and `null` (it declares one this value
+        // has not filled in) give the row different heights, and coalescing
+        // them here made a list collapse row by row. See ListPreviewItem.
+        subtitle={preview.subtitle}
         className={className}
         size={size}
       />

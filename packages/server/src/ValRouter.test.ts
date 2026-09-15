@@ -233,15 +233,19 @@ describe("ValRouter", () => {
         "/content/authors.val.ts": {
           status: "success",
           data: {
-            parent: "record",
-            items: Object.entries(patchedAuthorsSource).map(([key, author]) => [
-              key,
-              {
-                title: author.name,
-                subtitle: author.birthdate,
-                image: undefined,
-              },
-            ]),
+            rows: {
+              parent: "record",
+              items: Object.entries(patchedAuthorsSource).map(
+                ([key, author]) => [
+                  key,
+                  {
+                    title: author.name,
+                    subtitle: author.birthdate,
+                    image: undefined,
+                  },
+                ],
+              ),
+            },
           },
         },
       });

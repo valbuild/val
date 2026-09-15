@@ -129,6 +129,18 @@ const PAIRS: Pair[] = [
   ),
   // Warning surfaces.
   ["--fg-warning-primary", "--bg-warning-primary", AA_TEXT, "warning banner"],
+  // Warning ink on an ordinary surface — a diff's "moved"/"changed" marker, a
+  // field's warning copy, a media collection's caution icon. There is no
+  // `--fg-warning-on-surface` the way there is for errors, so this token does
+  // both jobs and has to hold on both grounds.
+  ...SURFACES.map(
+    (bg): Pair => [
+      "--fg-warning-primary",
+      bg,
+      AA_TEXT,
+      `warning text on ${bg}`,
+    ],
+  ),
   ["--fg-warning-secondary", "--bg-warning-secondary", AA_TEXT, "warning pill"],
   // Not text. A 1px hairline is exempt from AA, but it still has to be an
   // edge you can see, and a floating panel has to read as separate from the

@@ -1278,7 +1278,7 @@ function CompareView() {
   }
   if (patchSetsResult.status === "error") {
     return (
-      <div className="text-sm text-fg-error py-8 text-center">
+      <div className="text-sm text-fg-error-on-surface py-8 text-center">
         Failed to load changes: {patchSetsResult.error}
       </div>
     );

@@ -342,7 +342,7 @@ function BlockRow({
       {...attributes}
       {...listeners}
       className={cn(
-        "cursor-grab text-fg-quaternary hover:text-fg-primary",
+        "cursor-grab text-fg-secondary-alt hover:text-fg-primary",
         // See `DRAG_HANDLE_TOUCH`.
         DRAG_HANDLE_TOUCH,
         { "opacity-30": readonly },
@@ -392,11 +392,11 @@ function BlockRow({
             <ChevronRight
               size={12}
               className={cn(
-                "shrink-0 text-fg-quaternary transition-transform",
+                "shrink-0 text-fg-secondary-alt transition-transform",
                 { "rotate-90": !collapsed },
               )}
             />
-            <span className="w-4 shrink-0 text-[10px] text-fg-quaternary">
+            <span className="w-4 shrink-0 text-[10px] text-fg-secondary-alt">
               {index + 1}
             </span>
             <RowSummary path={path} />
@@ -556,7 +556,7 @@ function InlineObjectBody({
                 <ChevronRight
                   size={10}
                   className={cn(
-                    "shrink-0 text-fg-quaternary transition-transform",
+                    "shrink-0 text-fg-secondary-alt transition-transform",
                     { "rotate-90": !hidden },
                   )}
                 />
@@ -669,7 +669,7 @@ function RowMenu({
   const portalContainer = useValPortal();
   return (
     <Popover>
-      <PopoverTrigger className="shrink-0 rounded px-0.5 py-1 text-fg-quaternary hover:text-fg-primary hover:bg-bg-secondary-hover">
+      <PopoverTrigger className="shrink-0 rounded px-0.5 py-1 text-fg-secondary-alt hover:text-fg-primary hover:bg-bg-secondary-hover">
         <EllipsisVertical size={14} />
       </PopoverTrigger>
       <PopoverContent

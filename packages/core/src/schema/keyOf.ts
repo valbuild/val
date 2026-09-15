@@ -14,7 +14,7 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 import { RawString } from "./string";
-import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
+import { ItemPreviewInput, PreviewItem } from "../preview";
 import { FieldRender } from "../render";
 import { ObjectSchema } from "./object";
 import { RecordSchema } from "./record";
@@ -79,10 +79,13 @@ export class KeyOfSchema<
   /**
    * Describe this field.
    *
-   * The description is shown next to the field's label in the Val editor, so
-   * it is where you say what an editor needs to know but the field name cannot
-   * carry. It also travels in the serialized schema, which is what the AI
-   * assistant and the MCP tools read.
+   * The description is INPUT HELP: it is shown where this field's value is
+   * entered — beside its input in the Val editor, and for a record's key
+   * schema in every form that asks for a key — so it is where you say what an
+   * editor needs to know to fill it in RIGHT, which the field name cannot
+   * carry. It is not a name for the value: that is `.preview(...)`, and it is
+   * read somewhere else. The description also travels in the serialized
+   * schema, which is what the AI assistant and the MCP tools read.
    *
    * Pass `null` to clear a description set earlier.
    *
@@ -498,10 +501,6 @@ export class KeyOfSchema<
       hidden: this.isHidden,
       description: this.description,
     } satisfies SerializedKeyOfSchema;
-  }
-
-  protected executePreview(): ReifiedPreview {
-    return {};
   }
 }
 

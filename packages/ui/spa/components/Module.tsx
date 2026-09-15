@@ -1,4 +1,4 @@
-import { SourcePath } from "@valbuild/core";
+import { Internal, isPageRouter, SourcePath } from "@valbuild/core";
 import { useSchemaAtPath } from "./ValFieldProvider";
 import { useValidationErrors } from "./ValErrorProvider";
 import { useValPortal } from "./ValPortalProvider";
@@ -12,7 +12,7 @@ import {
   ArrayAndRecordTools,
   splitIntoInitAndLastParts,
 } from "./ArrayAndRecordTools";
-import { isParentArray, isParentRecord, useParent } from "../hooks/useParent";
+import { isParentRecord, useParent } from "../hooks/useParent";
 import { FieldValidationError } from "./FieldValidationError";
 import { cn } from "./designSystem/cn";
 import {
@@ -36,7 +36,9 @@ import {
   PendingPatch,
 } from "./ValProvider";
 import { ModuleGallery } from "./fields/ModuleGallery";
-import { ScopeTrail } from "./ModuleScope";
+import { ScopeTrail, scopePartsBelowPageRouter } from "./ModuleScope";
+import { PathHeading } from "./PathHeading";
+import { useDescription } from "./useDescription";
 
 export function Module({
   path,
@@ -65,6 +67,14 @@ export function Module({
     return byAuthors;
   }, [pendingPatchesRes]);
   const portalContainer = useValPortal();
+  const description = useDescription(path);
+  /*
+   * The MODULE's schema, not this path's — needed to answer "is this a page".
+   */
+  const [ownModuleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const moduleSchemaAtPath = useSchemaAtPath(
+    ownModuleFilePath as unknown as SourcePath,
+  );
   const parent = useParent(path);
   const isParentGallery = useMemo(() => {
     if (
@@ -99,9 +109,22 @@ export function Module({
 
   const schema = schemaAtPath.data;
   const parts = splitIntoInitAndLastParts(path);
-  const init = parts.slice(0, -1);
   const last = parts[parts.length - 1];
-  const showNumber = isParentArray(path, maybeParentPath, parentSchema);
+
+  /* See `scopePartsBelowPageRouter`. */
+  const [, ownModulePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const moduleSchema =
+    "data" in moduleSchemaAtPath ? moduleSchemaAtPath.data : undefined;
+  const isInsidePageRouter =
+    ownModulePath !== "" &&
+    moduleSchema?.type === "record" &&
+    typeof moduleSchema.router === "string" &&
+    isPageRouter(moduleSchema.router);
+  const init = scopePartsBelowPageRouter(
+    parts.slice(0, -1),
+    ownModuleFilePath,
+    isInsidePageRouter,
+  );
   const isKey = isParentRecord(path, maybeParentPath, parentSchema);
   const keyErrors = validationErrors.filter((error) => !!error.keyError);
   const nonKeyErrors = validationErrors.filter((error) => !error.keyError);
@@ -116,10 +139,22 @@ export function Module({
   // Check if the current schema is a router record
   const isCurrentRouter = schema.type === "record" && Boolean(schema.router);
   const isMediaGallery = schema.type === "record" && Boolean(schema.mediaType);
-  const keyDescription =
-    isKey && parentSchema?.type === "record"
-      ? parentSchema.key?.description
-      : undefined;
+  /*
+   * The parent record's `key.description` is NOT shown here, and that is the
+   * rule rather than an omission.
+   *
+   * A description is INPUT HELP: it belongs where the thing it describes is
+   * being ENTERED. Nothing about this key can be typed from the heading — it
+   * is the name of what you already opened — so a sentence like "The URL of
+   * this blog post. Lower case, no spaces." read as a caption of the title
+   * instead of as guidance, and once the title is a `.preview(...)` name
+   * rather than the key it is a caption of the wrong thing entirely.
+   *
+   * It is not lost: every form that ASKS for a key shows it — the rename form
+   * in `ChangeRecordPopover`, reachable from the tools on this very row, plus
+   * `AddRecordPopover`, `DuplicateRecordPopover`, `NewPageForm` and
+   * `KeySelector`. See the rule at the top of `core/src/preview.ts`.
+   */
 
   /** The record tools, beside the title. */
   const tools = !isMediaGallery && (
@@ -135,19 +170,32 @@ export function Module({
     </div>
   );
 
-  /** What this module is called. */
-  const titleNode = showNumber ? (
-    <span className="shrink-0">#{Number(last.text)}</span>
-  ) : isParentRouter ? (
-    <UrlPathBreadcrumb path={last.text} portalContainer={portalContainer} />
-  ) : isCurrentRouter ? (
-    <span className="inline-flex items-center gap-2">
-      <Globe size={20} className="text-fg-tertiary shrink-0" />
-      <span>Pages</span>
-    </span>
-  ) : (
-    <span className="truncate block">{last.text}</span>
-  );
+  /*
+   * What this module is called comes from `describePath` — the same answer the
+   * nav, search and every reference give it, and the reason a developer's
+   * `.preview(...)` can now change it. Only two renderings are richer than the
+   * string it returns, and only those are overridden:
+   *
+   * - A PAGE nobody named: the title has already fallen back to the route, and
+   *   a route reads better segmented, with the full URL on hover. Once a
+   *   preview names the page the breadcrumb would be naming something else, so
+   *   it goes and the route moves to the scope line (see `PageUrlStyle`).
+   * - The PAGE LIST: "Pages" is a place, not a value, and the globe is how the
+   *   nav marks it. The label still comes from the description, so a router
+   *   record with a `.preview(...)` names itself.
+   *
+   * `#3`, a record key and a module's file name are all plain text, and all
+   * three are `describePath` fallbacks now.
+   */
+  const titleNode =
+    isParentRouter && description.origin.title === "fallback" ? (
+      <UrlPathBreadcrumb path={last.text} portalContainer={portalContainer} />
+    ) : isCurrentRouter ? (
+      <span className="inline-flex min-w-0 items-center gap-2">
+        <Globe size={20} className="text-fg-tertiary shrink-0" />
+        <span className="truncate">{description.title}</span>
+      </span>
+    ) : undefined;
 
   return (
     <div className="flex flex-col gap-6 pt-4 pb-40">
@@ -165,56 +213,37 @@ export function Module({
            * the path is provenance and sits under it as links. The other way
            * round — a line of grey crumbs above a smaller title — spent the top
            * of the column on the part that does not change.
+           *
+           * `PathHeading` owns the layout so that every heading is the same
+           * height whatever a developer wrote: see the note on `TITLE_BLOCK`.
            */}
-          <div className="flex gap-4 justify-between items-start min-h-6">
-            {/*
-             * The title and its description, in ONE column.
-             *
-             * The description was a sibling of this whole row, so its top
-             * margin was measured from the row's bottom — and the row is as
-             * tall as the tools on its right, not as tall as the title. That
-             * put a fixed 12px between title and description no matter what
-             * was asked for, the same 12px that then separated it from the
-             * scope: three evenly spaced lines, with nothing saying which one
-             * the description belonged to. Inside the column it sits against
-             * the title, and the tools cannot push it around.
-             */}
-            <div className="min-w-0 flex-1">
-              {/*
-               * A heading, in the role sense: the editor column had none, so
-               * nothing announced what was being edited and nothing could jump
-               * to it. Not an `<h1>` element, because the title of a router
-               * page is a breadcrumb — and a `<nav>` inside a heading element
-               * is not valid HTML.
-               */}
-              <div
-                role="heading"
-                aria-level={1}
-                className="text-2xl leading-tight"
-              >
-                {titleNode}
-              </div>
-              {keyDescription && (
-                <div className="mt-1 text-sm text-fg-tertiary">
-                  {keyDescription}
-                </div>
-              )}
-            </div>
-            {tools}
-          </div>
-          {init.length > 0 && (
-            <ScopeTrail
-              parts={init}
-              portalContainer={portalContainer}
-              className={keyDescription ? "mt-3" : "mt-1.5"}
-            />
-          )}
-          {keyErrors.length > 0 && (
-            <FieldValidationError validationErrors={keyErrors} />
-          )}
-          {schema.description && (
-            <div className="text-sm text-fg-tertiary">{schema.description}</div>
-          )}
+          <PathHeading
+            description={description}
+            title={titleNode}
+            tools={tools}
+            scope={
+              init.length > 0 ? (
+                <ScopeTrail parts={init} portalContainer={portalContainer} />
+              ) : undefined
+            }
+            below={
+              <>
+                {keyErrors.length > 0 && (
+                  <FieldValidationError validationErrors={keyErrors} />
+                )}
+                {/*
+                 * The field's own `.describe()` — INPUT HELP for the editor
+                 * filling in what is rendered below, not a caption of the
+                 * title. See the rule at the top of `core/src/preview.ts`.
+                 */}
+                {schema.description && (
+                  <div className="text-sm text-fg-tertiary">
+                    {schema.description}
+                  </div>
+                )}
+              </>
+            }
+          />
         </div>
       </div>
       <div>

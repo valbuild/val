@@ -42,19 +42,17 @@ export function resolveRefPreview(
   // key/index as written. It must not be run through `JSON.parse` again: a
   // record key that looks like a number (`"0"`) came back as the number `0`
   // and then matched no entry, because a record's keys are strings.
-  if (parentSchema.type === "array" && previewData.parent === "array") {
+  const rows = previewData.rows;
+  if (parentSchema.type === "array" && rows?.parent === "array") {
     const index = Number(lastPart);
     // By index, not by position: a windowed preview carries only the items that
     // were asked for. See ArrayPreview.
-    const item = previewData.items.find(([itemIndex]) => itemIndex === index);
+    const item = rows.items.find(([itemIndex]) => itemIndex === index);
     if (!Number.isNaN(index) && item) {
       return item[1];
     }
-  } else if (
-    parentSchema.type === "record" &&
-    previewData.parent === "record"
-  ) {
-    const item = previewData.items.find(([itemKey]) => itemKey === lastPart);
+  } else if (parentSchema.type === "record" && rows?.parent === "record") {
+    const item = rows.items.find(([itemKey]) => itemKey === lastPart);
     if (item) {
       return item[1];
     }

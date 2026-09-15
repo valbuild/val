@@ -399,7 +399,7 @@ function RoutePatternInputs({
                 "focus:outline-none focus:ring-1 focus:ring-border-focus",
                 isCatchAll ? "min-w-[16ch]" : "min-w-[10ch]",
                 {
-                  "border-fg-error": !!error,
+                  "border-fg-error-on-surface": !!error,
                 },
               )}
               placeholder={part.paramName}
