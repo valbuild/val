@@ -1,3 +1,11 @@
+import { setValEnableCookieReader } from "../valEnableCookieBridge";
+import { hasValEnableCookieOnServer } from "./valDraftMode";
+
+// Fills the slot the root entry holds, so `initVal().isValEnabled()` works
+// without the root entry importing TanStack's server module. See
+// valEnableCookieBridge.ts.
+setValEnableCookieReader(hasValEnableCookieOnServer);
+
 export { initValServer } from "./initValServer";
 export { initValContent } from "./initValContent";
 export {
