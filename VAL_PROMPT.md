@@ -200,14 +200,64 @@ existed there. Public API unchanged.
 - `prettier` is dropped as the patch formatter: its bundle hits a TDZ cycle in
   the isolate (`Cannot access 'y' before initialization`). The formatter is
   optional, but it is what would keep written patches formatted like the repo.
-- `vm` throws by name. A Worker forbids dynamic code generation, so
-  `loadValModules` and `evalValConfigFile` cannot work here at all. An app that
-  imports its own `val.modules` never reaches them — but the CLI and the
-  language server do, and anything that wants to *discover* modules rather than
-  be handed them will hit this wall.
+- `vm` throws by name, and nothing called it. See "`vm` is a packaging problem"
+  below — this is a weaker constraint than it first looked.
 - The isolate is in `mode: "fs"` with an **empty** in-memory filesystem. Reads
   work because `valModules` is passed in as a real import. Anything that
   genuinely touches `.val/patches` has nothing behind it yet.
+
+### `vm` is a packaging problem, not a runtime one
+
+Traced after the spike, because `vm` looked like a hard wall and is not one.
+
+**The request path never evaluates Val modules.** `ValOps` derives everything it
+serves — sources, schemas, `baseSha`/`schemaSha`/`sourcesSha` — by calling
+`extractValModules(this.valModules)` on the value the app handed it
+(`ValOps.ts:282`). `packages/core/src/extractValModules.ts` imports nothing from
+Node: it is pure functions over an in-memory `ValModules`. That is exactly the
+`/stat` response this spike got working.
+
+The two `vm` users are **not** in that path:
+
+| caller | reached from |
+| --- | --- |
+| `createService` → `loadValModules` (`Service.ts:103`) | CLI `runValidation`, CLI `listUnusedFiles`, language-server `ValProject` |
+| `evalValConfigFile` | CLI `validate`, `connect`, `listUnusedFiles`, debug |
+| `loadValModules` directly | CLI debug `context.ts`, `server/src/debug/replaySnapshot.ts` |
+
+`createValServer`, `ValRouter` and `ValOps` reach none of them. `vm` enters the
+bundle only because `packages/server/src/index.ts` is one barrel that exports
+the request path and the tooling together.
+
+This is why the spike worked with `vm` stubbed to throw on any access: nothing
+called it. That was structural, not luck.
+
+**So both of the obvious fixes work, and they are not equivalent:**
+
+1. **Separate the entry.** Move `createService`, `loadValModules` and
+   `evalValConfigFile` behind their own export (`@valbuild/server/tooling`).
+   The request path then cannot reach `vm`, `chokidar` or the TypeScript
+   compiler *by construction*, and any host — not just this one — gets a
+   server bundle that is Val's ~1.2 MB of logic rather than 16 MB.
+2. **Dynamic import inside the barrel, and never call it.** Cheaper, and it is
+   what `isValEnabled` already tried. It does not survive a host that bundles
+   ahead of time and audits chunks: a dynamically imported chunk is still a
+   chunk. It would work *here* only because we shim what it asks for.
+
+(1) is the real fix. (2) is a smaller change that leaves the coupling in place.
+
+**What this does not remove.** The CLI, the language server and `val validate`
+genuinely evaluate `.val.ts`, and should keep doing so — they run on Node. The
+claim is only that the *server request path* has no such need, which the code
+already reflects.
+
+**Caveat, stated plainly:** only the READ path has been exercised. `/stat` and
+the Studio's Pages listing work with `vm` throwing. The write path — `/save`,
+`prepare`, patch application — has not been run yet, and
+`adoptCommittedSources` resolves an entry's committed content through the
+marker's own `import()`, which is a dynamic ESM import whose behaviour in an
+isolate is unknown. That is the next thing to find out, and it is the same step
+as `commitPrepared`.
 
 ### The next step
 
