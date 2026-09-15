@@ -296,5 +296,10 @@ export function useNavMenuData(): Remote<NavMenuData> {
     shallowModules,
     validationErrors,
     schemas,
+    // Demand resolves ASYNCHRONOUSLY: the listeners registered above make the
+    // previews appear some time after the first render, so leaving this out
+    // left the sitemap on its pre-preview answer until an unrelated
+    // dependency happened to change.
+    previews,
   ]);
 }

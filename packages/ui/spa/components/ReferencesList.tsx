@@ -263,7 +263,14 @@ function ReferenceRowView({
   const named = name !== undefined && name !== "";
   return (
     <CommandItem
-      value={`${item.preview?.title ?? ""} ${item.fallbackLabel}`}
+      /*
+       * What the row SHOWS, so typing it finds this row. `buildBaseItem` never
+       * fills `item.preview` in for a connected row — the name comes from
+       * `description` — so filtering on the preview alone meant the visible
+       * title matched nothing. The fallback label stays beside it: a reference
+       * is also looked for by its path.
+       */
+      value={`${named ? name : ""} ${item.fallbackLabel}`}
       onSelect={onSelect}
       // The canvas's field row, in a menu: a bordered card, and the one you are
       // already on marked by its border rather than by a tick in a gutter every

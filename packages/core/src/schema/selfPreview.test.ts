@@ -132,6 +132,43 @@ describe("self preview", () => {
     expect(calls).toBe(1);
   });
 
+  /**
+   * The same rule when the row is ITSELF a container.
+   *
+   * A container both PASSES `selfIsReifiedByParent` to its items and can
+   * RECEIVE it as one, and array and record — the two that pass it — were the
+   * two that ignored it on the way in. So a list of lists, or a list of
+   * records, ran the inner closure twice per row: once as the outer
+   * container's row, and again as the inner container naming itself. The
+   * leaked `self` also sat at a path its parent already answers for, which is
+   * the shape `asSeenFromBelow` exists to keep out of the store.
+   */
+  test("a nested array is reified once, by its container", () => {
+    let calls = 0;
+    const schema = s.array(
+      s.array(s.string()).preview(({ val }) => {
+        calls++;
+        return { title: `${val.length} items` };
+      }),
+    );
+    const res = schema["executePreview"](module, [["a", "b"], ["c"]]);
+    expect(calls).toBe(2);
+    expect(res[at("0")]).toBeUndefined();
+  });
+
+  test("a nested record is reified once, by its container", () => {
+    let calls = 0;
+    const schema = s.array(
+      s.record(s.string()).preview(({ val }) => {
+        calls++;
+        return { title: `${Object.keys(val).length} entries` };
+      }),
+    );
+    const res = schema["executePreview"](module, [{ ada: "Ada" }]);
+    expect(calls).toBe(1);
+    expect(res[at("0")]).toBeUndefined();
+  });
+
   test("a discriminated union previews itself through the matched variant", () => {
     const schema = s.object({
       block: s.discriminatedUnion(

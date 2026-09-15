@@ -280,6 +280,7 @@ export class ArraySchema<
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
     scope?: PreviewScope,
+    selfIsReifiedByParent?: boolean,
   ): ReifiedPreview {
     const res: ReifiedPreview = {};
     if (src === null) {
@@ -356,7 +357,14 @@ export class ArraySchema<
     // different schema: `s.array(section.preview(...)).preview(...)` previews
     // its rows AND names itself for when it is nested in something. Merged
     // rather than assigned, or one of the two would win. See `PreviewNode`.
-    mergePreviewInto(res, this.executeSelfPreview(sourcePath, src, scope));
+    //
+    // Unless this list is itself a ROW of an outer array or record, which has
+    // already run this very closure to reify it — a container both PASSES the
+    // flag to its items and RECEIVES it as one, and honouring only the first
+    // half ran `s.array(s.array(x).preview(...))`'s closure twice per row.
+    if (!selfIsReifiedByParent) {
+      mergePreviewInto(res, this.executeSelfPreview(sourcePath, src, scope));
+    }
     return res;
   }
 

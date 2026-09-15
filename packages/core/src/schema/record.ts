@@ -1193,6 +1193,7 @@ export class RecordSchema<
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
     scope?: PreviewScope,
+    selfIsReifiedByParent?: boolean,
   ): ReifiedPreview {
     const res: ReifiedPreview = {};
     if (src === null) {
@@ -1273,8 +1274,12 @@ export class RecordSchema<
       mergePreviewInto(res, rows);
     }
     // ...and what the RECORD ITSELF is called — a different closure on a
-    // different schema. See the same block in `array`, and `PreviewNode`.
-    mergePreviewInto(res, this.executeSelfPreview(sourcePath, src, scope));
+    // different schema. Skipped when this record is itself a ROW, whose
+    // closure the outer container has already run. See the same block in
+    // `array`, and `PreviewNode`.
+    if (!selfIsReifiedByParent) {
+      mergePreviewInto(res, this.executeSelfPreview(sourcePath, src, scope));
+    }
     return res;
   }
 

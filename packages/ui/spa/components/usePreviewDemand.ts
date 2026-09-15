@@ -38,20 +38,25 @@ export function usePreviewDemand(moduleFilePaths: readonly ModuleFilePath[]) {
    * every render — which is a preview per render on a store whose entire design
    * is about not doing that.
    */
-  const key = moduleFilePaths.join(" ");
+  const key = JSON.stringify(moduleFilePaths);
   useEffect(() => {
-    if (val === null || key === "") {
+    if (val === null) {
       return;
     }
-    const offs = key
-      .split(" ")
-      .map((moduleFilePath) =>
-        val.system.sourceStore.addListener(
-          moduleFilePath as unknown as SourcePath,
-          ownId,
-          () => {},
-        ),
-      );
+    /*
+     * JSON rather than a joined string: a module file path may contain the
+     * separator — `/content/my posts.val.ts` split on a space into two paths
+     * that do not exist, so the module it named got no previews at all while
+     * two listeners sat on nothing.
+     */
+    const paths: string[] = JSON.parse(key);
+    const offs = paths.map((moduleFilePath) =>
+      val.system.sourceStore.addListener(
+        moduleFilePath as unknown as SourcePath,
+        ownId,
+        () => {},
+      ),
+    );
     return () => {
       for (const off of offs) {
         off();
