@@ -96,6 +96,10 @@ export function MobileBottomBar({
           onClick={onOpenAI}
           aria-label="AI assistant"
           aria-pressed={isAIOpen}
+          // The assistant step points here on a phone, where the top bar's
+          // button is not drawn. Only one of the two is ever on screen, so the
+          // tour's lookup cannot find the wrong one.
+          data-val-tour="ai"
           className={cn(
             "grid h-9 w-9 shrink-0 place-items-center rounded-md border border-border-float",
             // The open state is shown the same way the top bar's icon buttons
@@ -139,17 +143,37 @@ export function MobileBottomBar({
        * they give up width in step, and each clips its own label (the Preview
        * split button is already `overflow-hidden`; Publish truncates).
        */}
-      <PreviewButton
-        onPreview={onPreview}
-        previewHref={previewHref}
-        onToggleCanvas={onToggleCanvas}
-        isCanvasOpen={isCanvasOpen}
-        canvasActionLabel={canvasActionLabel}
-        onExitCanvas={onExitCanvas}
-        menuPlacement="above"
-        alwaysShowLabel
-        className="h-9 min-w-0 flex-1"
-      />
+      {/*
+       * Wrapped so the tour has something to point at on a phone, where the top
+       * bar's copies of these are not drawn — the same markers `TopBar` puts on
+       * its own. Only one bar is ever rendered, so the lookup cannot find both.
+       * `flex-1 min-w-0` moves to the wrapper, or the control inside it stops
+       * being able to give up width.
+       */}
+      <span data-val-tour="preview" className="flex min-w-0 flex-1">
+        <PreviewButton
+          onPreview={onPreview}
+          previewHref={previewHref}
+          onToggleCanvas={onToggleCanvas}
+          isCanvasOpen={isCanvasOpen}
+          canvasActionLabel={canvasActionLabel}
+          onExitCanvas={onExitCanvas}
+          menuPlacement="above"
+          alwaysShowLabel
+          className="h-9 min-w-0 flex-1"
+        />
+      </span>
+      {/*
+       * NOT wrapped for the tour, unlike Preview above.
+       *
+       * The publish control here is the app's own (`publishSlot`), and its
+       * button carries `min-w-[6.5rem]` that a wrapper cannot talk it out of.
+       * Putting it one level down inside a shrinkable span changes what this
+       * row's flex algorithm sees at 320px, where the comment above records
+       * that the fit was already fought for once. The publish STEP simply
+       * centres its card on a phone, which is what every step does where the
+       * control it points at is not drawn — see `TourStep.target`.
+       */}
       {publishSlot ?? (
         <PublishButton
           pendingChanges={pendingChanges}

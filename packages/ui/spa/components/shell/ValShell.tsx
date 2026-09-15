@@ -96,6 +96,8 @@ import { AIChatSurface } from "../AIChatSurface";
 import { useAIChatActions, useInsertFieldRef } from "../AIChatActionsContext";
 import { useValSystem } from "../../stores/react/SystemContext";
 import { useProjectLocales } from "../../hooks/useProjectLocales";
+import { useStudioSettings } from "../../hooks/useStudioSettings";
+import { isTourOffered } from "../../hooks/studioSettings";
 import { LocaleFilterProvider } from "../LocaleFilterProvider";
 
 /**
@@ -176,6 +178,11 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * panel, which is where `aiConnectionError` and its retry are shown.
    */
   const { isAIChatEnabled, setOpenAIChatImpl } = useAIChatActions();
+  /**
+   * Whether this project offers the guided tour — `studio.tour` in
+   * `s.settings()`. Unset means yes; see `isTourOffered`.
+   */
+  const studioSettings = useStudioSettings();
   const insertFieldRef = useInsertFieldRef();
   const navigation = useNavigation();
   const { history } = useHistoryParams();
@@ -1068,6 +1075,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         onSelectionChange={onSelectionChange}
         renderEditor={renderEditor}
         renderSettings={renderSettings}
+        tourEnabled={isTourOffered(studioSettings)}
         editorOverride={overrideEditor}
         publishSlot={<PublishButton />}
         publishState={publishState}

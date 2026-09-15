@@ -15,7 +15,11 @@ import {
  * Not a test — nothing here asserts anything about correctness — but it lives
  * with the tests because it needs exactly what they need: the app running, the
  * studio taken in, and a way to reach a state worth looking at. Run it with
- * `npx playwright test screens` and look in `screens/`.
+ * `pnpm exec playwright test --project=screens` and look in `screens/`.
+ *
+ * `--project=screens` and not a positional `screens`: that argument is a file
+ * filter, and this project is only DECLARED when it is named — see
+ * `playwright.config.ts` — so the positional form silently runs nothing.
  *
  * Kept because a redesign is judged by looking at it, and "open the studio,
  * pick a page, turn on preview mode, switch to the fields view" is a lot of
@@ -125,12 +129,77 @@ test("the shell", async ({ page }) => {
   await studio.getByRole("button", { name: "Settings" }).first().click();
   await page.waitForTimeout(1200);
   await shot(page, "08-settings");
+  // The Studio tab: how the Studio looks and behaves for this project, as two
+  // sections — Appearance, and the tour. The tour setting is the project's word
+  // rather than each person's, which is why it is here, in content that gets
+  // published, and not in the account panel.
+  await studio.getByRole("tab", { name: "Studio" }).click();
+  await page.waitForTimeout(900);
+  await shot(page, "08a-settings-studio");
+  // The tour section is below the fold of the Appearance one.
+  await studio.getByText("Offer the tour").scrollIntoViewIfNeeded();
+  await page.waitForTimeout(600);
+  await shot(page, "08b-settings-studio-tour");
   await page.keyboard.press("Escape");
 
   // The account, below it: the theme, auto save, the branch, signing out.
   await studio.getByRole("button", { name: "Account" }).first().click();
   await page.waitForTimeout(1200);
-  await shot(page, "08b-account");
+  await shot(page, "08c-account");
+});
+
+/**
+ * The first run: what somebody sees who has never opened this before.
+ *
+ * A fresh browser context, so `localStorage` has never been through the tour —
+ * which is what makes the launcher glow and the empty editor offer it.
+ */
+test("first run and the tour", async ({ page }) => {
+  await openStudio(page);
+  const studio = page.locator("#val-shadow-root");
+  await page.waitForTimeout(2500);
+
+  // A rail tooltip, which is where the shortest definition of a destination is.
+  await studio.getByRole("button", { name: "Data" }).first().hover();
+  await page.waitForTimeout(900);
+  await shot(page, "24-rail-tooltip");
+  await page.mouse.move(600, 400);
+  await page.waitForTimeout(400);
+
+  await studio
+    .getByRole("button", { name: "Take a tour of the Studio" })
+    .click();
+  await page.waitForTimeout(900);
+
+  /**
+   * Every step, photographed, however many this project has.
+   *
+   * Counted off the card rather than hard coded: the destination steps are
+   * conditional on the project, so a fixed number here would be a number that
+   * is wrong for the next project somebody points this at.
+   */
+  // By its stable hook rather than its accessible name: the card is named after
+  // the STEP now, so a screen reader announces what this stop is about.
+  const card = studio.locator("[data-val-tour-card]");
+  const counter = await card.getByText(/^\d+ \/ \d+$/).textContent();
+  const total = Number((counter ?? "1 / 1").split("/")[1].trim());
+  for (let step = 1; step <= total; step++) {
+    await shot(page, `25-tour-${String(step).padStart(2, "0")}`);
+    if (step < total) {
+      await card.getByRole("button", { name: "Next" }).click();
+      // The step opens a panel and the spotlight moves to it; both animate.
+      await page.waitForTimeout(1200);
+    }
+  }
+  await card.getByRole("button", { name: "Done" }).click();
+  await page.waitForTimeout(1200);
+
+  // And afterwards: the glow is gone for good, and the tour is in the panel
+  // its own last step points at.
+  await shot(page, "26-after-the-tour");
+  await studio.getByRole("button", { name: "Quick actions" }).click();
+  await page.waitForTimeout(1200);
+  await shot(page, "27-tour-in-quick-actions");
 });
 
 test("the canvas", async ({ page }) => {

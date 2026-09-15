@@ -283,20 +283,35 @@ export async function openNavPanel(
 /**
  * Expand a row in the Pages panel, by name.
  *
- * Nothing is expanded on mount — a real site map has sections with hundreds of
- * rows — so reaching a nested page means opening the rows above it. A row that
- * is also a page selects itself as well, which is what clicking it does in the
- * app too.
+ * Reaching a nested page means opening the rows above it — and a SMALL site map
+ * arrives already expanded (see `SMALL_SITE` in `PagesPanel`), so a click here
+ * is as likely to close a row as to open one. This leaves the row open and
+ * selected whichever state it started in. A leaf page has no `aria-expanded` at
+ * all and is clicked once, because on a leaf the click IS the selection.
  */
 export async function expandRow(studio: Locator, name: string): Promise<void> {
-  await studio.getByRole("button", { name, exact: true }).first().click();
+  const row = studio.getByRole("button", { name, exact: true }).first();
+  await row.click();
+  // A row that was ALREADY open has just been closed by that click, so click
+  // again: it ends open either way.
+  //
+  // Not an early return when it is already open, which was the first attempt
+  // and quietly dropped half of what this does. Clicking a page row SELECTS it
+  // as well as toggling it, and the selection is what most callers are here
+  // for — `openSiteMap` is how the home page gets opened in the editor. Skipping
+  // the click kept the row open and left the previous page selected, which is a
+  // failure two assertions later, in a test about something else.
+  if ((await row.getAttribute("aria-expanded")) === "false") {
+    await row.click();
+  }
 }
 
 /**
  * Open the Pages panel and expand the site map down to the top level.
  *
  * The root of the site map is the home page on this project, so every other
- * page is nested under it: without opening `/` there is nothing else to click.
+ * page is nested under it: without `/` open there is nothing else to click.
+ * `expandRow` leaves it alone when the panel has already opened it.
  */
 export async function openSiteMap(page: Page): Promise<Locator> {
   const studio = await openNavPanel(page, "Pages");

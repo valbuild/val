@@ -581,6 +581,33 @@ cleanup cancels, which is the only pass that writes to the editor that survives.
 resolving `dist/`. Also delete `examples/next/.next` — a production build left
 there makes the dev server 500 with `MODULE_NOT_FOUND` on Studio routes.
 
+## Two file names differing only in case break macOS and Windows, silently
+
+`StudioTour.tsx` and `studioTour.ts` in one directory are two files on Linux and
+ONE on a case-insensitive filesystem, which is what the Studio is developed on.
+`import { TourLauncher } from "./StudioTour"` resolved to the wrong module
+there, and the Studio did not come up:
+
+```
+Uncaught SyntaxError: The requested module
+'/api/val/static/spa/components/shell/StudioTour.ts'
+does not provide an export named 'TourLauncher'
+```
+
+Note the `.ts` in a path nobody wrote — that is the tell.
+
+Nothing caught it before a developer hit it: CI is Linux, the Playwright suites
+run on Linux, and every unit test passed. The collision is invisible on the
+platform everything is verified on and fatal on the platform everything is
+written on, which is exactly the asymmetry a convention cannot fix.
+`packages/ui/spa/components/caseCollisions.test.ts` is the guard, and it
+compares module STEMS — whole names miss it, because `StudioTour.tsx` and
+`studioTour.ts` do differ, in the extension.
+
+A directory and a same-cased module beside it (`Search/` and `Search.tsx`, which
+the SPA has) is a different thing and is fine: the resolver decides that one, the
+same way everywhere.
+
 ## The Studio is not always a secure context
 
 `crypto.randomUUID` and `navigator.clipboard` exist on `https://` and on
