@@ -297,7 +297,10 @@ export class PatchSets {
             Array.from(schemaTypesAtPath),
             op.path,
           );
-          if (op.op === "move") {
+          if (op.op === "move" || op.op === "copy") {
+            // `copy` as well as `move`: it does not write the source, but it
+            // READS it, so the value it produces depends on every pending edit
+            // to that source and on the indices around it.
             const path = op.from.slice(0, -1);
             const schemaTypesAtPath = schemaTypesOfPath(schema, path);
             this.insertPath(
@@ -357,17 +360,29 @@ export class PatchSets {
             Array.from(schemaTypesAtPath),
             op.path,
           );
-          if (op.op === "move") {
+          if (op.op === "move" || op.op === "copy") {
             // The SOURCE is classified on its own terms, not the
             // destination's. A move out of an array item shifts every later
             // index, so that side has to be the array — exactly as the branch
             // above does for a move whose destination is an array. Only when
             // the source parent is keyed too does `op.from` name the whole of
-            // what the move affects.
+            // what the op affects.
+            //
+            // `copy` reaches here as well as `move`. It does not write the
+            // source, but the value it produces is read from it, so it depends
+            // on every pending edit to that source just as a move does — and
+            // `editWouldRestage` in `patchGroups` says so, checking `from` for
+            // both. Duplicating a record entry (`useDuplicateRecordEntry`) is
+            // the copy that actually ships, and its source went ungrouped.
             const fromParent = op.from.slice(0, -1);
             const fromParentTypes = schemaTypesOfPath(schema, fromParent);
-            const isPositionalSource =
-              fromParentTypes.size === 1 && fromParentTypes.has("array");
+            // ANY possible array parent widens, rather than only an
+            // unambiguous one: a discriminated union resolves to every
+            // variant's type at once, so a source inside one can be an array
+            // here and an object there. Requiring a single type grouped it at
+            // the item, which is wrong the moment the array variant is the
+            // live one — and the whole array is the safe direction.
+            const isPositionalSource = fromParentTypes.has("array");
             const path = isPositionalSource ? fromParent : op.from;
             const schemaTypesAtPath = schemaTypesOfPath(schema, path);
             this.insertPath(

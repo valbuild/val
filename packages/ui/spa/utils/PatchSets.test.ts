@@ -1382,6 +1382,91 @@ describe("PatchSet", () => {
   });
 
   /**
+   * A `copy` depends on its source just as a `move` does.
+   *
+   * It does not write the source, but it READS it, so the value it produces
+   * carries every pending edit to that source. Duplicating a record entry
+   * (`useDuplicateRecordEntry`) is the copy that actually ships; with the
+   * source ungrouped, staging the duplicate alone published a copy of a value
+   * whose pending edit was left behind. `editWouldRestage` in `patchGroups`
+   * already checks `from` for both ops.
+   */
+  test("copy: the source is grouped with the destination", async () => {
+    const patchSet = testPatchSet(
+      "/content/pages.val.ts" as ModuleFilePath,
+      s.record(s.object({ title: s.string() })),
+      [
+        {
+          patchId: "123" as PatchId,
+          patch: [{ op: "add", path: ["A", "title"], value: "edited" }],
+          createdAt: "2021-01-01T00:00:00Z",
+          author: "author1",
+        },
+        {
+          patchId: "234" as PatchId,
+          patch: [{ op: "copy", from: ["A"], path: ["B"] }],
+          createdAt: "2021-01-02T00:00:00Z",
+          author: "author1",
+        },
+      ],
+    );
+    const serialized = patchSet.serialize();
+    // The copy is inserted under its source as well as its destination, so the
+    // edit to "A" is swallowed into the source's set along with it — the two
+    // can no longer be staged apart.
+    const setOfA = serialized.find((set) => set.patchPath[0] === "A");
+    expect(setOfA?.patches.map((patch) => patch.patchId).sort()).toEqual([
+      "123",
+      "234",
+    ]);
+  });
+
+  /**
+   * A discriminated union resolves to EVERY variant's type at once, so a
+   * source inside one can be an array here and an object there.
+   *
+   * Requiring a single unambiguous type grouped the move at the item, which is
+   * wrong the moment the array variant is the live one: removing that item
+   * shifts every later index. Any possible array parent widens to the array,
+   * which is the safe direction.
+   */
+  test("move: an ambiguous union source widens to the array", async () => {
+    const patchSet = testPatchSet(
+      "/content/page.val.ts" as ModuleFilePath,
+      s.object({
+        block: s.discriminatedUnion(
+          "type",
+          s.object({ type: s.literal("list"), items: s.array(s.string()) }),
+          s.object({
+            type: s.literal("map"),
+            items: s.object({ a: s.string() }),
+          }),
+        ),
+        target: s.object({ value: s.string() }),
+      }),
+      [
+        {
+          patchId: "123" as PatchId,
+          patch: [
+            {
+              op: "move",
+              from: ["block", "items", "0"],
+              path: ["target", "value"],
+            },
+          ],
+          createdAt: "2021-01-01T00:00:00Z",
+          author: "author1",
+        },
+      ],
+    );
+    const serialized = patchSet.serialize();
+    expect(serialized.map((set) => set.patchPath)).toEqual([
+      ["block", "items"],
+      ["target", "value"],
+    ]);
+  });
+
+  /**
    * A path that no longer fits the schema still terminates the module.
    *
    * This is the case the throw was always for — a patch written against a
