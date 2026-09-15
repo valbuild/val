@@ -1,5 +1,167 @@
 # @valbuild/ui
 
+## 0.129.1
+
+### Patch Changes
+
+- [#683](https://github.com/valbuild/val/pull/683) [`be1e8be`](https://github.com/valbuild/val/commit/be1e8bee673207596b3eb3d9a9886b8ade9b332f) Thanks [@freekh](https://github.com/freekh)! - The Studio's URL no longer carries a canvas position when the canvas is closed
+
+  Every link copied out of the Studio came with `canvas-at=1.00%2C0%2C0` on it,
+  whether or not the canvas had ever been opened. The workspace reports where it
+  is from the moment it mounts — which it does regardless of whether it is on
+  screen — and that position was written to the URL unconditionally.
+
+  It is now written only alongside `canvas=1`, and closing the canvas takes it
+  with it. Nothing about restoring a canvas changes: a link to one still carries
+  its zoom and pan, and still opens on the view it was copied from.
+
+- [#663](https://github.com/valbuild/val/pull/663) [`8425378`](https://github.com/valbuild/val/commit/8425378c315ea46b5d822f1130b633e0449ff1b0) Thanks [@freekh](https://github.com/freekh)! - A value that has not been written yet offers to create it, instead of looking broken
+
+  Opening an array item or a record entry whose value is `null` rendered the item
+  schema's fields over nothing, so every one of them reported **Not Found** — a
+  column of broken fields where the truth is one fact about the value: nobody has
+  written it. It now shows one **Create** button.
+
+  A field inside an object always had this — the checkbox beside its label — but
+  a value opened on its own has no such wrapper, and that is exactly what
+  navigating to an entry does. Both places now agree.
+
+  This is most visible with a record whose keys are declared by its schema
+  (`s.record(s.locale(), …)` or `s.record(s.enum("a", "b"), …)`), where an entry
+  nobody has written is `null` rather than absent. There the wording follows: an
+  unwritten entry reads as **Not translated** in the list, and the button says
+  **Write this translation** rather than Create.
+
+  Also fixed: `Internal.resolvePath` reported a record entry that exists with a
+  falsy value — `null`, but equally `""`, `0` and `false`, in any record — as a
+  key the record does not have, so nothing could resolve a path to one.
+
+- [#682](https://github.com/valbuild/val/pull/682) [`7d13dbc`](https://github.com/valbuild/val/commit/7d13dbced9ea49d8243b6b6cf9854cd1a259501f) Thanks [@freekh](https://github.com/freekh)! - Rename a page from the Pages panel
+
+  The site map's per-row Duplicate button is now a **…** menu with two items:
+  **Duplicate**, unchanged, and **Rename** — which changes the page's URL and
+  rewrites every field that pointed at the old one, so nothing is left linking to
+  a URL that no longer exists.
+
+  Renaming asks the same question duplicating does — which URL — so it opens the
+  same form, prefilled with the page's own URL and refusing both the URL it
+  already has and one another page has taken.
+
+  Both entry points to a rename (a row here, and the **Change URL** control on
+  the page's own toolbar) now go through one implementation, so they cannot come
+  to disagree about what renaming a page means.
+
+- [#681](https://github.com/valbuild/val/pull/681) [`07db94c`](https://github.com/valbuild/val/commit/07db94c23b73c8c0b2b50a30a89926823c2da1d6) Thanks [@freekh](https://github.com/freekh)! - Editing one field of a gallery entry no longer groups the whole module as one change
+
+  Typing alt text on an `s.imageset()` entry logged **Could not resolve path while
+  creating patch set: Cannot perform op: 'add' on non-array or non-record schema.
+  Type: object** on every keystroke, and collapsed the entire media module into a
+  single patch set. Staging any one change in that module then dragged every other
+  change in it along — the upload, and every keystroke of every other entry's alt
+  text — because a patch group has to contain a prefix of each patch set it
+  touches.
+
+  The patches themselves were fine. `add` on an object key is create-or-set, and
+  the Studio writes `add` rather than `replace` on purpose so the write survives
+  the key having gone away in the meantime; it was the grouping that did not know
+  that an object is keyed. Objects are now classified like records and settings
+  sections: the change affects the key it names, and nothing else.
+
+  A path that genuinely no longer fits its schema — a stale patch written before
+  the schema changed — still falls back to grouping the whole module, which is the
+  conservative answer when we cannot say what a change affects.
+
+- [#679](https://github.com/valbuild/val/pull/679) [`473a185`](https://github.com/valbuild/val/commit/473a185f70351b44388f3bc1852649e2c1dbe001) Thanks [@freekh](https://github.com/freekh)! - `.preview()` now names a value wherever the Studio shows it, including a module's own root
+
+  Wherever the Studio shows a piece of content to a human it has to answer three
+  questions: what is this called, what is it, what does it look like. Every
+  surface answered them itself, out of the path, and they disagreed — the same
+  record entry read `blog1` in the heading, "Blog 1" in the scope trail and
+  `/blogs/blog1` in the sitemap. They now give one answer, and it is the one you
+  wrote:
+
+  ```ts
+  s.record(
+    s.object({ title: s.string(), author: s.string(), cover: s.image() }),
+  ).preview((blog) => ({
+    title: blog.title,
+    subtitle: blog.author,
+    image: blog.cover,
+  }));
+  ```
+
+  That title, subtitle and image are what the heading, list rows, search hits,
+  cards and chosen references show. Nothing is required: a project with no
+  `.preview()` reads exactly as it did — the route, the key, `[#3](https://github.com/valbuild/val/issues/3)`, or the
+  prettified file name — so this is somewhere to improve from rather than
+  something to adopt.
+
+  **`.preview()` on a module's own schema now works.** It was accepted and never
+  run: a preview was only ever reified by a CONTAINER for its rows, and a module
+  root has no container. So `c.define("/content/authors.val.ts", s.record(…)
+.preview(…), …)` can name the module itself — "Forfattere" rather than
+  `authors.val.ts` — and the same is true of a field of an object.
+
+  **A page's URL is carried separately from its title.** A route is not a worse
+  name for a page, it is the page's identity: two drafts both titled "Launch" are
+  told apart by `/blog/launch-2026` and by nothing else. Title a page with
+  `.preview()` and its route moves to the line under the heading rather than
+  disappearing.
+
+  Two things a preview is deliberately NOT used for, because a preview is a
+  closure over source and so changes as an editor types:
+
+  - The breadcrumb, the Explorer and the Pages tree stay path segments. A trail
+    of titles names three things and locates none of them. The one exception is a
+    page, whose trail is its ROUTE instead of the file it is stored in — nobody
+    reaches a page through the file.
+  - Help text. `.describe()` is input help and is shown where a field or a key is
+    being ENTERED; a record key's description no longer appears in the heading,
+    where the key cannot be edited, and appears in every form that asks for one.
+
+  Also fixed: a just-uploaded image stayed blank until save in list rows, headings
+  and reference dropdowns, which built the URL of the published file rather than
+  the pending patch's.
+
+- [#677](https://github.com/valbuild/val/pull/677) [`64f0de3`](https://github.com/valbuild/val/commit/64f0de339b8621cb5a6c422dfe55cae5b2bbe2a0) Thanks [@freekh](https://github.com/freekh)! - A guided tour of the Studio, and a `studio.tour` setting to turn it off
+
+  Editors kept asking what Pages, Media and Data are for. The three words are
+  precise inside Val and vague everywhere else, and the Studio said each of them
+  in three places — the rail tooltip, the panel header, the empty state — without
+  ever defining any.
+
+  **A guided tour**, offered by a glowing "Take a tour" button on the empty editor
+  at `/val/~` and kept permanently in **Quick actions**: welcome, then Pages, Media
+  and Data where the project has them, then the assistant where there is one, then
+  Review, Preview and Publish. It never opens itself, and the glow stops for good
+  once somebody has been through it on that browser.
+
+  Turn it off for the whole project under **Settings → Studio** — a new
+  `studio.tour` field on `s.settings()`, unset meaning the tour is offered. A team
+  that finds it noisy switches it off once, for everyone, instead of each person
+  dismissing it on each machine; the tour stays in Quick actions for anyone who
+  wants it.
+
+  Also, for the same first-run problem:
+
+  - **Rail tooltips carry a definition** under the label: "The pages of your site,
+    by URL", "Shared images and files, uploaded once", "Content that is not tied
+    to one page".
+  - **The empty editor is a short glossary** of the destinations this project
+    actually has, rather than "No item selected".
+  - **Empty states explain instead of reporting.** "No pages yet" now says who
+    creates the routes pages go under; "No galleries yet" says what a gallery is
+    for.
+  - **A project with a single media gallery opens it**, so Media shows media
+    instead of one collapsed row named after a module file.
+  - **A site map of twenty pages or fewer arrives open.** With a home page at `/`
+    the whole site nests under one root row, so Pages used to show a single row
+    called Home. Larger sites keep the old behaviour.
+  - **Settings points at Account** for the per-person settings — the theme, and
+    how the Studio behaves on this machine.
+  - Page rows with children now carry `aria-expanded`, as the media panel's rows
+    always did.
+
 ## 0.129.0
 
 ### Minor Changes
