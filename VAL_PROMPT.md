@@ -7,8 +7,9 @@ they were taken, what has actually been proven, and what is still guesswork.
 Keep it current as the work moves. When something here turns out to be wrong,
 correct it in place and say so — a stale line here is worse than no line.
 
-**Status: Val's server runs in the isolate and the Studio reads the real
-project. Nothing has been edited yet.** Nothing here is a design Val should
+**Status: the Studio creates patches and Val applies them to `.val.ts` source,
+all inside the isolate. The patch does not yet leave it, so the rendered site
+does not change.** Nothing here is a design Val should
 adopt yet.
 
 ---
@@ -191,11 +192,46 @@ entry. The edge is **inverted** rather than moved: the root holds a slot
 with `hasValEnableCookieOnServer` — the identical implementation that already
 existed there. Public API unchanged.
 
+### The write path works too
+
+Typing in the Studio creates a patch, and `/save` applies it to the `.val.ts`
+source through the TypeScript AST — inside the isolate. Evidence rather than
+assertion: both shas move (sources `95832bfb` → `fb0b6f1a`, base `7236c91a` →
+`bb720ff9`) and `/stat` returns `patches: []`, so the patch was consumed, not
+merely recorded. The Studio behaves normally throughout — rich text with
+bold/italic/lists, a Review count, and a client-side `validation.worker` that
+finds a real error in the project and offers "Fix 1".
+
+That last point is worth noting for the question of where validation belongs:
+**the Studio already validates in a Web Worker in the browser.**
+
+Three things were needed:
+
+- **File descriptors** in the memory filesystem. Val's patch store is not naive
+  about durability: the lock is `openSync(path, 'wx')` — `O_CREAT|O_EXCL` — and
+  that atomicity is the point, so it cannot be faked with `existsSync` plus a
+  write. The ordering log appends through a descriptor, and `fsyncSync` is
+  called on a **directory** fd after a rename. (`architecture/patch-store.md`.)
+- **Seeding the filesystem with the project's source.** `prepare()` reads the
+  `.val.ts` file to patch it, so an empty fs failed with `File not found:
+  /bundle/src/routes/_site.index.val.ts`. The platform has those files; the
+  publish step now writes them as a sibling module of the vendor layer and the
+  shim seeds itself from it at module scope.
+- **Putting the seed in the layer revision.** The rev is derived from the built
+  chunks, so adding a module afterwards left it unchanged and the loader kept
+  serving the previously stored layer — a chunk importing a module that was not
+  there.
+
 ### Where it stops today
 
-- **Nothing has been edited yet.** The Studio reads; `commitPrepared` does not
-  exist, and no patch has been made or applied. That is the next step and the
-  actual goal.
+- **The patch never leaves the isolate.** Patches and the patched source live
+  in the isolate's MEMORY. A republish makes a fresh isolate and they are gone
+  — observed, not theorised. The rendered site is still built from the files on
+  disk, so **it does not change yet**. Carrying the patched file back out to the
+  platform's publish is `commitPrepared`, and it is the one step left.
+- **Save is gated in the UI** by a validation error the project already has
+  ("Fix 1"), so the save above was driven through the API. Not a platform
+  problem, but it means the button has not been exercised.
 - The Studio's AI endpoints answer 500/401. The assistant, not the editor.
 - `prettier` is dropped as the patch formatter: its bundle hits a TDZ cycle in
   the isolate (`Cannot access 'y' before initialization`). The formatter is
