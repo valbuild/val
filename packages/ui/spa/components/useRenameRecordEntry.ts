@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { array } from "@valbuild/core/fp";
-import { useAddModuleFilePatch } from "./ValProvider";
+import { useAddModuleFilePatch, useReportError } from "./ValProvider";
 import { useNavigation } from "./ValRouter";
 import { useValSystem } from "../stores/react/SystemContext";
 
@@ -45,6 +45,7 @@ export function useRenameRecordEntry(): RenameRecordEntry {
   const { addModuleFilePatch } = useAddModuleFilePatch();
   const { navigate } = useNavigation();
   const val = useValSystem();
+  const reportError = useReportError();
   return useCallback(
     async ({ parentPath, fromKey, toKey, refs, jsonValues }) => {
       if (fromKey === toKey) {
@@ -61,9 +62,34 @@ export function useRenameRecordEntry(): RenameRecordEntry {
       // `move` moves what is there - so an unloaded entry would land the marker
       // (not the content) on the new key, and opening it would fetch
       // `/json?key=<newKey>`, which 404s because the base source still only has
-      // the old key. The same window `useDuplicateRecordEntry` loads through.
+      // the old key.
       if (jsonValues && val !== null) {
-        await val.system.sourceStore.loadEntries(moduleFilePath, [fromKey]);
+        const sourceStore = val.system.sourceStore;
+        await sourceStore.loadEntries(moduleFilePath, [fromKey]);
+        /*
+         * Awaiting that is not the same as having it.
+         *
+         * `loadEntries` resolves either way: a fetch that fails is RECORDED
+         * (`entryFailures`) rather than thrown, and a key that has failed before
+         * is skipped entirely, so the await returns immediately with the marker
+         * still in place. Moving it is the silent version of this bug - the
+         * rename appears to work and the renamed page opens on nothing.
+         *
+         * `retryEntry` is the one door back in, because a recorded failure makes
+         * every later `loadEntries` a no-op: without it a single failed fetch
+         * would refuse this rename for the rest of the session. One retry, then
+         * refuse - and say so, rather than write a move nobody asked for.
+         */
+        if (sourceStore.entryError(moduleFilePath, fromKey) !== undefined) {
+          const retried = await sourceStore.retryEntry(moduleFilePath, fromKey);
+          if (retried.status === "error") {
+            reportError(
+              "Could not rename",
+              `The content of ${fromKey} could not be loaded, and renaming it would move an empty page: ${retried.message}`,
+            );
+            return;
+          }
+        }
       }
       const newPatchPath = parentPatchPath.concat(toKey);
       const patch: Patch = [
@@ -99,6 +125,6 @@ export function useRenameRecordEntry(): RenameRecordEntry {
         { replace: true },
       );
     },
-    [addModuleFilePatch, navigate, val],
+    [addModuleFilePatch, navigate, val, reportError],
   );
 }

@@ -148,6 +148,24 @@ function PageActionsButton({
   const containerRef = useRef<HTMLDivElement>(null);
   const close = useCallback(() => onOpenChange(null), [onOpenChange]);
   useDismissOnOutsidePointer(containerRef, open !== null, close);
+  /**
+   * Escape dismisses what this row has open - and nothing else.
+   *
+   * In the CAPTURE phase, and stopping there, because `FloatingPanel` closes
+   * the whole Pages panel on Escape and listens for it on `window`, which is
+   * the LAST thing a bubbling event reaches. Without this, the one key that
+   * should close a menu closes the panel the menu is in.
+   */
+  useEffect(() => {
+    if (open === null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      close();
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [open, close]);
   return (
     <div ref={containerRef} className="relative shrink-0">
       <button

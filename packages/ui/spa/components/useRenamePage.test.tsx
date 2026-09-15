@@ -78,6 +78,9 @@ const mockStore = {
   sources: {} as Record<ModuleFilePath, Source>,
   entriesStatus: { status: "complete", errors: [] } as EntriesStatus,
   loaded: [] as ModuleFilePath[],
+  retried: [] as string[],
+  /** What `entriesStatus` answers once a retry has been made. */
+  onRetry: null as EntriesStatus | null,
 };
 jest.mock("../stores/react/SystemContext", () => ({
   __esModule: true,
@@ -89,6 +92,13 @@ jest.mock("../stores/react/SystemContext", () => ({
         loadAllEntries: (moduleFilePath: ModuleFilePath) => {
           mockStore.loaded.push(moduleFilePath);
           return Promise.resolve();
+        },
+        retryEntry: (moduleFilePath: ModuleFilePath, key: string) => {
+          mockStore.retried.push(`${moduleFilePath}#${key}`);
+          if (mockStore.onRetry !== null) {
+            mockStore.entriesStatus = mockStore.onRetry;
+          }
+          return Promise.resolve({ status: "ok" });
         },
       },
     },
@@ -122,6 +132,8 @@ describe("useRenamePage", () => {
     mockRenameCalls.length = 0;
     mockReportError.mockClear();
     mockStore.loaded = [];
+    mockStore.retried = [];
+    mockStore.onRetry = null;
     mockStore.entriesStatus = { status: "complete", errors: [] };
     mockSchemas.current = {
       status: "success",
@@ -237,6 +249,21 @@ describe("useRenamePage", () => {
       await rename("/blogs/why-val", "/blogs/why-val-2");
       expect(mockRenameCalls).toEqual([]);
       expect(mockReportError).toHaveBeenCalled();
+      // Asked again before giving up: a recorded failure makes every later load
+      // a no-op, so without a retry the first failed fetch would refuse every
+      // rename for the rest of the session.
+      expect(mockStore.retried).toEqual([`${linkers}#one`]);
+    });
+
+    test("renames after a retry brings the failed entry in", async () => {
+      mockStore.entriesStatus = {
+        status: "error",
+        errors: [{ moduleFilePath: linkers, key: "one", message: "offline" }],
+      };
+      mockStore.onRetry = { status: "complete", errors: [] };
+      await rename("/blogs/why-val", "/blogs/why-val-2");
+      expect(mockReportError).not.toHaveBeenCalled();
+      expect(renamedRefs()).toEqual([`${linkers}?p="one"."link"`]);
     });
   });
 

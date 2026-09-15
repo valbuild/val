@@ -87,7 +87,25 @@ export function useRenamePage(): (
           await Promise.all(
             required.map((required) => sourceStore.loadAllEntries(required)),
           );
-          const status = sourceStore.entriesStatus(required);
+          let status = sourceStore.entriesStatus(required);
+          if (status.status === "error") {
+            /*
+             * One retry, because a failure is otherwise permanent.
+             *
+             * `loadAllEntries` records a failed entry and every later load
+             * SKIPS it - deliberately, so that a broken entry is not a fetch
+             * loop. `retryEntry` is the one door back in, so without this a
+             * single failed fetch would refuse every rename in the project for
+             * the rest of the session, with nothing the editor could do about
+             * it but reload the page.
+             */
+            await Promise.all(
+              status.errors.map((failed) =>
+                sourceStore.retryEntry(failed.moduleFilePath, failed.key),
+              ),
+            );
+            status = sourceStore.entriesStatus(required);
+          }
           if (status.status !== "complete") {
             // Renaming now would rewrite only the referrers that happen to be
             // loaded and leave the rest pointing at a URL that is about to stop

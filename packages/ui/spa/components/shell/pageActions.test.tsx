@@ -120,6 +120,37 @@ describe("The Pages panel's row actions", () => {
       screen.queryByRole("button", { name: "Page actions /blogs" }),
     ).toBeNull();
   });
+
+  /**
+   * Escape closes the menu, and ONLY the menu.
+   *
+   * `FloatingPanel` closes the whole Pages panel on Escape and listens for it
+   * on `window` - the last thing a bubbling event reaches - so a menu that did
+   * not stop the event would be dismissed by taking the panel with it.
+   */
+  test("close on Escape without closing the panel", () => {
+    render(panel());
+    const panelClosed = jest.fn();
+    window.addEventListener("keydown", panelClosed);
+    try {
+      const trigger = screen.getByRole("button", {
+        name: "Page actions /blogs/why-val",
+      });
+      fireEvent.click(trigger);
+      fireEvent.keyDown(trigger, { key: "Escape" });
+      expect(screen.queryByRole("menuitem", { name: "Rename" })).toBeNull();
+      expect(panelClosed).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("keydown", panelClosed);
+    }
+  });
+
+  test("a form opened from the menu closes on Escape too", () => {
+    render(panel());
+    openRowForm("/blogs/why-val", "Rename");
+    fireEvent.keyDown(screen.getByDisplayValue("why-val"), { key: "Escape" });
+    expect(screen.queryByText("Rename page")).toBeNull();
+  });
 });
 
 describe("Duplicate in the Pages panel", () => {
