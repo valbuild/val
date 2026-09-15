@@ -3,18 +3,26 @@ import {
   type SerializedRichTextOptions,
   type SerializedImageSchema,
   type ModuleFilePath,
-  Internal,
 } from "@valbuild/core";
 import { useRoutesWithModulePaths } from "../useRoutesOf";
-import { useAllPreviews } from "../ValFieldProvider";
+import { useAllPreviews, useFilePatchIds } from "../ValFieldProvider";
+import { mediaUrlOf } from "../../utils/mediaUrl";
 import { serializedRichTextOptionsToFeatures } from "./convertOptions";
 import type { EditorFeatures, EditorLinkCatalogItem } from "./types";
 
+/**
+ * Through `mediaUrlOf`, so a thumbnail of an image uploaded and not yet
+ * published resolves to the patch holding its bytes rather than to the
+ * published file, which for a fresh upload is a 404. This catalog builds its
+ * URLs in a memo rather than a component, so it takes the lookup as an
+ * argument; `useMediaUrl` is the same rule where a hook can be called.
+ */
 function imageSourceToUrl(
   src: { readonly [key: string]: unknown } | null | undefined,
+  filePatchIds: ReadonlyMap<string, string>,
 ): string | undefined {
   if (!src || typeof src.path !== "string") return undefined;
-  return Internal.mediaUrl({ path: src.path });
+  return mediaUrlOf({ path: src.path }, filePatchIds) ?? undefined;
 }
 
 export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
@@ -73,6 +81,7 @@ export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
 
   const routesWithModulePaths = useRoutesWithModulePaths();
   const allPreviews = useAllPreviews();
+  const filePatchIds = useFilePatchIds();
 
   const linkCatalog: EditorLinkCatalogItem[] | undefined = useMemo(() => {
     if (!isRouteLink) return undefined;
@@ -107,7 +116,7 @@ export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
                 itemMap.set(key, {
                   title: value.title,
                   subtitle: value.subtitle,
-                  image: imageSourceToUrl(value.image),
+                  image: imageSourceToUrl(value.image, filePatchIds),
                 });
               }
             }
@@ -140,6 +149,7 @@ export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
     includePattern,
     excludePattern,
     allPreviews,
+    filePatchIds,
   ]);
 
   const imageModulePath = useMemo((): ModuleFilePath | undefined => {
