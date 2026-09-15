@@ -7,7 +7,9 @@ they were taken, what has actually been proven, and what is still guesswork.
 Keep it current as the work moves. When something here turns out to be wrong,
 correct it in place and say so — a stale line here is worse than no line.
 
-**Status: spike in progress.** Nothing here is a design Val should adopt yet.
+**Status: Val's server runs in the isolate and the Studio reads the real
+project. Nothing has been edited yet.** Nothing here is a design Val should
+adopt yet.
 
 ---
 
@@ -126,36 +128,94 @@ flow and CORS, or the isolate keeps a **credential proxy**: the tab does the
 work, `/api/val/*` in the isolate attaches the key and forwards. The proxy shape
 needs no `fs`, no TypeScript, no chokidar.
 
-## 7. The current spike, and what it has cost
+## 7. What now runs inside the isolate
 
-Trying to run `@valbuild/server` (hence TypeScript) **inside the isolate**,
-because if that works, option 3's browser half becomes optional rather than
-required. Behind `--node-shims` on the platform's publish CLI, opt-in, so the
-import audit keeps its guarantee for everything else.
+**Val's server half runs in a Cloudflare Worker isolate, and the Studio reads
+the real project through it.** `/api/val/stat` answers:
 
-Cleared so far, each a real finding:
+```json
+{"type":"did-change","baseSha":"7236c91a…","schemaSha":"3e5eead8…",
+ "sourcesSha":"95832bfb…","patches":[],"profileId":null,"mode":"fs",
+ "config":{"defaultTheme":"dark"}}
+```
 
-1. **The audit had a false positive.** It scanned emitted text with
+and the Studio's Pages panel lists the project's route. Those shas are computed
+from the project's actual modules, and the TypeScript compiler is doing the work
+— `ts.createSourceFile` / `ts.createPrinter` parse and print inside workerd,
+verified on its own before any of Val was attempted.
+
+This means **option 3's premise is weaker than it looked**: the server half does
+not *have* to move to the tab. It can, and there may still be good reasons
+(8.7 MB of compiler per isolate, cold start), but "a Worker cannot run it" is no
+longer one of them.
+
+### What it took, on the platform side
+
+Both changes are in `freekh/experiment-browser-built-tanstack-start`.
+
+- **Server-only dependencies.** The vendor layer built every specifier for both
+  targets and dropped it if either failed, so `@valbuild/tanstack/server` could
+  never be layered. Specifiers are probed per target now; one that builds for
+  the worker and not the browser is kept as server-only, and a client import of
+  it is rejected by name.
+- **Node shims, opt-in behind `--node-shims`.** Stubs for what the isolate
+  lacks, real re-exports for what it has, and a real in-memory `fs`
+  (`memory-fs.ts`) rather than a throwing stub — which is also the shape
+  `ValOpsFS` would need to run here.
+
+Five things cost real time, each worth knowing:
+
+1. **The import audit had a false positive.** It scanned emitted text with
    `/from\s*["']([^"']+)["']/`, which matches inside string literals — and
    TypeScript's diagnostics contain `Consider using 'import * as ns from
-   "mod"'`. So bundling the compiler was rejected for importing a package called
-   `mod`, which does not exist. `prettier` was rejected the same way. The audit
-   parses the module now. **This means the earlier claim that "prettier needs
-   node:module" was at best unproven.**
-2. **CJS `require` of an external throws at startup.** TypeScript does
-   `require("path")`; rolldown emits `__require("path")`, and the isolate has no
-   `require`. Fixed by routing provided builtins through a *bundled* module that
-   re-exports `node:path`, turning the CJS require into a static ESM import.
-3. **`__filename` is not defined.** Defined at build time for the shimmed build.
-4. **In progress:** `Cannot read properties of undefined (reading 'native')`.
-   The stub modules export only `default`, so a CJS `require("fs")` that reads
-   `fs.realpathSync.native` gets `undefined.native`. Next step is a real
-   in-memory `fs` rather than a throwing stub — which is needed anyway if
-   `ValOpsFS` is ever to run here.
+   "mod"'`. Bundling the compiler was rejected for importing a package called
+   `mod`. `prettier` was rejected the same way, so the earlier claim that it
+   "needs node:module" was never true.
+2. **A CJS `require` of an external throws at startup.** `require("path")`
+   becomes rolldown's `__require`, and the isolate has no `require`.
+3. **`__filename` is not defined**, and TypeScript reads it while choosing a
+   host.
+4. **A stub exporting only `default` breaks CJS interop** —
+   `fs.realpathSync.native` becomes `undefined.native`.
+5. **Guessing a builtin's shape fails silently.** `import * as ns from
+   'node:path'; ns.join` was undefined, surfacing as `ue.join is not a function`
+   from inside minified Val code. `path` is a bundled pure-JS implementation
+   now. `nodejs_compat` is *not* the fix: it became the default at compatibility
+   date 2026-08-04 and passing it explicitly is an error.
 
-**Open question this spike answers:** can TypeScript parse and print inside
-workerd at all? Until a route returns a printed AST, everything above is
-plumbing, not proof.
+### The Val change
+
+`initVal().isValEnabled()` reached `@tanstack/react-start/server` from the root
+entry. The edge is **inverted** rather than moved: the root holds a slot
+(`valEnableCookieBridge.ts`) and `@valbuild/tanstack/server` fills it on import
+with `hasValEnableCookieOnServer` — the identical implementation that already
+existed there. Public API unchanged.
+
+### Where it stops today
+
+- **Nothing has been edited yet.** The Studio reads; `commitPrepared` does not
+  exist, and no patch has been made or applied. That is the next step and the
+  actual goal.
+- The Studio's AI endpoints answer 500/401. The assistant, not the editor.
+- `prettier` is dropped as the patch formatter: its bundle hits a TDZ cycle in
+  the isolate (`Cannot access 'y' before initialization`). The formatter is
+  optional, but it is what would keep written patches formatted like the repo.
+- `vm` throws by name. A Worker forbids dynamic code generation, so
+  `loadValModules` and `evalValConfigFile` cannot work here at all. An app that
+  imports its own `val.modules` never reaches them — but the CLI and the
+  language server do, and anything that wants to *discover* modules rather than
+  be handed them will hit this wall.
+- The isolate is in `mode: "fs"` with an **empty** in-memory filesystem. Reads
+  work because `valModules` is passed in as a real import. Anything that
+  genuinely touches `.val/patches` has nothing behind it yet.
+
+### The next step
+
+`commitPrepared(preparedCommit, meta)` on `ValOps`, replacing the `instanceof`
+branch in `/save`. `PreparedCommit.patchedSourceFiles` is already
+`Record<path, string | null>`, which is exactly what the platform publishes — so
+the val-start implementation is "write these files, then publish", and the
+demonstration is the rendered site changing.
 
 ## 8. Rules for this work
 
