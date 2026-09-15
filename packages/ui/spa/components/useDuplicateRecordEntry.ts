@@ -1,8 +1,9 @@
 import { useCallback } from "react";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
-import { useAddModuleFilePatch } from "./ValProvider";
+import { useAddModuleFilePatch, useReportError } from "./ValProvider";
 import { useNavigation } from "./ValRouter";
 import { useValSystem } from "../stores/react/SystemContext";
+import { loadEntryContent } from "./loadEntryContent";
 
 export type DuplicateRecordEntry = (args: {
   /** The record the entry lives in. A router module's record is the module itself. */
@@ -38,6 +39,7 @@ export function useDuplicateRecordEntry(): DuplicateRecordEntry {
   const { addModuleFilePatch } = useAddModuleFilePatch();
   const { navigate } = useNavigation();
   const val = useValSystem();
+  const reportError = useReportError();
   return useCallback(
     async ({ parentPath, fromKey, toKey, jsonValues }) => {
       if (fromKey === toKey) {
@@ -54,10 +56,21 @@ export function useDuplicateRecordEntry(): DuplicateRecordEntry {
       // `copy` copies what is there - so an unloaded entry would duplicate the
       // marker instead of the page, and opening the copy would fetch
       // `/json?key=<newKey>`, which 404s because the base source has no such
-      // key. The same window `ChangeRecordPopover` loads through before a
-      // rename, for the same reason.
+      // key. `loadEntryContent` is what makes sure it is actually here: awaiting
+      // the load is not the same as having it. Same guard as a rename's.
       if (jsonValues && val !== null) {
-        await val.system.sourceStore.loadEntries(moduleFilePath, [fromKey]);
+        const loaded = await loadEntryContent(
+          val.system.sourceStore,
+          moduleFilePath,
+          fromKey,
+        );
+        if (loaded.status === "error") {
+          reportError(
+            "Could not duplicate",
+            `The content of ${fromKey} could not be loaded, and duplicating it would copy an empty page: ${loaded.message}`,
+          );
+          return;
+        }
       }
       const newPatchPath = parentPatchPath.concat(toKey);
       addModuleFilePatch(
@@ -81,6 +94,6 @@ export function useDuplicateRecordEntry(): DuplicateRecordEntry {
         ),
       );
     },
-    [addModuleFilePatch, navigate, val],
+    [addModuleFilePatch, navigate, val, reportError],
   );
 }

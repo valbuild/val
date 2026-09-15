@@ -5,6 +5,7 @@ import { array } from "@valbuild/core/fp";
 import { useAddModuleFilePatch, useReportError } from "./ValProvider";
 import { useNavigation } from "./ValRouter";
 import { useValSystem } from "../stores/react/SystemContext";
+import { loadEntryContent } from "./loadEntryContent";
 
 export type RenameRecordEntry = (args: {
   /** The record the entry lives in. A router module's record is the module itself. */
@@ -60,35 +61,20 @@ export function useRenameRecordEntry(): RenameRecordEntry {
       const parentPatchPath = Internal.createPatchPath(parentModulePath);
       // A `.jsonValues()` entry is an opaque marker until it is loaded, and a
       // `move` moves what is there - so an unloaded entry would land the marker
-      // (not the content) on the new key, and opening it would fetch
-      // `/json?key=<newKey>`, which 404s because the base source still only has
-      // the old key.
+      // (not the content) on the new key, and the renamed page would open on
+      // nothing. `loadEntryContent` is what makes sure it is actually here.
       if (jsonValues && val !== null) {
-        const sourceStore = val.system.sourceStore;
-        await sourceStore.loadEntries(moduleFilePath, [fromKey]);
-        /*
-         * Awaiting that is not the same as having it.
-         *
-         * `loadEntries` resolves either way: a fetch that fails is RECORDED
-         * (`entryFailures`) rather than thrown, and a key that has failed before
-         * is skipped entirely, so the await returns immediately with the marker
-         * still in place. Moving it is the silent version of this bug - the
-         * rename appears to work and the renamed page opens on nothing.
-         *
-         * `retryEntry` is the one door back in, because a recorded failure makes
-         * every later `loadEntries` a no-op: without it a single failed fetch
-         * would refuse this rename for the rest of the session. One retry, then
-         * refuse - and say so, rather than write a move nobody asked for.
-         */
-        if (sourceStore.entryError(moduleFilePath, fromKey) !== undefined) {
-          const retried = await sourceStore.retryEntry(moduleFilePath, fromKey);
-          if (retried.status === "error") {
-            reportError(
-              "Could not rename",
-              `The content of ${fromKey} could not be loaded, and renaming it would move an empty page: ${retried.message}`,
-            );
-            return;
-          }
+        const loaded = await loadEntryContent(
+          val.system.sourceStore,
+          moduleFilePath,
+          fromKey,
+        );
+        if (loaded.status === "error") {
+          reportError(
+            "Could not rename",
+            `The content of ${fromKey} could not be loaded, and renaming it would move an empty page: ${loaded.message}`,
+          );
+          return;
         }
       }
       const newPatchPath = parentPatchPath.concat(toKey);
