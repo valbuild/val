@@ -5,6 +5,7 @@ import {
   ShellDataModule,
   ShellDeployment,
   ShellExternalPage,
+  ShellExternalPageUsage,
   ShellMediaFile,
   ShellMediaGallery,
   ShellNewPageRoutes,
@@ -12,6 +13,7 @@ import {
   ShellPage,
   ShellValidationError,
 } from "./types";
+import { sourcePathOfChild } from "../../utils/sourcePath";
 import { placeholderAvatar } from "../stories/placeholderAssets";
 
 /**
@@ -175,37 +177,210 @@ export const mockPages: ShellPage[] = [
 const EXTERNAL_ROUTE = "/app/external.val.ts";
 
 /**
+ * Where an external URL is linked from, as a reference scan reports it.
+ *
+ * The label is the human path to the field and `moduleFilePath` is the file, in
+ * the same shape `useEagerRouteReferences` gives back - a source path plus the
+ * module it is in.
+ */
+function usage(
+  moduleFilePath: string,
+  path: string,
+  label: string,
+): ShellExternalPageUsage {
+  // Built segment by segment through `sourcePathOfChild` rather than as a
+  // template string: a module path quotes its string keys and leaves array
+  // indices bare, and a fixture that gets that wrong is a fixture that cannot
+  // be navigated to.
+  const key = (segment: string): string | number =>
+    /^\d+$/.test(segment) ? Number(segment) : segment;
+  const [first, ...rest] = path.split(".");
+  if (first === undefined) {
+    throw new Error(`A usage needs a path within ${moduleFilePath}`);
+  }
+  let sourcePath = sourcePathOfChild(
+    moduleFilePath as ModuleFilePath,
+    key(first),
+  );
+  for (const segment of rest) {
+    sourcePath = sourcePathOfChild(sourcePath, key(segment));
+  }
+  return { sourcePath, label, moduleFilePath };
+}
+
+/**
  * External pages, as the external router produces them: the record's keys are
  * the URLs, so the id is the source path and the label is the host.
+ *
+ * `name` is derived here rather than passed, because it is derived in the app
+ * too. Everything else a story wants to vary - the entry's fields, who links to
+ * it, whether the scan has finished - is `extra`.
  */
 function externalPage(
   url: string,
   extra: Partial<ShellExternalPage> = {},
 ): ShellExternalPage {
   const sourcePath = pageSourcePath(EXTERNAL_ROUTE, url);
-  const parsed = new URL(url);
+  let name = url;
+  try {
+    const parsed = new URL(url);
+    name = `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`;
+  } catch {
+    // A key that is not a URL is a state the router allows to be SAVED and
+    // reports afterwards, so the mock has to be able to hold one.
+  }
   return {
     id: sourcePath,
-    name: `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`,
+    name,
     url,
     sourcePath,
+    fields: [],
+    usages: [],
+    usagesComplete: true,
     ...extra,
   };
 }
 
+/**
+ * A real project's external URLs, warts included.
+ *
+ * Every state the dialog has to render is here on purpose, because the list is
+ * the design: several hosts under one domain (the `*.example.com` cluster),
+ * several paths under one host, a link nothing points at, a link twenty things
+ * point at, and one of each thing the checks look for - an `http://` twin, the
+ * same page listed twice, a localhost URL somebody added from their laptop, a
+ * campaign link with tracking parameters on it, a password pasted into a URL,
+ * and a key that is not a URL at all.
+ */
 export const mockExternalPages: ShellExternalPage[] = [
-  externalPage("https://instagram.com/valbuild"),
-  externalPage("https://linkedin.com/company/val"),
-  externalPage("https://x.com/valbuild"),
-  externalPage("https://github.com/valbuild/val"),
-  externalPage("https://youtube.com/@valbuild"),
-  externalPage("https://portal.example.com"),
-  externalPage("https://status.example.com"),
-  externalPage("https://support.example.com"),
-  externalPage("https://shop.example.com"),
-  externalPage("https://jobs.example.com/val", { errorCount: 1 }),
-  externalPage("https://discord.gg/val"),
-  externalPage("https://val.substack.com"),
+  externalPage("https://instagram.com/valbuild", {
+    fields: [
+      { label: "title", value: "Instagram" },
+      { label: "icon", value: "instagram" },
+    ],
+    usages: [
+      usage("/content/footer.val.ts", "social.0.url", "Footer / Social / 1"),
+      usage("/content/contact.val.ts", "links.2.href", "Contact / Links / 3"),
+      usage(
+        "/app/page.val.ts",
+        "hero.cta.href",
+        "Home / Hero / Call to action",
+      ),
+    ],
+  }),
+  externalPage("https://instagram.com/valbuild/reels", {
+    fields: [{ label: "title", value: "Reels" }],
+    usages: [],
+  }),
+  externalPage("https://linkedin.com/company/val", {
+    fields: [
+      { label: "title", value: "LinkedIn" },
+      { label: "icon", value: "linkedin" },
+    ],
+    usages: [
+      usage("/content/footer.val.ts", "social.1.url", "Footer / Social / 2"),
+      usage("/app/about/page.val.ts", "team.link", "About / Team / Link"),
+    ],
+  }),
+  externalPage("https://x.com/valbuild", {
+    fields: [{ label: "title", value: "X" }],
+    usages: [
+      usage("/content/footer.val.ts", "social.2.url", "Footer / Social / 3"),
+    ],
+  }),
+  externalPage("https://github.com/valbuild/val", {
+    fields: [{ label: "title", value: "GitHub" }],
+    usages: [
+      usage("/content/footer.val.ts", "social.3.url", "Footer / Social / 4"),
+      usage("/app/docs/page.val.ts", "repo.href", "Docs / Repository"),
+      usage("/content/nav.val.ts", "items.4.href", "Navigation / Item 5"),
+    ],
+  }),
+  externalPage("https://youtube.com/@valbuild", {
+    fields: [{ label: "title", value: "YouTube" }],
+    usages: [],
+  }),
+  externalPage("https://portal.example.com", {
+    fields: [{ label: "title", value: "Customer portal" }],
+    usages: [
+      usage("/content/nav.val.ts", "items.2.href", "Navigation / Item 3"),
+      usage("/app/page.val.ts", "banner.href", "Home / Banner"),
+    ],
+  }),
+  // The same page as the one above, written with a trailing slash. Two record
+  // keys, one destination - the thing a flat list of URLs hides completely.
+  externalPage("https://portal.example.com/", {
+    fields: [{ label: "title", value: "Portal" }],
+    usages: [
+      usage("/content/legacy.val.ts", "portalUrl", "Legacy / Portal URL"),
+    ],
+  }),
+  externalPage("https://status.example.com", {
+    fields: [{ label: "title", value: "Status" }],
+    usages: [
+      usage("/content/footer.val.ts", "links.0.href", "Footer / Links / 1"),
+    ],
+  }),
+  // An http:// link whose https:// twin is already in the list.
+  externalPage("http://status.example.com", {
+    fields: [{ label: "title", value: "Status (old)" }],
+    usages: [],
+  }),
+  externalPage("https://support.example.com/help", {
+    fields: [{ label: "title", value: "Help centre" }],
+    usages: [
+      usage("/content/nav.val.ts", "items.5.href", "Navigation / Item 6"),
+      usage("/content/footer.val.ts", "links.1.href", "Footer / Links / 2"),
+      usage("/app/pricing/page.val.ts", "faq.href", "Pricing / FAQ"),
+      usage("/app/docs/page.val.ts", "support.href", "Docs / Support"),
+    ],
+  }),
+  externalPage(
+    "https://shop.example.com/?utm_source=site&utm_campaign=spring",
+    {
+      fields: [{ label: "title", value: "Shop the spring range" }],
+      usages: [usage("/app/page.val.ts", "promo.href", "Home / Promo")],
+    },
+  ),
+  externalPage("https://jobs.example.com/val", {
+    errorCount: 1,
+    fields: [
+      { label: "title", value: "" },
+      { label: "description", value: "Open positions at Val" },
+    ],
+    usages: [
+      usage("/content/footer.val.ts", "links.3.href", "Footer / Links / 4"),
+    ],
+  }),
+  externalPage("http://admin:hunter2@legacy.example.com/reports", {
+    fields: [{ label: "title", value: "Legacy reports" }],
+    usages: [],
+  }),
+  externalPage("http://localhost:3000/preview", {
+    fields: [{ label: "title", value: "Preview" }],
+    usages: [],
+  }),
+  externalPage("discord.gg/val", {
+    errorCount: 1,
+    fields: [{ label: "title", value: "Discord" }],
+    usages: [
+      usage("/content/footer.val.ts", "social.4.url", "Footer / Social / 5"),
+    ],
+  }),
+  externalPage("https://val.substack.com", {
+    fields: [{ label: "title", value: "Newsletter" }],
+    // The scan has not reached every `.jsonValues()` entry yet, so "nothing
+    // found" is not yet an answer. See `ShellExternalPage.usagesComplete`.
+    usages: [],
+    usagesComplete: false,
+  }),
+  externalPage("https://val.build/docs", {
+    fields: [{ label: "title", value: "Documentation" }],
+    usages: [
+      usage("/content/nav.val.ts", "items.0.href", "Navigation / Item 1"),
+      usage("/content/footer.val.ts", "links.4.href", "Footer / Links / 5"),
+    ],
+  }),
 ];
 
 /**

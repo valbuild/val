@@ -87,6 +87,24 @@ const notFoundResponse = z.object({
 const GenericError = z.object({ message: z.string() });
 
 /**
+ * What answered when one URL was opened.
+ *
+ * The one place the Studio's `ExternalUrlProbeResult` and the server's
+ * `ProbeResult` meet, so the two cannot drift without this failing to parse.
+ */
+const ExternalUrlProbeResult = z.union([
+  z.object({
+    kind: z.literal("answered"),
+    code: z.number(),
+    finalUrl: z.string(),
+    ms: z.number(),
+  }),
+  z.object({ kind: z.literal("unreachable"), message: z.string() }),
+  z.object({ kind: z.literal("timeout"), ms: z.number() }),
+  z.object({ kind: z.literal("skipped"), message: z.string() }),
+]);
+
+/**
  * A patch group: the set of patches one user has chosen to publish.
  *
  * Not a patch *set* — a patch set is computed from the schema and says which
@@ -681,6 +699,45 @@ export const Api = {
           json: z.object({
             filePath: z.string(),
             patchId: PatchId,
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * Open a batch of external URLs and report what answered.
+   *
+   * A batch rather than one URL because the client checks a list, and a POST
+   * rather than a GET because the list is the input and does not belong in a
+   * URL or a cache.
+   *
+   * The server makes outbound requests to addresses this body supplies, which
+   * is SSRF by construction - see `linkCheck/addressGuard.ts` for the deny
+   * list that makes it safe, and `docs/plans/external-page-link-checks.md` for
+   * why it is a deny list on the RESOLVED address.
+   */
+  "/external-urls/check": {
+    POST: {
+      req: {
+        body: z.object({
+          /*
+           * Capped, and the cap is the point rather than a formality: each URL
+           * is an outbound connection, and a body is not allowed to ask this
+           * server to open a thousand of them. The client sends ten at a time.
+           */
+          urls: z.array(z.string()).min(1).max(20),
+        }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            /** Keyed by the URL exactly as it was asked about. */
+            results: z.record(z.string(), ExternalUrlProbeResult),
           }),
         }),
       ]),

@@ -152,8 +152,48 @@ describe("RecordSchema", () => {
     expect(
       schema["executeValidate"]("/external.val.ts" as SourcePath, {
         "https://www.google.com": { title: "Test" },
+        "http://www.google.com": { title: "Insecure but absolute" },
       }),
-    ).toBe(false); // No validation errors for valid path
+    ).toBe(false); // No validation errors for valid paths
+  });
+
+  /**
+   * The external router's one rule, which for a long time was not enforced.
+   *
+   * `externalPageRouter.validate` collected these errors and then returned an
+   * empty array, so a key that is not an absolute URL was accepted in silence
+   * and behaved as a relative link on the site. The Studio's add form checks
+   * the same rule while typing, which is why it went unnoticed - but a key
+   * written by hand in a `.val.ts` never goes through that form.
+   */
+  test("router validation: an external key that is not an absolute URL", () => {
+    const schema = record(object({ title: string() })).router(
+      externalPageRouter,
+    );
+    const result = schema["executeValidate"]("/external.val.ts" as SourcePath, {
+      "https://www.google.com": { title: "Valid" },
+      "discord.gg/val": { title: "No scheme" },
+      "/about": { title: "A path, not a URL" },
+      "mailto:hi@example.com": { title: "Not http(s)" },
+    });
+
+    expect(result).not.toBe(false);
+    if (result !== false) {
+      const flagged = Object.values(result)
+        .flat()
+        .map((error) => error.value);
+      expect(flagged).toContain("discord.gg/val");
+      expect(flagged).toContain("/about");
+      expect(flagged).toContain("mailto:hi@example.com");
+      // The valid one is not reported, and the errors are reported against the
+      // KEY rather than against the module, which is what `keyError` means.
+      expect(flagged).not.toContain("https://www.google.com");
+      expect(
+        Object.values(result)
+          .flat()
+          .every((error) => error.keyError === true),
+      ).toBe(true);
+    }
   });
 
   test("router validation: src/app directory structure", () => {
