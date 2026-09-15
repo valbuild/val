@@ -229,8 +229,21 @@ describe("the address guard, on a real connection", () => {
       expect(message).not.toContain("loopback");
       expect(message).not.toContain("resolves");
       expect(message).toBe("the host could not be reached");
-      // The operator still gets it, where it is theirs to see.
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining("127.0.0.1"));
+      /*
+       * The operator still gets it, where it is theirs to see — reason and
+       * address both.
+       *
+       * Matched as a shape rather than as a literal: `localhost` resolves to
+       * `::1` on some machines and `127.0.0.1` on others (CI is the former,
+       * this checkout the latter), and which one it is says nothing about the
+       * behaviour under test. Pinning it made the suite pass locally and fail
+       * on CI.
+       */
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /^\[val\] link check refused localhost: resolves to a loopback address \(.+\)$/,
+        ),
+      );
     } finally {
       warn.mockRestore();
     }

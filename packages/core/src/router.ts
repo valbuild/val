@@ -1,5 +1,20 @@
 import { ModuleFilePath } from "./val";
 
+/**
+ * The router whose keys are absolute URLs to somewhere else.
+ *
+ * Its one rule is that a key is an absolute `http(s)` URL. That rule was
+ * WRITTEN here from the start and never enforced: the errors were collected
+ * into a list and then `return []` threw them away, so every key was accepted
+ * however it was spelled. The Studio's add form checks the same rule while
+ * typing, which is why nobody noticed - but a key written by hand in a
+ * `.val.ts`, or pasted into a `*.val.json`, went in unremarked and then
+ * behaved as a relative link on the site.
+ *
+ * `expectedPath` is null because there is nothing to suggest: a key that is
+ * not a URL could have been meant as any URL, and guessing `https://` in front
+ * of it would propose a different site as often as the right one.
+ */
 export const externalPageRouter: ValRouter = {
   getRouterId: () => "external-url-router",
   validate: (_moduleFilePath, urlPaths): RouteValidationError[] => {
@@ -15,7 +30,7 @@ export const externalPageRouter: ValRouter = {
         });
       }
     }
-    return [];
+    return errors;
   },
 };
 
