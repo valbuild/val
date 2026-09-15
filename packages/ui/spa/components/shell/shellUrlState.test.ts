@@ -145,6 +145,38 @@ describe("the shell's URL state", () => {
     });
   });
 
+  test("a position without a canvas is not written", () => {
+    // The workspace reports where it is from the moment it mounts, so the
+    // shell holds a position whether or not the canvas has ever been opened.
+    // Written out, that put `canvas-at=1.00,0,0` on every URL in the studio —
+    // a view of a canvas nobody had looked at, on a link to a module.
+    expect(
+      applyShellUrlState("", {
+        panel: null,
+        canvasOpen: false,
+        canvasRoute: null,
+        canvasView: "normal",
+        canvasTransform: { scale: 1, x: 0, y: 0 },
+        locale: null,
+      }),
+    ).toBe("");
+  });
+
+  test("closing the canvas takes the position with it", () => {
+    // Otherwise the param outlives the canvas it describes, and a reload
+    // restores a position for a canvas that is not open.
+    expect(
+      applyShellUrlState("?canvas=1&canvas-at=0.56%2C-120%2C40", {
+        panel: null,
+        canvasOpen: false,
+        canvasRoute: null,
+        canvasView: "normal",
+        canvasTransform: { scale: 0.56, x: -120, y: 40 },
+        locale: null,
+      }),
+    ).toBe("");
+  });
+
   test("rounds the position, because nobody reads six decimals", () => {
     const written = applyShellUrlState("", {
       panel: null,
