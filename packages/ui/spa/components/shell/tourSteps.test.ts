@@ -6,6 +6,7 @@ import {
   writeTourCompleted,
 } from "./tourSteps";
 import { TOUR_COPY } from "./tourCopy";
+import type { Json } from "@valbuild/core";
 import { isTourOffered, readStudioSettings } from "../../hooks/studioSettings";
 
 /**
@@ -47,6 +48,43 @@ describe("studioTourSteps", () => {
       "publish",
       "finish",
     ]);
+  });
+
+  /**
+   * The closing step names Settings, and `availableDestinations` omits Settings
+   * for a project with no `s.settings()` module — so the unconditional version
+   * sent those editors looking for a destination that is not in their rail.
+   */
+  test("only mentions Settings where the project has one", () => {
+    const withSettings = studioTourSteps({
+      destinations: ["pages", "settings"],
+    }).find((step) => step.id === "finish");
+    const without = studioTourSteps({ destinations: ["pages"] }).find(
+      (step) => step.id === "finish",
+    );
+    expect(withSettings).toMatchObject(TOUR_COPY.finish);
+    expect(without).toMatchObject(TOUR_COPY.finishWithoutSettings);
+  });
+
+  /**
+   * Every step that is NOT the mode-specific pair has to be true in both modes
+   * and on a phone: `fs` has no live site and says "Save", and a phone keeps
+   * Preview and Publish in the bottom bar rather than along the top.
+   */
+  test("no step outside the publish pair promises something mode-specific", () => {
+    for (const mode of ["fs", "http"] as const) {
+      const steps = studioTourSteps({
+        destinations: ["pages", "media", "data", "settings"],
+        mode,
+        aiEnabled: true,
+      });
+      for (const step of steps) {
+        if (step.id === "publish") continue;
+        expect(step.body).not.toMatch(/\blive\b/i);
+        expect(step.body).not.toMatch(/along the top/i);
+        expect(step.body).not.toMatch(/\bpublish\b/i);
+      }
+    }
   });
 
   test("a marketing site is not told about Data", () => {
@@ -198,12 +236,11 @@ describe("the completed flag", () => {
  * to answer something sensible rather than throw.
  */
 describe("the project's tour setting", () => {
-  const offered = (source: unknown) =>
-    // `readStudioSettings` takes `Json`; these are the shapes a settings module
-    // can actually be in, including the broken ones.
-    isTourOffered(
-      readStudioSettings(source as Parameters<typeof readStudioSettings>[0]),
-    );
+  // Typed as the parser takes it rather than cast into it: every fixture below
+  // IS a `Json`, including the broken ones, and a cast here would stop this
+  // noticing if the parser's input contract ever changed.
+  const offered = (source: Json | undefined) =>
+    isTourOffered(readStudioSettings(source));
 
   test("an untouched project offers it", () => {
     expect(offered({})).toBe(true);

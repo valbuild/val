@@ -475,21 +475,31 @@ export function PagesPanel({
    * pages arriving or being added, not somebody closing a row.
    */
   const pageCount = countPages(pages);
-  const autoExpandedCount = useRef<number | null>(null);
+  /**
+   * Decided once, when the site map first arrives — not on every change to it.
+   *
+   * This was keyed on the page COUNT, which is not a tree shape: collapse a
+   * folder, add a page, and the count changes, so the effect unioned every id
+   * back into `expanded` and reopened the folder that had just been closed on
+   * purpose. Once the tree has arrived, how it is expanded is the reader's.
+   */
+  const autoExpanded = useRef(false);
   // Read inside the effect rather than depended on: `pages` is a fresh array
   // on every render, and re-running on it would re-open every folder a moment
   // after it was collapsed. See `restoreRef` in `Shell` for the same shape.
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
   useEffect(() => {
-    if (
-      pageCount === 0 ||
-      pageCount > SMALL_SITE ||
-      autoExpandedCount.current === pageCount
-    ) {
+    if (autoExpanded.current || pageCount === 0) {
       return;
     }
-    autoExpandedCount.current = pageCount;
+    // The site map is here. Whatever its size, this is the only chance to open
+    // it: a project that starts large and is edited down to a dozen pages must
+    // not suddenly re-open every folder.
+    autoExpanded.current = true;
+    if (pageCount > SMALL_SITE) {
+      return;
+    }
     setExpanded(
       (current) => new Set([...current, ...collectIds(pagesRef.current)]),
     );

@@ -81,4 +81,28 @@ describe("the site map's opening state", () => {
     rerender(panel(site(3)));
     expect(screen.queryByText("/page-0")).not.toBeNull();
   });
+
+  /**
+   * And once it has arrived, how it is expanded belongs to the reader.
+   *
+   * This was keyed on the page COUNT, which is not a tree shape: adding a page
+   * after collapsing a folder changed the count, and the folder was reopened
+   * underneath whoever had just closed it.
+   */
+  test("adding a page does not reopen a folder that was closed", () => {
+    const { rerender } = render(panel(site(4)));
+    fireEvent.click(screen.getByText("Home"));
+    expect(screen.queryByText("/page-0")).toBeNull();
+    rerender(panel(site(5)));
+    expect(screen.queryByText("/page-0")).toBeNull();
+  });
+
+  // The mirror of it: a big site edited down past the threshold must not
+  // suddenly open itself either.
+  test("a site that shrinks past the threshold stays as it was", () => {
+    const { rerender } = render(panel(site(40)));
+    expect(screen.queryByText("/page-0")).toBeNull();
+    rerender(panel(site(5)));
+    expect(screen.queryByText("/page-0")).toBeNull();
+  });
 });

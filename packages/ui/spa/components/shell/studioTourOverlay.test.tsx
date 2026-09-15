@@ -138,11 +138,25 @@ describe("the studio tour", () => {
    */
   test("takes the keyboard into the card, on every step", () => {
     const { container } = render(tour());
-    const card = container.querySelector('[tabindex="-1"]');
+    const card = container.querySelector("[data-val-tour-card]");
     expect(card).not.toBeNull();
     expect(document.activeElement).toBe(card);
     fireEvent.click(screen.getByText("Next"));
     expect(document.activeElement).toBe(card);
+  });
+
+  /**
+   * The card is named after the STEP, not "Studio tour".
+   *
+   * Focus lands on it at every step, so its accessible name is what a screen
+   * reader reads out — and a generic one means hearing the same three words
+   * nine times instead of what each stop is about.
+   */
+  test("announces the step it is showing", () => {
+    render(tour());
+    expect(screen.queryByRole("dialog", { name: "Welcome" })).not.toBeNull();
+    fireEvent.click(screen.getByText("Next"));
+    expect(screen.queryByRole("dialog", { name: "Pages" })).not.toBeNull();
   });
 
   test("gives the keyboard back when it closes", () => {

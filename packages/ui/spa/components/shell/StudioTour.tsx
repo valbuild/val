@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Compass, X } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { TourStep } from "./tourSteps";
@@ -169,6 +169,10 @@ export type StudioTourProps = {
  */
 export function StudioTour({ steps, onClose, onOpenPanel }: StudioTourProps) {
   const [index, setIndex] = useState(0);
+  // Unique per mount: the Studio is one shadow root, and a duplicate id would
+  // point another dialog's label at this card's heading.
+  const titleId = useId();
+  const bodyId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   /**
@@ -279,9 +283,30 @@ export function StudioTour({ steps, onClose, onOpenPanel }: StudioTourProps) {
       scope instanceof Document || scope instanceof ShadowRoot
         ? scope.activeElement
         : null;
+    const root = rootRef.current;
     return () => {
       if (previous instanceof HTMLElement && previous.isConnected) {
         previous.focus();
+        return;
+      }
+      /*
+       * What started the tour is sometimes gone by the time it ends: from Quick
+       * actions, the welcome step closes that panel and unmounts the very
+       * button that was pressed. Landing the keyboard on `<body>` after that
+       * means tabbing back in from the top of the host page.
+       *
+       * Quick actions is the tour's permanent home and the control the last
+       * step points at, so its button is where focus goes instead. Absent on a
+       * phone, where the top bar does not carry it; there is nothing better to
+       * offer there, and no harm in leaving it.
+       */
+      const scope = root?.getRootNode();
+      const fallback =
+        scope instanceof Document || scope instanceof ShadowRoot
+          ? scope.querySelector('[data-val-tour="utility"]')
+          : null;
+      if (fallback instanceof HTMLElement) {
+        fallback.focus();
       }
     };
   }, []);
@@ -292,13 +317,7 @@ export function StudioTour({ steps, onClose, onOpenPanel }: StudioTourProps) {
   if (!step) return null;
 
   return (
-    <div
-      ref={rootRef}
-      className="absolute inset-0 z-overlay"
-      role="dialog"
-      aria-label="Studio tour"
-      aria-modal="false"
-    >
+    <div ref={rootRef} className="absolute inset-0 z-overlay">
       {/*
        * A transparent sheet over the whole shell, so a stray click lands on the
        * tour rather than on the editor underneath. It does NOT dismiss: the
@@ -338,8 +357,24 @@ export function StudioTour({ steps, onClose, onOpenPanel }: StudioTourProps) {
           boxShadow: "0 0 0 9999px rgb(0 0 0 / 0.55)",
         }}
       />
+      {/*
+       * The dialog is the CARD, not the sheet around it.
+       *
+       * It is what focus is moved to on every step, and naming it after the
+       * STEP is the difference between a screen reader announcing "Studio tour"
+       * nine times and announcing what this stop is about. `aria-modal` is
+       * false because it is not one: the panel behind is the thing being
+       * explained, and it stays in the accessibility tree.
+       */}
       <div
         ref={cardRef}
+        role="dialog"
+        aria-modal="false"
+        aria-labelledby={titleId}
+        aria-describedby={bodyId}
+        // A stable hook for the screenshot script, which used to find this by
+        // its accessible name — now the step's title, and so not a constant.
+        data-val-tour-card=""
         // Focusable only programmatically: it is a container, and a tab stop of
         // its own would put an extra empty stop before the buttons.
         tabIndex={-1}
@@ -364,10 +399,16 @@ export function StudioTour({ steps, onClose, onOpenPanel }: StudioTourProps) {
             className="mt-0.5 shrink-0 text-border-brand-secondary"
           />
           <div className="min-w-0 flex-1">
-            <h2 className="text-[0.8125rem] font-semibold tracking-tight">
+            <h2
+              id={titleId}
+              className="text-[0.8125rem] font-semibold tracking-tight"
+            >
               {step.title}
             </h2>
-            <p className="mt-1.5 text-xs leading-relaxed text-fg-secondary">
+            <p
+              id={bodyId}
+              className="mt-1.5 text-xs leading-relaxed text-fg-secondary"
+            >
               {step.body}
             </p>
           </div>

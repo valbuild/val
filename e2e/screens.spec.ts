@@ -15,7 +15,11 @@ import {
  * Not a test — nothing here asserts anything about correctness — but it lives
  * with the tests because it needs exactly what they need: the app running, the
  * studio taken in, and a way to reach a state worth looking at. Run it with
- * `npx playwright test screens` and look in `screens/`.
+ * `pnpm exec playwright test --project=screens` and look in `screens/`.
+ *
+ * `--project=screens` and not a positional `screens`: that argument is a file
+ * filter, and this project is only DECLARED when it is named — see
+ * `playwright.config.ts` — so the positional form silently runs nothing.
  *
  * Kept because a redesign is judged by looking at it, and "open the studio,
  * pick a page, turn on preview mode, switch to the fields view" is a lot of
@@ -174,7 +178,9 @@ test("first run and the tour", async ({ page }) => {
    * conditional on the project, so a fixed number here would be a number that
    * is wrong for the next project somebody points this at.
    */
-  const card = studio.getByRole("dialog", { name: "Studio tour" });
+  // By its stable hook rather than its accessible name: the card is named after
+  // the STEP now, so a screen reader announces what this stop is about.
+  const card = studio.locator("[data-val-tour-card]");
   const counter = await card.getByText(/^\d+ \/ \d+$/).textContent();
   const total = Number((counter ?? "1 / 1").split("/")[1].trim());
   for (let step = 1; step <= total; step++) {

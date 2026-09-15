@@ -117,7 +117,15 @@ export function studioTourSteps({
     ...(mode === "fs" ? TOUR_COPY.save : TOUR_COPY.publish),
     target: "publish",
   });
-  steps.push({ id: "finish", ...TOUR_COPY.finish, target: "utility" });
+  // The closing step names Settings, which a project without an `s.settings()`
+  // module does not have — see `availableDestinations`.
+  steps.push({
+    id: "finish",
+    ...(destinations.includes("settings")
+      ? TOUR_COPY.finish
+      : TOUR_COPY.finishWithoutSettings),
+    target: "utility",
+  });
   return steps;
 }
 

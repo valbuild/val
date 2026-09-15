@@ -283,19 +283,27 @@ export async function openNavPanel(
 /**
  * Expand a row in the Pages panel, by name.
  *
- * Reaching a nested page means opening the rows above it — except where the
- * panel has already opened them. A SMALL site map arrives expanded (see
- * `SMALL_SITE` in `PagesPanel`), and the example app is a small site, so a
- * click here is as likely to close a row as to open one. A row that is a
- * disclosure says which it is; a leaf page has no `aria-expanded` at all and is
- * always clicked, because on a leaf the click is the selection.
+ * Reaching a nested page means opening the rows above it — and a SMALL site map
+ * arrives already expanded (see `SMALL_SITE` in `PagesPanel`), so a click here
+ * is as likely to close a row as to open one. This leaves the row open and
+ * selected whichever state it started in. A leaf page has no `aria-expanded` at
+ * all and is clicked once, because on a leaf the click IS the selection.
  */
 export async function expandRow(studio: Locator, name: string): Promise<void> {
   const row = studio.getByRole("button", { name, exact: true }).first();
-  if ((await row.getAttribute("aria-expanded")) === "true") {
-    return;
-  }
   await row.click();
+  // A row that was ALREADY open has just been closed by that click, so click
+  // again: it ends open either way.
+  //
+  // Not an early return when it is already open, which was the first attempt
+  // and quietly dropped half of what this does. Clicking a page row SELECTS it
+  // as well as toggling it, and the selection is what most callers are here
+  // for — `openSiteMap` is how the home page gets opened in the editor. Skipping
+  // the click kept the row open and left the previous page selected, which is a
+  // failure two assertions later, in a test about something else.
+  if ((await row.getAttribute("aria-expanded")) === "false") {
+    await row.click();
+  }
 }
 
 /**

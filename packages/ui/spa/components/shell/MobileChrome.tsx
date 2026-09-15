@@ -163,15 +163,24 @@ export function MobileBottomBar({
           className="h-9 min-w-0 flex-1"
         />
       </span>
-      <span data-val-tour="publish" className="flex min-w-0 flex-1">
-        {publishSlot ?? (
-          <PublishButton
-            pendingChanges={pendingChanges}
-            onPublish={onPublish}
-            className="h-9 min-w-0 flex-1"
-          />
-        )}
-      </span>
+      {/*
+       * NOT wrapped for the tour, unlike Preview above.
+       *
+       * The publish control here is the app's own (`publishSlot`), and its
+       * button carries `min-w-[6.5rem]` that a wrapper cannot talk it out of.
+       * Putting it one level down inside a shrinkable span changes what this
+       * row's flex algorithm sees at 320px, where the comment above records
+       * that the fit was already fought for once. The publish STEP simply
+       * centres its card on a phone, which is what every step does where the
+       * control it points at is not drawn — see `TourStep.target`.
+       */}
+      {publishSlot ?? (
+        <PublishButton
+          pendingChanges={pendingChanges}
+          onPublish={onPublish}
+          className="h-9 min-w-0 flex-1"
+        />
+      )}
     </div>
   );
 }

@@ -35,6 +35,12 @@ export type TourText = { title: string; body: string };
  * `publish` and `save` are the same step wearing the word the button actually
  * wears: running against a local checkout the control says "Save", and a step
  * promising to send something live would be pointing at a button that does not.
+ * `finish` and `finishWithoutSettings` pair up the same way.
+ *
+ * Everything else has to be true in BOTH modes, and on a phone — which is why
+ * no step says "live", "publish" or "along the top" outside the pair above. In
+ * `fs` mode nothing is live and the baseline Review compares against is the
+ * working tree; on a phone Preview and Publish are in the bottom bar.
  */
 export type TourStepId =
   | "welcome"
@@ -46,12 +52,13 @@ export type TourStepId =
   | "preview"
   | "publish"
   | "save"
-  | "finish";
+  | "finish"
+  | "finishWithoutSettings";
 
 export const TOUR_COPY: Record<TourStepId, TourText> = {
   welcome: {
     title: "Welcome to the Studio",
-    body: "Your content is on the left and opens in the middle. Everything you change is a draft that nobody outside can see until you publish it, which is what the buttons along the top are for. About a minute.",
+    body: "Your content is on the left and opens in the middle. Everything you change is a draft that nobody else sees until you send it out — the last three stops are how that works. About a minute.",
   },
   pages: {
     title: "Pages — every URL on your site",
@@ -67,11 +74,11 @@ export const TOUR_COPY: Record<TourStepId, TourText> = {
   },
   ai: {
     title: "Ask the assistant",
-    body: "It can find content, draft it and change it for you, in plain words. What it writes is a draft like any other, so nothing it does goes live until you publish — it is safe to ask, and easy to undo.",
+    body: "It can find content, draft it and change it for you, in plain words. What it writes is a draft like any other, so nothing it does is sent until you send it — it is safe to ask, and easy to undo.",
   },
   review: {
     title: "Review before you send",
-    body: "Every change you have made, side by side with what is live now. It is also where you throw away an edit you have changed your mind about.",
+    body: "Every change you have made, side by side with what is there now. It is also where you throw away an edit you have changed your mind about.",
   },
   preview: {
     title: "Preview on the real page",
@@ -88,5 +95,15 @@ export const TOUR_COPY: Record<TourStepId, TourText> = {
   finish: {
     title: "That is everything",
     body: "Quick actions keeps the tour, so you can run it again or hand it to whoever edits next. Settings turns the offer off for the whole project.",
+  },
+  /**
+   * The same step for a project with no `s.settings()` module.
+   *
+   * There is no Settings in its rail, so the sentence about switching the offer
+   * off would send somebody looking for a destination that is not there.
+   */
+  finishWithoutSettings: {
+    title: "That is everything",
+    body: "Quick actions keeps the tour, so you can run it again or hand it to whoever edits next.",
   },
 };
