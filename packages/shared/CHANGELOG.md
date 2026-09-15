@@ -1,5 +1,12 @@
 # @valbuild/shared
 
+## 0.129.1
+
+### Patch Changes
+
+- Updated dependencies [[`8425378`](https://github.com/valbuild/val/commit/8425378c315ea46b5d822f1130b633e0449ff1b0), [`473a185`](https://github.com/valbuild/val/commit/473a185f70351b44388f3bc1852649e2c1dbe001), [`64f0de3`](https://github.com/valbuild/val/commit/64f0de339b8621cb5a6c422dfe55cae5b2bbe2a0)]:
+  - @valbuild/core@0.129.1
+
 ## 0.129.0
 
 ### Minor Changes
