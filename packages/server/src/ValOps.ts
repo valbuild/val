@@ -2202,6 +2202,29 @@ export abstract class ValOps {
   }
 
   // #region abstract ops
+  /**
+   * Whether the patches live HERE, in this server, or in Val's content service.
+   *
+   * Almost everything the routes branch on comes from this one fact, which is
+   * why it is a named property rather than an `instanceof`. If this server owns
+   * the store then there is no content service to authenticate to (so an absent
+   * or unverifiable session is anonymous rather than a 401), no shared store for
+   * a patch group to separate authors in, no deployments to report, and a
+   * "publish" writes what the host does with it rather than pushing a commit. If
+   * it does not, every one of those is the content service's and this server is
+   * relaying.
+   *
+   * There were two implementations when the routes were written and `instanceof
+   * ValOpsFS` meant this; a third made that reading wrong in a way that compiles
+   * silently -- a store that is local, answers none of the checks, and gets the
+   * http path with no content service behind it.
+   *
+   * It is also what `/stat` reports as `mode`. The wire name predates the third
+   * implementation and names a class, but the question the client is asking is
+   * this one: does it auto-save and hide the account panel, or does it publish.
+   */
+  abstract readonly patchesAreLocal: boolean;
+
   abstract onInit(baseSha: BaseSha, schemaSha: SchemaSha): Promise<void>;
   abstract fetchPatches<ExcludePatchOps extends boolean>(filters: {
     patchIds?: PatchId[];

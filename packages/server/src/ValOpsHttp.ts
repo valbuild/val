@@ -346,6 +346,9 @@ export class ValOpsHttp extends ValOps {
     | { Authorization: string }
     | { "x-val-pat": string };
   private readonly root: string;
+  /** Val's content service owns the store. See {@link ValOps.patchesAreLocal}. */
+  override readonly patchesAreLocal = false;
+
   constructor(
     private readonly contentUrl: string,
     private readonly project: string,

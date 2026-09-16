@@ -16,7 +16,7 @@ adopt yet.
 
 ## 1. The goal
 
-Val Studio running *inside* the browser-built platform
+Val Studio running _inside_ the browser-built platform
 (`freekh/experiment-browser-built-tanstack-start`), where:
 
 - the Studio can be used to create patches, and
@@ -84,7 +84,7 @@ the embedded Studio bundle. TypeScript is not incidental: content is `.val.ts`
 source, so applying a patch means rewriting a TypeScript AST
 (`packages/server/src/patch/ts/`).
 
-`initValContent` — the *readers*, all a rendering deployment needs — imports
+`initValContent` — the _readers_, all a rendering deployment needs — imports
 `createValServer` from `@valbuild/server` exactly like `initValServer` does, so
 **there is no lighter read path to pick today**.
 
@@ -92,7 +92,7 @@ source, so applying a patch means rewriting a TypeScript AST
 
 `ValOps` has two implementations: `ValOpsFS` (disk) and `ValOpsHttp`
 (**fetch-only, no `fs` at all**). Val is already written against an abstract
-backend. What is missing is not the abstraction but the *dispatch*: `/save` in
+backend. What is missing is not the abstraction but the _dispatch_: `/save` in
 `ValServer.ts` branches on `serverOps instanceof ValOpsFS` / `instanceof
 ValOpsHttp`, and `createValOps` returns that two-member union. So there is no
 `publish()` to override — adding one is the work.
@@ -122,7 +122,7 @@ branch.
    files to the caller, which writes them and publishes.
 
 **Chosen direction: 3**, with a caveat found while costing it: the credential.
-`ValOpsHttp` authenticates with either `apiKey` (the *app's* secret — cannot go
+`ValOpsHttp` authenticates with either `apiKey` (the _app's_ secret — cannot go
 in a tab) or `pat` (per-user). Val deliberately stopped building PAT-based
 requests server-side. So a tab talking to content.val.build directly needs a PAT
 flow and CORS, or the isolate keeps a **credential proxy**: the tab does the
@@ -135,9 +135,16 @@ needs no `fs`, no TypeScript, no chokidar.
 the real project through it.** `/api/val/stat` answers:
 
 ```json
-{"type":"did-change","baseSha":"7236c91a…","schemaSha":"3e5eead8…",
- "sourcesSha":"95832bfb…","patches":[],"profileId":null,"mode":"fs",
- "config":{"defaultTheme":"dark"}}
+{
+  "type": "did-change",
+  "baseSha": "7236c91a…",
+  "schemaSha": "3e5eead8…",
+  "sourcesSha": "95832bfb…",
+  "patches": [],
+  "profileId": null,
+  "mode": "fs",
+  "config": { "defaultTheme": "dark" }
+}
 ```
 
 and the Studio's Pages panel lists the project's route. Those shas are computed
@@ -146,7 +153,7 @@ from the project's actual modules, and the TypeScript compiler is doing the work
 verified on its own before any of Val was attempted.
 
 This means **option 3's premise is weaker than it looked**: the server half does
-not *have* to move to the tab. It can, and there may still be good reasons
+not _have_ to move to the tab. It can, and there may still be good reasons
 (8.7 MB of compiler per isolate, cold start), but "a Worker cannot run it" is no
 longer one of them.
 
@@ -169,7 +176,7 @@ Five things cost real time, each worth knowing:
 1. **The import audit had a false positive.** It scanned emitted text with
    `/from\s*["']([^"']+)["']/`, which matches inside string literals — and
    TypeScript's diagnostics contain `Consider using 'import * as ns from
-   "mod"'`. Bundling the compiler was rejected for importing a package called
+"mod"'`. Bundling the compiler was rejected for importing a package called
    `mod`. `prettier` was rejected the same way, so the earlier claim that it
    "needs node:module" was never true.
 2. **A CJS `require` of an external throws at startup.** `require("path")`
@@ -179,9 +186,9 @@ Five things cost real time, each worth knowing:
 4. **A stub exporting only `default` breaks CJS interop** —
    `fs.realpathSync.native` becomes `undefined.native`.
 5. **Guessing a builtin's shape fails silently.** `import * as ns from
-   'node:path'; ns.join` was undefined, surfacing as `ue.join is not a function`
+'node:path'; ns.join` was undefined, surfacing as `ue.join is not a function`
    from inside minified Val code. `path` is a bundled pure-JS implementation
-   now. `nodejs_compat` is *not* the fix: it became the default at compatibility
+   now. `nodejs_compat` is _not_ the fix: it became the default at compatibility
    date 2026-08-04 and passing it explicitly is an error.
 
 ### The Val change
@@ -214,7 +221,7 @@ Three things were needed:
   called on a **directory** fd after a rename. (`architecture/patch-store.md`.)
 - **Seeding the filesystem with the project's source.** `prepare()` reads the
   `.val.ts` file to patch it, so an empty fs failed with `File not found:
-  /bundle/src/routes/_site.index.val.ts`. The platform has those files; the
+/bundle/src/routes/_site.index.val.ts`. The platform has those files; the
   publish step now writes them as a sibling module of the vendor layer and the
   shim seeds itself from it at module scope.
 - **Putting the seed in the layer revision.** The rev is derived from the built
@@ -255,11 +262,11 @@ Node: it is pure functions over an in-memory `ValModules`. That is exactly the
 
 The two `vm` users are **not** in that path:
 
-| caller | reached from |
-| --- | --- |
+| caller                                                | reached from                                                             |
+| ----------------------------------------------------- | ------------------------------------------------------------------------ |
 | `createService` → `loadValModules` (`Service.ts:103`) | CLI `runValidation`, CLI `listUnusedFiles`, language-server `ValProject` |
-| `evalValConfigFile` | CLI `validate`, `connect`, `listUnusedFiles`, debug |
-| `loadValModules` directly | CLI debug `context.ts`, `server/src/debug/replaySnapshot.ts` |
+| `evalValConfigFile`                                   | CLI `validate`, `connect`, `listUnusedFiles`, debug                      |
+| `loadValModules` directly                             | CLI debug `context.ts`, `server/src/debug/replaySnapshot.ts`             |
 
 `createValServer`, `ValRouter` and `ValOps` reach none of them. `vm` enters the
 bundle only because `packages/server/src/index.ts` is one barrel that exports
@@ -273,18 +280,18 @@ called it. That was structural, not luck.
 1. **Separate the entry.** Move `createService`, `loadValModules` and
    `evalValConfigFile` behind their own export (`@valbuild/server/tooling`).
    The request path then cannot reach `vm`, `chokidar` or the TypeScript
-   compiler *by construction*, and any host — not just this one — gets a
+   compiler _by construction_, and any host — not just this one — gets a
    server bundle that is Val's ~1.2 MB of logic rather than 16 MB.
 2. **Dynamic import inside the barrel, and never call it.** Cheaper, and it is
    what `isValEnabled` already tried. It does not survive a host that bundles
    ahead of time and audits chunks: a dynamically imported chunk is still a
-   chunk. It would work *here* only because we shim what it asks for.
+   chunk. It would work _here_ only because we shim what it asks for.
 
 (1) is the real fix. (2) is a smaller change that leaves the coupling in place.
 
 **What this does not remove.** The CLI, the language server and `val validate`
 genuinely evaluate `.val.ts`, and should keep doing so — they run on Node. The
-claim is only that the *server request path* has no such need, which the code
+claim is only that the _server request path_ has no such need, which the code
 already reflects.
 
 **Caveat, stated plainly:** only the READ path has been exercised. `/stat` and
@@ -357,6 +364,10 @@ content and nothing visible; the playground copy renders it now.
 
 ## 8c. `/stat` long-polls, and that is wrong in an isolate
 
+**Resolved by §8d/§8e** — option 2 below, via the third mode. `/stat` now
+answers in 28 ms instead of holding a request open for 20 s. Kept because the
+analysis is what chose the fix.
+
 **Observed:** the Studio hammers `/api/val/stat` continuously. Worth being
 precise about, because part of it is by design and part of it is not.
 
@@ -365,12 +376,12 @@ precise about, because part of it is by design and part of it is not.
 In `fs` mode `getStat` is a **long-poll**, not a request. It holds the response
 open and races four things (`ValOpsFS.ts`, ~line 440):
 
-| | |
-| --- | --- |
-| `didDirectoryChangeUsingPolling` on `.val/patches` | `statFilePollingInterval`, default **250 ms** |
-| `didFilesChangeUsingPolling` on `val.config`, `val.modules` and every module file | same 250 ms |
-| `fs.watch` on the same files | event-driven |
-| a timeout resolving `"no-change"` | `statPollingInterval`, default **20 s** |
+|                                                                                   |                                               |
+| --------------------------------------------------------------------------------- | --------------------------------------------- |
+| `didDirectoryChangeUsingPolling` on `.val/patches`                                | `statFilePollingInterval`, default **250 ms** |
+| `didFilesChangeUsingPolling` on `val.config`, `val.modules` and every module file | same 250 ms                                   |
+| `fs.watch` on the same files                                                      | event-driven                                  |
+| a timeout resolving `"no-change"`                                                 | `statPollingInterval`, default **20 s**       |
 
 The client re-requests as soon as it returns. That is deliberate and correct for
 local development: the developer edits a `.val.ts` in their editor and the
@@ -382,7 +393,7 @@ Studio notices without a reload.
   `close` that never fires. So the event-driven branch can never win.
 - **`mtime` is always 0** in the in-memory filesystem, so the file-mtime poller
   can never see a change either. The patches-directory poller still works,
-  because it compares the *number* of entries, which is why `request-again`
+  because it compares the _number_ of entries, which is why `request-again`
   appears after a patch is created.
 - So in practice every stat runs a **250 ms timer for up to 20 s** and then
   answers `no-change`, and the client immediately asks again. In a Worker that
@@ -390,10 +401,10 @@ Studio notices without a reload.
   anything.
 - **The watch has nothing to watch.** Nothing edits files behind Val's back in
   an isolate: source changes only through a republish, and a republish creates a
-  *new* isolate with new content. The entire mechanism is answering a question
+  _new_ isolate with new content. The entire mechanism is answering a question
   that cannot have a different answer.
 
-Note also that the retry storm seen while saves were failing was a *separate*
+Note also that the retry storm seen while saves were failing was a _separate_
 cause — the Studio re-sending a save it could not complete. Fixing that did not
 stop the polling, because the polling is not a symptom of it.
 
@@ -413,7 +424,15 @@ stop the polling, because the polling is not a symptom of it.
 
 Worth doing (1) now to stop the CPU burn, and (2) as the real answer.
 
-## 8d. The third mode — scoped
+**What happened:** (2), and it came free with (3). `ValOpsMemory.getStat`
+answers from its store, so there was never a (1) to thread through.
+
+## 8d. The third mode — BUILT, and the loop runs on it
+
+**Status: done and exercised end to end.** `ValOpsMemory` is in
+`packages/server/src/ValOpsMemory.ts`, selected by `mode: "memory"`, and the
+whole edit → save → republish → live-site loop now runs through it. See
+[§8e](#8e-what-the-third-mode-fixed) for what it fixed and what it did not.
 
 **Decided: build a third `ValOps`.** `fs` mode is a developer's machine and
 `http` mode is content.val.build; this host is neither, and forcing it into `fs`
@@ -423,7 +442,7 @@ is what produces the failures below.
 
 - **`/stat` long-polls** against watchers that cannot fire (§8c).
 - **`/api/val/enable` 500s** with `ReferenceError: Cannot access 'fs' before
-  initialization` — a temporal-dead-zone error inside a bundled vendor chunk,
+initialization` — a temporal-dead-zone error inside a bundled vendor chunk,
   the same class as prettier's `Cannot access 'y'`. It comes from the shimmed
   `fs` graph participating in a module cycle. Chasing the minified cycle is the
   wrong fix: in this mode Val should not be reaching for `fs` at all.
@@ -435,11 +454,11 @@ is what produces the failures below.
 `ValOps` has **17 abstract members**. With remote-files-only (§9.4) they split
 three ways:
 
-| | |
-| --- | --- |
-| **implement** (6) | `getStat`, `onInit`, `fetchPatches`, `saveSourceFilePatch`, `getSourceFile`, `deletePatches` |
-| **refuse, clearly** (4) | the local binary-file ones — `saveBase64EncodedBinaryFileFromPatch`, `getBase64EncodedBinaryFileFromPatch`, `getBinaryFile`, `getBinaryFileMetadata`. Remote files do not go through these. |
-| **empty, for now** (6) | git history — `listCommits`, `getCommitPatches`, `getCommitModules`, `getCommitAffectedFiles`, `getFileAtCommit`, `gitPathOfModule`. There is no git here; the History UI degrades rather than lies. |
+|                         |                                                                                                                                                                                                      |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **implement** (6)       | `getStat`, `onInit`, `fetchPatches`, `saveSourceFilePatch`, `getSourceFile`, `deletePatches`                                                                                                         |
+| **refuse, clearly** (4) | the local binary-file ones — `saveBase64EncodedBinaryFileFromPatch`, `getBase64EncodedBinaryFileFromPatch`, `getBinaryFile`, `getBinaryFileMetadata`. Remote files do not go through these.          |
+| **empty, for now** (6)  | git history — `listCommits`, `getCommitPatches`, `getCommitModules`, `getCommitAffectedFiles`, `getFileAtCommit`, `gitPathOfModule`. There is no git here; the History UI degrades rather than lies. |
 
 Two things outside that list:
 
@@ -457,10 +476,10 @@ A **pluggable patch store**, so the mode is not tied to where patches live:
 
 ```ts
 interface ValPatchStore {
-  list(): Promise<PatchId[]>
-  get(id: PatchId): Promise<StoredPatch | null>
-  put(patch: StoredPatch): Promise<void>
-  delete(ids: PatchId[]): Promise<void>
+  list(): Promise<PatchId[]>;
+  get(id: PatchId): Promise<StoredPatch | null>;
+  put(patch: StoredPatch): Promise<void>;
+  delete(ids: PatchId[]): Promise<void>;
 }
 ```
 
@@ -471,6 +490,99 @@ rewrite.
 
 `getStat` answers immediately: nothing edits files behind Val's back here, so
 there is nothing to wait for (§8c).
+
+## 8e. What the third mode fixed
+
+Built as scoped above. Measured against the same playground, `--mode studio`.
+
+### The loop, verified
+
+Every step below was run against a freshly published build, not a hand-modified
+working copy:
+
+| step                                       | result                                                                                                      |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `PUT /api/val/patches`                     | `{"newPatchIds":["8b45e9b0-…"]}` — stored in `ValOpsMemory`                                                 |
+| `POST /api/val/stat`                       | lists the patch, **28 ms**, `mode: "fs"`                                                                    |
+| `PUT /api/val/sources/~` with the patch id | the edited value comes back                                                                                 |
+| `POST /api/val/save`                       | `{}` — the patch is applied to the real `.val.ts` through Val's TS AST, and `commitPrepared` parks the file |
+| `GET /__api/source`                        | the parked `.val.ts` carries the edit                                                                       |
+| `pnpm val:republish`                       | new build published                                                                                         |
+| `GET /`                                    | the live page serves the edited text                                                                        |
+| `GET /api/val/patches`                     | empty; the base sha has moved                                                                               |
+
+`/api/val/enable` answers `302` with both cookies. The Studio itself loads at
+`/val` and reports "All changes saved".
+
+### Three things it fixed
+
+1. **`/stat` no longer long-polls.** 20 s of held-open request per poll became
+   28 ms. `ValOpsMemory.getStat` answers from the store, because nothing can
+   edit files behind Val's back in an isolate: the source arrived at
+   construction and only changes when the host rebuilds, which replaces the
+   object. This closes §8c without needing `disableFilePolling`.
+
+2. **`/enable` 500 — and it was NOT what §8d assumed.** The `ReferenceError:
+Cannot access 'fs' before initialization` was not the shimmed filesystem
+   being in a module cycle. It was the platform's re-export shims **importing
+   themselves**: `nodeShims`' `resolveId` mapped every `node:X` to the shim for
+   `X`, including the `node:X` inside that very shim. So
+
+   ```js
+   import * as ns from "node:stream"; // -> resolves back to the stream shim
+   const mod = ns.default ?? ns; // -> const mod = mod ?? ns
+   ```
+
+   and the minifier, which can see that `ns.default` IS `mod`, emitted
+   `const fs=fs??ds` verbatim. A TDZ, named after a minified identifier with
+   nothing to do with `fs`.
+
+   It was also **silently wrong everywhere it did not throw**: a shim that
+   imports itself never reaches the builtin, so `pick()` answered `undefined`
+   for every name. That is the real reason `crypto.randomUUID` needed a Web
+   Crypto fallback — the `node:crypto` half was never reaching `node:crypto`.
+   One line in `packages/publish/src/node-shims.ts`: an importer that is itself
+   a shim gets the builtin as an external.
+
+3. **Val no longer reads a filesystem for source.** `sourceFiles` is handed in.
+   The platform ships the project's own source into the isolate as
+   `bbs:project-source` — the same seed module the memory filesystem uses,
+   now registered in the project's vendor layer so a project can `import
+{ FILES } from 'bbs:project-source'`. Worker-only: a client import of it is
+   rejected by name.
+
+### What changed in Val, beyond the new file
+
+`instanceof ValOpsFS` was the routes' way of asking "is this a local store" —
+correct while there were two implementations, and silently wrong with three: a
+local store would have answered none of the checks and taken the http path with
+no content service behind it. It is now
+`ValOps.patchesAreLocal`, a named abstract property, at all 17 policy sites.
+Three sites keep `instanceof ValOpsFS` deliberately, each because it calls
+something only a filesystem has: `saveOrUploadFiles`, the AI-image mirroring
+into a patch directory, and the presigned-nonce lookup.
+
+`/stat`'s wire `mode` is derived from `patchesAreLocal` too. It still answers
+`"fs"` — the wire name predates the third implementation, and the question the
+client is actually asking ("do I auto-save, or do I publish?") has the same
+answer for both local stores. `"unknown"` used to be a 500.
+
+### What is still open
+
+- **The patch store is not durable.** `InMemoryPatchStore` dies with the
+  isolate. It survived across requests in testing because the loader keeps the
+  isolate warm — that is luck, not a guarantee. §9.2 is the fix, and
+  `ValPatchStore` is the seam that makes it a swap.
+- **Binary files are unimplemented, not just remote.** The four local binary
+  methods refuse by name. Remote files still need the bytes held pending until
+  publish (that is how Val's remote files work — the push to `remote.val.build`
+  happens at publish, from `saveOrUploadFiles`), so `s.image()` does not work in
+  this mode yet. §9.4.
+- **`--node-shims` is still required**, because `@valbuild/server` imports `fs`,
+  `path` and `typescript` at module scope even when nothing calls them. Val no
+  longer _uses_ the shimmed filesystem; it is still _linked_ against it.
+- The AI endpoints, profiles and direct uploads need a configured Val project;
+  they answer 401/500 without one, which is what the Studio screenshot shows.
 
 ## 9. What full support needs
 
@@ -497,7 +609,7 @@ builds. The first is fewer moving parts. This is a real fork, not a detail.
 Patches currently live in isolate memory and die with it. The obvious fix is KV,
 and **KV cannot do it**: Val's store is built on a lock
 (`.val/patches.lock`, opened `wx` = `O_CREAT|O_EXCL`) and an ordering log whose
-*position in the file* is the chain. KV is eventually consistent and has no
+_position in the file_ is the chain. KV is eventually consistent and has no
 compare-and-swap, so two tabs can both believe they hold the lock, and the log
 can be read stale. `architecture/patch-store.md` exists because that class of
 bug already cost Val an incident.
@@ -540,7 +652,7 @@ configuration. `ValOps` still uses `Buffer` in 8 places; fine in a Worker.
 
 ### 9.5 Draft mode and preview
 
-The Studio's Preview renders the site with *unpublished* patches applied. That
+The Studio's Preview renders the site with _unpublished_ patches applied. That
 is `initValContent` + `draftMode`, which exist — but the isolate has to be able
 to read the pending patches at render time. Mostly falls out of 9.2.
 

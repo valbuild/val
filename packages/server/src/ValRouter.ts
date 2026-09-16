@@ -18,6 +18,8 @@ type Versions = {
     next?: string;
   };
 };
+import type { ValPatchStore } from "./ValOpsMemory";
+
 export type ValApiOptions = ValServerOverrides & ValConfig & Versions;
 
 type ValServerOverrides = Partial<{
@@ -58,6 +60,26 @@ type ValServerOverrides = Partial<{
    * If both is missing, it will default to "local".
    */
   mode: "proxy" | "local";
+  /**
+   * The project's source, by path -- and, by being present, the choice of an
+   * in-memory store over the local filesystem.
+   *
+   * EXPERIMENTAL. For a host that HOLDS the project's source rather than having
+   * it on a disk: it hands it over here, patches live in `patchStore`, and a
+   * publish is whatever `commitPrepared` does with the files. See
+   * `ValOpsMemory`.
+   *
+   * Selected by presence rather than by a `mode` value because unlike "local"
+   * and "proxy" this one cannot be inferred from the environment -- there is
+   * nothing to infer it FROM, and a mode that can be turned on without
+   * supplying the source would be a server with no content in it.
+   */
+  sourceFiles: Record<string, string>;
+  /**
+   * Where pending patches live, with {@link sourceFiles}. Defaults to memory,
+   * which is not durable -- see `ValPatchStore`.
+   */
+  patchStore: ValPatchStore;
   /**
    * Current git commit.
    *

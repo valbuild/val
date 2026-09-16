@@ -1,5 +1,9 @@
 import { Internal, ValConfig, ValModules } from "@valbuild/core";
-import { createValApiRouter, createValServer } from "@valbuild/server";
+import {
+  createValApiRouter,
+  createValServer,
+  type ValPatchStore,
+} from "@valbuild/server";
 import { VERSION } from "../version";
 import { valDraftMode, type ValDraftMode } from "./valDraftMode";
 
@@ -19,6 +23,8 @@ const initValApiHandler = (
   commitPrepared?: (commit: {
     patchedSourceFiles: Record<string, string | null>;
   }) => Promise<void>,
+  sourceFiles?: Record<string, string>,
+  patchStore?: ValPatchStore,
 ): ((req: Request) => Promise<Response>) => {
   const route = "/api/val"; // TODO: get from config
   const coreVersion = Internal.VERSION.core;
@@ -50,6 +56,14 @@ const initValApiHandler = (
           core: coreVersion,
         },
         ...config,
+        /*
+         * Present only when the host supplied one: `sourceFiles` is what
+         * SELECTS the in-memory store, so a key set to `undefined` would be
+         * indistinguishable from a host that meant to supply nothing, and
+         * `initHandlerOptions` checks presence.
+         */
+        ...(sourceFiles !== undefined ? { sourceFiles } : {}),
+        ...(patchStore !== undefined ? { patchStore } : {}),
       },
       config,
       {
@@ -182,6 +196,23 @@ export function initValServer(
     commitPrepared?: (commit: {
       patchedSourceFiles: Record<string, string | null>;
     }) => Promise<void>;
+    /**
+     * The project's source, by path — and, by being present, the choice of an
+     * in-memory store over the local filesystem.
+     *
+     * EXPERIMENTAL — see VAL_PROMPT.md. For a host that HOLDS the source rather
+     * than having it on a disk: `fs` mode wants a working tree it can watch and
+     * write, and giving such a host a shimmed filesystem to read through is
+     * what produced a `/stat` long-polling watchers that cannot fire. Here it
+     * simply hands the source over, and `commitPrepared` is where the publish
+     * goes.
+     */
+    sourceFiles?: Record<string, string>;
+    /**
+     * Where pending patches live, with {@link sourceFiles}. Defaults to memory,
+     * which dies with the process — see `ValPatchStore` for the durable swap.
+     */
+    patchStore?: ValPatchStore;
   },
 ): {
   /**
@@ -217,6 +248,8 @@ export function initValServer(
       draftMode,
       opts?.formatter,
       opts?.commitPrepared,
+      opts?.sourceFiles,
+      opts?.patchStore,
     ),
     draftMode,
   };

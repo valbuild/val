@@ -88,6 +88,9 @@ function serializeSchemaSafely(
 export class ValOpsFS extends ValOps {
   private static readonly VAL_DIR = ".val";
   private readonly host: FSOpsHost;
+  /** The developer's own working tree. See {@link ValOps.patchesAreLocal}. */
+  override readonly patchesAreLocal = true;
+
   constructor(
     private readonly contentUrl: string,
     private readonly rootDir: string,

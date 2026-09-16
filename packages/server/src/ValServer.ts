@@ -47,9 +47,11 @@ import {
   OrderedPatches,
   SchemaSha,
   SourcesSha,
+  ValOps,
 } from "./ValOps";
 import { fromError } from "zod-validation-error";
 import { ValOpsHttp } from "./ValOpsHttp";
+import { ValOpsMemory, type ValPatchStore } from "./ValOpsMemory";
 import { result } from "@valbuild/core/fp";
 import type { HistoryError } from "./history/HistoryError";
 import { historyErrorMessage } from "./history/HistoryError";
@@ -113,6 +115,23 @@ export type ValServerConfig = ValServerOptions &
         root?: string;
         config: ValConfig;
       }
+    /**
+     * EXPERIMENTAL -- a host that holds the project's source itself.
+     *
+     * Neither of the other two fits a host that builds and publishes its own
+     * output: `fs` assumes a working tree it can watch and write, and `http`
+     * assumes Val's content service owns the patch chain and that a commit is a
+     * git commit. See {@link ValOpsMemory}, and `commitPrepared` above for
+     * where the publish goes.
+     */
+    | {
+        mode: "memory";
+        /** The project's source, by path. */
+        sourceFiles: Record<string, string>;
+        /** Where pending patches live. Defaults to memory; see ValPatchStore. */
+        patchStore?: ValPatchStore;
+        config: ValConfig;
+      }
   );
 
 export type ValServer = ServerOf<Api>;
@@ -146,7 +165,10 @@ export const ValServer = (
       }),
     ),
   });
-  const serverOps: ValOpsHttp | ValOpsFS = createValOps(valModules, options);
+  const serverOps: ValOpsHttp | ValOpsFS | ValOpsMemory = createValOps(
+    valModules,
+    options,
+  );
   const getAuthorizeUrl = (publicValApiRe: string, token: string): string => {
     if (!options.project) {
       throw new Error("Project is not set");
@@ -244,7 +266,7 @@ export const ValServer = (
     | { error: null; id: null } => {
     const cookie = cookies[VAL_SESSION_COOKIE];
     if (!options.valSecret) {
-      if (serverOps instanceof ValOpsFS) {
+      if (serverOps.patchesAreLocal) {
         return {
           error: null,
           id: null,
@@ -258,7 +280,7 @@ export const ValServer = (
     if (typeof cookie === "string") {
       const verifiedToken = verifyJwt(cookie, options.valSecret);
       if (!verifiedToken.success) {
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return {
             error: null,
             id: null,
@@ -272,7 +294,7 @@ export const ValServer = (
         verifiedToken.data,
       );
       if (!verification.success) {
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return {
             error: null,
             id: null,
@@ -286,7 +308,7 @@ export const ValServer = (
         id: verification.data.sub,
       };
     } else {
-      if (serverOps instanceof ValOpsFS) {
+      if (serverOps.patchesAreLocal) {
         return {
           error: null,
           id: null,
@@ -803,21 +825,17 @@ export const ValServer = (
             json: currentStat.error,
           };
         }
-        const mode =
-          serverOps instanceof ValOpsFS
-            ? "fs"
-            : serverOps instanceof ValOpsHttp
-              ? "http"
-              : "unknown";
-        if (mode === "unknown") {
-          return {
-            status: 500,
-            json: {
-              message:
-                "Server mode is neither fs nor http - this is an internal Val bug",
-            },
-          };
-        }
+        /*
+         * The wire value names a class and the question it answers does not.
+         *
+         * The client reads `mode` to decide whether it auto-saves and hides the
+         * account panel, or whether it publishes and shows deployments -- which
+         * is {@link ValOps.patchesAreLocal} and nothing else. It was derived by
+         * `instanceof` while there were exactly two implementations, so a third
+         * local store fell through to `"unknown"` and the Studio refused to
+         * start against a server that was working.
+         */
+        const mode = serverOps.patchesAreLocal ? "fs" : "http";
         return {
           status: 200,
           json: {
@@ -891,7 +909,7 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           // In FS mode patch-file uploads are buffered through this server (no remote round-trip),
           // so baseUrl points at /api/val/upload. AI image uploads, however, go straight to the
           // content host — we resolve a contentBaseUrl + a PAT-issued nonce here so the browser
@@ -902,6 +920,21 @@ export const ValServer = (
           if (!options.project) {
             console.warn(
               "Direct content-host uploads (AI images) disabled: no `project` set in val.config (and VAL_PROJECT env var is not set).",
+            );
+          } else if (!(serverOps instanceof ValOpsFS)) {
+            /*
+             * Presigning needs a content host to presign AGAINST, and a local
+             * store does not necessarily have one configured: `fs` mode has the
+             * developer's `valContentUrl`, and a host holding its own source has
+             * no such setting.
+             *
+             * Warned and disabled, like the missing-project case above, rather
+             * than failing the request: everything else this route answers --
+             * the patch upload base url -- still works, and the only thing lost
+             * is the browser posting AI images straight to the content host.
+             */
+            console.warn(
+              "Direct content-host uploads (AI images) disabled: this store has no content host to presign against.",
             );
           } else {
             const authDataRes = await getRemoteFileAuth();
@@ -991,7 +1024,7 @@ export const ValServer = (
         }
         const { patchGroupId, patchIds } = req.body;
         const withPatchIds = req.body.withPatchIds ?? [];
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return {
             status: 200,
             json: { patchGroupId, patchIds: [...patchIds, ...withPatchIds] },
@@ -1031,7 +1064,7 @@ export const ValServer = (
         }
         const { patchGroupId, patchIds } = req.body;
         const withPatchIds = req.body.withPatchIds ?? [];
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return {
             status: 200,
             json: { patchGroupId, patchIds: [...patchIds, ...withPatchIds] },
@@ -1098,7 +1131,7 @@ export const ValServer = (
                 withPatchIds: requestedWith ?? [],
               }
             : undefined;
-        if (patchGroup !== undefined && serverOps instanceof ValOpsFS) {
+        if (patchGroup !== undefined && serverOps.patchesAreLocal) {
           /*
            * `fs` has no shared store and one author, so there is no group to
            * join. Refused rather than acknowledged: answering 200 would tell the
@@ -1905,7 +1938,7 @@ export const ValServer = (
         const authDataRes = await getRemoteFileAuth();
         if (authDataRes.status !== 200) {
           if (
-            serverOps instanceof ValOpsFS &&
+            serverOps.patchesAreLocal &&
             authDataRes.json.errorCode === "pat-error"
           ) {
             return {
@@ -1974,7 +2007,7 @@ export const ValServer = (
             };
           }
         };
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return execFetch(
             getProfileAuthHeaders(authData, null, "application/json"),
           );
@@ -2100,7 +2133,7 @@ export const ValServer = (
          * editing is told what was thrown away.
          */
         let removed: DroppedPatch[] = [];
-        if (preparedCommit.hasErrors && serverOps instanceof ValOpsFS) {
+        if (preparedCommit.hasErrors && serverOps.patchesAreLocal) {
           removed = computePatchesToDrop(preparedCommit);
           /*
            * Nothing to drop means nothing a second `prepare` could do better.
@@ -2168,47 +2201,70 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsFS) {
-          const isRemoteRequired = getIsRemoteRequired(
-            await serverOps.getSchemas(),
-          );
-          let mode: "skip-remote" | "upload-remote";
-          let remoteFileAuthRes:
-            | undefined
-            | Awaited<ReturnType<typeof getRemoteFileAuth>>;
-          if (isRemoteRequired) {
-            mode = "upload-remote";
-            remoteFileAuthRes = await getRemoteFileAuth();
-          } else {
-            mode = "skip-remote";
+        if (serverOps.patchesAreLocal) {
+          /*
+           * Writing the files is the one step that is not shared.
+           *
+           * Everything around it is: applying the patches, telling the ops the
+           * sources moved, handing the result to the host, dropping the patches
+           * this request consumed. Only the destination differs -- `fs` mode has
+           * a working tree to write into and remote binaries to push, and a host
+           * that holds its own source has neither. So this branch is on the
+           * store that CAN write files rather than on "is this local", which is
+           * what the rest of the flow asks.
+           */
+          if (serverOps instanceof ValOpsFS) {
+            const isRemoteRequired = getIsRemoteRequired(
+              await serverOps.getSchemas(),
+            );
+            let mode: "skip-remote" | "upload-remote";
+            let remoteFileAuthRes:
+              | undefined
+              | Awaited<ReturnType<typeof getRemoteFileAuth>>;
+            if (isRemoteRequired) {
+              mode = "upload-remote";
+              remoteFileAuthRes = await getRemoteFileAuth();
+            } else {
+              mode = "skip-remote";
+            }
+            if (remoteFileAuthRes && remoteFileAuthRes.status !== 200) {
+              return remoteFileAuthRes;
+            }
+            const remoteFileAuth = remoteFileAuthRes?.json?.remoteFileAuth;
+            const saveRes = await serverOps.saveOrUploadFiles(
+              preparedCommit,
+              mode,
+              remoteFileAuth,
+            );
+            if (Object.keys(saveRes.errors).length > 0) {
+              console.error("Val: Failed to save files", saveRes.errors);
+              return {
+                status: 400,
+                json: {
+                  message: "Failed to save files",
+                  details: Object.entries(saveRes.errors).map(
+                    ([key, error]) => {
+                      return {
+                        message: `Got error: ${error} in ${key}`,
+                      };
+                    },
+                  ),
+                },
+              };
+            }
           }
-          if (remoteFileAuthRes && remoteFileAuthRes.status !== 200) {
-            return remoteFileAuthRes;
-          }
-          const remoteFileAuth = remoteFileAuthRes?.json?.remoteFileAuth;
-          const saveRes = await serverOps.saveOrUploadFiles(
-            preparedCommit,
-            mode,
-            remoteFileAuth,
-          );
+          /*
+           * The host's destination, after the store's own.
+           *
+           * Ordered this way so a store that writes has already succeeded by
+           * the time the host is told: `commitPrepared` throwing fails the save,
+           * and a host that publishes what it was handed should not be handed
+           * files the store could not write.
+           */
           if (options.commitPrepared) {
             await options.commitPrepared({
               patchedSourceFiles: preparedCommit.patchedSourceFiles,
             });
-          }
-          if (Object.keys(saveRes.errors).length > 0) {
-            console.error("Val: Failed to save files", saveRes.errors);
-            return {
-              status: 400,
-              json: {
-                message: "Failed to save files",
-                details: Object.entries(saveRes.errors).map(([key, error]) => {
-                  return {
-                    message: `Got error: ${error} in ${key}`,
-                  };
-                }),
-              },
-            };
           }
           /*
            * The files on disk are the committed content now, so say so here too.
@@ -2484,7 +2540,7 @@ export const ValServer = (
             };
           }
         };
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return execFetch(
             getProfileAuthHeaders(authData, null, "application/json"),
           );
@@ -2586,7 +2642,7 @@ export const ValServer = (
             };
           }
         };
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return execFetch(
             getProfileAuthHeaders(authData, null, "application/json"),
           );
@@ -2666,7 +2722,7 @@ export const ValServer = (
             };
           }
         };
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return execFetch(
             getProfileAuthHeaders(authData, null, "application/json"),
           );
@@ -2783,7 +2839,7 @@ export const ValServer = (
             };
           }
         };
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return execFetch(
             getProfileAuthHeaders(authData, null, "application/json"),
           );
@@ -2830,7 +2886,7 @@ export const ValServer = (
         }
         const authData = authDataRes.json.remoteFileAuth;
         let headers: HeadersInit;
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           headers = getProfileAuthHeaders(authData, null, "application/json");
         } else {
           if (!("id" in auth) || !auth.id) {
@@ -2923,6 +2979,11 @@ export const ValServer = (
                 },
               };
             }
+            // Deliberately `ValOpsFS` and not `patchesAreLocal`: this writes
+            // BYTES into a patch directory, which is a thing only the fs store
+            // has. A local store without local binary files (ValOpsMemory, which
+            // uses Val's remote files) skips it, and the draft image is served
+            // from the content host rather than mirrored.
             if (serverOps instanceof ValOpsFS) {
               // Mirror the binaries from the content host into local patch
               // storage so /files?patch_id=... can serve them. Match upstream
@@ -3034,7 +3095,7 @@ export const ValServer = (
         }
         const authData = authDataRes.json.remoteFileAuth;
         let headers: HeadersInit;
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           headers = getProfileAuthHeaders(authData, null, "application/json");
         } else {
           if (!("id" in auth) || !auth.id) {
@@ -3471,7 +3532,14 @@ export function boundUnstageClosure(
  * not ask for scoping gets and must keep getting.
  */
 export async function resolveOwnPatchScope(
-  serverOps: ValOpsFS | ValOpsHttp,
+  /*
+   * `ValOps`, not the two concrete stores: the one thing this needs is whether
+   * a content service holds the groups, and it asks that below with an
+   * `instanceof ValOpsHttp`. Naming the implementations here meant every new
+   * store had to be added to a list to be allowed to call a function that does
+   * not use it.
+   */
+  serverOps: ValOps,
   opts: {
     /** A caller that named a list already knows what it wants. */
     explicitPatchIds: PatchId[] | undefined;

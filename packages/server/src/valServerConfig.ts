@@ -3,6 +3,7 @@ import type { ValServerConfig } from "./ValServer";
 import type { ValApiOptions } from "./ValRouter";
 import { ValOpsFS } from "./ValOpsFS";
 import { ValOpsHttp } from "./ValOpsHttp";
+import { ValOpsMemory } from "./ValOpsMemory";
 import {
   getPersonalAccessTokenPath,
   parsePersonalAccessTokenFile,
@@ -44,6 +45,37 @@ export async function initHandlerOptions(
   opts: ValApiOptions,
   config: ValConfig,
 ): Promise<ValServerConfig> {
+  /*
+   * A host that handed us the source has settled the question.
+   *
+   * First, and without consulting the environment: the other two modes are
+   * inferred (an api key in the env is enough to make a project "proxy"), and
+   * this one cannot be, so an env var that happens to be set must not be able
+   * to take a host that supplied its own source and point it at a content
+   * service instead.
+   */
+  if (opts.sourceFiles !== undefined) {
+    return {
+      mode: "memory",
+      route,
+      sourceFiles: opts.sourceFiles,
+      patchStore: opts.patchStore,
+      valContentUrl:
+        opts.valContentUrl ||
+        process.env.VAL_CONTENT_URL ||
+        DEFAULT_CONTENT_HOST,
+      valBuildUrl:
+        opts.valBuildUrl || process.env.VAL_BUILD_URL || DEFAULT_VAL_BUILD_URL,
+      valEnableRedirectUrl:
+        opts.valEnableRedirectUrl || process.env.VAL_ENABLE_REDIRECT_URL,
+      valDisableRedirectUrl:
+        opts.valDisableRedirectUrl || process.env.VAL_DISABLE_REDIRECT_URL,
+      apiKey: opts.apiKey || process.env.VAL_API_KEY,
+      valSecret: opts.valSecret || process.env.VAL_SECRET,
+      project: opts.project || process.env.VAL_PROJECT,
+      config,
+    };
+  }
   const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
   const maybeValSecret = opts.valSecret || process.env.VAL_SECRET;
   const isProxyMode =
@@ -147,7 +179,7 @@ export async function initHandlerOptions(
 export function createValOps(
   valModules: ValModules,
   options: ValServerConfig,
-): ValOpsFS | ValOpsHttp {
+): ValOpsFS | ValOpsHttp | ValOpsMemory {
   if (options.mode === "fs") {
     // No credential in fs mode: this reads and writes the developer's own
     // working tree, and there is no backend to authenticate to. A credential
@@ -174,6 +206,17 @@ export function createValOps(
         config: options.config,
       },
     );
+  }
+  if (options.mode === "memory") {
+    // No credential here either, and for the same reason as fs mode: there is
+    // no backend to authenticate to. The host holds the source and decides what
+    // a publish means -- see `commitPrepared` on ValServerOptions.
+    return new ValOpsMemory(valModules, {
+      formatter: options.formatter,
+      config: options.config,
+      sourceFiles: options.sourceFiles,
+      patchStore: options.patchStore,
+    });
   }
   throw new Error(
     // The union is exhausted above; this catches a config that came from
