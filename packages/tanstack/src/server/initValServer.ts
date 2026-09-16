@@ -25,6 +25,7 @@ const initValApiHandler = (
   }) => Promise<void>,
   sourceFiles?: Record<string, string>,
   patchStore?: ValPatchStore,
+  apiKey?: string,
 ): ((req: Request) => Promise<Response>) => {
   const route = "/api/val"; // TODO: get from config
   const coreVersion = Internal.VERSION.core;
@@ -64,6 +65,7 @@ const initValApiHandler = (
          */
         ...(sourceFiles !== undefined ? { sourceFiles } : {}),
         ...(patchStore !== undefined ? { patchStore } : {}),
+        ...(apiKey !== undefined ? { apiKey } : {}),
       },
       config,
       {
@@ -207,6 +209,21 @@ export function initValServer(
      * simply hands the source over, and `commitPrepared` is where the publish
      * goes.
      */
+    /**
+     * Val's api key, for a host that cannot give the server one through the
+     * environment.
+     *
+     * `@valbuild/server` normally reads `VAL_API_KEY` itself. That works where
+     * it and the app are built together; it does not where the app is bundled
+     * separately from its dependencies — the build inlines env vars into the
+     * APP and leaves the dependency chunks alone, so Val's own
+     * `process.env.VAL_API_KEY` is undefined however the host sets it. The app
+     * can see it, so the app passes it.
+     *
+     * Only needed for REMOTE files, which upload to Val's content host at
+     * publish.
+     */
+    apiKey?: string;
     sourceFiles?: Record<string, string>;
     /**
      * Where pending patches live, with {@link sourceFiles}. Defaults to memory,
@@ -250,6 +267,7 @@ export function initValServer(
       opts?.commitPrepared,
       opts?.sourceFiles,
       opts?.patchStore,
+      opts?.apiKey,
     ),
     draftMode,
   };

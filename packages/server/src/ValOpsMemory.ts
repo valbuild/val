@@ -1,7 +1,12 @@
 import type { ModuleFilePath, PatchId, ValModules } from "@valbuild/core";
 import type { Patch, ParentRef } from "@valbuild/shared/internal";
+import { Internal } from "@valbuild/core";
+import { uploadRemoteFile } from "./uploadRemoteFile";
+import { getFileExt } from "./getFileExt";
 import {
   ValOps,
+  bufferFromDataUrl,
+  getFieldsForType,
   type AuthorId,
   type BaseSha,
   type GenericErrorMessage,
@@ -10,6 +15,7 @@ import {
   type OrderedPatches,
   type OrderedPatchesMetadata,
   type PatchGroupMembership,
+  type PreparedCommit,
   type SaveSourceFilePatchResult,
   type SchemaSha,
   type SourcesSha,
@@ -39,6 +45,29 @@ export type StoredPatch = {
 };
 
 /**
+ * One pending binary file: an upload that has not been published yet.
+ *
+ * Keyed by the patch that carries it, exactly as `fs` mode keys the directory
+ * it writes to. The patch's own `file` op holds a hash, not the bytes, so these
+ * arrive on their own request and are joined up by `(patchId, filePath)`.
+ */
+export type StoredFile = {
+  patchId: PatchId;
+  /**
+   * Where the file will live once published.
+   *
+   * For a LOCAL file that is `/public/val/photo.jpg`. For a REMOTE one it is
+   * the path INSIDE the ref, not the ref itself -- `splitRemoteRef` has already
+   * taken it apart by the time the bytes get here, and both readers are keyed
+   * the same way. This is why neither takes `remote` into account: the caller
+   * has resolved that before it asks.
+   */
+  filePath: string;
+  data: Buffer;
+  metadata: MetadataOfType<"file" | "image"> | undefined;
+};
+
+/**
  * Where pending patches live.
  *
  * The point of the interface: `ValOpsMemory` is not tied to memory. The default
@@ -58,7 +87,27 @@ export interface ValPatchStore {
   list(): Promise<PatchId[]>;
   get(patchId: PatchId): Promise<StoredPatch | null>;
   append(patch: StoredPatch): Promise<void>;
+  /** The patches AND every file they carry. */
   delete(patchIds: PatchId[]): Promise<void>;
+
+  /**
+   * Hold an uploaded file until its patch is published or dropped.
+   *
+   * Uploads arrive BEFORE the patch record does -- the record's `file` op
+   * carries only a hash, so it would otherwise point at nothing. So a file for
+   * a patch id that does not exist yet is normal and must be accepted. `fs`
+   * mode stages these outside its store and moves them in when the record
+   * lands, because a directory of files with no `patch.json` is indistinguishable
+   * from a patch whose contents were lost, and its repair pass deletes those.
+   * Nothing sweeps this store, so the two-step is not needed here -- at the cost
+   * that bytes uploaded for a patch that is never recorded stay until the store
+   * is dropped.
+   */
+  putFile(file: StoredFile): Promise<void>;
+  getFile(patchId: PatchId, filePath: string): Promise<StoredFile | null>;
+  deleteFile(patchId: PatchId, filePath: string): Promise<void>;
+  /** Every file held for a patch, which is what the publish step uploads. */
+  filesOf(patchId: PatchId): Promise<StoredFile[]>;
 }
 
 /** The default store. Not durable, deliberately and visibly. */
@@ -88,7 +137,45 @@ export class InMemoryPatchStore implements ValPatchStore {
         this.order.splice(at, 1);
       }
       this.byId.delete(patchId);
+      // The bytes go with the patch. They are only reachable through it, so
+      // keeping them would be a leak with no reader -- and these are images.
+      for (const key of this.files.keys()) {
+        if (key.startsWith(`${patchId}\u0000`)) {
+          this.files.delete(key);
+        }
+      }
     }
+  }
+
+  // `\u0000` cannot occur in a patch id or a path, so the two halves of the key
+  // can never run together into a different pair.
+  private static fileKey(patchId: PatchId, filePath: string): string {
+    return `${patchId}\u0000${filePath}`;
+  }
+  private readonly files = new Map<string, StoredFile>();
+
+  async putFile(file: StoredFile): Promise<void> {
+    this.files.set(
+      InMemoryPatchStore.fileKey(file.patchId, file.filePath),
+      file,
+    );
+  }
+
+  async getFile(
+    patchId: PatchId,
+    filePath: string,
+  ): Promise<StoredFile | null> {
+    return (
+      this.files.get(InMemoryPatchStore.fileKey(patchId, filePath)) ?? null
+    );
+  }
+
+  async deleteFile(patchId: PatchId, filePath: string): Promise<void> {
+    this.files.delete(InMemoryPatchStore.fileKey(patchId, filePath));
+  }
+
+  async filesOf(patchId: PatchId): Promise<StoredFile[]> {
+    return [...this.files.values()].filter((file) => file.patchId === patchId);
   }
 }
 
@@ -105,6 +192,13 @@ export type ValOpsMemoryOptions = ValOpsOptions & {
   sourceFiles: Record<string, string>;
   /** Where pending patches live. Defaults to memory; see ValPatchStore. */
   patchStore?: ValPatchStore;
+  /**
+   * Val's content host, for pushing remote files at publish.
+   *
+   * Only needed by {@link ValOpsMemory.uploadRemoteFiles}. A project with no
+   * `s.image()` never reaches it.
+   */
+  contentUrl?: string;
 };
 
 /**
@@ -124,8 +218,13 @@ export type ValOpsMemoryOptions = ValOpsOptions & {
  * - **No watching.** `getStat` answers immediately. Nothing can edit files
  *   behind Val's back here: source changes only when the host publishes, and
  *   that replaces the process.
- * - **No local binary files.** This configuration uses Val's REMOTE files, so
- *   the four local binary methods refuse by name rather than pretending.
+ * - **Pending binary files, but no PUBLISHED local ones.** An upload is held in
+ *   the patch store like any other pending change, so the Studio can preview it
+ *   before it is published. What this has no answer for is a file that is
+ *   already published and served from a `/public` directory: this configuration
+ *   uses Val's REMOTE files, where a published image lives on the content host
+ *   and the source carries a URL. `getBinaryFile` answers `null` for those --
+ *   a miss, not a fault -- and `getBinaryFileMetadata` refuses by name.
  * - **No git history.** There is no repository here, so the history methods
  *   answer `not-supported-in-fs-mode` -- the same closed error `ValOpsFS`
  *   uses, so the History UI degrades the way it already knows how rather than
@@ -154,10 +253,12 @@ export class ValOpsMemory extends ValOps {
    * {@link adoptPatchedSourceFiles}.
    */
   private sourceFiles: Record<string, string>;
+  private readonly contentUrl: string | undefined;
 
   constructor(valModules: ValModules, options: ValOpsMemoryOptions) {
     super(valModules, options);
     this.store = options.patchStore ?? new InMemoryPatchStore();
+    this.contentUrl = options.contentUrl;
     this.sourceFiles = Object.fromEntries(
       Object.entries(options.sourceFiles).map(([path, text]) => [
         ValOpsMemory.key(path),
@@ -427,45 +528,174 @@ export class ValOpsMemory extends ValOps {
     return { deleted: patchIds };
   }
 
+  /**
+   * Push this commit's pending binary files to Val's content host.
+   *
+   * The half of publishing that `commitPrepared` cannot do. Val's remote files
+   * upload at PUBLISH, not when the image is added: until then the bytes are a
+   * pending change like any other, held by {@link ValPatchStore}. So a publish
+   * has to walk the descriptors and push each one before the source that
+   * references it goes live -- otherwise the new build ships a URL that 404s.
+   *
+   * `ValOpsFS.saveOrUploadFiles` does the same loop, alongside two things this
+   * has no use for: copying LOCAL binaries into a working tree, and writing the
+   * source files (which is `commitPrepared` here). Kept separate rather than
+   * shared, because the shapes only look alike.
+   *
+   * Errors are collected rather than thrown. One image that will not upload
+   * should name itself and leave the rest of the publish decidable, rather than
+   * failing a save that has already applied its patches.
+   */
+  async uploadRemoteFiles(
+    preparedCommit: Pick<PreparedCommit, "patchedBinaryFilesDescriptors">,
+    auth: { apiKey: string } | { pat: string },
+  ): Promise<{
+    uploaded: string[];
+    errors: Record<string, GenericErrorMessage>;
+  }> {
+    const uploaded: string[] = [];
+    const errors: Record<string, GenericErrorMessage> = {};
+    const project = this.options?.config.project;
+    const remote = Object.entries(
+      preparedCommit.patchedBinaryFilesDescriptors,
+    ).filter(([, descriptor]) => descriptor.remote);
+
+    if (remote.length === 0) {
+      return { uploaded, errors };
+    }
+    if (!this.contentUrl || !project) {
+      // Named separately from a failed upload: nothing was attempted, and the
+      // fix is configuration rather than a retry.
+      for (const [ref] of remote) {
+        errors[ref] = {
+          message:
+            "Cannot publish a remote file: this server has no " +
+            (!project ? "`project` in val.config" : "content host configured") +
+            ". Remote files need both, plus an api key.",
+        };
+      }
+      return { uploaded, errors };
+    }
+
+    for (const [ref, { patchId }] of remote) {
+      const split = Internal.remote.splitRemoteRef(ref);
+      if (split.status === "error") {
+        errors[ref] = { message: "Failed to split remote ref: " + ref };
+        continue;
+      }
+      const bytes = await this.getBase64EncodedBinaryFileFromPatch(
+        split.filePath,
+        patchId,
+      );
+      if (!bytes) {
+        errors[ref] = {
+          message: `No bytes held for ${ref} (patch ${patchId}). The upload either never arrived or was dropped with its patch.`,
+        };
+        continue;
+      }
+      const res = await uploadRemoteFile(
+        this.contentUrl,
+        project,
+        split.bucket,
+        split.fileHash,
+        getFileExt(split.filePath),
+        bytes,
+        auth,
+      );
+      if (!res.success) {
+        errors[ref] = { message: res.error };
+        continue;
+      }
+      uploaded.push(ref);
+    }
+    return { uploaded, errors };
+  }
+
   // #endregion
-  // #region remote files only -- these refuse rather than pretend
+  // #region published local files -- these refuse rather than pretend
 
   private remoteOnly(method: string): never {
     throw new Error(
-      `${method} is not available in this mode: it stores a binary file ` +
-        `locally, and this configuration uses Val's REMOTE files, where the ` +
-        `bytes live on the content host and the patch carries a reference.`,
+      `${method} reads a PUBLISHED file from a local directory, and this ` +
+        `configuration uses Val's REMOTE files: a published file lives on the ` +
+        `content host and the source carries its URL. Pending uploads are held ` +
+        `here and do work -- see saveBase64EncodedBinaryFileFromPatch.`,
     );
   }
 
   override async saveBase64EncodedBinaryFileFromPatch(
-    _filePath: string,
+    filePath: string,
+    /*
+     * Ignored, as in `fs` mode: the file is keyed by the patch that carries it,
+     * so there is no parent to resolve.
+     */
     _parentRef: ParentRef,
-    _patchId: PatchId,
-    _data: string | null,
+    patchId: PatchId,
+    data: string | null,
     _type: "file" | "image",
-    _metadata: MetadataOfType<"file" | "image"> | undefined,
+    metadata: MetadataOfType<"file" | "image"> | undefined,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
-    return this.remoteOnly("saveBase64EncodedBinaryFileFromPatch");
+    if (data === null) {
+      // `null` records a DELETION. This is why the byte-taking sibling cannot
+      // replace this method: there would be nothing to hand it.
+      await this.store.deleteFile(patchId, filePath);
+      return { patchId, filePath };
+    }
+    const buffer = bufferFromDataUrl(data);
+    if (!buffer) {
+      return {
+        error: {
+          message:
+            "Could not create buffer from data url. Not a data url? First chars were: " +
+            data.slice(0, 20),
+        },
+      };
+    }
+    await this.store.putFile({ patchId, filePath, data: buffer, metadata });
+    return { patchId, filePath };
   }
 
   override async getBase64EncodedBinaryFileFromPatch(
-    _filePath: string,
-    _patchId: PatchId,
-    _remote: boolean,
+    filePath: string,
+    patchId: PatchId,
+    /*
+     * Not consulted, and `fs` mode does not consult it either: a remote ref has
+     * already been split by the caller, so what arrives here is the path inside
+     * it and the pair (patchId, filePath) is the whole key.
+     */
+    _remote?: boolean,
   ): Promise<Buffer | null> {
-    return this.remoteOnly("getBase64EncodedBinaryFileFromPatch");
+    return (await this.store.getFile(patchId, filePath))?.data ?? null;
   }
 
   protected override async getBase64EncodedBinaryFileMetadataFromPatch<
     T extends "file" | "image",
   >(
-    _filePath: string,
-    _type: T,
-    _patchId: PatchId,
-    _remote: boolean,
+    filePath: string,
+    type: T,
+    patchId: PatchId,
+    _remote?: boolean,
   ): Promise<OpsMetadata<T>> {
-    return this.remoteOnly("getBase64EncodedBinaryFileMetadataFromPatch");
+    const file = await this.store.getFile(patchId, filePath);
+    if (!file || file.metadata === undefined) {
+      return { errors: [{ message: "Metadata file not found", filePath }] };
+    }
+    /*
+     * Checked, not trusted. The metadata is whatever the client sent with the
+     * upload, and a missing `width` on an image is the difference between a
+     * layout that reserves space and one that jumps -- reported here, where the
+     * field is named, rather than surfacing as an undefined further on.
+     */
+    const fieldErrors = getFieldsForType(type)
+      .filter((field) => !(field in file.metadata!))
+      .map((field) => ({
+        message: `Expected fields for type: ${type}. Field not found: '${field}'`,
+        field,
+      }));
+    if (fieldErrors.length > 0) {
+      return { errors: fieldErrors };
+    }
+    return { metadata: file.metadata } as OpsMetadata<T>;
   }
 
   override async getBinaryFile(_filePathOrRef: string): Promise<Buffer | null> {

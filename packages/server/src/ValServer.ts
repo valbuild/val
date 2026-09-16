@@ -2213,6 +2213,48 @@ export const ValServer = (
            * store that CAN write files rather than on "is this local", which is
            * what the rest of the flow asks.
            */
+          /*
+           * Remote binary files, which publish separately from the source.
+           *
+           * Val uploads a remote file at PUBLISH rather than when it is added:
+           * until then the bytes are a pending change like any other. So a
+           * local store has to push them before the source that references them
+           * goes live, or the new build ships a URL that 404s. `ValOpsFS` does
+           * this inside `saveOrUploadFiles`, alongside writing its working
+           * tree; a store with no working tree does only the push.
+           */
+          if (serverOps instanceof ValOpsMemory) {
+            const isRemoteRequired = getIsRemoteRequired(
+              await serverOps.getSchemas(),
+            );
+            if (isRemoteRequired) {
+              const authRes = await getRemoteFileAuth();
+              if (authRes.status !== 200) {
+                return authRes;
+              }
+              const uploadRes = await serverOps.uploadRemoteFiles(
+                preparedCommit,
+                authRes.json.remoteFileAuth,
+              );
+              if (Object.keys(uploadRes.errors).length > 0) {
+                console.error(
+                  "Val: Failed to upload remote files",
+                  uploadRes.errors,
+                );
+                return {
+                  status: 400,
+                  json: {
+                    message: "Failed to save files",
+                    details: Object.entries(uploadRes.errors).map(
+                      ([ref, error]) => ({
+                        message: `Got error: ${error.message} in ${ref}`,
+                      }),
+                    ),
+                  },
+                };
+              }
+            }
+          }
           if (serverOps instanceof ValOpsFS) {
             const isRemoteRequired = getIsRemoteRequired(
               await serverOps.getSchemas(),

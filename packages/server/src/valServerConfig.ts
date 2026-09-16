@@ -216,6 +216,9 @@ export function createValOps(
       config: options.config,
       sourceFiles: options.sourceFiles,
       patchStore: options.patchStore,
+      // For pushing remote files at publish. A project with no `s.image()`
+      // never reaches it, which is why nothing above requires it.
+      contentUrl: options.valContentUrl,
     });
   }
   throw new Error(
