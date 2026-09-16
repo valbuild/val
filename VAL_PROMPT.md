@@ -762,6 +762,63 @@ this is about how a path is spelled between two different callers. Worth
 remembering: the freebies are not only about persistence, they are about
 normalisation too.
 
+## 8h. Why `--node-shims` is still needed, precisely
+
+`--node-shims` is the one deliberate hole in the platform's import audit: it
+stubs Node builtins the isolate does not provide, so a package that merely
+FEATURE-DETECTS them can still be bundled. Closing it restores the audit's
+guarantee — every import resolves for real — for every project, not just Val's.
+
+Measured rather than assumed, and the first assumption was wrong:
+
+| built with no shims               | result                                                                                                                                                        |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `typescript` alone                | **builds.** It was supposed to be the blocker — a patch is an AST rewrite, and TypeScript asks for `fs`/`os`/`path` to decide which host it is on. It is not. |
+| each `@valbuild/*` entry alone    | all build                                                                                                                                                     |
+| the real layer, all deps together | builds, but **`@valbuild/tanstack/server` is SKIPPED**: it imports `fs`                                                                                       |
+
+A skipped entry is not fatal at layer time; it becomes a BBS401 the moment the
+app imports it, which this app does.
+
+### What actually pulls `fs` in
+
+Not TypeScript, and not one stray import. **`@valbuild/server`'s package entry
+is a flat barrel**, and it re-exports eleven modules that statically import
+`fs`, `os` or `node:module`:
+
+    Service  ValModuleLoader  loadValModules  evalValConfigFile
+    ValSourceFileHandler  login  createFixPatch  fixHandlers
+    checkRemoteRef  ValOpsFS  patchStore
+
+Almost none of them can run in an isolate and almost none are wanted there: the
+CLI's `node:vm` module loader, `val login`, the validation fixers, and `fs`
+mode's own store. Anything that imports `@valbuild/server` gets all of it.
+
+**One was fixable on its own and is fixed:** `ValRouter` imported `fs` and
+`path` at module scope for `safeReadGit`, a local-dev convenience that scans
+upwards for a `.git`. Its only caller is the CLI, so the imports moved inside
+the function. That put `fs` in the graph of every server integration, including
+ones that run where there is no filesystem.
+
+### What the rest needs, and why it was not done here
+
+Cutting `ValOpsFS` out of `valServerConfig` was tried as an experiment and did
+**not** remove `fs` — there are several importers, and the runtime path reaches
+them through `createValOps`.
+
+So the fix is a packaging change, not a series of local ones:
+
+1. `createValOps` must not statically import `ValOpsFS`. That means `await
+import()` in the fs branch, which makes it **async** — and it is exported,
+   and `@valbuild/mcp` calls it.
+2. A subpath (`@valbuild/server/runtime`, say) exporting only what a server
+   integration needs. The surface is small: `createValApiRouter`,
+   `createValServer`, and types. Additive, so nothing breaks.
+
+That is a deliberate change to a published API, touching `@valbuild/mcp` and the
+CLI. It should be decided rather than slipped in, which is why this section
+exists instead of the change.
+
 ### What is still open
 
 - **The patch store is not durable.** `InMemoryPatchStore` dies with the

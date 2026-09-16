@@ -1,5 +1,3 @@
-import { promises as fs } from "fs";
-import * as path from "path";
 import { ValConfig, ValModules } from "@valbuild/core";
 import {
   Api,
@@ -184,9 +182,24 @@ export async function createValServer(
 }
 
 // TODO: remove
+/**
+ * `fs` and `path` are imported INSIDE this function, not at the top of the file.
+ *
+ * This is the only thing in this module that touches either, and it is a local
+ * development convenience: scanning upwards for a `.git` to guess the commit and
+ * branch. A static import put `fs` in the module graph of everything reaching
+ * `createValApiRouter` -- which is every server integration, including ones that
+ * run where there is no filesystem. Workerd provides no `fs`, so such a build
+ * could not be bundled at all without stubbing it.
+ *
+ * The `await import` costs nothing here: the only caller is the CLI, on a
+ * machine that has both.
+ */
 export async function safeReadGit(
   cwd: string,
 ): Promise<{ commit?: string; branch?: string }> {
+  const { promises: fs } = await import("fs");
+  const path = await import("path");
   async function findGitHead(
     currentDir: string,
     depth: number,
@@ -242,10 +255,13 @@ export async function safeReadGit(
   }
 }
 
+/** Only reached from {@link safeReadGit}; same reason for the local imports. */
 async function readCommit(
   gitDir: string,
   branchName: string,
 ): Promise<string | undefined> {
+  const { promises: fs } = await import("fs");
+  const path = await import("path");
   try {
     return (
       await fs.readFile(
