@@ -166,10 +166,11 @@ Both changes are in `freekh/experiment-browser-built-tanstack-start`.
   never be layered. Specifiers are probed per target now; one that builds for
   the worker and not the browser is kept as server-only, and a client import of
   it is rejected by name.
-- **Node shims, opt-in behind `--node-shims`.** Stubs for what the isolate
-  lacks, real re-exports for what it has, and a real in-memory `fs`
-  (`memory-fs.ts`) rather than a throwing stub — which is also the shape
-  `ValOpsFS` would need to run here.
+- **A CJS-to-ESM bridge for node builtins**, on for every worker build. The
+  isolate HAS the builtins (`/__api/builtins` on the loader says so); what it
+  lacks is `require`, so a package reaching for one through CJS needs the
+  specifier routed to a bundled module that re-exports the real `node:` one.
+  This started life as `--node-shims`, a stubbed filesystem behind a flag. §8h.
 
 Five things cost real time, each worth knowing:
 
@@ -762,109 +763,77 @@ this is about how a path is spelled between two different callers. Worth
 remembering: the freebies are not only about persistence, they are about
 normalisation too.
 
-## 8h. Why `--node-shims` is still needed, precisely
+## 8h. `--node-shims` is gone — the isolate had the builtins all along
 
-`--node-shims` is the one deliberate hole in the platform's import audit: it
-stubs Node builtins the isolate does not provide, so a package that merely
-FEATURE-DETECTS them can still be bundled. Closing it restores the audit's
-guarantee — every import resolves for real — for every project, not just Val's.
+**Resolved.** The flag no longer exists, and neither does the hole it opened.
+The section is kept because the way it was wrong is the useful part.
 
-Measured rather than assumed, and the first assumption was wrong:
+The premise was that a Dynamic Worker does not provide `fs`, `os`, `vm`,
+`module`, `http` or `https`, so the platform bundled substitutes for them: a
+300-line memory filesystem, a hand-written `os`, and a dozen modules whose every
+access threw by name. Everything above that premise followed from it — the
+audit's `RUNTIME_BUILTINS` listed twenty builtins, `@valbuild/tanstack/server`
+was SKIPPED for importing `fs`, and the fix looked like a packaging change to
+`@valbuild/server`.
 
-| built with no shims               | result                                                                                                                                                        |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `typescript` alone                | **builds.** It was supposed to be the blocker — a patch is an AST rewrite, and TypeScript asks for `fs`/`os`/`path` to decide which host it is on. It is not. |
-| each `@valbuild/*` entry alone    | all build                                                                                                                                                     |
-| the real layer, all deps together | builds, but **`@valbuild/tanstack/server` is SKIPPED**: it imports `fs`                                                                                       |
+Nobody had asked the isolate. `/__api/builtins` on the loader now does: it loads
+a Dynamic Worker at the loader's own compatibility date and imports each
+candidate.
 
-A skipped entry is not fatal at layer time; it becomes a BBS401 the moment the
-app imports it, which this app does.
+    curl -s localhost:8787/__api/builtins | jq '{both: (.both|length), neither}'
+    { "both": 48, "neither": [] }
 
-### What actually pulls `fs` in
+All 48, under both `fs` and `node:fs`, with real export counts — `node:fs` has 105. `RUNTIME_BUILTINS` had been written when node compat was narrower and never
+revisited, so the audit was rejecting imports the runtime answers.
 
-Not TypeScript, and not one stray import. **`@valbuild/server`'s package entry
-is a flat barrel**, and it re-exports eleven modules that statically import
-`fs`, `os` or `node:module`:
+What the isolate genuinely lacks is `require`. A package reaching for a builtin
+through CJS — `require("fs")`, which is what the TypeScript compiler does —
+compiles to rolldown's `__require` against an external, and that is a startup
+crash:
 
-    Service  ValModuleLoader  loadValModules  evalValConfigFile
-    ValSourceFileHandler  login  createFixPatch  fixHandlers
-    checkRemoteRef  ValOpsFS  patchStore
+    Calling `require` for "fs" in an environment that doesn't expose the
+    `require` function
 
-Almost none of them can run in an isolate and almost none are wanted there: the
-CLI's `node:vm` module loader, `val login`, the validation fixers, and `fs`
-mode's own store. Anything that imports `@valbuild/server` gets all of it.
+So `node-shims.ts` is a CJS-to-ESM bridge now and nothing else: each specifier
+resolves to a bundled module that does `import * as ns from 'node:fs'` and
+re-exports it. A forwarding module is not a hole in an audit whose job is to
+catch a specifier that will not resolve, so it runs for every worker build.
 
-**One was fixable on its own and is fixed:** `ValRouter` imported `fs` and
-`path` at module scope for `safeReadGit`, a local-dev convenience that scans
-upwards for a `.git`. Its only caller is the CLI, so the imports moved inside
-the function. That put `fs` in the graph of every server integration, including
-ones that run where there is no filesystem.
+Verified with no flag anywhere: `@valbuild/tanstack/server` layers (same layer
+hash as the shimmed build), the canary renders, `/enable` sets its cookies,
+`/stat` answers, and a patch through the published isolate rewrites the
+`.val.ts` TypeScript AST and parks the result.
 
-### What the rest needs, and why it was not done here
+### What this means for Val
 
-Cutting `ValOpsFS` out of `valServerConfig` was tried as an experiment and did
-**not** remove `fs` — there are several importers, and the runtime path reaches
-them through `createValOps`.
+**Nothing has to change in Val.** The plan this section used to carry — a
+`packages/server/runtime` entrypoint, `ValServer` taking its ops rather than
+building them, `resolveRemoteFileAuth`'s PAT branch moved out of the graph — was
+solving a problem that did not exist. It was not cheap, either: it is a new
+published entrypoint and a real split of the package's module boundaries.
 
-Since laziness does not help (below), the only thing that does is **`ValOpsFS`
-not being in the graph at all**. That means a separate entry point whose graph
-excludes every `fs`-mode path:
+Two measurements from the attempt are worth keeping, because both contradict an
+obvious intuition:
 
-- `packages/server/runtime/` as a preconstruct entrypoint, exporting
-  `createValApiRouter` and a `createValServer` that builds only `http` and
-  `memory` ops. `@valbuild/tanstack/server` imports from there.
-- `ValServer` must stop reaching `createValOps`; it takes its ops instead. That
-  is safe — the VALUE is constructed in exactly one place, `ValRouter.ts:172`,
-  inside the already-async `createValServer`; only the TYPE is exported.
-- `resolveRemoteFileAuth`'s PAT branch has to move out of that graph too: it
-  already does `await import("fs")`, which looks fs-free and is not.
+- **A dynamic import does not help.** `const { ValOpsFS } = await
+import("./ValOpsFS")` was tried in full — `createValOps` async, `ValServer`
+  async, `createValServer` awaiting it — and the layer build reported exactly
+  the same error. Rolldown emits the lazy chunk, that chunk contains
+  `import "fs"`, and the audit reads every emitted file. Deferring WHEN a module
+  loads does nothing about WHETHER it is in the output. The async version is
+  expensive too: `createValOps` is called from three sync sites in
+  `@valbuild/mcp`, so it would have made MCP's tool resolution async for
+  nothing.
+- **There is no per-export tree-shaking of `@valbuild/server`.** Preconstruct
+  emits ONE 627 KB ESM module per package, with `import fs from 'fs'` at its
+  top. Importing `ValOpsMemory` alone from it emits the same seven builtins as
+  importing the whole package. So any future split has to be at the
+  package-entrypoint level — a separate `dist` file — and no amount of
+  `import type` or `instanceof` removal at the consumer changes that.
 
-Additive, so the existing entry keeps working and `@valbuild/mcp` and the CLI
-are untouched. But it is a new published entrypoint and a real split of the
-package's module boundaries, not a cleanup.
-
-### Making the import dynamic does NOT help — measured
-
-The obvious fix is to stop importing `ValOpsFS` statically:
-
-```ts
-if (options.mode === "fs") {
-  const { ValOpsFS } = await import("./ValOpsFS");   // instead of a top import
-```
-
-It was tried in full — `createValOps` async, `ValServer` async,
-`createValServer` awaiting it — and the layer build reports **exactly the same
-error**:
-
-    SKIPPED @valbuild/tanstack/server
-       worker/valbuild__tanstack__server.js imports 'fs' ...
-
-A dynamic import is still an edge. Rolldown emits the lazy chunk, that chunk
-contains `import "fs"`, and the audit reads every emitted file. Deferring WHEN
-a module loads does nothing about WHETHER it is in the output.
-
-Worth knowing because the async version is expensive and looks obvious:
-`createValOps` is exported and called from three SYNC call sites in
-`@valbuild/mcp` (`createValTools.ts` twice, `toolsFixture.ts`), so making it
-async turns MCP's tool resolution async too. That cost would have bought
-nothing — and the experiment was much cheaper than the refactor.
-
-### What is still open
-
-- **The patch store is not durable.** `InMemoryPatchStore` dies with the
-  isolate. It survived across requests in testing because the loader keeps the
-  isolate warm — that is luck, not a guarantee. §9.2 is the fix, and
-  `ValPatchStore` is the seam that makes it a swap.
-- **Binary files are unimplemented, not just remote.** The four local binary
-  methods refuse by name. Remote files still need the bytes held pending until
-  publish (that is how Val's remote files work — the push to `remote.val.build`
-  happens at publish, from `saveOrUploadFiles`), so `s.image()` does not work in
-  this mode yet. §9.4.
-- **`--node-shims` is still required**, because `@valbuild/server` imports `fs`,
-  `path` and `typescript` at module scope even when nothing calls them. Val no
-  longer _uses_ the shimmed filesystem; it is still _linked_ against it.
-- The AI endpoints, profiles and direct uploads need a configured Val project;
-  they answer 401/500 without one, which is what the Studio screenshot shows.
+The three-way split of `@valbuild/server` is still the right shape — 15 of the
+16 MB the read path drags in is the TypeScript compiler and the embedded Studio
+bundle — but it is a bundle-size argument now, not a can-it-run-at-all one.
 
 ## 9. What full support needs
 
@@ -961,8 +930,6 @@ stops being theoretical the moment publish is reachable from content editing.
   the tab.
 - **The seed ships every project source file into the worker module map.** It
   should be scoped to what Val reads (`*.val.ts`, `val.config`, `val.modules`).
-- `--node-shims` is a deliberate hole in the import audit. Narrow it to a
-  declared list, or delete it once 9.6 makes it unnecessary.
 - Cold-start CPU for a ~20 MB layer is unmeasured.
 - The Studio's AI endpoints need a configured Val project; they 401/500 today.
 - Save is gated in the UI by a validation error the template already has, so the
