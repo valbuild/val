@@ -729,6 +729,39 @@ for editing at all, and no anonymous editing — `patchesAreLocal` is false, so
 every request needs a session. The in-memory mode remains the default for
 exactly those reasons; `--val-http` selects this one.
 
+## 8g. Images, verified — and a fourth fs freebie
+
+Remote images now work end to end in the in-memory mode, checked against
+`e2e/mock-content-host` rather than asserted:
+
+|                                  |                                                                                                  |
+| -------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `/remote/settings`               | `mockproj` / `mock-bucket` — the STAND-IN's values, so `getSettings` honours the configured host |
+| `POST /upload/patches/:id/files` | 200, bytes held against the patch                                                                |
+| `POST /save`                     | 200 — `uploadRemoteFiles` pushed at publish                                                      |
+| the mock's `/__test__/state`     | `remoteFiles: ["/v1/valbuild/insta/remote/files/b/mock-bucket/f/229c9ef6….png"]`                 |
+
+Two things had to be fixed to get there, and both are the same shape as the
+bugs in §8e and the audit.
+
+**`getSettings` read its host at MODULE scope.** So remote files addressed the
+real content service no matter what the server was configured with — the same
+class as `VAL_API_KEY`, and for the same reason: a host that bundles its
+dependencies separately cannot set a dependency's `process.env`. It takes the
+host as an argument now.
+
+**The binary store keyed bytes by the path as UPLOADED.** An upload arrives as
+`/public/val/x.png`; the publish step looks the same file up as
+`public/val/x.png`, because that is what `splitRemoteRef` yields from a remote
+ref (typed `public/${string}` — the leading slash is not there and never was).
+`ValOpsFS` never noticed, because `path.join` collapses the difference.
+
+That is the **fourth** thing a filesystem was doing for free, and the audit in
+the table above did not catch it — the audit walked what a SAVE changes, and
+this is about how a path is spelled between two different callers. Worth
+remembering: the freebies are not only about persistence, they are about
+normalisation too.
+
 ### What is still open
 
 - **The patch store is not durable.** `InMemoryPatchStore` dies with the

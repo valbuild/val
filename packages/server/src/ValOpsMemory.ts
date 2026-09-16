@@ -147,10 +147,21 @@ export class InMemoryPatchStore implements ValPatchStore {
     }
   }
 
-  // `\u0000` cannot occur in a patch id or a path, so the two halves of the key
-  // can never run together into a different pair.
+  /*
+   * `\u0000` cannot occur in a patch id or a path, so the two halves of the key
+   * can never run together into a different pair.
+   *
+   * The PATH is normalised for the same reason `sourceFiles` is, and it is not
+   * cosmetic: an upload arrives as `/public/val/x.png`, and the publish step
+   * looks the same file up as `public/val/x.png` because that is what
+   * `splitRemoteRef` yields from a remote ref. `ValOpsFS` never noticed --
+   * `path.join` collapses the difference -- so this is another thing a
+   * filesystem was doing for free. Without it a remote image uploads fine,
+   * patches fine, and fails at publish with "No bytes held", naming a ref whose
+   * bytes are sitting right there under the other spelling.
+   */
   private static fileKey(patchId: PatchId, filePath: string): string {
-    return `${patchId}\u0000${filePath}`;
+    return `${patchId}\u0000${filePath.replace(/^\//, "")}`;
   }
   private readonly files = new Map<string, StoredFile>();
 

@@ -178,6 +178,38 @@ describe("ValOpsMemory binary files", () => {
     expect(fromB!.equals(other)).toBe(true);
   });
 
+  test("the publish step finds bytes stored under the other spelling", async () => {
+    /*
+     * The two spellings do NOT come from the same place, which is why this is
+     * not hypothetical. An upload arrives with the path as the field holds it,
+     * `/public/val/photo.png`. The publish step looks the file up by what
+     * `splitRemoteRef` yields from the remote ref, which is
+     * `public/val/photo.png` -- typed as `public/${string}`, so the leading
+     * slash is not there and never was.
+     *
+     * `ValOpsFS` never had to care: `path.join` collapses the difference. A Map
+     * does not, and the failure is "No bytes held" at PUBLISH -- long after the
+     * upload succeeded, naming a ref whose bytes are sitting right there.
+     */
+    const o = ops();
+    const patchId = crypto.randomUUID() as PatchId;
+    await o.saveBase64EncodedBinaryFileFromPatch(
+      "/public/val/photo.png",
+      PARENT,
+      patchId,
+      DATA_URL,
+      "image",
+      META,
+    );
+    const asPublishAsks = await o.getBase64EncodedBinaryFileFromPatch(
+      "public/val/photo.png",
+      patchId,
+      true,
+    );
+    expect(asPublishAsks).not.toBeNull();
+    expect(asPublishAsks!.equals(PNG_BYTES)).toBe(true);
+  });
+
   test("a published local file is a miss, not a crash", async () => {
     // Remote files only: a published image is on the content host and the
     // source carries its URL, so there is nothing here to find. Callers read

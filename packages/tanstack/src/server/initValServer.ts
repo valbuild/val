@@ -62,6 +62,7 @@ const initValApiHandler = (
   apiKey?: string,
   publishOverride?: (context: CommitContext) => Promise<CommitResult>,
   http?: ValHttpMode,
+  valContentUrl?: string,
 ): ((req: Request) => Promise<Response>) => {
   const route = "/api/val"; // TODO: get from config
   const coreVersion = Internal.VERSION.core;
@@ -114,6 +115,7 @@ const initValApiHandler = (
          * different version of the file than the one the site is running.
          */
         ...(http !== undefined ? http : {}),
+        ...(valContentUrl !== undefined ? { valContentUrl } : {}),
       },
       config,
       {
@@ -274,6 +276,14 @@ export function initValServer(
      */
     apiKey?: string;
     /**
+     * Val's content service, when it is not the real one.
+     *
+     * Needed by REMOTE files in any mode: the bytes are pushed there at
+     * publish. In `http` mode the patches go there too, and
+     * {@link ValHttpMode.valContentUrl} says the same thing — pass either.
+     */
+    valContentUrl?: string;
+    /**
      * What a publish DOES, when Val's content service holds the patches.
      *
      * EXPERIMENTAL — see `ValServerOptions.publishOverride`. By default a
@@ -336,6 +346,7 @@ export function initValServer(
       opts?.apiKey,
       opts?.publishOverride,
       opts?.http,
+      opts?.valContentUrl,
     ),
     draftMode,
   };

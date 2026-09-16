@@ -797,7 +797,13 @@ export const ValServer = (
         }
         const remoteFileAuth = remoteFileAuthRes.json.remoteFileAuth;
 
-        const settingsRes = await getSettings(options.project, remoteFileAuth);
+        // The content url this server was CONFIGURED with, not whatever was in
+        // the environment when @valbuild/server was built. See getSettings.
+        const settingsRes = await getSettings(
+          options.project,
+          remoteFileAuth,
+          options.valContentUrl,
+        );
         if (!settingsRes.success) {
           console.warn(
             "Could not get remote files settings: " + settingsRes.message,
