@@ -413,6 +413,65 @@ stop the polling, because the polling is not a symptom of it.
 
 Worth doing (1) now to stop the CPU burn, and (2) as the real answer.
 
+## 8d. The third mode — scoped
+
+**Decided: build a third `ValOps`.** `fs` mode is a developer's machine and
+`http` mode is content.val.build; this host is neither, and forcing it into `fs`
+is what produces the failures below.
+
+### What forcing `fs` mode has already cost
+
+- **`/stat` long-polls** against watchers that cannot fire (§8c).
+- **`/api/val/enable` 500s** with `ReferenceError: Cannot access 'fs' before
+  initialization` — a temporal-dead-zone error inside a bundled vendor chunk,
+  the same class as prettier's `Cannot access 'y'`. It comes from the shimmed
+  `fs` graph participating in a module cycle. Chasing the minified cycle is the
+  wrong fix: in this mode Val should not be reaching for `fs` at all.
+- Every read of a `.val.ts` goes through an in-memory filesystem seeded from a
+  sibling module, when the host could simply hand Val the source.
+
+### The surface
+
+`ValOps` has **17 abstract members**. With remote-files-only (§9.4) they split
+three ways:
+
+| | |
+| --- | --- |
+| **implement** (6) | `getStat`, `onInit`, `fetchPatches`, `saveSourceFilePatch`, `getSourceFile`, `deletePatches` |
+| **refuse, clearly** (4) | the local binary-file ones — `saveBase64EncodedBinaryFileFromPatch`, `getBase64EncodedBinaryFileFromPatch`, `getBinaryFile`, `getBinaryFileMetadata`. Remote files do not go through these. |
+| **empty, for now** (6) | git history — `listCommits`, `getCommitPatches`, `getCommitModules`, `getCommitAffectedFiles`, `getFileAtCommit`, `gitPathOfModule`. There is no git here; the History UI degrades rather than lies. |
+
+Two things outside that list:
+
+- **`saveOrUploadFiles` is not on the base class.** It exists only on
+  `ValOpsFS`, and `/save` reaches it through `instanceof`. A third mode means
+  `/save` stops branching on the class — which is the same change §9.3 wants,
+  now forced rather than optional.
+- **`getSourceFile` should read from the host, not a disk.** The platform
+  already ships the project's source into the isolate; handing it to `ValOps`
+  directly removes the memory filesystem from Val's path entirely.
+
+### The shape
+
+A **pluggable patch store**, so the mode is not tied to where patches live:
+
+```ts
+interface ValPatchStore {
+  list(): Promise<PatchId[]>
+  get(id: PatchId): Promise<StoredPatch | null>
+  put(patch: StoredPatch): Promise<void>
+  delete(ids: PatchId[]): Promise<void>
+}
+```
+
+In-memory is the first implementation and is explicitly **not durable** — a
+republish makes a new isolate and the patches are gone. A Durable Object is the
+second (§9.2), and the interface is what makes that a swap rather than a
+rewrite.
+
+`getStat` answers immediately: nothing edits files behind Val's back here, so
+there is nothing to wait for (§8c).
+
 ## 9. What full support needs
 
 Scoped from what the spike actually hit, not from a wishlist. Ordered by whether
