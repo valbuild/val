@@ -806,18 +806,48 @@ Cutting `ValOpsFS` out of `valServerConfig` was tried as an experiment and did
 **not** remove `fs` — there are several importers, and the runtime path reaches
 them through `createValOps`.
 
-So the fix is a packaging change, not a series of local ones:
+Since laziness does not help (below), the only thing that does is **`ValOpsFS`
+not being in the graph at all**. That means a separate entry point whose graph
+excludes every `fs`-mode path:
 
-1. `createValOps` must not statically import `ValOpsFS`. That means `await
-import()` in the fs branch, which makes it **async** — and it is exported,
-   and `@valbuild/mcp` calls it.
-2. A subpath (`@valbuild/server/runtime`, say) exporting only what a server
-   integration needs. The surface is small: `createValApiRouter`,
-   `createValServer`, and types. Additive, so nothing breaks.
+- `packages/server/runtime/` as a preconstruct entrypoint, exporting
+  `createValApiRouter` and a `createValServer` that builds only `http` and
+  `memory` ops. `@valbuild/tanstack/server` imports from there.
+- `ValServer` must stop reaching `createValOps`; it takes its ops instead. That
+  is safe — the VALUE is constructed in exactly one place, `ValRouter.ts:172`,
+  inside the already-async `createValServer`; only the TYPE is exported.
+- `resolveRemoteFileAuth`'s PAT branch has to move out of that graph too: it
+  already does `await import("fs")`, which looks fs-free and is not.
 
-That is a deliberate change to a published API, touching `@valbuild/mcp` and the
-CLI. It should be decided rather than slipped in, which is why this section
-exists instead of the change.
+Additive, so the existing entry keeps working and `@valbuild/mcp` and the CLI
+are untouched. But it is a new published entrypoint and a real split of the
+package's module boundaries, not a cleanup.
+
+### Making the import dynamic does NOT help — measured
+
+The obvious fix is to stop importing `ValOpsFS` statically:
+
+```ts
+if (options.mode === "fs") {
+  const { ValOpsFS } = await import("./ValOpsFS");   // instead of a top import
+```
+
+It was tried in full — `createValOps` async, `ValServer` async,
+`createValServer` awaiting it — and the layer build reports **exactly the same
+error**:
+
+    SKIPPED @valbuild/tanstack/server
+       worker/valbuild__tanstack__server.js imports 'fs' ...
+
+A dynamic import is still an edge. Rolldown emits the lazy chunk, that chunk
+contains `import "fs"`, and the audit reads every emitted file. Deferring WHEN
+a module loads does nothing about WHETHER it is in the output.
+
+Worth knowing because the async version is expensive and looks obvious:
+`createValOps` is exported and called from three SYNC call sites in
+`@valbuild/mcp` (`createValTools.ts` twice, `toolsFixture.ts`), so making it
+async turns MCP's tool resolution async too. That cost would have bought
+nothing — and the experiment was much cheaper than the refactor.
 
 ### What is still open
 
