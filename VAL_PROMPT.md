@@ -7,9 +7,9 @@ they were taken, what has actually been proven, and what is still guesswork.
 Keep it current as the work moves. When something here turns out to be wrong,
 correct it in place and say so — a stale line here is worse than no line.
 
-**Status: the Studio creates patches and Val applies them to `.val.ts` source,
-all inside the isolate. The patch does not yet leave it, so the rendered site
-does not change.** Nothing here is a design Val should
+**Status: the loop is closed — an edit in Val Studio changes what the live site
+serves.** Patches are still isolate-local, and the build step is a Node
+stand-in for the Studio tab; see §8b and §9. Nothing here is a design Val should
 adopt yet.
 
 ---
@@ -294,6 +294,66 @@ the Studio's Pages listing work with `vm` throwing. The write path — `/save`,
 marker's own `import()`, which is a dynamic ESM import whose behaviour in an
 isolate is unknown. That is the next thing to find out, and it is the same step
 as `commitPrepared`.
+
+## 8b. The loop is closed
+
+```
+before  This page is built with Val Build - the lightweight CMS where content is code.
+after   Edited live in Val Studio, running inside a Cloudflare Worker.
+```
+
+Typed in the Studio, saved through Val's real save path, and served by the
+isolate on the next request.
+
+### How to run it yourself
+
+```
+# once
+cd val && pnpm install && pnpm build          # ~50s; the FULL build, see below
+cd ../experiment-browser-built-tanstack-start
+pnpm dev:loader                               # leave running
+
+# set up the playground, linked to your Val checkout
+pnpm val:playground --mode studio --project valreal --val-source ../valbuild/val
+
+# edit at http://valreal.localhost:8787/val -- pick the page, change a field
+# then hand the patched source to the builder and republish
+pnpm val:republish --project valreal
+
+# and read it back
+curl -H 'x-bbs-project: valreal' http://localhost:8787/ | grep page-description
+```
+
+### Why it is three steps and not one
+
+**The isolate cannot build.** rolldown is not in there, and putting it there
+means shipping a bundler into every request. So:
+
+1. Val's `commitPrepared` hands the patched files to the host
+2. the app posts them to `/__api/source`, which parks them per project
+3. something that can build picks them up and publishes
+
+Step 3 is `pnpm val:republish`, and it is a **stand-in**. It belongs in the
+Studio tab, which already runs the builder and would publish from its own
+in-memory file record with no disk involved. Running it from Node keeps the loop
+honest end to end while that half is unbuilt.
+
+Parked source is deleted only after a successful publish: source that was never
+built is the only copy of that edit.
+
+### Two things that cost real time
+
+- **`npx preconstruct build` alone leaves `$$BUILD_$$REPLACE_WITH_VERSION$$`
+  unreplaced.** The Studio then asks for its bundle at a placeholder version and
+  500s. The full `pnpm build` is needed for anything crossing a package version,
+  not only for UI changes. This is the second time it bit.
+- **`commitPrepared` was passed positionally to `createValServer`**, whose
+  signature ends `(callbacks, formatter)`. It silently did nothing — the save
+  returned 200 and parked no files, which is indistinguishable from a save that
+  worked. Fixed by giving `createValServer` the parameter.
+
+The template only rendered `sections`, so an edited description changed the
+content and nothing visible; the playground copy renders it now.
 
 ## 9. What full support needs
 
