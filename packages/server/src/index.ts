@@ -192,6 +192,7 @@ export type {
   Sources,
 } from "./ValOps";
 export type { ValServerConfig } from "./ValServer";
+export type { CommitContext, CommitResult } from "./ValServer";
 
 /**
  * The local-dev patch store, exported so the CLI's debug tooling can read a

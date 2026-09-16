@@ -19,6 +19,7 @@ type Versions = {
   };
 };
 import type { ValPatchStore } from "./ValOpsMemory";
+import type { CommitContext, CommitResult } from "./ValServer";
 
 export type ValApiOptions = ValServerOverrides & ValConfig & Versions;
 
@@ -163,6 +164,11 @@ export async function createValServer(
   commitPrepared?: (commit: {
     patchedSourceFiles: Record<string, string | null>;
   }) => Promise<void>,
+  /**
+   * What a publish does in http mode. EXPERIMENTAL — see
+   * `ValServerOptions.publishOverride`.
+   */
+  publishOverride?: (context: CommitContext) => Promise<CommitResult>,
 ): Promise<ValServer> {
   const valServerConfig = await initHandlerOptions(route, opts, config);
   return ValServer(
@@ -170,6 +176,7 @@ export async function createValServer(
     {
       formatter,
       commitPrepared,
+      publishOverride,
       ...valServerConfig,
     },
     callbacks,

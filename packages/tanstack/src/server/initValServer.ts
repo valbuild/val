@@ -2,6 +2,8 @@ import { Internal, ValConfig, ValModules } from "@valbuild/core";
 import {
   createValApiRouter,
   createValServer,
+  type CommitContext,
+  type CommitResult,
   type ValPatchStore,
 } from "@valbuild/server";
 import { VERSION } from "../version";
@@ -26,6 +28,7 @@ const initValApiHandler = (
   sourceFiles?: Record<string, string>,
   patchStore?: ValPatchStore,
   apiKey?: string,
+  publishOverride?: (context: CommitContext) => Promise<CommitResult>,
 ): ((req: Request) => Promise<Response>) => {
   const route = "/api/val"; // TODO: get from config
   const coreVersion = Internal.VERSION.core;
@@ -81,6 +84,7 @@ const initValApiHandler = (
       },
       formatter,
       commitPrepared,
+      publishOverride,
     ),
     (valRes): Response => {
       const headers = new Headers();
@@ -224,6 +228,15 @@ export function initValServer(
      * publish.
      */
     apiKey?: string;
+    /**
+     * What a publish DOES, when Val's content service holds the patches.
+     *
+     * EXPERIMENTAL — see `ValServerOptions.publishOverride`. By default a
+     * publish in that mode is a git commit; a host that publishes by building
+     * says so here. It is handed the default as `commitToGit`, so it can
+     * replace the commit or also perform it.
+     */
+    publishOverride?: (context: CommitContext) => Promise<CommitResult>;
     sourceFiles?: Record<string, string>;
     /**
      * Where pending patches live, with {@link sourceFiles}. Defaults to memory,
@@ -268,6 +281,7 @@ export function initValServer(
       opts?.sourceFiles,
       opts?.patchStore,
       opts?.apiKey,
+      opts?.publishOverride,
     ),
     draftMode,
   };

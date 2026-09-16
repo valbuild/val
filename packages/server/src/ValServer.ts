@@ -48,6 +48,8 @@ import {
   SchemaSha,
   SourcesSha,
   ValOps,
+  type GenericErrorMessage,
+  type PreparedCommit,
 } from "./ValOps";
 import { fromError } from "zod-validation-error";
 import { ValOpsHttp } from "./ValOpsHttp";
@@ -97,7 +99,58 @@ export type ValServerOptions = {
   commitPrepared?: (commit: {
     patchedSourceFiles: Record<string, string | null>;
   }) => Promise<void>;
+  /**
+   * What a publish DOES, in `http` mode.
+   *
+   * EXPERIMENTAL. By default a publish there is a git commit through the
+   * content API — the content service holds the patches, and publishing means
+   * turning them into a commit on the project's repository. A host whose
+   * "publish" is something else entirely (this one builds the site and flips a
+   * pointer) has no way to say so.
+   *
+   * The default is handed over as {@link CommitContext.commitToGit} rather than
+   * simply skipped, and that is the whole point: it lets a host REPLACE the
+   * commit (never call it) or ADD to it (call it, then do its own work with the
+   * files). Those are two genuinely different products — one where the
+   * repository is the source of truth and one where the build is — and this
+   * seam should not decide which.
+   *
+   * Return what the route should report. Throwing fails the publish, with the
+   * patches left where they were.
+   */
+  publishOverride?: (context: CommitContext) => Promise<CommitResult>;
 };
+
+/** What {@link ValServerOptions.publishOverride} is given. */
+export type CommitContext = {
+  /** The files this commit produced: `path -> content`, `null` = delete. */
+  patchedSourceFiles: Record<string, string | null>;
+  /** Everything else the commit knows, for a host that needs more. */
+  preparedCommit: PreparedCommit;
+  message: string;
+  authorId: AuthorId;
+  /** The patch group this commit empties, if it empties one. */
+  patchGroupId?: string;
+  /**
+   * The default: a git commit through the content API.
+   *
+   * Call it to publish to the repository as well, or leave it alone to replace
+   * that step. Not calling it means the patches are NOT marked published by the
+   * content API, so a host that replaces the commit owns that too.
+   */
+  commitToGit: () => Promise<CommitResult>;
+};
+
+/** What a publish reports back, in either shape. */
+export type CommitResult =
+  | {
+      isNotFastForward?: boolean;
+      updatedFiles: string[];
+      commit: CommitSha;
+      branch: string;
+      error?: undefined;
+    }
+  | { isNotFastForward?: boolean; error: GenericErrorMessage };
 
 export type ValServerConfig = ValServerOptions &
   (
@@ -2406,20 +2459,38 @@ export const ValServer = (
               "Val CMS update (" +
                 Object.keys(analysis.patchesByModule).length +
                 " files changed)";
-            const commitRes = await serverOps.commit(
-              preparedCommit,
-              message,
-              auth.id as AuthorId,
-              options.config.files?.directory || "/public/val",
-              undefined,
-              /*
-               * Forwarded verbatim, and only the client can decide it: the
-               * content API closes the group it is named without checking that
-               * the commit shipped all of it, and whether it did needs the
-               * patch sets, which live in the browser.
-               */
-              body.patchGroupId,
-            );
+            const commitToGit = () =>
+              serverOps.commit(
+                preparedCommit,
+                message,
+                auth.id as AuthorId,
+                options.config.files?.directory || "/public/val",
+                undefined,
+                /*
+                 * Forwarded verbatim, and only the client can decide it: the
+                 * content API closes the group it is named without checking
+                 * that the commit shipped all of it, and whether it did needs
+                 * the patch sets, which live in the browser.
+                 */
+                body.patchGroupId,
+              );
+            /*
+             * A host may publish somewhere other than the repository.
+             *
+             * See `publishOverride`. It is handed `commitToGit` rather than
+             * having it skipped, so it can replace the commit or add to it --
+             * and it is the host, not this route, that knows which.
+             */
+            const commitRes = options.publishOverride
+              ? await options.publishOverride({
+                  patchedSourceFiles: preparedCommit.patchedSourceFiles,
+                  preparedCommit,
+                  message,
+                  authorId: auth.id as AuthorId,
+                  patchGroupId: body.patchGroupId,
+                  commitToGit,
+                })
+              : await commitToGit();
             if (commitRes.error) {
               console.error("Failed to commit", commitRes.error);
               if (
