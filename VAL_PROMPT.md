@@ -295,6 +295,111 @@ marker's own `import()`, which is a dynamic ESM import whose behaviour in an
 isolate is unknown. That is the next thing to find out, and it is the same step
 as `commitPrepared`.
 
+## 9. What full support needs
+
+Scoped from what the spike actually hit, not from a wishlist. Ordered by whether
+it blocks the others.
+
+### 9.1 Where does `prepare()` run? (decide first)
+
+Everything below depends on it. Patch application is a TypeScript AST rewrite,
+so **whichever side runs `prepare()` needs the 8.7 MB compiler**. Two answers:
+
+- **In the isolate** (what the spike does). The isolate needs TypeScript, a
+  filesystem and the patch store. Proven to work.
+- **In the Studio tab.** The tab already runs rolldown for the build; adding
+  TypeScript there costs a download, not a cold start. The isolate then only
+  stores patches and serves content, and `commitPrepared` becomes "hand the
+  prepared files to the client".
+
+The second is cheaper per request and matches where the platform already
+builds. The first is fewer moving parts. This is a real fork, not a detail.
+
+### 9.2 Durable patches — this needs a Durable Object, not KV
+
+Patches currently live in isolate memory and die with it. The obvious fix is KV,
+and **KV cannot do it**: Val's store is built on a lock
+(`.val/patches.lock`, opened `wx` = `O_CREAT|O_EXCL`) and an ordering log whose
+*position in the file* is the chain. KV is eventually consistent and has no
+compare-and-swap, so two tabs can both believe they hold the lock, and the log
+can be read stale. `architecture/patch-store.md` exists because that class of
+bug already cost Val an incident.
+
+A **Durable Object per project** is the right primitive: single-threaded
+execution is the lock, and its transactional storage is the log. Work:
+
+- a `ValFS` backed by DO storage, or a `ValOps` implementation for this platform
+- **`ValOpsFS` does not go through `ValFS` consistently** — it calls `fs`
+  directly in places (`fs.readdirSync` at `ValOpsFS.ts:344`, and all the
+  descriptor work in `patchLock.ts` / `patchLog.ts` / `patchStore.ts`). Either
+  tighten `ValOpsFS` onto `ValFS` (better for Val generally) or write a separate
+  implementation.
+
+### 9.3 Publish — `commitPrepared`, and who builds
+
+- **Val:** replace the `instanceof ValOpsFS` / `instanceof ValOpsHttp` branch in
+  `/save` with `commitPrepared(preparedCommit, meta)`.
+  `PreparedCommit.patchedSourceFiles` is already `Record<path, string | null>`.
+- **The build has to happen somewhere.** The isolate cannot build; the Studio
+  tab already can. So the smallest shape is: `commitPrepared` returns the
+  patched files, the tab writes them into its file record, builds, and calls the
+  platform's publish. That also keeps the credential out of the isolate.
+
+### 9.4 Media and binary files
+
+`s.image()` / `s.file()` uploads land in `.val/uploads` before the patch record
+exists, and `getBinaryFile` returns a `Buffer`. Needs durable binary storage
+(R2, or KV for small files) and a serving path. `ValOps` uses `Buffer` in 8
+places — fine in a Worker, a port if this ever moves to the tab.
+
+### 9.5 Draft mode and preview
+
+The Studio's Preview renders the site with *unpublished* patches applied. That
+is `initValContent` + `draftMode`, which exist — but the isolate has to be able
+to read the pending patches at render time. Mostly falls out of 9.2.
+
+### 9.6 Val packaging (worth doing regardless)
+
+Split `@valbuild/server`'s barrel so the request path does not import the
+tooling (`createService`, `loadValModules`, `evalValConfigFile`). That removes
+`vm` and `chokidar` outright. It does **not** remove TypeScript if `prepare()`
+runs server-side — see 9.1.
+
+### 9.7 Trust, which is currently wide open
+
+- `/__api/publish` is **unauthenticated**. If the isolate publishes, any code in
+  a published app can publish over any project.
+- A content editor would ride the same publish path as a developer.
+- `globalOutbound` clamping exists but is off (`SANDBOX=0`).
+
+This is already recorded in the platform's ARCHITECTURE §8 as a known gap. It
+stops being theoretical the moment publish is reachable from content editing.
+
+### 9.8 Smaller, known
+
+- The prettier formatter TDZ-crashes in the isolate; either drop it or format in
+  the tab.
+- **The seed ships every project source file into the worker module map.** It
+  should be scoped to what Val reads (`*.val.ts`, `val.config`, `val.modules`).
+- `--node-shims` is a deliberate hole in the import audit. Narrow it to a
+  declared list, or delete it once 9.6 makes it unnecessary.
+- Cold-start CPU for a ~20 MB layer is unmeasured.
+- The Studio's AI endpoints need a configured Val project; they 401/500 today.
+- Save is gated in the UI by a validation error the template already has, so the
+  button itself is still unexercised.
+
+### 9.9 Fastest route to "the site changes"
+
+Not the same as full support, and worth doing first because it proves the whole
+loop end to end:
+
+1. `commitPrepared` returning the prepared files (9.3, Val, small)
+2. the tab writes them, rebuilds and publishes (platform, reuses what exists)
+3. reload the site and read the new text
+
+Patches can stay in isolate memory for that — a single session survives it.
+Durability (9.2) is what makes it a product rather than a demonstration.
+
 ### The next step
 
 `commitPrepared(preparedCommit, meta)` on `ValOps`, replacing the `instanceof`
