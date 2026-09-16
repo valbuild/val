@@ -10,6 +10,24 @@ import { VERSION } from "../version";
 import { valDraftMode, type ValDraftMode } from "./valDraftMode";
 
 /**
+ * What `http` mode needs, as one object.
+ *
+ * A publish there is a commit on the project's repository, so this is the
+ * shape of "Val's content service holds my patches and my repo holds my
+ * content".
+ */
+export type ValHttpMode = {
+  /** Names the PROJECT to the content service. */
+  apiKey: string;
+  /** Signs the session cookie. Any sufficiently random string. */
+  valSecret: string;
+  /** The commit the running code was built from. See the note at the use. */
+  gitCommit: string;
+  /** The branch a publish commits to. */
+  gitBranch: string;
+};
+
+/**
  * The Val API, as a handler you can mount on a TanStack Start server route.
  *
  * `createValApiRouter` already speaks the platform's own vocabulary — it takes
@@ -29,6 +47,7 @@ const initValApiHandler = (
   patchStore?: ValPatchStore,
   apiKey?: string,
   publishOverride?: (context: CommitContext) => Promise<CommitResult>,
+  http?: ValHttpMode,
 ): ((req: Request) => Promise<Response>) => {
   const route = "/api/val"; // TODO: get from config
   const coreVersion = Internal.VERSION.core;
@@ -69,6 +88,18 @@ const initValApiHandler = (
         ...(sourceFiles !== undefined ? { sourceFiles } : {}),
         ...(patchStore !== undefined ? { patchStore } : {}),
         ...(apiKey !== undefined ? { apiKey } : {}),
+        /*
+         * What puts the server in `http` mode: the patches live on Val's
+         * content service, and a publish is a commit on the project's
+         * repository.
+         *
+         * `gitCommit` is the commit the RUNNING code was built from, and it is
+         * load bearing rather than bookkeeping: every read of a `.val.ts` in
+         * this mode fetches that path from the content service AT THAT COMMIT.
+         * Give it a commit the deployed code did not come from and Val edits a
+         * different version of the file than the one the site is running.
+         */
+        ...(http !== undefined ? http : {}),
       },
       config,
       {
@@ -237,6 +268,14 @@ export function initValServer(
      * replace the commit or also perform it.
      */
     publishOverride?: (context: CommitContext) => Promise<CommitResult>;
+    /**
+     * Put this server in `http` mode: Val's content service owns the patches.
+     *
+     * Everything here is required together — `initHandlerOptions` throws for a
+     * proxy config missing any of them — which is why it is one option and not
+     * four.
+     */
+    http?: ValHttpMode;
     sourceFiles?: Record<string, string>;
     /**
      * Where pending patches live, with {@link sourceFiles}. Defaults to memory,
@@ -282,6 +321,7 @@ export function initValServer(
       opts?.patchStore,
       opts?.apiKey,
       opts?.publishOverride,
+      opts?.http,
     ),
     draftMode,
   };
