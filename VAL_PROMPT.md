@@ -629,6 +629,42 @@ is invisible on the page is still visible in the output — it used to print the
 first line containing a long string, which on this template was reliably an
 unrelated `import`.
 
+### The fs-freebie audit
+
+The pattern behind three of this mode's bugs, stated once: **`fs` mode gets
+things for free by writing to a disk and reading it back, and every one of those
+is a gap here.** Audited deliberately rather than waiting for the next report.
+
+| what a save changes       | what reads it later                                  | memory mode                                |
+| ------------------------- | ---------------------------------------------------- | ------------------------------------------ |
+| `.val.ts` text            | `getSourceFile`, on the next `prepare()`             | **was broken** — `adoptPatchedSourceFiles` |
+| `.val.json` entry content | `getJsonEntries` → the marker's own `import()`       | base class, via `adoptedJsonEntries`       |
+| `.val.json` FILE          | `getSourceFile`, when a patch is applied to an entry | **was broken** — see below                 |
+| evaluated Sources         | `promoteCommittedSources`                            | base class                                 |
+| the SHAs                  | recomputed from the fold                             | base class                                 |
+| pending patches           | the store                                            | `ValPatchStore`                            |
+| pending binary files      | the store                                            | `putFile`/`getFile`                        |
+| published binary files    | a `/public` directory                                | n/a — remote files only                    |
+| `appliedAt` per patch     | `scopedModulePatches`                                | n/a — a save deletes its patches           |
+
+Two things the audit found that reasoning had got wrong:
+
+- **Applying a patch to a `.jsonValues()` entry READS its `.val.json` through
+  `getSourceFile`.** Reading one for display goes through the marker's
+  `import()`, so it looked as though `sourceFiles` was not involved at all. It
+  is, on the write path — and the platform's `readSources` collected only
+  `.tsx?|jsx?|mjs|cjs`, so a project using `.jsonValues()` could not save an
+  entry edit at all. The save failed with `File not found: …/x.val.json` and
+  nothing else explained why.
+- **`saveSourceFile` on `ValOpsFS` is dead code.** Nothing calls it. It looks
+  like a seam a third mode would need, and is not one.
+
+Two gaps left open deliberately: bytes uploaded for a patch that is never
+recorded stay until the store is dropped (`fs` mode sweeps its staging
+directory; nothing sweeps this one), and the `jsonEntriesSha` that `fs` mode's
+stat carries has no counterpart — an entry-only change is reported through the
+patch list instead.
+
 ### What is still open
 
 - **The patch store is not durable.** `InMemoryPatchStore` dies with the
