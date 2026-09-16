@@ -155,6 +155,38 @@ export class ValOpsMemory extends ValOps {
     // Nothing to prepare: there is no directory to create and no store to open.
   }
 
+  /**
+   * Requests parked in {@link getStat}, waiting for something to happen.
+   *
+   * See there for why this exists. Resolved and emptied by
+   * {@link announceChange}; never rejected, because a waiter that gives up does
+   * so on its own timeout.
+   */
+  private statWaiters: Array<() => void> = [];
+
+  /** Wake every parked `getStat`. Called by this instance's own writes. */
+  private announceChange(): void {
+    const waiting = this.statWaiters;
+    this.statWaiters = [];
+    for (const wake of waiting) {
+      wake();
+    }
+  }
+
+  private async currentStat(): Promise<{
+    baseSha: BaseSha;
+    schemaSha: SchemaSha;
+    sourcesSha: SourcesSha;
+    patches: PatchId[];
+  }> {
+    return {
+      baseSha: await this.getBaseSha(),
+      schemaSha: await this.getSchemaSha(),
+      sourcesSha: await this.getSourcesSha(),
+      patches: await this.store.list(),
+    };
+  }
+
   override async getStat(
     params: {
       baseSha: BaseSha;
@@ -168,29 +200,73 @@ export class ValOpsMemory extends ValOps {
     sourcesSha: SourcesSha;
     patches: PatchId[];
   }> {
-    // Immediate, not a long poll.
-    //
-    // `ValOpsFS` holds this request open racing a 250ms mtime poll, `fs.watch`
-    // and a 20s timeout, so a developer editing a `.val.ts` in their editor
-    // sees it without a reload. Here there is no editor and no disk: the source
-    // was handed in at construction and only changes when the host rebuilds,
-    // which replaces this object entirely. Waiting could only ever time out.
-    const baseSha = await this.getBaseSha();
-    const schemaSha = await this.getSchemaSha();
-    const sourcesSha = await this.getSourcesSha();
-    const patches = await this.store.list();
-    const changed =
+    /*
+     * A long poll, and it has to be one -- but parked on a SIGNAL rather than a
+     * timer.
+     *
+     * The hold is what paces the client. `useStatus.ts` sets `wait: 0` between
+     * stats unless it has a WebSocket, with the comment "we are long polling so
+     * no point in waiting": the server holding the request open IS the rate
+     * limit. An earlier version of this method answered immediately, on the
+     * reasoning that nothing can edit files behind Val's back in an isolate --
+     * true, and beside the point. It turned a 20s poll into a request every
+     * 6ms, which is worse than what it replaced.
+     *
+     * What was actually wrong with `fs` mode here is not the hold, it is the
+     * WATCHING: it races a 250ms mtime poll and an `fs.watch`, neither of which
+     * can observe anything in an isolate (the shim's `watch` never fires and
+     * mtime is always 0), so it burns CPU for 20s to learn nothing. This owns
+     * its store, so it is TOLD instead -- zero timers while parked, and a patch
+     * written by another tab is seen at once rather than up to 250ms later.
+     *
+     * The timeout is the backstop, and it is not only for an idle branch: a
+     * store shared between isolates (a Durable Object -- see ValPatchStore) can
+     * change without this instance writing anything, and nothing would announce
+     * that. So it re-reads on the way out rather than assuming `no-change`.
+     */
+    const before = await this.currentStat();
+    const differs = (now: {
+      baseSha: BaseSha;
+      schemaSha: SchemaSha;
+      patches: PatchId[];
+    }) =>
       params === null ||
-      params.baseSha !== baseSha ||
-      params.schemaSha !== schemaSha ||
-      (params.patches ?? []).join(",") !== patches.join(",");
+      params.baseSha !== now.baseSha ||
+      params.schemaSha !== now.schemaSha ||
+      (params.patches ?? []).join(",") !== now.patches.join(",");
+
+    // Already behind: answer now. This is the case that matters for latency --
+    // the client has just written a patch and is asking what happened.
+    if (differs(before)) {
+      return { type: "did-change", ...before };
+    }
+
+    await this.parkUntilChange();
+
+    const after = await this.currentStat();
     return {
-      type: changed ? "did-change" : "no-change",
-      baseSha,
-      schemaSha,
-      sourcesSha,
-      patches,
+      type: differs(after) ? "did-change" : "no-change",
+      ...after,
     };
+  }
+
+  /** Resolves on the next write here, or when the poll interval runs out. */
+  private parkUntilChange(): Promise<void> {
+    const timeoutMs = this.options?.statPollingInterval ?? 20_000;
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        // Cleared on BOTH paths: a change that wins the race leaves a 20s timer
+        // behind otherwise, and in a Worker a pending timer is a reason to keep
+        // the isolate alive.
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(done, timeoutMs);
+      this.statWaiters.push(done);
+    });
   }
 
   override async fetchPatches<ExcludePatchOps extends boolean>(filters: {
@@ -270,6 +346,10 @@ export class ValOpsMemory extends ValOps {
       createdAt: new Date().toISOString(),
       baseSha: await this.getBaseSha(),
     });
+    // Any `getStat` parked on this instance answers now instead of waiting out
+    // its timeout. This is the whole reason the hold can be free: the store is
+    // ours, so there is nothing to poll for.
+    this.announceChange();
     return result.ok({ patchId });
   }
 
@@ -299,6 +379,7 @@ export class ValOpsMemory extends ValOps {
     error?: undefined;
   }> {
     await this.store.delete(patchIds);
+    this.announceChange();
     return { deleted: patchIds };
   }
 

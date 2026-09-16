@@ -364,9 +364,9 @@ content and nothing visible; the playground copy renders it now.
 
 ## 8c. `/stat` long-polls, and that is wrong in an isolate
 
-**Resolved by §8d/§8e** — option 2 below, via the third mode. `/stat` now
-answers in 28 ms instead of holding a request open for 20 s. Kept because the
-analysis is what chose the fix.
+**Resolved by §8d/§8e — but NOT by option 2 below, which was wrong.** The
+analysis here is right about what `fs` mode wastes and wrong about what to do
+instead. See §8e, "the hold is the rate limit".
 
 **Observed:** the Studio hammers `/api/val/stat` continuously. Worth being
 precise about, because part of it is by design and part of it is not.
@@ -424,8 +424,11 @@ stop the polling, because the polling is not a symptom of it.
 
 Worth doing (1) now to stop the CPU burn, and (2) as the real answer.
 
-**What happened:** (2), and it came free with (3). `ValOpsMemory.getStat`
-answers from its store, so there was never a (1) to thread through.
+**What happened:** (3), and (2) turned out to be a mistake — see §8e. The
+client sets `wait: 0` between stats unless it has a WebSocket, so the server's
+hold is the only thing pacing it; answering immediately produced a request every
+6 ms. What is actually wrong with `fs` mode here is the WATCHING, not the
+holding. The third mode keeps the hold and parks it on a signal.
 
 ## 8d. The third mode — BUILT, and the loop runs on it
 
@@ -503,7 +506,7 @@ working copy:
 | step                                       | result                                                                                                      |
 | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
 | `PUT /api/val/patches`                     | `{"newPatchIds":["8b45e9b0-…"]}` — stored in `ValOpsMemory`                                                 |
-| `POST /api/val/stat`                       | lists the patch, **28 ms**, `mode: "fs"`                                                                    |
+| `POST /api/val/stat`                       | lists the patch at once; an idle stat holds 20 s; `mode: "fs"`                                              |
 | `PUT /api/val/sources/~` with the patch id | the edited value comes back                                                                                 |
 | `POST /api/val/save`                       | `{}` — the patch is applied to the real `.val.ts` through Val's TS AST, and `commitPrepared` parks the file |
 | `GET /__api/source`                        | the parked `.val.ts` carries the edit                                                                       |
@@ -516,11 +519,35 @@ working copy:
 
 ### Three things it fixed
 
-1. **`/stat` no longer long-polls.** 20 s of held-open request per poll became
-   28 ms. `ValOpsMemory.getStat` answers from the store, because nothing can
-   edit files behind Val's back in an isolate: the source arrived at
-   construction and only changes when the host rebuilds, which replaces the
-   object. This closes §8c without needing `disableFilePolling`.
+1. **`/stat` still long-polls — but parks on a signal, not a timer.**
+
+   I got this wrong once, and it is worth recording because the wrong version
+   looked like a fix: `/stat` got faster. The first cut answered immediately, on
+   the reasoning that nothing can edit files behind Val's back in an isolate.
+   True, and beside the point — **the hold is the rate limit**. `useStatus.ts`
+   sets `wait: 0` between stats unless it has a WebSocket, with the comment "we
+   are long polling so no point in waiting". Answering in 6 ms turned a poll
+   every 20 s into a request every 6 ms: worse than what it replaced, and caught
+   from the request log rather than by anything here.
+
+   What is actually wrong with `fs` mode is the WATCHING. It races a 250 ms
+   mtime poll and an `fs.watch`, neither of which can observe anything in an
+   isolate — the shim's `watch` never fires and mtime is always 0 — so it burns
+   CPU for 20 s to learn nothing. `ValOpsMemory` owns its store, so it is TOLD:
+   `saveSourceFilePatch` and `deletePatches` wake every parked `getStat`. No
+   timers while parked, and a patch written by another tab is seen at once
+   rather than up to 250 ms later.
+
+   The timeout is the backstop, and not only for an idle branch: **a republish
+   cannot be announced**, because it happens in a different isolate. So the
+   Studio notices a new build within the poll interval rather than immediately.
+   A store shared between isolates (§9.2) has the same property, which is why
+   `getStat` re-reads on the way out instead of assuming `no-change`.
+
+   `ValOpsMemory.stat.test.ts` pins both halves — a stat with nothing to report
+   must NOT return promptly, and a write must cut the hold short. Neither alone
+   is the requirement, and each direction was checked against a negative
+   control.
 
 2. **`/enable` 500 — and it was NOT what §8d assumed.** The `ReferenceError:
 Cannot access 'fs' before initialization` was not the shimmed filesystem
