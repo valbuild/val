@@ -330,7 +330,10 @@ export abstract class ValOps {
    */
   async adoptCommittedSources(
     analysis: PatchAnalysis & OrderedPatches,
-    preparedCommit: Pick<PreparedCommit, "patchedJsonEntries">,
+    preparedCommit: Pick<
+      PreparedCommit,
+      "patchedJsonEntries" | "patchedSourceFiles"
+    >,
   ): Promise<void> {
     // Read BEFORE anything is promoted: this applies the chain to the sources as
     // they stand, and promoting first would apply the same patches twice.
@@ -350,6 +353,17 @@ export abstract class ValOps {
       adopt[moduleFilePath] = source;
     }
     this.promoteCommittedSources(adopt);
+    /**
+     * And the `.val.ts` TEXT, for a store that has nowhere else to keep it.
+     *
+     * Everything above adopts the SOURCE — the data a module evaluates to. The
+     * file the patch was applied TO is a separate thing, and `getSourceFile` is
+     * what the next `prepare()` reads. In `fs` mode that is the disk, which
+     * `saveOrUploadFiles` has just rewritten, so this is a no-op. A store with
+     * no disk has to be told, or every later save re-reads the source as it was
+     * when the process started and silently reverts this one.
+     */
+    this.adoptPatchedSourceFiles(preparedCommit.patchedSourceFiles);
     /**
      * And the `.jsonValues()` entry content, which the sources above do not
      * carry — they hold markers. See {@link adoptedJsonEntries}.
@@ -2200,6 +2214,18 @@ export abstract class ValOps {
         : {}),
     });
   }
+
+  /**
+   * Take the `.val.ts` text a commit produced as the new committed source.
+   *
+   * A no-op where {@link getSourceFile} reads something the commit already
+   * wrote — the disk in `fs` mode, the content service in `http` mode. Override
+   * it in a store that holds the source itself. `null` means the commit deleted
+   * the file.
+   */
+  protected adoptPatchedSourceFiles(
+    _files: Record<string, string | null>,
+  ): void {}
 
   // #region abstract ops
   /**

@@ -141,12 +141,29 @@ export class ValOpsMemory extends ValOps {
   override readonly patchesAreLocal = true;
 
   private readonly store: ValPatchStore;
-  private readonly sourceFiles: Record<string, string>;
+  /**
+   * The project's source, keyed WITHOUT a leading slash.
+   *
+   * Two spellings reach this. A host keys by project-relative path
+   * (`src/routes/page.val.ts`) because that is what it built from; Val asks and
+   * commits with a leading slash (`/src/routes/page.val.ts`). Normalised on the
+   * way in so there is one entry per file — holding both spellings would let a
+   * commit update one and leave the other as the stale answer.
+   *
+   * Not `readonly`: a save replaces the files it rewrote. See
+   * {@link adoptPatchedSourceFiles}.
+   */
+  private sourceFiles: Record<string, string>;
 
   constructor(valModules: ValModules, options: ValOpsMemoryOptions) {
     super(valModules, options);
     this.store = options.patchStore ?? new InMemoryPatchStore();
-    this.sourceFiles = options.sourceFiles;
+    this.sourceFiles = Object.fromEntries(
+      Object.entries(options.sourceFiles).map(([path, text]) => [
+        ValOpsMemory.key(path),
+        text,
+      ]),
+    );
   }
 
   // #region the six that carry the mode
@@ -353,13 +370,40 @@ export class ValOpsMemory extends ValOps {
     return result.ok({ patchId });
   }
 
+  /** One spelling for a path, whichever the caller used. See sourceFiles. */
+  private static key(path: string): string {
+    return path.replace(/^\//, "");
+  }
+
+  /**
+   * A save has rewritten these files; they are the committed source now.
+   *
+   * Without this every save after the first re-reads the source as it was when
+   * this object was built, applies only its own patches to that, and parks a
+   * file that reverts everything saved before it -- with no error, because
+   * applying the patch to the ORIGINAL text succeeds. The Studio auto-saves, so
+   * that is not an edge case: it is most of a session's work.
+   *
+   * `fs` mode gets this for free -- `saveOrUploadFiles` writes the disk that
+   * `getSourceFile` reads. There is no disk here, so it is written down.
+   */
+  protected override adoptPatchedSourceFiles(
+    files: Record<string, string | null>,
+  ): void {
+    for (const [path, text] of Object.entries(files)) {
+      const key = ValOpsMemory.key(path);
+      if (text === null) {
+        delete this.sourceFiles[key];
+      } else {
+        this.sourceFiles[key] = text;
+      }
+    }
+  }
+
   protected override async getSourceFile(
     path: string,
   ): Promise<WithGenericError<{ data: string }>> {
-    // Both spellings: the host keys by project-relative path, and Val asks with
-    // a leading slash.
-    const data =
-      this.sourceFiles[path] ?? this.sourceFiles[path.replace(/^\//, "")];
+    const data = this.sourceFiles[ValOpsMemory.key(path)];
     if (data === undefined) {
       return {
         error: {

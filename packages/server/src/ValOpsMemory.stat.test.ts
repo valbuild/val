@@ -1,7 +1,11 @@
-import { initVal, ModuleFilePath } from "@valbuild/core";
-import type { ParentRef } from "@valbuild/shared/internal";
+import {
+  initVal,
+  type ModuleFilePath,
+  type PatchId,
+  type ValModules,
+} from "@valbuild/core";
 import { ValOpsMemory } from "./ValOpsMemory";
-import type { AuthorId, BaseSha, SchemaSha } from "./ValOps";
+import type { BaseSha, SchemaSha } from "./ValOps";
 
 const { s, c, config } = initVal();
 
@@ -24,7 +28,8 @@ const { s, c, config } = initVal();
  * return as soon as something does happen.
  */
 
-const valModules = {
+const valModules: ValModules = {
+  config,
   modules: [
     {
       def: () =>
@@ -105,8 +110,9 @@ describe("ValOpsMemory getStat", () => {
       void ops.createPatch(
         "/content/test.val.ts" as ModuleFilePath,
         [{ op: "replace", path: [], value: "goodbye" }],
-        { type: "head", headBaseSha: params.baseSha } as ParentRef,
-        null as AuthorId | null,
+        crypto.randomUUID() as PatchId,
+        { type: "head", headBaseSha: params.baseSha },
+        null,
         null,
       );
     }, 50);

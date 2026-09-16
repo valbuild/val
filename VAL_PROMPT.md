@@ -594,6 +594,41 @@ into a patch directory, and the presigned-nonce lookup.
 client is actually asking ("do I auto-save, or do I publish?") has the same
 answer for both local stores. `"unknown"` used to be a 500.
 
+### The lost-edit bug, and what it teaches
+
+Found by the user, not by anything here: patch, save, patch, save, republish —
+and the first edit was gone, with no error at any stage.
+
+`getSourceFile` answered from the source the host handed over at construction,
+and nothing moved it. `fs` mode's equivalent is a disk that `saveOrUploadFiles`
+has just rewritten, so the next `prepare()` reads the previous save's output.
+With no disk here, the second save re-read the ORIGINAL `.val.ts`, applied only
+its own patch to that, and parked a file that reverts the first. Silent, because
+applying a patch to the original text succeeds perfectly well.
+
+**The Studio auto-saves**, so this was not an edge case — it was most of a
+session's work.
+
+`ValOps.adoptCommittedSources` now also hands the committed `.val.ts` TEXT to
+`adoptPatchedSourceFiles`, a no-op wherever `getSourceFile` reads something the
+commit already wrote. It is on the base class and called from the one place that
+already existed, so a store cannot adopt sources without being offered the text.
+`ValOpsMemory.save.test.ts` pins it, negative-controlled (remove the hook: 2 of 3
+fail).
+
+The lesson for the rest of §9: **`fs` mode gets things for free by writing to a
+disk and reading it back, and every one of those is a gap here.** This was the
+second (after `/stat`'s pacing). Worth auditing the remaining ones deliberately
+rather than waiting to be told.
+
+A second, unrelated cause of "I saved and nothing changed": the starter
+template renders `meta.description` and `sections`, and hardcodes its
+`<title>`. Editing Meta → Title changes the data and nothing visible.
+`val:republish` now prints a real diff of the file it wrote, so a change that
+is invisible on the page is still visible in the output — it used to print the
+first line containing a long string, which on this template was reliably an
+unrelated `import`.
+
 ### What is still open
 
 - **The patch store is not durable.** `InMemoryPatchStore` dies with the
