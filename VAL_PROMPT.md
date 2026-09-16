@@ -355,6 +355,64 @@ built is the only copy of that edit.
 The template only rendered `sections`, so an edited description changed the
 content and nothing visible; the playground copy renders it now.
 
+## 8c. `/stat` long-polls, and that is wrong in an isolate
+
+**Observed:** the Studio hammers `/api/val/stat` continuously. Worth being
+precise about, because part of it is by design and part of it is not.
+
+### What it is
+
+In `fs` mode `getStat` is a **long-poll**, not a request. It holds the response
+open and races four things (`ValOpsFS.ts`, ~line 440):
+
+| | |
+| --- | --- |
+| `didDirectoryChangeUsingPolling` on `.val/patches` | `statFilePollingInterval`, default **250 ms** |
+| `didFilesChangeUsingPolling` on `val.config`, `val.modules` and every module file | same 250 ms |
+| `fs.watch` on the same files | event-driven |
+| a timeout resolving `"no-change"` | `statPollingInterval`, default **20 s** |
+
+The client re-requests as soon as it returns. That is deliberate and correct for
+local development: the developer edits a `.val.ts` in their editor and the
+Studio notices without a reload.
+
+### Why it is wrong here
+
+- **`fs.watch` is a no-op** in the platform's shim — it returns an object with a
+  `close` that never fires. So the event-driven branch can never win.
+- **`mtime` is always 0** in the in-memory filesystem, so the file-mtime poller
+  can never see a change either. The patches-directory poller still works,
+  because it compares the *number* of entries, which is why `request-again`
+  appears after a patch is created.
+- So in practice every stat runs a **250 ms timer for up to 20 s** and then
+  answers `no-change`, and the client immediately asks again. In a Worker that
+  keeps the isolate alive and bills CPU for a timer that cannot observe
+  anything.
+- **The watch has nothing to watch.** Nothing edits files behind Val's back in
+  an isolate: source changes only through a republish, and a republish creates a
+  *new* isolate with new content. The entire mechanism is answering a question
+  that cannot have a different answer.
+
+Note also that the retry storm seen while saves were failing was a *separate*
+cause — the Studio re-sending a save it could not complete. Fixing that did not
+stop the polling, because the polling is not a symptom of it.
+
+### The fix, in increasing order of correctness
+
+1. **`disableFilePolling: true`** already exists on `ValOps` options
+   (`ValOps.ts:133`) and kills both 250 ms pollers. It is **not** threaded
+   through `initValServer`, so a TanStack app cannot set it today. This is the
+   one-line-ish change, and it leaves a 20 s hold per request.
+2. **Answer immediately.** In this configuration `getStat` should return
+   `no-change` without waiting at all, and let the client choose its cadence.
+   That needs a way to say "there is no watcher here" — a mode flag, or
+   inferring it from a filesystem that reports no watch support.
+3. **Stop calling this `fs` mode.** The isolate is not a developer's machine.
+   The mode is chosen in `createValOps` by `options.mode`, and a third backend
+   would not inherit the watching at all — which is §9.2.
+
+Worth doing (1) now to stop the CPU burn, and (2) as the real answer.
+
 ## 9. What full support needs
 
 Scoped from what the spike actually hit, not from a wishlist. Ordered by whether
