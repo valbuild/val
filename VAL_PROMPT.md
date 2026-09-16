@@ -665,6 +665,70 @@ directory; nothing sweeps this one), and the `jsonEntriesSha` that `fs` mode's
 stat carries has no counterpart — an entry-only change is reported through the
 patch list instead.
 
+## 8f. Option B: the content service owns the patches
+
+**Decided and verified.** `fs` mode is a developer's machine, and the in-memory
+mode (§8d) is this platform holding everything itself. Option B is the third
+answer: Val's content service owns the patches, and a publish makes a real git
+commit AND a new build.
+
+### Why the commit is not optional
+
+`ValOpsHttp.getSourceFile` fetches a path from the content service **at a commit
+sha**. So http mode only works if some commit describes what the running code
+was built from. Committing at publish creates exactly that sha; the rebuild
+carries it; source and build agree again. Without the commit there is no sha to
+give it, and Val edits a different version of a file than the site is serving.
+
+That makes the sha travel:
+
+    publish → commitToGit() → newSha
+            → park(files, newSha)  →  /__api/source
+            → val:republish builds with VAL_GIT_COMMIT=newSha
+
+The commit goes FIRST. If it fails there is nothing to publish, and parking
+files against a commit that does not exist would leave the next build reading
+content from a sha the content service has never heard of.
+
+### `publishOverride`
+
+The seam this needed, and the one asked for at the very start: "a generic
+override that can be used in Val to make the publish do other stuff than the
+default in http mode (which is writing to github)".
+
+It is handed the default as `commitToGit` rather than having it skipped. A host
+can REPLACE the commit or ADD to it, and those are two different products — one
+where the repository is the record, one where the build is. The seam does not
+pick; the host does, at runtime.
+
+### Verified, against `e2e/mock-content-host`
+
+Val's own mock implements the patch, commit and file routes over an in-memory
+overlay with **no git repository behind it**, and serves `location: "repo"`
+reads from a directory on disk. That is what made this testable at all: the test
+project has no repo, and a Worker cannot reach the real content host from the
+sandbox. Point `--val-content-url` at the mock and the whole thing runs.
+
+|                 |                                                                                             |
+| --------------- | ------------------------------------------------------------------------------------------- |
+| `/stat`         | `use-websocket` — http mode's stat, which beats both polling designs                        |
+| `PUT /patches`  | stored on the CONTENT HOST (confirmed independently through its own API)                    |
+| `POST /save`    | `200 {"commitSha":"ff090003…"}` — a real commit, parent `mockcommit0`, author `profile-ada` |
+| parked          | `{ files, commitSha: "ff090003…" }`                                                         |
+| `val:republish` | builds with `VAL_GIT_COMMIT=ff090003…`                                                      |
+| the live page   | serves the edit                                                                             |
+
+### What this costs, and what it buys
+
+Buys: durability, patch groups, verified authors, history, remote files and a
+WebSocket stat — all of it Val's own production code rather than anything this
+platform maintains.
+
+Costs: a round trip per patch write, a hard dependency on the content service
+for editing at all, and no anonymous editing — `patchesAreLocal` is false, so
+every request needs a session. The in-memory mode remains the default for
+exactly those reasons; `--val-http` selects this one.
+
 ### What is still open
 
 - **The patch store is not durable.** `InMemoryPatchStore` dies with the

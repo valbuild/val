@@ -25,6 +25,20 @@ export type ValHttpMode = {
   gitCommit: string;
   /** The branch a publish commits to. */
   gitBranch: string;
+  /**
+   * Val's content service, when it is not the real one.
+   *
+   * For pointing at a local stand-in — `e2e/mock-content-host` in the Val
+   * repository, which implements the patch, commit and file routes without a
+   * git repository behind them.
+   *
+   * NOTE this does not redirect everything. `getSettings`, which remote files
+   * use, reads `process.env.VAL_CONTENT_URL` at module scope inside
+   * `@valbuild/server`; a host that bundles its dependencies separately cannot
+   * set that, so remote FILES still address the real host even when patches and
+   * commits go here.
+   */
+  valContentUrl?: string;
 };
 
 /**
