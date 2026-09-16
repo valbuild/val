@@ -365,7 +365,7 @@ export const ValServer = (
     | {
         status: 400;
         json: {
-          errorCode: "project-not-configured" | "pat-error";
+          errorCode: "project-not-configured" | "pat-error" | "api-key-missing";
           message: string;
         };
       }

@@ -354,7 +354,7 @@ export type ResolveRemoteFileAuthResult =
   | { status: "success"; auth: RemoteFileAuth }
   | {
       status: "error";
-      errorCode: "project-not-configured" | "pat-error";
+      errorCode: "project-not-configured" | "pat-error" | "api-key-missing";
       message: string;
     };
 
@@ -365,12 +365,26 @@ export async function resolveRemoteFileAuth(
     return { status: "success", auth: { apiKey: options.apiKey } };
   }
   if (options.mode !== "fs") {
-    // Unreachable through `initHandlerOptions`, which refuses to build a proxy
-    // config without an api key. Kept because this is exported.
+    /*
+     * `api-key-missing`, and the distinction matters to whoever reads it.
+     *
+     * The PAT below is read from a file in the server's own working directory,
+     * which only `fs` mode has. Every other mode can be authenticated one way,
+     * with an api key -- so the Studio must not offer `val login` here. It did,
+     * because "local" used to mean "fs" and the third mode made that false: the
+     * dialog told people to run a command, in a directory, that could not have
+     * helped even if they found the right one.
+     *
+     * `project-not-configured` was also just wrong. The project may be
+     * perfectly well configured; it is the credential that is absent.
+     */
     return {
       status: "error",
-      errorCode: "project-not-configured",
-      message: "Remote file auth is not configured",
+      errorCode: "api-key-missing",
+      message:
+        "Remote files need an api key here: this server cannot read a " +
+        "personal access token, because that is a file in a working directory " +
+        "and it has none. Set VAL_API_KEY.",
     };
   }
   // `options.cwd`, which `initHandlerOptions` sets from `process.cwd()`. The

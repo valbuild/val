@@ -1,6 +1,7 @@
 import { useGlobalError } from "./ValProvider";
 import { useValPortal } from "./ValPortalProvider";
 import ExhaustiveCheck from "./ExhaustiveCheck";
+import { getRemoteFilesError } from "./fields/ImageField";
 import {
   Dialog,
   DialogContent,
@@ -54,7 +55,27 @@ export function GlobalErrors() {
     );
   }
   if (globalError.type === "remote-files-error") {
-    return <RemoteFilesErrorDialog error={globalError} />;
+    /*
+     * Only offer the PAT flow where a PAT can actually be used.
+     *
+     * A personal access token is read from a file in the SERVER's working
+     * directory, which only local `fs` mode has. This dialog was unconditional,
+     * so a server with no working directory told its user to "run the command
+     * in the root directory of your project" -- a directory that does not
+     * exist for it, to produce a file it cannot read. The reason was already
+     * carried here and simply not looked at.
+     */
+    if (
+      globalError.reason === "pat-error" ||
+      globalError.reason === "unauthorized-personal-access-token-error"
+    ) {
+      return <RemoteFilesErrorDialog error={globalError} />;
+    }
+    return (
+      <GlobalErrorBanner>
+        {getRemoteFilesError(globalError.reason)}
+      </GlobalErrorBanner>
+    );
   }
   return <ExhaustiveCheck value={globalError} />;
 }
