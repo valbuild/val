@@ -345,12 +345,21 @@ execution is the lock, and its transactional storage is the log. Work:
   patched files, the tab writes them into its file record, builds, and calls the
   platform's publish. That also keeps the credential out of the isolate.
 
-### 9.4 Media and binary files
+### 9.4 Media and binary files — **remote files only**
 
-`s.image()` / `s.file()` uploads land in `.val/uploads` before the patch record
-exists, and `getBinaryFile` returns a `Buffer`. Needs durable binary storage
-(R2, or KV for small files) and a serving path. `ValOps` uses `Buffer` in 8
-places — fine in a Worker, a port if this ever moves to the tab.
+**Decided: this configuration uses Val's remote files feature exclusively.**
+
+That removes most of this area. `s.image()` / `s.file()` with local storage put
+uploaded bytes in `.val/uploads` before the patch record exists, and
+`getBinaryFile` returns a `Buffer` — all of which would need durable binary
+storage in the isolate and a serving path. With remote files the bytes live on
+Val's content host and the patch carries a reference, so the isolate never holds
+them.
+
+What is left of it: the remote-file upload path has to work from the Studio (it
+is a fetch, so it should), and `checkRemoteRef` reads a local file in one place
+(`checkRemoteRef.ts`) which needs checking against a no-local-files
+configuration. `ValOps` still uses `Buffer` in 8 places; fine in a Worker.
 
 ### 9.5 Draft mode and preview
 

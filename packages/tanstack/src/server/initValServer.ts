@@ -16,6 +16,9 @@ const initValApiHandler = (
   config: ValConfig,
   draftMode: ValDraftMode,
   formatter?: (code: string, filePath: string) => Promise<string> | string,
+  commitPrepared?: (commit: {
+    patchedSourceFiles: Record<string, string | null>;
+  }) => Promise<void>,
 ): ((req: Request) => Promise<Response>) => {
   const route = "/api/val"; // TODO: get from config
   const coreVersion = Internal.VERSION.core;
@@ -61,6 +64,7 @@ const initValApiHandler = (
         },
       },
       formatter,
+      commitPrepared,
     ),
     (valRes): Response => {
       const headers = new Headers();
@@ -167,6 +171,17 @@ export function initValServer(
      * get, or the API will enable a preview the loaders cannot see.
      */
     draftMode?: ValDraftMode;
+    /**
+     * Called after a save has applied its patches, with the files it produced.
+     *
+     * EXPERIMENTAL — see VAL_PROMPT.md. For a host where "commit" is not
+     * "write to the working tree and let git take it from here": the files are
+     * `path -> content` (null = delete), which is what such a host publishes.
+     * It runs in addition to the save, not instead of it.
+     */
+    commitPrepared?: (commit: {
+      patchedSourceFiles: Record<string, string | null>;
+    }) => Promise<void>;
   },
 ): {
   /**
@@ -201,6 +216,7 @@ export function initValServer(
       config,
       draftMode,
       opts?.formatter,
+      opts?.commitPrepared,
     ),
     draftMode,
   };

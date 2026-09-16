@@ -134,12 +134,20 @@ export async function createValServer(
   config: ValConfig,
   callbacks: ValServerCallbacks,
   formatter?: (code: string, filePath: string) => string | Promise<string>,
+  /**
+   * Called after a save has applied its patches. EXPERIMENTAL — see
+   * `ValServerOptions.commitPrepared`.
+   */
+  commitPrepared?: (commit: {
+    patchedSourceFiles: Record<string, string | null>;
+  }) => Promise<void>,
 ): Promise<ValServer> {
   const valServerConfig = await initHandlerOptions(route, opts, config);
   return ValServer(
     valModules,
     {
       formatter,
+      commitPrepared,
       ...valServerConfig,
     },
     callbacks,

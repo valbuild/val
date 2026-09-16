@@ -79,6 +79,22 @@ export type ValServerOptions = {
   apiKey?: string;
   project?: string;
   config: ValConfig;
+  /**
+   * Called after a save has applied its patches, with the files it produced.
+   *
+   * EXPERIMENTAL. The seam a host needs when "commit" does not mean "write to
+   * the working tree and let git take it from here". `patchedSourceFiles` is
+   * already path -> content (null = delete), which is what such a host
+   * publishes, so this hands over the thing that already exists rather than
+   * inventing a format.
+   *
+   * It runs AFTER the files are saved, not instead: the save is what makes the
+   * patches consumed, and a host that also wants them elsewhere is adding a
+   * destination, not replacing one. Throwing here fails the save.
+   */
+  commitPrepared?: (commit: {
+    patchedSourceFiles: Record<string, string | null>;
+  }) => Promise<void>;
 };
 
 export type ValServerConfig = ValServerOptions &
@@ -2175,6 +2191,11 @@ export const ValServer = (
             mode,
             remoteFileAuth,
           );
+          if (options.commitPrepared) {
+            await options.commitPrepared({
+              patchedSourceFiles: preparedCommit.patchedSourceFiles,
+            });
+          }
           if (Object.keys(saveRes.errors).length > 0) {
             console.error("Val: Failed to save files", saveRes.errors);
             return {
