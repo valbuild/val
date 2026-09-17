@@ -4,7 +4,11 @@ import {
   type PatchId,
   type ValModules,
 } from "@valbuild/core";
-import { ValOpsMemory } from "./ValOpsMemory";
+import {
+  InMemoryPatchStore,
+  ValOpsMemory,
+  type ValPatchStore,
+} from "./ValOpsMemory";
 import type { BaseSha, SchemaSha } from "./ValOps";
 
 const { s, c, config } = initVal();
@@ -122,5 +126,92 @@ describe("ValOpsMemory getStat", () => {
     expect(held).toBeLessThan(5_000);
     expect(stat.type).toBe("did-change");
     expect("patches" in stat && stat.patches.length).toBe(1);
+  });
+});
+
+/**
+ * The two ways a signal-parked poll goes wrong, neither of which the tests
+ * above can see: one leaves rubbish behind, the other misses the signal.
+ *
+ * Both were called untestable when they were fixed, on the grounds that the
+ * gap they live in is between two private calls. That was wrong twice. The
+ * waiter list is reachable by element access, which is what that syntax is
+ * for; and the gap itself is openable from outside, because the patch store is
+ * an injected dependency and `currentStat()` goes through it.
+ */
+describe("ValOpsMemory getStat, parked", () => {
+  const withStore = (timeoutMs: number, patchStore: ValPatchStore) =>
+    new ValOpsMemory(valModules, {
+      config,
+      statPollingInterval: timeoutMs,
+      patchStore,
+      sourceFiles: {
+        "/content/test.val.ts": `import { s, c } from "../val.config";\nexport default c.define("/content/test.val.ts", s.string(), "hello");\n`,
+      },
+    });
+
+  test("a waiter that times out does not stay on the list", async () => {
+    const ops = opsWith(20);
+    const params = await currentParams(ops);
+    await ops.getStat(params);
+    await ops.getStat(params);
+    await ops.getStat(params);
+    /*
+     * Read directly, because a leak whose only symptom is growth has no
+     * black-box symptom to assert. Three polls that each time out used to leave
+     * three dead closures here, and on a server that is polled every 20 seconds
+     * for as long as it runs, "three" is only where it starts.
+     */
+    expect(ops["statWaiters"]).toHaveLength(0);
+  });
+
+  test("a change announced while it is registering is not missed", async () => {
+    let openGate: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    let gated = false;
+    let entered: () => void = () => {};
+    const reached = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+
+    class GatedStore extends InMemoryPatchStore {
+      /*
+       * Held open once, on the FIRST list after the gate is armed. That call is
+       * inside `currentStat()`, which is exactly the gap: the stat has been
+       * sampled and the waiter is not registered yet.
+       */
+      override async list(): Promise<PatchId[]> {
+        if (gated) {
+          gated = false;
+          entered();
+          await gate;
+        }
+        return super.list();
+      }
+    }
+
+    const ops = withStore(20_000, new GatedStore());
+    const params = await currentParams(ops);
+
+    gated = true;
+    const started = Date.now();
+    const stat = ops.getStat(params);
+
+    await reached;
+    // A write lands in the window. `deletePatches` is the public announcer;
+    // what matters is that something announced, not what it was.
+    await ops.deletePatches([]);
+    openGate();
+
+    await stat;
+    /*
+     * Without the recheck after registration this announcement went to a list
+     * the waiter was not on yet, and the request slept the full 20 seconds with
+     * the news already in. The interval is deliberately long here so that
+     * "returned promptly" cannot pass by accident.
+     */
+    expect(Date.now() - started).toBeLessThan(5_000);
   });
 });
