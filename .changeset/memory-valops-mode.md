@@ -1,6 +1,7 @@
 ---
 "@valbuild/server": minor
 "@valbuild/tanstack": minor
+"@valbuild/mcp": minor
 ---
 
 A third ValOps mode, for a host that already holds its own source
@@ -29,6 +30,12 @@ than a push. Both are opt-in; an app that sets neither behaves exactly as before
 The in-memory patch store is explicitly **not durable**. It is behind
 `ValPatchStore`, so a durable implementation is a swap rather than a rewrite,
 but as shipped a restart loses unpublished patches.
+
+Val's own MCP endpoint refuses memory mode outright. It has the same absence fs
+mode has — no credential, no backend, every permission check on the far side of
+one — and unlike fs mode it is meant to run deployed, so the existing
+"development only" and loopback guards refuse nothing. A host in this mode owns
+its own trust boundary and can offer the tools through it.
 
 Internally, the routes' `instanceof ValOpsFS` checks meant "is this a local
 store" — correct with two implementations and silently wrong with three. They are

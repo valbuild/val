@@ -5,7 +5,7 @@
 
 Stop telling people to run `val login` where a personal access token cannot be used
 
-A PAT is read from a file in the *server's* working directory, and only local
+A PAT is read from a file in the _server's_ working directory, and only local
 `fs` mode has one. `resolveRemoteFileAuth` knew that; two things upstream did not.
 
 `RemoteFilesErrorDialog` was unconditional. Whatever went wrong with remote files,
