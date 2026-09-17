@@ -108,10 +108,12 @@ export async function initHandlerOptions(
       "VAL_MODE is 'memory', but no `sourceFiles` were given here, so there " +
         "is no source to serve. Memory mode cannot be turned on by the " +
         "environment: it needs the project's own source, and only the host " +
-        "that holds it can hand it over. Pass it as the `sourceFiles` option " +
-        "-- to `initValServer` AND to the content readers " +
-        "(`initValContent` on TanStack Start, `initValRsc` on Next), which " +
-        "have a Val server each and are configured separately. Unset " +
+        "that holds it can hand it over. On TanStack Start that is the " +
+        "`sourceFiles` option, passed to `initValServer` AND to " +
+        "`initValContent`, which has a Val server of its own and is " +
+        "configured separately. @valbuild/next has no memory mode yet, so " +
+        "for a Next app this variable is set on an environment Val cannot " +
+        "serve from. Unset " +
         "VAL_MODE to go back to the inferred mode instead ('http' when " +
         "VAL_API_KEY and VAL_SECRET are both set, 'fs' otherwise).",
     );

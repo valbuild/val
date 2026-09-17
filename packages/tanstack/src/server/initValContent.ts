@@ -621,6 +621,17 @@ export function initValContent(
      * content and empty for drafts.
      */
     patchStore?: ValPatchStore;
+    /**
+     * Serve memory mode without authenticating. Pass the SAME value
+     * `initValServer` got.
+     *
+     * This reader's server checks a session like the API's does, so a host
+     * that authenticates outside Val -- and therefore sends no Val session
+     * cookie -- gets 401 from its own reader and silently falls back to
+     * PUBLISHED content. A draft render that shows the live site is the
+     * hardest kind of wrong to notice.
+     */
+    unsafelyAllowUnauthenticated?: boolean;
   },
 ): {
   fetchValStega: ReturnType<typeof initFetchValStega>;
@@ -657,6 +668,9 @@ export function initValContent(
         : {}),
       ...(opts?.patchStore !== undefined
         ? { patchStore: opts.patchStore }
+        : {}),
+      ...(opts?.unsafelyAllowUnauthenticated !== undefined
+        ? { unsafelyAllowUnauthenticated: opts.unsafelyAllowUnauthenticated }
         : {}),
     },
     config,

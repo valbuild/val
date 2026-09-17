@@ -112,18 +112,16 @@ describe("VAL_MODE", () => {
     );
   });
 
-  test("the content readers are configured separately, and this catches it", async () => {
+  test("the same environment answers differently per call site", async () => {
     /*
-     * The reader has a Val server of ITS OWN.
+     * Which is why a host with more than one Val server has to configure each
+     * of them. `initValContent` builds one of its own, and the test that it
+     * FORWARDS what it was given is in the tanstack package
+     * (`initValContent.memoryMode.test.ts`) -- this one cannot see that, and
+     * would pass with the forwarding removed.
      *
-     * `initValContent` (TanStack) and `initValRsc` (Next) each call
-     * `createValServer`, so passing `sourceFiles` to `initValServer` alone
-     * leaves the readers inferring `fs` mode -- on a host with no filesystem,
-     * a reader looking for a working tree that is not there. It went unnoticed
-     * because a published read still worked.
-     *
-     * This asserts the shape that catches it: the same call with the source
-     * and without it must not agree.
+     * What it does pin is the property that makes the mistake possible: the
+     * environment is the same for both calls, and the source is not.
      */
     await withEnv({ VAL_MODE: "memory" }, async () => {
       const writer = await initHandlerOptions(

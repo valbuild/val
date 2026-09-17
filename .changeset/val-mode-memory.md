@@ -1,7 +1,6 @@
 ---
 "@valbuild/server": minor
 "@valbuild/tanstack": minor
-"@valbuild/next": minor
 ---
 
 Say `VAL_MODE=memory` where there is no disk, and get a sentence instead of an `EPERM`
@@ -34,28 +33,39 @@ where to pass them. `VAL_MODE=` counts as unset, the way a shell means it; any
 other value is refused rather than ignored, since leaving you in `fs` mode is
 the exact failure this is meant to catch.
 
-**The content readers take `sourceFiles` too, and this is the release that
-noticed.** `initValContent` (TanStack Start) and `initValRsc` (Next) build a
-Val server each — they resolve content by asking it, not by calling the API
-over HTTP — so configuring `initValServer` alone left them inferring `fs` mode.
-On a host with no filesystem that is a reader looking for a working tree that
-is not there; it went unnoticed because published reads still worked.
+**`initValContent` takes the same options, and this is the release that
+noticed.** It builds a Val server of its own — these readers resolve content by
+asking it, not by calling the API over HTTP — so configuring `initValServer`
+alone left them inferring `fs` mode. On a host with no filesystem that is a
+reader looking for a working tree that is not there; it went unnoticed because
+published reads still worked.
 
 ```ts
+const patchStore = new InMemoryPatchStore(); // now exported from this package
+
 const { valApiHandler, draftMode } = initValServer(valModules, config, {
   sourceFiles: FILES,
   patchStore,
+  unsafelyAllowUnauthenticated: true,
 });
 
 const { fetchValStega } = initValContent(config, valModules, {
   draftMode,
+  // The same three. Two patch stores are two sets of pending edits, and a
+  // reader that checks a session the host never issues answers itself 401 and
+  // falls back to published content — a draft render showing the live site.
   sourceFiles: FILES,
-  patchStore, // the SAME store, or a draft render sees none of the edits
+  patchStore,
+  unsafelyAllowUnauthenticated: true,
 });
 ```
 
-`patchStore` is optional in both. Left out, each server gets its own, which is
-right for published content and empty for drafts.
+All three are optional. Left out, this reader gets its own store and its own
+answer about authentication, which is right for published content.
+
+`@valbuild/next` has no memory mode: its `initValServer` takes neither option,
+so for a Next app `VAL_MODE=memory` names an environment Val cannot serve from,
+and the error says so.
 
 Nothing changes for an app that sets none of this: `http` when `VAL_API_KEY`
 and `VAL_SECRET` are both present, `fs` otherwise, as before.
