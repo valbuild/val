@@ -337,7 +337,6 @@ function deserializeSchemaImpl(
     case "view":
       return new ViewSchema(
         serialized.moduleFilePath,
-        serialized.editable,
         serialized.readonly ?? false,
         serialized.hidden ?? false,
         serialized.description,

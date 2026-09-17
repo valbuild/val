@@ -183,14 +183,17 @@ export type InitSchema = {
   /**
    * Show another module as part of this one, in the Val editor only.
    *
-   * A view stores nothing: the key is absent from this module's source, and the
-   * module it names keeps its own source, patches, validation and address. It
-   * is there so an editor sees content in the context it belongs to.
+   * The source is a pointer — `{ view: "/other.val.ts" }` — and nothing else.
+   * The module it names keeps its own source, patches, validation and address;
+   * the editor shows a row here that navigates to it.
    *
    * @example
    * import otherVal from "./other.val"; // another module
    * const schema = s.object({ shared: s.view(otherVal), title: s.string() });
-   * export default c.define("/example.val.ts", schema, { title: "Hello" });
+   * export default c.define("/example.val.ts", schema, {
+   *   shared: { view: "/other.val.ts" },
+   *   title: "Hello",
+   * });
    *
    */
   readonly view: typeof view;

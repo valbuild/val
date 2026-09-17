@@ -1,4 +1,5 @@
 import { ExternalRecordSrc } from "./external";
+import { ViewSource } from "./view";
 import { JsonSource } from "./json";
 import { MediaSource } from "./media";
 import { RichTextOptions, RichTextSource } from "./richtext";
@@ -11,6 +12,7 @@ export type Source =
   | MediaSource
   | JsonSource
   | ExternalRecordSrc
+  | ViewSource
   // Last, and deliberately: `SourceObject` cannot express an optional key, so a
   // settings source (`{}` is valid, and so is `{ ai: { tone: "…" } }`) is not
   // one. Any object type that does not conflict on `assistant` satisfies this

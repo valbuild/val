@@ -227,8 +227,9 @@ export function traverseSchemaSource(
   }
 
   if (schema.type === "view") {
-    // Nothing of the referenced module is stored here, so there is nothing to
-    // index: the module is indexed under its own path.
+    // The source here is a pointer — a module file path, not content. Indexing
+    // it would make every view a hit for its target's filename, and the target
+    // is already indexed under its own path.
     return;
   }
 

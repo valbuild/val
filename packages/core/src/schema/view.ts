@@ -1,9 +1,10 @@
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
-import { ValModuleBrand } from "../module";
+import type { ModuleIdOf, ValModuleBrand } from "../module";
 import { ReifiedPreview } from "../preview";
 import { FieldRender } from "../render";
 import { GenericSelector } from "../selector";
 import { Source } from "../source";
+import { isViewSource, ViewSource } from "../source/view";
 import { ModuleFilePath, SourcePath, getValPath } from "../val";
 import {
   ValidationError,
@@ -13,34 +14,45 @@ import {
 export type SerializedViewSchema = {
   type: "view";
   render?: FieldRender;
-  /** Never set: a view has no value to preview. Carried for shape parity. */
+  /** Never set: a view has no value of its own to preview. Carried for shape parity. */
   preview?: true;
-  /** Always false. Carried because call sites read `opt` off any serialized schema. */
+  /** Always false: a view points at a module, and `null` is not a module. */
   opt: false;
-  /** Always false: a view has no value, so there is nothing to validate. */
+  /** Always false: there is no value for a custom validator to look at. */
   customValidate?: false;
-  /** The module this field shows. Nothing of it is stored here. */
+  /** The module this field points at. */
   moduleFilePath: ModuleFilePath;
-  /** Whether the referenced module may be edited from here. */
-  editable: boolean;
   readonly?: boolean;
   hidden?: boolean;
   description?: string;
 };
 
+/** The source type of the module a selector points at. */
+type SourceOf<M> = M extends GenericSelector<infer S> ? S : never;
+
 /**
- * A field that shows ANOTHER module in this module's editor, and holds no
- * source of its own.
+ * A field that points at ANOTHER module, for the Val editor's benefit.
  *
- * `Src` is `undefined`, and that is what removes the key from the module's
- * source: `c.define`'s source parameter drops every key whose type is exactly
- * `undefined` (see `ReplaceRawStringWithString`), so the key cannot be written,
- * and consuming code that reads it gets `undefined` and cannot read through it.
+ * The source is `{ view: "/other.val.ts" }` — a pointer, and nothing else. The
+ * module it names keeps its own source, its own patches, its own validation and
+ * its own address; this field puts a row on THIS module's screen that an editor
+ * clicks through to it.
+ *
+ * Two type parameters, each earning its place:
+ *
+ * - `Id` — the target's module file path as a literal, so the author writes
+ *   `{ view: "/other.val.ts" }` with autocomplete, and naming a different module
+ *   than the schema does is a type error rather than a validation error.
+ * - `T` — the target's source type, carried on a phantom slot so the READ side
+ *   can say `View<T>` rather than `View<unknown>`. Nothing reads it yet; it is
+ *   here so that resolving a view through `useVal` can be added without changing
+ *   what is stored.
  */
-export class ViewSchema extends Schema<undefined> {
+export class ViewSchema<Id extends string = string, T = unknown> extends Schema<
+  ViewSource<Id, T>
+> {
   constructor(
-    private readonly moduleFilePath: ModuleFilePath,
-    private readonly isEditable: boolean = false,
+    private readonly moduleFilePath: Id,
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
@@ -53,8 +65,8 @@ export class ViewSchema extends Schema<undefined> {
    * Describe this field.
    *
    * Shown next to the field's label in the Val editor — here, the place to say
-   * WHY the other module is on this screen, since an editor who changes it is
-   * changing it everywhere it is used.
+   * WHY the other module is on this screen, since an editor who follows the row
+   * is about to change content that other pages use too.
    *
    * @example
    * import otherVal from "./other.val"; // another module
@@ -62,12 +74,14 @@ export class ViewSchema extends Schema<undefined> {
    *   shared: s.view(otherVal).describe("Shared by every page"),
    *   title: s.string(),
    * });
-   * export default c.define("/example.val.ts", schema, { title: "Hello" });
+   * export default c.define("/example.val.ts", schema, {
+   *   shared: { view: "/other.val.ts" },
+   *   title: "Hello",
+   * });
    */
-  describe(description: string | null): ViewSchema {
+  describe(description: string | null): ViewSchema<Id, T> {
     return new ViewSchema(
       this.moduleFilePath,
-      this.isEditable,
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
@@ -76,46 +90,42 @@ export class ViewSchema extends Schema<undefined> {
   }
 
   /**
-   * Allow the referenced module to be EDITED from here, not just seen.
+   * The stored pointer must name the module the SCHEMA names.
    *
-   * Off by default, and deliberately: the module is shown here for context, and
-   * an edit made through this field changes it for every other page that uses
-   * it. Turn it on where that is the point.
-   *
-   * @example
-   * import otherVal from "./other.val"; // another module
-   * const schema = s.object({
-   *   title: s.string(),
-   *   shared: s.view(otherVal).editable(),
-   * });
-   * export default c.define("/example.val.ts", schema, { title: "Hello" });
+   * It cannot disagree in a `.val.ts` — the source type is the literal path, so
+   * a mismatch does not compile. It can disagree in hand-written JSON (a
+   * `.jsonValues()` entry, an external record), which is what this is for.
    */
-  editable(isEditable: boolean = true): ViewSchema {
-    return new ViewSchema(
-      this.moduleFilePath,
-      isEditable,
-      this.isReadonly,
-      this.isHidden,
-      this.description,
-      this.renderInput,
-    );
-  }
-
-  protected override storesNoSource(): boolean {
-    return true;
-  }
-
-  /** Nothing is stored, so there is nothing to validate. */
   protected executeValidate(
-    _path: SourcePath,
-    _src: undefined,
+    path: SourcePath,
+    src: ViewSource<Id, T>,
   ): ValidationErrors {
+    if (!isViewSource(src)) {
+      return {
+        [path]: [
+          {
+            message: `Expected a view pointer ({ view: "${this.moduleFilePath}" }), got '${src === null ? "null" : typeof src}'`,
+            value: src,
+          },
+        ],
+      };
+    }
+    if (src.view !== this.moduleFilePath) {
+      return {
+        [path]: [
+          {
+            message: `This view points at '${src.view}', but its schema says '${this.moduleFilePath}'`,
+            value: src,
+          },
+        ],
+      };
+    }
     return false;
   }
 
   protected executeCustomValidateAt(
     _path: SourcePath,
-    _src: undefined,
+    _src: ViewSource<Id, T>,
   ): ValidationError[] {
     return [];
   }
@@ -123,16 +133,18 @@ export class ViewSchema extends Schema<undefined> {
   protected executeAssert(
     path: SourcePath,
     src: unknown,
-  ): SchemaAssertResult<undefined> {
-    if (src === undefined) {
-      return { success: true, data: src } as SchemaAssertResult<undefined>;
+  ): SchemaAssertResult<ViewSource<Id, T>> {
+    if (isViewSource(src)) {
+      return { success: true, data: src } as SchemaAssertResult<
+        ViewSource<Id, T>
+      >;
     }
     return {
       success: false,
       errors: {
         [path]: [
           {
-            message: `A view field stores nothing. Expected 'undefined', got '${typeof src}'`,
+            message: `Expected a view pointer ({ view: string }), got '${src === null ? "null" : typeof src}'`,
             typeError: true,
           },
         ],
@@ -141,24 +153,28 @@ export class ViewSchema extends Schema<undefined> {
   }
 
   /**
-   * Not available: a view holds no value, so there is nothing for `null` to
-   * mean. Throws if called.
+   * Not available: a view points at a module, and `null` is not a module.
+   * Throws if called.
    *
    * @example
    * import otherVal from "./other.val"; // another module
    * // `s.view(otherVal).nullable()` throws — a view is never nullable.
    * const schema = s.object({ shared: s.view(otherVal), title: s.string() });
-   * export default c.define("/example.val.ts", schema, { title: "Hello" });
+   * export default c.define("/example.val.ts", schema, {
+   *   shared: { view: "/other.val.ts" },
+   *   title: "Hello",
+   * });
    */
-  nullable(): Schema<undefined | null> {
-    throw new Error("s.view() cannot be nullable: it holds no value");
+  nullable(): Schema<ViewSource<Id, T> | null> {
+    throw new Error("s.view() cannot be nullable: it points at a module");
   }
 
   /**
-   * Show the referenced module, but never let it be changed from here.
+   * Marks the row read-only.
    *
-   * A view is already read-only unless `.editable()` says otherwise; this states
-   * it, and survives an `.editable()` written before it.
+   * A view is already a link rather than an editor, so this changes nothing
+   * today. It exists because every schema has it, and because a view that
+   * renders its target inline would need it.
    *
    * @example
    * import otherVal from "./other.val"; // another module
@@ -166,12 +182,14 @@ export class ViewSchema extends Schema<undefined> {
    *   shared: s.view(otherVal).readonly(),
    *   title: s.string(),
    * });
-   * export default c.define("/example.val.ts", schema, { title: "Hello" });
+   * export default c.define("/example.val.ts", schema, {
+   *   shared: { view: "/other.val.ts" },
+   *   title: "Hello",
+   * });
    */
-  readonly(isReadonly: boolean = true): ViewSchema {
+  readonly(isReadonly: boolean = true): ViewSchema<Id, T> {
     return new ViewSchema(
       this.moduleFilePath,
-      this.isEditable,
       isReadonly,
       this.isHidden,
       this.description,
@@ -188,12 +206,14 @@ export class ViewSchema extends Schema<undefined> {
    *   shared: s.view(otherVal).hidden(),
    *   title: s.string(),
    * });
-   * export default c.define("/example.val.ts", schema, { title: "Hello" });
+   * export default c.define("/example.val.ts", schema, {
+   *   shared: { view: "/other.val.ts" },
+   *   title: "Hello",
+   * });
    */
-  hidden(isHidden: boolean = true): ViewSchema {
+  hidden(isHidden: boolean = true): ViewSchema<Id, T> {
     return new ViewSchema(
       this.moduleFilePath,
-      this.isEditable,
       this.isReadonly,
       isHidden,
       this.description,
@@ -211,12 +231,14 @@ export class ViewSchema extends Schema<undefined> {
    *   shared: s.view(otherVal).render({ as: "inline" }),
    *   title: s.string(),
    * });
-   * export default c.define("/example.val.ts", schema, { title: "Hello" });
+   * export default c.define("/example.val.ts", schema, {
+   *   shared: { view: "/other.val.ts" },
+   *   title: "Hello",
+   * });
    */
-  render(input: FieldRender): ViewSchema {
+  render(input: FieldRender): ViewSchema<Id, T> {
     return new ViewSchema(
       this.moduleFilePath,
-      this.isEditable,
       this.isReadonly,
       this.isHidden,
       this.description,
@@ -229,8 +251,7 @@ export class ViewSchema extends Schema<undefined> {
       type: "view",
       render: this.renderInput ?? undefined,
       opt: false,
-      moduleFilePath: this.moduleFilePath,
-      editable: this.isEditable,
+      moduleFilePath: this.moduleFilePath as unknown as ModuleFilePath,
       readonly: this.isReadonly,
       hidden: this.isHidden,
       description: this.description,
@@ -243,35 +264,34 @@ export class ViewSchema extends Schema<undefined> {
 }
 
 /**
- * Show ANOTHER module as part of this one, in the Val editor.
+ * Point at another module, so the Val editor shows a way into it from here.
  *
- * A view stores nothing. It is a Studio-only field: the module it names keeps
- * its own source, its own patches, its own validation and its own address, and
- * this field puts it on THIS module's screen so an editor can see it in the
- * context it belongs to — a page's header, or the employee list that a page is
- * about.
+ * A view stores a pointer and nothing else: the module it names keeps its own
+ * source, patches, validation and address, and an editor reaches it by clicking
+ * through rather than by hunting for it. It is there so content that has to live
+ * in its own module — a `keyOf` target, shared settings, a route-keyed record —
+ * can still be found from the page it belongs to.
  *
- * Because nothing is stored, the key is absent from the module's source and
- * reading it in consuming code gives `undefined`. Read the referenced module
- * directly instead, the way you did before.
+ * Reading it in consuming code gives you a pointer with no fields on it. Read
+ * the module it names directly instead.
  *
  * @example
  * import otherVal from "./other.val"; // another module
- * const schema = s.object({
- *   title: s.string(),
- *   // shown on the page's screen; edited in /data/employees.val.ts
- *   shared: s.view(otherVal),
+ * const schema = s.object({ shared: s.view(otherVal), title: s.string() });
+ * export default c.define("/example.val.ts", schema, {
+ *   shared: { view: "/other.val.ts" },
+ *   title: "Hello",
  * });
- * export default c.define("/example.val.ts", schema, { title: "Hello" });
  */
 export const view = <
-  Src extends GenericSelector<Source> & ValModuleBrand, // same constraint as keyOf: a module, never a selector
+  // Same constraint as keyOf: a module, never a selector.
+  M extends GenericSelector<Source> & ValModuleBrand,
 >(
-  valModule: Src,
-): ViewSchema => {
+  valModule: M,
+): ViewSchema<ModuleIdOf<M>, SourceOf<M>> => {
   const path = getValPath(valModule);
   if (!path) {
     throw new Error("s.view() must be given a Val module");
   }
-  return new ViewSchema(path as unknown as ModuleFilePath);
+  return new ViewSchema(path as unknown as ModuleIdOf<M>);
 };

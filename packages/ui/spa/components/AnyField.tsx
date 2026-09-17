@@ -183,15 +183,7 @@ export function AnyField({
       <FieldSchemaError path={path} error="Literal fields are not editable" />
     );
   } else if (schema.type === "view") {
-    return (
-      <ViewField
-        key={path}
-        path={path}
-        schema={schema}
-        readonly={readonly}
-        compact={compact}
-      />
-    );
+    leaf = <ViewField key={path} path={path} schema={schema} />;
   } else {
     const exhaustiveCheck: never = schema;
     leaf = (

@@ -1347,11 +1347,8 @@ type ShallowSourceOf<SchemaType extends SerializedSchema["type"]> =
     };
 
 type ShallowSource = {
-  /**
-   * A view field stores nothing: the module it shows answers for its own source.
-   * `ViewField` therefore never reads source at this path.
-   */
-  view: undefined;
+  /** The module file path a view points at. */
+  view: string;
   array: SourcePath[];
   object: Record<string, SourcePath>;
   /** The sections a settings module HAS: every settings key is optional. */
@@ -1575,11 +1572,24 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       data: data as ShallowSource[SchemaType],
     };
   } else if (type === "view") {
-    // Nothing is stored at a view path, and "not-found" would render as an
-    // error. `undefined` is the honest answer, and no field reads it.
+    if (typeof source !== "object" || source === null || isJsonArray(source)) {
+      return {
+        status: "error",
+        error: `Expected a view pointer, got ${JSON.stringify(source)}`,
+      };
+    }
+    const target = source["view"];
+    if (typeof target !== "string") {
+      return {
+        status: "error",
+        error: `Expected a view pointer, got ${JSON.stringify(source)}`,
+      };
+    }
+    // The module the view points at. A leaf, like `keyOf`: the row navigates
+    // there, and everything about the target is read at the target's own path.
     return {
       status: "success",
-      data: undefined as ShallowSource[SchemaType],
+      data: target as ShallowSource[SchemaType],
     };
   } else {
     const exhaustiveCheck: never = type;

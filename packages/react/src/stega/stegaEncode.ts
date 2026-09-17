@@ -23,6 +23,7 @@ import {
 } from "@valbuild/core";
 import { vercelStegaCombine, vercelStegaSplit } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
+import type { View, ViewSource } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core";
 import { SourceArray } from "@valbuild/core";
 import { RawString } from "@valbuild/core";
@@ -232,19 +233,24 @@ export type StegaOfSource<T extends Source> = Json extends T
       ? Image
       : T extends FileSource
         ? File
-        : T extends SourceObject
-          ? {
-              [key in keyof T]: StegaOfSource<T[key]>;
-            }
-          : T extends SourceArray
-            ? StegaOfSource<T[number]>[]
-            : T extends RawString
-              ? string
-              : string extends T
-                ? ValEncodedString
-                : T extends JsonPrimitive
-                  ? T
-                  : never;
+        : // A view is a pointer at another module: nothing of it is rendered, so
+          // there is nothing here to encode or to read. `View<Target>` names what
+          // is behind it and exposes no properties.
+          T extends ViewSource<string, infer Target>
+          ? View<Target>
+          : T extends SourceObject
+            ? {
+                [key in keyof T]: StegaOfSource<T[key]>;
+              }
+            : T extends SourceArray
+              ? StegaOfSource<T[number]>[]
+              : T extends RawString
+                ? string
+                : string extends T
+                  ? ValEncodedString
+                  : T extends JsonPrimitive
+                    ? T
+                    : never;
 
 /**
  * Resolves the matching variant of a discriminated union from the value's tag.
@@ -386,6 +392,12 @@ export function stegaEncode(
     sourceOrSelector: any,
     recOpts?: { path: any; schema: any },
   ): any {
+    // A view is a pointer at another module. Weaving an edit tag into it would
+    // corrupt the path it holds, and there is nothing of the target here to
+    // encode — the target is its own module, encoded when it is read.
+    if (recOpts?.schema && recOpts.schema.type === "view") {
+      return sourceOrSelector;
+    }
     if (recOpts?.schema && isKeyOfSchema(recOpts?.schema)) {
       return sourceOrSelector;
     }

@@ -177,6 +177,54 @@ serialized. There is no third serialized form and no `UnionSchema` class any
 more — `UnionSchema`, `SerializedUnionSchema`, `SerializedStringUnionSchema`
 and `SerializedObjectUnionSchema` are deprecated type aliases.
 
+### `s.view()` points at another module; it does not contain one
+
+`s.view(otherVal)` is a field whose source is a POINTER and nothing else:
+
+```typescript
+const schema = s.object({ title: s.string(), people: s.view(employeesVal) });
+export default c.define("/app/menneskene/page.val.ts", schema, {
+  title: "Våre folk",
+  people: { view: "/data/employees.val.ts" },
+});
+```
+
+The module it names keeps its own source, patches, validation and address. In
+the editor the field is a ROW that navigates there — it does not render the
+target's fields inline — which is also what stops an editor mistaking a shared
+module for a field of the page they are on.
+
+Six things decide how it behaves, and each was a choice:
+
+- **A plain object, not a constructor.** Same rule as media: the value has to
+  work in a `.val.ts` and in a `*.val.json`, and a literal survives the static
+  extraction (`evaluateExpression`) that a call expression does not.
+- **A module carries its own id in its type.** `ValModule<T, Id>`, inferred from
+  `c.define`'s first argument, so `s.view(fooVal)` produces a schema whose source
+  type is the LITERAL `{ view: "/foo.val.ts" }`. The path autocompletes, and a
+  source naming a different module than its schema does is a type error. The
+  runtime check in `ViewSchema.executeValidate` is for hand-written JSON, which
+  the compiler never saw.
+- **`view` is a reserved object key** (`ObjectSchemaProps`, beside `_type` and
+  `patch_id`). An ordinary `s.object({ view: s.string() })` is structurally
+  identical to a pointer, and would be mapped to `View<T>` and lose every field
+  it has — silently.
+- **The read side is `View<T>`, with no properties.** A new arm in `Selector<T>`
+  and in `StegaOfSource`, above `SourceObject` (the marker is structurally an
+  object) — the same position and the same reason as the `ExternalRecordSrc`
+  arm. Never stega encoded: an edit tag woven into a path corrupts the path.
+- **No cycles.** `viewCycles.ts`, called from `extractValModules` next to
+  `resolveSettingsModule` and for the same reason: it is a property of the whole
+  set of schemas, so no single module can see it. **Nothing else would catch
+  it** — a view stores a pointer rather than content, so there is no data cycle
+  for a source walk to trip over. A DIAMOND (two paths to one module) is not a
+  cycle and is allowed.
+- **A module cannot BE a view.** `c.define(path, s.view(x), …)` throws.
+
+Not built yet, and deliberately: rendering the target inline
+(`render({ as: "inline" })`), resolving a view through `useVal`/`fetchVal`, and
+an auto-fix for a pointer that disagrees with its schema.
+
 ## Module System
 
 ### c.define() Pattern

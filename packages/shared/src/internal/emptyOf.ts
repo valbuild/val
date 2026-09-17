@@ -94,10 +94,10 @@ export function emptyOf(
 ): JSONValue {
   if (schema.type === "object") {
     return Object.fromEntries(
-      Object.keys(schema.items)
-        // A view field stores nothing, so a new object must not carry the key.
-        .filter((key) => schema.items[key].type !== "view")
-        .map((key) => [key, emptyOf(schema.items[key], context)]),
+      Object.keys(schema.items).map((key) => [
+        key,
+        emptyOf(schema.items[key], context),
+      ]),
     );
   } else if (schema.type === "array") {
     return [];
@@ -168,9 +168,10 @@ export function emptyOf(
   } else if (schema.type === "code") {
     return ""; // An empty editor: no language has a sensible starting snippet
   } else if (schema.type === "view") {
-    // Unreachable through the object branch above, which drops view keys before
-    // they get here. Kept so the exhaustive check stays honest.
-    throw Error("s.view() has no value: it cannot be emptied");
+    // The pointer IS the empty value: a view has exactly one valid source, and
+    // the schema knows it. A new page with a view field gets the same pointer
+    // every other page's has.
+    return { view: schema.moduleFilePath };
   }
   const _exhaustiveCheck: never = schema;
   throw Error("Unexpected schema type: " + JSON.stringify(_exhaustiveCheck));

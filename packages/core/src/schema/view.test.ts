@@ -21,16 +21,17 @@ const employeesVal = c.define(
 const pageSchema = s.object({
   header: s.view(headerVal).describe("The site header, shown for context"),
   title: s.string(),
-  employees: s.view(employeesVal).editable(),
+  employees: s.view(employeesVal),
 });
 
-// THE CALL SITE: no `header`, no `employees`.
 const pageVal = c.define("/page.val.ts", pageSchema, {
+  header: { view: "/settings/header.val.ts" },
   title: "Våre folk",
+  employees: { view: "/data/employees.val.ts" },
 });
 
 describe("s.view()", () => {
-  test("serializes without carrying the target's schema", () => {
+  test("serializes as a pointer, carrying nothing of the target", () => {
     const serialized = (pageSchema as Schema<SelectorSource>)[
       "executeSerialize"
     ]();
@@ -41,7 +42,6 @@ describe("s.view()", () => {
           type: "view",
           render: undefined,
           moduleFilePath: "/settings/header.val.ts",
-          editable: false,
           opt: false,
           readonly: false,
           hidden: false,
@@ -51,7 +51,6 @@ describe("s.view()", () => {
         employees: expect.objectContaining({
           type: "view",
           moduleFilePath: "/data/employees.val.ts",
-          editable: true,
         }),
       },
       opt: false,
@@ -64,55 +63,93 @@ describe("s.view()", () => {
     });
   });
 
-  test("validate ignores the view keys", () => {
+  test("the source is the pointer that was written", () => {
+    expect(getSource(pageVal)).toEqual({
+      header: { view: "/settings/header.val.ts" },
+      title: "Våre folk",
+      employees: { view: "/data/employees.val.ts" },
+    });
+  });
+
+  test("a pointer that matches its schema validates", () => {
     const res = (pageSchema as Schema<SelectorSource>)["executeValidate"](
       "/page.val.ts" as SourcePath,
-      { title: "Våre folk" },
+      {
+        header: { view: "/settings/header.val.ts" },
+        title: "Våre folk",
+        employees: { view: "/data/employees.val.ts" },
+      },
     );
     expect(res).toEqual(false);
   });
 
-  test("the source is what was written", () => {
-    expect(getSource(pageVal)).toEqual({ title: "Våre folk" });
-  });
-
   /**
-   * `executeAssert` reports every declared key the source does not have. A view
-   * key is absent BY DESIGN, so reporting it made `restoreValidity` (and every
-   * other assert caller) see a type error on a module that is entirely correct.
+   * Unreachable from a `.val.ts` — the source type is the literal path, so a
+   * mismatch does not compile. Reachable from hand-written JSON, which is what
+   * this check is for.
    */
-  test("assert does not demand the view keys", () => {
-    const res: SchemaAssertResult<SelectorSource> = (
-      pageSchema as Schema<SelectorSource>
-    )["executeAssert"]("/page.val.ts" as SourcePath, { title: "Våre folk" });
-    expect(res).toEqual({ success: true, data: { title: "Våre folk" } });
-  });
-
-  test("assert still reports an ordinary missing key", () => {
-    const res: SchemaAssertResult<SelectorSource> = (
-      pageSchema as Schema<SelectorSource>
-    )["executeAssert"]("/page.val.ts" as SourcePath, {});
-    expect(res).toEqual({
-      success: false,
-      errors: {
-        "/page.val.ts": [
-          {
-            message: "Expected key 'title' not found in object",
-            typeError: true,
-          },
-        ],
+  test("a pointer that names another module is a validation error", () => {
+    const res = (pageSchema as Schema<SelectorSource>)["executeValidate"](
+      "/page.val.ts" as SourcePath,
+      {
+        header: { view: "/settings/footer.val.ts" },
+        title: "Våre folk",
+        employees: { view: "/data/employees.val.ts" },
       },
+    );
+    expect(res).toEqual({
+      '/page.val.ts?p="header"': [
+        {
+          message:
+            "This view points at '/settings/footer.val.ts', but its schema says '/settings/header.val.ts'",
+          value: { view: "/settings/footer.val.ts" },
+        },
+      ],
     });
   });
 
+  test("a value that is not a pointer at all is a validation error", () => {
+    const res = (pageSchema as Schema<SelectorSource>)["executeValidate"](
+      "/page.val.ts" as SourcePath,
+      {
+        header: "nope",
+        title: "Våre folk",
+        employees: { view: "/data/employees.val.ts" },
+      },
+    );
+    expect(res).toMatchObject({
+      '/page.val.ts?p="header"': [
+        { message: expect.stringContaining("Expected a view pointer") },
+      ],
+    });
+  });
+
+  test("assert accepts a pointer and rejects anything else", () => {
+    const schema = s.view(headerVal) as Schema<SelectorSource>;
+    const ok: SchemaAssertResult<SelectorSource> = schema["executeAssert"](
+      "/page.val.ts" as SourcePath,
+      { view: "/settings/header.val.ts" },
+    );
+    expect(ok).toEqual({
+      success: true,
+      data: { view: "/settings/header.val.ts" },
+    });
+    const bad: SchemaAssertResult<SelectorSource> = schema["executeAssert"](
+      "/page.val.ts" as SourcePath,
+      42,
+    );
+    expect(bad.success).toBe(false);
+  });
+
   /**
-   * A view stores nothing, so a module whose whole schema is a view has no
-   * source at all — which type-checks (`undefined` is a `SelectorSource`) and
-   * then fails everywhere downstream that expects a module to have source.
+   * A view points at a module, so a module that is only a view has no content
+   * of its own and one redundant level of indirection. A view is a field.
    */
   test("a module cannot BE a view", () => {
     expect(() =>
-      c.define("/root.val.ts", s.view(headerVal), undefined),
+      c.define("/root.val.ts", s.view(headerVal), {
+        view: "/settings/header.val.ts",
+      }),
     ).toThrow(/cannot be a module's own schema/);
   });
 

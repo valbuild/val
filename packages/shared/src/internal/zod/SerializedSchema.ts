@@ -423,7 +423,6 @@ export const SerializedViewSchema = z.object({
   type: z.literal("view"),
   render: FieldRender.optional(),
   moduleFilePath: ModuleFilePath,
-  editable: z.boolean(),
   opt: z.literal(false),
   readonly: z.boolean().optional(),
   hidden: z.boolean().optional(),
