@@ -802,6 +802,27 @@ export async function handleJsonValuesExtractEntry(
  * `fixableErrorMessage` rather than a plain error, because the error IS fixable
  * — just not by this command.
  */
+/**
+ * A view pointer that names a module its schema does not.
+ *
+ * Nothing to look up and nothing to ask: the schema names the module, so the
+ * one correct value is already known. `createFixPatch` writes it — this handler
+ * exists to send it there, and to say what `--fix` would do when it is off.
+ */
+export async function handleViewCheckModule(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  if (!ctx.fix) {
+    return {
+      success: true,
+      fixableErrorMessage:
+        `${ctx.validationError.message}. ` +
+        "Run 'val validate --fix' to point it at the module its schema names.",
+    };
+  }
+  return { success: true, shouldApplyPatch: true };
+}
+
 export async function handleExternalUpload(): Promise<FixHandlerResult> {
   return {
     success: true,
@@ -846,6 +867,7 @@ export const currentFixHandlers: Record<
   "files:check-all-files": handleCheckAllFiles,
   "jsonValues:extract-entry": handleJsonValuesExtractEntry,
   "external:upload": handleExternalUpload,
+  "view:check-module": handleViewCheckModule,
 };
 const deprecatedFixHandlers: Record<string, FixHandler> = {
   "image:replace-metadata": handleFileMetadata,

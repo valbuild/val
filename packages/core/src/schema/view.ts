@@ -106,6 +106,7 @@ export class ViewSchema<Id extends string = string, T = unknown> extends Schema<
           {
             message: `Expected a view pointer ({ view: "${this.moduleFilePath}" }), got '${src === null ? "null" : typeof src}'`,
             value: src,
+            fixes: ["view:check-module"],
           },
         ],
       };
@@ -116,6 +117,7 @@ export class ViewSchema<Id extends string = string, T = unknown> extends Schema<
           {
             message: `This view points at '${src.view}', but its schema says '${this.moduleFilePath}'`,
             value: src,
+            fixes: ["view:check-module"],
           },
         ],
       };

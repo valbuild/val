@@ -103,6 +103,9 @@ describe("s.view()", () => {
           message:
             "This view points at '/settings/footer.val.ts', but its schema says '/settings/header.val.ts'",
           value: { view: "/settings/footer.val.ts" },
+          // There is exactly one valid value and the schema knows it, so the
+          // error carries the fix that writes it.
+          fixes: ["view:check-module"],
         },
       ],
     });
