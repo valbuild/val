@@ -326,8 +326,20 @@ export class ValOpsMemory extends ValOps {
    */
   private statWaiters: Array<() => void> = [];
 
+  /**
+   * Writes so far. Sampled before reading, compared after registering.
+   *
+   * The registration is not atomic with the read above it: a patch written
+   * between `currentStat()` and `statWaiters.push` was announced to a list this
+   * waiter was not yet on, so the request slept the full interval with a change
+   * already sitting there. Comparing the count closes that window without a
+   * lock.
+   */
+  private changeCount = 0;
+
   /** Wake every parked `getStat`. Called by this instance's own writes. */
   private announceChange(): void {
+    this.changeCount += 1;
     const waiting = this.statWaiters;
     this.statWaiters = [];
     for (const wake of waiting) {
@@ -386,6 +398,9 @@ export class ValOpsMemory extends ValOps {
      * change without this instance writing anything, and nothing would announce
      * that. So it re-reads on the way out rather than assuming `no-change`.
      */
+    // Before the read, not after: anything that happens from here on must be
+    // observed, either by `differs` below or by the recheck in parkUntilChange.
+    const seenAt = this.changeCount;
     const before = await this.currentStat();
     const differs = (now: {
       baseSha: BaseSha;
@@ -403,7 +418,7 @@ export class ValOpsMemory extends ValOps {
       return { type: "did-change", ...before };
     }
 
-    await this.parkUntilChange();
+    await this.parkUntilChange(seenAt);
 
     const after = await this.currentStat();
     return {
@@ -413,7 +428,7 @@ export class ValOpsMemory extends ValOps {
   }
 
   /** Resolves on the next write here, or when the poll interval runs out. */
-  private parkUntilChange(): Promise<void> {
+  private parkUntilChange(seenAt: number): Promise<void> {
     const timeoutMs = this.options?.statPollingInterval ?? 20_000;
     return new Promise<void>((resolve) => {
       let settled = false;
@@ -424,10 +439,24 @@ export class ValOpsMemory extends ValOps {
         // behind otherwise, and in a Worker a pending timer is a reason to keep
         // the isolate alive.
         clearTimeout(timer);
+        // Removed on BOTH paths too, for the same kind of reason. Only
+        // `announceChange` emptied this list, so a timed-out waiter stayed on
+        // it forever: one dead closure per idle poll, on a server that polls
+        // every 20 seconds indefinitely, and a later write walked all of them.
+        const at = this.statWaiters.indexOf(done);
+        if (at !== -1) {
+          this.statWaiters.splice(at, 1);
+        }
         resolve();
       };
       const timer = setTimeout(done, timeoutMs);
       this.statWaiters.push(done);
+      // Registered; now look again. A write in the gap announced to a list this
+      // waiter was not on yet, and waiting 20s for news that already arrived is
+      // the bug this closes.
+      if (this.changeCount !== seenAt) {
+        done();
+      }
     });
   }
 
@@ -600,9 +629,32 @@ export class ValOpsMemory extends ValOps {
     const uploaded: string[] = [];
     const errors: Record<string, GenericErrorMessage> = {};
     const project = this.options?.config.project;
-    const remote = Object.entries(
+    const descriptors = Object.entries(
       preparedCommit.patchedBinaryFilesDescriptors,
-    ).filter(([, descriptor]) => descriptor.remote);
+    );
+    const remote = descriptors.filter(([, descriptor]) => descriptor.remote);
+
+    /*
+     * A LOCAL descriptor is refused, not ignored.
+     *
+     * This mode has no published local-file path -- there is no `/public` to
+     * write into -- and the class docstring says so. But filtering to `remote`
+     * meant a local one fell through silently, and the caller carries on:
+     * source is adopted and the patch deleted, so `/save` answers 200 and the
+     * uploaded bytes are gone with nothing anywhere saying why.
+     *
+     * Erroring here keeps the patch, because a save that cannot store what it
+     * was given has not succeeded.
+     */
+    for (const [ref, descriptor] of descriptors) {
+      if (descriptor.remote) continue;
+      errors[ref] = {
+        message:
+          "Cannot publish a local file in this mode: there is no directory to " +
+          "publish it to. Configure the project for Val's remote files, which " +
+          "is what this configuration uploads.",
+      };
+    }
 
     if (remote.length === 0) {
       return { uploaded, errors };
