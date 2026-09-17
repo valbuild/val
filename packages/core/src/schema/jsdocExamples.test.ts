@@ -133,7 +133,7 @@ export const probes = {
   enum: s.enum("a", "b"),
   record: s.record(s.string()),
   keyOf: s.keyOf(authorsVal),
-  ref: s.ref(authorsVal),
+  view: s.view(authorsVal),
   richtext: s.richtext(),
   image: s.image(),
   file: s.file(),

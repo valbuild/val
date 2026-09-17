@@ -412,15 +412,15 @@ export const SerializedSettingsSchema: z.ZodType<SerializedSettingsSchemaT> =
   });
 
 /**
- * A ref field shows another module and stores nothing of its own.
+ * A view field shows another module and stores nothing of its own.
  *
  * Nothing in the type system forces this member to exist: `SerializedSchema` is
  * declared as `z.ZodType<SerializedSchemaT>`, so a missing member is not a type
  * error — it is a runtime parse failure of the WHOLE module's schema, since the
  * containing object fails with it.
  */
-export const SerializedRefSchema = z.object({
-  type: z.literal("ref"),
+export const SerializedViewSchema = z.object({
+  type: z.literal("view"),
   render: FieldRender.optional(),
   moduleFilePath: ModuleFilePath,
   editable: z.boolean(),
@@ -451,5 +451,5 @@ export const SerializedSchema: z.ZodType<SerializedSchemaT> = z.union([
   SerializedCodeSchema,
   SerializedSettingsSchema,
   SerializedImageSchema,
-  SerializedRefSchema,
+  SerializedViewSchema,
 ]);

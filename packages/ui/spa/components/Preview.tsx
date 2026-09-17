@@ -88,8 +88,8 @@ export function Preview({
     return <RichTextPreview path={path} />;
   } else if (type === "file") {
     return <FilePreview path={path} />;
-  } else if (type === "ref") {
-    // A ref has no value of its own to preview.
+  } else if (type === "view") {
+    // A view has no value of its own to preview.
     return null;
   } else {
     const exhaustiveCheck: never = type;

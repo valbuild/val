@@ -977,7 +977,7 @@ function useProfilesData(
   /**
    * How many times this has been tried since the last success or manual retry.
    *
-   * A ref rather than state: it is read inside the request that increments it,
+   * A view rather than state: it is read inside the request that increments it,
    * and rendering has nothing to say about it — what the UI shows is the status
    * and whether another attempt is coming, both of which are in state.
    */
@@ -991,7 +991,7 @@ function useProfilesData(
   }, []);
   useEffect(() => clearRetry, [clearRetry]);
 
-  // Through a ref so a failure can schedule the next attempt without the
+  // Through a view so a failure can schedule the next attempt without the
   // callback having to name itself.
   const loadProfilesRef = useRef<() => void>(() => undefined);
   const loadProfiles = useCallback(async () => {
@@ -2331,10 +2331,10 @@ type EnsureAllTypes<T extends Record<SerializedSchema["type"], unknown>> = T;
  */
 export type ShallowSource = EnsureAllTypes<{
   /**
-   * A ref field stores nothing: the module it shows answers for its own source.
-   * `RefField` therefore never reads source at this path.
+   * A view field stores nothing: the module it shows answers for its own source.
+   * `ViewField` therefore never reads source at this path.
    */
-  ref: undefined;
+  view: undefined;
   array: SourcePath[];
   object: Record<string, SourcePath>;
   /**
@@ -3207,8 +3207,8 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       status: "success",
       data: data as ShallowSource[SchemaType],
     };
-  } else if (type === "ref") {
-    // Nothing is stored at a ref path, and "not-found" would render as an
+  } else if (type === "view") {
+    // Nothing is stored at a view path, and "not-found" would render as an
     // error. `undefined` is the honest answer, and no field reads it.
     return {
       status: "success",

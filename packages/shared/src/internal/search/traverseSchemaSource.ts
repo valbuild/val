@@ -226,7 +226,7 @@ export function traverseSchemaSource(
     return;
   }
 
-  if (schema.type === "ref") {
+  if (schema.type === "view") {
     // Nothing of the referenced module is stored here, so there is nothing to
     // index: the module is indexed under its own path.
     return;

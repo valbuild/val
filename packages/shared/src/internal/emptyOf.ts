@@ -95,8 +95,8 @@ export function emptyOf(
   if (schema.type === "object") {
     return Object.fromEntries(
       Object.keys(schema.items)
-        // A ref field stores nothing, so a new object must not carry the key.
-        .filter((key) => schema.items[key].type !== "ref")
+        // A view field stores nothing, so a new object must not carry the key.
+        .filter((key) => schema.items[key].type !== "view")
         .map((key) => [key, emptyOf(schema.items[key], context)]),
     );
   } else if (schema.type === "array") {
@@ -167,10 +167,10 @@ export function emptyOf(
     );
   } else if (schema.type === "code") {
     return ""; // An empty editor: no language has a sensible starting snippet
-  } else if (schema.type === "ref") {
-    // Unreachable through the object branch above, which drops ref keys before
+  } else if (schema.type === "view") {
+    // Unreachable through the object branch above, which drops view keys before
     // they get here. Kept so the exhaustive check stays honest.
-    throw Error("s.ref() has no value: it cannot be emptied");
+    throw Error("s.view() has no value: it cannot be emptied");
   }
   const _exhaustiveCheck: never = schema;
   throw Error("Unexpected schema type: " + JSON.stringify(_exhaustiveCheck));

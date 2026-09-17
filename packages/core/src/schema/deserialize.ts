@@ -12,7 +12,7 @@ import { DateTimeSchema } from "./datetime";
 import { FileSchema } from "./file";
 import { ImageSchema } from "./image";
 import { KeyOfSchema } from "./keyOf";
-import { RefSchema } from "./ref";
+import { ViewSchema } from "./view";
 import { LiteralSchema } from "./literal";
 import { NumberSchema } from "./number";
 import { ObjectSchema } from "./object";
@@ -334,8 +334,8 @@ function deserializeSchemaImpl(
         serialized.description,
         serialized.render ?? null,
       );
-    case "ref":
-      return new RefSchema(
+    case "view":
+      return new ViewSchema(
         serialized.moduleFilePath,
         serialized.editable,
         serialized.readonly ?? false,

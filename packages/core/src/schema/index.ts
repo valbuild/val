@@ -6,7 +6,7 @@ import { SerializedBooleanSchema } from "./boolean";
 import { SerializedFileSchema } from "./file";
 import { SerializedImageSchema } from "./image";
 import { SerializedKeyOfSchema } from "./keyOf";
-import { SerializedRefSchema } from "./ref";
+import { SerializedViewSchema } from "./view";
 import { SerializedLiteralSchema } from "./literal";
 import { SerializedNumberSchema } from "./number";
 import { SerializedObjectSchema } from "./object";
@@ -55,7 +55,7 @@ export type SerializedSchema =
   | SerializedLocaleSchema
   | SerializedSettingsSchema
   | SerializedImageSchema
-  | SerializedRefSchema;
+  | SerializedViewSchema;
 
 type Primitives = number | string | boolean | null | FileSource;
 export type AssertError =
@@ -277,6 +277,23 @@ export abstract class Schema<Src extends SelectorSource> {
       }
     }
     return errors;
+  }
+
+  /**
+   * Does this node store nothing in its module's Source?
+   *
+   * True only for `s.view()`, which shows another module and holds no value of
+   * its own. A container asks this before treating an absent key as a hole in
+   * the content: `ObjectSchema.executeAssert` reports every declared key that
+   * the source does not have, and for a view key the source is CORRECT not to
+   * have it.
+   *
+   * A method on the base class rather than an `instanceof` at the call site,
+   * for the same reason {@link opensLocaleScope} is: the containers stay
+   * ignorant of which concrete schema answers yes.
+   */
+  protected storesNoSource(): boolean {
+    return false;
   }
 
   /**

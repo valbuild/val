@@ -45,7 +45,7 @@ export type ReplaceRawStringWithString<T extends SelectorSource> =
       ? string
       : T extends { [key in string]: SelectorSource }
         ? {
-            // A key whose type is EXACTLY `undefined` is an `s.ref(...)` field:
+            // A key whose type is EXACTLY `undefined` is an `s.view(...)` field:
             // it is shown in the editor and stored nowhere, so it must not be
             // written. `[T[key]] extends [undefined]` rather than
             // `undefined extends T[key]`, which would also catch every ordinary
@@ -89,6 +89,19 @@ export function define<T extends Schema<SelectorSource>>(
     | ReplaceRawStringWithString<SelectorOfSchema<T>>
     | InlineEntriesFor<SelectorOfSchema<T>>,
 ): ValModule<SelectorOfSchema<T>> {
+  // A module cannot BE a view of another module. `s.view()` stores nothing, so
+  // the module's whole source would be `undefined` — which type-checks, because
+  // `undefined` is a `SelectorSource`, and then fails everywhere downstream that
+  // expects a module to have source. A view is a field of a module, never the
+  // module. Thrown rather than typed: making the `schema` parameter conditional
+  // on T would put it in a non-inferable position and break inference for every
+  // other schema. `extractValModules` reports what this throws as a module
+  // error, which is where a developer will look.
+  if (schema["storesNoSource"]()) {
+    throw Error(
+      `Cannot define '${id}' as a view: s.view() shows another module and stores nothing, so it cannot be a module's own schema. Put it in an s.object({ ... }) field instead.`,
+    );
+  }
   return {
     [GetSource]: source,
     [GetSchema]: schema,

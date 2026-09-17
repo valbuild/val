@@ -271,7 +271,9 @@ export class ObjectSchema<
           } at key ${key}`, // Should! never happen
           internalError: true,
         });
-      } else if (!(key in src)) {
+      } else if (!(key in src) && !this.items[key]["storesNoSource"]()) {
+        // A view key is absent from Source BY DESIGN, so its absence is not a
+        // hole in the content — see `Schema.storesNoSource`.
         errorsAtPath.push({
           message: `Expected key '${key}' not found in object`,
           typeError: true,

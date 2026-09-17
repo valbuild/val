@@ -212,7 +212,7 @@ export {
   DateTimeSchema,
 } from "./schema/datetime";
 export { type SerializedKeyOfSchema, KeyOfSchema } from "./schema/keyOf";
-export { type SerializedRefSchema, RefSchema } from "./schema/ref";
+export { type SerializedViewSchema, ViewSchema } from "./schema/view";
 export { type SerializedRouteSchema, RouteSchema } from "./schema/route";
 export {
   type SerializedRichTextSchema,

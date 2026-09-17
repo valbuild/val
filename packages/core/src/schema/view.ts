@@ -10,14 +10,14 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 
-export type SerializedRefSchema = {
-  type: "ref";
+export type SerializedViewSchema = {
+  type: "view";
   render?: FieldRender;
-  /** Never set: a ref has no value to preview. Carried for shape parity. */
+  /** Never set: a view has no value to preview. Carried for shape parity. */
   preview?: true;
   /** Always false. Carried because call sites read `opt` off any serialized schema. */
   opt: false;
-  /** Always false: a ref has no value, so there is nothing to validate. */
+  /** Always false: a view has no value, so there is nothing to validate. */
   customValidate?: false;
   /** The module this field shows. Nothing of it is stored here. */
   moduleFilePath: ModuleFilePath;
@@ -29,17 +29,15 @@ export type SerializedRefSchema = {
 };
 
 /**
- * SPIKE. A field that shows ANOTHER module in this module's editor, and holds
- * no source of its own.
+ * A field that shows ANOTHER module in this module's editor, and holds no
+ * source of its own.
  *
- * `Src` is `never`, which is what removes it from the source: `ObjectSchemaSrcOf`
- * maps a ref key to `?: never`, so `c.define` neither wants nor accepts a value
- * for it, and consuming code that reads it gets `undefined`.
+ * `Src` is `undefined`, and that is what removes the key from the module's
+ * source: `c.define`'s source parameter drops every key whose type is exactly
+ * `undefined` (see `ReplaceRawStringWithString`), so the key cannot be written,
+ * and consuming code that reads it gets `undefined` and cannot read through it.
  */
-export class RefSchema extends Schema<undefined> {
-  /** Type-only marker, so `ObjectSchemaSrcOf` can pick ref keys out structurally. */
-  declare readonly __isRef: true;
-
+export class ViewSchema extends Schema<undefined> {
   constructor(
     private readonly moduleFilePath: ModuleFilePath,
     private readonly isEditable: boolean = false,
@@ -61,13 +59,13 @@ export class RefSchema extends Schema<undefined> {
    * @example
    * import otherVal from "./other.val"; // another module
    * const schema = s.object({
-   *   shared: s.ref(otherVal).describe("Shared by every page"),
+   *   shared: s.view(otherVal).describe("Shared by every page"),
    *   title: s.string(),
    * });
    * export default c.define("/example.val.ts", schema, { title: "Hello" });
    */
-  describe(description: string | null): RefSchema {
-    return new RefSchema(
+  describe(description: string | null): ViewSchema {
+    return new ViewSchema(
       this.moduleFilePath,
       this.isEditable,
       this.isReadonly,
@@ -88,12 +86,12 @@ export class RefSchema extends Schema<undefined> {
    * import otherVal from "./other.val"; // another module
    * const schema = s.object({
    *   title: s.string(),
-   *   shared: s.ref(otherVal).editable(),
+   *   shared: s.view(otherVal).editable(),
    * });
    * export default c.define("/example.val.ts", schema, { title: "Hello" });
    */
-  editable(isEditable: boolean = true): RefSchema {
-    return new RefSchema(
+  editable(isEditable: boolean = true): ViewSchema {
+    return new ViewSchema(
       this.moduleFilePath,
       isEditable,
       this.isReadonly,
@@ -101,6 +99,10 @@ export class RefSchema extends Schema<undefined> {
       this.description,
       this.renderInput,
     );
+  }
+
+  protected override storesNoSource(): boolean {
+    return true;
   }
 
   /** Nothing is stored, so there is nothing to validate. */
@@ -130,7 +132,7 @@ export class RefSchema extends Schema<undefined> {
       errors: {
         [path]: [
           {
-            message: `A ref field stores nothing. Expected 'undefined', got '${typeof src}'`,
+            message: `A view field stores nothing. Expected 'undefined', got '${typeof src}'`,
             typeError: true,
           },
         ],
@@ -139,35 +141,35 @@ export class RefSchema extends Schema<undefined> {
   }
 
   /**
-   * Not available: a ref holds no value, so there is nothing for `null` to
+   * Not available: a view holds no value, so there is nothing for `null` to
    * mean. Throws if called.
    *
    * @example
    * import otherVal from "./other.val"; // another module
-   * // `s.ref(otherVal).nullable()` throws — a ref is never nullable.
-   * const schema = s.object({ shared: s.ref(otherVal), title: s.string() });
+   * // `s.view(otherVal).nullable()` throws — a view is never nullable.
+   * const schema = s.object({ shared: s.view(otherVal), title: s.string() });
    * export default c.define("/example.val.ts", schema, { title: "Hello" });
    */
   nullable(): Schema<undefined | null> {
-    throw new Error("s.ref() cannot be nullable: it holds no value");
+    throw new Error("s.view() cannot be nullable: it holds no value");
   }
 
   /**
    * Show the referenced module, but never let it be changed from here.
    *
-   * A ref is already read-only unless `.editable()` says otherwise; this states
+   * A view is already read-only unless `.editable()` says otherwise; this states
    * it, and survives an `.editable()` written before it.
    *
    * @example
    * import otherVal from "./other.val"; // another module
    * const schema = s.object({
-   *   shared: s.ref(otherVal).readonly(),
+   *   shared: s.view(otherVal).readonly(),
    *   title: s.string(),
    * });
    * export default c.define("/example.val.ts", schema, { title: "Hello" });
    */
-  readonly(isReadonly: boolean = true): RefSchema {
-    return new RefSchema(
+  readonly(isReadonly: boolean = true): ViewSchema {
+    return new ViewSchema(
       this.moduleFilePath,
       this.isEditable,
       isReadonly,
@@ -183,13 +185,13 @@ export class RefSchema extends Schema<undefined> {
    * @example
    * import otherVal from "./other.val"; // another module
    * const schema = s.object({
-   *   shared: s.ref(otherVal).hidden(),
+   *   shared: s.view(otherVal).hidden(),
    *   title: s.string(),
    * });
    * export default c.define("/example.val.ts", schema, { title: "Hello" });
    */
-  hidden(isHidden: boolean = true): RefSchema {
-    return new RefSchema(
+  hidden(isHidden: boolean = true): ViewSchema {
+    return new ViewSchema(
       this.moduleFilePath,
       this.isEditable,
       this.isReadonly,
@@ -206,13 +208,13 @@ export class RefSchema extends Schema<undefined> {
    * @example
    * import otherVal from "./other.val"; // another module
    * const schema = s.object({
-   *   shared: s.ref(otherVal).render({ as: "inline" }),
+   *   shared: s.view(otherVal).render({ as: "inline" }),
    *   title: s.string(),
    * });
    * export default c.define("/example.val.ts", schema, { title: "Hello" });
    */
-  render(input: FieldRender): RefSchema {
-    return new RefSchema(
+  render(input: FieldRender): ViewSchema {
+    return new ViewSchema(
       this.moduleFilePath,
       this.isEditable,
       this.isReadonly,
@@ -224,7 +226,7 @@ export class RefSchema extends Schema<undefined> {
 
   protected executeSerialize(): SerializedSchema {
     return {
-      type: "ref",
+      type: "view",
       render: this.renderInput ?? undefined,
       opt: false,
       moduleFilePath: this.moduleFilePath,
@@ -232,7 +234,7 @@ export class RefSchema extends Schema<undefined> {
       readonly: this.isReadonly,
       hidden: this.isHidden,
       description: this.description,
-    } satisfies SerializedRefSchema;
+    } satisfies SerializedViewSchema;
   }
 
   protected executePreview(): ReifiedPreview {
@@ -243,7 +245,7 @@ export class RefSchema extends Schema<undefined> {
 /**
  * Show ANOTHER module as part of this one, in the Val editor.
  *
- * A ref stores nothing. It is a Studio-only field: the module it names keeps
+ * A view stores nothing. It is a Studio-only field: the module it names keeps
  * its own source, its own patches, its own validation and its own address, and
  * this field puts it on THIS module's screen so an editor can see it in the
  * context it belongs to — a page's header, or the employee list that a page is
@@ -258,18 +260,18 @@ export class RefSchema extends Schema<undefined> {
  * const schema = s.object({
  *   title: s.string(),
  *   // shown on the page's screen; edited in /data/employees.val.ts
- *   shared: s.ref(otherVal),
+ *   shared: s.view(otherVal),
  * });
  * export default c.define("/example.val.ts", schema, { title: "Hello" });
  */
-export const ref = <
+export const view = <
   Src extends GenericSelector<Source> & ValModuleBrand, // same constraint as keyOf: a module, never a selector
 >(
   valModule: Src,
-): RefSchema => {
+): ViewSchema => {
   const path = getValPath(valModule);
   if (!path) {
-    throw new Error("s.ref() must be given a Val module");
+    throw new Error("s.view() must be given a Val module");
   }
-  return new RefSchema(path as unknown as ModuleFilePath);
+  return new ViewSchema(path as unknown as ModuleFilePath);
 };

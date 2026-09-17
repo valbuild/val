@@ -11,7 +11,7 @@ import { richtext } from "./schema/richtext";
 import { image } from "./schema/image";
 import { literal } from "./schema/literal";
 import { keyOf } from "./schema/keyOf";
-import { ref } from "./schema/ref";
+import { view } from "./schema/view";
 import { record } from "./schema/record";
 import { file } from "./schema/file";
 import { fileset } from "./schema/fileset";
@@ -183,17 +183,17 @@ export type InitSchema = {
   /**
    * Show another module as part of this one, in the Val editor only.
    *
-   * A ref stores nothing: the key is absent from this module's source, and the
+   * A view stores nothing: the key is absent from this module's source, and the
    * module it names keeps its own source, patches, validation and address. It
    * is there so an editor sees content in the context it belongs to.
    *
    * @example
    * import otherVal from "./other.val"; // another module
-   * const schema = s.object({ shared: s.ref(otherVal), title: s.string() });
+   * const schema = s.object({ shared: s.view(otherVal), title: s.string() });
    * export default c.define("/example.val.ts", schema, { title: "Hello" });
    *
    */
-  readonly ref: typeof ref;
+  readonly view: typeof view;
   /**
    * Define a record.
    *
@@ -408,7 +408,7 @@ export function initSchema() {
     image,
     literal,
     keyOf,
-    ref,
+    view,
     record,
     file,
     fileset,
