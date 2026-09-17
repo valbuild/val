@@ -105,20 +105,27 @@ export async function initHandlerOptions(
   const declaredMode = process.env.VAL_MODE;
   if (declaredMode === "memory") {
     throw new Error(
-      "VAL_MODE is 'memory', but no `sourceFiles` were passed to the Val " +
-        "server, so there is no source to serve. Memory mode cannot be turned " +
-        "on by the environment: it needs the project's own source, and only " +
-        "the host that holds it can hand it over -- " +
-        "`initValServer(valModules, config, { sourceFiles: ... })`. " +
-        "Unset VAL_MODE to use the filesystem instead.",
+      "VAL_MODE is 'memory', but no `sourceFiles` were given here, so there " +
+        "is no source to serve. Memory mode cannot be turned on by the " +
+        "environment: it needs the project's own source, and only the host " +
+        "that holds it can hand it over. Pass it as the `sourceFiles` option " +
+        "-- to `initValServer` AND to the content readers " +
+        "(`initValContent` on TanStack Start, `initValRsc` on Next), which " +
+        "have a Val server each and are configured separately. Unset " +
+        "VAL_MODE to go back to the inferred mode instead ('http' when " +
+        "VAL_API_KEY and VAL_SECRET are both set, 'fs' otherwise).",
     );
   }
+  // An empty value counts as unset, which is what `VAL_MODE=` in a shell or a
+  // CI settings page means. Every other value is refused rather than ignored:
+  // ignoring `VAL_MODE=memry` would leave the app in `fs` mode, which is the
+  // exact failure this variable exists to catch.
   if (declaredMode !== undefined && declaredMode !== "") {
     throw new Error(
       `VAL_MODE is '${declaredMode}', which is not a mode Val knows. The only ` +
         "value it accepts is 'memory', which asserts that the host supplies " +
-        "`sourceFiles`. `fs` and `http` are inferred rather than named: `http` " +
-        "when VAL_API_KEY and VAL_SECRET are both set, `fs` otherwise.",
+        "`sourceFiles`. 'fs' and 'http' are inferred rather than named: " +
+        "'http' when VAL_API_KEY and VAL_SECRET are both set, 'fs' otherwise.",
     );
   }
 

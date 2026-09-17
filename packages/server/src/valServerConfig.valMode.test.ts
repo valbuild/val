@@ -102,6 +102,43 @@ describe("VAL_MODE", () => {
     );
   });
 
+  test("VAL_MODE= counts as unset, the way a shell means it", async () => {
+    await withEnv(
+      { VAL_MODE: "", VAL_API_KEY: undefined, VAL_SECRET: undefined },
+      async () => {
+        const resolved = await initHandlerOptions("/api/val", {}, config);
+        expect(resolved.mode).toBe("fs");
+      },
+    );
+  });
+
+  test("the content readers are configured separately, and this catches it", async () => {
+    /*
+     * The reader has a Val server of ITS OWN.
+     *
+     * `initValContent` (TanStack) and `initValRsc` (Next) each call
+     * `createValServer`, so passing `sourceFiles` to `initValServer` alone
+     * leaves the readers inferring `fs` mode -- on a host with no filesystem,
+     * a reader looking for a working tree that is not there. It went unnoticed
+     * because a published read still worked.
+     *
+     * This asserts the shape that catches it: the same call with the source
+     * and without it must not agree.
+     */
+    await withEnv({ VAL_MODE: "memory" }, async () => {
+      const writer = await initHandlerOptions(
+        "/api/val",
+        { sourceFiles: { "/content/test.val.ts": "export default 1" } },
+        config,
+      );
+      expect(writer.mode).toBe("memory");
+      // What a reader that was not given the source does now.
+      await expect(initHandlerOptions("/api/val", {}, config)).rejects.toThrow(
+        /sourceFiles/,
+      );
+    });
+  });
+
   test("a value Val does not know is refused rather than ignored", async () => {
     // Silently ignoring `VAL_MODE=memry` would put the app in `fs` mode, which
     // is the exact failure this variable exists to prevent.

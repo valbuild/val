@@ -16,7 +16,11 @@ import {
   JsonSource,
 } from "@valbuild/core";
 import { VAL_SESSION_COOKIE } from "@valbuild/shared/internal";
-import { createValServer, ValServer } from "@valbuild/server";
+import {
+  createValServer,
+  ValServer,
+  type ValPatchStore,
+} from "@valbuild/server";
 import { VERSION } from "../version";
 import {
   getJsonEntryStegaRoot,
@@ -596,6 +600,27 @@ export function initValContent(
      * the API turns preview on and these readers are what has to notice.
      */
     draftMode?: ValDraftMode;
+    /**
+     * The project's source, for a host that holds it rather than having it on
+     * a disk. Pass the SAME record `initValServer` got.
+     *
+     * These readers have a Val server of their own -- they resolve content by
+     * asking it, not by calling the API over HTTP -- so the mode question is
+     * put to them separately, and answering it only for `initValServer` left
+     * the readers inferring `fs` mode. On a host with no filesystem that is
+     * a reader looking for a working tree that is not there.
+     */
+    sourceFiles?: Record<string, string>;
+    /**
+     * Where pending patches live, with {@link sourceFiles}. Pass the SAME
+     * store `initValServer` got.
+     *
+     * Two stores are two sets of pending edits: the API would write a patch
+     * into one and a draft render would read the other and show none of it.
+     * Left out, this reader gets its own, which is correct for published
+     * content and empty for drafts.
+     */
+    patchStore?: ValPatchStore;
   },
 ): {
   fetchValStega: ReturnType<typeof initFetchValStega>;
@@ -624,6 +649,15 @@ export function initValContent(
         core: coreVersion,
       },
       ...config,
+      // Present only when the host supplied them: `sourceFiles` is what
+      // selects memory mode, so a key set to `undefined` would be a different
+      // thing from an absent one.
+      ...(opts?.sourceFiles !== undefined
+        ? { sourceFiles: opts.sourceFiles }
+        : {}),
+      ...(opts?.patchStore !== undefined
+        ? { patchStore: opts.patchStore }
+        : {}),
     },
     config,
     {

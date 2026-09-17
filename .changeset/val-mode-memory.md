@@ -1,5 +1,7 @@
 ---
 "@valbuild/server": minor
+"@valbuild/tanstack": minor
+"@valbuild/next": minor
 ---
 
 Say `VAL_MODE=memory` where there is no disk, and get a sentence instead of an `EPERM`
@@ -28,9 +30,32 @@ VAL_MODE=memory
 
 It does not turn memory mode on. It says the host is supposed to be supplying
 `sourceFiles`, so if none arrive, Val refuses at configuration time and says
-which call is missing them. A value other than `memory` is refused too, rather
-than quietly leaving you in `fs` mode — which is the exact failure the variable
-exists to prevent.
+where to pass them. `VAL_MODE=` counts as unset, the way a shell means it; any
+other value is refused rather than ignored, since leaving you in `fs` mode is
+the exact failure this is meant to catch.
 
-Nothing changes for an app that does not set it: `http` when `VAL_API_KEY` and
-`VAL_SECRET` are both present, `fs` otherwise, as before.
+**The content readers take `sourceFiles` too, and this is the release that
+noticed.** `initValContent` (TanStack Start) and `initValRsc` (Next) build a
+Val server each — they resolve content by asking it, not by calling the API
+over HTTP — so configuring `initValServer` alone left them inferring `fs` mode.
+On a host with no filesystem that is a reader looking for a working tree that
+is not there; it went unnoticed because published reads still worked.
+
+```ts
+const { valApiHandler, draftMode } = initValServer(valModules, config, {
+  sourceFiles: FILES,
+  patchStore,
+});
+
+const { fetchValStega } = initValContent(config, valModules, {
+  draftMode,
+  sourceFiles: FILES,
+  patchStore, // the SAME store, or a draft render sees none of the edits
+});
+```
+
+`patchStore` is optional in both. Left out, each server gets its own, which is
+right for published content and empty for drafts.
+
+Nothing changes for an app that sets none of this: `http` when `VAL_API_KEY`
+and `VAL_SECRET` are both present, `fs` otherwise, as before.
