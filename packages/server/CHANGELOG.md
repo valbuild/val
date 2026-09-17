@@ -1,5 +1,101 @@
 # @valbuild/server
 
+## 0.130.0
+
+### Minor Changes
+
+- [#684](https://github.com/valbuild/val/pull/684) [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75) Thanks [@freekh](https://github.com/freekh)! - A third ValOps mode, for a host that already holds its own source
+
+  EXPERIMENTAL. `fs` mode assumes a working tree it can watch and write; `http`
+  mode assumes Val's content service owns the patch chain and that a commit is a
+  git commit. A host that builds and publishes its own output is neither: it holds
+  the source already, it has nowhere to watch, and its "commit" is a new build.
+
+  Forcing such a host into `fs` mode cost three things, all now fixed: `/stat`
+  long-polled against watchers that could never fire, burning CPU for the whole
+  hold to learn nothing;
+  `/api/val/enable` 500'd; and every read of a `.val.ts` went through a shimmed
+  filesystem when the host could simply hand the source over.
+
+  `ValOpsMemory` takes the source as `sourceFiles`, refuses the local binary
+  members by name — this configuration uses Val's remote files — and answers the
+  history members with the same closed `not-supported-in-fs-mode` error `ValOpsFS`
+  gives, so the History UI degrades the way it already knows how rather than
+  inventing a commit list.
+
+  `getStat` still long-polls -- the hold is what paces the client, and an earlier
+  version that answered immediately turned a 20-second poll into a request every
+  6ms -- but it parks on a SIGNAL rather than a timer. This mode owns its store,
+  so it is told when something changes: no timers while parked, and a patch
+  written by another tab is seen at once rather than up to 250ms later.
+
+  Two seams come with it. `commitPrepared` lets a host take what a save produced
+  instead of a git commit, and `publishOverride` lets a publish be something other
+  than a push. Both are opt-in; an app that sets neither behaves exactly as before.
+
+  The in-memory patch store is explicitly **not durable**. It is behind
+  `ValPatchStore`, so a durable implementation is a swap rather than a rewrite,
+  but as shipped a restart loses unpublished patches.
+
+  **Memory mode authenticates.** `ValOps` gained `requiresAuth` alongside
+  `patchesAreLocal`, because one flag was answering two questions: whether a store
+  auto-saves or publishes (behaviour, reported as `mode` and keyed off by the UI),
+  and whether an unauthenticated request may write (security). With two
+  implementations the answers coincided — `fs` is a developer's own machine where
+  no credential exists, `http` is remote — so `getAuth` was written against
+  `patchesAreLocal` and returned anonymous _success_ for a missing cookie, an
+  invalid JWT, an unparseable payload, or no configured secret.
+
+  Memory mode splits them: its store is local, and it runs deployed. It therefore
+  requires a verified session, like `http` mode. A host that authorises requests
+  before Val sees them can opt out with `unsafelyAllowUnauthenticated`, which is
+  spelled that way on purpose and warns at startup. `fs` mode is unchanged.
+
+  Val's own MCP endpoint refuses memory mode outright. It has the same absence fs
+  mode has — no credential, no backend, every permission check on the far side of
+  one — and unlike fs mode it is meant to run deployed, so the existing
+  "development only" and loopback guards refuse nothing. A host in this mode owns
+  its own trust boundary and can offer the tools through it.
+
+  Internally, the routes' `instanceof ValOpsFS` checks meant "is this a local
+  store" — correct with two implementations and silently wrong with three. They are
+  now `ValOps.patchesAreLocal` at all 17 policy sites.
+
+### Patch Changes
+
+- [#684](https://github.com/valbuild/val/pull/684) [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75) Thanks [@freekh](https://github.com/freekh)! - Stop telling people to run `val login` where a personal access token cannot be used
+
+  A PAT is read from a file in the _server's_ working directory, and only local
+  `fs` mode has one. `resolveRemoteFileAuth` knew that; two things upstream did not.
+
+  `RemoteFilesErrorDialog` was unconditional. Whatever went wrong with remote files,
+  it said "Personal access token file required" and told the reader to run a command
+  in their project root — for a server with no working directory, a directory that
+  does not exist, to produce a file it could not read. The reason was already on the
+  error object and simply never looked at. The dialog now shows only for the two
+  reasons a PAT can actually fix, and everything else gets its own message.
+
+  `resolveRemoteFileAuth` also answered `project-not-configured` for a non-fs mode
+  with no api key, which is wrong twice: the project may be configured perfectly
+  well, and it is the credential that is absent. It answers `api-key-missing` now,
+  already in the wire contract, and that message no longer says "production mode",
+  because every server that is not local dev gives it.
+
+- [#684](https://github.com/valbuild/val/pull/684) [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75) Thanks [@freekh](https://github.com/freekh)! - `createValApiRouter` no longer puts `fs` in every integration's module graph
+
+  `fs` and `path` were imported at module scope for `safeReadGit`, a local
+  development convenience that scans upwards for a `.git` to guess the commit and
+  branch, and whose only caller is the CLI. A static import put `fs` in the module
+  graph of everything reaching `createValApiRouter` — which is every server
+  integration, including ones that run where there is no filesystem at all.
+
+  Behaviour is unchanged where there is a filesystem.
+
+- Updated dependencies [[`be1e8be`](https://github.com/valbuild/val/commit/be1e8bee673207596b3eb3d9a9886b8ade9b332f), [`8425378`](https://github.com/valbuild/val/commit/8425378c315ea46b5d822f1130b633e0449ff1b0), [`7d13dbc`](https://github.com/valbuild/val/commit/7d13dbced9ea49d8243b6b6cf9854cd1a259501f), [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75), [`07db94c`](https://github.com/valbuild/val/commit/07db94c23b73c8c0b2b50a30a89926823c2da1d6), [`473a185`](https://github.com/valbuild/val/commit/473a185f70351b44388f3bc1852649e2c1dbe001), [`64f0de3`](https://github.com/valbuild/val/commit/64f0de339b8621cb5a6c422dfe55cae5b2bbe2a0)]:
+  - @valbuild/ui@0.130.0
+  - @valbuild/core@0.130.0
+  - @valbuild/shared@0.130.0
+
 ## 0.129.0
 
 ### Patch Changes
