@@ -917,6 +917,53 @@ A newly added package is the usual trigger: its trusted publisher gets created
 long after everyone else's, with the newer default. Tick the `npm publish` box
 when you set it up, and expect this failure on the first release if you forget.
 
+## Adding a `ValidationFix` code
+
+A fix code is declared in one place and DISPATCHED ON in seven, spread over five
+packages. Nothing makes you visit them: the union is a `const` array, so a
+missing entry is a silent no-op rather than a type error, and the symptom is
+always the same — the error is reported somewhere it should have been quietly
+repaired, or a quick fix is offered nowhere while looking fine everywhere else.
+
+Visit all of these, in this order:
+
+1. **`core/src/schema/validation/ValidationFix.ts`** — the code itself.
+2. **`shared/src/internal/ApiRoutes.ts`** — a `z.literal` in the fixes union.
+   Not compiler-enforced: the zod schema is typed against the core union, so a
+   missing literal is a RUNTIME parse failure of the response that carries it.
+3. **The schema** that reports it (`fixes: [...]` on the `ValidationError`).
+4. **`shared/…/validation/partitionValidationErrors.ts`** — exhaustive switch,
+   so this one DOES fail to compile. `true` means the Studio hides it because
+   the server repairs it on save; `false` means an editor has to see it. This
+   also decides publish gating, via `filterBlockingValidationErrors` — which is
+   why `blockingValidationErrors.ts`, `ValErrorProvider` and `createSystem` need
+   nothing of their own.
+5. **`server/src/createFixPatch.ts`** — the branch that builds the patch. Read
+   the schema at the path with `Internal.resolvePath(modulePath, moduleSource,
+moduleSchema)` rather than trusting what the error carries.
+6. **`server/src/fixHandlers.ts`** — the entry the CLI dispatches on. The
+   registry's key type excludes the four `SCHEMA_SOURCE_FIXES`, so a fix that is
+   neither excluded nor registered fails to compile; one that is missing at
+   runtime makes `val validate` emit `unknown-fix`. Return
+   `shouldApplyPatch: true` to hand off to `createFixPatch`, and a
+   `fixableErrorMessage` when `ctx.fix` is off, or `--fix`-less runs report it as
+   a plain error instead of a fixable one.
+7. **`language-server/src/codeActions.ts`** — `LOCAL_FIXES` and `FIX_TITLES`.
+   Neither is exhaustive. A fix absent from `LOCAL_FIXES` is silently never
+   offered as a quick fix, which is how you get a diagnostic in VS Code with no
+   lightbulb and no explanation.
+
+Two lists that are NOT per-fix, and must not be copied: `SCHEMA_SOURCE_FIXES`
+(`shared/src/internal/resolveSchemaSourceFixes.ts`) is the set that only a
+project-wide snapshot can answer — the language server imports it as
+`DEFERRED_FIXES` rather than keeping its own, because its own fell two behind.
+
+**Verify end to end, not by reading.** Build a throwaway project in the
+scratchpad and run the CLI against it — `pnpm exec tsx src/cli.ts validate
+--root <dir>` from `packages/cli`, then again with `--fix`, and diff the file.
+That exercises module loading, validation, the handler, the patch and the TS
+rewrite in one go; the unit tests cover none of that seam.
+
 ## Common Fixes
 
 ### `prettier --check` fails on a file `prettier --write` just wrote
