@@ -2251,6 +2251,25 @@ export abstract class ValOps {
    */
   abstract readonly patchesAreLocal: boolean;
 
+  /**
+   * Whether a request must carry a session this server verified.
+   *
+   * Split out of {@link patchesAreLocal}, which was answering two questions at
+   * once. "Does this store auto-save or publish" is a BEHAVIOUR question, and
+   * it is what `/stat` reports and the UI keys off. "May an unauthenticated
+   * request write here" is a SECURITY question. With two implementations the
+   * answers coincided -- fs is local dev where no credential exists, http is
+   * remote -- so one flag served both and nothing noticed.
+   *
+   * A third implementation splits them. `ValOpsMemory`'s store is local, which
+   * makes the first answer yes, and it is designed to run DEPLOYED, which makes
+   * the second answer no. Reusing one flag gave a deployed host `getAuth`
+   * returning anonymous success for a missing cookie, an invalid JWT, an
+   * unparseable payload, or no configured secret -- on all 29 routes, including
+   * the ones that create patches and publish.
+   */
+  abstract readonly requiresAuth: boolean;
+
   abstract onInit(baseSha: BaseSha, schemaSha: SchemaSha): Promise<void>;
   abstract fetchPatches<ExcludePatchOps extends boolean>(filters: {
     patchIds?: PatchId[];

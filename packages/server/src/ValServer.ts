@@ -183,6 +183,8 @@ export type ValServerConfig = ValServerOptions &
         sourceFiles: Record<string, string>;
         /** Where pending patches live. Defaults to memory; see ValPatchStore. */
         patchStore?: ValPatchStore;
+        /** See ValServerOverrides. Off by default; memory mode authenticates. */
+        unsafelyAllowUnauthenticated?: boolean;
         config: ValConfig;
       }
   );
@@ -318,8 +320,17 @@ export const ValServer = (
     | { id: string; error?: undefined }
     | { error: null; id: null } => {
     const cookie = cookies[VAL_SESSION_COOKIE];
+    /*
+     * `requiresAuth`, not `patchesAreLocal`.
+     *
+     * These four exits return anonymous SUCCESS -- `{ error: null }` -- and all
+     * 29 routes below treat that as authorised. That is right for fs mode,
+     * which is a developer's own machine with no credential to require. It was
+     * keyed on the wrong question: a local patch store is about publishing, not
+     * about who may write, and memory mode is local AND deployed.
+     */
     if (!options.valSecret) {
-      if (serverOps.patchesAreLocal) {
+      if (!serverOps.requiresAuth) {
         return {
           error: null,
           id: null,
@@ -333,7 +344,7 @@ export const ValServer = (
     if (typeof cookie === "string") {
       const verifiedToken = verifyJwt(cookie, options.valSecret);
       if (!verifiedToken.success) {
-        if (serverOps.patchesAreLocal) {
+        if (!serverOps.requiresAuth) {
           return {
             error: null,
             id: null,
@@ -347,7 +358,7 @@ export const ValServer = (
         verifiedToken.data,
       );
       if (!verification.success) {
-        if (serverOps.patchesAreLocal) {
+        if (!serverOps.requiresAuth) {
           return {
             error: null,
             id: null,
@@ -361,7 +372,7 @@ export const ValServer = (
         id: verification.data.sub,
       };
     } else {
-      if (serverOps.patchesAreLocal) {
+      if (!serverOps.requiresAuth) {
         return {
           error: null,
           id: null,

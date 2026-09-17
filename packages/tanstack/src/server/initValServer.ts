@@ -59,6 +59,7 @@ const initValApiHandler = (
   }) => Promise<void>,
   sourceFiles?: Record<string, string>,
   patchStore?: ValPatchStore,
+  unsafelyAllowUnauthenticated?: boolean,
   apiKey?: string,
   publishOverride?: (context: CommitContext) => Promise<CommitResult>,
   http?: ValHttpMode,
@@ -102,6 +103,9 @@ const initValApiHandler = (
          */
         ...(sourceFiles !== undefined ? { sourceFiles } : {}),
         ...(patchStore !== undefined ? { patchStore } : {}),
+        ...(unsafelyAllowUnauthenticated !== undefined
+          ? { unsafelyAllowUnauthenticated }
+          : {}),
         ...(apiKey !== undefined ? { apiKey } : {}),
         /*
          * What puts the server in `http` mode: the patches live on Val's
@@ -306,6 +310,15 @@ export function initValServer(
      * which dies with the process — see `ValPatchStore` for the durable swap.
      */
     patchStore?: ValPatchStore;
+    /**
+     * Serve without authenticating any request. Off by default.
+     *
+     * Only correct when this app authorises every request before Val sees it.
+     * Unlike local `fs` mode, {@link sourceFiles} is for a DEPLOYED host, so
+     * without this a session is required as in proxy mode -- otherwise anyone
+     * who can reach the route can create patches and trigger a publish.
+     */
+    unsafelyAllowUnauthenticated?: boolean;
   },
 ): {
   /**
@@ -343,6 +356,7 @@ export function initValServer(
       opts?.commitPrepared,
       opts?.sourceFiles,
       opts?.patchStore,
+      opts?.unsafelyAllowUnauthenticated,
       opts?.apiKey,
       opts?.publishOverride,
       opts?.http,

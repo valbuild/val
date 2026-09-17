@@ -492,8 +492,11 @@ republish makes a new isolate and the patches are gone. A Durable Object is the
 second (§9.2), and the interface is what makes that a swap rather than a
 rewrite.
 
-`getStat` answers immediately: nothing edits files behind Val's back here, so
-there is nothing to wait for (§8c).
+`getStat` still long-polls -- the hold is what paces the client, and answering
+immediately turned a 20s poll into a request every 6ms. What it drops is the
+WATCHING: nothing edits files behind Val's back here, so it parks on a signal
+from its own store instead of racing an mtime poll that can observe nothing
+(§8c).
 
 ## 8e. What the third mode fixed
 

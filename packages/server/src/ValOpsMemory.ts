@@ -204,6 +204,21 @@ export type ValOpsMemoryOptions = ValOpsOptions & {
   /** Where pending patches live. Defaults to memory; see ValPatchStore. */
   patchStore?: ValPatchStore;
   /**
+   * Serve without authenticating any request. Off by default.
+   *
+   * The name is the documentation. This mode runs deployed, so an
+   * unauthenticated server is one where anyone who can reach the port can
+   * create patches and drive a publish -- which is why the default is to
+   * require a verified session like `http` mode does.
+   *
+   * A host sets this when it has its OWN boundary in front of Val and is
+   * asserting that every request reaching here has already been authorised by
+   * it. That is a real configuration, and it is not one to arrive at by
+   * accident, so it is spelled out rather than inferred and it warns at
+   * startup.
+   */
+  unsafelyAllowUnauthenticated?: boolean;
+  /**
    * Val's content host, for pushing remote files at publish.
    *
    * Only needed by {@link ValOpsMemory.uploadRemoteFiles}. A project with no
@@ -226,9 +241,11 @@ export type ValOpsMemoryOptions = ValOpsOptions & {
  * What this deliberately does NOT do:
  *
  * - **No filesystem.** Source comes from `sourceFiles`, patches from a store.
- * - **No watching.** `getStat` answers immediately. Nothing can edit files
- *   behind Val's back here: source changes only when the host publishes, and
- *   that replaces the process.
+ * - **No watching.** `getStat` still long-polls -- the hold is what paces the
+ *   client -- but it parks on a signal rather than racing a timer against an
+ *   mtime poll that can never observe anything here. Nothing can edit files
+ *   behind Val's back: source changes only when the host publishes, and that
+ *   replaces the process.
  * - **Pending binary files, but no PUBLISHED local ones.** An upload is held in
  *   the patch store like any other pending change, so the Studio can preview it
  *   before it is published. What this has no answer for is a file that is
@@ -249,6 +266,13 @@ export class ValOpsMemory extends ValOps {
    * in. Where the two differ is not something a route asks about.
    */
   override readonly patchesAreLocal = true;
+  /**
+   * Required, unless the host explicitly takes the boundary itself.
+   *
+   * `patchesAreLocal` is true here and that is about publishing, not about who
+   * may write -- see {@link ValOps.requiresAuth}.
+   */
+  override readonly requiresAuth: boolean;
 
   private readonly store: ValPatchStore;
   /**
@@ -270,6 +294,15 @@ export class ValOpsMemory extends ValOps {
     super(valModules, options);
     this.store = options.patchStore ?? new InMemoryPatchStore();
     this.contentUrl = options.contentUrl;
+    this.requiresAuth = !options.unsafelyAllowUnauthenticated;
+    if (options.unsafelyAllowUnauthenticated) {
+      console.warn(
+        "Val: serving memory mode WITHOUT authentication. Every request that " +
+          "reaches this server may read content, create patches and trigger a " +
+          "publish. Only correct if the host authorises requests before they " +
+          "get here.",
+      );
+    }
     this.sourceFiles = Object.fromEntries(
       Object.entries(options.sourceFiles).map(([path, text]) => [
         ValOpsMemory.key(path),

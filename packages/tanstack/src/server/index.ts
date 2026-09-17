@@ -7,6 +7,9 @@ import { hasValEnableCookieOnServer } from "./valDraftMode";
 setValEnableCookieReader(hasValEnableCookieOnServer);
 
 export { initValServer } from "./initValServer";
+// The type the `http` option is named with. Exported from initValServer.ts
+// but not from here, so the option could be passed and never annotated.
+export type { ValHttpMode } from "./initValServer";
 export { initValContent } from "./initValContent";
 export {
   valDraftMode,

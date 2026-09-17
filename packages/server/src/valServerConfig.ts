@@ -55,17 +55,29 @@ export async function initHandlerOptions(
    * service instead.
    */
   if (opts.sourceFiles !== undefined) {
+    const valContentUrl =
+      opts.valContentUrl || process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
+    const valBuildUrl =
+      opts.valBuildUrl || process.env.VAL_BUILD_URL || DEFAULT_VAL_BUILD_URL;
+    /*
+     * The same warning the other two modes get, and for the same reason.
+     *
+     * Returning early here skipped it, and the early return is about MODE
+     * INFERENCE -- not about which URLs are safe. This mode still sends
+     * `apiKey` to `valContentUrl` for remote-file settings and uploads, so a
+     * host configured with a non-loopback `http://` content URL was putting a
+     * credential on the wire with none of the warning fs and http modes give
+     * for exactly that.
+     */
+    warnIfInsecureUrls({ valBuildUrl, valContentUrl });
     return {
       mode: "memory",
       route,
       sourceFiles: opts.sourceFiles,
       patchStore: opts.patchStore,
-      valContentUrl:
-        opts.valContentUrl ||
-        process.env.VAL_CONTENT_URL ||
-        DEFAULT_CONTENT_HOST,
-      valBuildUrl:
-        opts.valBuildUrl || process.env.VAL_BUILD_URL || DEFAULT_VAL_BUILD_URL,
+      unsafelyAllowUnauthenticated: opts.unsafelyAllowUnauthenticated,
+      valContentUrl,
+      valBuildUrl,
       valEnableRedirectUrl:
         opts.valEnableRedirectUrl || process.env.VAL_ENABLE_REDIRECT_URL,
       valDisableRedirectUrl:
@@ -208,14 +220,23 @@ export function createValOps(
     );
   }
   if (options.mode === "memory") {
-    // No credential here either, and for the same reason as fs mode: there is
-    // no backend to authenticate to. The host holds the source and decides what
-    // a publish means -- see `commitPrepared` on ValServerOptions.
+    /*
+     * No backend to authenticate AGAINST, which is not the same as nothing to
+     * authenticate. That conflation is what made this mode serve every route to
+     * anyone who could reach the port: fs mode skips auth because it is a
+     * developer's own machine, and this one reuses its local-store flag while
+     * running deployed. It requires a verified session unless the host says it
+     * has its own boundary -- see `unsafelyAllowUnauthenticated`.
+     *
+     * The host still holds the source and decides what a publish means; that
+     * part is `commitPrepared` on ValServerOptions.
+     */
     return new ValOpsMemory(valModules, {
       formatter: options.formatter,
       config: options.config,
       sourceFiles: options.sourceFiles,
       patchStore: options.patchStore,
+      unsafelyAllowUnauthenticated: options.unsafelyAllowUnauthenticated,
       // For pushing remote files at publish. A project with no `s.image()`
       // never reaches it, which is why nothing above requires it.
       contentUrl: options.valContentUrl,

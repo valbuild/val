@@ -75,6 +75,16 @@ type ValServerOverrides = Partial<{
    */
   sourceFiles: Record<string, string>;
   /**
+   * Serve memory mode without authenticating any request. Off by default.
+   *
+   * Set this only when the host authorises every request before it reaches
+   * Val. Without it, memory mode requires a verified session like `http` mode
+   * does -- unlike `fs` mode, this one runs deployed, so an unauthenticated
+   * server is one where anyone who can reach the port can create patches and
+   * trigger a publish.
+   */
+  unsafelyAllowUnauthenticated?: boolean;
+  /**
    * Where pending patches live, with {@link sourceFiles}. Defaults to memory,
    * which is not durable -- see `ValPatchStore`.
    */
