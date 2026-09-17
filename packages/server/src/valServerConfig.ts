@@ -88,6 +88,40 @@ export async function initHandlerOptions(
       config,
     };
   }
+  /*
+   * `VAL_MODE=memory` says the host MEANT to hold the source, and did not.
+   *
+   * It cannot SELECT memory mode -- nothing in the environment can supply
+   * `sourceFiles`, and a mode turned on without them is a server with no
+   * content in it. What it does is turn the fall-through into an error.
+   *
+   * Without it, a host that forgot to pass its source got `fs` mode, and `fs`
+   * mode in a Worker isolate reaches for a working tree that is not there: the
+   * failure is an `EPERM` on `.val/patches.lock`, several layers below the
+   * mistake, naming a path rather than the decision that led to it. Every
+   * environment that runs Val without a disk can set this once and get a
+   * sentence instead.
+   */
+  const declaredMode = process.env.VAL_MODE;
+  if (declaredMode === "memory") {
+    throw new Error(
+      "VAL_MODE is 'memory', but no `sourceFiles` were passed to the Val " +
+        "server, so there is no source to serve. Memory mode cannot be turned " +
+        "on by the environment: it needs the project's own source, and only " +
+        "the host that holds it can hand it over -- " +
+        "`initValServer(valModules, config, { sourceFiles: ... })`. " +
+        "Unset VAL_MODE to use the filesystem instead.",
+    );
+  }
+  if (declaredMode !== undefined && declaredMode !== "") {
+    throw new Error(
+      `VAL_MODE is '${declaredMode}', which is not a mode Val knows. The only ` +
+        "value it accepts is 'memory', which asserts that the host supplies " +
+        "`sourceFiles`. `fs` and `http` are inferred rather than named: `http` " +
+        "when VAL_API_KEY and VAL_SECRET are both set, `fs` otherwise.",
+    );
+  }
+
   const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
   const maybeValSecret = opts.valSecret || process.env.VAL_SECRET;
   const isProxyMode =
