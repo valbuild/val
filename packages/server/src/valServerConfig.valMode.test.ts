@@ -94,7 +94,12 @@ describe("VAL_MODE", () => {
 
   test("an unset VAL_MODE still infers fs", async () => {
     await withEnv(
-      { VAL_MODE: undefined, VAL_API_KEY: undefined, VAL_SECRET: undefined },
+      {
+        VAL_MODE: undefined,
+        VAL_ENV: undefined,
+        VAL_API_KEY: undefined,
+        VAL_SECRET: undefined,
+      },
       async () => {
         const resolved = await initHandlerOptions("/api/val", {}, config);
         expect(resolved.mode).toBe("fs");
@@ -104,7 +109,12 @@ describe("VAL_MODE", () => {
 
   test("VAL_MODE= counts as unset, the way a shell means it", async () => {
     await withEnv(
-      { VAL_MODE: "", VAL_API_KEY: undefined, VAL_SECRET: undefined },
+      {
+        VAL_MODE: "",
+        VAL_ENV: undefined,
+        VAL_API_KEY: undefined,
+        VAL_SECRET: undefined,
+      },
       async () => {
         const resolved = await initHandlerOptions("/api/val", {}, config);
         expect(resolved.mode).toBe("fs");
@@ -141,6 +151,106 @@ describe("VAL_MODE", () => {
     // Silently ignoring `VAL_MODE=memry` would put the app in `fs` mode, which
     // is the exact failure this variable exists to prevent.
     await withEnv({ VAL_MODE: "memry" }, async () => {
+      await expect(initHandlerOptions("/api/val", {}, config)).rejects.toThrow(
+        /'memry'/,
+      );
+    });
+  });
+});
+
+/**
+ * `VAL_ENV` says WHERE Val is running. `VAL_MODE` says which mode it is in.
+ *
+ * The platform sets the first and lets Val derive the second, because only the
+ * first stays true when Val's internals move: an isolate with no disk is a fact
+ * about the environment, and "memory" is Val's name for what to do about it.
+ * `VAL_ENV=app` therefore means exactly what `VAL_MODE=memory` means -- the
+ * host is expected to hand over its own source -- and fails the same way when
+ * it does not.
+ */
+describe("VAL_ENV", () => {
+  test("VAL_ENV=app means memory, so a host with no source is refused", async () => {
+    await withEnv(
+      {
+        VAL_ENV: "app",
+        VAL_MODE: undefined,
+        VAL_API_KEY: undefined,
+        VAL_SECRET: undefined,
+      },
+      async () => {
+        await expect(
+          initHandlerOptions("/api/val", {}, config),
+        ).rejects.toThrow(/sourceFiles/);
+      },
+    );
+  });
+
+  test("...and the message names VAL_ENV, not a variable nobody set", async () => {
+    // Being told to unset `VAL_MODE` when `VAL_ENV` is what did this sends
+    // somebody looking for a variable that is not there.
+    await withEnv({ VAL_ENV: "app", VAL_MODE: undefined }, async () => {
+      await expect(initHandlerOptions("/api/val", {}, config)).rejects.toThrow(
+        /VAL_ENV/,
+      );
+    });
+  });
+
+  test("a host that DID pass its source gets memory mode", async () => {
+    await withEnv({ VAL_ENV: "app", VAL_MODE: undefined }, async () => {
+      const resolved = await initHandlerOptions(
+        "/api/val",
+        { sourceFiles: { "/content/test.val.ts": "export default 1" } },
+        config,
+      );
+      expect(resolved.mode).toBe("memory");
+    });
+  });
+
+  test("an api key does not redirect the Val app at a content service", async () => {
+    // The same guarantee `VAL_MODE=memory` has: the source settles the mode
+    // before the environment is consulted, so a key left in the environment
+    // cannot quietly turn the app into a proxy.
+    await withEnv(
+      {
+        VAL_ENV: "app",
+        VAL_MODE: undefined,
+        VAL_API_KEY: "key",
+        VAL_SECRET: "secret",
+      },
+      async () => {
+        const resolved = await initHandlerOptions(
+          "/api/val",
+          { sourceFiles: { "/content/test.val.ts": "export default 1" } },
+          config,
+        );
+        expect(resolved.mode).toBe("memory");
+      },
+    );
+  });
+
+  test("some other VAL_ENV says nothing, and fs is still inferred", async () => {
+    // Only 'app' means anything here. An environment named something else is
+    // not an error -- `VAL_ENV` is a general name and Val does not own every
+    // value of it.
+    await withEnv(
+      {
+        VAL_ENV: "production",
+        VAL_MODE: undefined,
+        VAL_API_KEY: undefined,
+        VAL_SECRET: undefined,
+      },
+      async () => {
+        const resolved = await initHandlerOptions("/api/val", {}, config);
+        expect(resolved.mode).toBe("fs");
+      },
+    );
+  });
+
+  test("an explicit VAL_MODE wins, including when it is wrong", async () => {
+    // Somebody naming a mode outright has said something more specific than
+    // somebody naming an environment, and a typo in the specific one has to be
+    // refused rather than covered for by the general one.
+    await withEnv({ VAL_ENV: "app", VAL_MODE: "memry" }, async () => {
       await expect(initHandlerOptions("/api/val", {}, config)).rejects.toThrow(
         /'memry'/,
       );

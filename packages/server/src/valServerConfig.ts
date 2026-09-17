@@ -32,6 +32,48 @@ import {
 export const DEFAULT_VAL_BUILD_URL = "https://admin.val.build";
 
 /**
+ * The value of `VAL_ENV` that means "this is the Val app".
+ *
+ * The Val app builds a project in a browser and runs it in a Worker isolate.
+ * There is no disk there and there never will be, so `fs` mode is never the
+ * right fall-through, and the host always supplies `sourceFiles`.
+ *
+ * A host says WHERE it runs, which is a fact it knows. Which Val mode that
+ * implies is Val's to derive, and that is the whole reason this exists next to
+ * `VAL_MODE` rather than the platform setting `VAL_MODE=memory` itself: one is
+ * a description of an environment, the other an assertion about Val's
+ * internals, and only the first stays true when the internals move.
+ */
+const VAL_APP_ENV = "app";
+
+/** Which mode the environment SAYS this is, and which variable said so. */
+type NamedMode = { mode: string; from: "VAL_MODE" | "VAL_ENV" };
+
+/**
+ * Neither variable can SELECT a mode -- see the throws in
+ * {@link initHandlerOptions} -- so what this answers is only ever used to turn
+ * a fall-through into an error naming the right remedy. `null` is "the
+ * environment did not say", which is the normal case.
+ */
+function namedMode(): NamedMode | null {
+  const declared = process.env.VAL_MODE;
+  /*
+   * An empty value counts as unset, which is what `VAL_MODE=` in a shell or a
+   * CI settings page means. An explicit `VAL_MODE` otherwise wins over
+   * `VAL_ENV`: naming a mode outright says something more specific than naming
+   * an environment does, including when what it names is wrong and has to be
+   * refused.
+   */
+  if (declared !== undefined && declared !== "") {
+    return { mode: declared, from: "VAL_MODE" };
+  }
+  if (process.env.VAL_ENV === VAL_APP_ENV) {
+    return { mode: "memory", from: "VAL_ENV" };
+  }
+  return null;
+}
+
+/**
  * Resolve options plus environment into a concrete {@link ValServerConfig}.
  *
  * Moved verbatim out of `createValApiRouter`; the precedence rules are load
@@ -89,11 +131,13 @@ export async function initHandlerOptions(
     };
   }
   /*
-   * `VAL_MODE=memory` says the host MEANT to hold the source, and did not.
+   * The environment saying 'memory' means the host MEANT to hold the source,
+   * and did not. Either variable can say it: `VAL_MODE=memory` outright, or
+   * `VAL_ENV=app`, which names an environment that has no disk.
    *
-   * It cannot SELECT memory mode -- nothing in the environment can supply
+   * Neither can SELECT memory mode -- nothing in the environment can supply
    * `sourceFiles`, and a mode turned on without them is a server with no
-   * content in it. What it does is turn the fall-through into an error.
+   * content in it. What they do is turn the fall-through into an error.
    *
    * Without it, a host that forgot to pass its source got `fs` mode, and `fs`
    * mode in a Worker isolate reaches for a working tree that is not there: the
@@ -102,10 +146,13 @@ export async function initHandlerOptions(
    * environment that runs Val without a disk can set this once and get a
    * sentence instead.
    */
-  const declaredMode = process.env.VAL_MODE;
-  if (declaredMode === "memory") {
+  const declared = namedMode();
+  if (declared?.mode === "memory") {
     throw new Error(
-      "VAL_MODE is 'memory', but no `sourceFiles` were given here, so there " +
+      (declared.from === "VAL_ENV"
+        ? "VAL_ENV is 'app', which is the Val app and so means 'memory'"
+        : "VAL_MODE is 'memory'") +
+        ", but no `sourceFiles` were given here, so there " +
         "is no source to serve. Memory mode cannot be turned on by the " +
         "environment: it needs the project's own source, and only the host " +
         "that holds it can hand it over. On TanStack Start that is the " +
@@ -114,17 +161,20 @@ export async function initHandlerOptions(
         "configured separately. @valbuild/next has no memory mode yet, so " +
         "for a Next app this variable is set on an environment Val cannot " +
         "serve from. Unset " +
-        "VAL_MODE to go back to the inferred mode instead ('http' when " +
+        declared.from +
+        " to go back to the inferred mode instead ('http' when " +
         "VAL_API_KEY and VAL_SECRET are both set, 'fs' otherwise).",
     );
   }
-  // An empty value counts as unset, which is what `VAL_MODE=` in a shell or a
-  // CI settings page means. Every other value is refused rather than ignored:
-  // ignoring `VAL_MODE=memry` would leave the app in `fs` mode, which is the
-  // exact failure this variable exists to catch.
-  if (declaredMode !== undefined && declaredMode !== "") {
+  /*
+   * Every other value is refused rather than ignored: ignoring `VAL_MODE=memry`
+   * would leave the app in `fs` mode, which is the exact failure this variable
+   * exists to catch. Only `VAL_MODE` reaches here, since `VAL_ENV=app` names
+   * 'memory' and is answered above, so the message can name it directly.
+   */
+  if (declared !== null) {
     throw new Error(
-      `VAL_MODE is '${declaredMode}', which is not a mode Val knows. The only ` +
+      `VAL_MODE is '${declared.mode}', which is not a mode Val knows. The only ` +
         "value it accepts is 'memory', which asserts that the host supplies " +
         "`sourceFiles`. 'fs' and 'http' are inferred rather than named: " +
         "'http' when VAL_API_KEY and VAL_SECRET are both set, 'fs' otherwise.",
