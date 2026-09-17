@@ -10,6 +10,7 @@ import { raw } from "@valbuild/react/stega";
 import { getUnpatchedUnencodedVal } from "./getUnpatchedUnencodedVal";
 import { decodeValPathsOfString } from "./decodeValPathsOfString";
 import { attrs } from "@valbuild/react/stega";
+import { readValEnableCookie } from "./valEnableCookieBridge";
 
 const tanstackRouter: ValRouter = Internal.tanstackRouter;
 const externalPageRouter: ValRouter = Internal.externalPageRouter;
@@ -23,16 +24,12 @@ const externalPageRouter: ValRouter = Internal.externalPageRouter;
  * client-side; reserve it for advanced server-side conditionals.
  */
 async function isValEnabled(): Promise<boolean> {
-  try {
-    // Dynamic import so the top-level `@valbuild/tanstack` entry does not pull
-    // TanStack's server module into the client bundle. `@tanstack/react-start`
-    // splits client and server, and the server half reads the request out of
-    // async local storage — there is nothing to read in a browser.
-    const { getCookie } = await import("@tanstack/react-start/server");
-    return getCookie(Internal.VAL_ENABLE_COOKIE_NAME) === "true";
-  } catch {
-    return false;
-  }
+  // Delegated rather than imported. A dynamic import of
+  // `@tanstack/react-start/server` keeps it out of the client bundle under
+  // Vite, but not under a host that bundles this package ahead of time and
+  // audits every chunk — see valEnableCookieBridge.ts. The implementation is
+  // installed by `@valbuild/tanstack/server`.
+  return readValEnableCookie();
 }
 
 export const initVal = (

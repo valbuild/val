@@ -330,7 +330,10 @@ export abstract class ValOps {
    */
   async adoptCommittedSources(
     analysis: PatchAnalysis & OrderedPatches,
-    preparedCommit: Pick<PreparedCommit, "patchedJsonEntries">,
+    preparedCommit: Pick<
+      PreparedCommit,
+      "patchedJsonEntries" | "patchedSourceFiles"
+    >,
   ): Promise<void> {
     // Read BEFORE anything is promoted: this applies the chain to the sources as
     // they stand, and promoting first would apply the same patches twice.
@@ -350,6 +353,17 @@ export abstract class ValOps {
       adopt[moduleFilePath] = source;
     }
     this.promoteCommittedSources(adopt);
+    /**
+     * And the `.val.ts` TEXT, for a store that has nowhere else to keep it.
+     *
+     * Everything above adopts the SOURCE — the data a module evaluates to. The
+     * file the patch was applied TO is a separate thing, and `getSourceFile` is
+     * what the next `prepare()` reads. In `fs` mode that is the disk, which
+     * `saveOrUploadFiles` has just rewritten, so this is a no-op. A store with
+     * no disk has to be told, or every later save re-reads the source as it was
+     * when the process started and silently reverts this one.
+     */
+    this.adoptPatchedSourceFiles(preparedCommit.patchedSourceFiles);
     /**
      * And the `.jsonValues()` entry content, which the sources above do not
      * carry — they hold markers. See {@link adoptedJsonEntries}.
@@ -2201,7 +2215,61 @@ export abstract class ValOps {
     });
   }
 
+  /**
+   * Take the `.val.ts` text a commit produced as the new committed source.
+   *
+   * A no-op where {@link getSourceFile} reads something the commit already
+   * wrote — the disk in `fs` mode, the content service in `http` mode. Override
+   * it in a store that holds the source itself. `null` means the commit deleted
+   * the file.
+   */
+  protected adoptPatchedSourceFiles(
+    _files: Record<string, string | null>,
+  ): void {}
+
   // #region abstract ops
+  /**
+   * Whether the patches live HERE, in this server, or in Val's content service.
+   *
+   * Almost everything the routes branch on comes from this one fact, which is
+   * why it is a named property rather than an `instanceof`. If this server owns
+   * the store then there is no content service to authenticate to (so an absent
+   * or unverifiable session is anonymous rather than a 401), no shared store for
+   * a patch group to separate authors in, no deployments to report, and a
+   * "publish" writes what the host does with it rather than pushing a commit. If
+   * it does not, every one of those is the content service's and this server is
+   * relaying.
+   *
+   * There were two implementations when the routes were written and `instanceof
+   * ValOpsFS` meant this; a third made that reading wrong in a way that compiles
+   * silently -- a store that is local, answers none of the checks, and gets the
+   * http path with no content service behind it.
+   *
+   * It is also what `/stat` reports as `mode`. The wire name predates the third
+   * implementation and names a class, but the question the client is asking is
+   * this one: does it auto-save and hide the account panel, or does it publish.
+   */
+  abstract readonly patchesAreLocal: boolean;
+
+  /**
+   * Whether a request must carry a session this server verified.
+   *
+   * Split out of {@link patchesAreLocal}, which was answering two questions at
+   * once. "Does this store auto-save or publish" is a BEHAVIOUR question, and
+   * it is what `/stat` reports and the UI keys off. "May an unauthenticated
+   * request write here" is a SECURITY question. With two implementations the
+   * answers coincided -- fs is local dev where no credential exists, http is
+   * remote -- so one flag served both and nothing noticed.
+   *
+   * A third implementation splits them. `ValOpsMemory`'s store is local, which
+   * makes the first answer yes, and it is designed to run DEPLOYED, which makes
+   * the second answer no. Reusing one flag gave a deployed host `getAuth`
+   * returning anonymous success for a missing cookie, an invalid JWT, an
+   * unparseable payload, or no configured secret -- on all 29 routes, including
+   * the ones that create patches and publish.
+   */
+  abstract readonly requiresAuth: boolean;
+
   abstract onInit(baseSha: BaseSha, schemaSha: SchemaSha): Promise<void>;
   abstract fetchPatches<ExcludePatchOps extends boolean>(filters: {
     patchIds?: PatchId[];

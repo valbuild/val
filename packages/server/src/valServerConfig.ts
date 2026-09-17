@@ -3,6 +3,7 @@ import type { ValServerConfig } from "./ValServer";
 import type { ValApiOptions } from "./ValRouter";
 import { ValOpsFS } from "./ValOpsFS";
 import { ValOpsHttp } from "./ValOpsHttp";
+import { ValOpsMemory } from "./ValOpsMemory";
 import {
   getPersonalAccessTokenPath,
   parsePersonalAccessTokenFile,
@@ -44,6 +45,49 @@ export async function initHandlerOptions(
   opts: ValApiOptions,
   config: ValConfig,
 ): Promise<ValServerConfig> {
+  /*
+   * A host that handed us the source has settled the question.
+   *
+   * First, and without consulting the environment: the other two modes are
+   * inferred (an api key in the env is enough to make a project "proxy"), and
+   * this one cannot be, so an env var that happens to be set must not be able
+   * to take a host that supplied its own source and point it at a content
+   * service instead.
+   */
+  if (opts.sourceFiles !== undefined) {
+    const valContentUrl =
+      opts.valContentUrl || process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
+    const valBuildUrl =
+      opts.valBuildUrl || process.env.VAL_BUILD_URL || DEFAULT_VAL_BUILD_URL;
+    /*
+     * The same warning the other two modes get, and for the same reason.
+     *
+     * Returning early here skipped it, and the early return is about MODE
+     * INFERENCE -- not about which URLs are safe. This mode still sends
+     * `apiKey` to `valContentUrl` for remote-file settings and uploads, so a
+     * host configured with a non-loopback `http://` content URL was putting a
+     * credential on the wire with none of the warning fs and http modes give
+     * for exactly that.
+     */
+    warnIfInsecureUrls({ valBuildUrl, valContentUrl });
+    return {
+      mode: "memory",
+      route,
+      sourceFiles: opts.sourceFiles,
+      patchStore: opts.patchStore,
+      unsafelyAllowUnauthenticated: opts.unsafelyAllowUnauthenticated,
+      valContentUrl,
+      valBuildUrl,
+      valEnableRedirectUrl:
+        opts.valEnableRedirectUrl || process.env.VAL_ENABLE_REDIRECT_URL,
+      valDisableRedirectUrl:
+        opts.valDisableRedirectUrl || process.env.VAL_DISABLE_REDIRECT_URL,
+      apiKey: opts.apiKey || process.env.VAL_API_KEY,
+      valSecret: opts.valSecret || process.env.VAL_SECRET,
+      project: opts.project || process.env.VAL_PROJECT,
+      config,
+    };
+  }
   const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
   const maybeValSecret = opts.valSecret || process.env.VAL_SECRET;
   const isProxyMode =
@@ -147,7 +191,7 @@ export async function initHandlerOptions(
 export function createValOps(
   valModules: ValModules,
   options: ValServerConfig,
-): ValOpsFS | ValOpsHttp {
+): ValOpsFS | ValOpsHttp | ValOpsMemory {
   if (options.mode === "fs") {
     // No credential in fs mode: this reads and writes the developer's own
     // working tree, and there is no backend to authenticate to. A credential
@@ -174,6 +218,29 @@ export function createValOps(
         config: options.config,
       },
     );
+  }
+  if (options.mode === "memory") {
+    /*
+     * No backend to authenticate AGAINST, which is not the same as nothing to
+     * authenticate. That conflation is what made this mode serve every route to
+     * anyone who could reach the port: fs mode skips auth because it is a
+     * developer's own machine, and this one reuses its local-store flag while
+     * running deployed. It requires a verified session unless the host says it
+     * has its own boundary -- see `unsafelyAllowUnauthenticated`.
+     *
+     * The host still holds the source and decides what a publish means; that
+     * part is `commitPrepared` on ValServerOptions.
+     */
+    return new ValOpsMemory(valModules, {
+      formatter: options.formatter,
+      config: options.config,
+      sourceFiles: options.sourceFiles,
+      patchStore: options.patchStore,
+      unsafelyAllowUnauthenticated: options.unsafelyAllowUnauthenticated,
+      // For pushing remote files at publish. A project with no `s.image()`
+      // never reaches it, which is why nothing above requires it.
+      contentUrl: options.valContentUrl,
+    });
   }
   throw new Error(
     // The union is exhausted above; this catches a config that came from
@@ -308,7 +375,7 @@ export type ResolveRemoteFileAuthResult =
   | { status: "success"; auth: RemoteFileAuth }
   | {
       status: "error";
-      errorCode: "project-not-configured" | "pat-error";
+      errorCode: "project-not-configured" | "pat-error" | "api-key-missing";
       message: string;
     };
 
@@ -319,12 +386,26 @@ export async function resolveRemoteFileAuth(
     return { status: "success", auth: { apiKey: options.apiKey } };
   }
   if (options.mode !== "fs") {
-    // Unreachable through `initHandlerOptions`, which refuses to build a proxy
-    // config without an api key. Kept because this is exported.
+    /*
+     * `api-key-missing`, and the distinction matters to whoever reads it.
+     *
+     * The PAT below is read from a file in the server's own working directory,
+     * which only `fs` mode has. Every other mode can be authenticated one way,
+     * with an api key -- so the Studio must not offer `val login` here. It did,
+     * because "local" used to mean "fs" and the third mode made that false: the
+     * dialog told people to run a command, in a directory, that could not have
+     * helped even if they found the right one.
+     *
+     * `project-not-configured` was also just wrong. The project may be
+     * perfectly well configured; it is the credential that is absent.
+     */
     return {
       status: "error",
-      errorCode: "project-not-configured",
-      message: "Remote file auth is not configured",
+      errorCode: "api-key-missing",
+      message:
+        "Remote files need an api key here: this server cannot read a " +
+        "personal access token, because that is a file in a working directory " +
+        "and it has none. Set VAL_API_KEY.",
     };
   }
   // `options.cwd`, which `initHandlerOptions` sets from `process.cwd()`. The

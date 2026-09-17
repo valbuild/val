@@ -627,7 +627,7 @@ export function ImageField({
   );
 }
 
-function getRemoteFilesError(
+export function getRemoteFilesError(
   reason:
     | "unknown-error"
     | "project-not-configured"
@@ -640,7 +640,11 @@ function getRemoteFilesError(
 ) {
   switch (reason) {
     case "api-key-missing":
-      return "Val is running in production mode. To upload remote files and images, the VAL_API_KEY env must be set. Contact a developer to fix this issue.";
+      // Not "production mode": every server that is not local dev answers this,
+      // and a PAT cannot substitute for it -- a PAT is read from a file in a
+      // working directory, which such a server does not have. Saying so stops
+      // the reader hunting for the directory to run `val login` in.
+      return "To upload remote files and images, this server needs the VAL_API_KEY env set. A personal access token cannot be used here: it is read from a file in a working directory, and this server has none. Contact a developer to fix this issue.";
     case "error-could-not-get-settings":
       return `Could not get settings from the Val remote server. This means that updating or changing certain types of files and images might not work. Check your internet connection and try again. (Error code: ${reason})`;
     case "no-internet-connection":

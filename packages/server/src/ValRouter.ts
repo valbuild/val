@@ -1,5 +1,3 @@
-import { promises as fs } from "fs";
-import * as path from "path";
 import { ValConfig, ValModules } from "@valbuild/core";
 import {
   Api,
@@ -18,6 +16,9 @@ type Versions = {
     next?: string;
   };
 };
+import type { ValPatchStore } from "./ValOpsMemory";
+import type { CommitContext, CommitResult } from "./ValServer";
+
 export type ValApiOptions = ValServerOverrides & ValConfig & Versions;
 
 type ValServerOverrides = Partial<{
@@ -58,6 +59,36 @@ type ValServerOverrides = Partial<{
    * If both is missing, it will default to "local".
    */
   mode: "proxy" | "local";
+  /**
+   * The project's source, by path -- and, by being present, the choice of an
+   * in-memory store over the local filesystem.
+   *
+   * EXPERIMENTAL. For a host that HOLDS the project's source rather than having
+   * it on a disk: it hands it over here, patches live in `patchStore`, and a
+   * publish is whatever `commitPrepared` does with the files. See
+   * `ValOpsMemory`.
+   *
+   * Selected by presence rather than by a `mode` value because unlike "local"
+   * and "proxy" this one cannot be inferred from the environment -- there is
+   * nothing to infer it FROM, and a mode that can be turned on without
+   * supplying the source would be a server with no content in it.
+   */
+  sourceFiles: Record<string, string>;
+  /**
+   * Serve memory mode without authenticating any request. Off by default.
+   *
+   * Set this only when the host authorises every request before it reaches
+   * Val. Without it, memory mode requires a verified session like `http` mode
+   * does -- unlike `fs` mode, this one runs deployed, so an unauthenticated
+   * server is one where anyone who can reach the port can create patches and
+   * trigger a publish.
+   */
+  unsafelyAllowUnauthenticated?: boolean;
+  /**
+   * Where pending patches live, with {@link sourceFiles}. Defaults to memory,
+   * which is not durable -- see `ValPatchStore`.
+   */
+  patchStore: ValPatchStore;
   /**
    * Current git commit.
    *
@@ -134,12 +165,26 @@ export async function createValServer(
   config: ValConfig,
   callbacks: ValServerCallbacks,
   formatter?: (code: string, filePath: string) => string | Promise<string>,
+  /**
+   * Called after a save has applied its patches. EXPERIMENTAL — see
+   * `ValServerOptions.commitPrepared`.
+   */
+  commitPrepared?: (commit: {
+    patchedSourceFiles: Record<string, string | null>;
+  }) => Promise<void>,
+  /**
+   * What a publish does in http mode. EXPERIMENTAL — see
+   * `ValServerOptions.publishOverride`.
+   */
+  publishOverride?: (context: CommitContext) => Promise<CommitResult>,
 ): Promise<ValServer> {
   const valServerConfig = await initHandlerOptions(route, opts, config);
   return ValServer(
     valModules,
     {
       formatter,
+      commitPrepared,
+      publishOverride,
       ...valServerConfig,
     },
     callbacks,
@@ -147,9 +192,24 @@ export async function createValServer(
 }
 
 // TODO: remove
+/**
+ * `fs` and `path` are imported INSIDE this function, not at the top of the file.
+ *
+ * This is the only thing in this module that touches either, and it is a local
+ * development convenience: scanning upwards for a `.git` to guess the commit and
+ * branch. A static import put `fs` in the module graph of everything reaching
+ * `createValApiRouter` -- which is every server integration, including ones that
+ * run where there is no filesystem. Workerd provides no `fs`, so such a build
+ * could not be bundled at all without stubbing it.
+ *
+ * The `await import` costs nothing here: the only caller is the CLI, on a
+ * machine that has both.
+ */
 export async function safeReadGit(
   cwd: string,
 ): Promise<{ commit?: string; branch?: string }> {
+  const { promises: fs } = await import("fs");
+  const path = await import("path");
   async function findGitHead(
     currentDir: string,
     depth: number,
@@ -205,10 +265,13 @@ export async function safeReadGit(
   }
 }
 
+/** Only reached from {@link safeReadGit}; same reason for the local imports. */
 async function readCommit(
   gitDir: string,
   branchName: string,
 ): Promise<string | undefined> {
+  const { promises: fs } = await import("fs");
+  const path = await import("path");
   try {
     return (
       await fs.readFile(
