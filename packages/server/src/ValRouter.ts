@@ -72,6 +72,11 @@ type ValServerOverrides = Partial<{
    * and "proxy" this one cannot be inferred from the environment -- there is
    * nothing to infer it FROM, and a mode that can be turned on without
    * supplying the source would be a server with no content in it.
+   *
+   * An environment that has no disk can still say it EXPECTS this, by setting
+   * `VAL_MODE=memory`. That does not select the mode; it makes forgetting to
+   * pass the source an error here rather than an `EPERM` from `fs` mode two
+   * layers down.
    */
   sourceFiles: Record<string, string>;
   /**
