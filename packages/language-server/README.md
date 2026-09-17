@@ -3,8 +3,10 @@
 The Val language server: validation, quick fixes and completions for `*.val.ts`
 files, over the Language Server Protocol.
 
-It ships **inside Val**, as a dependency of every package a project depends on
-directly: `@valbuild/next`, `@valbuild/tanstack` and `@valbuild/cli`. You do not
+It ships **inside Val**, as a dependency of the framework bindings and the CLI —
+`@valbuild/next`, `@valbuild/tanstack` and `@valbuild/cli`. Not of every
+`@valbuild/*` a project depends on: `@valbuild/core` and `@valbuild/server`
+could not carry it without a cycle, since the server depends on them. You do not
 install it — a project on a recent enough Val already has it. That is the point: an editor client resolves the server out of
 the user's own `node_modules`, so one published client works against every
 version of Val, and a feature Val gains works without an editor release.
@@ -56,15 +58,23 @@ for (const anchor of [
   "@valbuild/tanstack",
   "@valbuild/cli",
 ]) {
-  const from =
-    anchor === null
-      ? rootPkg
-      : createRequire(rootPkg).resolve(`${anchor}/package.json`);
-  const pkgPath = createRequire(from).resolve(
-    "@valbuild/language-server/package.json",
-  );
-  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
-  return path.resolve(path.dirname(pkgPath), pkg.bin["val-language-server"]);
+  // The try/catch is load-bearing, not defensive: `resolve` THROWS when it
+  // finds nothing. Under pnpm the first (`null`) attempt is exactly that case,
+  // so without it the anchors below are never reached and the recipe fails on
+  // the one layout it exists for.
+  try {
+    const from =
+      anchor === null
+        ? rootPkg
+        : createRequire(rootPkg).resolve(`${anchor}/package.json`);
+    const pkgPath = createRequire(from).resolve(
+      "@valbuild/language-server/package.json",
+    );
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+    return path.resolve(path.dirname(pkgPath), pkg.bin["val-language-server"]);
+  } catch {
+    // Not reachable through this anchor. Try the next.
+  }
 }
 ```
 

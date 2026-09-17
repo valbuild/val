@@ -4,10 +4,10 @@
 
 Editor clients: resolve the language server through `@valbuild/tanstack` too
 
-`@valbuild/language-server` ships inside every package a project depends on
-directly — `@valbuild/next`, `@valbuild/tanstack` and `@valbuild/cli` — but the
-resolution recipes in this package's README, which exist to be copied into an
-editor client, only ever anchored on `next` and `cli`.
+`@valbuild/language-server` ships inside Val's framework bindings and its CLI —
+`@valbuild/next`, `@valbuild/tanstack` and `@valbuild/cli` — but the resolution
+recipes in this package's README, which exist to be copied into an editor
+client, only ever anchored on `next` and `cli`.
 
 Under pnpm's isolated `node_modules` a transitive dependency is reachable _only_
 through a package the project declares, so a client built from those snippets
