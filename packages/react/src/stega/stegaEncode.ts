@@ -24,9 +24,15 @@ import {
 import { vercelStegaCombine, vercelStegaSplit } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
 import type { ValView, ValViewSource } from "@valbuild/core";
+import { isValViewSource } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core";
 import { SourceArray } from "@valbuild/core";
 import { RawString } from "@valbuild/core";
+import type {
+  GenericSelector,
+  SelectorOf,
+  SelectorSource,
+} from "@valbuild/core";
 
 declare const brand: unique symbol;
 
@@ -253,6 +259,42 @@ export type StegaOfSource<T extends Source> = Json extends T
                     : never;
 
 /**
+ * What resolving `T` gives back — the one definition the framework readers
+ * share.
+ *
+ * Two shapes go in. A module or selector resolves as it always has. A
+ * {@link ValView}, which is what a `s.view()` field reads as, resolves to the
+ * module it points at: the page declares what it shows, and a reader follows
+ * that declaration instead of importing the target a second time.
+ *
+ * One definition rather than one per reader — `useVal`, `fetchVal`,
+ * `initValContent` and the TanStack client each had their own copy of the
+ * selector half, which is four places for the view half to be forgotten in.
+ *
+ * `Target extends Source` is checked HERE rather than on `ValView` itself: `ValView`
+ * is built from `ValViewSource`, which is a member of the `Source` union, so a
+ * constraint there is a circular type reference.
+ *
+ * The outer arms are wrapped in tuples so the conditional does not DISTRIBUTE
+ * over a union: distributing it re-entered `StegaOfSource` per member and the
+ * async readers hit "Type instantiation is excessively deep and possibly
+ * infinite" — `useVal` did not, because a `Promise<...>` around it is one more
+ * level than the checker had left.
+ */
+export type ResolvedVal<T extends SelectorSource> = [T] extends [
+  ValView<infer Target>,
+]
+  ? [Target] extends [Source]
+    ? StegaOfSource<Target>
+    : never
+  : SelectorOf<T> extends GenericSelector<infer S>
+    ? StegaOfSource<S>
+    : never;
+
+/** What a reader accepts. A view handle is a `SelectorSource`, so this is it. */
+export type Resolvable = SelectorSource;
+
+/**
  * Resolves the matching variant of a discriminated union from the value's tag.
  * Returns the matching schema or null if no match is found.
  */
@@ -388,6 +430,24 @@ export function stegaEncode(
     root?: { path: any; schema: any };
   },
 ): any {
+  const viewModules = new Map<string, unknown>();
+  // Handed a view handle rather than a module: resolve it and encode what it
+  // points at. This is what makes `useVal(page.header)` read the header.
+  const resolved = Internal.viewHandleModule(input);
+  if (resolved !== undefined) {
+    return stegaEncode(resolved, opts);
+  }
+  // A view pointer with no module on it. The module rides on a symbol, and
+  // symbols do not survive serialization — so this is a handle that crossed the
+  // server/client boundary as a prop, or one read out of raw JSON. Resolving it
+  // would hand back the pointer itself, which looks like content and is not, so
+  // say what happened instead.
+  if (isValViewSource(input)) {
+    throw Error(
+      `Cannot resolve the view of '${input.view}': it has been serialized, which drops the module it points at. ` +
+        `Resolve it in the same component that read the module containing it, or read '${input.view}' directly.`,
+    );
+  }
   function rec(
     sourceOrSelector: any,
     recOpts?: { path: any; schema: any },
@@ -395,8 +455,17 @@ export function stegaEncode(
     // A view is a pointer at another module. Weaving an edit tag into it would
     // corrupt the path it holds, and there is nothing of the target here to
     // encode — the target is its own module, encoded when it is read.
+    //
+    // The module it names rides along on a symbol, so `useVal(page.header)` can
+    // resolve it without a path-to-module registry the app does not have. The
+    // pointer itself is unchanged: symbols do not serialize, so this is still
+    // `{ view: "/foo.val.ts" }` to anything that looks at it as data.
     if (recOpts?.schema && recOpts.schema.type === "view") {
-      return sourceOrSelector;
+      const valModule = viewModules.get(recOpts.schema.moduleFilePath);
+      if (valModule === undefined || !isValViewSource(sourceOrSelector)) {
+        return sourceOrSelector;
+      }
+      return Internal.createViewHandle(sourceOrSelector, valModule);
     }
     if (recOpts?.schema && isKeyOfSchema(recOpts?.schema)) {
       return sourceOrSelector;
@@ -476,6 +545,14 @@ export function stegaEncode(
       const selectorPath = Internal.getValPath(sourceOrSelector);
       if (selectorPath) {
         const newSchema = Internal.getSchema(sourceOrSelector);
+        // The modules this module's views point at. Collected HERE because this
+        // is the only place with the schema INSTANCE — everything below walks
+        // the serialized schema, which carries a path and not a module. Merged
+        // rather than replaced: a handle resolved by `useVal` re-enters here as
+        // its own module, and its parent's views must stay resolvable.
+        for (const [path, valModule] of Internal.viewModulesOf(newSchema)) {
+          viewModules.set(path, valModule);
+        }
         return rec(
           opts.getModule && opts.getModule(selectorPath) !== undefined
             ? opts.getModule(selectorPath)
@@ -675,6 +752,12 @@ export function stegaClean(source: string) {
 }
 
 export function getModuleIds(input: any): string[] {
+  // A view handle names one module: the one it points at. Resolved first so a
+  // `useVal(page.header)` subscribes to the header rather than to nothing.
+  const resolved = Internal.viewHandleModule(input);
+  if (resolved !== undefined) {
+    return getModuleIds(resolved);
+  }
   const modules: Set<string> = new Set();
   function rec(sourceOrSelector: any): undefined {
     if (typeof sourceOrSelector === "object") {

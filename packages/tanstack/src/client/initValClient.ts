@@ -4,12 +4,13 @@ import {
   Json,
   JsonSource,
   ModuleFilePath,
-  SelectorOf,
   SelectorSource,
   SourceObject,
   ValModule,
 } from "@valbuild/core";
 import {
+  type Resolvable,
+  type ResolvedVal,
   StegaOfSource,
   getModuleIds,
   stegaEncode,
@@ -24,9 +25,9 @@ import {
   isJsonValuesRecordSchema,
 } from "../routeFromVal";
 
-export type UseValType<T extends SelectorSource> =
-  SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never;
-function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
+/** What `useVal` gives back — see `ResolvedVal` in `@valbuild/react/stega`. */
+export type UseValType<T extends SelectorSource> = ResolvedVal<T>;
+function useValStega<T extends Resolvable>(selector: T): UseValType<T> {
   const valOverlayContext = useValOverlayContext();
   const moduleIds = React.useMemo(
     () => getModuleIds(selector) as ModuleFilePath[],

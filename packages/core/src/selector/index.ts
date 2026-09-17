@@ -87,6 +87,12 @@ export type SelectorSource =
   | JsonSource
   | ExternalRecordSrc
   | ValViewSource
+  // The handle a `s.view()` field reads as. In the union because a reader
+  // ACCEPTS one — `useVal(page.header)` resolves it — and because keeping the
+  // readers' single type parameter bounded by `SelectorSource` is what stops
+  // `ResolvedVal` needing an extra conditional arm, which is one level more
+  // than the checker has left on the async readers.
+  | ValView<Source>
   | SettingsSource
   | RichTextSource<AllRichTextOptions>
   | GenericSelector<Source>;

@@ -1,11 +1,11 @@
 import {
+  type Resolvable,
+  type ResolvedVal,
   SET_AUTO_TAG_JSX_ENABLED,
   stegaEncode,
   type StegaOfSource,
 } from "@valbuild/react/stega";
 import {
-  SelectorSource,
-  SelectorOf,
   GenericSelector,
   ModuleFilePath,
   ValConfig,
@@ -47,14 +47,8 @@ const initFetchValStega =
       get(name: string): { name: string; value: string } | undefined;
     }>,
   ) =>
-  <T extends SelectorSource>(
-    selector: T,
-  ): Promise<
-    SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never
-  > => {
-    const exec = async (): Promise<
-      SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never
-    > => {
+  <T extends Resolvable>(selector: T): Promise<ResolvedVal<T>> => {
+    const exec = async (): Promise<ResolvedVal<T>> => {
       let enabled = false;
       try {
         enabled = await isEnabled();

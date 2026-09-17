@@ -1,4 +1,10 @@
-import { getModuleIds, stegaEncode, type StegaOfSource } from "./stegaEncode";
+import {
+  getModuleIds,
+  stegaEncode,
+  type ResolvedVal,
+  type StegaOfSource,
+  type ValEncodedString,
+} from "./stegaEncode";
 import {
   Internal,
   RawString,
@@ -698,5 +704,119 @@ describe("media is resolved from the schema, not from the value", () => {
     expect(vercelStegaSplit(res.link.path).cleaned).toBe(
       "/public/val/not-an-image.png",
     );
+  });
+});
+
+/**
+ * Resolving a view.
+ *
+ * `useVal(page.header)` has to read the header module. The pointer stored in the
+ * page is a path and nothing else, and the app has no way to turn a path back
+ * into a module — `val.modules` holds lazy `import()` thunks and
+ * `<ValModulesClient>` is optional — so the module travels with the handle,
+ * attached here rather than written into source.
+ */
+describe("view handles", () => {
+  const headerVal = c.define(
+    "/header.val.ts",
+    s.object({ title: s.string() }),
+    { title: "Blank" },
+  );
+  const pageSchema = s.object({
+    title: s.string(),
+    header: s.view(headerVal),
+  });
+  const pageVal = c.define("/page.val.ts", pageSchema, {
+    title: "Hello",
+    header: { view: "/header.val.ts" },
+  });
+
+  test("the pointer survives encoding, stega-free", () => {
+    const page = stegaEncode(pageVal, {});
+    // Still `{ view: ... }` to anything that reads it as data: the module rides
+    // on a symbol, which does not serialize.
+    expect(JSON.parse(JSON.stringify(page.header))).toEqual({
+      view: "/header.val.ts",
+    });
+    // And no edit tag woven into the path, which would corrupt it.
+    expect(page.header.view).toBe("/header.val.ts");
+  });
+
+  test("resolving the handle reads the module it points at", () => {
+    const page = stegaEncode(pageVal, {});
+    const header = stegaEncode(page.header, {});
+    expect(vercelStegaSplit(header.title).cleaned).toBe("Blank");
+    // The edit tag is the HEADER's own path, not the page's.
+    expect(vercelStegaDecode(header.title)).toStrictEqual({
+      origin: "val.build",
+      data: { valPath: '/header.val.ts?p="title"' },
+    });
+  });
+
+  /**
+   * The type half. A reader hands back `ValView<HeaderSrc>` for the field, and
+   * resolving that gives the header's content — so `useVal(page.header)` is
+   * typed as the header, not as a pointer. This does not compile if the arm in
+   * `ResolvedVal` stops matching.
+   */
+  test("the resolved type is the target's content", () => {
+    type Page = ResolvedVal<typeof pageVal>;
+    type HeaderHandle = Page["header"];
+    const resolved: ResolvedVal<HeaderHandle> = {
+      title: "Blank" as ValEncodedString,
+    };
+    expect(resolved.title).toBe("Blank");
+    // A view exposes nothing: reading a property off the handle is an error,
+    // which is what stops it being mistaken for content.
+    const handle: HeaderHandle = {} as HeaderHandle;
+    expect(Object.keys(handle)).toEqual([]);
+  });
+
+  test("a handle names the module to subscribe to", () => {
+    const page = stegaEncode(pageVal, {});
+    // Not the page: reading a view subscribes to what it points at, or an edit
+    // to the header would never reach the component that read it.
+    expect(getModuleIds(page.header)).toEqual(["/header.val.ts"]);
+  });
+
+  /**
+   * A handle passed from a server component to a client one arrives as plain
+   * JSON: the symbol is gone, and with it the module. Resolving it would return
+   * the pointer — an object that looks like content and holds none — so it says
+   * what happened instead.
+   */
+  test("a handle that lost its module says so", () => {
+    const page = stegaEncode(pageVal, {});
+    const overTheWire = JSON.parse(JSON.stringify(page.header));
+    expect(() => stegaEncode(overTheWire, {})).toThrow(
+      /has been serialized, which drops the module it points at/,
+    );
+  });
+
+  test("a resolved handle shows the target's draft, not its committed source", () => {
+    const page = stegaEncode(pageVal, {});
+    const header = stegaEncode(page.header, {
+      getModule: (moduleId) =>
+        moduleId === "/header.val.ts" ? { title: "DRAFT" } : undefined,
+    });
+    expect(vercelStegaSplit(header.title).cleaned).toBe("DRAFT");
+  });
+
+  /**
+   * The source a view sits in can come from the overlay store as plain JSON —
+   * that is what a pending edit to the PAGE looks like — and that JSON never
+   * went near a module. The schema is the module's own either way, which is why
+   * the handle is built from the schema rather than from the source.
+   */
+  test("the handle survives the page itself being a draft", () => {
+    const page = stegaEncode(pageVal, {
+      getModule: (moduleId) =>
+        moduleId === "/page.val.ts"
+          ? { title: "Edited", header: { view: "/header.val.ts" } }
+          : undefined,
+    });
+    expect(vercelStegaSplit(page.title).cleaned).toBe("Edited");
+    const header = stegaEncode(page.header, {});
+    expect(vercelStegaSplit(header.title).cleaned).toBe("Blank");
   });
 });

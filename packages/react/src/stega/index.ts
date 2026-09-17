@@ -6,6 +6,8 @@ export {
   stegaClean,
   type ValEncodedString,
   type StegaOfSource,
+  type ResolvedVal,
+  type Resolvable,
   type StegaOfRichTextSource,
   type File,
   type Image,

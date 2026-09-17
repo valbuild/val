@@ -241,8 +241,36 @@ Eight things decide how it behaves, and each was a choice:
   page an editor has navigated to is not a parent's field list, so honouring
   `hidden` there renders a blank page instead of hiding a row.
 
+**Reading a view.** `useVal(page.header)` and `fetchVal(page.header)` resolve
+the pointer and give you the module it names. What makes that possible is that
+the READ path attaches the module to the pointer, on a symbol:
+
+- The app cannot turn a path back into a module. `val.modules` holds lazy
+  `import()` thunks and `<ValModulesClient>` is optional, so there is no
+  registry to look one up in.
+- So `stegaEncode` attaches it, from the schema instance at the module root —
+  the one place a `ValViewSchema` (which holds its module) is reachable. Not from
+  the source, and that is the point: with an edit pending, the source comes from
+  the overlay store as plain JSON that never went near a module, while the
+  schema is the module's own either way.
+- A symbol, so the pointer is still `{ view: "/foo.val.ts" }` to `JSON.stringify`,
+  to `Object.keys`, to the SHAs and to every walk that reads source as data.
+- **A handle does not survive serialization.** Passed from a server component to
+  a client one it arrives without its symbol, and `stegaEncode` throws rather
+  than hand back a pointer that looks like content. Resolve it in the component
+  that read the module, or read the target directly.
+
+`ResolvedVal` in `@valbuild/react/stega` is the one definition of what a reader
+gives back — `useVal`, `fetchVal`, `initValContent` and the TanStack client all
+use it, rather than the four copies of the selector conditional they had. Its
+outer arms are wrapped in tuples so it does not distribute over a union: a
+distributing version re-entered `StegaOfSource` per member and the async readers
+hit "Type instantiation is excessively deep". For the same reason
+`ValView<Source>` is a member of `SelectorSource` — it keeps the readers' type
+parameter bounded by one type, which is one conditional arm cheaper than widening it.
+
 Not built yet, and deliberately: rendering the target inline
-(`render({ as: "inline" })`) and resolving a view through `useVal`/`fetchVal`.
+(`render({ as: "inline" })`).
 
 ## Module System
 
