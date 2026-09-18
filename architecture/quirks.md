@@ -365,6 +365,21 @@ replayed against the entry's `*.val.json` instead — `classifyJsonValuesOp` +
 `import(...)` specifier in the `.val.ts`, not derived from the key: entries may be
 hand-placed, and deriving would write a file the module does not read.
 
+**A patch that replaces the WHOLE record is expanded, not applied.** `{op:
+"replace", path: [], value}` names no entry key, so `classifyJsonValuesOp` — which
+finds the key by walking the op path — reads it as an ordinary source edit and
+would write the value straight into the `.val.ts`, over the `c.json(() =>
+import(...))` calls. `expandJsonValuesRootOp` fans it out against the record's
+live keys into an `add`, `replace` or `remove` per entry (and nothing at all for
+an entry already holding that content, so putting a module back does not rewrite
+every file in it). The value must be CONTENT: a `{_type:"json"}` marker as an
+entry's value is refused, because a marker is what a module's Source holds where
+the content is not, and writing markers back is the bug this exists to stop.
+Both sides expand through that one function — `ValOps.prepare` writes the files,
+`applyJsonValuesEntryPatches` builds the draft the Studio reads — because two
+implementations of the rule would differ silently, and the difference only shows
+up once it is published.
+
 ## External records
 
 **Three type-level details keep `s.record().external()` navigable, and all three
