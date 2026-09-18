@@ -5,9 +5,9 @@ import { openStudio, test } from "./studio";
  * The phone's preview layout.
  *
  * A phone cannot show the editor and the page at once, so it shows one of three
- * things: the module editor (Normal), the page's own fields (Fields), or the
- * page (Preview). The switch that moves between them is one control with three
- * options, and the way out is the X beside it.
+ * things: the module's own content (Structure), the fields the page reported
+ * having on it (On page), or the page (Preview). The switch that moves between
+ * them is one control with three options, and the way out is the X beside it.
  *
  * What is worth testing here is the part a screenshot review passes: that the
  * modes are the same three states every time, that moving between them does not
@@ -31,7 +31,7 @@ function modeSwitch(page: Page): Locator {
   return page.getByRole("tablist", { name: "Workspace view" });
 }
 
-function mode(page: Page, name: "Normal" | "Fields" | "Preview"): Locator {
+function mode(page: Page, name: "Structure" | "On page" | "Preview"): Locator {
   return modeSwitch(page).getByRole("tab", { name, exact: false });
 }
 
@@ -93,7 +93,7 @@ test.describe("the preview modes on a phone", () => {
       expect(gap).toBeLessThan(24);
     };
 
-    await mode(page, "Normal").click();
+    await mode(page, "Structure").click();
     const column = page.locator("#val-content-area");
     const normalGap = await gapUnder(column);
     expected(normalGap);
@@ -106,7 +106,7 @@ test.describe("the preview modes on a phone", () => {
     );
     expect(paddingTop).toBeLessThan(8);
 
-    await mode(page, "Fields").click();
+    await mode(page, "On page").click();
     const fieldsGap = await gapUnder(page.locator('[data-val-pane="fields"]'));
     expected(fieldsGap);
 
@@ -142,6 +142,19 @@ test.describe("the preview modes on a phone", () => {
     expect(exitBox.x).toBeGreaterThan(switchBox.x + switchBox.width);
     expect(exitBox.x + exitBox.width).toBeGreaterThan(viewport.width - 24);
 
+    /**
+     * And the whole row still fits on the screen.
+     *
+     * The options are words, and words get renamed: "Normal" and "Fields"
+     * became "Structure" and "On page", which is four more characters on a row
+     * that does not wrap. The X is pushed right by `ml-auto`, so a row that has
+     * outgrown the screen does not look cramped — it takes the X off the end of
+     * it, and on a narrower phone Preview, the only visible way to the page,
+     * goes with it.
+     */
+    expect(switchBox.x).toBeGreaterThan(0);
+    expect(exitBox.x + exitBox.width).toBeLessThanOrEqual(viewport.width);
+
     // Same height as the switch beside it: four controls on one row, one of
     // which is a couple of pixels shorter, reads as a mistake.
     expect(Math.abs(exitBox.height - switchBox.height)).toBeLessThan(2);
@@ -168,11 +181,11 @@ test.describe("the preview modes on a phone", () => {
 
     // Every hop the three modes offer, including the two that swap what the
     // left pane holds while the page sits off screen.
-    const hops: ReadonlyArray<"Normal" | "Fields" | "Preview"> = [
-      "Normal",
-      "Fields",
+    const hops: ReadonlyArray<"Structure" | "On page" | "Preview"> = [
+      "Structure",
+      "On page",
       "Preview",
-      "Normal",
+      "Structure",
     ];
     for (const name of hops) {
       // Clicked without asking whether it is there. Skipping a missing mode
@@ -229,10 +242,10 @@ test.describe("the preview modes on a phone", () => {
     const enable = page.getByRole("button", { name: /Turn on preview mode/ });
     await expect(enable).toBeVisible({ timeout: 30_000 });
     await enable.click();
-    const fields = mode(page, "Fields");
+    const fields = mode(page, "On page");
     await expect(fields).toBeVisible({ timeout: 30_000 });
 
-    // Fields arms picking; Preview then puts the page in front of you with it
+    // On page arms picking; Preview then puts the page in front of you with it
     // still armed, which is the state a pick happens in.
     await fields.click();
     await mode(page, "Preview").click();
@@ -253,7 +266,10 @@ test.describe("the preview modes on a phone", () => {
       })
       .toContain('."text"');
     // ...and the phone is looking at the fields, not still at the page.
-    await expect(mode(page, "Fields")).toHaveAttribute("aria-selected", "true");
+    await expect(mode(page, "On page")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     await expect(mode(page, "Preview")).toHaveAttribute(
       "aria-selected",
       "false",
@@ -313,8 +329,8 @@ test.describe("the preview modes on a phone", () => {
     const enable = page.getByRole("button", { name: /Turn on preview mode/ });
     await expect(enable).toBeVisible({ timeout: 30_000 });
     await enable.click();
-    await expect(mode(page, "Fields")).toBeVisible({ timeout: 30_000 });
-    await mode(page, "Fields").click();
+    await expect(mode(page, "On page")).toBeVisible({ timeout: 30_000 });
+    await mode(page, "On page").click();
 
     const fields = page.getByRole("heading", { name: "On this page" });
     await expect(fields).toBeVisible();
@@ -411,7 +427,7 @@ test.describe("dragging a list row on a phone", () => {
 
   test("keeps the dragged row under the finger", async ({ page }) => {
     await openPreview(page);
-    await mode(page, "Normal").click();
+    await mode(page, "Structure").click();
 
     const grip = page
       .locator("#val-shadow-root")

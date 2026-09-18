@@ -666,8 +666,8 @@ export function PageWorkspace({
    * way to ask. The control went missing rather than explaining itself, and a
    * missing control cannot say why.
    *
-   * The count is held back until there is one, so the tab does not read "Fields
-   * 0" at a page that simply has not answered yet.
+   * The count is held back until there is one, so the tab does not read "On
+   * page 0" at a page that simply has not answered yet.
    */
   const reportedPaths = canvasPaths ?? [];
   const fieldCount = page
@@ -685,16 +685,17 @@ export function PageWorkspace({
   /**
    * The phone's one switch, and the three places it can put you.
    *
-   * On a phone the view and the pane are not two questions. "Fields or normal"
-   * only ever describes the left pane, and "editor or canvas" only ever moves
-   * between that pane and the page — so asking them separately produced a
+   * On a phone the view and the pane are not two questions. "Structure or on
+   * page" only ever describes the left pane, and "editor or canvas" only ever
+   * moves between that pane and the page — so asking them separately produced a
    * control whose two halves each changed meaning depending on the other, which
    * is how "Editor" came to mean "not the page" rather than anything about the
    * editor. One control over the three states there actually are says what it
-   * does at every press: Normal is the module editor, Fields is the page's own
-   * fields, Preview is the page. Leaving is the X beside it, and nothing else.
+   * does at every press: Structure is the module's own content, On page is what
+   * this page reported having on it, Preview is the page. Leaving is the X
+   * beside it, and nothing else.
    *
-   * All three always, the same rule the desktop switch follows. Fields used to
+   * All three always, the same rule the desktop switch follows. On page used to
    * appear only once the page had reported some, which took the control away in
    * the one state where someone needs to be told something — and a tab that
    * comes and goes cannot explain its own absence. It explains itself instead;
@@ -799,7 +800,7 @@ export function PageWorkspace({
    * The wrapper is padded exactly as the module editor's box is — `px-4
    * md:px-6`, and the same hairline above. The two views are the same column
    * holding different things, and they were inset differently: switching to
-   * Fields slid the content sideways by 16px and pinned the card to the edge of
+   * On page slid the content sideways by 16px and pinned the card to the edge
    * a phone screen.
    */
   const fieldsColumn = (
@@ -1117,7 +1118,7 @@ export function PageWorkspace({
               mode={mobileMode}
               onChange={setMobileMode}
               // Held back until there is one, so the tab does not read
-              // "Fields 0" at a page that has not answered yet.
+              // "On page 0" at a page that has not answered yet.
               fieldCount={fieldCount > 0 ? fieldCount : undefined}
               animate={!reducedMotion}
             />
@@ -1226,7 +1227,7 @@ export function PageWorkspace({
  * to show, so the one state where someone needs to be told something was the
  * state with nothing to click, and the fields view read as a feature that comes
  * and goes. Saying it here costs a tab that is occasionally empty and buys an
- * answer to "where did Fields go".
+ * answer to "where did On page go".
  *
  * It does not claim preview mode IS off, because it cannot see: a page in
  * preview mode with no Val content on it reports nothing either, and telling
@@ -1360,9 +1361,9 @@ type SegmentedThumb = { left: number; width: number };
  * SAME padding either side of it. Equal columns (`auto-cols-fr`) did not: the
  * widest option decides the column, so it ends up flush against its own
  * padding while every shorter one is centred in the slack left over. On the
- * canvas switch that is "Fields 18" against "Normal" — the count made the
- * fields option the wide one, so the selected pill looked tight around
- * "Fields 18" and roomy around "Normal", from the same `px-4`.
+ * canvas switch that is "On page 18" against "Structure" — the count made the
+ * on-page option the wide one, so the selected pill looked tight around
+ * "On page 18" and roomy around "Structure", from the same `px-4`.
  *
  * The price is that the thumb can no longer be "one column, moved by one
  * column": it is measured off the selected button instead, which is what
@@ -1513,7 +1514,8 @@ function SegmentedControl<T extends string>({
  * The phone's one switch: the module editor, the page's fields, or the page.
  *
  * Three options in reading order, left to right, matching where each one puts
- * you: Normal and Fields are both the left pane and sit together on the left;
+ * you: Structure and On page are both the left pane and sit together on the
+ * left;
  * Preview is the pane to their right and sits on the right. Every option names
  * a destination — there is no "Editor" meaning "away from the page", which is
  * what the pair of two-state switches this replaces ended up saying.
@@ -1526,13 +1528,13 @@ function MobileModeToggle({
 }: {
   mode: MobileMode;
   onChange: (mode: MobileMode) => void;
-  /** How many fields the page reported. Absent shows Fields with no count. */
+  /** How many fields the page reported. Absent shows On page with no count. */
   fieldCount?: number;
   animate: boolean;
 }) {
   const options: ReadonlyArray<MobileModeOption> = [
-    { value: "normal", label: "Normal", icon: MousePointerSquareDashed },
-    { value: "fields", label: "Fields", icon: ListTree, badge: fieldCount },
+    { value: "normal", label: "Structure", icon: MousePointerSquareDashed },
+    { value: "fields", label: "On page", icon: ListTree, badge: fieldCount },
     { value: "preview", label: "Preview", icon: Eye },
   ];
   return (
@@ -1549,10 +1551,16 @@ function MobileModeToggle({
 }
 
 /**
- * Normal view or the fields Val found on the page.
+ * The module's own content, or the fields Val found on the page.
  *
  * Two labelled states rather than one button that toggles, so the control
  * says which view you are in as well as where you can go.
+ *
+ * "Structure" and "On page" name what each one holds, which the pair they
+ * replace did not: "Normal" said only that the other one was not, and
+ * "Fields" is what both of them are made of. The difference is scope — one is
+ * everything in this module, the other is what this page rendered — and the
+ * labels are the only place a reader can learn that.
  */
 function ViewToggle({
   view,
@@ -1575,10 +1583,15 @@ function ViewToggle({
       options={[
         {
           value: "normal",
-          label: "Normal",
+          label: "Structure",
           icon: MousePointerSquareDashed,
         },
-        { value: "fields", label: "Fields", icon: ListTree, badge: fieldCount },
+        {
+          value: "fields",
+          label: "On page",
+          icon: ListTree,
+          badge: fieldCount,
+        },
       ]}
     />
   );
