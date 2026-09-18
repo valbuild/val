@@ -53,42 +53,70 @@ async function openPreview(page: Page): Promise<void> {
 }
 
 test.describe("the preview modes on a phone", () => {
-  test("leaves air between the switches and what is under them", async ({
+  test("leaves the same air under the switches in every mode", async ({
     page,
   }) => {
     await openPreview(page);
-    await mode(page, "Normal").click();
 
     const stripBox = await modeSwitch(page).boundingBox();
-    // The scroller, not the first field: what is measured here is the empty
-    // space the LAYOUT adds, and how tall the module's own header happens to be
-    // is a separate question (and a separate task).
-    const column = page.locator("#val-content-area");
-    const columnBox = await column.boundingBox();
-    if (stripBox === null || columnBox === null) {
-      throw new Error("expected the strip and the column to be laid out");
+    if (stripBox === null) {
+      throw new Error("expected the strip to be laid out");
     }
+    const stripBottom = stripBox.y + stripBox.height;
+    const gapUnder = async (locator: Locator): Promise<number> => {
+      const box = await locator.boundingBox();
+      if (box === null) {
+        throw new Error("expected the pane to be laid out");
+      }
+      return box.y - stripBottom;
+    };
 
     /**
-     * Enough of a gap to read as a row of its own.
+     * One gap, the same in all three modes.
      *
-     * Both ends fail differently and both have shipped. Too much and the
-     * switches sit in the middle of an empty band — 80px of duplicated
-     * clearance, which is what the pane used to add on top of the strip's own.
-     * Too little and they are stuck to the top of the content, which is what
-     * replacing that duplication with nothing produced: a 2px gap.
+     * Every end of this has shipped. Too much and the switches sit in the
+     * middle of an empty band — 80px of duplicated clearance, which is what the
+     * pane used to add on top of the strip's own. Too little and they are stuck
+     * to the top of the content, which is what replacing that duplication with
+     * nothing produced: a 2px gap. And DIFFERENT per mode is the one a
+     * screenshot of any single mode passes: the track cleared the strip, then
+     * the canvas pane padded itself by another 12px and the editor by 4px, so
+     * the address bar sat 38px under the switches and the module editor 26px,
+     * and nothing in view at once disagreed.
+     *
+     * The measurements are the scrollers and the panes, not the first thing
+     * inside them: what is checked here is the space the LAYOUT adds, and how
+     * tall a module's own header happens to be is a separate question.
      */
-    const gap = columnBox.y - (stripBox.y + stripBox.height);
-    expect(gap).toBeGreaterThan(16);
-    expect(gap).toBeLessThan(48);
+    const expected = (gap: number) => {
+      expect(gap).toBeGreaterThan(8);
+      expect(gap).toBeLessThan(24);
+    };
 
-    // And the padding inside it is a hairline, not a second clearance.
+    await mode(page, "Normal").click();
+    const column = page.locator("#val-content-area");
+    const normalGap = await gapUnder(column);
+    expected(normalGap);
+
+    // And the padding inside it is not a second clearance.
     const paddingTop = await column.evaluate((node) =>
       parseFloat(
         getComputedStyle(node.firstElementChild as HTMLElement).paddingTop,
       ),
     );
-    expect(paddingTop).toBeLessThan(16);
+    expect(paddingTop).toBeLessThan(8);
+
+    await mode(page, "Fields").click();
+    const fieldsGap = await gapUnder(page.locator('[data-val-pane="fields"]'));
+    expected(fieldsGap);
+
+    await mode(page, "Preview").click();
+    const previewGap = await gapUnder(page.locator('[data-val-pane="canvas"]'));
+    expected(previewGap);
+
+    // The same gap, not merely three gaps in the same range.
+    expect(Math.abs(fieldsGap - normalGap)).toBeLessThan(2);
+    expect(Math.abs(previewGap - normalGap)).toBeLessThan(2);
   });
 
   test("puts the way out at the far right of the strip", async ({ page }) => {

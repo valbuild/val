@@ -222,18 +222,31 @@ const MAX_COLUMN_SHARE = 0.72;
 const KEYBOARD_STEP_PX = 24;
 /** Where the phone's strip of switches sits, below the floating top bar. */
 const PHONE_STRIP_TOP = "4.5rem";
-/**
- * Where a phone's pane content starts: below the top bar, below the strip of
- * switches under it, and clear of it.
- *
- * The strip ends at 6.625rem — {@link PHONE_STRIP_TOP} plus the switch's own
- * 2.125rem — so the rest of this is deliberate air. It used to be 2px, which
- * read as the switches being stuck to the top of the fields rather than being
- * a row of their own above them.
- */
-const PHONE_STRIP_CLEARANCE = "8.25rem";
 /** The height of everything on the phone's strip, switches and exit alike. */
 const PHONE_STRIP_CONTROL_HEIGHT = "2.125rem";
+/**
+ * The air between the strip of switches and the pane under it.
+ *
+ * The 12px the strip is already inset from the sides of the screen
+ * (`inset-x-3`), and the panes from theirs, so the gap above a pane is the gap
+ * beside it. Enough for the strip to read as a row of its own — it used to be
+ * 2px, which read as the switches being stuck to the top of the fields — and
+ * no more than that, because on a phone every row of it is a row of the page
+ * not being shown.
+ */
+const PHONE_STRIP_GAP = "0.75rem";
+/**
+ * Where a phone's pane content starts: below the top bar, below the strip of
+ * switches under it, and one gap clear of it.
+ *
+ * Derived rather than written down, because written down it was wrong twice
+ * over. It said 8.25rem against a strip that ends at 6.625rem, so the module
+ * editor began 26px below the switches — and the canvas pane, which padded
+ * itself by another 12px, began 38px below them: two paddings for one gap,
+ * disagreeing with each other. The panes under this now add none of their own,
+ * so this is the whole of it and all three modes start in the same place.
+ */
+const PHONE_STRIP_CLEARANCE = `calc(${PHONE_STRIP_TOP} + ${PHONE_STRIP_CONTROL_HEIGHT} + ${PHONE_STRIP_GAP})`;
 /** Long enough to follow the column across, short enough not to wait. */
 const OPEN_MS = 320;
 /** The switch thumb moves faster: it is a short distance and a direct answer. */
@@ -721,6 +734,17 @@ export function PageWorkspace({
    * of it.
    */
   const columnClearsTopBar = !columnHasHeaderRow && !(open && isPhone);
+  /**
+   * What a pane adds above its own content, where something else already
+   * cleared what is covering it.
+   *
+   * A hairline beside the editor, where the switch row above stops 10px short
+   * of the scroller and the column just keeps that from being flush. Nothing at
+   * all on a phone: there the track's {@link PHONE_STRIP_CLEARANCE} is the gap
+   * below the strip of switches, and a pane that added its own would be
+   * measuring the same gap twice.
+   */
+  const paneTopPadding = open && isPhone ? "pt-0" : "pt-1";
 
   const moduleColumn = (
     // `val-content-area` is what ValRouter scrolls when it is asked to bring a
@@ -732,12 +756,16 @@ export function PageWorkspace({
        * How far below the container's top a field has to land.
        *
        * Read by `doScroll` in `ValRouter`, because only this layout knows what
-       * is covering the column. With the view switch on screen the switch has a
-       * row of its own above the scroller and a small gap is enough; without it
-       * the column runs up under the shell's floating top bar, and a field
-       * scrolled flush to the top lands behind it.
+       * is covering the column. Where something above the scroller supplies the
+       * gap — the view switch's own row on a desktop, the phone track's
+       * clearance under the strip of switches — a small one is enough. Where
+       * nothing does, the column runs up under the shell's floating top bar and
+       * a field scrolled flush to the top lands behind it. That is the same
+       * question {@link columnClearsTopBar} answers, so it answers this too:
+       * asking about the switch row alone left the phone reserving 96px inside
+       * a pane that already started below everything covering it.
        */
-      data-scroll-clearance={columnHasHeaderRow ? 16 : 96}
+      data-scroll-clearance={columnClearsTopBar ? 96 : 16}
       className="h-full overflow-y-auto scrollbar-slim"
     >
       {/*
@@ -752,7 +780,7 @@ export function PageWorkspace({
           // See `columnClearsTopBar`: whatever is above the column supplies the
           // gap where there is one, and only where there is nothing does the
           // column pay for it.
-          columnClearsTopBar ? "pt-20 desktop:pt-24" : "pt-1",
+          columnClearsTopBar ? "pt-20 desktop:pt-24" : paneTopPadding,
         )}
       >
         {children}
@@ -775,7 +803,13 @@ export function PageWorkspace({
    * a phone screen.
    */
   const fieldsColumn = (
-    <div style={railPadding} className="h-full px-4 md:px-6 pt-1 pb-14">
+    <div
+      // Measured by the phone layout's spacing test, which is the only way to
+      // catch a pane that pads itself on top of the track's own clearance.
+      data-val-pane="fields"
+      style={railPadding}
+      className={cn("h-full px-4 md:px-6 pb-14", paneTopPadding)}
+    >
       {page ? (
         <FieldsPanel
           page={page}
@@ -1054,7 +1088,13 @@ export function PageWorkspace({
              * screen. Switching modes must not cost a page load — see `open`.
              */}
             {open && (
-              <div className="h-full w-full shrink-0 p-3 pb-14">
+              // `px-3`, with no top padding of its own: the track's
+              // clearance above is the gap below the strip of switches, and
+              // this pane adding another put the address bar 38px under it.
+              <div
+                data-val-pane="canvas"
+                className="h-full w-full shrink-0 px-3 pb-14"
+              >
                 {canvasPane}
               </div>
             )}
@@ -1151,7 +1191,18 @@ export function PageWorkspace({
       <div
         style={{ transition: ease(["opacity", "transform"]) }}
         className={cn(
-          "min-w-0 flex-1 pt-20 pb-14 pr-3",
+          /*
+           * `pl-1.5` against `pr-3`, which is not a typo: the two add up to
+           * the same gap.
+           *
+           * The divider is a 12px hit area with its line down the middle (a
+           * 1px target is a target nobody hits), so 6px of it is already on
+           * this side of the line. Six more here puts the canvas 12px from the
+           * line — the same 12px it keeps from the right edge of the window —
+           * where it used to sit 6px off on the left and 12px off on the
+           * right, which reads as the divider being nudged towards the page.
+           */
+          "min-w-0 flex-1 pt-20 pb-14 pl-1.5 pr-3",
           open
             ? "scale-100 opacity-100"
             : "invisible pointer-events-none scale-95 opacity-0",
