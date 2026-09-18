@@ -16,12 +16,10 @@ import { CanvasPoint } from "./types";
  *
  * Low enough that a 1280px page still fits a phone-width pane: fitting clamps
  * to this, so a floor the fit cannot reach shows up as a page that overflows a
- * window which claims to be showing all of it.
+ * window which claims to be showing the whole width of it.
  */
 export const MIN_SCALE = 0.1;
 export const MAX_SCALE = 2;
-/** Room left around the page when fitting, so it does not touch the edges. */
-const FIT_PADDING = 24;
 /** How much one press of + or - changes the zoom. */
 export const ZOOM_STEP = 1.2;
 
@@ -51,7 +49,12 @@ export type CanvasWindowHandle = {
    * involved, so the honest anchor is whatever you are looking at.
    */
   zoomBy(factor: number, center: CanvasPoint | null): void;
-  /** Show the whole page at once. */
+  /**
+   * Back to the default view: the page at the window's width, from the top.
+   *
+   * See {@link fitWidthScale} for why that is the default rather than the
+   * whole page at once.
+   */
   fit(): void;
   /** A two-finger gesture relayed out of the page. See {@link CanvasPinch}. */
   pinch(gesture: CanvasPinch): void;
@@ -63,12 +66,17 @@ export type CanvasWindowProps = {
   scale: number;
   onScaleChange: (scale: number) => void;
   /**
-   * Keep the whole page in view as things move.
+   * Keep the page at the window's width as things move.
    *
-   * The window is the only thing that knows both sizes involved — its own and
-   * the page's — so it is the only thing that can hold a fit as either changes.
-   * The DECISION is not its: the caller turns this off the moment the person
-   * zooms, because after that the fit is no longer what they asked to see.
+   * The window is the only thing that knows its own size, so it is the only
+   * thing that can hold a fit as that changes. The DECISION is not its: the
+   * caller turns this off the moment the person zooms, because after that the
+   * fit is no longer what they asked to see.
+   *
+   * Holding it does NOT move the window: the top is pinned when the fit is
+   * ASKED for — opened, reloaded, the device switched, the fit button — and not
+   * again every time the pane is resized, because a page someone has scrolled
+   * down should not jump back to the top because the divider moved.
    */
   autoFit?: boolean;
   /**
@@ -113,6 +121,15 @@ export type CanvasWindowProps = {
  * it. That was always the point of looking at it this way, and it is unchanged:
  * a 1280px page stays a 1280px page while you zoom out to see all of it.
  *
+ * ## Where it starts
+ *
+ * At the window's WIDTH, from the TOP — see {@link fitWidthScale}. Fitting the
+ * whole page instead sounds more helpful and is not: the page is as tall as a
+ * viewport, so the height was usually the side that ran out first, and the
+ * result was a page shown smaller than the room it had with empty canvas down
+ * both sides. The top is where a page begins, and the rest of it is a scroll
+ * away, which is how looking at a page works everywhere else.
+ *
  * ## Who gets a gesture
  *
  * One finger belongs to the PAGE — it scrolls it, taps its links, drags
@@ -149,6 +166,11 @@ export const CanvasWindow = forwardRef<CanvasWindowHandle, CanvasWindowProps>(
      * tall as its content. Measured on the UNSCALED element, so the number is
      * the page's own height whatever the zoom — a transform does not change
      * layout size.
+     *
+     * Only the box the scaled page is reserved in needs it. It does NOT decide
+     * the scale any more, and nothing about a zoom is computed from it: the
+     * page is pinned to the top rather than centred, so there is no vertical
+     * free space whose size anything has to know.
      */
     const [pageHeight, setPageHeight] = useState(0);
     useEffect(() => {
@@ -170,8 +192,6 @@ export const CanvasWindow = forwardRef<CanvasWindowHandle, CanvasWindowProps>(
      */
     const scaleRef = useRef(scale);
     scaleRef.current = scale;
-    const pageHeightRef = useRef(pageHeight);
-    pageHeightRef.current = pageHeight;
 
     /**
      * Where to scroll once the new scale has been laid out.
@@ -218,8 +238,7 @@ export const CanvasWindow = forwardRef<CanvasWindowHandle, CanvasWindowProps>(
         onUserZoom?.();
         const from = scaleRef.current;
         const to = clampScale(nextScale);
-        const page = { width: pageWidth, height: pageHeightRef.current };
-        const target = anchoredScroll(el, page, from, to, at, hold);
+        const target = anchoredScroll(el, pageWidth, from, to, at, hold);
         if (to === from) {
           // Nothing to re-lay-out, so nothing to wait for — and a pinch held at
           // the zoom limit is still moving the page, which would otherwise stop
@@ -240,40 +259,49 @@ export const CanvasWindow = forwardRef<CanvasWindowHandle, CanvasWindowProps>(
       const el = windowRef.current;
       const scale = scaleRef.current;
       if (!el) return { x: 0, y: 0 };
-      const page = { width: pageWidth, height: pageHeightRef.current };
       return {
         x:
           (el.scrollLeft +
             el.clientWidth / 2 -
-            centeringOffset(el.clientWidth, page.width * scale)) /
+            centeringOffset(el.clientWidth, pageWidth * scale)) /
           scale,
-        y:
-          (el.scrollTop +
-            el.clientHeight / 2 -
-            centeringOffset(el.clientHeight, page.height * scale)) /
-          scale,
+        // No vertical offset to undo: the page is pinned to the top of the
+        // window rather than centred in it. See {@link centeringOffset}.
+        y: (el.scrollTop + el.clientHeight / 2) / scale,
       };
     }, [pageWidth]);
 
-    const fit = useCallback(() => {
-      const el = windowRef.current;
-      if (!el || pageHeightRef.current === 0) return;
-      const next = fitScale(
-        { width: pageWidth, height: pageHeightRef.current },
-        { width: el.clientWidth, height: el.clientHeight },
-      );
-      // Back to the top left as well as out: fitting is "show me the whole
-      // thing", and a fitted page that is still scrolled somewhere is not that.
-      pendingScroll.current = { x: 0, y: 0 };
-      if (next === scaleRef.current) {
-        el.scrollLeft = 0;
-        el.scrollTop = 0;
-        pendingScroll.current = null;
-        return;
-      }
-      scaleRef.current = next;
-      onScaleChange(next);
-    }, [pageWidth, onScaleChange]);
+    /**
+     * Put the page at the window's width.
+     *
+     * `pinTop` is the difference between being asked for the default view and
+     * merely keeping it: asked for, the window goes back to the top as well,
+     * because "show me the page" means from the beginning of it. Keeping it —
+     * every resize while {@link CanvasWindowProps.autoFit} is on — must not,
+     * or the page someone had scrolled down jumps back up because the split
+     * divider moved a pixel.
+     */
+    const fitWidth = useCallback(
+      (pinTop: boolean) => {
+        const el = windowRef.current;
+        // Before the pane has been laid out there is no width to fit to, and
+        // the observer below re-runs this the moment there is.
+        if (!el || el.clientWidth === 0) return;
+        const next = fitWidthScale(pageWidth, el.clientWidth);
+        if (next === scaleRef.current) {
+          if (pinTop) {
+            el.scrollLeft = 0;
+            el.scrollTop = 0;
+          }
+          return;
+        }
+        if (pinTop) pendingScroll.current = { x: 0, y: 0 };
+        scaleRef.current = next;
+        onScaleChange(next);
+      },
+      [pageWidth, onScaleChange],
+    );
+    const fit = useCallback(() => fitWidth(true), [fitWidth]);
 
     /**
      * Where the fingers went down, held for the length of the gesture.
@@ -331,21 +359,22 @@ export const CanvasWindow = forwardRef<CanvasWindowHandle, CanvasWindowProps>(
     );
 
     /**
-     * The window's own size.
+     * The window's own width.
      *
-     * Only needed to hold a fit — a fit is a relationship between two boxes,
-     * and this is the other one. Kept as state rather than read on demand
-     * because the fit has to follow a resize, and nothing else would re-run.
+     * Only needed to hold a fit — a fit to the width is a relationship between
+     * two numbers, and this is the other one. Kept as state rather than read on
+     * demand because the fit has to follow a resize, and nothing else would
+     * re-run. The height is nobody's business: it does not decide the scale any
+     * more, and watching it would refit every time a horizontal scrollbar
+     * appeared.
      */
-    const [windowSize, setWindowSize] = useState({ width: 0, height: 0 });
+    const [windowWidth, setWindowWidth] = useState(0);
     useEffect(() => {
       const el = windowRef.current;
       if (!el) return;
       const measure = () =>
-        setWindowSize((current) =>
-          current.width === el.clientWidth && current.height === el.clientHeight
-            ? current
-            : { width: el.clientWidth, height: el.clientHeight },
+        setWindowWidth((current) =>
+          current === el.clientWidth ? current : el.clientWidth,
         );
       const observer = new ResizeObserver(measure);
       observer.observe(el);
@@ -356,16 +385,17 @@ export const CanvasWindow = forwardRef<CanvasWindowHandle, CanvasWindowProps>(
     /**
      * Hold the fit while it is wanted.
      *
-     * Re-run rather than run once, because the page's height is not known for a
-     * frame or two after a frame mounts — measuring too early fits to a page a
-     * tenth of its real size — and because the box keeps changing afterwards:
-     * the editor column finishes moving a third of a second after the click,
-     * and the device switch re-lays-out the page entirely.
+     * Re-run rather than run once, because the box keeps changing after the
+     * canvas opens: the editor column finishes moving a third of a second after
+     * the click, the divider can be dragged, and the window itself resized.
+     *
+     * Without `pinTop`: this is the fit being MAINTAINED, not asked for. See
+     * {@link fitWidth}.
      */
     useEffect(() => {
-      if (!autoFit || pageHeight === 0 || windowSize.height === 0) return;
-      fit();
-    }, [autoFit, pageHeight, windowSize, pageWidth, fit]);
+      if (!autoFit || windowWidth === 0) return;
+      fitWidth(false);
+    }, [autoFit, windowWidth, pageWidth, fitWidth]);
 
     /**
      * ctrl/cmd + wheel zooms, which is what a trackpad pinch reports as.
@@ -384,20 +414,16 @@ export const CanvasWindow = forwardRef<CanvasWindowHandle, CanvasWindowProps>(
         event.preventDefault();
         const rect = el.getBoundingClientRect();
         const scale = scaleRef.current;
-        const page = { width: pageWidth, height: pageHeightRef.current };
         const anchor = {
           x:
             (event.clientX -
               rect.left +
               el.scrollLeft -
-              centeringOffset(el.clientWidth, page.width * scale)) /
+              centeringOffset(el.clientWidth, pageWidth * scale)) /
             scale,
-          y:
-            (event.clientY -
-              rect.top +
-              el.scrollTop -
-              centeringOffset(el.clientHeight, page.height * scale)) /
-            scale,
+          // Nothing to undo vertically — the page starts at the top of the
+          // window. See {@link centeringOffset}.
+          y: (event.clientY - rect.top + el.scrollTop) / scale,
         };
         applyZoom(scale * (1 - event.deltaY / 300), anchor, anchor);
       };
@@ -453,7 +479,20 @@ export const CanvasWindow = forwardRef<CanvasWindowHandle, CanvasWindowProps>(
         ref={windowRef}
         onScroll={onScroll}
         className={cn(
-          "relative overflow-auto overscroll-contain bg-bg-canvas scrollbar-slim",
+          /*
+           * `overflow-y-scroll`, not `auto`, and that is load bearing now that
+           * the scale is decided by the width.
+           *
+           * A vertical scrollbar takes 10px off `clientWidth` (see
+           * `scrollbar-slim`), so with `auto` there is a narrow band of window
+           * heights where fitting the width makes the page just tall enough to
+           * need the bar, the bar makes the window narrower, the narrower fit
+           * makes the page short enough not to need it — and round again,
+           * forever, at whatever width the divider was left at. Reserving the
+           * gutter always means the number the fit is computed from does not
+           * depend on the fit's own result.
+           */
+          "relative overflow-x-auto overflow-y-scroll overscroll-contain bg-bg-canvas scrollbar-slim",
           // The dotted ground is what makes it read as a surface the page is
           // placed on rather than as a page with margins. Kept from the canvas
           // it replaces: the model changed, the look did not need to.
@@ -470,8 +509,15 @@ export const CanvasWindow = forwardRef<CanvasWindowHandle, CanvasWindowProps>(
          * edge cannot be scrolled back to. Sizing this box to the larger of the
          * page and the window means there is never negative free space for the
          * centring to mishandle.
+         *
+         * Centred across and pinned to the TOP: `items-start`. A page narrower
+         * than the window — a phone layout in a wide pane, anything zoomed out
+         * — reads as a page on a surface when it is centred horizontally, and a
+         * page whose top is half way down the window does not read as the top
+         * of a page at all. `anchoredScroll` and `windowCenter` agree with this
+         * by leaving the vertical offset out.
          */}
-        <div className="flex h-max min-h-full w-max min-w-full items-center justify-center">
+        <div className="flex h-max min-h-full w-max min-w-full items-start justify-center">
           <div
             style={{
               width: pageWidth * scale,
@@ -528,28 +574,36 @@ export function clampScale(scale: number): number {
 }
 
 /**
- * The scale that shows a page of this size in a window of that size.
+ * The scale that shows a page of this width in a window of that width.
  *
- * Exported so the toolbar's fit button, the initial state and the tests all
- * agree, and so it can be checked without a browser.
+ * The WIDTH, and no padding: the page is meant to reach both edges of the pane,
+ * because every pixel of width given back to the canvas is a pixel of the page
+ * not being shown. What does not fit vertically is scrolled to.
+ *
+ * Never larger than 1:1, which is the half that is not obvious. A phone layout
+ * in a desktop-sized pane would fit its width at nearly 3×, and a 390px page
+ * blown up to 1100px is not a preview of anything — it is the same page with
+ * everything wrong about it. Bigger than life is something to ask for with the
+ * + button, not something to be given.
+ *
+ * Exported so the fit button, the window and the tests all agree, and so it can
+ * be checked without a browser.
  */
-export function fitScale(
-  page: { width: number; height: number },
-  window: { width: number; height: number },
-): number {
-  const available = {
-    width: Math.max(1, window.width - FIT_PADDING * 2),
-    height: Math.max(1, window.height - FIT_PADDING * 2),
-  };
-  return clampScale(
-    Math.min(available.width / page.width, available.height / page.height),
-  );
+export function fitWidthScale(pageWidth: number, windowWidth: number): number {
+  // A window that has not been laid out yet, which is the first frame of every
+  // canvas: 1:1 until there is something to measure against.
+  if (pageWidth <= 0 || windowWidth <= 0) return 1;
+  return clampScale(Math.min(1, windowWidth / pageWidth));
 }
 
 /**
- * How far a box is pushed in to sit in the middle of a window.
+ * How far a box is pushed in to sit in the middle of a window, ACROSS.
  *
- * Zero once the box is bigger than the window: at that point the box starts at
+ * Horizontally only. There is no vertical counterpart: the page is pinned to
+ * the top of the window (`items-start` above), so its vertical offset is always
+ * zero and the callers leave the term out rather than multiplying by one.
+ *
+ * Zero once the box is wider than the window: at that point the box starts at
  * the window's edge and the rest is scrolled to, which is exactly what the
  * centring box above does. Both have to agree, or a zoom lands off by half the
  * difference.
@@ -566,38 +620,34 @@ function centeringOffset(window: number, content: number): number {
  * the fingers physically are — and then the scroll that puts `hold` there under
  * the new scale.
  *
+ * Only the page's WIDTH comes into it, because only the horizontal axis centres
+ * — see {@link centeringOffset}. The page's height decides nothing here.
+ *
  * Exported for the test: this is the whole of "zoom towards the pointer", and
  * every way of getting it wrong looks the same from outside (the page drifts).
  */
 export function anchoredScroll(
   window: {
     clientWidth: number;
-    clientHeight: number;
     scrollLeft: number;
     scrollTop: number;
   },
-  page: { width: number; height: number },
+  pageWidth: number,
   from: number,
   to: number,
   at: CanvasPoint,
   hold: CanvasPoint,
 ): CanvasPoint {
   const screenX =
-    centeringOffset(window.clientWidth, page.width * from) -
+    centeringOffset(window.clientWidth, pageWidth * from) -
     window.scrollLeft +
     at.x * from;
-  const screenY =
-    centeringOffset(window.clientHeight, page.height * from) -
-    window.scrollTop +
-    at.y * from;
+  const screenY = -window.scrollTop + at.y * from;
   return {
     x:
-      centeringOffset(window.clientWidth, page.width * to) +
+      centeringOffset(window.clientWidth, pageWidth * to) +
       hold.x * to -
       screenX,
-    y:
-      centeringOffset(window.clientHeight, page.height * to) +
-      hold.y * to -
-      screenY,
+    y: hold.y * to - screenY,
   };
 }

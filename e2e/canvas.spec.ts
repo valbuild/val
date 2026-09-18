@@ -66,7 +66,7 @@ test.describe("the canvas", () => {
     // the pane — which is the difference between a canvas that opened and one
     // whose column never moved.
     await expect(
-      studio.getByRole("button", { name: "Fit page to screen" }),
+      studio.getByRole("button", { name: "Fit page width" }),
     ).toBeVisible();
 
     /**
@@ -130,7 +130,7 @@ test.describe("the canvas", () => {
     await closeNavPanel(studio, "Pages");
     await studio.getByRole("button", { name: "Canvas" }).click();
     await expect(
-      studio.getByRole("button", { name: "Fit page to screen" }),
+      studio.getByRole("button", { name: "Fit page width" }),
     ).toBeVisible();
 
     const divider = studio.getByRole("separator", {

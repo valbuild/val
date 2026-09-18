@@ -479,16 +479,35 @@ export function PageWorkspace({
   const pageWidth = CANVAS_DEVICE_WIDTHS[device];
 
   /**
-   * Whether the window should keep the whole page in view.
+   * Whether the window should keep the page at the width of the pane.
    *
-   * The window does the fitting — it is the only thing that knows both sizes,
-   * and the page's height is not known for a frame or two after a frame mounts
+   * The window does the fitting — it is the only thing that knows its own size
    * — but whether a fit is still WANTED is decided here, and it stops being
    * wanted the moment someone zooms. A link that names a position has already
    * answered the question fitting exists to answer, so it is not overruled by
    * one.
    */
   const [autoFit, setAutoFit] = useState(initialTransform == null);
+
+  /**
+   * Back to the default view: the page at the pane's width, from the top.
+   *
+   * Both halves, and the second is why this is a call rather than only
+   * `setAutoFit(true)`. Holding the fit is the window's own business and
+   * deliberately does not move the window — a page someone scrolled down must
+   * not jump to the top because the divider moved — so the top is pinned here,
+   * at the moments a fit is ASKED for. Those are all in this component: opening
+   * the canvas, switching device, reloading, and the fit button.
+   *
+   * `setAutoFit(true)` on its own also does nothing at all when the fit is
+   * already armed, which is exactly the state the fit button is pressed in
+   * after scrolling: no state changed, so nothing re-ran, so the button did
+   * nothing.
+   */
+  const fitPage = useCallback(() => {
+    setAutoFit(true);
+    canvasWindowRef.current?.fit();
+  }, []);
 
   /**
    * Opening the canvas, and switching device, both change the box the page has
@@ -512,15 +531,15 @@ export function PageWorkspace({
       return;
     }
     lastBox.current = { device, open };
-    setAutoFit(true);
-  }, [device, open]);
+    fitPage();
+  }, [device, open, fitPage]);
 
   const reload = useCallback(() => {
     setReloadKey((key) => key + 1);
-    // A reloaded page can be a different height, so the fit it had is no
-    // longer the right one.
-    setAutoFit(true);
-  }, []);
+    // A reloaded page is the page from the beginning again, so the view it is
+    // shown at is the default one again.
+    fitPage();
+  }, [fitPage]);
 
   /**
    * A zoom someone asked for ends the fit.
@@ -945,7 +964,7 @@ export function PageWorkspace({
           scale={scale}
           onZoomIn={() => zoomByUser(ZOOM_STEP, null)}
           onZoomOut={() => zoomByUser(1 / ZOOM_STEP, null)}
-          onFit={() => setAutoFit(true)}
+          onFit={fitPage}
           // Only where there is something to select. The demo page reports no
           // paths, so a click on it has nothing to open.
           isPicking={isPicking}
