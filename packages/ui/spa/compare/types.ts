@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { Description } from "../utils/describePath";
 import type { AuthorPatchInfo } from "../components/FieldPatchAuthors";
 import type { Profile } from "../components/ValProvider";
 
@@ -239,10 +240,30 @@ export type CompareFieldRow = {
  */
 export type CompareListItemRow = {
   id: string;
-  /** The record key, or the index for an array. */
+  /**
+   * The record key, or the index for an array.
+   *
+   * IDENTITY, not a name. It is how the two sides of the diff are matched to
+   * each other and the only thing a rename is actually about, so it is shown
+   * whether or not {@link CompareListItemRow.description} names the entry.
+   */
   label: string;
-  /** A preview of the item, for added and removed rows where there is no field diff. */
-  preview?: ReactNode;
+  /**
+   * What this entry is CALLED, from `describePath`.
+   *
+   * A list row is a preview surface — see the rule in `core/src/preview.ts` —
+   * so an entry whose schema declares `.preview(...)` is named by it here, with
+   * the key kept beside it as provenance. Absent means nobody named it and the
+   * key is the whole of what we have, which is the common case and reads
+   * exactly as it did before previews existed.
+   *
+   * For a REMOVED entry the closure has to run over the before-side value: the
+   * after side has nothing to preview. That is the adapter's problem, and the
+   * reason this is data on the model rather than a hook call in the row.
+   */
+  description?: Description;
+  /** The item's value, for added and removed rows where there is no field diff. */
+  value?: ReactNode;
   change: CompareChangeKind;
   fields?: CompareFieldRow[];
   /** Where it went, for `moved`. Required to say anything useful about one. */
@@ -300,9 +321,25 @@ export type CompareGroup =
 
 /** Everything the right-hand side shows for one selected nav node. */
 export type ComparePane = {
-  /** The page name or module path, as the nav row showed it. */
-  title: string;
-  subtitle?: string;
+  /**
+   * What this thing is CALLED, from `describePath` — the one implementation.
+   *
+   * The heading of what you navigated to is a title surface, so a module or
+   * page whose schema previews is named by it. `origin.title` says whether that
+   * happened; the heading uses it to avoid printing the same string twice when
+   * the "title" is only the path falling back.
+   */
+  description: Description;
+  /**
+   * Where it lives: the module file path.
+   *
+   * A LOCATION, kept beside the name rather than folded into it. A preview is a
+   * closure over source and moves as an editor types; a path does not, and in a
+   * review screen the path is how someone finds the file the change is in.
+   */
+  path: string;
+  /** A shape or count note — "record of 6", "new page". Never a name. */
+  note?: string;
   /** What happened to the thing as a whole, when that is the story. */
   change?: CompareChangeKind;
   groups: CompareGroup[];

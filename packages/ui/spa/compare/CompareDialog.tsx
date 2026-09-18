@@ -33,7 +33,12 @@ import {
   ShowAllFieldsToggle,
   hiddenFieldCount,
 } from "./ComparePaneView";
-import type { CompareModel, CompareNavNode, CompareUndoKind } from "./types";
+import type {
+  CompareModel,
+  CompareNavNode,
+  ComparePane,
+  CompareUndoKind,
+} from "./types";
 
 /**
  * "What am I about to publish", as a room you can walk around in.
@@ -363,7 +368,7 @@ export function CompareDialog({
                   Changes
                 </button>
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg-primary">
-                  {pane?.title ?? "Nothing selected"}
+                  {pane?.description.title ?? "Nothing selected"}
                 </span>
               </div>
               {pane === undefined ? (
@@ -423,16 +428,7 @@ export function CompareDialog({
                   <EmptyPane />
                 ) : (
                   <>
-                    <div className="mb-2 min-w-0">
-                      <h2 className="truncate text-sm font-medium text-fg-primary">
-                        {pane.title}
-                      </h2>
-                      {pane.subtitle !== undefined && (
-                        <p className="truncate text-xs text-fg-tertiary">
-                          {pane.subtitle}
-                        </p>
-                      )}
-                    </div>
+                    <PaneHeading pane={pane} />
                     <CompareColumns
                       leftSide={model.left}
                       rightSide={model.right}
@@ -560,6 +556,41 @@ function firstNodeId(model: CompareModel): string | null {
  * structure and has nothing to show. Opening onto a blank right-hand side would
  * make the dialog look broken on arrival.
  */
+/**
+ * The name of what you opened, over where it lives.
+ *
+ * The heading of what you navigated to is a TITLE surface — see the rule in
+ * `core/src/preview.ts` — so a module or page whose schema previews is named by
+ * it here. The path below is a LOCATION and is always shown: a preview is a
+ * closure over source and moves as an editor types, and in a review screen the
+ * path is how someone finds the file a change is in.
+ *
+ * The URL earns its own place on the line when a preview supplied the title.
+ * A page's URL is its identity, not a nicer name for it — two drafts called
+ * "Launch" are told apart by `/blog/launch-2026` and nothing else — so a title
+ * that replaced it would take that away. When no preview named the page the
+ * title already IS the route, and repeating it would say one thing twice;
+ * `PathHeading` draws the same distinction with `showUrlInTrail`.
+ */
+function PaneHeading({ pane }: { pane: ComparePane }) {
+  const { description } = pane;
+  const showUrl =
+    description.url !== null && description.origin.title === "preview";
+  const below = [showUrl ? description.url : null, pane.path, pane.note]
+    .filter((part): part is string => part !== null && part !== undefined)
+    .join(" — ");
+  return (
+    <div className="mb-2 min-w-0">
+      <h2 className="truncate text-sm font-medium text-fg-primary">
+        {description.title}
+      </h2>
+      {below !== "" && (
+        <p className="truncate text-xs text-fg-tertiary">{below}</p>
+      )}
+    </div>
+  );
+}
+
 function firstOf(nodes: CompareNavNode[]): string | null {
   for (const node of nodes) {
     if (node.change !== undefined) {

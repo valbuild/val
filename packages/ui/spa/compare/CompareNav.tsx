@@ -32,6 +32,24 @@ import type {
  * and an added page are the same kind of statement about this publish, and
  * splitting them would mean two places to look before you trust that you have
  * seen everything.
+ *
+ * ## This tree is a LOCATION, so it carries no previews
+ *
+ * Deliberately, and it will keep reading worse than it could. The rule is in
+ * `core/src/preview.ts`: a preview is a TITLE and belongs where a value is
+ * shown as a thing — a heading, a card, a list row — and a location is made of
+ * path segments. This is the Pages tree of a publish, so its rows are routes,
+ * keys and file names, exactly like the Explorer and the real Pages panel.
+ *
+ * Two reasons it must stay that way. A trail of titles names things and locates
+ * none of them: `Content / Forfattere / Theodor René Carlsen` cannot be typed
+ * into a URL bar or matched against the file someone is looking at. And a
+ * preview is a closure over source, so a nav built from titles would reorder
+ * and rename itself as an editor types — in a screen whose whole job is to
+ * hold still while you read it.
+ *
+ * The pane heading and the list rows on the right ARE title surfaces, and they
+ * do carry previews. That asymmetry is the rule working, not an inconsistency.
  */
 
 const KIND_ICONS: Record<CompareNavKind, typeof FileText> = {

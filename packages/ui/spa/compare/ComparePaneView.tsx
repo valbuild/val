@@ -478,6 +478,19 @@ function ListItemRow({
     ctx?.authorFilter ?? null,
   );
   const rename = row.change === "moved" && row.move?.kind === "rename";
+  /*
+   * Null unless a developer actually wrote a name for this entry.
+   *
+   * `describePath` always produces a `title` — it falls back to the key, the
+   * index or the file name — so the title alone cannot be used to decide
+   * whether to draw a second line. `origin.title` is what separates "someone
+   * called this Kim Midtlid" from "the key happened to be all we had", and
+   * `DescriptionOrigin` exists precisely so a surface cannot fail to tell.
+   */
+  const named =
+    row.description !== undefined && row.description.origin.title === "preview"
+      ? row.description.title
+      : null;
   const cell = (side: "before" | "after"): ReactNode => {
     const present =
       row.change === "added"
@@ -485,7 +498,7 @@ function ListItemRow({
         : row.change === "removed"
           ? side === "before"
           : true;
-    if (row.preview === undefined) return null;
+    if (row.value === undefined) return null;
     if (!present) {
       return (
         <div
@@ -511,7 +524,7 @@ function ListItemRow({
             : sideRailClass(side),
         )}
       >
-        {row.preview}
+        {row.value}
       </div>
     );
   };
@@ -520,14 +533,29 @@ function ListItemRow({
     <div className="group/row border-b border-border-secondary py-1.5 last:border-b-0">
       <div className="flex min-w-0 items-center gap-1.5">
         <ChangeKindIcon kind={row.change} size={12} hideLabel />
+        {/*
+         * The NAME, when a schema wrote one.
+         *
+         * A list row is a preview surface, so an entry whose schema declares
+         * `.preview(...)` is called what that says. Only when `origin.title` is
+         * `"preview"`: on a fallback the title IS the key, and printing both
+         * would say `kimmid` twice.
+         */}
+        {named !== null && (
+          <span className="min-w-0 max-w-[45%] shrink truncate text-xs text-fg-primary">
+            {named}
+          </span>
+        )}
         {rename && row.move?.kind === "rename" ? (
           /*
-           * Both keys on the head line, in order.
+           * Both keys on the head line, in order, whether or not a preview also
+           * named the entry.
            *
            * For a router record the key is the URL, so this is a page changing
-           * address — the line most likely to break links. A badge reading
-           * "RENAMED" would say that something happened without saying what,
-           * and the two keys are the whole content of the change.
+           * address — the line most likely to break links. The name says what
+           * the page is; only the keys say what happened to it, and a title
+           * cannot be typed into a URL bar or grepped for. Same reason
+           * `Description.url` is carried separately from `title`.
            */
           <span className="flex min-w-0 items-center gap-1 font-mono text-xs">
             <span className="min-w-0 truncate text-fg-tertiary line-through decoration-rose-500/60">
@@ -536,12 +564,30 @@ function ListItemRow({
             <span className="shrink-0 text-fg-tertiary" aria-hidden>
               →
             </span>
-            <span className="min-w-0 truncate text-fg-primary">
+            <span
+              className={cn(
+                "min-w-0 truncate",
+                named === null ? "text-fg-primary" : "text-fg-tertiary",
+              )}
+            >
               {row.move.to}
             </span>
           </span>
         ) : (
-          <span className="min-w-0 truncate font-mono text-xs text-fg-primary">
+          /*
+           * The key, always — demoted to provenance when a name is beside it.
+           *
+           * It is what matches an entry to its other side, what an editor
+           * greps for, and the only thing two entries with the same title are
+           * told apart by. A named row that dropped it would be prettier and
+           * unusable.
+           */
+          <span
+            className={cn(
+              "min-w-0 truncate font-mono text-xs",
+              named === null ? "text-fg-primary" : "text-fg-tertiary",
+            )}
+          >
             {row.label}
           </span>
         )}
@@ -564,7 +610,7 @@ function ListItemRow({
           <RowAuthors authors={row.authors} />
         </span>
       </div>
-      {row.preview !== undefined && (
+      {row.value !== undefined && (
         <Cells
           showing={showing}
           before={cell("before")}

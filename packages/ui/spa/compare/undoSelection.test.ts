@@ -70,7 +70,15 @@ function modelWith(
   }[],
 ): CompareModel {
   const pane: ComparePane = {
-    title: "t",
+    description: {
+      title: "t",
+      subtitle: null,
+      image: null,
+      pathLabel: "t",
+      url: null,
+      origin: { title: "fallback", subtitle: "fallback", image: "fallback" },
+    },
+    path: "/t.val.ts",
     groups: [
       {
         kind: "fields",

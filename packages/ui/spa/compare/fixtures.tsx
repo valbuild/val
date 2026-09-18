@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { AuthorPatchInfo } from "../components/FieldPatchAuthors";
 import type { Profile } from "../components/ValProvider";
+import type { Description } from "../utils/describePath";
 import type {
   CompareAuthorship,
   CompareFieldRow,
@@ -20,6 +21,51 @@ import type {
  * that was reordered, an image added and an image removed, a module whose
  * changes cancelled out, and a pane with unchanged fields to reveal.
  */
+
+/**
+ * A `Description` as a path alone produces it — nobody wrote a preview.
+ *
+ * The common case, and the one the view has to keep reading well: an
+ * un-annotated project should look exactly as it did before `.preview()`
+ * existed. `origin.title` is `"fallback"`, which is what every surface branches
+ * on.
+ */
+function unnamed(pathLabel: string, url?: string): Description {
+  return {
+    title: pathLabel,
+    subtitle: null,
+    image: null,
+    pathLabel,
+    url: url ?? null,
+    origin: { title: "fallback", subtitle: "fallback", image: "fallback" },
+  };
+}
+
+/**
+ * A `Description` where a developer's `.preview(...)` supplied the name.
+ *
+ * `pathLabel` is kept and is NOT the title: that is the whole point of the
+ * shape. The key or route stays available as identity, so a surface can show
+ * the name and still say which entry it is.
+ */
+function named(
+  title: string,
+  pathLabel: string,
+  extra?: { subtitle?: string; url?: string },
+): Description {
+  return {
+    title,
+    subtitle: extra?.subtitle ?? null,
+    image: null,
+    pathLabel,
+    url: extra?.url ?? null,
+    origin: {
+      title: "preview",
+      subtitle: extra?.subtitle ? "preview" : "fallback",
+      image: "fallback",
+    },
+  };
+}
 
 /** A stand-in for a rendered image cell. Real integration renders the field. */
 function swatch(label: string, color: string): ReactNode {
@@ -114,8 +160,8 @@ function item(
 }
 
 const landingPane: ComparePane = {
-  title: "/",
-  subtitle: "/app/page.val.ts",
+  description: unnamed("/"),
+  path: "/app/page.val.ts",
   change: "changed",
   groups: [
     {
@@ -184,8 +230,9 @@ const landingPane: ComparePane = {
 };
 
 const authorsPane: ComparePane = {
-  title: "authors.val.ts",
-  subtitle: "/content/authors.val.ts — record of 6",
+  description: unnamed("Authors"),
+  path: "/content/authors.val.ts",
+  note: "record of 6",
   change: "changed",
   groups: [
     {
@@ -195,12 +242,12 @@ const authorsPane: ComparePane = {
       summary: "1 added · 1 removed · 1 changed",
       rows: [
         item("kimmid", "kimmid", "added", {
-          preview: "Kim Midtlid",
+          value: "Kim Midtlid",
           authors: by("profile-linus", "add", 200),
           undo: DISCARD,
         }),
         item("erlamd", "erlamd", "removed", {
-          preview: "Erlend Åmdal",
+          value: "Erlend Åmdal",
           authors: by("profile-ada", "remove", 30),
           undo: DISCARD,
         }),
@@ -230,8 +277,8 @@ const authorsPane: ComparePane = {
 };
 
 const listsPane: ComparePane = {
-  title: "lists.val.ts",
-  subtitle: "/content/lists.val.ts",
+  description: unnamed("Lists"),
+  path: "/content/lists.val.ts",
   change: "changed",
   groups: [
     {
@@ -241,22 +288,22 @@ const listsPane: ComparePane = {
       summary: "2 added · 1 removed · 1 moved",
       rows: [
         item("kw-history", "history", "added", {
-          preview: "history",
+          value: "history",
           authors: by("profile-ada", "add", 25),
           undo: DISCARD,
         }),
         item("kw-restore", "restore", "added", {
-          preview: "restore",
+          value: "restore",
           authors: by("profile-ada", "add", 25),
           undo: DISCARD,
         }),
         item("kw-content", "content", "removed", {
-          preview: "content",
+          value: "content",
           authors: by("profile-linus", "remove", 60),
           undo: DISCARD,
         }),
         item("kw-publish", "publish", "moved", {
-          preview: "publish",
+          value: "publish",
           authors: by("profile-linus", "move", 60),
           undo: DISCARD,
           move: { kind: "reorder", from: 3, to: 0 },
@@ -280,8 +327,9 @@ const listsPane: ComparePane = {
 };
 
 const newBlogPane: ComparePane = {
-  title: "/blogs/history-restore",
-  subtitle: "/app/blogs/[blog]/page.val.ts — new page",
+  description: unnamed("/blogs/history-restore", "/blogs/history-restore"),
+  path: "/app/blogs/[blog]/page.val.ts",
+  note: "new page",
   change: "added",
   groups: [
     {
@@ -327,8 +375,9 @@ const newBlogPane: ComparePane = {
 };
 
 const removedBlogPane: ComparePane = {
-  title: "/blogs/old-announcement",
-  subtitle: "/app/blogs/[blog]/page.val.ts — page removed",
+  description: unnamed("/blogs/old-announcement", "/blogs/old-announcement"),
+  path: "/app/blogs/[blog]/page.val.ts",
+  note: "page removed",
   change: "removed",
   groups: [
     {
@@ -369,8 +418,9 @@ const removedBlogPane: ComparePane = {
  * the two marks can be told apart at a glance.
  */
 const routesPane: ComparePane = {
-  title: "blogs",
-  subtitle: "/app/blogs/[blog]/page.val.ts — router record",
+  description: unnamed("Pages"),
+  path: "/app/blogs/[blog]/page.val.ts",
+  note: "router record",
   change: "changed",
   groups: [
     {
@@ -382,7 +432,7 @@ const routesPane: ComparePane = {
         item("route-renamed", "/blogs/history-and-restore", "moved", {
           authors: by("profile-linus", "move", 90),
           undo: DISCARD,
-          preview: "History, restored",
+          value: "History, restored",
           move: {
             kind: "rename",
             from: "/blogs/history-restore",
@@ -408,8 +458,9 @@ const routesPane: ComparePane = {
 };
 
 const mediaPane: ComparePane = {
-  title: "/public/val/images",
-  subtitle: "s.images() gallery — 2 changes",
+  description: unnamed("/public/val/images"),
+  path: "s.imageset() gallery",
+  note: "2 changes",
   change: "changed",
   groups: [
     {
@@ -421,7 +472,7 @@ const mediaPane: ComparePane = {
         item("img-hero", "hero-a1b2c.jpg", "added", {
           authors: by("profile-ada", "file", 18),
           undo: DISCARD,
-          preview: swatch(
+          value: swatch(
             "1600×900 · image/jpeg",
             "linear-gradient(135deg,#334155,#0f172a)",
           ),
@@ -429,7 +480,7 @@ const mediaPane: ComparePane = {
         item("img-old", "old-banner-9f3e1.png", "removed", {
           authors: by("profile-linus", "file", 70),
           undo: DISCARD,
-          preview: swatch(
+          value: swatch(
             "1200×400 · image/png",
             "linear-gradient(135deg,#7f1d1d,#450a0a)",
           ),
@@ -440,8 +491,8 @@ const mediaPane: ComparePane = {
 };
 
 const settingsPane: ComparePane = {
-  title: "settings.val.ts",
-  subtitle: "/settings.val.ts",
+  description: unnamed("Settings"),
+  path: "/settings.val.ts",
   change: "changed",
   groups: [
     {
@@ -618,8 +669,9 @@ export const compareModel: CompareModel = {
     "mod-settings": settingsPane,
     "media-images": mediaPane,
     "media-hero": {
-      title: "hero-a1b2c.jpg",
-      subtitle: "/public/val/images — added",
+      description: unnamed("hero-a1b2c.jpg"),
+      path: "/public/val/images",
+      note: "added",
       change: "added",
       groups: [
         {
@@ -654,8 +706,9 @@ export const compareModel: CompareModel = {
       ],
     },
     "media-old": {
-      title: "old-banner-9f3e1.png",
-      subtitle: "/public/val/images — removed",
+      description: unnamed("old-banner-9f3e1.png"),
+      path: "/public/val/images",
+      note: "removed",
       change: "removed",
       groups: [
         {
@@ -801,8 +854,8 @@ export const revertBasisModel: CompareModel = {
   panes: {
     ...commitBasisModel.panes,
     "page-landing": {
-      title: "/",
-      subtitle: "/app/page.val.ts",
+      description: unnamed("/"),
+      path: "/app/page.val.ts",
       change: "changed",
       groups: [
         {
@@ -864,4 +917,170 @@ export const emptyModel: CompareModel = {
     { id: "media", title: "Media", nodes: [] },
   ],
   panes: {},
+};
+
+/**
+ * The same publish, on schemas whose authors wrote `.preview(...)`.
+ *
+ * Read against {@link compareModel}, which is the same content with nothing
+ * named — that pair is the whole point. An un-annotated project has to keep
+ * reading exactly as it did, and a project that named its things has to be
+ * visibly better off without the names displacing anything you need.
+ *
+ * Three claims it is here to test:
+ *
+ * 1. **The key never leaves.** `kimmid` is called "Kim Midtlid" and still says
+ *    `kimmid`, because the key is what matches an entry to its other side, what
+ *    an editor greps for, and the only thing two people with the same name are
+ *    told apart by.
+ * 2. **A renamed page keeps both routes.** The title says what the page is; the
+ *    `from → to` says what happened to it, and only the routes can be typed
+ *    into a URL bar. See `Description.url`.
+ * 3. **The nav is untouched.** It is a location, so it reads the same in both
+ *    models even though titles would look nicer there — the rule in
+ *    `core/src/preview.ts`, and `CompareNav`'s header says why.
+ *
+ * The record is deliberately MIXED: `teddy` previews, `erlamd` does not. A real
+ * project is half-annotated for most of its life — a preview closure that
+ * throws, a nullable value, a schema nobody has got to yet — and a view that
+ * only looks right when every row is named is a view that looks wrong in
+ * practice.
+ */
+const namedAuthorsPane: ComparePane = {
+  description: named("Authors", "authors.val.ts", {
+    subtitle: "6 people",
+  }),
+  path: "/content/authors.val.ts",
+  note: "record of 6",
+  change: "changed",
+  groups: [
+    {
+      kind: "list",
+      id: "authors",
+      title: "authors",
+      summary: "1 added · 1 removed · 1 changed",
+      rows: [
+        item("kimmid", "kimmid", "added", {
+          description: named("Kim Midtlid", "kimmid"),
+          value: "Kim Midtlid",
+          authors: by("profile-linus", "add", 200),
+          undo: DISCARD,
+        }),
+        /*
+         * No description on purpose. A removed entry's preview has to be
+         * computed from the BEFORE side — the after side has nothing to run the
+         * closure over — and an adapter that forgets will produce exactly this
+         * row. It has to stay readable when it does.
+         */
+        item("erlamd", "erlamd", "removed", {
+          value: "Erlend Åmdal",
+          authors: by("profile-ada", "remove", 30),
+          undo: DISCARD,
+        }),
+        item("teddy", "teddy", "changed", {
+          description: named("Theodor R. Carlsen", "teddy"),
+          authors: by("profile-linus", "replace", 45),
+          undo: DISCARD,
+          fields: [
+            field(
+              "teddy-name",
+              "name",
+              "changed",
+              "Theodor René Carlsen",
+              "Theodor R. Carlsen",
+            ),
+          ],
+        }),
+      ],
+    },
+  ],
+};
+
+const namedRoutesPane: ComparePane = {
+  description: named("Blog posts", "Pages"),
+  path: "/app/blogs/[blog]/page.val.ts",
+  note: "router record",
+  change: "changed",
+  groups: [
+    {
+      kind: "list",
+      id: "blogs",
+      title: "blogs",
+      summary: "1 renamed · 1 changed",
+      rows: [
+        item("blog-renamed", "/blogs/history-and-restore", "moved", {
+          description: named(
+            "History, restored",
+            "/blogs/history-and-restore",
+            {
+              url: "/blogs/history-and-restore",
+            },
+          ),
+          move: {
+            kind: "rename",
+            from: "/blogs/history-restore",
+            to: "/blogs/history-and-restore",
+          },
+          value: "History, restored",
+          authors: by("profile-linus", "move", 90),
+          undo: DISCARD,
+        }),
+        item("blog-getting-started", "/blogs/getting-started", "changed", {
+          description: named(
+            "Getting started with Val",
+            "/blogs/getting-started",
+            {
+              url: "/blogs/getting-started",
+            },
+          ),
+          authors: by("profile-ada", "replace", 20),
+          undo: DISCARD,
+          fields: [
+            field(
+              "gs-title",
+              "title",
+              "changed",
+              "Getting started",
+              "Getting started with Val",
+            ),
+          ],
+        }),
+      ],
+    },
+  ],
+};
+
+/** A module whose own schema previews, so its HEADING is a written name. */
+const namedLandingPane: ComparePane = {
+  description: named("Landing page", "/", { url: "/" }),
+  path: "/app/page.val.ts",
+  change: "changed",
+  groups: [
+    {
+      kind: "fields",
+      id: "root",
+      rows: [
+        field(
+          "heading",
+          "heading",
+          "changed",
+          "Content, super-charged",
+          "Content, super-charged — and yours to edit",
+          undefined,
+          byBoth(),
+          DISCARD,
+        ),
+      ],
+    },
+  ],
+};
+
+export const previewedModel: CompareModel = {
+  ...compareModel,
+  panes: {
+    ...compareModel.panes,
+    "page-landing": namedLandingPane,
+    "mod-authors": namedAuthorsPane,
+    "page-renamed-blog": namedRoutesPane,
+  },
 };

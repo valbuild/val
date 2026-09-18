@@ -6,6 +6,7 @@ import {
   compareModel,
   emptyModel,
   longCommitMessageModel,
+  previewedModel,
   revertBasisModel,
   singleModuleModel,
 } from "./fixtures";
@@ -295,4 +296,55 @@ export const RestoreFromCommit: Story = {
 /** The same restore in the louder tone, where the bulk action goes solid. */
 export const RestoreFromCommitAlarmTone: Story = {
   args: { model: revertBasisModel, undoMode: true, tone: "alarm" },
+};
+
+/**
+ * Nothing in this publish declares `.preview(...)`.
+ *
+ * The baseline, and the case that has to keep working: an un-annotated project
+ * reads exactly as it did before previews existed. Every row is its key, every
+ * heading is its path, and `describePath` says `origin.title === "fallback"` for
+ * all of them — which is what stops the view drawing a second line that would
+ * only repeat the first.
+ *
+ * Open `authors.val.ts` and read it against `WithPreviews`.
+ */
+export const WithoutPreviews: Story = {};
+
+/**
+ * The same publish, where the schemas name their values.
+ *
+ * `authors.val.ts` is the one to open. Three things to check, in order of how
+ * easy they would be to get wrong:
+ *
+ * - **The key survives.** "Kim Midtlid" has `kimmid` beside it in mono. Dropping
+ *   it would read better and would break matching an entry to its other side,
+ *   grepping, and telling two people with the same name apart.
+ * - **`erlamd` is unnamed, in a record where its neighbours are named.** A
+ *   removed entry's preview must be computed from the before side; an adapter
+ *   that forgets produces exactly this row, and it stays readable.
+ * - **The nav did not change.** Compare the left rail against `WithoutPreviews`:
+ *   identical. It is a location, so it carries routes and keys — see the rule
+ *   in `core/src/preview.ts` and the header of `CompareNav`.
+ *
+ * Then open the renamed page under `blogs`: the title says what the page is,
+ * and the `from → to` routes still say what happened to it.
+ */
+export const WithPreviews: Story = { args: { model: previewedModel } };
+
+/** The previewed publish in light mode. */
+export const WithPreviewsLight: Story = {
+  args: { model: previewedModel },
+  globals: { theme: "light" },
+};
+
+/**
+ * A previewed publish on a phone, where the key and the name compete for width.
+ *
+ * The name is capped at 45% of the head so the key is never squeezed out
+ * entirely — on a narrow screen the truncated key is still the thing that tells
+ * two rows apart.
+ */
+export const WithPreviewsMobile: Story = {
+  args: { model: previewedModel, layout: "mobile" },
 };
