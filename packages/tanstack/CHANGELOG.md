@@ -1,5 +1,50 @@
 # @valbuild/tanstack
 
+## 0.132.0
+
+### Minor Changes
+
+- [#689](https://github.com/valbuild/val/pull/689) [`c1c93c1`](https://github.com/valbuild/val/commit/c1c93c1431072b37b4098bcdc49ebe207e3a28d5) Thanks [@freekh](https://github.com/freekh)! - `initValContent` takes an `http` option, so the content readers can be put in
+  http mode.
+
+  They build a Val server of their own — they resolve content by asking it, not by
+  calling the API over HTTP — so the mode question is put to them separately.
+  `initValServer` has had `http` for a while; these readers did not, which meant a
+  host could configure its API for http mode and leave the half of Val that
+  renders its pages inferring a mode instead. Where the credentials are handed to
+  Val in code rather than through the environment there is nothing to infer from,
+  because `process.env.VAL_API_KEY` is undefined in a bundle built separately from
+  its dependencies.
+
+  Pass the same object both halves get. `gitCommit` is the field that is silently
+  wrong rather than loudly missing: every read in this mode fetches the module's
+  path from the content service at that commit, so readers given a different one
+  from the API resolve a different version of the same file — a draft render
+  showing content that is neither the draft nor what the site serves, with nothing
+  failing anywhere.
+
+### Patch Changes
+
+- [#689](https://github.com/valbuild/val/pull/689) [`d0d684b`](https://github.com/valbuild/val/commit/d0d684bdd62d2d9a2cddff38beadf9175f55bf91) Thanks [@freekh](https://github.com/freekh)! - A probe for the seams a host that BUILDS rather than deploys depends on.
+
+  `examples/tanstack/scripts/hostPublishProbe.ts` configures both halves of Val in
+  `http` mode and drives a publish through `publishOverride`, against
+  `e2e/mock-content-host`. Nothing exercised those two together: `e2e/http/` drives
+  the Studio, and `publishOverride` has no UI to drive it from.
+
+  What it pins is the ordering. A host whose publish is a build must commit
+  _first_ — building first hands its builder content the content service does not
+  have yet, so every read in the new build resolves the commit from before the
+  save, and the site shows pre-save content with the edits already consumed, with
+  nothing failing to say so.
+
+  No product code changed.
+
+- Updated dependencies [[`72cc676`](https://github.com/valbuild/val/commit/72cc6765e92a6e72b5c09ddd9eed8efa7ce899f2)]:
+  - @valbuild/server@0.132.0
+  - @valbuild/language-server@0.132.0
+  - @valbuild/mcp@0.132.0
+
 ## 0.131.0
 
 ### Minor Changes
