@@ -99,14 +99,20 @@ jest.mock("../../components/Preview", () => ({
   PreviewNull: () => null,
 }));
 
-/** One keystroke: the document moves, then the editor reports itself dirty. */
-function keystroke(text: string) {
+/**
+ * One keystroke: the document moves, then the editor reports itself dirty.
+ *
+ * Returns the document it put in the editor, so a test can assert on the exact
+ * one it expects to be written rather than on something every document shares.
+ */
+function keystroke(text: string): EditorDocument {
   mockEditorDocument = [
     { type: "paragraph", children: [{ text }] },
   ] as unknown as EditorDocument;
   act(() => {
     mockOnDirty?.();
   });
+  return mockEditorDocument;
 }
 
 /**
@@ -118,13 +124,16 @@ function keystroke(text: string) {
  */
 const GAP_MS = 150;
 
-function typeContinuously(count: number, gapMs = GAP_MS) {
+/** Returns the LAST document typed, which is what a completed run must write. */
+function typeContinuously(count: number, gapMs = GAP_MS): EditorDocument {
+  let last: EditorDocument = mockEditorDocument;
   for (let index = 0; index < count; index++) {
-    keystroke("x".repeat(index + 1));
+    last = keystroke("x".repeat(index + 1));
     act(() => {
       jest.advanceTimersByTime(gapMs);
     });
   }
+  return last;
 }
 
 /**
@@ -174,13 +183,23 @@ describe("RichTextField's write cap", () => {
 
   test("the cap writes the latest document, once", () => {
     mount();
-    typeContinuously(KEYSTROKES_TO_FIRST_CAP);
+    const typed = typeContinuously(KEYSTROKES_TO_FIRST_CAP);
     expect(mockAddPatch).toHaveBeenCalledTimes(1);
     const [patch] = mockAddPatch.mock.calls[0];
     expect(patch[0].op).toBe("replace");
-    // Whatever it wrote is a document that was actually typed, never a stale
-    // one: the cap captures eagerly, same as the trailing timer.
-    expect(JSON.stringify(patch[0].value)).toContain("x");
+    /*
+     * The LAST document, compared whole.
+     *
+     * This asserted only that the written value contained "x", which every
+     * keystroke's document does — so a cap that wrote a stale snapshot passed a
+     * test named for the opposite. Each keystroke here types one more `x` than
+     * the last, so the documents are distinguishable and an off-by-one is a
+     * failure rather than a nuance.
+     *
+     * This run ends ON the cap with no keystroke after it (see
+     * `KEYSTROKES_TO_FIRST_CAP`), so the document at cap time IS the final one.
+     */
+    expect(patch[0].value).toEqual(typed);
   });
 
   /**
