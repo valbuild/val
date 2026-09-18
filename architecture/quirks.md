@@ -901,6 +901,51 @@ including the two that differ ONLY in whether the gate was on for the deciding
 render. `e2e/uncommitted-routes.spec.ts` covers the path end to end; its
 single-module case is `test.fixme` for (3).
 
+## `fetchVal` in draft mode reads every module, ONCE per request
+
+A draft-mode `fetchVal` does not resolve the selector you handed it. It asks
+`PUT /sources/~` for the whole module tree and then picks its modules out of the
+answer — so a page reading one string pays for the project. That part is still
+true and is not what changed.
+
+What changed is the "per call". The reader used to make that request once per
+`fetchVal`, so a page with three reads paid three times for three identical
+answers, and `fetchValRouteUrl` made it worse by calling `fetchVal` again on top
+of the caller's own. The answer cannot differ between reads in one request — the
+query is fixed and the session is fixed — so it is now read once and shared.
+Measured on a synthetic 60-module project, a three-read render went from 187ms
+to 70ms (2.7x); `packages/next/src/rsc/draftRead.perf.test.ts` prints it.
+
+**The memo is scoped to the REQUEST, and that is a correctness rule, not a
+tidiness one.** The body it holds is `own_patch_groups_only: true` — the
+caller's OWN unpublished patches, resolved from their session cookie. A memo
+that outlived the request would serve one author's staged edits to the next
+visitor, silently, as a draft rendering somebody else's half-finished sentence.
+So the memo holds no module-level state: the box comes from React's `cache()` in
+an RSC and from a `WeakMap` keyed on the `Request` in TanStack Start, and when
+neither is available (`null`) it computes every time, which is what the code did
+before. Ineffective is the safe failure here; shared is not. The key is the
+session, so a box that somehow outlived its request misses rather than answering
+wrongly.
+
+**Narrowing the request's `path` does NOT make the server do less, so the reader
+does not bother.** `/sources/~` evaluates, previews and validates every module
+and only THEN filters the response by `req.path` — the two TODOs at
+`ValServer.ts`'s `/sources/~` say exactly that. Measured: at 60 modules,
+`path: "/"` took 53.6ms and a single-module path 53.5ms, for 932KB against 15KB.
+And those bytes are not transferred by anyone: `fetchVal` calls the server
+in process, so the response object is never serialised. Narrowing would also
+give each caller a different answer to cache, which would cost the saving above
+to buy nothing. If you want the server to do less, the work is in `/sources/~`
+itself — and note that `validateSources` deliberately needs every module loaded
+anyway, to build the gallery-conflict map and the cross-module snapshot, so
+scoping it changes which errors are reported rather than just how fast.
+
+None of this touches production. With Val disabled the reader never calls the
+server at all: `stegaEncode(selector, { disabled: true })` runs against the
+statically imported module. And it does not touch the client readers, which were
+already scoped — `useVal` subscribes to exactly `getModuleIds(selector)`.
+
 ## TanStack Start
 
 **A `*.val.ts` under `src/routes` is read as a route unless you say otherwise.**
