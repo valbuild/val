@@ -17,6 +17,7 @@ packages:
   - packages/server/test/example-projects/*
 
 allowBuilds:
+  '@parcel/watcher': set this to true or false
   esbuild: true
   less: true
   unrs-resolver: true

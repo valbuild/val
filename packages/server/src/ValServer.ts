@@ -147,6 +147,37 @@ export type CommitResult =
       isNotFastForward?: boolean;
       updatedFiles: string[];
       commit: CommitSha;
+      /**
+       * The commit this one was built on.
+       *
+       * Optional because it is only as available as the content service is
+       * willing to say: a service that predates this field sends nothing, and
+       * `undefined` there means "not reported", never "this commit has no
+       * parent". A host that needs it has to handle its absence rather than
+       * treat it as a root commit.
+       *
+       * What it is FOR: a host that keeps its own record of what each commit
+       * changed -- a build cache, an incremental publisher -- can only tell
+       * whether its record is complete by chaining the commits it holds back to
+       * the one it last built. Without a parent the record is a set of
+       * snapshots with no way to notice a gap, and a commit made by somebody
+       * else in between is silently absent rather than detected.
+       *
+       * Not `CommitSha`-typed for the same reason it is optional: it is
+       * reported by a remote service and validated on arrival, and a branded
+       * type here would suggest this end had checked it.
+       */
+      parent?: string;
+      /**
+       * The git tree this commit points at.
+       *
+       * Optional for the same reason as {@link parent}. A tree hash identifies
+       * the CONTENT of a commit rather than the commit itself, so two commits
+       * with the same tree are the same source -- which is what lets a host
+       * recognise that a commit it is being asked to build is one it has built
+       * already, under a different sha, and skip the work.
+       */
+      tree?: string;
       branch: string;
       error?: undefined;
     }
