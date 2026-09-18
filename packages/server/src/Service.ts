@@ -31,6 +31,7 @@ import path from "path";
 import { loadValModules } from "./loadValModules";
 import {
   classifyJsonValuesOp,
+  isJsonValuesRootOp,
   findNestedJsonValuesRecords,
   rebaseContentOp,
   type JsonValuesOpClass,
@@ -307,6 +308,23 @@ export class Service {
         ? classifyJsonValuesOp(serializedSchema, opPath)
         : { kind: "normal" };
     for (const op of patch) {
+      /*
+       * A write of the WHOLE record is refused here, not applied.
+       *
+       * `classifyJsonValuesOp` reads a root path as `normal` - there is no
+       * segment naming an entry - so it would go straight into the `.val.ts`,
+       * replacing the record and the `c.json(() => import(...))` calls that
+       * make its entries load. `ValOps.prepare` expands such a write into
+       * per-entry ops; that needs each entry's file read and written, which
+       * `patchValFile` below does not do. Nothing that reaches here produces
+       * one today (`val validate --fix` only corrects values inside an entry),
+       * so this refuses rather than silently doing the wrong thing.
+       */
+      if (serializedSchema && isJsonValuesRootOp(serializedSchema, op)) {
+        throw Error(
+          `Cannot ${op.op} the whole .jsonValues() record of ${moduleFilePath} through Service.patch: its entries are separate files, so write them per entry`,
+        );
+      }
       const cls = classify(op.path);
       // `move` and `copy` read a SECOND path, and `rebaseContentOp` slices
       // `from` by the same prefix it slices `path` by. So an op whose two ends

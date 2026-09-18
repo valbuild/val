@@ -92,6 +92,15 @@ export type Sources = {
 };
 
 const jsonOps = new JSONOps();
+/**
+ * How many `.jsonValues()` entry files a whole-record write reads at a time.
+ *
+ * Reading them is a network round trip per entry in `ValOpsHttp`, and a commit
+ * cannot start until they are in. One at a time is too slow for the records
+ * this is for; all at once is a burst of hundreds of requests at the content
+ * host.
+ */
+const JSON_ENTRY_READ_CONCURRENCY = 8;
 const tsOps = new TSOps((document) => {
   return pipe(
     analyzeValModule(document),
@@ -1736,30 +1745,49 @@ export abstract class ValOps {
             keys.add(entryKey);
           }
         }
-        const entries = new Map<string, JSONValue | undefined>();
-        for (const entryKey of keys) {
+        const readEntry = async (
+          entryKey: string,
+        ): Promise<JSONValue | undefined> => {
           const pending = jsonEntryContentsByKey.get(entryKey);
           if (pending !== undefined && pending !== null) {
-            entries.set(entryKey, pending);
-            continue;
+            return pending;
           }
           const jsonPathRes = resolveEntryJsonPath(entryKey);
           if (result.isErr(jsonPathRes)) {
-            entries.set(entryKey, undefined);
-            continue;
+            return undefined;
           }
           const res = await this.getSourceFile(
             jsonPathRes.value as ModuleFilePath,
           );
           if (res.error) {
-            entries.set(entryKey, undefined);
-            continue;
+            return undefined;
           }
           try {
             const parsed: JSONValue = JSON.parse(res.data);
-            entries.set(entryKey, parsed);
+            return parsed;
           } catch {
-            entries.set(entryKey, undefined);
+            return undefined;
+          }
+        };
+        /*
+         * Read in batches rather than one after another: `getSourceFile` is a
+         * network round trip in `ValOpsHttp`, so a record with hundreds of
+         * entries would otherwise spend hundreds of them in series before the
+         * commit could even start - long enough to time out. The keys are
+         * walked in order and the results assembled in that order, so what the
+         * expansion sees does not depend on which read finished first.
+         */
+        const entries = new Map<string, JSONValue | undefined>();
+        const entryKeys = Array.from(keys);
+        for (
+          let i = 0;
+          i < entryKeys.length;
+          i += JSON_ENTRY_READ_CONCURRENCY
+        ) {
+          const batch = entryKeys.slice(i, i + JSON_ENTRY_READ_CONCURRENCY);
+          const read = await Promise.all(batch.map(readEntry));
+          for (let j = 0; j < batch.length; j++) {
+            entries.set(batch[j], read[j]);
           }
         }
         return result.ok(entries);

@@ -3,6 +3,7 @@ import {
   applyJsonValuesEntryPatches,
   classifyJsonValuesOp,
   expandJsonValuesRootOp,
+  expandJsonValuesRootOpForKey,
   findNestedJsonValuesRecords,
   getNewJsonEntryPaths,
   isJsonValuesRootOp,
@@ -124,6 +125,22 @@ describe("a write of the whole record at a jsonValues module's root", () => {
       ).toBe(false);
     });
 
+    test("a root replace with null is not: emptying a nullable record is a source edit", () => {
+      /*
+       * A `.jsonValues()` record can be nullable, and `null` at the root says
+       * the module has no record at all - there are no entries to write, so it
+       * is the ordinary `.val.ts` write it always was. Expanding it would mean
+       * refusing a write that used to work.
+       */
+      expect(
+        isJsonValuesRootOp(jsonValues, {
+          op: "replace",
+          path: [],
+          value: null,
+        }),
+      ).toBe(false);
+    });
+
     test("a root replace on an ordinary record is not, so it stays a source edit", () => {
       // The conversion has to be invisible to every module that is not
       // `.jsonValues()`: a plain record's root replace is an ordinary `.val.ts`
@@ -176,6 +193,74 @@ describe("a write of the whole record at a jsonValues module's root", () => {
       { op: "remove", path: ["/a"] },
       { op: "remove", path: ["/b"] },
     ]);
+  });
+
+  describe("what it says about ONE entry", () => {
+    /*
+     * The read path is about one entry, and expanding the whole record to find
+     * the op that names it costs an op per entry per entry read. It asks for
+     * that one key instead - through the same rule, which is what these
+     * assertions pin: the same answer as the full expansion, case for case.
+     */
+    const forKey = (
+      value: JSONValue,
+      entryKey: string,
+      current: Record<string, JSONValue | undefined>,
+    ): Operation | null => {
+      const res = expandJsonValuesRootOpForKey(
+        { op: "replace", path: [], value },
+        entryKey,
+        entries(current),
+      );
+      if (result.isErr(res)) {
+        throw new Error(`Expected ok, got: ${res.error.message}`);
+      }
+      return res.value;
+    };
+
+    test.each([
+      ["a key only the record has", "/new", { "/new": { title: "New" } }, {}],
+      [
+        "a key that changed",
+        "/a",
+        { "/a": { title: "A!" } },
+        { "/a": { title: "A" } },
+      ],
+      [
+        "a key the record leaves as it is",
+        "/a",
+        { "/a": { title: "A" } },
+        { "/a": { title: "A" } },
+      ],
+      ["a key the record does not name", "/gone", {}, { "/gone": {} }],
+      ["a key that is in neither", "/nope", {}, {}],
+    ])("%s", (_name, entryKey, value, current) => {
+      const whole = expandJsonValuesRootOp(
+        { op: "replace", path: [], value },
+        entries(current),
+      );
+      if (result.isErr(whole)) {
+        throw new Error(`Expected ok, got: ${whole.error.message}`);
+      }
+      const fromWhole =
+        whole.value.find((op) => op.path[0] === entryKey) ?? null;
+      expect(forKey(value, entryKey, current)).toEqual(fromWhole);
+    });
+
+    test("a marker under ANOTHER key is refused here too", () => {
+      // Otherwise the draft would show content for this entry from a patch that
+      // publishing refuses outright.
+      const res = expandJsonValuesRootOpForKey(
+        {
+          op: "replace",
+          path: [],
+          value: { "/a": { title: "A" }, "/b": { _type: "json" } },
+        },
+        "/a",
+        entries({ "/a": { title: "was" } }),
+      );
+      expect(result.isErr(res)).toBe(true);
+    });
   });
 
   describe("what it refuses", () => {

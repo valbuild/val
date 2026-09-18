@@ -106,6 +106,13 @@ function descend(
  * `add` counts as well as `replace`: at the root both mean "the document is now
  * this" (see `JSONOps`), so both have to be expanded or the unexpanded one is
  * the same bug again.
+ *
+ * The value has to BE a record, and that is part of the question rather than a
+ * check inside the expansion: a `.jsonValues()` record can be nullable, and
+ * `null` at the root means the module no longer has a record at all - there are
+ * no entries to write, and it is an ordinary `.val.ts` write, exactly as it was
+ * before any of this existed. Same for any other non-record value: not a
+ * whole-record write, so not this conversion's to route.
  */
 export function isJsonValuesRootOp(
   schema: SerializedSchema,
@@ -114,9 +121,16 @@ export function isJsonValuesRootOp(
   return (
     (op.op === "replace" || op.op === "add") &&
     op.path.length === 0 &&
+    isJsonValuesRecord(op.value) &&
     schema.type === "record" &&
     schema.jsonValues === true
   );
+}
+
+function isJsonValuesRecord(
+  value: JSONValue,
+): value is { [key: string]: JSONValue } {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -154,6 +168,70 @@ export function expandJsonValuesRootOp(
   op: Operation,
   currentEntries: CurrentJsonEntries,
 ): result.Result<Operation[], PatchError> {
+  const valueRes = jsonValuesRootValue(op);
+  if (result.isErr(valueRes)) {
+    return valueRes;
+  }
+  const value = valueRes.value;
+  const expanded: Operation[] = [];
+  for (const entryKey of Object.keys(value)) {
+    const write = writeForEntry(value, entryKey, currentEntries);
+    if (write !== null) {
+      expanded.push(write);
+    }
+  }
+  for (const entryKey of currentEntries.keys()) {
+    if (!Object.prototype.hasOwnProperty.call(value, entryKey)) {
+      expanded.push({ op: "remove", path: [entryKey] });
+    }
+  }
+  return result.ok(expanded);
+}
+
+/**
+ * What a whole-record write says about ONE entry: the same rule
+ * {@link expandJsonValuesRootOp} applies to all of them.
+ *
+ * For a reader that is about one entry. Expanding the whole record to find the
+ * one op that names its key costs an op per entry per entry read - the record
+ * squared, on exactly the large records this feature is for. The rule itself is
+ * `writeForEntry`, shared with the expansion above, so the two cannot come to
+ * disagree; only the loop around it differs.
+ *
+ * `null` means the write says nothing about this entry: it holds that content
+ * already, or the record does not name it and it does not exist.
+ */
+export function expandJsonValuesRootOpForKey(
+  op: Operation,
+  entryKey: string,
+  currentEntries: CurrentJsonEntries,
+): result.Result<Operation | null, PatchError> {
+  const valueRes = jsonValuesRootValue(op);
+  if (result.isErr(valueRes)) {
+    return valueRes;
+  }
+  const value = valueRes.value;
+  if (Object.prototype.hasOwnProperty.call(value, entryKey)) {
+    return result.ok(writeForEntry(value, entryKey, currentEntries));
+  }
+  if (currentEntries.has(entryKey)) {
+    return result.ok({ op: "remove", path: [entryKey] });
+  }
+  return result.ok(null);
+}
+
+/**
+ * The record a whole-record write carries, once it is known to be one.
+ *
+ * Every entry's value is checked here rather than where each one is written:
+ * a marker anywhere in the record means the writer handed over a module's
+ * Source, and the answer to that is to refuse the write, not to write the rest
+ * of it. Both entry points ask, so an entry read reports it too rather than
+ * showing a draft of a patch that publishing will refuse.
+ */
+function jsonValuesRootValue(
+  op: Operation,
+): result.Result<{ [key: string]: JSONValue }, PatchError> {
   if (op.op !== "replace" && op.op !== "add") {
     return result.err(
       new PatchError(
@@ -162,15 +240,14 @@ export function expandJsonValuesRootOp(
     );
   }
   const value = op.value;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isJsonValuesRecord(value)) {
     return result.err(
       new PatchError(
         "Cannot write the root of a .jsonValues() record with a non-record value: it must be an object of entry key to entry content",
       ),
     );
   }
-  const expanded: Operation[] = [];
-  for (const [entryKey, content] of Object.entries(value)) {
+  for (const entryKey of Object.keys(value)) {
     /*
      * A marker is what a module's Source holds WHERE THE CONTENT IS NOT: it
      * says the content is in the entry's own file. Handed back as an entry's
@@ -178,32 +255,35 @@ export function expandJsonValuesRootOp(
      * replace that content with the note saying where it used to be, and
      * nothing downstream could tell the difference.
      */
-    if (Internal.isJson(content)) {
+    if (Internal.isJson(value[entryKey])) {
       return result.err(
         new PatchError(
           `Cannot write the .jsonValues() entry '${entryKey}' from a '${VAL_EXTENSION}: "json"' marker: a marker says the content is in the entry's own file, so write the entry's CONTENT here, not the module's Source`,
         ),
       );
     }
-    if (!currentEntries.has(entryKey)) {
-      expanded.push({ op: "add", path: [entryKey], value: content });
-      continue;
-    }
-    const current = currentEntries.get(entryKey);
-    if (current !== undefined && deepEqual(current, content)) {
-      // Unchanged: emitting a replace here would rewrite the entry's file with
-      // the bytes it already holds, so putting a module back would show up as a
-      // change to every entry in it.
-      continue;
-    }
-    expanded.push({ op: "replace", path: [entryKey], value: content });
   }
-  for (const entryKey of currentEntries.keys()) {
-    if (!Object.prototype.hasOwnProperty.call(value, entryKey)) {
-      expanded.push({ op: "remove", path: [entryKey] });
-    }
+  return result.ok(value);
+}
+
+/** THE rule, for one entry the record names. `null` = nothing to write. */
+function writeForEntry(
+  value: { [key: string]: JSONValue },
+  entryKey: string,
+  currentEntries: CurrentJsonEntries,
+): Operation | null {
+  const content = value[entryKey];
+  if (!currentEntries.has(entryKey)) {
+    return { op: "add", path: [entryKey], value: content };
   }
-  return result.ok(expanded);
+  const current = currentEntries.get(entryKey);
+  if (current !== undefined && deepEqual(current, content)) {
+    // Unchanged: emitting a replace here would rewrite the entry's file with
+    // the bytes it already holds, so putting a module back would show up as a
+    // change to every entry in it.
+    return null;
+  }
+  return { op: "replace", path: [entryKey], value: content };
 }
 
 /**
@@ -387,23 +467,24 @@ export function applyJsonValuesEntryPatches(args: {
     let touched = false;
     for (const rawOp of patch) {
       /**
-       * A write of the WHOLE record fans out into per-entry ops first.
+       * A write of the WHOLE record becomes what it says about THIS entry.
        *
-       * Through the same {@link expandJsonValuesRootOp} the commit flow uses,
-       * against the same view of this entry: present or not, and with what
-       * content. That is what makes the draft this produces and the files a
-       * publish writes agree - two expansions of one rule would not.
+       * Through the same rule the commit flow expands with, against the same
+       * view of this entry: present or not, and with what content. That is what
+       * makes the draft this produces and the files a publish writes agree -
+       * two expansions of one rule would not.
        */
       let ops: Operation[] = [rawOp];
       if (serializedSchema && isJsonValuesRootOp(serializedSchema, rawOp)) {
-        const expanded = expandJsonValuesRootOp(
+        const write = expandJsonValuesRootOpForKey(
           rawOp,
+          entryKey,
           new Map(content === undefined ? [] : [[entryKey, content]]),
         );
-        if (result.isErr(expanded)) {
-          return { kind: "error", message: expanded.error.message, patchId };
+        if (result.isErr(write)) {
+          return { kind: "error", message: write.error.message, patchId };
         }
-        ops = expanded.value;
+        ops = write.value === null ? [] : [write.value];
       }
       for (const op of ops) {
         const cls = serializedSchema

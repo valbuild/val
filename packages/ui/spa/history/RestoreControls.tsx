@@ -48,22 +48,46 @@ export function RestoreControls({
   const [reverting, setReverting] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   /**
-   * `.jsonValues()` entry content at this commit, once something has asked for
-   * it. Keyed by module, then entry key.
+   * `.jsonValues()` entry content, once something has asked for it: by module,
+   * then entry key - and stamped with the commit it was read at.
    *
    * Held here rather than fetched with the commit: it is a request per entry,
-   * and only a restore needs it. Kept after a restore because the commit cannot
-   * change, so a second restore of the same module is free.
+   * and only a restore needs it. Kept afterwards because a commit's content
+   * cannot change, so a second restore of the same module is free.
+   *
+   * The stamp is what makes keeping it safe. These controls are not remounted
+   * when the pane moves to another commit, so content read at one commit would
+   * otherwise still be here to stage at the next - putting back the wrong
+   * version, silently, with nothing fetched to notice. A read that lands after
+   * the move is discarded for the same reason.
    */
-  const [jsonEntries, setJsonEntries] = useState<
-    Record<ModuleFilePath, Record<string, JSONValue>>
-  >({});
+  const [jsonEntries, setJsonEntries] = useState<{
+    commitSha: string;
+    byModule: Record<ModuleFilePath, Record<string, JSONValue>>;
+  }>({ commitSha: "", byModule: {} });
   const { addModuleFilePatch } = useAddPatch(path ?? ("" as SourcePath));
   const client = useClient();
 
   if (!patchSet) {
     return null;
   }
+  const commitSha = patchSet.commit.commitSha;
+  /** Only what was read at the commit on screen; anything older is not ours. */
+  const entriesHere =
+    jsonEntries.commitSha === commitSha ? jsonEntries.byModule : {};
+  /** Keep a read only while the pane is still on the commit it was read at. */
+  const rememberEntries = (
+    forModule: ModuleFilePath,
+    entries: Record<string, JSONValue>,
+  ) => {
+    setJsonEntries((current) => ({
+      commitSha,
+      byModule:
+        current.commitSha === commitSha
+          ? { ...current.byModule, [forModule]: entries }
+          : { [forModule]: entries },
+    }));
+  };
   const inRestoreMode = history.restore.mode !== "off";
   const moduleFilePath =
     path === null
@@ -93,7 +117,7 @@ export function RestoreControls({
   const revertHere =
     moduleHere === undefined || moduleFilePath === null
       ? null
-      : planModuleRevert(moduleHere, jsonEntries[moduleFilePath]);
+      : planModuleRevert(moduleHere, entriesHere[moduleFilePath]);
   const restorableHere = revertHere !== null && revertHere.kind !== "blocked";
   /*
    * What "Put everything back" would actually stage, asked of the plan itself.
@@ -104,7 +128,7 @@ export function RestoreControls({
    * not been read yet COUNT: they are put back too, after a read the click
    * pays for.
    */
-  const revertPlan = planRevertAll(patchSet, jsonEntries);
+  const revertPlan = planRevertAll(patchSet, entriesHere);
   const revertCount =
     revertPlan.modules.length + revertPlan.needsJsonEntries.length;
   const revertTouchesThisModule =
@@ -204,10 +228,7 @@ export function RestoreControls({
       setReverting(loaded.message);
       return;
     }
-    setJsonEntries((current) => ({
-      ...current,
-      [moduleFilePath]: loaded.entries,
-    }));
+    rememberEntries(moduleFilePath, loaded.entries);
     const planned = planModuleRevert(moduleHere, loaded.entries);
     if (planned.kind !== "patch") {
       setReverting(
@@ -231,7 +252,7 @@ export function RestoreControls({
      * staging: a module put back from half its entries is a module with the
      * other half deleted, so nothing is staged until the read is complete.
      */
-    let entries = jsonEntries;
+    let entries = entriesHere;
     const unreadable: ModuleFilePath[] = [];
     if (revertPlan.needsJsonEntries.length > 0) {
       setBusy(true);
@@ -245,7 +266,9 @@ export function RestoreControls({
         entries = { ...entries, [moduleFilePath]: loaded.entries };
       }
       setBusy(false);
-      setJsonEntries(entries);
+      for (const [forModule, loaded] of Object.entries(entries)) {
+        rememberEntries(forModule as ModuleFilePath, loaded);
+      }
     }
     const plan = planRevertAll(patchSet, entries);
     for (const { moduleFilePath, patch } of plan.modules) {
