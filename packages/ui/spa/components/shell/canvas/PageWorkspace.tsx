@@ -1216,22 +1216,24 @@ export function PageWorkspace({
 }
 
 /**
- * The fields view before the page has said what is on it.
+ * The On page view before the page has said what is on it.
  *
- * Almost always one thing: preview mode is off. Without that cookie the page
- * mounts none of Val's client code, so nothing tags its content and nothing
- * reports back — and the canvas says so, with the button that fixes it, because
- * the canvas is the thing holding the page.
+ * Almost always one thing: preview mode is off. This does not say so, and the
+ * short line is the point — the canvas is holding the page, so the canvas knows
+ * which of the several reasons it is, and it has the button. Two explanations
+ * of one situation, on screen at the same time on a desktop, is one more than
+ * the situation has.
+ *
+ * It used to carry that explanation itself: what preview mode is, what a page
+ * without it does not do, and the caveat that a page which simply has no Val
+ * content on it looks identical from here. All true, all already said by the
+ * notice over the page, and none of it a thing to DO.
  *
  * This used to be no tab at all. The switch appeared only once there was a list
  * to show, so the one state where someone needs to be told something was the
- * state with nothing to click, and the fields view read as a feature that comes
- * and goes. Saying it here costs a tab that is occasionally empty and buys an
+ * state with nothing to click, and the view read as a feature that comes and
+ * goes. Saying it here costs a tab that is occasionally empty and buys an
  * answer to "where did On page go".
- *
- * It does not claim preview mode IS off, because it cannot see: a page in
- * preview mode with no Val content on it reports nothing either, and telling
- * someone to turn on something already on is its own dead end.
  */
 function FieldsAwaitingPage({
   onGoToPreview,
@@ -1247,10 +1249,7 @@ function FieldsAwaitingPage({
           Nothing reported yet
         </h2>
         <p className="text-[0.6875rem] leading-relaxed text-fg-secondary-alt">
-          Usually that means preview mode is off: without it the page mounts
-          none of Val's client code and tags nothing, and the Preview has the
-          button that turns it on. A page that is already in preview mode and
-          simply has no Val content on it looks the same from here.
+          The preview says why, and has the button that fixes it.
         </p>
       </div>
       {onGoToPreview && (

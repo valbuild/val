@@ -59,16 +59,61 @@ describe("the canvas preview notice", () => {
       // A page that has answered "draft mode is off" is a definite answer, and
       // it is STILL not accused for the first stretch: turning preview on is a
       // redirect and a fresh document, and compiling a route can take seconds.
-      render(notice("preview-off"));
+      render(notice("connecting"));
       expect(screen.queryByText("Preview is not ready yet")).not.toBeNull();
-      expect(screen.queryByText("Preview mode is off")).toBeNull();
       act(() => {
         jest.advanceTimersByTime(PREVIEW_WARNING_DELAY_MS);
       });
-      expect(screen.queryByText("Preview mode is off")).not.toBeNull();
+      expect(screen.queryByText("No answer from the page")).not.toBeNull();
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  /**
+   * One thing on the pill.
+   *
+   * Where the fix fits on a button, the button IS the message: a sentence
+   * beside it saying "Preview is not ready yet" is a vaguer copy of what the
+   * button already says, and two of them read as two problems rather than one
+   * act. The sentence is kept for a screen reader, because `role="status"` is
+   * what announces the canvas's state and a button appearing announces
+   * nothing.
+   */
+  test("where there is a button to press, the button is the whole message", () => {
+    jest.useFakeTimers();
+    try {
+      render(notice("preview-off"));
+      const said = screen.getByText("Preview is not ready yet");
+      expect(said.closest(".sr-only")).not.toBeNull();
+      expect(
+        screen.queryByRole("button", { name: /Turn on preview mode/ }),
+      ).not.toBeNull();
+
+      /*
+       * And the diagnosis comes back once the wait is up, drawn this time: by
+       * then the button has been on screen for twenty seconds without working,
+       * so which way it is failing is the part that is worth reading.
+       */
+      act(() => {
+        jest.advanceTimersByTime(PREVIEW_WARNING_DELAY_MS);
+      });
+      const diagnosed = screen.getByText("Preview mode is off");
+      expect(diagnosed.closest(".sr-only")).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  /**
+   * The enabling state said the same thing twice, with two spinners: the pill's
+   * own label reads "Turning on preview mode…", and a chip beside it read
+   * "Turning on…".
+   */
+  test("turning on is said once", () => {
+    render(notice("enabling"));
+    expect(screen.queryByText("Turning on preview mode…")).not.toBeNull();
+    expect(screen.queryByText("Turning on…")).toBeNull();
   });
 
   test("a silent page is named as one, once the wait is up", () => {
@@ -172,27 +217,54 @@ describe("the canvas preview notice", () => {
   });
 
   test("the explanation and the reload are behind Details", () => {
-    render(notice("preview-off"));
+    render(notice("connecting"));
     expect(screen.queryByText("Reload")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Details/ }));
     expect(screen.queryByText("Reload")).not.toBeNull();
-    // The explanation follows the same clock the pill does: before the wait is
-    // up it says what is happening, not what is wrong.
+    // A page that has not answered is described as that, not accused of
+    // anything: this is the state a first `next dev` compile passes through.
     expect(
       screen.queryByText(/The page has not reported what is on it yet/),
     ).not.toBeNull();
   });
 
-  test("the developer's checklist is offered only where the page is silent", () => {
-    const { unmount } = render(notice("no-answer"));
-    fireEvent.click(screen.getByRole("button", { name: /Details/ }));
-    expect(screen.queryByText("Setup instructions")).not.toBeNull();
-    unmount();
-    // A page that answered "preview mode is off" is wired up correctly: it
-    // answered. Nothing to check.
+  /**
+   * The panel does not keep the pill's silence.
+   *
+   * The pill withholds a diagnosis for the first stretch because it appears
+   * without being asked for. The panel was opened on purpose, and answering
+   * "the page has not reported what is on it yet" to a page that has reported
+   * — and reported that preview mode is off — is the one place being unhelpful
+   * on purpose.
+   */
+  test("but the explanation says what is known, without waiting", () => {
     render(notice("preview-off"));
     fireEvent.click(screen.getByRole("button", { name: /Details/ }));
-    expect(screen.queryByText("Setup instructions")).toBeNull();
+    expect(screen.queryByText(/Without preview mode/)).not.toBeNull();
+    expect(
+      screen.queryByText(/The page has not reported what is on it yet/),
+    ).toBeNull();
+  });
+
+  /**
+   * The checklist used to be offered only where the page never answered, on the
+   * grounds that a page which answered is wired up correctly. That withheld it
+   * from the person most likely to want it: someone whose preview mode will not
+   * stay on presses the button, lands back on `preview-off`, and was then in
+   * the one state with no route to the setup help.
+   */
+  test("the developer's checklist is reachable from every state", () => {
+    for (const status of [
+      "connecting",
+      "enabling",
+      "no-answer",
+      "preview-off",
+    ] as const) {
+      const { unmount } = render(notice(status));
+      fireEvent.click(screen.getByRole("button", { name: /Details/ }));
+      expect(screen.queryByText("Setup instructions")).not.toBeNull();
+      unmount();
+    }
   });
 });
 
