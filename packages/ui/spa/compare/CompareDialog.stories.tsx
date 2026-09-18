@@ -4,6 +4,7 @@ import { CompareDialog } from "./CompareDialog";
 import {
   commitBasisModel,
   compareModel,
+  deepDataModel,
   emptyModel,
   longCommitMessageModel,
   previewedModel,
@@ -348,3 +349,18 @@ export const WithPreviewsLight: Story = {
 export const WithPreviewsMobile: Story = {
   args: { model: previewedModel, layout: "mobile" },
 };
+
+/**
+ * A structured project, where compact folders earn their place.
+ *
+ * `/content/shop/shipping/rates.val.ts` and its neighbour would otherwise be
+ * four rows of folders with one child each. The row reading `shop / shipping`
+ * still selects `/content/shop/shipping` — the deepest directory it names, not
+ * the outermost.
+ *
+ * The limits are on screen too: `editorial` has a single child and does NOT
+ * merge, because that child is a file and `editorial / authors` would read as a
+ * path to a directory called `authors`. `content` has three children, so it
+ * does not merge either.
+ */
+export const DeepDataTree: Story = { args: { model: deepDataModel } };

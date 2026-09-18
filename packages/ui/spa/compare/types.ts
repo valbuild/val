@@ -64,8 +64,11 @@ export type CompareNavKind =
   | "page"
   | "folder"
   | "module"
+  /** A gallery — one row per `s.imageset()`/`s.fileset()`, never a directory tree. */
   | "media-dir"
-  | "media-file";
+  | "media-file"
+  /** A gallery entry that is not an image, which takes a different icon. */
+  | "media-doc";
 
 /**
  * One row in the left nav.

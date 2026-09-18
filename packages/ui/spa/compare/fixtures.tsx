@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
 import type { AuthorPatchInfo } from "../components/FieldPatchAuthors";
 import type { Profile } from "../components/ValProvider";
+import { directoryName } from "../components/shell/shellDataMapping";
+import { servedPath } from "../utils/mediaPath";
+import { buildDataTree } from "./navTree";
 import type { Description } from "../utils/describePath";
 import type {
   CompareAuthorship,
@@ -595,37 +598,48 @@ export const compareModel: CompareModel = {
       ],
     },
     {
-      id: "content",
-      title: "Content",
-      nodes: [
+      id: "data",
+      /*
+       * "Data", because that is what the panel holding these modules is called.
+       * The nav is a second view of the same three places — Pages, Data, Media —
+       * and a section named something else would be a fourth word for one of
+       * them.
+       */
+      title: "Data",
+      /*
+       * Built from the paths rather than written out, so the tree, the sort and
+       * the compaction are the ones `buildDataTree` is tested on. A hand-written
+       * tree here would be a fixture that agrees with nothing.
+       */
+      nodes: buildDataTree([
         {
-          id: "mod-authors",
-          label: "authors.val.ts",
-          sublabel: "/content",
-          kind: "module",
-          change: "changed",
-          changedCount: 3,
-          authorIds: ["profile-ada", "profile-linus"],
+          moduleFilePath: "/content/authors.val.ts",
+          node: {
+            id: "mod-authors",
+            change: "changed",
+            changedCount: 3,
+            authorIds: ["profile-ada", "profile-linus"],
+          },
         },
         {
-          id: "mod-lists",
-          label: "lists.val.ts",
-          sublabel: "/content",
-          kind: "module",
-          change: "changed",
-          changedCount: 5,
-          authorIds: ["profile-ada", "profile-linus"],
+          moduleFilePath: "/content/lists.val.ts",
+          node: {
+            id: "mod-lists",
+            change: "changed",
+            changedCount: 5,
+            authorIds: ["profile-ada", "profile-linus"],
+          },
         },
         {
-          id: "mod-settings",
-          label: "settings.val.ts",
-          sublabel: "/",
-          kind: "module",
-          change: "changed",
-          changedCount: 1,
-          authorIds: ["profile-ada"],
+          moduleFilePath: "/settings.val.ts",
+          node: {
+            id: "mod-settings",
+            change: "changed",
+            changedCount: 1,
+            authorIds: ["profile-ada"],
+          },
         },
-      ],
+      ]),
     },
     {
       id: "media",
@@ -633,8 +647,14 @@ export const compareModel: CompareModel = {
       nodes: [
         {
           id: "media-images",
-          label: "/public/val/images",
-          sublabel: "s.images()",
+          /*
+           * The gallery's directory NAME, with the served path beneath it —
+           * `MediaPanel`'s row, built from the same two functions. `/public` is
+           * the web root, so it is never shown: `/val/images` is what a URL to
+           * anything in here looks like.
+           */
+          label: directoryName("/public/val/images"),
+          sublabel: servedPath("/public/val/images"),
           kind: "media-dir",
           change: "changed",
           changedCount: 2,
@@ -656,6 +676,30 @@ export const compareModel: CompareModel = {
             },
           ],
         },
+        {
+          /*
+           * An `s.fileset()` beside the imageset, so both media icons are on
+           * screen: `MediaPanel` draws a thumbnail for an image and `FileText`
+           * for anything else, and a gallery of PDFs is the ordinary case for
+           * the second one.
+           */
+          id: "media-docs",
+          label: directoryName("/public/val/docs"),
+          sublabel: servedPath("/public/val/docs"),
+          kind: "media-dir",
+          change: "changed",
+          changedCount: 1,
+          authorIds: ["profile-ada"],
+          children: [
+            {
+              id: "media-terms",
+              label: "terms-2026_c4d5e.pdf",
+              kind: "media-doc",
+              change: "added",
+              authorIds: ["profile-ada"],
+            },
+          ],
+        },
       ],
     },
   ],
@@ -668,6 +712,7 @@ export const compareModel: CompareModel = {
     "mod-lists": listsPane,
     "mod-settings": settingsPane,
     "media-images": mediaPane,
+    "media-docs": mediaPane,
     "media-hero": {
       description: unnamed("hero-a1b2c.jpg"),
       path: "/public/val/images",
@@ -745,19 +790,19 @@ export const singleModuleModel: CompareModel = {
   basisOptions: compareModel.basisOptions,
   sections: [
     {
-      id: "content",
-      title: "Content",
-      nodes: [
+      id: "data",
+      title: "Data",
+      nodes: buildDataTree([
         {
-          id: "mod-settings",
-          label: "settings.val.ts",
-          sublabel: "/",
-          kind: "module",
-          change: "changed",
-          changedCount: 1,
-          authorIds: ["profile-ada"],
+          moduleFilePath: "/settings.val.ts",
+          node: {
+            id: "mod-settings",
+            change: "changed",
+            changedCount: 1,
+            authorIds: ["profile-ada"],
+          },
         },
-      ],
+      ]),
     },
   ],
   panes: { "mod-settings": settingsPane },
@@ -913,7 +958,7 @@ export const emptyModel: CompareModel = {
   basisOptions: compareModel.basisOptions,
   sections: [
     { id: "pages", title: "Pages", nodes: [] },
-    { id: "content", title: "Content", nodes: [] },
+    { id: "data", title: "Data", nodes: [] },
     { id: "media", title: "Media", nodes: [] },
   ],
   panes: {},
@@ -1082,5 +1127,73 @@ export const previewedModel: CompareModel = {
     "page-landing": namedLandingPane,
     "mod-authors": namedAuthorsPane,
     "page-renamed-blog": namedRoutesPane,
+  },
+};
+
+/**
+ * A project that organises its content, where one edit sits four levels down.
+ *
+ * The case compact folders exist for, and the one the flat fixture cannot show:
+ * `/content/shop/shipping/rates.val.ts` alone is four rows to say one thing.
+ * Compacted it is two, and the row that says `shop / shipping` is still the row
+ * that selects `/content/shop/shipping`.
+ *
+ * Also here so the rule's LIMITS are on screen rather than only in the tests:
+ * `editorial` has one child and does not merge, because that child is a file
+ * and `editorial / authors` would read as a path to a directory called
+ * `authors`. `content` has three children, so it does not merge either.
+ */
+export const deepDataModel: CompareModel = {
+  ...compareModel,
+  changeCount: 4,
+  sections: [
+    {
+      id: "data",
+      title: "Data",
+      nodes: buildDataTree([
+        {
+          moduleFilePath: "/content/shop/shipping/rates.val.ts",
+          node: {
+            id: "mod-rates",
+            change: "changed",
+            changedCount: 2,
+            authorIds: ["profile-ada"],
+          },
+        },
+        {
+          moduleFilePath: "/content/shop/shipping/zones.val.ts",
+          node: {
+            id: "mod-zones",
+            change: "added",
+            changedCount: 1,
+            authorIds: ["profile-linus"],
+          },
+        },
+        {
+          moduleFilePath: "/content/editorial/authors.val.ts",
+          node: {
+            id: "mod-authors",
+            change: "changed",
+            changedCount: 3,
+            authorIds: ["profile-ada", "profile-linus"],
+          },
+        },
+        {
+          moduleFilePath: "/content/footer.val.ts",
+          node: {
+            id: "mod-footer",
+            change: "changed",
+            changedCount: 1,
+            authorIds: ["profile-ada"],
+          },
+        },
+      ]),
+    },
+  ],
+  panes: {
+    "mod-authors": authorsPane,
+    "mod-rates": listsPane,
+    "mod-zones": settingsPane,
+    "mod-footer": settingsPane,
   },
 };

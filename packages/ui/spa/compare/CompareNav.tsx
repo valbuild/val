@@ -1,12 +1,11 @@
 import { useState, type ReactNode } from "react";
 import {
+  Braces,
   ChevronDown,
   ChevronRight,
-  FileCode,
+  File,
   FileText,
-  Folder,
   Image as ImageIcon,
-  Images,
 } from "lucide-react";
 import { cn } from "../components/designSystem/cn";
 import { ChangeKindIcon, changeKindLabel } from "./ChangeKindIcon";
@@ -52,12 +51,27 @@ import type {
  * do carry previews. That asymmetry is the rule working, not an inconsistency.
  */
 
-const KIND_ICONS: Record<CompareNavKind, typeof FileText> = {
-  page: FileText,
-  folder: Folder,
-  module: FileCode,
-  "media-dir": Images,
+/**
+ * The panels' icons, not this component's own.
+ *
+ * `File` for a page and `Braces` for a module are what `PagesPanel` and
+ * `DataPanel` draw, so a row here and the same row under Pages or Data are
+ * recognisably the same thing. `null` means the row draws no icon at all, which
+ * is also copied rather than invented: a row with children already carries a
+ * chevron, and both panels say the same thing about it — "the leading slot is
+ * one icon wide, and a second icon in it overlaps the label".
+ *
+ * A gallery is `null` for that reason too; its FILES take the media icons, the
+ * way `MediaPanel` draws a thumbnail for an image and `FileText` for anything
+ * else.
+ */
+const KIND_ICONS: Record<CompareNavKind, typeof FileText | null> = {
+  page: File,
+  folder: null,
+  module: Braces,
+  "media-dir": null,
   "media-file": ImageIcon,
+  "media-doc": FileText,
 };
 
 /**
@@ -208,7 +222,13 @@ function NavRow({
           aria-current={isSelected ? "true" : undefined}
           className="flex min-w-0 flex-1 items-center gap-2 py-1 pr-2 text-left"
         >
-          <Icon size={14} className="shrink-0 text-fg-tertiary" aria-hidden />
+          {Icon !== null && (
+            <Icon
+              size={13}
+              className="shrink-0 text-fg-secondary-alt"
+              aria-hidden
+            />
+          )}
           <span className="min-w-0 flex-1">
             <span
               className={cn(
