@@ -75,4 +75,41 @@ describe("RouteForm", () => {
     expect(blogInput().value).toBe("renamed");
     expect(submit().disabled).toBe(false);
   });
+
+  /**
+   * The other half of the keying, and the half a too-clever key would break.
+   *
+   * Keying on the pattern's string form only holds if that string still tells
+   * two genuinely different routes apart. If it collapsed them, the form would
+   * stop re-seeding when the route really did change and quietly keep the
+   * previous route's params - the opposite failure, and one no e2e test looks
+   * for.
+   *
+   * `[blog]` and `[[blog]]` are the sharpest case: `routePatternToString` keeps
+   * them distinct on purpose (see its comment - they collided once and two
+   * routers shared one key), and `extractRoutePatternParams` reads the same
+   * params out of the same URL under both. So `defaultValue` is held FIXED
+   * here and only the pattern moves, which is the dependency under test and
+   * nothing else.
+   */
+  it("re-seeds when the route itself changes, not just its array", () => {
+    const { rerender } = renderForm();
+    fireEvent.change(blogInput(), { target: { value: "renamed" } });
+    expect(blogInput().value).toBe("renamed");
+
+    rerender(
+      <RouteForm
+        routePattern={parseRoutePattern("/blogs/[[blog]]")}
+        existingKeys={["/blogs/rename-me"]}
+        defaultValue="/blogs/rename-me"
+        submitText="Rename"
+        onSubmit={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+
+    // A different route, so the form starts again from what that route says.
+    expect(blogInput().value).toBe("rename-me");
+    expect(submit().disabled).toBe(true);
+  });
 });
