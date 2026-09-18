@@ -15,7 +15,11 @@ import {
   SourceObject,
   JsonSource,
 } from "@valbuild/core";
-import { VAL_SESSION_COOKIE } from "@valbuild/shared/internal";
+import {
+  VAL_SESSION_COOKIE,
+  memoizePerRequest,
+  type RequestScopedMemo,
+} from "@valbuild/shared/internal";
 import {
   createValServer,
   ValServer,
@@ -39,11 +43,147 @@ import type { ValHttpMode } from "./initValServer";
  * is server-RENDERED and then hydrated, so every element it produces is a
  * normal client element and the distinction does not exist.
  */
-const initFetchValStega =
+
+/**
+ * The `modules` map every `fetchVal` in one request shares.
+ *
+ * Derived from the route's own response type rather than restated, so it cannot
+ * drift from what `/sources/~` actually returns.
+ */
+export type DraftSources = Extract<
+  Awaited<ReturnType<ValServer["/sources/~"]["PUT"]>>,
+  { status: 200 }
+>["json"]["modules"];
+
+/**
+ * The slice of `ValServer` the draft-sources reader uses.
+ *
+ * Narrower than `ValServer` for the same reason `JsonEntryValServer` below is:
+ * it says what the dependency IS, and it lets a test drive the reader with a
+ * one-route fake instead of casting a partial object to the whole server type.
+ */
+export type DraftSourcesValServer = Pick<ValServer, "/sources/~">;
+
+/** What the route readers need: the tree, plus the single-entry route. */
+export type RouteReaderValServer = Pick<ValServer, "/sources/~" | "/json">;
+
+/**
+ * Where the reader gets its per-request memo box.
+ *
+ * Injected rather than reached for, so that "this reader needs a request to
+ * scope its cache to" is part of its contract and a test can supply a scope it
+ * controls — there is no TanStack request in jest.
+ */
+export type GetDraftSourcesScope =
+  () => Promise<RequestScopedMemo<DraftSources | null> | null>;
+
+/**
+ * A per-request memo box, keyed on the `Request` itself.
+ *
+ * That is what makes this safe: TanStack resolves one `Request` object per
+ * in-flight request out of async local storage, so two visitors cannot collide,
+ * and a `WeakMap` lets the entry go when the request does. This is the TanStack
+ * half of the Next package's `cache()` — there is no RSC here, so React's
+ * request memoisation does not exist (see the note at the top of this file).
+ *
+ * Outside a request there is nothing to scope to and `getRequest` throws;
+ * `null` then means "compute every time", which is what this did before the
+ * memo existed. See `memoizePerRequest`.
+ *
+ * Built PER `initValContent` rather than once for the module, because the box
+ * is only as specific as the map it came from: two Val servers in one process
+ * sharing one would answer each other's reads within a request, and they hold
+ * different content.
+ */
+function createTanStackRequestScope(): GetDraftSourcesScope {
+  const boxes = new WeakMap<Request, RequestScopedMemo<DraftSources | null>>();
+  return async () => {
+    let request: Request;
+    try {
+      const { getRequest } = await import("@tanstack/react-start/server");
+      request = getRequest();
+    } catch {
+      // Not inside a request -- nothing request-scoped to hang the memo on.
+      return null;
+    }
+    const existing = boxes.get(request);
+    if (existing) {
+      return existing;
+    }
+    const box: RequestScopedMemo<DraftSources | null> = {};
+    boxes.set(request, box);
+    return box;
+  };
+}
+
+/**
+ * ONE read of the whole module tree, for the session in `sessionCookie`.
+ *
+ * `path` stays `"/"` on purpose, and the measurement is why. `/sources/~`
+ * evaluates, previews and validates EVERY module and only THEN filters the
+ * response by `req.path` (the two TODOs in `ValServer.ts` say so), so narrowing
+ * the path shrinks the answer and changes the work not at all: on a 60-module
+ * project, `path: "/"` took 53.6ms and a single-module path 53.5ms. And this is
+ * an in-process call rather than a round trip, so the object it builds is never
+ * serialised or sent anywhere — the bytes it saves are not bytes anyone pays
+ * for. Narrowing would also give each caller a different answer to cache, which
+ * is what would cost the saving that IS real (2.7x on the same project).
+ *
+ * `draftRead.perf.test.ts` prints both numbers; re-run it before believing
+ * anything different.
+ *
+ * Returns `null` when the session is not one the server accepts; the caller
+ * then renders published content, which is what it did before.
+ */
+async function loadDraftSources(
+  valServerPromise: Promise<DraftSourcesValServer>,
+  sessionCookie: string | undefined,
+): Promise<DraftSources | null> {
+  const valServer = await valServerPromise;
+  const treeRes = await valServer["/sources/~"]["PUT"]({
+    path: "/",
+    query: {
+      validate_sources: true,
+      validate_binary_files: false,
+      exclude_patches: false,
+      // The server-side read uses the legacy "server applies patches"
+      // path, same as the Next package's.
+      apply_patches: undefined,
+      /*
+       * The caller's own staged work, and nobody else's.
+       *
+       * A draft render cannot name its group ids — it has no client
+       * state — so it asks for "mine" and the server resolves them from
+       * the session. Without this a preview shows base + every pending
+       * patch on the branch, so one person's half-finished edit appears
+       * in another person's draft.
+       *
+       * `patch_id` stays `undefined`: naming an explicit list is for a
+       * caller that already knows what it wants, and it would override
+       * the resolution rather than intersect with it.
+       */
+      patch_id: undefined,
+      own_patch_groups_only: true,
+    },
+    cookies: {
+      [VAL_SESSION_COOKIE]: sessionCookie,
+    },
+  });
+  if (treeRes.status === 200) {
+    return treeRes.json.modules;
+  }
+  if (treeRes.status === 401) {
+    console.warn("Val: authentication error: ", treeRes.json.message);
+    return null;
+  }
+  throw Error(JSON.stringify(treeRes.json, null, 2));
+}
+
+export const initFetchValStega =
   (
     config: ValConfig,
     valApiEndpoints: string,
-    valServerPromise: Promise<ValServer>,
+    valServerPromise: Promise<DraftSourcesValServer>,
     isEnabled: () => Promise<boolean>,
     getHeaders: () => Promise<{
       get(name: string): string | null;
@@ -51,6 +191,7 @@ const initFetchValStega =
     getCookies: () => Promise<{
       get(name: string): { name: string; value: string } | undefined;
     }>,
+    getDraftSourcesScope: GetDraftSourcesScope,
   ) =>
   <T extends SelectorSource>(
     selector: T,
@@ -100,39 +241,25 @@ const initFetchValStega =
 
         const host: string | null = headers && getHost(headers);
         if (host && cookies) {
-          const valServer = await valServerPromise;
-          const treeRes = await valServer["/sources/~"]["PUT"]({
-            path: "/",
-            query: {
-              validate_sources: true,
-              validate_binary_files: false,
-              exclude_patches: false,
-              // The server-side read uses the legacy "server applies patches"
-              // path, same as the Next package's.
-              apply_patches: undefined,
-              /*
-               * The caller's own staged work, and nobody else's.
-               *
-               * A draft render cannot name its group ids — it has no client
-               * state — so it asks for "mine" and the server resolves them from
-               * the session. Without this a preview shows base + every pending
-               * patch on the branch, so one person's half-finished edit appears
-               * in another person's draft.
-               *
-               * `patch_id` stays `undefined`: naming an explicit list is for a
-               * caller that already knows what it wants, and it would override
-               * the resolution rather than intersect with it.
-               */
-              patch_id: undefined,
-              own_patch_groups_only: true,
-            },
-            cookies: {
-              [VAL_SESSION_COOKIE]: cookies?.get(VAL_SESSION_COOKIE)?.value,
-            },
-          });
-
-          if (treeRes.status === 200) {
-            const { modules } = treeRes.json;
+          const sessionCookie = cookies?.get(VAL_SESSION_COOKIE)?.value;
+          /*
+           * Once per request, however many times the page reads.
+           *
+           * Every `fetchVal` in one request asks the same question — same
+           * query, same session — so the second and third answer were identical
+           * and cost the same as the first. `fetchValRouteUrl` made that worse
+           * by calling `fetchVal` again on top of the caller's own.
+           *
+           * The key is the session, so a box that somehow outlived its request
+           * misses rather than serving another author's draft. See
+           * `memoizePerRequest`.
+           */
+          const modules = await memoizePerRequest(
+            await getDraftSourcesScope(),
+            sessionCookie ?? "",
+            () => loadDraftSources(valServerPromise, sessionCookie),
+          );
+          if (modules) {
             return stegaEncode(selector, {
               disabled: !enabled,
               getModule: (path) => {
@@ -142,12 +269,6 @@ const initFetchValStega =
                 }
               },
             });
-          } else {
-            if (treeRes.status === 401) {
-              console.warn("Val: authentication error: ", treeRes.json.message);
-            } else {
-              throw Error(JSON.stringify(treeRes.json, null, 2));
-            }
           }
         }
       }
@@ -216,7 +337,7 @@ const initFetchValRouteStega =
   (
     config: ValConfig,
     valApiEndpoints: string,
-    valServerPromise: Promise<ValServer>,
+    valServerPromise: Promise<RouteReaderValServer>,
     isEnabled: () => Promise<boolean>,
     getHeaders: () => Promise<{
       get(name: string): string | null;
@@ -224,6 +345,7 @@ const initFetchValRouteStega =
     getCookies: () => Promise<{
       get(name: string): { name: string; value: string } | undefined;
     }>,
+    getDraftSourcesScope: GetDraftSourcesScope,
   ) =>
   async <T extends ValModule<GenericSelector<SourceObject>>>(
     selector: T,
@@ -284,6 +406,7 @@ const initFetchValRouteStega =
       isEnabled,
       getHeaders,
       getCookies,
+      getDraftSourcesScope,
     );
     const val = selector && (await fetchVal(selector));
     const route = initValRouteFromVal(
@@ -497,7 +620,7 @@ const initFetchValRouteUrl =
   (
     config: ValConfig,
     valApiEndpoints: string,
-    valServerPromise: Promise<ValServer>,
+    valServerPromise: Promise<RouteReaderValServer>,
     isEnabled: () => Promise<boolean>,
     getHeaders: () => Promise<{
       get(name: string): string | null;
@@ -505,6 +628,7 @@ const initFetchValRouteUrl =
     getCookies: () => Promise<{
       get(name: string): { name: string; value: string } | undefined;
     }>,
+    getDraftSourcesScope: GetDraftSourcesScope,
   ) =>
   async <T extends ValModule<GenericSelector<SourceObject>>>(
     selector: T,
@@ -520,6 +644,7 @@ const initFetchValRouteUrl =
       isEnabled,
       getHeaders,
       getCookies,
+      getDraftSourcesScope,
     );
     const resolvedParams =
       params === undefined ? undefined : await Promise.resolve(params);
@@ -667,6 +792,7 @@ export function initValContent(
   if (!tanstackVersion) {
     throw new Error("Could not get @valbuild/tanstack package version");
   }
+  const draftSourcesScope = createTanStackRequestScope();
   const draftMode = opts?.draftMode ?? valDraftMode();
   const isEnabled = () => draftMode.isEnabled();
 
@@ -713,6 +839,7 @@ export function initValContent(
       isEnabled,
       requestHeaders,
       requestCookies,
+      draftSourcesScope,
     ),
     fetchValKeyStega: initFetchValKeyStega(
       valServerPromise,
@@ -726,6 +853,7 @@ export function initValContent(
       isEnabled,
       requestHeaders,
       requestCookies,
+      draftSourcesScope,
     ),
     fetchValRouteUrl: initFetchValRouteUrl(
       config,
@@ -734,6 +862,7 @@ export function initValContent(
       isEnabled,
       requestHeaders,
       requestCookies,
+      draftSourcesScope,
     ),
   };
 }
