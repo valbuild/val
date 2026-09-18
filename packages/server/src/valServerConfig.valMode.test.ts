@@ -94,7 +94,12 @@ describe("VAL_MODE", () => {
 
   test("an unset VAL_MODE still infers fs", async () => {
     await withEnv(
-      { VAL_MODE: undefined, VAL_API_KEY: undefined, VAL_SECRET: undefined },
+      {
+        VAL_MODE: undefined,
+        VAL_ENV: undefined,
+        VAL_API_KEY: undefined,
+        VAL_SECRET: undefined,
+      },
       async () => {
         const resolved = await initHandlerOptions("/api/val", {}, config);
         expect(resolved.mode).toBe("fs");
@@ -104,7 +109,12 @@ describe("VAL_MODE", () => {
 
   test("VAL_MODE= counts as unset, the way a shell means it", async () => {
     await withEnv(
-      { VAL_MODE: "", VAL_API_KEY: undefined, VAL_SECRET: undefined },
+      {
+        VAL_MODE: "",
+        VAL_ENV: undefined,
+        VAL_API_KEY: undefined,
+        VAL_SECRET: undefined,
+      },
       async () => {
         const resolved = await initHandlerOptions("/api/val", {}, config);
         expect(resolved.mode).toBe("fs");
@@ -144,6 +154,188 @@ describe("VAL_MODE", () => {
       await expect(initHandlerOptions("/api/val", {}, config)).rejects.toThrow(
         /'memry'/,
       );
+    });
+  });
+});
+
+/**
+ * `VAL_ENV` says WHERE Val is running. `VAL_MODE` says which mode it is in.
+ *
+ * The platform sets the first and lets Val derive the second, because only the
+ * first stays true when Val's internals move. It has already moved: this
+ * variable meant `memory` while the Val app kept its own patch store, and now
+ * means `http`, because the app's content is Val's own -- read over HTTP at a
+ * commit, patched through the content API, with files uploaded straight to the
+ * content host, exactly as for any other deployed app. Nothing on the platform
+ * side had to change for that; `VAL_ENV=app` was already the whole statement.
+ *
+ * Unlike `VAL_MODE=memory`, this SELECTS the mode rather than only refusing a
+ * fall-through, and it can because everything http mode needs is an env var.
+ * What it must never do is fall through: an app whose `VAL_API_KEY` failed to
+ * arrive has to be told that, not quietly put in `fs` mode and left to fail on
+ * a lock file in a filesystem that is not there.
+ */
+describe("VAL_ENV", () => {
+  /** Everything http mode needs, so a test can leave out exactly one thing. */
+  const httpEnv = {
+    VAL_ENV: "app",
+    VAL_MODE: undefined,
+    VAL_API_KEY: "key",
+    VAL_SECRET: "secret",
+    VAL_PROJECT: "org/project",
+    VAL_GIT_COMMIT: "0000000000000000000000000000000000000000",
+    VAL_GIT_BRANCH: "main",
+  };
+  const versions = { core: "0.0.0", next: "0.0.0" };
+
+  test("VAL_ENV=app means http", async () => {
+    await withEnv(httpEnv, async () => {
+      const resolved = await initHandlerOptions(
+        "/api/val",
+        { versions },
+        config,
+      );
+      expect(resolved.mode).toBe("http");
+    });
+  });
+
+  test("...and hands http mode what it reads content at", async () => {
+    // The commit is the whole difference between serving this build's content
+    // and serving somebody else's: `ValOpsHttp.getSourceFile` asks the content
+    // host for the file AT THIS SHA, so a config that resolved without it
+    // would be a build reading a repository at a revision it was not built
+    // from.
+    await withEnv(httpEnv, async () => {
+      const resolved = await initHandlerOptions(
+        "/api/val",
+        { versions },
+        config,
+      );
+      expect(resolved).toMatchObject({
+        mode: "http",
+        project: "org/project",
+        commit: "0000000000000000000000000000000000000000",
+        branch: "main",
+      });
+    });
+  });
+
+  test("a missing credential is refused, not turned into fs mode", async () => {
+    /*
+     * The reason this variable selects rather than hints.
+     *
+     * Inference reads an absent api key as "not a proxy" and resolves `fs`,
+     * and `fs` mode in an isolate fails on `.val/patches.lock` -- a path, two
+     * layers below the actual mistake, in a deployment nobody is watching.
+     */
+    await withEnv({ ...httpEnv, VAL_API_KEY: undefined }, async () => {
+      await expect(
+        initHandlerOptions("/api/val", { versions }, config),
+      ).rejects.toThrow(/VAL_API_KEY/);
+    });
+  });
+
+  test("...rather than resolving to anything at all", async () => {
+    await withEnv({ ...httpEnv, VAL_API_KEY: undefined }, async () => {
+      const resolved = await initHandlerOptions(
+        "/api/val",
+        { versions },
+        config,
+      ).catch(() => null);
+      expect(resolved).toBeNull();
+    });
+  });
+
+  test("...and the refusal says why the mode is http", async () => {
+    // Somebody reading "must be set in proxy mode" on an app that never
+    // mentioned a mode needs to be told which variable put it there, since it
+    // is not in the file they are looking at.
+    await withEnv({ ...httpEnv, VAL_API_KEY: undefined }, async () => {
+      await expect(
+        initHandlerOptions("/api/val", { versions }, config),
+      ).rejects.toThrow(/VAL_ENV/);
+    });
+  });
+
+  test.each([
+    ["VAL_GIT_COMMIT", /VAL_GIT_COMMIT/],
+    ["VAL_GIT_BRANCH", /VAL_GIT_BRANCH/],
+    ["VAL_PROJECT", /project/],
+  ])("a missing %s is named", async (name, expected) => {
+    await withEnv({ ...httpEnv, [name]: undefined }, async () => {
+      await expect(
+        initHandlerOptions("/api/val", { versions }, config),
+      ).rejects.toThrow(expected);
+    });
+  });
+
+  test("some other VAL_ENV says nothing, and fs is still inferred", async () => {
+    // Only 'app' means anything here. An environment named something else is
+    // not an error -- `VAL_ENV` is a general name and Val does not own every
+    // value of it.
+    await withEnv(
+      {
+        VAL_ENV: "production",
+        VAL_MODE: undefined,
+        VAL_API_KEY: undefined,
+        VAL_SECRET: undefined,
+      },
+      async () => {
+        const resolved = await initHandlerOptions("/api/val", {}, config);
+        expect(resolved.mode).toBe("fs");
+      },
+    );
+  });
+
+  test("an explicit VAL_MODE wins, including when it is wrong", async () => {
+    // Somebody naming a mode outright has said something more specific than
+    // somebody naming an environment, and a typo in the specific one has to be
+    // refused rather than covered for by the general one.
+    await withEnv({ ...httpEnv, VAL_MODE: "memry" }, async () => {
+      await expect(
+        initHandlerOptions("/api/val", { versions }, config),
+      ).rejects.toThrow(/'memry'/);
+    });
+  });
+
+  test("'http' is still not a value VAL_MODE accepts", async () => {
+    /*
+     * `VAL_ENV=app` names 'http' internally, and the refusal below is keyed on
+     * WHICH variable spoke rather than on the value being unrecognised. Get
+     * that wrong and `VAL_MODE=http` starts working -- a second spelling of
+     * the same thing, in the variable whose documented values are 'memory' and
+     * nothing else.
+     */
+    await withEnv(
+      { ...httpEnv, VAL_ENV: undefined, VAL_MODE: "http" },
+      async () => {
+        await expect(
+          initHandlerOptions("/api/val", { versions }, config),
+        ).rejects.toThrow(/'http'/);
+      },
+    );
+  });
+
+  test("a host that hands over its source still gets memory", async () => {
+    /*
+     * `sourceFiles` is checked before the environment is consulted at all, and
+     * that order is deliberate: a host holding its own source has settled the
+     * question, and no env var should redirect it at a content service.
+     *
+     * It is also what keeps a build published by an older platform working. It
+     * passes its source and gets the mode it was built for, on a Val that now
+     * reads `VAL_ENV=app` as something else entirely.
+     */
+    await withEnv(httpEnv, async () => {
+      const resolved = await initHandlerOptions(
+        "/api/val",
+        {
+          versions,
+          sourceFiles: { "/content/test.val.ts": "export default 1" },
+        },
+        config,
+      );
+      expect(resolved.mode).toBe("memory");
     });
   });
 });

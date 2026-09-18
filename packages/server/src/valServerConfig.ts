@@ -32,6 +32,62 @@ import {
 export const DEFAULT_VAL_BUILD_URL = "https://admin.val.build";
 
 /**
+ * The value of `VAL_ENV` that means "this is the Val app".
+ *
+ * The Val app builds a project in a browser and runs it in a Worker isolate.
+ * There is no disk there and there never will be, so `fs` mode is never the
+ * right fall-through -- and the content is Val's own, reached over HTTP at a
+ * commit, exactly as it is for any other deployed app. So this names `http`.
+ *
+ * What makes the app unusual is not where its content comes from but what
+ * publishing means: the browser rebuilds the site and the new build is served
+ * immediately, instead of a host noticing a commit and redeploying. That is a
+ * difference in what happens AFTER the commit, and `publishOverride` is where
+ * a host says so -- not a difference in where patches, files or sources live.
+ *
+ * A host says WHERE it runs, which is a fact it knows. Which Val mode that
+ * implies is Val's to derive, and that is the whole reason this exists next to
+ * `VAL_MODE` rather than the platform naming a mode itself: one is a
+ * description of an environment, the other an assertion about Val's internals,
+ * and only the first stays true when the internals move. They have already
+ * moved once -- this meant `memory` while the app kept its own patch store --
+ * and no platform had to be changed to follow.
+ */
+const VAL_APP_ENV = "app";
+
+/** Which mode the environment SAYS this is, and which variable said so. */
+type NamedMode = { mode: string; from: "VAL_MODE" | "VAL_ENV" };
+
+/**
+ * `null` is "the environment did not say", which is the normal case.
+ *
+ * The two variables differ in what can be DONE with an answer, and the
+ * difference is whether the environment holds everything the mode needs.
+ * `http` does -- an api key, a secret, a project, a commit and a branch are all
+ * env vars -- so `VAL_ENV=app` SELECTS it, and the checks in
+ * {@link initHandlerOptions} name whichever one is missing. `memory` does not:
+ * it needs the host's own source files, which nothing in an environment can
+ * supply, so `VAL_MODE=memory` can only ever turn a fall-through into an error.
+ */
+function namedMode(): NamedMode | null {
+  const declared = process.env.VAL_MODE;
+  /*
+   * An empty value counts as unset, which is what `VAL_MODE=` in a shell or a
+   * CI settings page means. An explicit `VAL_MODE` otherwise wins over
+   * `VAL_ENV`: naming a mode outright says something more specific than naming
+   * an environment does, including when what it names is wrong and has to be
+   * refused.
+   */
+  if (declared !== undefined && declared !== "") {
+    return { mode: declared, from: "VAL_MODE" };
+  }
+  if (process.env.VAL_ENV === VAL_APP_ENV) {
+    return { mode: "http", from: "VAL_ENV" };
+  }
+  return null;
+}
+
+/**
  * Resolve options plus environment into a concrete {@link ValServerConfig}.
  *
  * Moved verbatim out of `createValApiRouter`; the precedence rules are load
@@ -89,11 +145,13 @@ export async function initHandlerOptions(
     };
   }
   /*
-   * `VAL_MODE=memory` says the host MEANT to hold the source, and did not.
+   * The environment saying 'memory' means the host MEANT to hold the source,
+   * and did not. Either variable can say it: `VAL_MODE=memory` outright, or
+   * `VAL_ENV=app`, which names an environment that has no disk.
    *
-   * It cannot SELECT memory mode -- nothing in the environment can supply
+   * Neither can SELECT memory mode -- nothing in the environment can supply
    * `sourceFiles`, and a mode turned on without them is a server with no
-   * content in it. What it does is turn the fall-through into an error.
+   * content in it. What they do is turn the fall-through into an error.
    *
    * Without it, a host that forgot to pass its source got `fs` mode, and `fs`
    * mode in a Worker isolate reaches for a working tree that is not there: the
@@ -102,8 +160,8 @@ export async function initHandlerOptions(
    * environment that runs Val without a disk can set this once and get a
    * sentence instead.
    */
-  const declaredMode = process.env.VAL_MODE;
-  if (declaredMode === "memory") {
+  const declared = namedMode();
+  if (declared?.mode === "memory") {
     throw new Error(
       "VAL_MODE is 'memory', but no `sourceFiles` were given here, so there " +
         "is no source to serve. Memory mode cannot be turned on by the " +
@@ -113,18 +171,24 @@ export async function initHandlerOptions(
         "`initValContent`, which has a Val server of its own and is " +
         "configured separately. @valbuild/next has no memory mode yet, so " +
         "for a Next app this variable is set on an environment Val cannot " +
-        "serve from. Unset " +
-        "VAL_MODE to go back to the inferred mode instead ('http' when " +
-        "VAL_API_KEY and VAL_SECRET are both set, 'fs' otherwise).",
+        "serve from. Unset VAL_MODE to go back to the inferred mode instead " +
+        "('http' when VAL_API_KEY and VAL_SECRET are both set, 'fs' " +
+        "otherwise).",
     );
   }
-  // An empty value counts as unset, which is what `VAL_MODE=` in a shell or a
-  // CI settings page means. Every other value is refused rather than ignored:
-  // ignoring `VAL_MODE=memry` would leave the app in `fs` mode, which is the
-  // exact failure this variable exists to catch.
-  if (declaredMode !== undefined && declaredMode !== "") {
+  /*
+   * Every other value is refused rather than ignored: ignoring `VAL_MODE=memry`
+   * would leave the app in `fs` mode, which is the exact failure this variable
+   * exists to catch.
+   *
+   * `VAL_ENV` is excluded by name rather than by its value happening to pass:
+   * it names 'http', which is selected below, and a reader who sees only
+   * `declared !== null` here would reasonably conclude that 'http' is a
+   * `VAL_MODE` value -- it is not, and the message below says so.
+   */
+  if (declared !== null && declared.from === "VAL_MODE") {
     throw new Error(
-      `VAL_MODE is '${declaredMode}', which is not a mode Val knows. The only ` +
+      `VAL_MODE is '${declared.mode}', which is not a mode Val knows. The only ` +
         "value it accepts is 'memory', which asserts that the host supplies " +
         "`sourceFiles`. 'fs' and 'http' are inferred rather than named: " +
         "'http' when VAL_API_KEY and VAL_SECRET are both set, 'fs' otherwise.",
@@ -133,8 +197,20 @@ export async function initHandlerOptions(
 
   const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
   const maybeValSecret = opts.valSecret || process.env.VAL_SECRET;
+  /*
+   * The app's environment selects http mode, rather than leaving it to be
+   * inferred from a credential being present.
+   *
+   * The difference shows when something is MISSING. Inference reads an absent
+   * api key as "not a proxy" and falls through to `fs`, which in an isolate
+   * reaches for a working tree that is not there -- an `EPERM` on
+   * `.val/patches.lock`, several layers below the mistake. Selecting the mode
+   * means the checks below run instead, and each one names what it wanted.
+   */
+  const isAppEnv = declared?.from === "VAL_ENV";
   const isProxyMode =
     opts.mode === "proxy" ||
+    isAppEnv ||
     (opts.mode === undefined && (maybeApiKey || maybeValSecret));
   const valEnableRedirectUrl =
     opts.valEnableRedirectUrl || process.env.VAL_ENABLE_REDIRECT_URL;
@@ -148,22 +224,41 @@ export async function initHandlerOptions(
     opts.valContentUrl || process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
   warnIfInsecureUrls({ valBuildUrl, valContentUrl });
   if (isProxyMode) {
+    /*
+     * Why this app is in http mode, in the message that says what is missing.
+     *
+     * "must be set in proxy mode" is a fine sentence for a developer who wrote
+     * `mode: "proxy"` and a poor one for an app that never mentioned a mode:
+     * there, the answer to "why am I in proxy mode?" is a variable set by the
+     * platform, in a file the reader of this error is not looking at.
+     */
+    const because = isAppEnv
+      ? " (VAL_ENV is 'app', which is the Val app: its content is Val's own " +
+        "and is read over HTTP at a commit, so http mode is the mode and " +
+        "these are what it needs)"
+      : "";
     if (!maybeApiKey || !maybeValSecret) {
       throw new Error(
-        "VAL_API_KEY and VAL_SECRET env vars must both be set in proxy mode",
+        "VAL_API_KEY and VAL_SECRET env vars must both be set in proxy mode" +
+          because,
       );
     }
     const maybeGitCommit = opts.gitCommit || process.env.VAL_GIT_COMMIT;
     if (!maybeGitCommit) {
-      throw new Error("VAL_GIT_COMMIT env var must be set in proxy mode");
+      throw new Error(
+        "VAL_GIT_COMMIT env var must be set in proxy mode" + because,
+      );
     }
     const maybeGitBranch = opts.gitBranch || process.env.VAL_GIT_BRANCH;
     if (!maybeGitBranch) {
-      throw new Error("VAL_GIT_BRANCH env var must be set in proxy mode");
+      throw new Error(
+        "VAL_GIT_BRANCH env var must be set in proxy mode" + because,
+      );
     }
     if (!maybeValProject) {
       throw new Error(
-        "Proxy mode does not work unless the 'project' option in val.config is defined or the VAL_PROJECT env var is set.",
+        "Proxy mode does not work unless the 'project' option in val.config is defined or the VAL_PROJECT env var is set." +
+          because,
       );
     }
     const coreVersion = opts.versions?.core;

@@ -29,6 +29,7 @@ import {
   isJsonValuesRecordSchema,
 } from "../routeFromVal";
 import { valDraftMode, type ValDraftMode } from "./valDraftMode";
+import type { ValHttpMode } from "./initValServer";
 
 /*
  * NOTE: no `SET_RSC(true)` here, unlike the Next package.
@@ -632,6 +633,25 @@ export function initValContent(
      * hardest kind of wrong to notice.
      */
     unsafelyAllowUnauthenticated?: boolean;
+    /**
+     * Put these readers in `http` mode. Pass the SAME object `initValServer`
+     * got.
+     *
+     * Separate for the same reason {@link sourceFiles} is: these readers have
+     * a Val server of their own, so the mode question is put to them
+     * independently. Answering it only for `initValServer` leaves them
+     * inferring -- and on a host that hands Val its credentials in code rather
+     * than through the environment, there is nothing to infer FROM, since
+     * `process.env.VAL_API_KEY` is undefined in a bundle built separately from
+     * its dependencies.
+     *
+     * `gitCommit` is what makes this more than bookkeeping here: every read
+     * fetches the module's path from the content service AT THAT COMMIT, so
+     * these readers and the API have to be given the same one or a draft
+     * render resolves a different version of the file than the site is
+     * running.
+     */
+    http?: ValHttpMode;
   },
 ): {
   fetchValStega: ReturnType<typeof initFetchValStega>;
@@ -672,6 +692,7 @@ export function initValContent(
       ...(opts?.unsafelyAllowUnauthenticated !== undefined
         ? { unsafelyAllowUnauthenticated: opts.unsafelyAllowUnauthenticated }
         : {}),
+      ...(opts?.http !== undefined ? opts.http : {}),
     },
     config,
     {
