@@ -285,6 +285,27 @@ was not an error but a 404 from a call that looks right. `ResolvableModule`,
 `JsonEntryContentOf` and `RouteValueOf` are shared for the same reason
 `ResolvedVal` is — there were four identical copies, one per reader file.
 
+**Reading a view is LAZY, and there are tests whose only job is to keep it so.**
+A view is on the page's screen but its content is not on the page, so resolving
+one must cost nothing until someone asks. Three things could break that, and
+`stegaEncode.test.ts`'s "reading a view is lazy" pins each: the encoder must not
+ask the store for the target (`getModule` is called for the page and nothing
+else), `getModuleIds(pageVal)` must name the page alone (a target in there
+re-renders the page on an edit to a module it does not show), and no
+`.jsonValues()` entry thunk of a viewed module may fire — those are dynamic
+`import()`s, so an eager walk would pull every entry of every viewed record into
+a page that shows none of them. `executeSerialize` carries the path and not the
+module, which is what keeps the schema payload from growing by the whole content
+of every view target.
+
+What is NOT lazy, and cannot be: `s.view(x)` needs a static import of `x` to get
+its path, exactly as `s.keyOf(x)` does, so `x`'s bytes are in whatever bundle
+holds the page either way. `ValViewSchema` additionally RETAINS the module (a
+`KeyOfSchema` extracts and drops it) — that changes reachability, not loading,
+since an ES module binding lives for the process anyway. And see
+`architecture/quirks.md` for the one real eager load in the area, which predates
+views: draft-mode `fetchVal` fetches the whole tree per call.
+
 One trap when testing this: `stegaEncode` returns `any`, so
 `stegaEncode(pageVal, {}).notes` handed to a reader makes the reader's type
 parameter `any` too, and the conditionals resolve to whatever `any` distributes

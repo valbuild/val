@@ -898,3 +898,146 @@ describe("reading a route or an entry through a view", () => {
     expect(sameShape).toBeUndefined();
   });
 });
+
+/**
+ * Reading a page that CONTAINS a view must not read the module it points at.
+ *
+ * A view is on the page's screen, but its content is not on the page — so
+ * resolving one has to cost nothing until someone asks for it. Three things
+ * could break that, and each is pinned below: the encoder could walk into the
+ * module the schema now holds, the subscription could name it, or a
+ * `.jsonValues()` entry thunk could fire. The third is the one that would
+ * actually hurt: those are dynamic `import()`s, so an eager walk would pull
+ * every entry of every viewed record into the bundle's critical path.
+ *
+ * The module OBJECT is reachable either way — `s.view(x)` needs a static import
+ * to get `x`'s path at all, exactly as `s.keyOf(x)` does, so the bytes are in
+ * whatever bundle holds the page. What must stay lazy is READING it.
+ */
+describe("reading a view is lazy", () => {
+  /** Entry thunks, so a read that should not happen is countable. */
+  let loaded: string[] = [];
+  const entriesVal = c.define(
+    "/entries.val.ts",
+    s.record(s.object({ title: s.string() })).jsonValues(),
+    {
+      "/a": c.json(() => {
+        loaded.push("/a");
+        return Promise.resolve({ default: { title: "A" } });
+      }),
+      "/b": c.json(() => {
+        loaded.push("/b");
+        return Promise.resolve({ default: { title: "B" } });
+      }),
+    },
+  );
+  /** A plain target too, so the claim is not only about json markers. */
+  const sidebarVal = c.define("/sidebar.val.ts", s.object({ x: s.string() }), {
+    x: "side",
+  });
+  const pageSchema = s.object({
+    title: s.string(),
+    entries: s.view(entriesVal),
+    sidebar: s.view(sidebarVal),
+  });
+  const pageVal = c.define("/lazy-page.val.ts", pageSchema, {
+    title: "Hello",
+    entries: { view: "/entries.val.ts" },
+    sidebar: { view: "/sidebar.val.ts" },
+  });
+
+  beforeEach(() => {
+    loaded = [];
+  });
+
+  test("the encoder never asks the store for a module a view names", () => {
+    const asked: string[] = [];
+    stegaEncode(pageVal, {
+      getModule: (moduleId) => {
+        asked.push(moduleId);
+        return undefined;
+      },
+    });
+    // The page, and nothing else. Asking for a target here would make every
+    // page with a view wait on a module it is not showing.
+    expect(asked).toEqual(["/lazy-page.val.ts"]);
+  });
+
+  test("the subscription names the page, not what its views point at", () => {
+    // What `useVal(pageVal)` subscribes to. A view target in here would make
+    // every page with a view re-render on an edit to a module it does not show.
+    expect(getModuleIds(pageVal)).toEqual(["/lazy-page.val.ts"]);
+  });
+
+  /**
+   * The one that would actually hurt. A `.jsonValues()` entry is a dynamic
+   * `import()`, so an encoder that walked into a viewed record would pull every
+   * entry of it into the critical path of a page that shows none of them.
+   */
+  test("no entry of a viewed .jsonValues() module is loaded", () => {
+    stegaEncode(pageVal, {});
+    expect(loaded).toEqual([]);
+  });
+
+  /**
+   * The other half, so the three above cannot be satisfied by a view that never
+   * resolves at all: asking for it DOES read it — and still only its own module.
+   */
+  test("resolving the handle is what reads the target", () => {
+    const page = stegaEncode(pageVal, {});
+    const asked: string[] = [];
+    stegaEncode(page.sidebar, {
+      getModule: (moduleId) => {
+        asked.push(moduleId);
+        return undefined;
+      },
+    });
+    expect(asked).toEqual(["/sidebar.val.ts"]);
+    // And resolving THAT view still did not touch the other one.
+    expect(loaded).toEqual([]);
+  });
+
+  /**
+   * `viewModulesOf` walks the schema INSTANCE, which is the whole schema tree.
+   * Memoised per instance, and `Internal.getSchema` returns the module's own
+   * instance — so the walk is once per schema for the life of the process, not
+   * once per render. Identity is what proves the memo is being hit.
+   */
+  test("the schema walk happens once per schema, not once per render", () => {
+    const schema = Internal.getSchema(pageVal);
+    expect(Internal.viewModulesOf(schema)).toBe(Internal.viewModulesOf(schema));
+    // And it does not descend INTO the modules it finds: two entries, the two
+    // targets, and nothing from inside them.
+    expect([...Internal.viewModulesOf(schema).keys()].sort()).toEqual([
+      "/entries.val.ts",
+      "/sidebar.val.ts",
+    ]);
+  });
+
+  /**
+   * The wire form carries the path and not the module. Otherwise every schema
+   * payload the Studio loads would grow by the whole content of every module
+   * any view points at.
+   */
+  test("the serialized schema carries a path, not a module", () => {
+    const serialized = (pageSchema as Schema<SelectorSource>)[
+      "executeSerialize"
+    ]();
+    const entries =
+      serialized.type === "object" ? serialized.items["entries"] : undefined;
+    expect(entries).toMatchObject({
+      type: "view",
+      moduleFilePath: "/entries.val.ts",
+    });
+    // Nothing on it but the declared fields — no module, no source.
+    expect(Object.keys(entries ?? {}).sort()).toEqual([
+      "description",
+      "hidden",
+      "moduleFilePath",
+      "opt",
+      "readonly",
+      "render",
+      "type",
+    ]);
+  });
+});
