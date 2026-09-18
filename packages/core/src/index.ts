@@ -215,6 +215,14 @@ export { type SerializedKeyOfSchema, KeyOfSchema } from "./schema/keyOf";
 export { type SerializedValViewSchema, ValViewSchema } from "./schema/view";
 export { type ValViewSource, isValViewSource } from "./source/view";
 export type { ValView } from "./selector/view";
+export type { ValViewHandle, ResolvableModule } from "./source/viewHandle";
+import {
+  createViewHandle,
+  isViewHandle,
+  resolveViewedModule,
+  viewHandleModule,
+  viewModulesOf,
+} from "./source/viewHandle";
 export { type SerializedRouteSchema, RouteSchema } from "./schema/route";
 export {
   type SerializedRichTextSchema,
@@ -288,6 +296,14 @@ const Internal = {
   VERSION: {
     core: corePackageJson.version,
   },
+  // A view's read-path plumbing: `Internal` rather than the public surface,
+  // because an app never builds or unwraps a handle — it passes one to
+  // `useVal`.
+  createViewHandle,
+  isViewHandle,
+  resolveViewedModule,
+  viewHandleModule,
+  viewModulesOf,
   mediaUrl,
   resolveMedia,
   isRemoteMediaPath,

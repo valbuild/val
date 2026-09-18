@@ -221,15 +221,20 @@ Eight things decide how it behaves, and each was a choice:
   cycle and is allowed.
 - **A module cannot BE a view.** `c.define(path, s.view(x), …)` throws.
 - **The exported names carry a `Val` prefix, and this family alone does.**
-  `ValView<T>`, `ValViewSource`, `isValViewSource`, `ValViewSchema` and
-  `SerializedValViewSchema` — where every other schema is `ImageSchema` /
-  `ImageSource` with no prefix. `View` is the name a consuming
+  `ValView<T>`, `ValViewSource`, `isValViewSource`, `ValViewSchema`,
+  `SerializedValViewSchema`, `ValViewHandle` — where every other schema is
+  `ImageSchema` / `ImageSource` with no prefix. `View` is the name a consuming
   app is most likely to have its own of (React Native's, every design system's,
   the local one in half the projects that would install this), and the rest
   follow it so the family reads as one. It is a deliberate break from the
-  convention, not an oversight: do not "fix" it back. The WIRE form is
-  untouched — `type: "view"` is the serialized discriminant and renaming it
-  would break every stored schema and the zod parser.
+  convention, not an oversight: do not "fix" it back.
+
+  The line is what `@valbuild/core` exports at the TOP level. The members of
+  `Internal` keep their plain names — `createViewHandle`, `isViewHandle`,
+  `viewHandleModule`, `viewModulesOf`, `resolveViewedModule` — because
+  `Internal.` already namespaces them and nothing can collide with them. So
+  does the WIRE form: `type: "view"` is the serialized discriminant, and
+  renaming it would break every stored schema and the zod parser.
 - **`hidden` and `readonly` are the view's own, never the target's.** A view
   whose target module is hidden is still shown, and still leads there — which
   is the whole point, because `hidden` on a MODULE's root schema means "the nav
@@ -241,8 +246,74 @@ Eight things decide how it behaves, and each was a choice:
   page an editor has navigated to is not a parent's field list, so honouring
   `hidden` there renders a blank page instead of hiding a row.
 
+**Reading a view.** `useVal(page.header)` and `fetchVal(page.header)` resolve
+the pointer and give you the module it names. What makes that possible is that
+the READ path attaches the module to the pointer, on a symbol:
+
+- The app cannot turn a path back into a module. `val.modules` holds lazy
+  `import()` thunks and `<ValModulesClient>` is optional, so there is no
+  registry to look one up in.
+- So `stegaEncode` attaches it, from the schema instance at the module root —
+  the one place a `ValViewSchema` (which holds its module) is reachable. Not from
+  the source, and that is the point: with an edit pending, the source comes from
+  the overlay store as plain JSON that never went near a module, while the
+  schema is the module's own either way.
+- A symbol, so the pointer is still `{ view: "/foo.val.ts" }` to `JSON.stringify`,
+  to `Object.keys`, to the SHAs and to every walk that reads source as data.
+- **A handle does not survive serialization.** Passed from a server component to
+  a client one it arrives without its symbol, and `stegaEncode` throws rather
+  than hand back a pointer that looks like content. Resolve it in the component
+  that read the module, or read the target directly.
+
+`ResolvedVal` in `@valbuild/react/stega` is the one definition of what a reader
+gives back — `useVal`, `fetchVal`, `initValContent` and the TanStack client all
+use it, rather than the four copies of the selector conditional they had. Its
+outer arms are wrapped in tuples so it does not distribute over a union: a
+distributing version re-entered `StegaOfSource` per member and the async readers
+hit "Type instantiation is excessively deep". For the same reason
+`ValView<Source>` is a member of `SelectorSource` — it keeps the readers' type
+parameter bounded by one type, which is one conditional arm cheaper than widening it.
+
+**The readers that need a MODULE go through `Internal.resolveViewedModule`.**
+`useValKey`, `useValRoute`, `useValRouteUrl` and the three `fetch*` counterparts
+pull a path, a schema and a source off what they are handed, so a view — which
+is a pointer with none of the three — cannot be passed through to them. Their
+parameter is `ResolvableModule` and the resolver takes exactly that type, so the
+two cannot drift. It matters more than it looks: every one of those readers
+already returns `null` / `undefined` for "no such entry", so an unresolved view
+was not an error but a 404 from a call that looks right. `ResolvableModule`,
+`JsonEntryContentOf` and `RouteValueOf` are shared for the same reason
+`ResolvedVal` is — there were four identical copies, one per reader file.
+
+**Reading a view is LAZY, and there are tests whose only job is to keep it so.**
+A view is on the page's screen but its content is not on the page, so resolving
+one must cost nothing until someone asks. Three things could break that, and
+`stegaEncode.test.ts`'s "reading a view is lazy" pins each: the encoder must not
+ask the store for the target (`getModule` is called for the page and nothing
+else), `getModuleIds(pageVal)` must name the page alone (a target in there
+re-renders the page on an edit to a module it does not show), and no
+`.jsonValues()` entry thunk of a viewed module may fire — those are dynamic
+`import()`s, so an eager walk would pull every entry of every viewed record into
+a page that shows none of them. `executeSerialize` carries the path and not the
+module, which is what keeps the schema payload from growing by the whole content
+of every view target.
+
+What is NOT lazy, and cannot be: `s.view(x)` needs a static import of `x` to get
+its path, exactly as `s.keyOf(x)` does, so `x`'s bytes are in whatever bundle
+holds the page either way. `ValViewSchema` additionally RETAINS the module (a
+`KeyOfSchema` extracts and drops it) — that changes reachability, not loading,
+since an ES module binding lives for the process anyway. And see
+`architecture/quirks.md` for the one real eager load in the area, which predates
+views: draft-mode `fetchVal` fetches the whole tree per call.
+
+One trap when testing this: `stegaEncode` returns `any`, so
+`stegaEncode(pageVal, {}).notes` handed to a reader makes the reader's type
+parameter `any` too, and the conditionals resolve to whatever `any` distributes
+to. Annotate the encoded value (`const page: ResolvedVal<typeof pageVal> = …`)
+or the test proves nothing about the types.
+
 Not built yet, and deliberately: rendering the target inline
-(`render({ as: "inline" })`) and resolving a view through `useVal`/`fetchVal`.
+(`render({ as: "inline" })`).
 
 ## Module System
 

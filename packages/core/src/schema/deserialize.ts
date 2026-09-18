@@ -337,6 +337,9 @@ function deserializeSchemaImpl(
     case "view":
       return new ValViewSchema(
         serialized.moduleFilePath,
+        // No module: this schema came off the wire. The Studio navigates to a
+        // view rather than resolving one, so nothing here needs it.
+        undefined,
         serialized.readonly ?? false,
         serialized.hidden ?? false,
         serialized.description,

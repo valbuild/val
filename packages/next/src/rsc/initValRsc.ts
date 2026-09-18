@@ -1,20 +1,19 @@
 import {
+  type JsonEntryContentOf,
+  type Resolvable,
+  type ResolvedVal,
+  type RouteValueOf,
   SET_AUTO_TAG_JSX_ENABLED,
   SET_RSC,
   stegaEncode,
-  type StegaOfSource,
 } from "@valbuild/react/stega";
 import {
-  SelectorSource,
-  SelectorOf,
-  GenericSelector,
   ModuleFilePath,
   ValConfig,
   ValModules,
   Internal,
-  ValModule,
+  type ResolvableModule,
   SourceObject,
-  JsonSource,
 } from "@valbuild/core";
 import { cookies, draftMode, headers } from "next/headers";
 import { VAL_SESSION_COOKIE } from "@valbuild/shared/internal";
@@ -41,14 +40,8 @@ const initFetchValStega =
       get(name: string): { name: string; value: string } | undefined;
     }>,
   ) =>
-  <T extends SelectorSource>(
-    selector: T,
-  ): Promise<
-    SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never
-  > => {
-    const exec = async (): Promise<
-      SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never
-    > => {
+  <T extends Resolvable>(selector: T): Promise<ResolvedVal<T>> => {
+    const exec = async (): Promise<ResolvedVal<T>> => {
       let enabled = false;
       try {
         enabled = await isEnabled();
@@ -189,18 +182,6 @@ function getHost(headers: { get(name: string): string | null } | undefined) {
 //   }
 // }
 
-type FetchValRouteReturnType<
-  T extends ValModule<GenericSelector<SourceObject>>,
-> =
-  T extends ValModule<infer S>
-    ? S extends SourceObject
-      ? // `.jsonValues()` router: the matched entry resolves to its json content.
-        NonNullable<S>[string] extends JsonSource<infer C>
-        ? C | null
-        : StegaOfSource<NonNullable<S>[string]> | null
-      : never
-    : never;
-
 const initFetchValRouteStega =
   (
     config: ValConfig,
@@ -214,21 +195,24 @@ const initFetchValRouteStega =
       get(name: string): { name: string; value: string } | undefined;
     }>,
   ) =>
-  async <T extends ValModule<GenericSelector<SourceObject>>>(
+  async <T extends ResolvableModule>(
     selector: T,
     params:
       | Promise<Record<string, string | string[]>>
       | Record<string, string | string[]>
       | unknown,
-  ): Promise<FetchValRouteReturnType<T>> => {
+  ): Promise<RouteValueOf<T>> => {
     const resolvedParams = await Promise.resolve(params);
-    const path = selector && Internal.getValPath(selector);
-    const schema = selector && Internal.getSchema(selector);
+    // A view is a pointer: everything below reads a path, a schema and a source
+    // off this, and a pointer has none of them. See `resolveViewedModule`.
+    const valModule = Internal.resolveViewedModule<SourceObject>(selector);
+    const path = valModule && Internal.getValPath(valModule);
+    const schema = valModule && Internal.getSchema(valModule);
     // `.jsonValues()` router: map params → the entry key and load ONLY that
     // entry's backing `*.val.json`, instead of eagerly resolving the whole
     // record via `fetchVal`.
     if (isJsonValuesRecordSchema(schema)) {
-      const source = selector && Internal.getSource(selector);
+      const source = valModule && Internal.getSource(valModule);
       const url = getValRouteUrlFromVal(
         resolvedParams,
         "fetchValRoute",
@@ -237,7 +221,7 @@ const initFetchValRouteStega =
         source,
       );
       if (!url) {
-        return null as FetchValRouteReturnType<T>;
+        return null as RouteValueOf<T>;
       }
       let enabled = false;
       try {
@@ -259,11 +243,11 @@ const initFetchValRouteStega =
         loadJsonEntryContent(source, url),
       );
       if (content === undefined) {
-        return null as FetchValRouteReturnType<T>;
+        return null as RouteValueOf<T>;
       }
       return stegaEncode(content, {
         disabled: !enabled,
-        root: getJsonEntryStegaRoot(selector, url),
+        root: getJsonEntryStegaRoot(valModule, url),
       });
     }
     const fetchVal = initFetchValStega(
@@ -274,7 +258,7 @@ const initFetchValRouteStega =
       getHeaders,
       getCookies,
     );
-    const val = selector && (await fetchVal(selector));
+    const val = valModule && (await fetchVal(valModule));
     const route = initValRouteFromVal(
       resolvedParams,
       "fetchValRoute",
@@ -416,16 +400,6 @@ async function loadDraftJsonEntry(
   return { status: "unavailable" };
 }
 
-// The (loosened) content type a single `.jsonValues()` entry resolves to.
-type JsonEntryContentOf<T extends ValModule<GenericSelector<SourceObject>>> =
-  T extends ValModule<infer S>
-    ? S extends Record<string, infer V>
-      ? V extends JsonSource<infer C>
-        ? C
-        : never
-      : never
-    : never;
-
 /**
  * Resolves ONE `.jsonValues()` entry by key, loading only that entry instead of
  * the whole record — the runtime-scaling counterpart to the eager `fetchVal`.
@@ -445,7 +419,7 @@ export const initFetchValKeyStega =
       get(name: string): { name: string; value: string } | undefined;
     }>,
   ) =>
-  async <T extends ValModule<GenericSelector<SourceObject>>>(
+  async <T extends ResolvableModule>(
     selector: T,
     key: string,
   ): Promise<JsonEntryContentOf<T> | undefined> => {
@@ -455,9 +429,13 @@ export const initFetchValKeyStega =
     } catch {
       // not in a server context where draftMode is readable — treat as disabled
     }
-    const source = selector && Internal.getSource(selector);
+    // A view is a pointer: everything below reads a path and a source off this,
+    // and a pointer has neither. See `resolveViewedModule`.
+    const valModule = Internal.resolveViewedModule<SourceObject>(selector);
+    const source = valModule && Internal.getSource(valModule);
     const moduleFilePath =
-      selector && (Internal.getValPath(selector) as unknown as ModuleFilePath);
+      valModule &&
+      (Internal.getValPath(valModule) as unknown as ModuleFilePath);
     let draft: DraftJsonEntry = { status: "unavailable" };
     if (enabled && moduleFilePath) {
       SET_AUTO_TAG_JSX_ENABLED(true);
@@ -478,7 +456,7 @@ export const initFetchValKeyStega =
     }
     return stegaEncode(content, {
       disabled: !enabled,
-      root: getJsonEntryStegaRoot(selector, key),
+      root: getJsonEntryStegaRoot(valModule, key),
     });
   };
 
@@ -495,7 +473,7 @@ const initFetchValRouteUrl =
       get(name: string): { name: string; value: string } | undefined;
     }>,
   ) =>
-  async <T extends ValModule<GenericSelector<SourceObject>>>(
+  async <T extends ResolvableModule>(
     selector: T,
     params?:
       | Promise<Record<string, string | string[]>>
@@ -512,9 +490,12 @@ const initFetchValRouteUrl =
     );
     const resolvedParams =
       params === undefined ? undefined : await Promise.resolve(params);
-    const path = selector && Internal.getValPath(selector);
-    const schema = selector && Internal.getSchema(selector);
-    const val = selector && (await fetchVal(selector));
+    // A view is a pointer: everything below reads a path, a schema and a source
+    // off this, and a pointer has none of them. See `resolveViewedModule`.
+    const valModule = Internal.resolveViewedModule<SourceObject>(selector);
+    const path = valModule && Internal.getValPath(valModule);
+    const schema = valModule && Internal.getSchema(valModule);
+    const val = valModule && (await fetchVal(valModule));
     const route = getValRouteUrlFromVal(
       resolvedParams,
       "fetchValRouteUrl",
