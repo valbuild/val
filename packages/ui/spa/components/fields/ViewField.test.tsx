@@ -7,7 +7,7 @@ import {
   initVal,
   ModuleFilePath,
   SerializedSchema,
-  SerializedViewSchema,
+  SerializedValViewSchema,
   SourcePath,
 } from "@valbuild/core";
 
@@ -61,7 +61,7 @@ const { s } = initVal();
 const PATH = '/app/menneskene/page.val.ts?p="people"' as SourcePath;
 const TARGET = "/data/employees.val.ts" as ModuleFilePath;
 
-const viewSchema: SerializedViewSchema = {
+const viewSchema: SerializedValViewSchema = {
   type: "view",
   opt: false,
   moduleFilePath: TARGET,

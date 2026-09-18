@@ -23,7 +23,7 @@ import {
 } from "@valbuild/core";
 import { vercelStegaCombine, vercelStegaSplit } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
-import type { View, ViewSource } from "@valbuild/core";
+import type { ValView, ValViewSource } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core";
 import { SourceArray } from "@valbuild/core";
 import { RawString } from "@valbuild/core";
@@ -234,10 +234,10 @@ export type StegaOfSource<T extends Source> = Json extends T
       : T extends FileSource
         ? File
         : // A view is a pointer at another module: nothing of it is rendered, so
-          // there is nothing here to encode or to read. `View<Target>` names what
-          // is behind it and exposes no properties.
-          T extends ViewSource<string, infer Target>
-          ? View<Target>
+          // there is nothing here to encode or to read. `ValView<Target>`
+          // names what is behind it and exposes no properties.
+          T extends ValViewSource<string, infer Target>
+          ? ValView<Target>
           : T extends SourceObject
             ? {
                 [key in keyof T]: StegaOfSource<T[key]>;

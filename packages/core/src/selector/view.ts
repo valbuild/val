@@ -1,6 +1,6 @@
 /**
- * Type-level-only slot naming the source type of the module a {@link View}
- * points at. Required, not optional: nothing else should ever be a `View` by
+ * Type-level-only slot naming the source type of the module a {@link ValView}
+ * points at. Required, not optional: nothing else should ever be a `ValView` by
  * accident, and reading a property off one has to be an error.
  */
 declare const ViewTarget: unique symbol;
@@ -15,6 +15,6 @@ declare const ViewTarget: unique symbol;
  * `T` is the target's source type, carried so that resolving a view (`useVal(...)`
  * on the handle) can be added later and be typed. Nothing reads it today.
  */
-export type View<T> = {
+export type ValView<T> = {
   readonly [ViewTarget]: T;
 };

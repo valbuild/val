@@ -194,7 +194,7 @@ the editor the field is a ROW that navigates there — it does not render the
 target's fields inline — which is also what stops an editor mistaking a shared
 module for a field of the page they are on.
 
-Seven things decide how it behaves, and each was a choice:
+Eight things decide how it behaves, and each was a choice:
 
 - **A plain object, not a constructor.** Same rule as media: the value has to
   work in a `.val.ts` and in a `*.val.json`, and a literal survives the static
@@ -203,14 +203,14 @@ Seven things decide how it behaves, and each was a choice:
   `c.define`'s first argument, so `s.view(fooVal)` produces a schema whose source
   type is the LITERAL `{ view: "/foo.val.ts" }`. The path autocompletes, and a
   source naming a different module than its schema does is a type error. The
-  runtime check in `ViewSchema.executeValidate` is for hand-written JSON, which
+  runtime check in `ValViewSchema.executeValidate` is for hand-written JSON, which
   the compiler never saw.
 - **`view` is a reserved object key** (`ObjectSchemaProps`, beside `_type` and
   `patch_id`). An ordinary `s.object({ view: s.string() })` is structurally
-  identical to a pointer, and would be mapped to `View<T>` and lose every field
-  it has — silently.
-- **The read side is `View<T>`, with no properties.** A new arm in `Selector<T>`
-  and in `StegaOfSource`, above `SourceObject` (the marker is structurally an
+  identical to a pointer, and would be mapped to `ValView<T>` and lose every
+  field it has — silently.
+- **The read side is `ValView<T>`, with no properties.** A new arm in
+  `Selector<T>` and in `StegaOfSource`, above `SourceObject` (the marker is structurally an
   object) — the same position and the same reason as the `ExternalRecordSrc`
   arm. Never stega encoded: an edit tag woven into a path corrupts the path.
 - **No cycles.** `viewCycles.ts`, called from `extractValModules` next to
@@ -220,6 +220,16 @@ Seven things decide how it behaves, and each was a choice:
   for a source walk to trip over. A DIAMOND (two paths to one module) is not a
   cycle and is allowed.
 - **A module cannot BE a view.** `c.define(path, s.view(x), …)` throws.
+- **The exported names carry a `Val` prefix, and this family alone does.**
+  `ValView<T>`, `ValViewSource`, `isValViewSource`, `ValViewSchema` and
+  `SerializedValViewSchema` — where every other schema is `ImageSchema` /
+  `ImageSource` with no prefix. `View` is the name a consuming
+  app is most likely to have its own of (React Native's, every design system's,
+  the local one in half the projects that would install this), and the rest
+  follow it so the family reads as one. It is a deliberate break from the
+  convention, not an oversight: do not "fix" it back. The WIRE form is
+  untouched — `type: "view"` is the serialized discriminant and renaming it
+  would break every stored schema and the zod parser.
 - **`hidden` and `readonly` are the view's own, never the target's.** A view
   whose target module is hidden is still shown, and still leads there — which
   is the whole point, because `hidden` on a MODULE's root schema means "the nav

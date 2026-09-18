@@ -53,10 +53,10 @@ type ObjectSchemaProps = { [key: string]: Schema<SelectorSource> } & {
    * Cannot create object with key: view. It is a reserved name.
    *
    * A view field's source is `{ view: "/other.val.ts" }`, and the read side
-   * maps that shape to an opaque {@link View} handle. An ordinary object with a
-   * single `view: string` key is structurally identical, so it would be mapped
-   * the same way and lose every one of its fields — silently. Reserving the key
-   * is what makes the shape unambiguous.
+   * maps that shape to an opaque {@link ValView} handle. An ordinary object
+   * with a single `view: string` key is structurally identical, so it would be
+   * mapped the same way and lose every one of its fields — silently. Reserving
+   * the key is what makes the shape unambiguous.
    */
   view?: never;
   // The ones below we might want to allow (they are no longer intended to be used):

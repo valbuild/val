@@ -212,9 +212,9 @@ export {
   DateTimeSchema,
 } from "./schema/datetime";
 export { type SerializedKeyOfSchema, KeyOfSchema } from "./schema/keyOf";
-export { type SerializedViewSchema, ViewSchema } from "./schema/view";
-export { type ViewSource, isViewSource } from "./source/view";
-export type { View } from "./selector/view";
+export { type SerializedValViewSchema, ValViewSchema } from "./schema/view";
+export { type ValViewSource, isValViewSource } from "./source/view";
+export type { ValView } from "./selector/view";
 export { type SerializedRouteSchema, RouteSchema } from "./schema/route";
 export {
   type SerializedRichTextSchema,

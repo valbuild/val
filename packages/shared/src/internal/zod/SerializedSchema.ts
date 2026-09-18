@@ -419,7 +419,7 @@ export const SerializedSettingsSchema: z.ZodType<SerializedSettingsSchemaT> =
  * error — it is a runtime parse failure of the WHOLE module's schema, since the
  * containing object fails with it.
  */
-export const SerializedViewSchema = z.object({
+export const SerializedValViewSchema = z.object({
   type: z.literal("view"),
   render: FieldRender.optional(),
   moduleFilePath: ModuleFilePath,
@@ -450,5 +450,5 @@ export const SerializedSchema: z.ZodType<SerializedSchemaT> = z.union([
   SerializedCodeSchema,
   SerializedSettingsSchema,
   SerializedImageSchema,
-  SerializedViewSchema,
+  SerializedValViewSchema,
 ]);

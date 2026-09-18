@@ -4,14 +4,14 @@ import { ReifiedPreview } from "../preview";
 import { FieldRender } from "../render";
 import { GenericSelector } from "../selector";
 import { Source } from "../source";
-import { isViewSource, ViewSource } from "../source/view";
+import { isValViewSource, ValViewSource } from "../source/view";
 import { ModuleFilePath, SourcePath, getValPath } from "../val";
 import {
   ValidationError,
   ValidationErrors,
 } from "./validation/ValidationError";
 
-export type SerializedViewSchema = {
+export type SerializedValViewSchema = {
   type: "view";
   render?: FieldRender;
   /** Never set: a view has no value of its own to preview. Carried for shape parity. */
@@ -44,13 +44,14 @@ type SourceOf<M> = M extends GenericSelector<infer S> ? S : never;
  *   `{ view: "/other.val.ts" }` with autocomplete, and naming a different module
  *   than the schema does is a type error rather than a validation error.
  * - `T` — the target's source type, carried on a phantom slot so the READ side
- *   can say `View<T>` rather than `View<unknown>`. Nothing reads it yet; it is
- *   here so that resolving a view through `useVal` can be added without changing
- *   what is stored.
+ *   can say `ValView<T>` rather than `ValView<unknown>`. Nothing reads it yet;
+ *   it is here so that resolving a view through `useVal` can be added without
+ *   changing what is stored.
  */
-export class ViewSchema<Id extends string = string, T = unknown> extends Schema<
-  ViewSource<Id, T>
-> {
+export class ValViewSchema<
+  Id extends string = string,
+  T = unknown,
+> extends Schema<ValViewSource<Id, T>> {
   constructor(
     private readonly moduleFilePath: Id,
     private readonly isReadonly: boolean = false,
@@ -79,8 +80,8 @@ export class ViewSchema<Id extends string = string, T = unknown> extends Schema<
    *   title: "Hello",
    * });
    */
-  describe(description: string | null): ViewSchema<Id, T> {
-    return new ViewSchema(
+  describe(description: string | null): ValViewSchema<Id, T> {
+    return new ValViewSchema(
       this.moduleFilePath,
       this.isReadonly,
       this.isHidden,
@@ -98,9 +99,9 @@ export class ViewSchema<Id extends string = string, T = unknown> extends Schema<
    */
   protected executeValidate(
     path: SourcePath,
-    src: ViewSource<Id, T>,
+    src: ValViewSource<Id, T>,
   ): ValidationErrors {
-    if (!isViewSource(src)) {
+    if (!isValViewSource(src)) {
       return {
         [path]: [
           {
@@ -127,7 +128,7 @@ export class ViewSchema<Id extends string = string, T = unknown> extends Schema<
 
   protected executeCustomValidateAt(
     _path: SourcePath,
-    _src: ViewSource<Id, T>,
+    _src: ValViewSource<Id, T>,
   ): ValidationError[] {
     return [];
   }
@@ -135,10 +136,10 @@ export class ViewSchema<Id extends string = string, T = unknown> extends Schema<
   protected executeAssert(
     path: SourcePath,
     src: unknown,
-  ): SchemaAssertResult<ViewSource<Id, T>> {
-    if (isViewSource(src)) {
+  ): SchemaAssertResult<ValViewSource<Id, T>> {
+    if (isValViewSource(src)) {
       return { success: true, data: src } as SchemaAssertResult<
-        ViewSource<Id, T>
+        ValViewSource<Id, T>
       >;
     }
     return {
@@ -167,7 +168,7 @@ export class ViewSchema<Id extends string = string, T = unknown> extends Schema<
    *   title: "Hello",
    * });
    */
-  nullable(): Schema<ViewSource<Id, T> | null> {
+  nullable(): Schema<ValViewSource<Id, T> | null> {
     throw new Error("s.view() cannot be nullable: it points at a module");
   }
 
@@ -191,8 +192,8 @@ export class ViewSchema<Id extends string = string, T = unknown> extends Schema<
    *   title: "Hello",
    * });
    */
-  readonly(isReadonly: boolean = true): ViewSchema<Id, T> {
-    return new ViewSchema(
+  readonly(isReadonly: boolean = true): ValViewSchema<Id, T> {
+    return new ValViewSchema(
       this.moduleFilePath,
       isReadonly,
       this.isHidden,
@@ -221,8 +222,8 @@ export class ViewSchema<Id extends string = string, T = unknown> extends Schema<
    *   title: "Hello",
    * });
    */
-  hidden(isHidden: boolean = true): ViewSchema<Id, T> {
-    return new ViewSchema(
+  hidden(isHidden: boolean = true): ValViewSchema<Id, T> {
+    return new ValViewSchema(
       this.moduleFilePath,
       this.isReadonly,
       isHidden,
@@ -246,8 +247,8 @@ export class ViewSchema<Id extends string = string, T = unknown> extends Schema<
    *   title: "Hello",
    * });
    */
-  render(input: FieldRender): ViewSchema<Id, T> {
-    return new ViewSchema(
+  render(input: FieldRender): ValViewSchema<Id, T> {
+    return new ValViewSchema(
       this.moduleFilePath,
       this.isReadonly,
       this.isHidden,
@@ -265,7 +266,7 @@ export class ViewSchema<Id extends string = string, T = unknown> extends Schema<
       readonly: this.isReadonly,
       hidden: this.isHidden,
       description: this.description,
-    } satisfies SerializedViewSchema;
+    } satisfies SerializedValViewSchema;
   }
 
   protected executePreview(): ReifiedPreview {
@@ -298,10 +299,10 @@ export const view = <
   M extends GenericSelector<Source> & ValModuleBrand,
 >(
   valModule: M,
-): ViewSchema<ModuleIdOf<M>, SourceOf<M>> => {
+): ValViewSchema<ModuleIdOf<M>, SourceOf<M>> => {
   const path = getValPath(valModule);
   if (!path) {
     throw new Error("s.view() must be given a Val module");
   }
-  return new ViewSchema(path as unknown as ModuleIdOf<M>);
+  return new ValViewSchema(path as unknown as ModuleIdOf<M>);
 };

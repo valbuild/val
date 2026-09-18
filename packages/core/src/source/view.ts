@@ -4,8 +4,8 @@
  * Optional, and that is what makes the marker writable: `{ view: "/foo.val.ts" }`
  * is a plain literal, and an optional symbol-keyed property costs the author
  * nothing to satisfy. It exists so the read side can say WHAT is behind the
- * pointer — `View<FooSrc>` rather than `View<unknown>` — without the author
- * having to write a type they do not have.
+ * pointer — `ValView<FooSrc>` rather than `ValView<unknown>` — without the
+ * author having to write a type they do not have.
  */
 declare const ViewTargetSource: unique symbol;
 
@@ -22,10 +22,10 @@ declare const ViewTargetSource: unique symbol;
  * and a source naming a different module than its schema does is a type error.
  *
  * Nothing decides "this is a view" by looking at the value; the SCHEMA does
- * (`type === "view"`). {@link isViewSource} exists for the few places that have
+ * (`type === "view"`). {@link isValViewSource} exists for the few places that have
  * a value and no schema, and is not the normal way to ask.
  */
-export type ViewSource<Id extends string = string, T = unknown> = {
+export type ValViewSource<Id extends string = string, T = unknown> = {
   readonly view: Id;
 } & {
   readonly [ViewTargetSource]?: T;
@@ -39,7 +39,7 @@ export type ViewSource<Id extends string = string, T = unknown> = {
  * hand-written JSON can, which is why validation checks the value against the
  * schema rather than trusting it.
  */
-export function isViewSource(value: unknown): value is ViewSource {
+export function isValViewSource(value: unknown): value is ValViewSource {
   return (
     typeof value === "object" &&
     value !== null &&

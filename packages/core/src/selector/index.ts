@@ -13,8 +13,8 @@ import { AllRichTextOptions, RichTextSource } from "../source/richtext";
 import { RichTextSelector } from "./richtext";
 import { JsonSource } from "../source/json";
 import { ExternalRecordSrc } from "../source/external";
-import { ViewSource } from "../source/view";
-import { View } from "./view";
+import { ValViewSource } from "../source/view";
+import { ValView } from "./view";
 import { SettingsSource } from "../source/settings";
 
 export type Selector<T extends Source> = Source extends T
@@ -41,13 +41,13 @@ export type Selector<T extends Source> = Source extends T
         T extends ExternalRecordSrc
         ? GenericSelector<T>
         : // A view is a POINTER at another module, so it has no selector of its
-          // own to traverse: `View<Target>` names what is behind it and exposes
+          // own to traverse: `ValView<Target>` names what is behind it and exposes
           // nothing. Above `SourceObject` for the same reason as the arm above —
           // the marker is structurally an object — and safe to put there only
           // because `view` is a reserved object key (`ObjectSchemaProps`), so no
           // ordinary object source can take this shape.
-          T extends ViewSource<string, infer Target>
-          ? View<Target>
+          T extends ValViewSource<string, infer Target>
+          ? ValView<Target>
           : T extends RichTextSource<infer O>
             ? RichTextSelector<O>
             : T extends SourceObject
@@ -86,7 +86,7 @@ export type SelectorSource =
   | MediaSource
   | JsonSource
   | ExternalRecordSrc
-  | ViewSource
+  | ValViewSource
   | SettingsSource
   | RichTextSource<AllRichTextOptions>
   | GenericSelector<Source>;

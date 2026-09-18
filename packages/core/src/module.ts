@@ -26,7 +26,7 @@ import { SerializedSettingsSchema, SettingsSchema } from "./schema/settings";
 import { RawString } from "./schema/string";
 import { ImageSource } from "./source/media";
 import { ModuleFilePathSep } from ".";
-import { ViewSchema } from "./schema/view";
+import { ValViewSchema } from "./schema/view";
 
 const brand = Symbol("ValModule");
 const idBrand = Symbol("ValModuleId");
@@ -107,7 +107,7 @@ export function define<T extends Schema<SelectorSource>, Id extends string>(
   // on T would put it in a non-inferable position and break inference for every
   // other schema. `extractValModules` reports what this throws as a module
   // error, which is where a developer will look.
-  if (schema instanceof ViewSchema) {
+  if (schema instanceof ValViewSchema) {
     throw Error(
       `Cannot define '${id}' as a view: s.view() shows another module and stores nothing, so it cannot be a module's own schema. Put it in an s.object({ ... }) field instead.`,
     );

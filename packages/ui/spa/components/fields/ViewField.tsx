@@ -1,6 +1,6 @@
 import {
   ModuleFilePath,
-  SerializedViewSchema,
+  SerializedValViewSchema,
   SourcePath,
 } from "@valbuild/core";
 import { ChevronRight } from "lucide-react";
@@ -37,7 +37,7 @@ export function ViewField({
   schema,
 }: {
   path: SourcePath;
-  schema: SerializedViewSchema;
+  schema: SerializedValViewSchema;
 }) {
   const type = "view";
   const { navigate } = useNavigation();
