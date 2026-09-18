@@ -8,6 +8,8 @@ export {
   type StegaOfSource,
   type ResolvedVal,
   type Resolvable,
+  type JsonEntryContentOf,
+  type RouteValueOf,
   type StegaOfRichTextSource,
   type File,
   type Image,

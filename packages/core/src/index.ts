@@ -215,10 +215,11 @@ export { type SerializedKeyOfSchema, KeyOfSchema } from "./schema/keyOf";
 export { type SerializedValViewSchema, ValViewSchema } from "./schema/view";
 export { type ValViewSource, isValViewSource } from "./source/view";
 export type { ValView } from "./selector/view";
-export type { ValViewHandle } from "./source/viewHandle";
+export type { ValViewHandle, ResolvableModule } from "./source/viewHandle";
 import {
   createViewHandle,
   isViewHandle,
+  resolveViewedModule,
   viewHandleModule,
   viewModulesOf,
 } from "./source/viewHandle";
@@ -300,6 +301,7 @@ const Internal = {
   // `useVal`.
   createViewHandle,
   isViewHandle,
+  resolveViewedModule,
   viewHandleModule,
   viewModulesOf,
   mediaUrl,

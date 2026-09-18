@@ -2,16 +2,17 @@ import {
   GenericSelector,
   Internal,
   Json,
-  JsonSource,
   ModuleFilePath,
+  type ResolvableModule,
   SelectorSource,
   SourceObject,
   ValModule,
 } from "@valbuild/core";
 import {
+  type JsonEntryContentOf,
   type Resolvable,
   type ResolvedVal,
-  StegaOfSource,
+  type RouteValueOf,
   getModuleIds,
   stegaEncode,
 } from "@valbuild/react/stega";
@@ -176,16 +177,6 @@ function draftJsonEntry(
   return { status: "content", content: entry };
 }
 
-// The (loosened) content type a single `.jsonValues()` entry resolves to.
-type JsonEntryContentOf<T extends ValModule<GenericSelector<SourceObject>>> =
-  T extends ValModule<infer S>
-    ? S extends Record<string, infer V>
-      ? V extends JsonSource<infer C>
-        ? C
-        : never
-      : never
-    : never;
-
 // Module-level cache of in-flight/resolved entry loads, so `React.use` gets a
 // stable promise across renders (keyed by module path + entry key).
 const jsonEntryPromiseCache = new Map<string, Promise<unknown>>();
@@ -200,13 +191,16 @@ const jsonEntryPromiseCache = new Map<string, Promise<unknown>>();
  * overlay; in production — and whenever there is no draft view — it resolves the
  * entry's lazy import thunk from the local module.
  */
-function useValKeyStega<T extends ValModule<GenericSelector<SourceObject>>>(
+function useValKeyStega<T extends ResolvableModule>(
   selector: T,
   key: string,
 ): JsonEntryContentOf<T> | undefined {
   const valOverlayContext = useValOverlayContext();
+  // A view is a pointer: everything below reads a path, a schema and a source
+  // off this, and a pointer has none of them. See `resolveViewedModule`.
+  const valModule = Internal.resolveViewedModule<SourceObject>(selector);
   const moduleFilePath =
-    selector && (Internal.getValPath(selector) as unknown as ModuleFilePath);
+    valModule && (Internal.getValPath(valModule) as unknown as ModuleFilePath);
   const draftSource = useDraftModuleSource(moduleFilePath || undefined);
   const draft = draftJsonEntry(draftSource, key);
   if (draft.status === "absent") {
@@ -216,11 +210,11 @@ function useValKeyStega<T extends ValModule<GenericSelector<SourceObject>>>(
   }
   let content: unknown = draft.status === "content" ? draft.content : undefined;
   if (content === undefined) {
-    content = readCommittedJsonEntry(selector, key);
+    content = readCommittedJsonEntry(valModule, key);
   }
   return stegaEncode(content, {
     disabled: !valOverlayContext.draftMode,
-    root: getJsonEntryStegaRoot(selector, key),
+    root: getJsonEntryStegaRoot(valModule, key),
   });
 }
 
@@ -256,16 +250,6 @@ function readCommittedJsonEntry(
   return React.use(promise);
 }
 
-type UseValRouteReturnType<T extends ValModule<GenericSelector<SourceObject>>> =
-  T extends ValModule<infer S>
-    ? S extends SourceObject
-      ? // `.jsonValues()` router: the matched entry resolves to its json content.
-        NonNullable<S>[string] extends JsonSource<infer C>
-        ? C | null
-        : StegaOfSource<NonNullable<S>[string]> | null
-      : never
-    : never;
-
 function resolveParams(
   params:
     | Record<string, string | string[]>
@@ -290,33 +274,36 @@ function resolveParams(
   return params;
 }
 
-function useValRouteStega<T extends ValModule<GenericSelector<SourceObject>>>(
+function useValRouteStega<T extends ResolvableModule>(
   selector: T,
   params:
     | Record<string, string | string[]>
     | Promise<Record<string, string | string[]>>,
-): UseValRouteReturnType<T> {
+): RouteValueOf<T> {
   const valOverlayContext = useValOverlayContext();
+  // A view is a pointer: everything below reads a path, a schema and a source
+  // off this, and a pointer has none of them. See `resolveViewedModule`.
+  const valModule = Internal.resolveViewedModule<SourceObject>(selector);
   // Both called unconditionally to keep hook order stable. For a `.jsonValues()`
   // router `val` is unused (we resolve a single entry below instead); for any
   // other router `draftSource` is.
-  const val = useValStega(selector);
+  const val = useValStega(valModule);
   const draftSource = useDraftModuleSource(
-    (selector &&
-      (Internal.getValPath(selector) as unknown as ModuleFilePath)) ||
+    (valModule &&
+      (Internal.getValPath(valModule) as unknown as ModuleFilePath)) ||
       undefined,
   );
   const resolvedParams = resolveParams(params);
   // Careful: null means there was an error - undefined means no params
   if (resolvedParams === null) {
-    return null as UseValRouteReturnType<T>;
+    return null as RouteValueOf<T>;
   }
-  const path = selector && Internal.getValPath(selector);
-  const schema = selector && Internal.getSchema(selector);
+  const path = valModule && Internal.getValPath(valModule);
+  const schema = valModule && Internal.getSchema(valModule);
   // `.jsonValues()` router: map params → the entry key and load ONLY that
   // entry's backing `*.val.json` (one dynamic import), like `useValKey`.
   if (isJsonValuesRecordSchema(schema)) {
-    const source = selector && Internal.getSource(selector);
+    const source = valModule && Internal.getSource(valModule);
     const url = getValRouteUrlFromVal(
       resolvedParams || {},
       "useValRoute",
@@ -325,24 +312,24 @@ function useValRouteStega<T extends ValModule<GenericSelector<SourceObject>>>(
       source,
     );
     if (!url) {
-      return null as UseValRouteReturnType<T>;
+      return null as RouteValueOf<T>;
     }
     const draft = draftJsonEntry(draftSource, url);
     if (draft.status === "absent") {
       // The draft state says this route is gone — see useValKeyStega.
-      return null as UseValRouteReturnType<T>;
+      return null as RouteValueOf<T>;
     }
     let content: unknown =
       draft.status === "content" ? draft.content : undefined;
     if (content === undefined) {
-      content = readCommittedJsonEntry(selector, url);
+      content = readCommittedJsonEntry(valModule, url);
     }
     if (content === undefined) {
-      return null as UseValRouteReturnType<T>;
+      return null as RouteValueOf<T>;
     }
     return stegaEncode(content, {
       disabled: !valOverlayContext.draftMode,
-      root: getJsonEntryStegaRoot(selector, url),
+      root: getJsonEntryStegaRoot(valModule, url),
     });
   }
   const route = initValRouteFromVal(
@@ -355,13 +342,16 @@ function useValRouteStega<T extends ValModule<GenericSelector<SourceObject>>>(
   return route;
 }
 
-function useValRouteUrl<T extends ValModule<GenericSelector<SourceObject>>>(
+function useValRouteUrl<T extends ResolvableModule>(
   selector: T,
   params?:
     | Record<string, string | string[]>
     | Promise<Record<string, string | string[]>>,
 ): string | null {
-  const val = useValStega(selector);
+  // A view is a pointer: everything below reads a path, a schema and a source
+  // off this, and a pointer has none of them. See `resolveViewedModule`.
+  const valModule = Internal.resolveViewedModule<SourceObject>(selector);
+  const val = useValStega(valModule);
   const resolvedParams =
     params === undefined ? undefined : resolveParams(params);
   // Careful: null means there was an error - undefined means no params
@@ -371,8 +361,8 @@ function useValRouteUrl<T extends ValModule<GenericSelector<SourceObject>>>(
   const route = getValRouteUrlFromVal(
     resolvedParams || {},
     "useValRouteUrl",
-    selector && Internal.getValPath(selector),
-    selector && Internal.getSchema(selector),
+    valModule && Internal.getValPath(valModule),
+    valModule && Internal.getSchema(valModule),
     val,
   );
   return route;

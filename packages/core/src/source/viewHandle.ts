@@ -1,7 +1,10 @@
+import type { ValModule } from "../module";
 import { Schema } from "../schema";
 import { ValViewSchema } from "../schema/view";
-import { SelectorSource } from "../selector";
-import { ValViewSource } from "./view";
+import type { GenericSelector, SelectorSource } from "../selector";
+import type { ValView } from "../selector/view";
+import type { Source, SourceObject } from "./index";
+import { isValViewSource, ValViewSource } from "./view";
 
 /**
  * Where a resolved view handle keeps the module it points at.
@@ -57,6 +60,64 @@ export function viewHandleModule(value: unknown): unknown {
     return undefined;
   }
   return value[ViewTargetModule];
+}
+
+/**
+ * What a reader that needs a MODULE accepts, rather than a value.
+ *
+ * `useValKey`, `useValRoute`, `useValRouteUrl` and their `fetch*` counterparts
+ * all read a path, a schema and a source off what they are handed, so — unlike
+ * `useVal` — they cannot take an arbitrary selector. They CAN take a view
+ * pointing at one, which is the point of a page declaring which module it
+ * shows. {@link resolveViewedModule} is the runtime half, and takes exactly
+ * this, so the two cannot drift.
+ */
+export type ResolvableModule<S extends Source = SourceObject> =
+  | ValModule<GenericSelector<S>>
+  | ValView<S>;
+
+/**
+ * What a reader was actually handed: the module itself, or — when it is a view
+ * handle — the module that view points at.
+ *
+ * Every reader that needs a module rather than a value goes through this:
+ * `useValKey`, `useValRoute`, `useValRouteUrl` and their `fetch*` counterparts
+ * all pull the path, the schema and the source off the thing they are given,
+ * and a view handle has none of those. It is `{ view: "/foo.val.ts" }` with the
+ * module on a symbol, so reading `Internal.getValPath` off it gives
+ * `undefined`, and every one of those readers treats `undefined` as its own
+ * "no route matched" answer. Without this the call is not an error — it is a
+ * silently empty one.
+ *
+ * A POINTER with no module on it throws rather than being passed through, for
+ * the same reason `stegaEncode` throws on one: symbols do not survive
+ * serialization, so a handle that crossed the server/client boundary as a prop
+ * arrives looking like content and is not.
+ */
+export function resolveViewedModule<S extends Source>(
+  selector: ResolvableModule<S>,
+): ValModule<GenericSelector<S>>;
+/*
+ * A widened implementation signature rather than assertions in the body.
+ *
+ * The module rides on a symbol as `unknown` — the encoder that attaches it has
+ * no type for it — and no narrowing tells the checker that what is left after
+ * both guards is the module arm. Declaring the callable signature above and
+ * implementing against `unknown` says that once, where the runtime fact lives,
+ * instead of casting at each of the twelve readers.
+ */
+export function resolveViewedModule(selector: unknown): unknown {
+  const resolved = viewHandleModule(selector);
+  if (resolved !== undefined) {
+    return resolved;
+  }
+  if (isValViewSource(selector)) {
+    throw Error(
+      `Cannot resolve the view of '${selector.view}': it has been serialized, which drops the module it points at. ` +
+        `Resolve it in the same component that read the module containing it, or read '${selector.view}' directly.`,
+    );
+  }
+  return selector;
 }
 
 /**

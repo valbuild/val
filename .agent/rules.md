@@ -221,15 +221,20 @@ Eight things decide how it behaves, and each was a choice:
   cycle and is allowed.
 - **A module cannot BE a view.** `c.define(path, s.view(x), …)` throws.
 - **The exported names carry a `Val` prefix, and this family alone does.**
-  `ValView<T>`, `ValViewSource`, `isValViewSource`, `ValViewSchema` and
-  `SerializedValViewSchema` — where every other schema is `ImageSchema` /
-  `ImageSource` with no prefix. `View` is the name a consuming
+  `ValView<T>`, `ValViewSource`, `isValViewSource`, `ValViewSchema`,
+  `SerializedValViewSchema`, `ValViewHandle` — where every other schema is
+  `ImageSchema` / `ImageSource` with no prefix. `View` is the name a consuming
   app is most likely to have its own of (React Native's, every design system's,
   the local one in half the projects that would install this), and the rest
   follow it so the family reads as one. It is a deliberate break from the
-  convention, not an oversight: do not "fix" it back. The WIRE form is
-  untouched — `type: "view"` is the serialized discriminant and renaming it
-  would break every stored schema and the zod parser.
+  convention, not an oversight: do not "fix" it back.
+
+  The line is what `@valbuild/core` exports at the TOP level. The members of
+  `Internal` keep their plain names — `createViewHandle`, `isViewHandle`,
+  `viewHandleModule`, `viewModulesOf`, `resolveViewedModule` — because
+  `Internal.` already namespaces them and nothing can collide with them. So
+  does the WIRE form: `type: "view"` is the serialized discriminant, and
+  renaming it would break every stored schema and the zod parser.
 - **`hidden` and `readonly` are the view's own, never the target's.** A view
   whose target module is hidden is still shown, and still leads there — which
   is the whole point, because `hidden` on a MODULE's root schema means "the nav
@@ -268,6 +273,23 @@ distributing version re-entered `StegaOfSource` per member and the async readers
 hit "Type instantiation is excessively deep". For the same reason
 `ValView<Source>` is a member of `SelectorSource` — it keeps the readers' type
 parameter bounded by one type, which is one conditional arm cheaper than widening it.
+
+**The readers that need a MODULE go through `Internal.resolveViewedModule`.**
+`useValKey`, `useValRoute`, `useValRouteUrl` and the three `fetch*` counterparts
+pull a path, a schema and a source off what they are handed, so a view — which
+is a pointer with none of the three — cannot be passed through to them. Their
+parameter is `ResolvableModule` and the resolver takes exactly that type, so the
+two cannot drift. It matters more than it looks: every one of those readers
+already returns `null` / `undefined` for "no such entry", so an unresolved view
+was not an error but a 404 from a call that looks right. `ResolvableModule`,
+`JsonEntryContentOf` and `RouteValueOf` are shared for the same reason
+`ResolvedVal` is — there were four identical copies, one per reader file.
+
+One trap when testing this: `stegaEncode` returns `any`, so
+`stegaEncode(pageVal, {}).notes` handed to a reader makes the reader's type
+parameter `any` too, and the conditionals resolve to whatever `any` distributes
+to. Annotate the encoded value (`const page: ResolvedVal<typeof pageVal> = …`)
+or the test proves nothing about the types.
 
 Not built yet, and deliberately: rendering the target inline
 (`render({ as: "inline" })`).

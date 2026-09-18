@@ -30,6 +30,7 @@ import { SourceArray } from "@valbuild/core";
 import { RawString } from "@valbuild/core";
 import type {
   GenericSelector,
+  JsonSource,
   SelectorOf,
   SelectorSource,
 } from "@valbuild/core";
@@ -271,9 +272,9 @@ export type StegaOfSource<T extends Source> = Json extends T
  * `initValContent` and the TanStack client each had their own copy of the
  * selector half, which is four places for the view half to be forgotten in.
  *
- * `Target extends Source` is checked HERE rather than on `ValView` itself: `ValView`
- * is built from `ValViewSource`, which is a member of the `Source` union, so a
- * constraint there is a circular type reference.
+ * `Target extends Source` is checked HERE rather than on `ValView` itself:
+ * `ValView` is built from `ValViewSource`, which is a member of the `Source`
+ * union, so a constraint there is a circular type reference.
  *
  * The outer arms are wrapped in tuples so the conditional does not DISTRIBUTE
  * over a union: distributing it re-entered `StegaOfSource` per member and the
@@ -293,6 +294,40 @@ export type ResolvedVal<T extends SelectorSource> = [T] extends [
 
 /** What a reader accepts. A view handle is a `SelectorSource`, so this is it. */
 export type Resolvable = SelectorSource;
+
+/**
+ * The source of whichever arm of `ResolvableModule` a reader was given — the
+ * module's own, or that of the module a view points at.
+ */
+type SourceOfResolvable<T> = [T] extends [ValView<infer Target>]
+  ? Target
+  : T extends GenericSelector<infer S>
+    ? S
+    : never;
+
+/**
+ * The (loosened) content type a single `.jsonValues()` entry resolves to.
+ *
+ * Here rather than in the framework packages because there were four identical
+ * copies of it — next's client and rsc readers, tanstack's client and server —
+ * and the view arm would have had to be added to each. Same reason
+ * {@link ResolvedVal} lives here.
+ */
+export type JsonEntryContentOf<T> =
+  SourceOfResolvable<T> extends Record<string, infer V>
+    ? V extends JsonSource<infer C>
+      ? C
+      : never
+    : never;
+
+/** What a route reader gives back for the entry the params matched. */
+export type RouteValueOf<T> =
+  SourceOfResolvable<T> extends SourceObject
+    ? // `.jsonValues()` router: the matched entry resolves to its json content.
+      NonNullable<SourceOfResolvable<T>>[string] extends JsonSource<infer C>
+      ? C | null
+      : StegaOfSource<NonNullable<SourceOfResolvable<T>>[string]> | null
+    : never;
 
 /**
  * Resolves the matching variant of a discriminated union from the value's tag.

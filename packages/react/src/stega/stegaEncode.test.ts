@@ -1,7 +1,9 @@
 import {
   getModuleIds,
   stegaEncode,
+  type JsonEntryContentOf,
   type ResolvedVal,
+  type RouteValueOf,
   type StegaOfSource,
   type ValEncodedString,
 } from "./stegaEncode";
@@ -10,6 +12,7 @@ import {
   RawString,
   Schema,
   SelectorSource,
+  SourceObject,
   initVal,
 } from "@valbuild/core";
 import { vercelStegaDecode, vercelStegaSplit } from "@vercel/stega";
@@ -818,5 +821,80 @@ describe("view handles", () => {
     expect(vercelStegaSplit(page.title).cleaned).toBe("Edited");
     const header = stegaEncode(page.header, {});
     expect(vercelStegaSplit(header.title).cleaned).toBe("Blank");
+  });
+});
+
+/**
+ * Reading through a view with the readers that need a MODULE, not a value.
+ *
+ * `useValKey`, `useValRoute`, `useValRouteUrl` and the `fetch*` counterparts all
+ * pull a path, a schema and a source off what they are handed. A view has none
+ * of those, and each of those readers already uses `undefined` / `null` to mean
+ * "no such entry" — so before `resolveViewedModule` a view argument was not an
+ * error, it was a silently empty answer. Both halves are pinned here: the
+ * runtime one it shares, and the types the four reader files share.
+ */
+describe("reading a route or an entry through a view", () => {
+  const notesVal = c.define(
+    "/app/notes/[note]/page.val.ts",
+    s.record(s.object({ title: s.string() })),
+    { "/notes/one": { title: "One" } },
+  );
+  const pageSchema = s.object({ title: s.string(), notes: s.view(notesVal) });
+  const pageVal = c.define("/page.val.ts", pageSchema, {
+    title: "Hello",
+    notes: { view: "/app/notes/[note]/page.val.ts" },
+  });
+
+  test("the handle resolves to the module the readers need", () => {
+    const page = stegaEncode(pageVal, {});
+    const resolved = Internal.resolveViewedModule<SourceObject>(page.notes);
+    // The same object `s.view()` was given — so `Internal.getValPath`,
+    // `getSchema` and `getSource` all answer, which is the whole requirement.
+    expect(resolved).toBe(notesVal);
+    expect(Internal.getValPath(resolved)).toBe("/app/notes/[note]/page.val.ts");
+  });
+
+  test("a module passed to the same readers is untouched", () => {
+    expect(Internal.resolveViewedModule(notesVal)).toBe(notesVal);
+  });
+
+  /**
+   * Symbols do not serialize, so a handle passed from a server component to a
+   * client one arrives as the bare pointer. Resolving it would hand back an
+   * object that looks like content and holds none — the same rule, and the same
+   * message, `stegaEncode` uses.
+   */
+  test("a pointer that lost its module says so", () => {
+    const page = stegaEncode(pageVal, {});
+    const overTheWire = JSON.parse(JSON.stringify(page.notes));
+    expect(() => Internal.resolveViewedModule(overTheWire)).toThrow(
+      /has been serialized, which drops the module it points at/,
+    );
+  });
+
+  /**
+   * The type half, and the one that would go wrong silently: these two are
+   * computed from the reader's argument, so a view arm that stops matching does
+   * not fail to compile — it resolves to `never`, and every call to a reader
+   * starts erroring at the CALL SITE in someone's app instead.
+   */
+  test("the entry and route types read through the view", () => {
+    type NotesHandle = ResolvedVal<typeof pageVal>["notes"];
+
+    // What `useValRoute(page.notes, params)` gives back: the record's item,
+    // the same as passing the module itself.
+    const throughView: RouteValueOf<NotesHandle> = {
+      title: "One" as ValEncodedString,
+    };
+    const throughModule: RouteValueOf<typeof notesVal> = throughView;
+    expect(throughModule?.title).toBe("One");
+
+    // `JsonEntryContentOf` is `never` unless the record's values are
+    // `.jsonValues()` markers — the point here is only that the view arm
+    // agrees with the module arm rather than diverging.
+    const sameShape: JsonEntryContentOf<NotesHandle> =
+      undefined as unknown as JsonEntryContentOf<typeof notesVal>;
+    expect(sameShape).toBeUndefined();
   });
 });
