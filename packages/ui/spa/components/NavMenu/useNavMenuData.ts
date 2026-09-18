@@ -207,9 +207,21 @@ export function useNavMenuData(): Remote<NavMenuData> {
     // one, or one in a subdirectory, resolves to nothing — the module errors
     // say why, and offering a destination that cannot say WHICH settings it is
     // showing would hide the question rather than raise it.
-    const settingsModule =
+    //
+    // Hidden means the nav does not list it, here as everywhere else. Resolved
+    // first and then dropped, rather than resolving over a filtered set: a
+    // second settings module is still a second settings module when one of them
+    // is hidden, and that has to stay an error rather than become a way to pick
+    // between them.
+    const resolvedSettings =
       schemas.status === "success"
         ? resolveSettingsModule(schemas.data).moduleFilePath
+        : null;
+    const settingsModule =
+      resolvedSettings &&
+      schemas.status === "success" &&
+      !schemas.data[resolvedSettings]?.hidden
+        ? resolvedSettings
         : null;
     if (settingsModule) {
       data.settings = { moduleFilePath: settingsModule };
