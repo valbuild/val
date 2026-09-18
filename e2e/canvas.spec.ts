@@ -66,7 +66,7 @@ test.describe("the canvas", () => {
     // the pane — which is the difference between a canvas that opened and one
     // whose column never moved.
     await expect(
-      studio.getByRole("button", { name: "Fit page to screen" }),
+      studio.getByRole("button", { name: "Fit page width" }),
     ).toBeVisible();
 
     /**
@@ -130,7 +130,7 @@ test.describe("the canvas", () => {
     await closeNavPanel(studio, "Pages");
     await studio.getByRole("button", { name: "Canvas" }).click();
     await expect(
-      studio.getByRole("button", { name: "Fit page to screen" }),
+      studio.getByRole("button", { name: "Fit page width" }),
     ).toBeVisible();
 
     const divider = studio.getByRole("separator", {
@@ -242,7 +242,7 @@ test.describe("the canvas", () => {
      * round trip worked, the page came back in draft mode, Val tagged its
      * content, and the frame's message reached the studio.
      */
-    const fieldsTab = studio.getByRole("tab", { name: /Fields/ });
+    const fieldsTab = studio.getByRole("tab", { name: /On page/ });
     await expect(
       fieldsTab,
       "the page never reported any content, so preview mode did not take",
@@ -322,7 +322,7 @@ test.describe("the canvas", () => {
     });
     await expect(enable).toBeVisible({ timeout: 25000 });
     await enable.click();
-    const fieldsTab = studio.getByRole("tab", { name: /Fields/ });
+    const fieldsTab = studio.getByRole("tab", { name: /On page/ });
     await expect(fieldsTab).toBeVisible({ timeout: 30000 });
     await fieldsTab.click();
 
@@ -633,7 +633,7 @@ test.describe("the canvas", () => {
     });
     await expect(enable).toBeVisible({ timeout: 25000 });
     await enable.click();
-    const fieldsTab = studio.getByRole("tab", { name: /Fields/ });
+    const fieldsTab = studio.getByRole("tab", { name: /On page/ });
     await expect(fieldsTab).toBeVisible({ timeout: 30000 });
     await fieldsTab.click();
 
@@ -664,7 +664,7 @@ test.describe("the canvas", () => {
     expect(params.get("field")).toContain('"link"."label"');
 
     // Back in the module editor: the whole page, with the field still marked.
-    await studio.getByRole("tab", { name: /Normal/ }).click();
+    await studio.getByRole("tab", { name: /Structure/ }).click();
     await expect(
       studio.locator("[data-val-studio-path*='\"content\"']").first(),
       "the editor showed the picked field alone, without the rest of its page",
@@ -731,7 +731,7 @@ test.describe("the canvas", () => {
     });
     await expect(enable).toBeVisible({ timeout: 25000 });
     await enable.click();
-    await expect(studio.getByRole("tab", { name: /Fields/ })).toBeVisible({
+    await expect(studio.getByRole("tab", { name: /On page/ })).toBeVisible({
       timeout: 30000,
     });
 
@@ -746,13 +746,12 @@ test.describe("the canvas", () => {
       "the button did not turn picking on",
     ).toBeVisible();
     // Still the normal view — that is the whole point of the button.
-    await expect(studio.getByRole("tab", { name: /Normal/ })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    await expect(
+      studio.getByRole("tab", { name: /Structure/ }),
+    ).toHaveAttribute("aria-selected", "true");
 
     // Switching to the fields view still turns it on by itself.
-    await studio.getByRole("tab", { name: /Fields/ }).click();
+    await studio.getByRole("tab", { name: /On page/ }).click();
     await expect(
       studio.getByRole("button", { name: "Stop selecting on the page" }),
     ).toBeVisible();

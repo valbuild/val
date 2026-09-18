@@ -684,6 +684,56 @@ export const OneHeight: Story = {
 };
 
 /**
+ * Two sizes, one shape.
+ *
+ * The editor is not always alone on the screen. Beside the canvas it is one of
+ * three panes that all begin on the same line, and the other two start using
+ * their space immediately — the preview's address bar is a control you type in,
+ * the On page column's header is a count and a filter. A 24px title with 124px
+ * of chrome around it does not read as a heading with presence next to those;
+ * it reads as a pane that has not loaded yet.
+ *
+ * So `compact` scales the same three lines down — 24 + 16 instead of 32 + 20 —
+ * and changes nothing else: the same fixed height per shape, the same square
+ * thumbnail sized to the two lines beside it, the same everything-in-the-layout
+ * rule. A heading cannot be one shape beside the canvas and another without it,
+ * which is what a second component here would eventually have produced.
+ */
+export const TwoDensities: Story = {
+  render: () => (
+    <div className="mx-auto grid max-w-4xl grid-cols-1 gap-x-8 md:grid-cols-2">
+      {(["full", "compact"] as const).map((density) => (
+        <div key={density}>
+          <div className="mb-3 text-[11px] uppercase tracking-wide text-fg-secondary-alt">
+            {density === "full"
+              ? "full — the editor alone"
+              : "compact — beside the canvas"}
+          </div>
+          {SHAPES.map(({ what, description, scope }, i) => (
+            <div key={i}>
+              <div className="mb-1.5 text-[11px] text-fg-secondary-alt">
+                {what}
+              </div>
+              <div className="mb-4 rounded-lg border border-dashed border-border-primary bg-bg-primary px-4 py-3">
+                <PathHeading
+                  density={density}
+                  description={description}
+                  scope={
+                    scope && (
+                      <span className="text-fg-secondary-alt">{scope}</span>
+                    )
+                  }
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  ),
+};
+
+/**
  * The same rule one level down: rows of a list are all the same height because
  * every row of one list comes from one closure. `subtitle` and `image` each
  * have three states — a value, `null` (declared, absent here, so the line or

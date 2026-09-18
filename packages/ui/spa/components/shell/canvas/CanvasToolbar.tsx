@@ -136,9 +136,15 @@ export function CanvasToolbar({
       >
         <Plus size={14} />
       </button>
+      {/*
+       * The way back to the default view, which is the page at the width of
+       * the pane, from the top — not the whole page at once. See
+       * `fitWidthScale`.
+       */}
       <button
         type="button"
-        aria-label="Fit page to screen"
+        aria-label="Fit page width"
+        title="Show the page at the width of the pane, from the top"
         onClick={onFit}
         className="grid h-7 w-7 place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
       >

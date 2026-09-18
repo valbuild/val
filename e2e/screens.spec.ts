@@ -220,7 +220,7 @@ test("the canvas", async ({ page }) => {
   await shot(page, "10-canvas-preview-off");
 
   await enable.click();
-  const fieldsTab = studio.getByRole("tab", { name: /Fields/ });
+  const fieldsTab = studio.getByRole("tab", { name: /On page/ });
   await expect(fieldsTab).toBeVisible({ timeout: 30000 });
   await page.waitForTimeout(2000);
   await shot(page, "11-canvas-normal");

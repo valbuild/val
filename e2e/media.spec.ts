@@ -205,7 +205,7 @@ test.describe("the Media section", () => {
     await closeNavPanel(studio, "Pages");
     await studio.getByRole("button", { name: /Open the canvas/ }).click();
     await expect(
-      studio.getByRole("button", { name: "Fit page to screen" }),
+      studio.getByRole("button", { name: "Fit page width" }),
     ).toBeVisible();
 
     await openNavPanel(page, "Media");
@@ -227,7 +227,7 @@ test.describe("the Media section", () => {
       "the file's path did not resolve to anything",
     ).toHaveCount(0);
     await expect(
-      studio.getByRole("button", { name: "Fit page to screen" }),
+      studio.getByRole("button", { name: "Fit page width" }),
       "the canvas stayed open over the file that was just picked",
     ).toHaveCount(0);
   });

@@ -3,6 +3,7 @@ import { ReactNode } from "react";
 import { Description } from "../utils/describePath";
 import { useMediaUrl } from "../utils/mediaUrl";
 import { cn } from "./designSystem/cn";
+import { EditorDensity } from "./EditorDensity";
 
 /**
  * How a page's URL is shown once its TITLE is no longer the URL.
@@ -35,29 +36,56 @@ export type PageUrlStyle =
  * A heading whose height depends on what a developer happened to write is a
  * studio that jumps as you click through it: one module has a subtitle, the
  * next does not, and the editor column and everything under it move. So the
- * heading is always {@link TITLE_BLOCK} plus a scope line — 52 + 8 + 20 — and
- * nothing inside it can change that: a missing subtitle is absorbed by
- * centering, and the thumbnail is sized to the block rather than the block to
- * the thumbnail.
+ * heading is always a title block plus a scope line — and nothing inside it can
+ * change that: a missing subtitle is absorbed by centering, and the thumbnail
+ * is sized to the block rather than the block to the thumbnail.
+ *
+ * `block` is title plus subtitle held whether or not there IS a subtitle, with
+ * the content CENTERED in it rather than pinned to the top. Reserving the
+ * subtitle line and leaving it empty also gives a constant height, and it looks
+ * like a bug: a lone title with a blank line under it reads as something that
+ * failed to load, not as air. Centering spends the same height as breathing
+ * room above and below the title instead, which is what a heading with one line
+ * wants anyway.
  *
  * The numbers are `leading-*` values, not paddings, so the lines sit on a
- * regular rhythm rather than being spaced by whatever the glyphs measured:
- * 32px for the title, 20px for each of the two secondary lines.
- */
-const TITLE_LINE = "h-8 text-2xl leading-8";
-const SECONDARY_LINE = "h-5 text-sm leading-5";
-/**
- * Title plus subtitle — 32 + 20 — held whether or not there is a subtitle, with
- * the content CENTERED in it rather than pinned to the top.
+ * regular rhythm rather than being spaced by whatever the glyphs measured, and
+ * `block` is exactly the two lines it holds: 32 + 20 full, 24 + 16 compact.
  *
- * Reserving the subtitle line and leaving it empty also gives a constant
- * height, and it looks like a bug: a lone title with a blank line under it
- * reads as something that failed to load, not as air. Centering spends the
- * same 52px as breathing room above and below the title instead, which is
- * what a heading with one line wants anyway. It is also what the thumbnail is
- * sized to, so an image cannot change the height either.
+ * Two sizes because the editor is not always alone on the screen — see
+ * {@link EditorDensity}. The shape is identical in both: the same three lines,
+ * the same square thumbnail, the same fixed height. Only the scale changes, so
+ * a heading cannot be one thing beside the canvas and another without it.
  */
-const TITLE_BLOCK = "h-[52px]";
+type HeadingSize = {
+  /** The title line. */
+  title: string;
+  /** The subtitle, and the scope line under the block. */
+  secondary: string;
+  /** Title plus subtitle, which is also the thumbnail's height. */
+  block: string;
+  /** The thumbnail's width, which has to match `block` — it is a square. */
+  image: string;
+  /** Between the block and the scope line. */
+  gap: string;
+};
+
+const SIZES: Record<EditorDensity, HeadingSize> = {
+  full: {
+    title: "h-8 text-2xl leading-8",
+    secondary: "h-5 text-sm leading-5",
+    block: "h-[52px]",
+    image: "w-[52px]",
+    gap: "gap-2",
+  },
+  compact: {
+    title: "h-6 text-lg leading-6",
+    secondary: "h-4 text-xs leading-4",
+    block: "h-10",
+    image: "w-10",
+    gap: "gap-1",
+  },
+};
 
 /**
  * The heading of whatever is being edited: what it is called, what it is, and
@@ -72,6 +100,7 @@ export function PathHeading({
   description,
   title: titleOverride,
   pageUrlStyle = "trail",
+  density = "full",
   tools,
   below,
   scope,
@@ -88,6 +117,15 @@ export function PathHeading({
   title?: ReactNode;
   /** Ignored unless `description.url` is set. */
   pageUrlStyle?: PageUrlStyle;
+  /**
+   * How much room the heading may spend. See {@link EditorDensity}.
+   *
+   * A prop rather than the context, read here: this component is drawn by
+   * stories and tests with no provider around it, and a heading whose size
+   * depends on something invisible is one nobody can render deliberately.
+   * `Module` is what reads the context.
+   */
+  density?: EditorDensity;
   /** The record tools, on the right of the title row. */
   tools?: ReactNode;
   /**
@@ -100,6 +138,7 @@ export function PathHeading({
   scope?: ReactNode;
   className?: string;
 }) {
+  const size = SIZES[density];
   const { title, subtitle, image, url } = description;
   // See the note in `ListPreviewItem`: a draft upload is served from its patch.
   const imageUrl = useMediaUrl(image);
@@ -131,7 +170,7 @@ export function PathHeading({
     pageUrlStyle === "trail" &&
     description.origin.title === "preview";
   return (
-    <div className={cn("flex flex-col gap-2 text-left", className)}>
+    <div className={cn("flex flex-col text-left", size.gap, className)}>
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 flex-1 items-start gap-3">
           {image !== null && (
@@ -145,8 +184,9 @@ export function PathHeading({
               src={imageUrl ?? undefined}
               alt=""
               className={cn(
-                "w-[52px] shrink-0 rounded-md bg-bg-secondary object-cover",
-                TITLE_BLOCK,
+                "shrink-0 rounded-md bg-bg-secondary object-cover",
+                size.image,
+                size.block,
               )}
               style={{
                 objectPosition: image.hotspot
@@ -158,7 +198,7 @@ export function PathHeading({
           <div
             className={cn(
               "flex min-w-0 flex-1 flex-col justify-center",
-              TITLE_BLOCK,
+              size.block,
             )}
           >
             <div className="flex min-w-0 items-center gap-2">
@@ -170,14 +210,14 @@ export function PathHeading({
               <div
                 role="heading"
                 aria-level={1}
-                className={cn("flex min-w-0 items-center truncate", TITLE_LINE)}
+                className={cn("flex min-w-0 items-center truncate", size.title)}
               >
                 {titleOverride ?? titleText}
               </div>
               {isPage && pageUrlStyle === "chip" && <PageUrlChip url={url} />}
             </div>
             {secondLine && (
-              <div className={cn("flex min-w-0 items-center", SECONDARY_LINE)}>
+              <div className={cn("flex min-w-0 items-center", size.secondary)}>
                 {secondLine}
               </div>
             )}
@@ -189,7 +229,7 @@ export function PathHeading({
       </div>
       {/* Likewise always present: the scope line, with the URL folded in. */}
       <div
-        className={cn("flex min-w-0 items-center gap-1.5", SECONDARY_LINE)}
+        className={cn("flex min-w-0 items-center gap-1.5", size.secondary)}
         aria-hidden={!scope && !showUrlInTrail}
       >
         {scope}
