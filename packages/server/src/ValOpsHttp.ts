@@ -186,6 +186,18 @@ const SavePatchFileResponse = z.object({
 const CommitResponse = z.object({
   updatedFiles: z.array(z.string()),
   commit: CommitSha,
+  /*
+   * Optional because a content service that predates them sends neither, and
+   * this client talks to whichever one the project is on. Absent means NOT
+   * REPORTED: `parent: undefined` is not "a root commit", and a caller that
+   * reads it as one would conclude the history starts here.
+   *
+   * Unbranded strings deliberately -- see `CommitResult.parent`. They arrive
+   * from a service that versions separately and are passed through as what it
+   * said, not as something this end vouched for.
+   */
+  parent: z.string().optional(),
+  tree: z.string().optional(),
   branch: z.string(),
 });
 // #region history wire schemas
@@ -1857,6 +1869,10 @@ export class ValOpsHttp extends ValOps {
         isNotFastForward?: boolean;
         updatedFiles: string[];
         commit: CommitSha;
+        /** See `CommitResult.parent`: absent means not reported. */
+        parent?: string;
+        /** See `CommitResult.tree`: absent means not reported. */
+        tree?: string;
         branch: string;
         error?: undefined;
       }
@@ -1928,6 +1944,18 @@ export class ValOpsHttp extends ValOps {
             updatedFiles: parsed.data.updatedFiles,
             commit: parsed.data.commit,
             branch: parsed.data.branch,
+            /*
+             * Spread rather than set, so a service that did not report them
+             * leaves the keys ABSENT rather than present-and-undefined. A
+             * caller doing `'parent' in result` then gets the truthful answer,
+             * and JSON round-trips of this object do not grow null fields.
+             */
+            ...(parsed.data.parent !== undefined
+              ? { parent: parsed.data.parent }
+              : {}),
+            ...(parsed.data.tree !== undefined
+              ? { tree: parsed.data.tree }
+              : {}),
           };
         }
         return {
