@@ -4,11 +4,13 @@ import { useSchemaAtPath, useShallowSourceAtPath } from "./ValFieldProvider";
 import { ArrayPreview } from "./fields/ArrayFields";
 import { BooleanPreview } from "./fields/BooleanField";
 import { NumberPreview } from "./fields/NumberField";
-import { UnionPreview } from "./fields/UnionField";
+import { DiscriminatedUnionPreview } from "./fields/DiscriminatedUnionField";
+import { EnumPreview } from "./fields/EnumField";
 import { ObjectPreview } from "./fields/ObjectFields";
 import { ImagePreview } from "./fields/ImageField";
 import { KeyOfPreview } from "./fields/KeyOfField";
 import { RoutePreview } from "./fields/RouteField";
+import { LocalePreview } from "./fields/LocaleField";
 import { DatePreview } from "./fields/DateField";
 import { DateTimePreview } from "./fields/DateTimeField";
 import { CodePreview } from "./fields/CodeField";
@@ -23,9 +25,12 @@ import { Loader2 } from "lucide-react";
 export function Preview({
   path,
   size,
+  nullLabel,
 }: {
   path: SourcePath;
   size?: "compact";
+  /** What an unwritten value is called here — see {@link PreviewNull}. */
+  nullLabel?: string;
 }) {
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(
@@ -40,7 +45,7 @@ export function Preview({
   }
   const type = schemaAtPath.data.type;
   if ("data" in sourceAtPath && sourceAtPath.data === null) {
-    return <PreviewNull path={path} />;
+    return <PreviewNull path={path} label={nullLabel} />;
   }
 
   if (type === "string") {
@@ -51,8 +56,10 @@ export function Preview({
     return <BooleanPreview path={path} />;
   } else if (type === "number") {
     return <NumberPreview path={path} />;
-  } else if (type === "union") {
-    return <UnionPreview path={path} />;
+  } else if (type === "discriminated-union") {
+    return <DiscriminatedUnionPreview path={path} />;
+  } else if (type === "enum") {
+    return <EnumPreview path={path} />;
   } else if (type === "object") {
     return <ObjectPreview path={path} size={size} />;
   } else if (type === "image") {
@@ -61,6 +68,8 @@ export function Preview({
     return <KeyOfPreview path={path} />;
   } else if (type === "route") {
     return <RoutePreview path={path} />;
+  } else if (type === "locale") {
+    return <LocalePreview path={path} />;
   } else if (type === "date") {
     return <DatePreview path={path} />;
   } else if (type === "dateTime") {
@@ -93,10 +102,23 @@ export function PreviewLoading({ path }: { path: SourcePath }) {
   );
 }
 
-export function PreviewNull({ path }: { path: SourcePath }) {
+export function PreviewNull({
+  path,
+  label,
+}: {
+  path: SourcePath;
+  /**
+   * What to call a value nobody has written, where the container knows a
+   * better word for it than "empty". A locale-keyed record's rows are the
+   * case this exists for: an unwritten entry there is not empty content, it is
+   * a language nobody has translated into, and a row reading `<empty>` looked
+   * the same as a row whose text happened to be blank.
+   */
+  label?: string;
+}) {
   return (
-    <div id={path} key={path + "-null"} className="text-fg-quaternary">
-      {"<empty>"}
+    <div id={path} key={path + "-null"} className="text-fg-secondary-alt">
+      {label ?? "<empty>"}
     </div>
   );
 }

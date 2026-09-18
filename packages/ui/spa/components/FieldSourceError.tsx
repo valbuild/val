@@ -2,8 +2,9 @@ import { SerializedSchema, SourcePath } from "@valbuild/core";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "./designSystem/button";
 import { useAddPatch } from "./ValFieldProvider";
-import { emptyOf } from "@valbuild/shared/internal";
+
 import { JSONValue } from "@valbuild/core/patch";
+import { useEmptyOf } from "../hooks/useEmptyOf";
 
 export function FieldSourceError({
   error,
@@ -19,6 +20,7 @@ export function FieldSourceError({
     | { status: "success"; data: SerializedSchema };
 }) {
   const { addPatch, patchPath } = useAddPatch(path);
+  const emptyOf = useEmptyOf();
   return (
     <div
       id={path}

@@ -44,7 +44,6 @@ export type AccountPanelProps = {
   branch?: string;
   /** Publishes in flight or recently finished. Absent when there is no feed. */
   deployments?: ShellDeployment[];
-  onDismissDeployment?: (commitSha: string) => void;
   /**
    * Ends the session. Absent where there is not one.
    *
@@ -83,7 +82,6 @@ export function AccountPanel({
   onAutoSaveChange,
   branch,
   deployments,
-  onDismissDeployment,
   onSignOut,
   onClose,
   navSwitcher,
@@ -185,10 +183,7 @@ export function AccountPanel({
           <>
             <PanelSectionLabel divided>Deployments</PanelSectionLabel>
             <div className="pt-1">
-              <DeploymentRows
-                deployments={deployments}
-                onDismiss={onDismissDeployment ?? (() => undefined)}
-              />
+              <DeploymentRows deployments={deployments} />
             </div>
           </>
         )}

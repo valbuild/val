@@ -12,6 +12,7 @@ import {
   PreviewItem,
   ReifiedPreview,
   PreviewScope,
+  mergePreviewInto,
 } from "../preview";
 import { FieldRender } from "../render";
 import { SelectorSource } from "../selector";
@@ -80,6 +81,28 @@ export class ObjectSchema<
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is INPUT HELP: it is shown where this field's value is
+   * entered — beside its input in the Val editor, and for a record's key
+   * schema in every form that asks for a key — so it is where you say what an
+   * editor needs to know to fill it in RIGHT, which the field name cannot
+   * carry. It is not a name for the value: that is `.preview(...)`, and it is
+   * read somewhere else. The description also travels in the serialized
+   * schema, which is what the AI assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s
+   *   .object({ street: s.string(), city: s.string() })
+   *   .describe("Where the office is — shown on the contact page");
+   * export default c.define("/example.val.ts", schema, {
+   *   street: "Torggata 1",
+   *   city: "Oslo",
+   * });
+   */
   describe(description: string | null): ObjectSchema<Props, Src> {
     return new ObjectSchema(
       this.items,
@@ -93,6 +116,32 @@ export class ObjectSchema<
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * An object validator is the place for a rule that spans FIELDS — one field
+   * validated on its own belongs on that field's schema, where the error lands
+   * on the field itself.
+   *
+   * @example
+   * const schema = s
+   *   .object({ from: s.number(), to: s.number() })
+   *   .validate((val) =>
+   *     val.from <= val.to ? false : "'from' must not be after 'to'",
+   *   );
+   * export default c.define("/example.val.ts", schema, { from: 1, to: 4 });
+   */
   validate(
     validationFunction: (src: Src) => false | string,
   ): ObjectSchema<Props, Src> {
@@ -141,6 +190,15 @@ export class ObjectSchema<
         customValidationError.message,
         src,
         customValidationError.schemaError,
+      );
+    }
+    for (const scopeError of this.localeScopeErrors()) {
+      error = this.appendValidationError(
+        error,
+        path,
+        scopeError.message,
+        src,
+        scopeError.schemaError,
       );
     }
     for (const [key, schema] of Object.entries(this.items)) {
@@ -243,7 +301,7 @@ export class ObjectSchema<
     return new ObjectSchema<Props, Src | null>(
       this.items,
       true,
-      [],
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.isReadonly,
       this.isHidden,
       this.description,
@@ -278,6 +336,30 @@ export class ObjectSchema<
     );
   }
 
+  /** The names of this object's `s.locale()` fields, in declaration order. */
+  protected override localeFieldNames(): string[] {
+    return Object.keys(this.items).filter((key) =>
+      this.items[key]["isLocaleField"](),
+    );
+  }
+
+  protected override opensLocaleScope(): "field" | "key" | null {
+    // More than one is itself the error, reported by `localeScopeErrors`. It
+    // still opens a scope: reporting "two locale fields" AND "a scope inside a
+    // scope" for the same object would be two errors about one mistake.
+    return this.localeFieldNames().length > 0 ? "field" : null;
+  }
+
+  protected override localeScopeChildren(): {
+    key: string;
+    schema: Schema<SelectorSource>;
+  }[] {
+    return Object.keys(this.items).map((key) => ({
+      key,
+      schema: this.items[key],
+    }));
+  }
+
   protected override executeCustomValidateAt(
     path: SourcePath,
     src: Src,
@@ -295,6 +377,16 @@ export class ObjectSchema<
    * instead of a preview row that navigates to it.
    *
    * Static configuration, not a callback — see `render.ts`.
+   *
+   * @example
+   * // A page builder: each row edits the object in place, instead of
+   * // navigating to it.
+   * const block = s
+   *   .object({ heading: s.string(), body: s.string() })
+   *   .render({ as: "inline" });
+   * export default c.define("/example.val.ts", s.array(block), [
+   *   { heading: "Hello", body: "World" },
+   * ]);
    */
   render(input: FieldRender): ObjectSchema<Props, Src> {
     return new ObjectSchema(
@@ -313,6 +405,14 @@ export class ObjectSchema<
    * How this VALUE is shown where a preview of it is needed — a row in a
    * sortable list, a reference dropdown, a search hit. Never how the field
    * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * const author = s
+   *   .object({ name: s.string(), role: s.string() })
+   *   .preview(({ val }) => ({ title: val.name, subtitle: val.role }));
+   * export default c.define("/example.val.ts", s.array(author), [
+   *   { name: "Ada", role: "Engineer" },
+   * ]);
    */
   preview(select: ItemPreviewInput<Src>): ObjectSchema<Props, Src> {
     return new ObjectSchema(
@@ -365,6 +465,7 @@ export class ObjectSchema<
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
     scope?: PreviewScope,
+    selfIsReifiedByParent?: boolean,
   ): ReifiedPreview {
     const res: ReifiedPreview = {};
     if (src === null) {
@@ -382,15 +483,17 @@ export class ObjectSchema<
       if (scope !== undefined && !scope.wantsUnder(subPath)) {
         continue;
       }
-      const itemResult = this.items[key]["executePreview"](
-        subPath,
-        itemSrc,
-        scope,
+      mergePreviewInto(
+        res,
+        this.items[key]["executePreview"](subPath, itemSrc, scope),
       );
-      for (const keyS in itemResult) {
-        const key = keyS as SourcePath | ModuleFilePath;
-        res[key] = itemResult[key];
-      }
+    }
+    // An object reifies no rows of its own, so the only thing it adds is what
+    // IT is called — which nothing else can supply for a field of an object.
+    // Its own items are NOT rows, so the flag stops here rather than travelling
+    // down with the recursion above.
+    if (!selfIsReifiedByParent) {
+      mergePreviewInto(res, this.executeSelfPreview(sourcePath, src, scope));
     }
     return res;
   }

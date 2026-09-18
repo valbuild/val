@@ -5,8 +5,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../designSystem/tooltip";
-import { ShellDestination, ShellPanel } from "./types";
-import { ValLogo } from "./ValLogo";
+import { ShellDestination, ShellLogo, ShellPanel } from "./types";
+import { StudioMark } from "./ValLogo";
 import { Avatar } from "../Avatar";
 import { AccountErrorDot } from "./AccountError";
 
@@ -14,6 +14,15 @@ export type RailItem = {
   panel: ShellDestination;
   label: string;
   icon: typeof FileText;
+  /**
+   * What the word means, for the tooltip's second line.
+   *
+   * "Pages", "Media" and "Data" are precise inside Val and vague everywhere
+   * else, and a tooltip that repeats the label a reader has already read is
+   * the one place a definition costs nothing. Kept to a clause: the tour is
+   * where the long version is.
+   */
+  description: string;
 };
 
 /**
@@ -38,10 +47,30 @@ export type RailItem = {
  * — see `visibleRailItems`.
  */
 export const RAIL_ITEMS: RailItem[] = [
-  { panel: "pages", label: "Pages", icon: FileText },
-  { panel: "media", label: "Media", icon: Image },
-  { panel: "data", label: "Data", icon: Braces },
-  { panel: "settings", label: "Settings", icon: Settings },
+  {
+    panel: "pages",
+    label: "Pages",
+    icon: FileText,
+    description: "The pages of your site, by URL",
+  },
+  {
+    panel: "media",
+    label: "Media",
+    icon: Image,
+    description: "Shared images and files, uploaded once",
+  },
+  {
+    panel: "data",
+    label: "Data",
+    icon: Braces,
+    description: "Content that is not tied to one page",
+  },
+  {
+    panel: "settings",
+    label: "Settings",
+    icon: Settings,
+    description: "This project's own settings, published like content",
+  },
 ];
 
 /**
@@ -87,6 +116,14 @@ export type LeftRailProps = {
    * case where `user` is absent — so the mark has to appear on the cog as well.
    */
   accountError?: { message: string };
+  /**
+   * The project's own mark, from `s.settings()`'s `theme.logo`.
+   *
+   * Absent leaves Val's. A prop rather than a hook so the rail stays
+   * presentational and a story can hand it one — see `StudioMark` for why it is
+   * contained rather than cropped in a 32px slot.
+   */
+  logo?: ShellLogo;
   /** Blinks the mark, as a terminal caret does while it waits. */
   isLoading?: boolean;
 };
@@ -104,6 +141,7 @@ export function LeftRail({
   user,
   hasDraftChanges,
   accountError,
+  logo,
   isLoading,
 }: LeftRailProps) {
   const items = visibleRailItems(destinations);
@@ -115,9 +153,9 @@ export function LeftRail({
       className="absolute left-3 top-3 bottom-3 z-full w-12 flex flex-col items-center py-2 gap-1 rounded-lg bg-bg-float border border-border-float shadow-sm"
     >
       <div className="grid place-items-center w-8 h-8 mb-1 shrink-0 text-fg-primary">
-        <ValLogo className="h-6" blinking={isLoading} />
+        <StudioMark logo={logo} className="h-6" blinking={isLoading} />
       </div>
-      {topItems.map(({ panel, label, icon: Icon }) => (
+      {topItems.map(({ panel, label, icon: Icon, description }) => (
         <Tooltip key={panel}>
           <TooltipTrigger asChild>
             <button
@@ -125,6 +163,8 @@ export function LeftRail({
               aria-label={label}
               aria-current={openPanel === panel ? "true" : undefined}
               onClick={() => onSelect(panel)}
+              // What a tour step points at. See `StudioTour`.
+              data-val-tour={panel}
               className={cn(
                 "grid place-items-center w-8 h-8 rounded-md shrink-0 transition-colors",
                 openPanel === panel
@@ -135,7 +175,9 @@ export function LeftRail({
               <Icon size={17} />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="right">{label}</TooltipContent>
+          <TooltipContent side="right">
+            <RailTooltip label={label} description={description} />
+          </TooltipContent>
         </Tooltip>
       ))}
       {/*
@@ -174,7 +216,12 @@ export function LeftRail({
                 <footItem.icon size={17} />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="right">{footItem.label}</TooltipContent>
+            <TooltipContent side="right">
+              <RailTooltip
+                label={footItem.label}
+                description={footItem.description}
+              />
+            </TooltipContent>
           </Tooltip>
         )}
         {user ? (
@@ -227,5 +274,21 @@ export function LeftRail({
         )}
       </div>
     </nav>
+  );
+}
+
+/** The label, and under it what the word means. See `RailItem.description`. */
+function RailTooltip({
+  label,
+  description,
+}: {
+  label: string;
+  description: string;
+}) {
+  return (
+    <span className="block max-w-[13rem]">
+      <span className="block font-medium">{label}</span>
+      <span className="block text-fg-secondary-alt">{description}</span>
+    </span>
   );
 }

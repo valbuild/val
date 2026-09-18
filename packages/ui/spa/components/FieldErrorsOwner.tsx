@@ -18,7 +18,7 @@ import { createContext, ReactNode, useContext } from "react";
  * So `Field` says "I have this" and `AnyField` fills in when nobody has. A
  * context rather than a prop because the two are not adjacent: the callers that
  * put them together (`ObjectFields`, `ArrayFields`, `RecordFields`,
- * `UnionField`) would each have to remember to pass it, and the failure when one
+ * `DiscriminatedUnionField`) would each have to remember to pass it, and the failure when one
  * forgets is the duplicate coming back.
  *
  * Set even when `Field` deliberately shows nothing — a compare view suppresses

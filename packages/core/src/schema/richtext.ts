@@ -5,7 +5,7 @@ import {
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
-import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
+import { ItemPreviewInput, PreviewItem } from "../preview";
 import { FieldRender } from "../render";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
 import { ImageSource } from "../source/media";
@@ -58,6 +58,25 @@ export class RichTextSchema<
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is INPUT HELP: it is shown where this field's value is
+   * entered — beside its input in the Val editor, and for a record's key
+   * schema in every form that asks for a key — so it is where you say what an
+   * editor needs to know to fill it in RIGHT, which the field name cannot
+   * carry. It is not a name for the value: that is `.preview(...)`, and it is
+   * read somewhere else. The description also travels in the serialized
+   * schema, which is what the AI assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s.richtext().describe("The body of the article");
+   * export default c.define("/example.val.ts", schema, [
+   *   { tag: "p", children: ["Hello"] },
+   * ]);
+   */
   describe(description: string | null): RichTextSchema<O, Src> {
     return new RichTextSchema(
       this.options,
@@ -71,6 +90,18 @@ export class RichTextSchema<
     );
   }
 
+  /**
+   * Validate that the rich text holds at most `max` characters.
+   *
+   * Counted over the TEXT, not the markup: tags, attributes and the structure
+   * of the document do not add to it.
+   *
+   * @example
+   * const schema = s.richtext().maxLength(280);
+   * export default c.define("/example.val.ts", schema, [
+   *   { tag: "p", children: ["Hello"] },
+   * ]);
+   */
   maxLength(max: number): RichTextSchema<O, Src> {
     return new RichTextSchema(
       {
@@ -87,6 +118,18 @@ export class RichTextSchema<
     );
   }
 
+  /**
+   * Validate that the rich text holds at least `min` characters.
+   *
+   * Counted over the TEXT, not the markup: tags, attributes and the structure
+   * of the document do not add to it.
+   *
+   * @example
+   * const schema = s.richtext().minLength(20).maxLength(280);
+   * export default c.define("/example.val.ts", schema, [
+   *   { tag: "p", children: ["Long enough to clear the minimum length."] },
+   * ]);
+   */
   minLength(min: number): RichTextSchema<O, Src> {
     return new RichTextSchema(
       {
@@ -103,6 +146,28 @@ export class RichTextSchema<
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * @example
+   * const schema = s.richtext().validate((val) =>
+   *   val.length > 0 ? false : "Write something",
+   * );
+   * export default c.define("/example.val.ts", schema, [
+   *   { tag: "p", children: ["Hello"] },
+   * ]);
+   */
   validate(
     validationFunction: (src: Src) => false | string,
   ): RichTextSchema<O, Src> {
@@ -660,7 +725,7 @@ export class RichTextSchema<
     return new RichTextSchema<O, Src | null>(
       this.options,
       true,
-      [],
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.isReadonly,
       this.isHidden,
       this.description,
@@ -712,6 +777,12 @@ export class RichTextSchema<
    * instead of a preview row that navigates to it.
    *
    * Static configuration, not a callback — see `render.ts`.
+   *
+   * @example
+   * const schema = s.array(s.richtext().render({ as: "inline" }));
+   * export default c.define("/example.val.ts", schema, [
+   *   [{ tag: "p", children: ["Hello"] }],
+   * ]);
    */
   render(input: FieldRender): RichTextSchema<O, Src> {
     return new RichTextSchema(
@@ -730,6 +801,16 @@ export class RichTextSchema<
    * How this VALUE is shown where a preview of it is needed — a row in a
    * sortable list, a reference dropdown, a search hit. Never how the field
    * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * const schema = s.array(
+   *   s.richtext().preview(({ val }) => ({
+   *     title: val.length > 0 ? "Rich text" : "Empty",
+   *   })),
+   * );
+   * export default c.define("/example.val.ts", schema, [
+   *   [{ tag: "p", children: ["Hello"] }],
+   * ]);
    */
   preview(select: ItemPreviewInput<Src>): RichTextSchema<O, Src> {
     return new RichTextSchema(
@@ -804,10 +885,6 @@ export class RichTextSchema<
       hidden: this.isHidden,
       description: this.description,
     };
-  }
-
-  protected executePreview(): ReifiedPreview {
-    return {};
   }
 }
 

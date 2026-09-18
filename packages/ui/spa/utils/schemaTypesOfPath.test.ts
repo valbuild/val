@@ -31,17 +31,17 @@ describe("schemaTypesOfPath", () => {
     expect(res).toEqual(new Set(["string"]));
   });
 
-  test("string union: 1", () => {
+  test("enum: 1", () => {
     const schema = s.object({
-      test: s.union(s.literal("type1"), s.literal("type2")),
+      test: s.enum("type1", "type2"),
     });
     const patchPath = ["test"];
     const res = schemaTypesOfPath(schema["executeSerialize"](), patchPath);
-    expect(res).toEqual(new Set(["string", "union"]));
+    expect(res).toEqual(new Set(["string", "enum"]));
   });
 
-  test("object union: 1", () => {
-    const schema = s.union(
+  test("discriminated union: 1", () => {
+    const schema = s.discriminatedUnion(
       "type",
       s.object({ type: s.literal("string"), value: s.string() }),
       s.object({ type: s.literal("number"), value: s.number() }),
@@ -51,12 +51,12 @@ describe("schemaTypesOfPath", () => {
     expect(res).toEqual(new Set(["string", "number"]));
   });
 
-  test("object union: 2", () => {
-    const schema = s.union(
+  test("discriminated union: 2", () => {
+    const schema = s.discriminatedUnion(
       "type",
       s.object({
         type: s.literal("string"),
-        inner: s.union(
+        inner: s.discriminatedUnion(
           "test",
           s.object({ test: s.literal("type1") }),
           s.object({ test: s.literal("type2"), innerNumber: s.number() }),
@@ -66,15 +66,15 @@ describe("schemaTypesOfPath", () => {
     );
     const patchPath = ["inner"];
     const res = schemaTypesOfPath(schema["executeSerialize"](), patchPath);
-    expect(res).toEqual(new Set(["object", "union"]));
+    expect(res).toEqual(new Set(["object", "discriminated-union"]));
   });
 
-  test("object union: 3", () => {
-    const schema = s.union(
+  test("discriminated union: 3", () => {
+    const schema = s.discriminatedUnion(
       "type",
       s.object({
         type: s.literal("string"),
-        inner: s.union(
+        inner: s.discriminatedUnion(
           "test",
           s.object({ test: s.literal("type1") }),
           s.object({ test: s.literal("type2"), innerNumber: s.number() }),
@@ -87,12 +87,12 @@ describe("schemaTypesOfPath", () => {
     expect(res).toEqual(new Set(["number"]));
   });
 
-  test("object union: 4", () => {
-    const schema = s.union(
+  test("discriminated union: 4", () => {
+    const schema = s.discriminatedUnion(
       "type",
       s.object({
         type: s.literal("string"),
-        inner: s.union(
+        inner: s.discriminatedUnion(
           "test",
           s.object({ test: s.literal("type1"), innerValue: s.string() }),
           s.object({ test: s.literal("type2"), innerValue: s.number() }),
@@ -105,12 +105,12 @@ describe("schemaTypesOfPath", () => {
     expect(res).toEqual(new Set(["number", "string"]));
   });
 
-  test("object union: 5", () => {
-    const schema = s.union(
+  test("discriminated union: 5", () => {
+    const schema = s.discriminatedUnion(
       "type",
       s.object({
         type: s.literal("string"),
-        inner: s.union(
+        inner: s.discriminatedUnion(
           "test",
           s.object({ test: s.literal("type1"), innerValue: s.string() }),
           s.object({ test: s.literal("type2"), innerValue: s.number() }),
@@ -123,12 +123,12 @@ describe("schemaTypesOfPath", () => {
     expect(res).toEqual(new Set(["number", "string"]));
   });
 
-  test("object union: 6", () => {
-    const schema = s.union(
+  test("discriminated union: 6", () => {
+    const schema = s.discriminatedUnion(
       "type",
       s.object({
         type: s.literal("string"),
-        inner: s.union(
+        inner: s.discriminatedUnion(
           "test",
           s.object({ test: s.literal("type1"), innerValue: s.string() }),
           s.object({ test: s.literal("type2"), innerValue: s.string() }),
@@ -141,12 +141,12 @@ describe("schemaTypesOfPath", () => {
     expect(res).toEqual(new Set(["string"]));
   });
 
-  test("object union: 7", () => {
-    const schema = s.union(
+  test("discriminated union: 7", () => {
+    const schema = s.discriminatedUnion(
       "type",
       s.object({
         type: s.literal("string"),
-        inner: s.union(
+        inner: s.discriminatedUnion(
           "test",
           s.object({ test: s.literal("type1"), innerValue: s.string() }),
           s.object({ test: s.literal("type2"), innerValue: s.string() }),
@@ -159,12 +159,12 @@ describe("schemaTypesOfPath", () => {
     expect(res).toEqual(new Set(["number"]));
   });
 
-  test("object union: 8", () => {
-    const schema = s.union(
+  test("discriminated union: 8", () => {
+    const schema = s.discriminatedUnion(
       "type",
       s.object({
         type: s.literal("string"),
-        inner: s.union(
+        inner: s.discriminatedUnion(
           "test",
           s.object({
             test: s.literal("type1"),

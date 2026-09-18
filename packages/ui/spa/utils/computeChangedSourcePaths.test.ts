@@ -24,11 +24,7 @@ const schema = s
     s.object({
       title: s.string(),
       body: s.richtext(),
-      status: s.union(
-        s.literal("draft"),
-        s.literal("published"),
-        s.literal("archived"),
-      ),
+      status: s.enum("draft", "published", "archived"),
     }),
   )
   .router(mockRouter);

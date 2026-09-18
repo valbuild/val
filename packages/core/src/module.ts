@@ -12,7 +12,10 @@ import { Source } from "./source";
 import { ExternalRecordSrc } from "./source/external";
 import { ModuleFilePath, ModulePath, SourcePath } from "./val";
 import { ArraySchema, SerializedArraySchema } from "./schema/array";
-import { UnionSchema, SerializedUnionSchema } from "./schema/union";
+import {
+  DiscriminatedUnionSchema,
+  SerializedDiscriminatedUnionSchema,
+} from "./schema/discriminatedUnion";
 import { Json } from "./Json";
 import { RichTextSchema, SerializedRichTextSchema } from "./schema/richtext";
 import { ImageSchema, SerializedImageSchema } from "./schema/image";
@@ -215,13 +218,16 @@ function isArraySchema(
 //   );
 // }
 
-function isUnionSchema(
+function isDiscriminatedUnionSchema(
   schema: Schema<SelectorSource> | SerializedSchema,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): schema is UnionSchema<string, any, any> | SerializedUnionSchema {
+): schema is  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  | DiscriminatedUnionSchema<string, any, any>
+  | SerializedDiscriminatedUnionSchema {
   return (
-    schema instanceof UnionSchema ||
-    (typeof schema === "object" && "type" in schema && schema.type === "union")
+    schema instanceof DiscriminatedUnionSchema ||
+    (typeof schema === "object" &&
+      "type" in schema &&
+      schema.type === "discriminated-union")
   );
 }
 
@@ -313,12 +319,31 @@ export function resolvePath<
           `Schema type error: expected source to be type of record, but got ${typeof resolvedSource}`,
         );
       }
-      if (!resolvedSource[part]) {
+      // PRESENCE, not truthiness. An entry that exists and is falsy is an
+      // entry: `null` for a declared key nobody has written yet, but also `""`,
+      // `0` and `false` in any record at all. Testing the value made every one
+      // of those report as a key the record does not have, so nothing could
+      // resolve them — not the Studio, not the language server, not a fix.
+      //
+      // A record source that is itself `null` keeps resolving as `null`, one
+      // part per level, the way the object branch below does: the path still
+      // names a real place in the schema, and the caller wants the schema
+      // there in order to say that nothing is written yet.
+      //
+      // `hasOwnProperty`, never `in`: `in` walks the prototype chain, so
+      // `"toString"` would resolve on every record and hand back
+      // `Object.prototype.toString` as if it were Source. Same reason
+      // `patch/json.ts` guards every key it reads.
+      if (
+        resolvedSource !== null &&
+        !Object.prototype.hasOwnProperty.call(resolvedSource, part)
+      ) {
         throw Error(
           `Invalid path: record source did not have key ${part} from path: ${path}`,
         );
       }
-      resolvedSource = resolvedSource[part];
+      resolvedSource =
+        resolvedSource === null ? resolvedSource : resolvedSource[part];
       resolvedSchema =
         resolvedSchema instanceof RecordSchema
           ? resolvedSchema?.["item"]
@@ -398,27 +423,26 @@ export function resolvePath<
         schema: resolvedSchema as Sch,
         source: resolvedSource,
       };
-    } else if (isUnionSchema(resolvedSchema)) {
-      const key = resolvedSchema.key;
-      if (typeof key !== "string") {
-        return {
-          path: origParts
-            .map((p) => {
-              if (!Number.isNaN(Number(p))) {
-                return p;
-              } else {
-                return JSON.stringify(p);
-              }
-            })
-            .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
-          schema: resolvedSchema as Sch,
-          source: resolvedSource as Src,
-        };
+    } else if (isDiscriminatedUnionSchema(resolvedSchema)) {
+      const key =
+        resolvedSchema instanceof DiscriminatedUnionSchema
+          ? resolvedSchema["key"]
+          : resolvedSchema.key;
+      // A nullable union holding `null` has no variant to descend into, and
+      // `null[key]` throws before any of the reporting below can run.
+      if (resolvedSource === null || typeof resolvedSource !== "object") {
+        throw Error(
+          `Schema type error: expected discriminated union source to be an object, but got ${
+            resolvedSource === null ? "null" : typeof resolvedSource
+          } in path: ${path}`,
+        );
       }
       const keyValue = resolvedSource[key];
-      if (!keyValue) {
+      // `undefined`, not falsy: `s.literal("")` is a legal tag, and a variant
+      // carrying it was reported as a missing key.
+      if (keyValue === undefined) {
         throw Error(
-          `Invalid path: union source ${resolvedSchema} did not have required key ${key} in path: ${path}`,
+          `Invalid path: discriminated union source ${resolvedSchema} did not have required key ${key} in path: ${path}`,
         );
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -428,7 +452,7 @@ export function resolvePath<
       );
       if (!schemaOfUnionKey) {
         throw Error(
-          `Invalid path: union schema ${resolvedSchema} did not have a child object with ${key} of value ${keyValue} in path: ${path}`,
+          `Invalid path: discriminated union schema ${resolvedSchema} did not have a child object with ${key} of value ${keyValue} in path: ${path}`,
         );
       }
       resolvedSchema = schemaOfUnionKey.items[part];
@@ -591,7 +615,18 @@ export function safeResolvePath<
           message: `Schema type error: expected source to be type of record, but got ${typeof resolvedSource}`,
         };
       }
-      if (resolvedSource[part] === undefined) {
+      // A `null` record keeps resolving as `null`, as the object branch below
+      // does — see the same note in `resolvePath`. Without it, indexing `null`
+      // threw a TypeError out of the function whose whole point is not to
+      // throw.
+      //
+      // Own properties only. Testing `resolvedSource[part] === undefined` let
+      // an inherited name through — `"toString"` is not undefined on any
+      // object — so the walk continued into `Object.prototype`.
+      if (
+        resolvedSource !== null &&
+        !Object.prototype.hasOwnProperty.call(resolvedSource, part)
+      ) {
         return {
           status: "source-undefined",
           path: origParts
@@ -600,7 +635,8 @@ export function safeResolvePath<
             .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
         };
       }
-      resolvedSource = resolvedSource[part];
+      resolvedSource =
+        resolvedSource === null ? resolvedSource : resolvedSource[part];
       resolvedSchema =
         resolvedSchema instanceof RecordSchema
           ? resolvedSchema?.["item"]
@@ -691,29 +727,27 @@ export function safeResolvePath<
         schema: resolvedSchema as Sch,
         source: resolvedSource,
       };
-    } else if (isUnionSchema(resolvedSchema)) {
-      const key = resolvedSchema.key;
-      if (typeof key !== "string") {
+    } else if (isDiscriminatedUnionSchema(resolvedSchema)) {
+      const key =
+        resolvedSchema instanceof DiscriminatedUnionSchema
+          ? resolvedSchema["key"]
+          : resolvedSchema.key;
+      // See the note in `resolvePath`: a null union has no variant to descend
+      // into, and this API promises a structured error rather than a throw.
+      if (resolvedSource === null || typeof resolvedSource !== "object") {
         return {
-          status: "ok",
-          path: origParts
-            .map((p) => {
-              if (!Number.isNaN(Number(p))) {
-                return p;
-              } else {
-                return JSON.stringify(p);
-              }
-            })
-            .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
-          schema: resolvedSchema as Sch,
-          source: resolvedSource as Src,
+          status: "error",
+          message: `Schema type error: expected discriminated union source to be an object, but got ${
+            resolvedSource === null ? "null" : typeof resolvedSource
+          } in path: ${path}`,
         };
       }
       const keyValue = resolvedSource[key];
-      if (!keyValue) {
+      // See the note in `resolvePath`: an empty-string tag is a present key.
+      if (keyValue === undefined) {
         return {
           status: "error",
-          message: `Invalid path: union source ${resolvedSchema} did not have required key ${key} in path: ${path}`,
+          message: `Invalid path: discriminated union source ${resolvedSchema} did not have required key ${key} in path: ${path}`,
         };
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -724,7 +758,7 @@ export function safeResolvePath<
       if (!schemaOfUnionKey) {
         return {
           status: "error",
-          message: `Invalid path: union schema ${resolvedSchema} did not have a child object with ${key} of value ${keyValue} in path: ${path}`,
+          message: `Invalid path: discriminated union schema ${resolvedSchema} did not have a child object with ${key} of value ${keyValue} in path: ${path}`,
         };
       }
       resolvedSchema = schemaOfUnionKey.items[part];

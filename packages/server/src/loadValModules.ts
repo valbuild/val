@@ -1,10 +1,10 @@
 import path from "path";
 import fs from "fs";
 import vm from "node:vm";
-import { Module } from "node:module";
 import ts from "typescript";
 import { Internal, type ValModules } from "@valbuild/core";
 import { getCompilerOptions } from "./getCompilerOptions";
+import { createNodeRequire } from "./createNodeRequire";
 
 /**
  * The filesystem seam `loadValModules` reads through.
@@ -173,7 +173,7 @@ function loadModule(
   cache[absPath] = moduleObj;
 
   const dirName = path.dirname(absPath);
-  const realRequire = Module.createRequire(absPath);
+  const realRequire = createNodeRequire(absPath);
   const customRequire = (spec: string): unknown => {
     if (isStubbedSpecifier(spec)) {
       return makeStub(spec);

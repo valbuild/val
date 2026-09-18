@@ -32,11 +32,13 @@ describe("item-level preview", () => {
       "/test.val.ts": {
         status: "success",
         data: {
-          parent: "array",
-          items: [
-            [0, { title: "Ada", subtitle: undefined, image: undefined }],
-            [1, { title: "Grace", subtitle: undefined, image: undefined }],
-          ],
+          rows: {
+            parent: "array",
+            items: [
+              [0, { title: "Ada", subtitle: undefined, image: undefined }],
+              [1, { title: "Grace", subtitle: undefined, image: undefined }],
+            ],
+          },
         },
       },
     });
@@ -56,10 +58,12 @@ describe("item-level preview", () => {
       "/test.val.ts": {
         status: "success",
         data: {
-          parent: "record",
-          items: [
-            ["ada", { title: "Ada", subtitle: undefined, image: undefined }],
-          ],
+          rows: {
+            parent: "record",
+            items: [
+              ["ada", { title: "Ada", subtitle: undefined, image: undefined }],
+            ],
+          },
         },
       },
     });
@@ -89,7 +93,10 @@ describe("item-level preview", () => {
       s.array(s.string()).preview(p),
       s.object({ a: s.string() }).preview(p),
       s.record(s.string()).preview(p),
-      s.union("type", s.object({ type: s.literal("a") })).preview(p),
+      s
+        .discriminatedUnion("type", s.object({ type: s.literal("a") }))
+        .preview(p),
+      s.enum("a", "b").preview(p),
       s.keyOf(authors).preview(p),
     ];
     for (const schema of schemas) {
@@ -126,10 +133,10 @@ describe("item-level preview", () => {
       { name: "Ada" },
     ]);
     const at = res["/test.val.ts" as SourcePath];
-    if (at?.status !== "success" || at.data.parent !== "array") {
+    if (at?.status !== "success" || at.data.rows?.parent !== "array") {
       throw new Error("expected an array preview");
     }
-    expect(at.data.items).toEqual([
+    expect(at.data.rows.items).toEqual([
       [0, { title: "second: Ada", subtitle: undefined, image: undefined }],
     ]);
   });
@@ -140,17 +147,17 @@ describe("item-level preview", () => {
       "hello",
     ]);
     const at = res["/test.val.ts" as SourcePath];
-    if (at?.status !== "success" || at.data.parent !== "array") {
+    if (at?.status !== "success" || at.data.rows?.parent !== "array") {
       throw new Error("expected an array preview");
     }
-    expect(at.data.items).toEqual([
+    expect(at.data.rows.items).toEqual([
       [0, { title: "hello", subtitle: undefined, image: undefined }],
     ]);
   });
 
-  describe("unions", () => {
+  describe("discriminated unions", () => {
     const blocks = s.array(
-      s.union(
+      s.discriminatedUnion(
         "type",
         s
           .object({ type: s.literal("hero"), heading: s.string() })
@@ -170,12 +177,12 @@ describe("item-level preview", () => {
     test("a union item previews as the variant the value takes", () => {
       const res = blocks["executePreview"]("/test.val.ts" as SourcePath, src);
       const at = res["/test.val.ts" as SourcePath];
-      if (at?.status !== "success" || at.data.parent !== "array") {
+      if (at?.status !== "success" || at.data.rows?.parent !== "array") {
         throw new Error("expected an array preview");
       }
       // The spacer variant declares no preview, so its row is simply absent —
       // the consumer falls back to a generic preview for it.
-      expect(at.data.items).toEqual([
+      expect(at.data.rows.items).toEqual([
         [
           0,
           {
@@ -191,7 +198,7 @@ describe("item-level preview", () => {
     test("a union's own preview wins over its variants'", () => {
       const schema = s.array(
         s
-          .union(
+          .discriminatedUnion(
             "type",
             s
               .object({ type: s.literal("hero"), heading: s.string() })
@@ -204,10 +211,10 @@ describe("item-level preview", () => {
         { type: "hero" as const, heading: "Welcome" },
       ]);
       const at = res["/test.val.ts" as SourcePath];
-      if (at?.status !== "success" || at.data.parent !== "array") {
+      if (at?.status !== "success" || at.data.rows?.parent !== "array") {
         throw new Error("expected an array preview");
       }
-      expect(at.data.items).toEqual([
+      expect(at.data.rows.items).toEqual([
         [0, { title: "block", subtitle: undefined, image: undefined }],
       ]);
     });
@@ -217,7 +224,7 @@ describe("item-level preview", () => {
       // union inside an array — the walk has to dispatch through the union to
       // reach it.
       const schema = s.array(
-        s.union(
+        s.discriminatedUnion(
           "type",
           s.object({
             type: s.literal("gallery"),
@@ -240,10 +247,12 @@ describe("item-level preview", () => {
       expect(res['/test.val.ts?p=1."images"' as SourcePath]).toStrictEqual({
         status: "success",
         data: {
-          parent: "record",
-          items: [
-            ["a", { title: "A cat", subtitle: undefined, image: undefined }],
-          ],
+          rows: {
+            parent: "record",
+            items: [
+              ["a", { title: "A cat", subtitle: undefined, image: undefined }],
+            ],
+          },
         },
       });
     });

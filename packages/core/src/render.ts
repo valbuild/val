@@ -1,6 +1,32 @@
 import type { SerializedSchema } from "./schema";
 
 /**
+ * THE RULE, and the only sentence that needs to be remembered:
+ *
+ *   **`.describe()` is INPUT HELP and is shown wherever that field — or a
+ *   record's key — is being ENTERED; `.preview()` is a NAME and is shown
+ *   wherever the value is REFERRED TO rather than edited; `.render()` is
+ *   LAYOUT and applies only while the field is open in front of you.**
+ *
+ * The test that settles every case: **can the reader change something here?**
+ * If yes it is a place for a description — the input beside a label, the key
+ * box in "New entry", "Rename key", "Duplicate", "New page", the key half of a
+ * reference dropdown. If no, it is a place for a preview — a list row, a
+ * reference once chosen, a search hit, a sitemap row, the heading of what you
+ * navigated to.
+ *
+ * That is why a description is plain data on the serialized schema and a
+ * preview is a closure: a description is true before any value exists and says
+ * the same thing to everyone filling the field in, and a preview cannot exist
+ * without the one value it names. So a description must never be used as a
+ * subtitle — it would repeat one sentence under every row of a list — and a
+ * preview must never be used as help text, because there is nothing to preview
+ * until after the value has been entered.
+ *
+ * None of the three substitutes for another: a field with a perfect
+ * description still previews as `#3` until someone writes the preview.
+ */
+/**
  * A RENDER is how the FIELD ITSELF is laid out in the editor, and it applies
  * only when you are looking at the field: `.render({ as: "inline" })` on an
  * array/record item.
@@ -60,10 +86,11 @@ export type FieldRender = InlineRender;
  * question, and a disagreement between them is a row you can edit in place but
  * that "add" navigates away from.
  *
- * A tagged union counts as inline when the union itself declares it OR when
- * ANY of its variants does. A page-builder list is `s.array(s.union("type",
- * block, block, ...))` and the natural place to write the render is on the
- * blocks, one per block type — the union is a dispatch, not something the
+ * A discriminated union counts as inline when the union itself declares it OR
+ * when ANY of its variants does. A page-builder list is
+ * `s.array(s.discriminatedUnion("type", block, block, ...))` and the natural
+ * place to write the render is on the blocks, one per block type — the union
+ * is a dispatch, not something the
  * author thinks of as the field. `some` rather than `every` because the row
  * draws the union's own editor (the tag selector plus the matched variant's
  * fields), which handles every variant either way: with `every`, adding one
@@ -79,7 +106,7 @@ export function isInlineRender(schema: SerializedSchema): boolean {
   if (schema.render?.as === "inline") {
     return true;
   }
-  if (schema.type === "union") {
+  if (schema.type === "discriminated-union") {
     return schema.items.some((item) => item.render?.as === "inline");
   }
   return false;

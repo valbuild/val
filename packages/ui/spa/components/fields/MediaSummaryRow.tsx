@@ -204,14 +204,3 @@ export function Section({
     </section>
   );
 }
-
-/** `hero-mountains_a1b2c.jpg` -> `hero mountains` */
-export function readableFilename(name: string): string {
-  const withoutExtension = name.replace(/\.[^.]+$/, "");
-  // The hash Val appends to every uploaded file is not part of what the image
-  // is of, so a description built from the name should not carry it.
-  return withoutExtension
-    .replace(/_[0-9a-f]{5}$/, "")
-    .replace(/[-_]+/g, " ")
-    .trim();
-}

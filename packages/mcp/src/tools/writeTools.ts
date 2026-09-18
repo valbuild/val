@@ -3,6 +3,7 @@ import {
   buildDuplicatePatch,
   buildEmptyAtPathPatch,
   buildRemoveImageGalleryEntryPatch,
+  declaredLocales,
   safeParsePatch,
   type BuildResult,
 } from "@valbuild/shared/internal";
@@ -128,6 +129,12 @@ export function writeTools(): ValToolImpl[] {
           { destinationPath },
           schema,
           deps.state.sources[modulePath],
+          {
+            locales: declaredLocales({
+              schemas: deps.state.serializedSchemas,
+              sources: deps.state.sources,
+            }),
+          },
         );
         if (built.kind !== "ok") {
           return fromBuildResult(built);
@@ -149,7 +156,7 @@ export function writeTools(): ValToolImpl[] {
           "Remove one image from an image gallery module by its file path. This deletes the entry and the file it refers to.",
         inputSchema: z.object({
           moduleFilePath: ModuleFilePathSchema.describe(
-            "The gallery module, i.e. one declared with s.images() or s.files().",
+            "The gallery module, i.e. one declared with s.imageset() or s.fileset().",
           ),
           filePath: z
             .string()

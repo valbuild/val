@@ -1,9 +1,10 @@
 import {
   SerializedSchema,
-  Json,
   Internal,
   DEFAULT_COLOR_FORMAT,
+  declaredKeySetOf,
 } from "@valbuild/core";
+import { JSONValue } from "@valbuild/core/patch";
 
 /**
  * Local `yyyy-MM-dd`, which is the one thing this module used `date-fns` for.
@@ -51,15 +52,57 @@ function clampDateTimeString(
   return value;
 }
 
-export function emptyOf(schema: SerializedSchema): Json {
+/**
+ * What `emptyOf` cannot read off a serialized schema.
+ *
+ * The project's languages, and which one is being worked in. Neither is in the
+ * schema: a locale-keyed record has one entry per language and the languages
+ * are declared in the settings module, and "which language am I writing" is a
+ * fact about the editor, not about the content. Optional throughout: a caller
+ * that has no context gets an empty record and an unset locale, which
+ * validation then reports, rather than wrong ones.
+ */
+export type EmptyOfContext = {
+  /** `locales.available` from the settings module. */
+  locales?: string[];
+  /**
+   * The one language being worked in, where the editor has narrowed to one.
+   *
+   * A new `s.locale()` field is created already set to it. Someone filtered to
+   * Norwegian is writing Norwegian, and a new item that defaulted to unset
+   * would fail validation and vanish from the list they are looking at, in
+   * that order.
+   */
+  selectedLocale?: string;
+};
+
+/**
+ * The empty value for a schema — the thing a "create this" affordance writes.
+ *
+ * Returns `JSONValue`, the MUTABLE shape, rather than `Json`. Every value here
+ * is built fresh on the way out — `Object.fromEntries`, a new array, a
+ * primitive — and none of it aliases anything a caller could then mutate out
+ * from under someone. Saying `Json` instead made the type readonly, which is
+ * a claim about sharing that is not true of anything this returns, and left
+ * every caller asserting `as JSONValue` at the point of writing a patch. A
+ * `JSONValue` is still assignable to `Json`, so a reader of the value loses
+ * nothing.
+ */
+export function emptyOf(
+  schema: SerializedSchema,
+  context?: EmptyOfContext,
+): JSONValue {
   if (schema.type === "object") {
     return Object.fromEntries(
-      Object.keys(schema.items).map((key) => [key, emptyOf(schema.items[key])]),
+      Object.keys(schema.items).map((key) => [
+        key,
+        emptyOf(schema.items[key], context),
+      ]),
     );
   } else if (schema.type === "array") {
     return [];
   } else if (schema.type === "record") {
-    return {};
+    return emptyRecord(schema, context);
   } else if (schema.type === "settings") {
     // Not an object of empty sections: every settings key is optional, and
     // absent IS the empty value. Filling the sections in would write a shape
@@ -83,15 +126,35 @@ export function emptyOf(schema: SerializedSchema): Json {
     }
   } else if (schema.type === "route") {
     return ""; // Empty string as default route value
+  } else if (schema.type === "locale") {
+    // Which languages exist is in the settings module, which `emptyOf` has no
+    // access to — it works from a serialized schema alone. So a caller that
+    // has narrowed to one language says so and gets it; a caller that has not
+    // gets the empty string, which is not a language and which validation
+    // reports. Guessing `locales[0]` instead would file content under a
+    // language nobody chose, which is the thing this whole feature exists to
+    // make visible.
+    return context?.selectedLocale ?? "";
   } else if (schema.type === "file" || schema.type === "image") {
     return null; // returning null is the only thing we can do, however, it means that the patches cannot be applied yet since that might fail
   } else if (schema.type === "literal") {
     return schema.value;
-  } else if (schema.type === "union") {
-    if (typeof schema.key === "string") {
-      return emptyOf(schema.items[0]);
+  } else if (schema.type === "discriminated-union") {
+    // The first variant is what a new value starts as. `s.discriminatedUnion`
+    // requires one, so an empty `items` means a serialized schema that was not
+    // built by it — say so rather than returning `undefined`, which is not
+    // JSON and would be written into a patch as a missing key.
+    if (schema.items.length === 0) {
+      throw Error(
+        "Cannot create an empty value for a discriminated union with no variants",
+      );
     }
-    return schema.key.value;
+    return emptyOf(schema.items[0], context);
+  } else if (schema.type === "enum") {
+    if (schema.values.length === 0) {
+      throw Error("Cannot create an empty value for an enum with no values");
+    }
+    return schema.values[0];
   } else if (schema.type === "date") {
     return clampDateString(formatLocalDate(new Date()), schema.options);
   } else if (schema.type === "dateTime") {
@@ -107,4 +170,31 @@ export function emptyOf(schema: SerializedSchema): Json {
   }
   const _exhaustiveCheck: never = schema;
   throw Error("Unexpected schema type: " + JSON.stringify(_exhaustiveCheck));
+}
+
+/**
+ * An empty record — with every key its schema declares already in it.
+ *
+ * An open record (`s.record(s.string(), item)`) starts empty, because there is
+ * no key anyone could mean. A record whose key schema enumerates its keys is
+ * the opposite: the keys are part of the schema, so an empty one is already
+ * missing them, and handing back `{}` would create content that fails
+ * validation the moment it is written.
+ *
+ * The entries are `null` rather than `emptyOf(item)`. A null entry reads as "not
+ * filled in yet", which is what a language nobody has translated into IS —
+ * whereas an entry of empty strings claims someone wrote it and left it blank,
+ * and would count as translated in every list and filter downstream.
+ */
+function emptyRecord(
+  schema: SerializedSchema & { type: "record" },
+  context: EmptyOfContext | undefined,
+): JSONValue {
+  const declared = declaredKeySetOf(schema.key);
+  if (declared === null) {
+    return {};
+  }
+  const keys =
+    declared.kind === "literals" ? declared.keys : (context?.locales ?? []);
+  return Object.fromEntries(keys.map((key) => [key, null]));
 }

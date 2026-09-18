@@ -264,11 +264,7 @@ export function ComparePatchSets({
         </div>
       );
     }
-    return (
-      <div className="text-sm text-fg-secondary py-8 text-center">
-        No pending changes.
-      </div>
-    );
+    return <NothingToReview mode={mode} />;
   }
 
   const schemasData = schemas.status === "success" ? schemas.data : undefined;
@@ -692,6 +688,67 @@ function collectAuthorIds(rows: ChangeTreeNode[]): string[] {
     }
   }
   return ids;
+}
+
+/**
+ * The review view with nothing in it.
+ *
+ * Reachable deliberately now: Review is always in the top bar, whether or not
+ * anything is pending, because "is anything of mine still unpublished?" is a
+ * question that has to be answerable — and a button that comes and goes cannot
+ * answer it. So the empty case is a screen rather than the single grey line
+ * ("No pending changes.") it used to be, which read as a view that had failed
+ * to load rather than as an answer.
+ *
+ * It says what IS true — the editor and the published site agree — and what
+ * this view will show when it is not, because someone who came here on purpose
+ * came to find out what this screen is for.
+ */
+/**
+ * What "nothing pending" means, in the mode this Studio is actually in.
+ *
+ * `unknown` gets its own sentence rather than the `http` one. It is the state
+ * before the client has been told which mode it is in, and against a local dev
+ * project "matches what is published" is not merely vague - there is nothing
+ * published, and the sentence names a thing that does not exist. Saying only
+ * what is true in both modes costs a little precision for the second it lasts.
+ */
+function describeNothingPending(mode: "fs" | "http" | "unknown"): string {
+  switch (mode) {
+    case "fs":
+      return "Everything in the editor matches the content in your working tree. Nothing is waiting to be saved.";
+    case "http":
+      return "Everything in the editor matches what is published. Nothing is waiting to go out.";
+    case "unknown":
+      return "Nothing is waiting to go out: every change made here has already been saved.";
+  }
+}
+
+function NothingToReview({ mode }: { mode: "fs" | "http" | "unknown" }) {
+  return (
+    <div
+      className="mx-auto flex max-w-md min-w-0 flex-col items-center gap-4 px-6 py-16 text-center"
+      // A statement, not a status: this is the whole column, and a reader
+      // arriving by keyboard should be told what it says.
+      role="status"
+    >
+      <span className="grid h-10 w-10 place-items-center rounded-full bg-bg-secondary text-fg-secondary">
+        <Check size={18} aria-hidden />
+      </span>
+      <div className="space-y-1.5">
+        <h2 className="text-sm font-medium text-fg-primary">
+          No changes to review
+        </h2>
+        <p className="text-xs leading-relaxed text-fg-secondary">
+          {describeNothingPending(mode)}
+        </p>
+        <p className="text-xs leading-relaxed text-fg-secondary-alt">
+          Edit something and it shows up here, side by side with the value it
+          replaces, so you can check it before publishing.
+        </p>
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -1355,7 +1412,7 @@ function hasAnyChange(node: ChangeTreeNode): boolean {
 /**
  * Fold every change inside a media entry into the entry's own row.
  *
- * `s.images()` / `s.files()` modules are records keyed by file ref, so an alt
+ * `s.imageset()` / `s.fileset()` modules are records keyed by file ref, so an alt
  * text or hotspot edit produces a patch on `<ref>."alt"`, not on `<ref>`.
  * Rendering that descendant as a row of its own gives a media card for a file
  * named "alt" - `MediaEntryDiff` reads the thumbnail URL, the filename and the
@@ -1921,10 +1978,14 @@ function ChangeTypeLabel({
     );
   }
   if (changeType === "removed") {
-    return <span className="text-sm text-fg-error shrink-0">Removed</span>;
+    return (
+      <span className="text-sm text-fg-error-on-surface shrink-0">Removed</span>
+    );
   }
   if (changeType === "moved") {
-    return <span className="text-sm text-fg-warning shrink-0">Moved</span>;
+    return (
+      <span className="text-sm text-fg-warning-primary shrink-0">Moved</span>
+    );
   }
   return null; // field-change has no badge — the side-by-side rails carry it.
 }
@@ -1959,7 +2020,7 @@ function ChangeTypeIcon({
       return (
         <Minus
           size={size}
-          className="shrink-0 text-fg-error"
+          className="shrink-0 text-fg-error-on-surface"
           aria-label="Removed"
         />
       );
@@ -1967,7 +2028,7 @@ function ChangeTypeIcon({
       return (
         <ArrowRight
           size={size}
-          className="shrink-0 text-fg-warning"
+          className="shrink-0 text-fg-warning-primary"
           aria-label="Moved"
         />
       );
@@ -2496,7 +2557,7 @@ function SingleSideContentInner({
     <div className="max-w-xl">
       <DiffSide diffStyle={diffStyle}>
         {diffStyle === "removed" ? (
-          <div className="[&_div]:decoration-fg-error [&_pre]:decoration-fg-error line-through decoration-fg-error">
+          <div className="[&_div]:decoration-fg-error-on-surface [&_pre]:decoration-fg-error-on-surface line-through decoration-fg-error-on-surface">
             <AnyField
               path={sourcePath}
               schema={schema}
@@ -2532,7 +2593,7 @@ function DiffSide({
   return (
     <div
       className={classNames("border-l-[3px] pl-3 pr-1 py-2 min-w-0", {
-        "border-fg-error": diffStyle === "removed",
+        "border-fg-error-on-surface": diffStyle === "removed",
         "border-fg-brand-primary": diffStyle === "added",
       })}
     >

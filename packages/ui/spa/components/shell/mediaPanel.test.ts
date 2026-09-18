@@ -77,7 +77,7 @@ describe("groupByDirectory", () => {
       ],
       "/public/val/images",
     );
-    expect(groups.map((group) => group.directory)).toEqual([
+    expect(groups.map((group) => group.dir)).toEqual([
       "/public/val/images",
       "/public/val/images/a",
       "/public/val/images/z",

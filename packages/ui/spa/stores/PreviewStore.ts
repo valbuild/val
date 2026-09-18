@@ -11,6 +11,9 @@ import type { SourceStore } from "./SourceStore";
 import type { SchemaStore } from "./SchemaStore";
 import { noopActivity, type ActivitySink } from "./activity";
 
+/** One path's preview, as the host reified it. */
+type PreviewEntry = NonNullable<ReifiedPreview[SourcePath]>;
+
 export type PreviewRead =
   | { status: "previewed"; preview: NonNullable<ReifiedPreview[SourcePath]> }
   /**
@@ -296,6 +299,13 @@ export class PreviewStore {
         this.invalidate(event.modules);
       },
     );
+    // A drop is a source change that arrives as its OWN event, and a module
+    // whose whole chain was discarded gets nothing else: there is no surviving
+    // patch to re-apply, so no `source:patch-apply` follows. Listening to the
+    // apply alone left every preview of a discarded edit standing.
+    const offDrop = this.sourceStore.events.on("source:patch-drop", (event) => {
+      this.invalidate(event.modules);
+    });
     const offInit = this.sourceStore.events.on("source:init", (event) => {
       this.invalidate(event.sources);
     });
@@ -306,6 +316,7 @@ export class PreviewStore {
       offListen();
       offUnlisten();
       offApply();
+      offDrop();
       offInit();
       offSchema();
       // Timers outlive listeners otherwise, and a test that creates and
@@ -378,17 +389,60 @@ export class PreviewStore {
     // it reads like an over-broad default: a WINDOWED container preview is keyed
     // under the container, and a row asks about its OWN path and finds itself in
     // that preview's `items` (which carry their index — see `ArrayPreview`).
-    // Only a container can be keyed at a container path, so the fallback cannot
-    // hand a field something that was never about it.
     // Scoping this to the module root breaks exactly that, and
     // `demandDriven.test.ts` says so in three tests.
     const at =
       entry.preview[path] ??
-      entry.preview[moduleFilePath as string as SourcePath];
+      this.asSeenFromBelow(entry.preview, moduleFilePath);
     if (at === undefined) {
       return { status: "no-preview-at-path" };
     }
     return { status: "previewed", preview: at };
+  }
+
+  /**
+   * The module-root entry as a path BELOW it may read it: its `rows`, never its
+   * `self`.
+   *
+   * The fallback above used to hand the entry over whole, on the reasoning that
+   * only a container can be keyed at a container path, so nothing there could
+   * be about anyone else. That stopped being true when `executePreview` learned
+   * to emit a self preview: a module root now carries what the MODULE is called
+   * alongside the rows of its entries, and handing that to a row made every
+   * entry of `authors.val.ts` claim the module's own title. Visible immediately:
+   * open one author and the heading said what the record said.
+   *
+   * Memoised on the entry object, because a fresh object per read would break
+   * the `===` every `sameRead` comparison up the chain depends on.
+   */
+  private readonly rowsOnly = new WeakMap<object, PreviewEntry>();
+  private asSeenFromBelow(
+    preview: ReifiedPreview,
+    moduleFilePath: ModuleFilePath,
+  ): PreviewEntry | undefined {
+    const entry = preview[moduleFilePath];
+    if (entry === undefined || entry.status !== "success") {
+      // An error or a pending recompute at the module is about the module as a
+      // whole, which includes everything under it.
+      return entry;
+    }
+    if (entry.data.rows === undefined) {
+      // Nothing here is about anyone but the module itself.
+      return undefined;
+    }
+    if (entry.data.self === undefined) {
+      return entry;
+    }
+    const cached = this.rowsOnly.get(entry);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const stripped: PreviewEntry = {
+      status: "success",
+      data: { rows: entry.data.rows },
+    };
+    this.rowsOnly.set(entry, stripped);
+    return stripped;
   }
 
   /**
@@ -651,10 +705,10 @@ export class PreviewStore {
       return { status: "needs-preview" };
     }
     // The container fallback, for the same reason as in `get` above — a row reads
-    // the windowed container preview it appears in.
+    // the windowed container preview it appears in, and only its rows.
     const at =
       entry.preview[path] ??
-      entry.preview[moduleFilePath as string as SourcePath];
+      this.asSeenFromBelow(entry.preview, moduleFilePath);
     return at === undefined
       ? { status: "no-preview-at-path" }
       : { status: "previewed", preview: at };

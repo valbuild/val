@@ -15,11 +15,13 @@ export const ValidationFix = [
   "files:upload-remote",
   "keyof:check-keys",
   "router:check-route",
+  "locale:check-locale",
   "images:check-unique-folder",
   "files:check-unique-folder",
   "images:check-all-files",
   "files:check-all-files",
   "jsonValues:extract-entry",
+  "record:fill-keys",
   // Entries written inline in a `.val.ts` whose record is `.external()`. Moves
   // them into the store — which is a write to live data, so it is applied by
   // `val external upload` and deliberately NOT by a blanket `val validate --fix`.

@@ -1,9 +1,7 @@
 import {
   Json,
+  SerializedDiscriminatedUnionSchema,
   SerializedObjectSchema,
-  SerializedObjectUnionSchema,
-  SerializedStringUnionSchema,
-  SerializedUnionSchema,
   SourcePath,
 } from "@valbuild/core";
 import {
@@ -26,7 +24,7 @@ import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { FieldSourceError } from "../../components/FieldSourceError";
-import { emptyOf } from "@valbuild/shared/internal";
+
 import { AnyField } from "../../components/AnyField";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { useCallback, useEffect, useRef } from "react";
@@ -34,29 +32,10 @@ import { Field } from "../../components/Field";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ObjectLikePreview } from "./ObjectFields";
 import { isJsonArray } from "../../utils/isJsonArray";
-import { ReadonlyGuard } from "./ReadonlyGuard";
+import { useEmptyOf } from "../../hooks/useEmptyOf";
+import { fromSelectValue, toSelectValue } from "./selectEmptyValue";
 
-function isStringUnion(
-  schema: SerializedUnionSchema,
-): schema is SerializedStringUnionSchema {
-  if (typeof schema.key === "string") {
-    return false;
-  }
-  return true;
-}
-
-/**
- * A tagged union of objects, as opposed to a union of string literals. The
- * discriminator being a plain string IS the difference — a string union's key
- * is a literal schema.
- */
-export function isObjectUnion(
-  schema: SerializedUnionSchema,
-): schema is SerializedObjectUnionSchema {
-  return typeof schema.key === "string";
-}
-
-export function UnionField({
+export function DiscriminatedUnionField({
   path,
   readonly,
   compact,
@@ -69,7 +48,7 @@ export function UnionField({
   inline?: boolean;
   errorDisplay?: "default" | "compact" | "none";
 }) {
-  const type = "union";
+  const type = "discriminated-union";
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   if (schemaAtPath.status === "error") {
@@ -109,74 +88,47 @@ export function UnionField({
   }
 
   const source = sourceAtPath.data;
-  if (isStringUnion(schemaAtPath.data)) {
-    if (typeof source !== "string" && source !== null) {
-      return (
-        <FieldSourceError
-          path={path}
-          error={"Expected source to be a string, but found: " + typeof source}
-          schema={schemaAtPath}
-        />
-      );
-    }
-    const stringUnionContent = (
-      <div id={path}>
-        <SelectField
-          path={path}
-          source={source}
-          readonly={readonly}
-          options={schemaAtPath.data.items
-            .concat(schemaAtPath.data.key)
-            .flatMap((item) => {
-              if (item?.type === "literal") {
-                return [item.value];
-              }
-              console.warn("Unexpected item in string union", item);
-              return [];
-            })}
-        />
-      </div>
-    );
-    if (readonly) {
-      return <ReadonlyGuard>{stringUnionContent}</ReadonlyGuard>;
-    }
-    return stringUnionContent;
-  } else if (!isStringUnion(schemaAtPath.data)) {
-    if (typeof source !== "object") {
-      return (
-        <FieldSourceError
-          path={path}
-          error={"Expected source to be an object, but found: " + typeof source}
-          schema={schemaAtPath}
-        />
-      );
-    }
-    if (Array.isArray(source)) {
-      return (
-        <FieldSourceError
-          path={path}
-          error={"Expected source to be an object, but found an array"}
-          schema={schemaAtPath}
-        />
-      );
-    }
+  // `typeof null === "object"`, so a nullable union holding null used to reach
+  // the editor below, where `useDiscriminatedUnion` finds no tag and answers
+  // `loading` forever — a spinner that never resolves. It is a real state (an
+  // unset optional field), so it previews as null rather than erroring.
+  if (source === null) {
+    return <PreviewNull path={path} />;
+  }
+  if (typeof source !== "object") {
     return (
-      <div id={path}>
-        <ObjectUnionField
-          path={path}
-          schema={schemaAtPath.data}
-          readonly={readonly}
-          compact={compact}
-          inline={inline}
-          errorDisplay={errorDisplay}
-        />
-      </div>
+      <FieldSourceError
+        path={path}
+        error={"Expected source to be an object, but found: " + typeof source}
+        schema={schemaAtPath}
+      />
     );
   }
+  if (Array.isArray(source)) {
+    return (
+      <FieldSourceError
+        path={path}
+        error={"Expected source to be an object, but found an array"}
+        schema={schemaAtPath}
+      />
+    );
+  }
+  return (
+    <div id={path}>
+      <DiscriminatedUnionFields
+        path={path}
+        schema={schemaAtPath.data}
+        readonly={readonly}
+        compact={compact}
+        inline={inline}
+        errorDisplay={errorDisplay}
+      />
+    </div>
+  );
 }
 
-/** What {@link useObjectUnion} answers. */
-export type ObjectUnionState =
+/** What {@link useDiscriminatedUnion} answers. */
+export type DiscriminatedUnionState =
   | { status: "loading" }
   | {
       status: "ready";
@@ -189,13 +141,13 @@ export type ObjectUnionState =
     };
 
 /**
- * The state of an object union at a path: which variant the value takes, what
- * else it could take, and how to switch it.
+ * The state of a discriminated union at a path: which variant the value takes,
+ * what else it could take, and how to switch it.
  *
- * A hook rather than something `ObjectUnionField` keeps to itself because the
- * union is drawn in two places now — as a field, and as the body of an inline
- * row in `BlockList`, which lays the variant's fields out its own (much
- * denser) way. Switching a tag is the part neither may re-implement: it
+ * A hook rather than something `DiscriminatedUnionFields` keeps to itself
+ * because the union is drawn in two places now — as a field, and as the body
+ * of an inline row in `BlockList`, which lays the variant's fields out its own
+ * (much denser) way. Switching a tag is the part neither may re-implement: it
  * remembers the source of every tag you leave, so switching away and back
  * gives you what you typed instead of an empty block.
  *
@@ -203,12 +155,13 @@ export type ObjectUnionState =
  * side of it, which is a rules-of-hooks violation waiting for the first render
  * where the tag has not loaded yet.
  */
-export function useObjectUnion(
+export function useDiscriminatedUnion(
   path: SourcePath,
-  schema: SerializedObjectUnionSchema,
-): ObjectUnionState {
+  schema: SerializedDiscriminatedUnionSchema,
+): DiscriminatedUnionState {
   const fullSourceAtPath = useSourceAtPath(path);
   const { addPatch, patchPath } = useAddPatch(path);
+  const emptyOf = useEmptyOf();
   const keyPath = sourcePathOfItem(path, schema.key);
   const currentSourceKeyRes = useShallowSourceAtPath(keyPath, "literal");
   const currentKey =
@@ -238,7 +191,10 @@ export function useObjectUnion(
         if (subSchema.type === "literal") {
           return subSchema.value === value;
         }
-        console.error("Expected literal schema in object union", subSchema);
+        console.error(
+          "Expected literal schema in discriminated union",
+          subSchema,
+        );
         return false;
       });
       if (selectedSchema?.items === undefined) {
@@ -272,7 +228,7 @@ export function useObjectUnion(
         schema.type,
       );
     },
-    [addPatch, patchPath, path, schema],
+    [addPatch, patchPath, path, schema, emptyOf],
   );
 
   const options = schema.items.flatMap((item) => {
@@ -280,7 +236,7 @@ export function useObjectUnion(
     if (subSchema.type === "literal") {
       return [subSchema.value];
     }
-    console.error("Expected literal schema in object union", subSchema);
+    console.error("Expected literal schema in discriminated union", subSchema);
     return [];
   });
   const selectedSchema = schema.items.find((item) => {
@@ -288,7 +244,7 @@ export function useObjectUnion(
     if (subSchema.type === "literal") {
       return subSchema.value === currentKey;
     }
-    console.error("Expected literal schema in object union", subSchema);
+    console.error("Expected literal schema in discriminated union", subSchema);
     return false;
   });
   if (
@@ -308,15 +264,15 @@ export function useObjectUnion(
 }
 
 /**
- * The tag selector of an object union — the one control that decides which
- * variant is being edited. Shared by the field and by the inline row.
+ * The tag selector of a discriminated union — the one control that decides
+ * which variant is being edited. Shared by the field and by the inline row.
  */
-export function ObjectUnionTagSelect({
+export function DiscriminatedUnionTagSelect({
   state,
   readonly,
   className,
 }: {
-  state: Extract<ObjectUnionState, { status: "ready" }>;
+  state: Extract<DiscriminatedUnionState, { status: "ready" }>;
   readonly?: boolean;
   className?: string;
 }) {
@@ -324,10 +280,11 @@ export function ObjectUnionTagSelect({
   return (
     <Select
       disabled={readonly}
-      value={state.current}
+      // `s.literal("")` is a legal tag, and `""` is Radix's placeholder value.
+      value={toSelectValue(state.current)}
       onValueChange={(value) => {
         if (readonly) return;
-        state.select(value);
+        state.select(fromSelectValue(value));
       }}
     >
       <SelectTrigger className={className}>
@@ -335,7 +292,7 @@ export function ObjectUnionTagSelect({
       </SelectTrigger>
       <SelectContent container={portalContainer} className="w-32">
         {state.options.map((option) => (
-          <SelectItem key={option} value={option}>
+          <SelectItem key={option} value={toSelectValue(option)}>
             {option}
           </SelectItem>
         ))}
@@ -344,7 +301,7 @@ export function ObjectUnionTagSelect({
   );
 }
 
-function ObjectUnionField({
+function DiscriminatedUnionFields({
   path,
   schema,
   readonly,
@@ -353,20 +310,20 @@ function ObjectUnionField({
   errorDisplay = "default",
 }: {
   path: SourcePath;
-  schema: SerializedObjectUnionSchema;
+  schema: SerializedDiscriminatedUnionSchema;
   readonly?: boolean;
   compact?: boolean;
   inline?: boolean;
   errorDisplay?: "default" | "compact" | "none";
 }) {
-  const state = useObjectUnion(path, schema);
+  const state = useDiscriminatedUnion(path, schema);
   if (state.status === "loading") {
-    return <FieldLoading path={path} type="union" />;
+    return <FieldLoading path={path} type="discriminated-union" />;
   }
   const { selectedSchema } = state;
   return (
     <div className={`grid ${compact ? "gap-3" : "gap-4"}`}>
-      <ObjectUnionTagSelect state={state} readonly={readonly} />
+      <DiscriminatedUnionTagSelect state={state} readonly={readonly} />
       {Object.keys(selectedSchema.items)
         .filter((key) => key !== schema?.key)
         .map((key) => {
@@ -399,61 +356,8 @@ function ObjectUnionField({
   );
 }
 
-function SelectField({
-  path,
-  source,
-  options,
-  readonly,
-}: {
-  path: SourcePath;
-  source: string | null;
-  options?: string[];
-  readonly?: boolean;
-}) {
-  const { addPatch, patchPath } = useAddPatch(path);
-  const portalContainer = useValPortal();
-  return (
-    <Select
-      disabled={readonly}
-      value={source ?? ""}
-      onValueChange={(value) => {
-        if (readonly) return;
-        addPatch(
-          [
-            {
-              op: "replace",
-              path: patchPath,
-              value: value,
-            },
-          ],
-          "union",
-        );
-      }}
-    >
-      <SelectTrigger>
-        <SelectValue>{source}</SelectValue>
-      </SelectTrigger>
-      <SelectContent className="w-32" container={portalContainer}>
-        {options == undefined ? (
-          <LoadingSelectContent />
-        ) : (
-          options.map((index) => (
-            <SelectItem key={index} value={index}>
-              {index}
-            </SelectItem>
-          ))
-        )}
-      </SelectContent>
-    </Select>
-  );
-}
-
-function LoadingSelectContent() {
-  return <div>Loading...</div>;
-}
-
-export function UnionPreview({ path }: { path: SourcePath }) {
-  const type = "union";
+export function DiscriminatedUnionPreview({ path }: { path: SourcePath }) {
+  const type = "discriminated-union";
   const sourceAtPath = useSourceAtPath(path);
   const schemaAtPath = useSchemaAtPath(path);
   if (sourceAtPath.status === "error") {
@@ -484,62 +388,44 @@ export function UnionPreview({ path }: { path: SourcePath }) {
     );
   }
   const schema = schemaAtPath.data;
-  if (isStringUnion(schema)) {
-    if (typeof sourceAtPath.data !== "string") {
-      return (
-        <FieldSourceError
-          path={path}
-          error={
-            "Expected source to be a string, but found: " +
-            typeof sourceAtPath.data
-          }
-          schema={schemaAtPath}
-        />
-      );
-    }
-    return <div className="truncate">{sourceAtPath.data}</div>;
-  } else {
-    const source = sourceAtPath.data;
-    if (!source) {
-      return <PreviewNull path={path} />;
-    }
-    if (
-      typeof source !== "object" &&
-      !(typeof source === "object" && schema.key in source)
-    ) {
-      return (
-        <FieldSourceError
-          path={path}
-          error={"Expected source to be an object, but found: " + typeof source}
-          schema={schemaAtPath}
-        />
-      );
-    }
-    const actualSchema = schema.items.find((item) => {
-      const keySchema = item.items?.[schema.key];
-      if (
-        keySchema?.type === "literal" &&
-        source !== null &&
-        typeof source === "object" &&
-        schema.key in source &&
-        !isJsonArray(source)
-      ) {
-        return keySchema.value === source[schema.key];
-      }
-    });
-    if (!actualSchema) {
-      return (
-        <FieldSourceError
-          path={path}
-          error={
-            "Expected source to have key " +
-            schema.key +
-            " but it was not found"
-          }
-          schema={schemaAtPath}
-        />
-      );
-    }
-    return <ObjectLikePreview path={path} schema={actualSchema} />;
+  const source = sourceAtPath.data;
+  if (!source) {
+    return <PreviewNull path={path} />;
   }
+  if (
+    typeof source !== "object" &&
+    !(typeof source === "object" && schema.key in source)
+  ) {
+    return (
+      <FieldSourceError
+        path={path}
+        error={"Expected source to be an object, but found: " + typeof source}
+        schema={schemaAtPath}
+      />
+    );
+  }
+  const actualSchema = schema.items.find((item) => {
+    const keySchema = item.items?.[schema.key];
+    if (
+      keySchema?.type === "literal" &&
+      source !== null &&
+      typeof source === "object" &&
+      schema.key in source &&
+      !isJsonArray(source)
+    ) {
+      return keySchema.value === source[schema.key];
+    }
+  });
+  if (!actualSchema) {
+    return (
+      <FieldSourceError
+        path={path}
+        error={
+          "Expected source to have key " + schema.key + " but it was not found"
+        }
+        schema={schemaAtPath}
+      />
+    );
+  }
+  return <ObjectLikePreview path={path} schema={actualSchema} />;
 }

@@ -226,13 +226,13 @@ describe("isInlineRender", () => {
     ).toBe(true);
   });
 
-  test("a tagged union is inline when its VARIANTS declare it", () => {
+  test("a discriminated union is inline when its VARIANTS declare it", () => {
     // How a page-builder list is written: the render goes on the blocks, one
     // per block type, and the union is the dispatch between them. The union
     // schema itself carries no render at all, so reading `render` off the
     // array's item schema alone answers `false` for the very shape the render
     // exists for.
-    const blocks = s.union(
+    const blocks = s.discriminatedUnion(
       "type",
       s
         .object({ type: s.literal("text"), text: s.string() })
@@ -251,7 +251,7 @@ describe("isInlineRender", () => {
     // a variant added later without a render must not silently turn the whole
     // list back into preview rows.
     const serialized = s
-      .union(
+      .discriminatedUnion(
         "type",
         s
           .object({ type: s.literal("text"), text: s.string() })
@@ -262,9 +262,9 @@ describe("isInlineRender", () => {
     expect(isInlineRender(serialized)).toBe(true);
   });
 
-  test("a union with no inline variant is not inline", () => {
+  test("a discriminated union with no inline variant is not inline", () => {
     const serialized = s
-      .union(
+      .discriminatedUnion(
         "type",
         s.object({ type: s.literal("text"), text: s.string() }),
         s.object({ type: s.literal("code"), code: s.string() }),
@@ -275,7 +275,7 @@ describe("isInlineRender", () => {
 
   test("the union's own render still counts", () => {
     const serialized = s
-      .union(
+      .discriminatedUnion(
         "type",
         s.object({ type: s.literal("text"), text: s.string() }),
         s.object({ type: s.literal("code"), code: s.string() }),
@@ -285,25 +285,18 @@ describe("isInlineRender", () => {
     expect(isInlineRender(serialized)).toBe(true);
   });
 
-  test("a string union is inline only when it says so itself", () => {
+  test("an enum is inline only when it says so itself", () => {
+    expect(isInlineRender(s.enum("a", "b")["executeSerialize"]())).toBe(false);
     expect(
       isInlineRender(
-        s.union(s.literal("a"), s.literal("b"))["executeSerialize"](),
-      ),
-    ).toBe(false);
-    expect(
-      isInlineRender(
-        s
-          .union(s.literal("a"), s.literal("b"))
-          .render({ as: "inline" })
-          ["executeSerialize"](),
+        s.enum("a", "b").render({ as: "inline" })["executeSerialize"](),
       ),
     ).toBe(true);
   });
 
   test("survives serialize -> deserialize", () => {
     const blocks = s.array(
-      s.union(
+      s.discriminatedUnion(
         "type",
         s
           .object({ type: s.literal("text"), text: s.string() })

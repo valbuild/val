@@ -9,6 +9,13 @@ import { s, c } from "./val.config";
  * something to go on.
  */
 export default c.define("/settings.val.ts", s.settings(), {
+  // Declaring these is what turns the locale feature on: the Locales tab, the
+  // locale picker in the top bar, and the check behind every `s.locale()` all
+  // read this list. A project that declares none sees none of it — which is
+  // why this app showed nothing about locales until this line existed.
+  locales: {
+    available: ["en-US", "nb-NO"],
+  },
   assistant: {
     // Without this the example app would OFFER the assistant and ask before
     // using it, which is the right default for a project nobody has decided

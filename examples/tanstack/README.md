@@ -13,11 +13,16 @@ repository, so run both:
 pnpm run dev:example-tanstack     # from the repo root
 ```
 
-Then open http://localhost:3457, and http://localhost:3457/val for the Studio.
+Then open http://localhost:3458, and http://localhost:3458/val for the Studio.
+
+(3458 rather than something rounder because `e2e/http/config.ts` runs the
+proxy-mode copy of the Next example on 3457, and the e2e suite starts this app
+alongside it. `e2e/tanstack/config.ts` is where the port is written down for
+the tests.)
 Nothing is editable until Val is enabled for your browser:
 
 ```
-http://localhost:3457/api/val/enable?redirect_to=/
+http://localhost:3458/api/val/enable?redirect_to=/
 ```
 
 ## What is where

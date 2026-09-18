@@ -38,6 +38,16 @@ export type SitemapItem = {
   errors?: NavItemErrors;
   /** Description of the router key schema (shown in the add page form) */
   keyDescription?: string;
+  /**
+   * What a `.preview(...)` calls this page, when one does.
+   *
+   * Secondary to {@link urlPath} on purpose, and the one place in the studio
+   * where that is the right way round: this tree IS the site's routes — it has
+   * dynamic-segment pills and route patterns in it — so a row whose URL was
+   * replaced by a title would stop being part of a URL tree. The title rides
+   * beside it so a page can be recognised as well as located.
+   */
+  title?: string;
   /** Child pages/folders */
   children: SitemapItem[];
   /** Whether this item or any descendant has validation errors */
@@ -67,7 +77,7 @@ export type ExplorerItem = {
 };
 
 /**
- * A gallery module - `s.images()` or `s.files()` - shown under Media.
+ * A gallery module - `s.imageset()` or `s.fileset()` - shown under Media.
  *
  * These are records keyed by file path with a `mediaType` marker, so the useful
  * unit in the nav menu is the DIRECTORY they are constrained to rather than the
@@ -77,7 +87,7 @@ export type MediaModule = {
   /** Module file path of the gallery module. */
   moduleFilePath: ModuleFilePath;
   /** The directory the gallery is constrained to, e.g. `/public/val/images`. */
-  directory: string;
+  dir: string;
   /** Whether this gallery holds images or arbitrary files. */
   mediaType: "files" | "images";
   /** Validation errors attributable to this module. */
@@ -115,7 +125,7 @@ export type NavMenuData = {
   explorer?: ExplorerItem;
   /** External module (if external-url-router exists) */
   external?: ExternalModule;
-  /** `s.images()` / `s.files()` gallery modules, shown under Media. */
+  /** `s.imageset()` / `s.fileset()` gallery modules, shown under Media. */
   media?: MediaModule[];
   /**
    * The project's `s.settings()` module, when it has exactly one valid one.

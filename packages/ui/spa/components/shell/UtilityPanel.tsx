@@ -1,9 +1,13 @@
 import {
   AlertTriangle,
+  CircleAlert,
   Clock,
+  Compass,
   FilePlus2,
   GitCompare,
   ImagePlus,
+  Loader2,
+  Rocket,
   Sparkles,
   Undo2,
 } from "lucide-react";
@@ -22,6 +26,8 @@ import {
 import {
   ShellActivityEntry,
   ShellBreakpoint,
+  ShellChangeActivity,
+  ShellDeployActivity,
   ShellDestination,
   ShellValidationError,
 } from "./types";
@@ -35,6 +41,20 @@ export type UtilityPanelProps = {
   onSelectValidationError?: (error: ShellValidationError) => void;
   onNewPage: () => void;
   onUploadMedia: () => void;
+  /**
+   * Run the guided tour.
+   *
+   * The tour's permanent home, and the only one that does not depend on the
+   * project's `studio.tour` setting: the offer on the empty editor stops
+   * glowing once somebody has taken the tour and goes entirely when a team
+   * switches the offer off, and this row survives both — so there is always
+   * somewhere to send a colleague who asks what any of this is, which is what
+   * the tour's own last step says.
+   *
+   * Absent while the navigation loads: the steps are built from destinations
+   * that are still provisional then. See `canStartTour` in `Shell`.
+   */
+  onStartTour?: () => void;
   /**
    * Open the assistant. Absent when the project has no assistant configured —
    * see `ShellProps.aiEnabled` — and the row is then not offered at all.
@@ -99,7 +119,14 @@ export type UtilityPanelProps = {
   reviewCount?: number;
   /** How many changes `onCompare` would show. */
   pendingChanges?: number;
-  onSelectActivity: (entry: ShellActivityEntry) => void;
+  /**
+   * Open what a change row points at.
+   *
+   * Change rows only: a publish is a commit, and there is nothing in the
+   * Studio for it to open. Narrowing the callback rather than handing over the
+   * whole union is what keeps that from being the caller's problem.
+   */
+  onSelectActivity: (entry: ShellChangeActivity) => void;
   onClose: () => void;
 };
 
@@ -115,6 +142,7 @@ export function UtilityPanel({
   onSelectValidationError,
   onNewPage,
   onUploadMedia,
+  onStartTour,
   onOpenAI,
   destinations,
   onCompare,
@@ -222,6 +250,13 @@ export function UtilityPanel({
               onClick={onUploadMedia}
             />
           )}
+          {onStartTour && (
+            <QuickAction
+              icon={Compass}
+              label="Take a tour"
+              onClick={onStartTour}
+            />
+          )}
           {/*
            * No "New data file".
            *
@@ -235,31 +270,30 @@ export function UtilityPanel({
         <PanelSectionLabel divided>Recent activity</PanelSectionLabel>
         {activity.length === 0 ? (
           <PanelEmptyState>
-            No recent activity. Your changes will show up here.
+            No recent activity. Your changes and publishes will show up here.
           </PanelEmptyState>
         ) : (
           <ul className="px-3 pt-0.5">
             {activity.map((entry) => (
               <li key={entry.id}>
-                <button
-                  type="button"
-                  onClick={() => onSelectActivity(entry)}
-                  className="flex gap-2 w-full px-1.5 py-1.5 rounded-md text-left hover:bg-bg-float-raised"
-                >
-                  <Clock
-                    size={13}
-                    className="mt-0.5 shrink-0 text-fg-secondary-alt"
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-xs text-fg-primary truncate">
-                      {entry.title}
-                    </span>
-                    <span className="block text-[0.6875rem] text-fg-secondary-alt">
-                      {entry.author ? `${entry.author} · ` : ""}
-                      {entry.timestamp}
-                    </span>
-                  </span>
-                </button>
+                {entry.kind === "deploy" ? (
+                  <DeployActivityRow entry={entry} />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onSelectActivity(entry)}
+                    className="flex gap-2 w-full px-1.5 py-1.5 rounded-md text-left hover:bg-bg-float-raised"
+                  >
+                    <Clock
+                      size={13}
+                      className="mt-0.5 shrink-0 text-fg-secondary-alt"
+                    />
+                    <ActivityLines
+                      title={entry.title}
+                      detail={`${entry.author ? `${entry.author} · ` : ""}${entry.timestamp}`}
+                    />
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -279,6 +313,53 @@ export function UtilityPanel({
         )}
       </div>
     </FloatingPanel>
+  );
+}
+
+/**
+ * A publish, in the activity list.
+ *
+ * A line rather than a button: the row says what happened to the site, and a
+ * commit is not something the Studio can open. Its icon is the deploy feed's —
+ * a spinner while it builds, a warning when it failed — so the same publish
+ * looks the same in both places.
+ */
+function DeployActivityRow({ entry }: { entry: ShellDeployActivity }) {
+  return (
+    <div className="flex gap-2 w-full px-1.5 py-1.5">
+      <span className="mt-0.5 shrink-0">
+        {entry.progress === "building" ? (
+          <Loader2 size={13} className="animate-spin text-fg-secondary" />
+        ) : entry.progress === "failed" ? (
+          <CircleAlert size={13} className="text-fg-error-on-surface" />
+        ) : (
+          <Rocket size={13} className="text-fg-secondary-alt" />
+        )}
+      </span>
+      <ActivityLines
+        title={entry.title}
+        detail={`${entry.state}${entry.author ? ` · ${entry.author}` : ""} · ${
+          entry.timestamp
+        }`}
+      />
+    </div>
+  );
+}
+
+/**
+ * The two lines every activity row has, so a publish and an edit line up.
+ *
+ * `min-w-0` on the wrapper is what lets the title truncate rather than push the
+ * row wide - the panel is 260px, and a commit message is not.
+ */
+function ActivityLines({ title, detail }: { title: string; detail: string }) {
+  return (
+    <span className="min-w-0">
+      <span className="block text-xs text-fg-primary truncate">{title}</span>
+      <span className="block text-[0.6875rem] text-fg-secondary-alt truncate">
+        {detail}
+      </span>
+    </span>
   );
 }
 

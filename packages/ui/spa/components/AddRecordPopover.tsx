@@ -6,7 +6,7 @@ import {
 } from "@valbuild/core";
 import { JSONValue } from "@valbuild/core/patch";
 import { useState, useEffect, useCallback } from "react";
-import { emptyOf } from "@valbuild/shared/internal";
+
 import { Button } from "./designSystem/button";
 import { Input } from "./designSystem/input";
 import {
@@ -28,6 +28,7 @@ import {
   TooltipTrigger,
 } from "./designSystem/tooltip";
 import { RouteForm } from "./RouteForm";
+import { useEmptyOf } from "../hooks/useEmptyOf";
 
 export function AddRecordPopover({
   path,
@@ -71,6 +72,7 @@ export function AddRecordPopover({
       setOpen(defaultOpen);
     }
   }, [defaultOpen]);
+  const emptyOf = useEmptyOf();
   const onSubmit = useCallback(
     (key: string) => {
       const schema = "data" in schemaAtPath ? schemaAtPath.data : null;
@@ -104,7 +106,7 @@ export function AddRecordPopover({
       }
       setOpen(false);
     },
-    [addPatch, navigate, schemaAtPath, path],
+    [addPatch, navigate, schemaAtPath, path, emptyOf],
   );
 
   if (

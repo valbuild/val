@@ -31,6 +31,7 @@ import {
 import type { AISession } from "../hooks/useAIWebSocket";
 import type { AIContentBlock, AIMessageContent } from "./ValProvider";
 import { safeHref } from "../utils/safeHref";
+import { randomUUID } from "../utils/randomUUID";
 import { useComposerFocusRestore } from "./useComposerFocusRestore";
 import type { AIModel, AIModelInfo } from "../hooks/useAIWebSocket";
 import { useValPortal } from "./ValPortalProvider";
@@ -846,7 +847,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       e.target.value = "";
 
       const newEntries: AttachedFile[] = files.map((file) => ({
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         file,
         status: "uploading" as const,
         previewUrl: file.type.startsWith("image/")

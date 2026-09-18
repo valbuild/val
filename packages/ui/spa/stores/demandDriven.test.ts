@@ -43,6 +43,28 @@ function listModule(itemCount: number): {
   return { module, selectCalls: () => calls };
 }
 
+/**
+ * A record that previews ITSELF and whose entries preview too — the shape that
+ * broke when self previews landed. `authors.val.ts` in the example app is
+ * exactly this.
+ */
+function namedRecordModule(): ReturnType<
+  ReturnType<typeof initVal>["c"]["define"]
+> {
+  const { c, s } = initVal();
+  return c.define(
+    "/authors.val.ts",
+    s
+      .record(
+        s
+          .object({ name: s.string() })
+          .preview(({ val }) => ({ title: val.name })),
+      )
+      .preview(({ val }) => ({ title: `${Object.keys(val).length} authors` })),
+    { freekh: { name: "Fredrik" } },
+  );
+}
+
 function plainModule(path: string) {
   const { c, s } = initVal();
   return c.define(path, s.object({ title: s.string() }), { title: "Hello" });
@@ -230,8 +252,8 @@ describe("preview is driven by demand, not by change", () => {
     if (read.status !== "previewed" || read.preview.status !== "success") {
       throw new Error("expected the list to preview");
     }
-    const data = read.preview.data;
-    if (data.parent !== "array") {
+    const data = read.preview.data.rows;
+    if (data?.parent !== "array") {
       throw new Error("expected an array preview");
     }
     expect(data.items.map(([index]) => index)).toEqual([0, 1, 2]);
@@ -258,11 +280,66 @@ describe("preview is driven by demand, not by change", () => {
     if (read.status !== "previewed" || read.preview.status !== "success") {
       throw new Error("expected a preview");
     }
-    const data = read.preview.data;
-    if (data.parent !== "array") {
+    const data = read.preview.data.rows;
+    if (data?.parent !== "array") {
       throw new Error("expected an array preview");
     }
     expect(data.items).toEqual([[1, { title: "item 1" }]]);
+    dispose();
+  });
+
+  /**
+   * A module's own preview belongs to the MODULE, and to nothing under it.
+   *
+   * The container fallback hands a row the module-root entry so it can find
+   * itself in that entry's windowed `rows`. Before this, it handed the entry
+   * over WHOLE — so once a module root could also carry a `self`, every entry
+   * of `authors.val.ts` read back the record's own title. Open one author and
+   * the heading said "1 authors".
+   *
+   * BOTH paths are listened to, because that is what reproduces it and it is
+   * what the studio does: the heading asks about the entry, and the record's
+   * own field is mounted under it asking about the module. With only the row
+   * listened to, the scope does not `want` the module root, no `self` is
+   * computed, and there is nothing to leak — which is why the first version of
+   * this test passed against the bug.
+   */
+  it("does not hand a row the module's own preview", async () => {
+    const { sourceStore, previewStore, listeners, dispose } = initTestSystem();
+
+    await sourceStore.testReceive([namedRecordModule()]);
+    listeners.set("/authors.val.ts");
+    listeners.set('/authors.val.ts?p="freekh"');
+    await previewStore.get(sp("/authors.val.ts"));
+    const read = await previewStore.get(sp('/authors.val.ts?p="freekh"'));
+
+    if (read.status !== "previewed" || read.preview.status !== "success") {
+      throw new Error("expected a preview");
+    }
+    // The rows are there — that is what the fallback is for, and how the row
+    // finds its own title.
+    expect(read.preview.data.rows).toMatchObject({
+      parent: "record",
+      items: [["freekh", { title: "Fredrik" }]],
+    });
+    // The record's own name is not.
+    expect(read.preview.data.self).toBeUndefined();
+    dispose();
+  });
+
+  /** ...and the module itself still has it, asked for at its own path. */
+  it("keeps the module's own preview at the module's own path", async () => {
+    const { sourceStore, previewStore, listeners, dispose } = initTestSystem();
+
+    await sourceStore.testReceive([namedRecordModule()]);
+    listeners.set("/authors.val.ts");
+    const read = await previewStore.get(sp("/authors.val.ts"));
+
+    if (read.status !== "previewed" || read.preview.status !== "success") {
+      throw new Error("expected a preview");
+    }
+    expect(read.preview.data.self).toMatchObject({ title: "1 authors" });
+    expect(read.preview.data.rows).toMatchObject({ parent: "record" });
     dispose();
   });
 
@@ -299,8 +376,8 @@ describe("preview is driven by demand, not by change", () => {
     if (read.status !== "previewed" || read.preview.status !== "success") {
       throw new Error("expected row 4 to be covered");
     }
-    const data = read.preview.data;
-    if (data.parent !== "array") {
+    const data = read.preview.data.rows;
+    if (data?.parent !== "array") {
       throw new Error("expected an array preview");
     }
     expect(data.items.map(([index]) => index)).toEqual([3, 4]);
@@ -349,8 +426,8 @@ describe("preview is driven by demand, not by change", () => {
     if (read.status !== "previewed" || read.preview.status !== "success") {
       throw new Error(`expected row 7 to be covered, got ${read.status}`);
     }
-    const data = read.preview.data;
-    if (data.parent !== "array") {
+    const data = read.preview.data.rows;
+    if (data?.parent !== "array") {
       throw new Error("expected an array preview");
     }
     expect(data.items.map(([index]) => index)).toEqual([3, 7]);

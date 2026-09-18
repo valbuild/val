@@ -28,7 +28,12 @@ import {
 import { FieldsPanel } from "./FieldsPanel";
 import { CanvasFields } from "./CanvasFields";
 import { CanvasRouteBar } from "./CanvasRouteBar";
+import {
+  CanvasPreviewNotice,
+  CanvasPreviewStatus,
+} from "./CanvasPreviewNotice";
 import { CANVAS_MAX_WIDTH } from "../EditorCanvas";
+import { EditorDensityProvider } from "../../EditorDensity";
 import { SourcePath } from "@valbuild/core";
 import { ShellBreakpoint } from "../types";
 import {
@@ -116,6 +121,22 @@ export type PageWorkspaceProps = {
      * canvas's business: the fields column, and on a phone the pane holding it.
      */
     onPicked: () => void;
+    /**
+     * Bumped when the notice's "Turn on preview mode" is used.
+     *
+     * The button is in the notice, which sits outside the zoom transform, and
+     * the act is a navigation of whatever is on the canvas — so, like
+     * `reloadKey`, it goes to the thing that can perform it.
+     */
+    enableKey: number;
+    /**
+     * How the canvas is getting on with what it is showing.
+     *
+     * Reported up here because the notice must NOT be inside the zoom
+     * transform: at auto-fit on a narrow pane that is a status bar rendered at
+     * half size. See `CanvasPreviewNotice`.
+     */
+    onStatusChange: (status: CanvasPreviewStatus) => void;
   }) => ReactNode;
   /**
    * The content paths the running page reported finding on itself.
@@ -202,18 +223,31 @@ const MAX_COLUMN_SHARE = 0.72;
 const KEYBOARD_STEP_PX = 24;
 /** Where the phone's strip of switches sits, below the floating top bar. */
 const PHONE_STRIP_TOP = "4.5rem";
-/**
- * Where a phone's pane content starts: below the top bar, below the strip of
- * switches under it, and clear of it.
- *
- * The strip ends at 6.625rem — {@link PHONE_STRIP_TOP} plus the switch's own
- * 2.125rem — so the rest of this is deliberate air. It used to be 2px, which
- * read as the switches being stuck to the top of the fields rather than being
- * a row of their own above them.
- */
-const PHONE_STRIP_CLEARANCE = "8.25rem";
 /** The height of everything on the phone's strip, switches and exit alike. */
 const PHONE_STRIP_CONTROL_HEIGHT = "2.125rem";
+/**
+ * The air between the strip of switches and the pane under it.
+ *
+ * The 12px the strip is already inset from the sides of the screen
+ * (`inset-x-3`), and the panes from theirs, so the gap above a pane is the gap
+ * beside it. Enough for the strip to read as a row of its own — it used to be
+ * 2px, which read as the switches being stuck to the top of the fields — and
+ * no more than that, because on a phone every row of it is a row of the page
+ * not being shown.
+ */
+const PHONE_STRIP_GAP = "0.75rem";
+/**
+ * Where a phone's pane content starts: below the top bar, below the strip of
+ * switches under it, and one gap clear of it.
+ *
+ * Derived rather than written down, because written down it was wrong twice
+ * over. It said 8.25rem against a strip that ends at 6.625rem, so the module
+ * editor began 26px below the switches — and the canvas pane, which padded
+ * itself by another 12px, began 38px below them: two paddings for one gap,
+ * disagreeing with each other. The panes under this now add none of their own,
+ * so this is the whole of it and all three modes start in the same place.
+ */
+const PHONE_STRIP_CLEARANCE = `calc(${PHONE_STRIP_TOP} + ${PHONE_STRIP_CONTROL_HEIGHT} + ${PHONE_STRIP_GAP})`;
 /** Long enough to follow the column across, short enough not to wait. */
 const OPEN_MS = 320;
 /** The switch thumb moves faster: it is a short distance and a direct answer. */
@@ -459,16 +493,35 @@ export function PageWorkspace({
   const pageWidth = CANVAS_DEVICE_WIDTHS[device];
 
   /**
-   * Whether the window should keep the whole page in view.
+   * Whether the window should keep the page at the width of the pane.
    *
-   * The window does the fitting — it is the only thing that knows both sizes,
-   * and the page's height is not known for a frame or two after a frame mounts
+   * The window does the fitting — it is the only thing that knows its own size
    * — but whether a fit is still WANTED is decided here, and it stops being
    * wanted the moment someone zooms. A link that names a position has already
    * answered the question fitting exists to answer, so it is not overruled by
    * one.
    */
   const [autoFit, setAutoFit] = useState(initialTransform == null);
+
+  /**
+   * Back to the default view: the page at the pane's width, from the top.
+   *
+   * Both halves, and the second is why this is a call rather than only
+   * `setAutoFit(true)`. Holding the fit is the window's own business and
+   * deliberately does not move the window — a page someone scrolled down must
+   * not jump to the top because the divider moved — so the top is pinned here,
+   * at the moments a fit is ASKED for. Those are all in this component: opening
+   * the canvas, switching device, reloading, and the fit button.
+   *
+   * `setAutoFit(true)` on its own also does nothing at all when the fit is
+   * already armed, which is exactly the state the fit button is pressed in
+   * after scrolling: no state changed, so nothing re-ran, so the button did
+   * nothing.
+   */
+  const fitPage = useCallback(() => {
+    setAutoFit(true);
+    canvasWindowRef.current?.fit();
+  }, []);
 
   /**
    * Opening the canvas, and switching device, both change the box the page has
@@ -492,15 +545,15 @@ export function PageWorkspace({
       return;
     }
     lastBox.current = { device, open };
-    setAutoFit(true);
-  }, [device, open]);
+    fitPage();
+  }, [device, open, fitPage]);
 
   const reload = useCallback(() => {
     setReloadKey((key) => key + 1);
-    // A reloaded page can be a different height, so the fit it had is no
-    // longer the right one.
-    setAutoFit(true);
-  }, []);
+    // A reloaded page is the page from the beginning again, so the view it is
+    // shown at is the default one again.
+    fitPage();
+  }, [fitPage]);
 
   /**
    * A zoom someone asked for ends the fit.
@@ -579,6 +632,23 @@ export function PageWorkspace({
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   /**
+   * How the canvas is getting on with the page, and the way to fix it.
+   *
+   * Held here rather than in `CanvasFrame` because the notice that shows it
+   * cannot be in there: everything `renderCanvas` returns is inside the zoom
+   * transform, so a bar drawn beside the page would shrink with the page — at
+   * auto-fit on a narrow pane, to about half legibility. `enableKey` goes the
+   * other way for the same reason: the button is here, and only the thing
+   * holding the frame can navigate it.
+   *
+   * `live` to begin with, so the demo page — which reports nothing, because
+   * Storybook has no frame to report — shows no notice at all.
+   */
+  const [previewStatus, setPreviewStatus] =
+    useState<CanvasPreviewStatus>("live");
+  const [enableKey, setEnableKey] = useState(0);
+
+  /**
    * Clears the floating rail, which the narrowed column now reaches under.
    *
    * Inline because `md:px-6` lives in a media query and would otherwise win
@@ -597,8 +667,8 @@ export function PageWorkspace({
    * way to ask. The control went missing rather than explaining itself, and a
    * missing control cannot say why.
    *
-   * The count is held back until there is one, so the tab does not read "Fields
-   * 0" at a page that simply has not answered yet.
+   * The count is held back until there is one, so the tab does not read "On
+   * page 0" at a page that simply has not answered yet.
    */
   const reportedPaths = canvasPaths ?? [];
   const fieldCount = page
@@ -616,16 +686,17 @@ export function PageWorkspace({
   /**
    * The phone's one switch, and the three places it can put you.
    *
-   * On a phone the view and the pane are not two questions. "Fields or normal"
-   * only ever describes the left pane, and "editor or canvas" only ever moves
-   * between that pane and the page — so asking them separately produced a
+   * On a phone the view and the pane are not two questions. "Structure or on
+   * page" only ever describes the left pane, and "editor or canvas" only ever
+   * moves between that pane and the page — so asking them separately produced a
    * control whose two halves each changed meaning depending on the other, which
    * is how "Editor" came to mean "not the page" rather than anything about the
    * editor. One control over the three states there actually are says what it
-   * does at every press: Normal is the module editor, Fields is the page's own
-   * fields, Preview is the page. Leaving is the X beside it, and nothing else.
+   * does at every press: Structure is the module's own content, On page is what
+   * this page reported having on it, Preview is the page. Leaving is the X
+   * beside it, and nothing else.
    *
-   * All three always, the same rule the desktop switch follows. Fields used to
+   * All three always, the same rule the desktop switch follows. On page used to
    * appear only once the page had reported some, which took the control away in
    * the one state where someone needs to be told something — and a tab that
    * comes and goes cannot explain its own absence. It explains itself instead;
@@ -665,6 +736,17 @@ export function PageWorkspace({
    * of it.
    */
   const columnClearsTopBar = !columnHasHeaderRow && !(open && isPhone);
+  /**
+   * What a pane adds above its own content, where something else already
+   * cleared what is covering it.
+   *
+   * A hairline beside the editor, where the switch row above stops 10px short
+   * of the scroller and the column just keeps that from being flush. Nothing at
+   * all on a phone: there the track's {@link PHONE_STRIP_CLEARANCE} is the gap
+   * below the strip of switches, and a pane that added its own would be
+   * measuring the same gap twice.
+   */
+  const paneTopPadding = open && isPhone ? "pt-0" : "pt-1";
 
   const moduleColumn = (
     // `val-content-area` is what ValRouter scrolls when it is asked to bring a
@@ -676,12 +758,16 @@ export function PageWorkspace({
        * How far below the container's top a field has to land.
        *
        * Read by `doScroll` in `ValRouter`, because only this layout knows what
-       * is covering the column. With the view switch on screen the switch has a
-       * row of its own above the scroller and a small gap is enough; without it
-       * the column runs up under the shell's floating top bar, and a field
-       * scrolled flush to the top lands behind it.
+       * is covering the column. Where something above the scroller supplies the
+       * gap — the view switch's own row on a desktop, the phone track's
+       * clearance under the strip of switches — a small one is enough. Where
+       * nothing does, the column runs up under the shell's floating top bar and
+       * a field scrolled flush to the top lands behind it. That is the same
+       * question {@link columnClearsTopBar} answers, so it answers this too:
+       * asking about the switch row alone left the phone reserving 96px inside
+       * a pane that already started below everything covering it.
        */
-      data-scroll-clearance={columnHasHeaderRow ? 16 : 96}
+      data-scroll-clearance={columnClearsTopBar ? 96 : 16}
       className="h-full overflow-y-auto scrollbar-slim"
     >
       {/*
@@ -696,10 +782,23 @@ export function PageWorkspace({
           // See `columnClearsTopBar`: whatever is above the column supplies the
           // gap where there is one, and only where there is nothing does the
           // column pay for it.
-          columnClearsTopBar ? "pt-20 desktop:pt-24" : "pt-1",
+          columnClearsTopBar ? "pt-20 desktop:pt-24" : paneTopPadding,
         )}
       >
-        {children}
+        {/*
+         * The editor is told how much room it is entitled to, and the canvas
+         * being open is the whole of the answer.
+         *
+         * Open, this column is one of three panes that start on the same line,
+         * and the other two are using their space by then: the preview's
+         * address bar is a control you type in, the On page header is a count
+         * and a filter. A 24px title with 124px of chrome around it does not
+         * read as the heading having presence beside those — it reads as a pane
+         * that has not finished loading. See {@link EditorDensity}.
+         */}
+        <EditorDensityProvider density={open ? "compact" : "full"}>
+          {children}
+        </EditorDensityProvider>
       </div>
     </div>
   );
@@ -715,11 +814,17 @@ export function PageWorkspace({
    * The wrapper is padded exactly as the module editor's box is — `px-4
    * md:px-6`, and the same hairline above. The two views are the same column
    * holding different things, and they were inset differently: switching to
-   * Fields slid the content sideways by 16px and pinned the card to the edge of
+   * On page slid the content sideways by 16px and pinned the card to the edge
    * a phone screen.
    */
   const fieldsColumn = (
-    <div style={railPadding} className="h-full px-4 md:px-6 pt-1 pb-14">
+    <div
+      // Measured by the phone layout's spacing test, which is the only way to
+      // catch a pane that pads itself on top of the track's own clearance.
+      data-val-pane="fields"
+      style={railPadding}
+      className={cn("h-full px-4 md:px-6 pb-14", paneTopPadding)}
+    >
       {page ? (
         <FieldsPanel
           page={page}
@@ -831,6 +936,26 @@ export function PageWorkspace({
         </div>
       )}
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border-float bg-bg-float-raised">
+        {/*
+         * Above the page and outside the zoom, which is the whole reason the
+         * status is lifted out of the frame. It used to be a panel over the
+         * frame with a blurred backdrop, so the published page - which is real,
+         * and worth reading - was unreachable behind an explanation of why it
+         * could not be edited.
+         */}
+        <CanvasPreviewNotice
+          status={previewStatus}
+          /*
+           * Which attempt this is. Both counters, because both ask the frame
+           * for a new document and neither necessarily changes the STATUS -
+           * reloading a page that has already given up leaves it at
+           * `no-answer`, and the notice's clock would otherwise still be
+           * timing the attempt before it.
+           */
+          attempt={`${reloadKey}:${enableKey}`}
+          onEnable={() => setEnableKey((key) => key + 1)}
+          onReload={reload}
+        />
         <CanvasWindow
           ref={canvasWindowRef}
           pageWidth={pageWidth}
@@ -856,6 +981,8 @@ export function PageWorkspace({
               onPinch,
               onZoom: (factor, center) => zoomByUser(factor, center),
               onPicked,
+              enableKey,
+              onStatusChange: setPreviewStatus,
             }) ??
               (page && (
                 <CanvasPage
@@ -886,7 +1013,7 @@ export function PageWorkspace({
           scale={scale}
           onZoomIn={() => zoomByUser(ZOOM_STEP, null)}
           onZoomOut={() => zoomByUser(1 / ZOOM_STEP, null)}
-          onFit={() => setAutoFit(true)}
+          onFit={fitPage}
           // Only where there is something to select. The demo page reports no
           // paths, so a click on it has nothing to open.
           isPicking={isPicking}
@@ -976,7 +1103,13 @@ export function PageWorkspace({
              * screen. Switching modes must not cost a page load — see `open`.
              */}
             {open && (
-              <div className="h-full w-full shrink-0 p-3 pb-14">
+              // `px-3`, with no top padding of its own: the track's
+              // clearance above is the gap below the strip of switches, and
+              // this pane adding another put the address bar 38px under it.
+              <div
+                data-val-pane="canvas"
+                className="h-full w-full shrink-0 px-3 pb-14"
+              >
                 {canvasPane}
               </div>
             )}
@@ -999,7 +1132,7 @@ export function PageWorkspace({
               mode={mobileMode}
               onChange={setMobileMode}
               // Held back until there is one, so the tab does not read
-              // "Fields 0" at a page that has not answered yet.
+              // "On page 0" at a page that has not answered yet.
               fieldCount={fieldCount > 0 ? fieldCount : undefined}
               animate={!reducedMotion}
             />
@@ -1073,7 +1206,18 @@ export function PageWorkspace({
       <div
         style={{ transition: ease(["opacity", "transform"]) }}
         className={cn(
-          "min-w-0 flex-1 pt-20 pb-14 pr-3",
+          /*
+           * `pl-1.5` against `pr-3`, which is not a typo: the two add up to
+           * the same gap.
+           *
+           * The divider is a 12px hit area with its line down the middle (a
+           * 1px target is a target nobody hits), so 6px of it is already on
+           * this side of the line. Six more here puts the canvas 12px from the
+           * line — the same 12px it keeps from the right edge of the window —
+           * where it used to sit 6px off on the left and 12px off on the
+           * right, which reads as the divider being nudged towards the page.
+           */
+          "min-w-0 flex-1 pt-20 pb-14 pl-1.5 pr-3",
           open
             ? "scale-100 opacity-100"
             : "invisible pointer-events-none scale-95 opacity-0",
@@ -1086,22 +1230,24 @@ export function PageWorkspace({
 }
 
 /**
- * The fields view before the page has said what is on it.
+ * The On page view before the page has said what is on it.
  *
- * Almost always one thing: preview mode is off. Without that cookie the page
- * mounts none of Val's client code, so nothing tags its content and nothing
- * reports back — and the canvas says so, with the button that fixes it, because
- * the canvas is the thing holding the page.
+ * Almost always one thing: preview mode is off. This does not say so, and the
+ * short line is the point — the canvas is holding the page, so the canvas knows
+ * which of the several reasons it is, and it has the button. Two explanations
+ * of one situation, on screen at the same time on a desktop, is one more than
+ * the situation has.
+ *
+ * It used to carry that explanation itself: what preview mode is, what a page
+ * without it does not do, and the caveat that a page which simply has no Val
+ * content on it looks identical from here. All true, all already said by the
+ * notice over the page, and none of it a thing to DO.
  *
  * This used to be no tab at all. The switch appeared only once there was a list
  * to show, so the one state where someone needs to be told something was the
- * state with nothing to click, and the fields view read as a feature that comes
- * and goes. Saying it here costs a tab that is occasionally empty and buys an
- * answer to "where did Fields go".
- *
- * It does not claim preview mode IS off, because it cannot see: a page in
- * preview mode with no Val content on it reports nothing either, and telling
- * someone to turn on something already on is its own dead end.
+ * state with nothing to click, and the view read as a feature that comes and
+ * goes. Saying it here costs a tab that is occasionally empty and buys an
+ * answer to "where did On page go".
  */
 function FieldsAwaitingPage({
   onGoToPreview,
@@ -1117,10 +1263,7 @@ function FieldsAwaitingPage({
           Nothing reported yet
         </h2>
         <p className="text-[0.6875rem] leading-relaxed text-fg-secondary-alt">
-          Usually that means preview mode is off: without it the page mounts
-          none of Val's client code and tags nothing, and the Preview has the
-          button that turns it on. A page that is already in preview mode and
-          simply has no Val content on it looks the same from here.
+          The preview says why, and has the button that fixes it.
         </p>
       </div>
       {onGoToPreview && (
@@ -1231,9 +1374,9 @@ type SegmentedThumb = { left: number; width: number };
  * SAME padding either side of it. Equal columns (`auto-cols-fr`) did not: the
  * widest option decides the column, so it ends up flush against its own
  * padding while every shorter one is centred in the slack left over. On the
- * canvas switch that is "Fields 18" against "Normal" — the count made the
- * fields option the wide one, so the selected pill looked tight around
- * "Fields 18" and roomy around "Normal", from the same `px-4`.
+ * canvas switch that is "On page 18" against "Structure" — the count made the
+ * on-page option the wide one, so the selected pill looked tight around
+ * "On page 18" and roomy around "Structure", from the same `px-4`.
  *
  * The price is that the thumb can no longer be "one column, moved by one
  * column": it is measured off the selected button instead, which is what
@@ -1381,13 +1524,14 @@ function SegmentedControl<T extends string>({
 }
 
 /**
- * The phone's one switch: the module editor, the page's fields, or the page.
+ * The phone's one switch: the module's own content, the fields the page
+ * reported, or the page.
  *
  * Three options in reading order, left to right, matching where each one puts
- * you: Normal and Fields are both the left pane and sit together on the left;
- * Preview is the pane to their right and sits on the right. Every option names
- * a destination — there is no "Editor" meaning "away from the page", which is
- * what the pair of two-state switches this replaces ended up saying.
+ * you. Structure and On page are both the left pane and sit together on the
+ * left; Preview is the pane to their right and sits on the right. Every option
+ * names a destination — there is no "Editor" meaning "away from the page",
+ * which is what the pair of two-state switches this replaces ended up saying.
  */
 function MobileModeToggle({
   mode,
@@ -1397,13 +1541,13 @@ function MobileModeToggle({
 }: {
   mode: MobileMode;
   onChange: (mode: MobileMode) => void;
-  /** How many fields the page reported. Absent shows Fields with no count. */
+  /** How many fields the page reported. Absent shows On page with no count. */
   fieldCount?: number;
   animate: boolean;
 }) {
   const options: ReadonlyArray<MobileModeOption> = [
-    { value: "normal", label: "Normal", icon: MousePointerSquareDashed },
-    { value: "fields", label: "Fields", icon: ListTree, badge: fieldCount },
+    { value: "normal", label: "Structure", icon: MousePointerSquareDashed },
+    { value: "fields", label: "On page", icon: ListTree, badge: fieldCount },
     { value: "preview", label: "Preview", icon: Eye },
   ];
   return (
@@ -1420,10 +1564,16 @@ function MobileModeToggle({
 }
 
 /**
- * Normal view or the fields Val found on the page.
+ * The module's own content, or the fields Val found on the page.
  *
  * Two labelled states rather than one button that toggles, so the control
  * says which view you are in as well as where you can go.
+ *
+ * "Structure" and "On page" name what each one holds, which the pair they
+ * replace did not: "Normal" said only that the other one was not, and
+ * "Fields" is what both of them are made of. The difference is scope — one is
+ * everything in this module, the other is what this page rendered — and the
+ * labels are the only place a reader can learn that.
  */
 function ViewToggle({
   view,
@@ -1446,10 +1596,15 @@ function ViewToggle({
       options={[
         {
           value: "normal",
-          label: "Normal",
+          label: "Structure",
           icon: MousePointerSquareDashed,
         },
-        { value: "fields", label: "Fields", icon: ListTree, badge: fieldCount },
+        {
+          value: "fields",
+          label: "On page",
+          icon: ListTree,
+          badge: fieldCount,
+        },
       ]}
     />
   );

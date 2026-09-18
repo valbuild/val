@@ -1,5 +1,150 @@
 # @valbuild/cli
 
+## 0.132.0
+
+### Patch Changes
+
+- Updated dependencies [[`72cc676`](https://github.com/valbuild/val/commit/72cc6765e92a6e72b5c09ddd9eed8efa7ce899f2)]:
+  - @valbuild/server@0.132.0
+  - @valbuild/language-server@0.132.0
+
+## 0.131.0
+
+### Patch Changes
+
+- Updated dependencies [[`0d5857b`](https://github.com/valbuild/val/commit/0d5857b731e11f7e6a011f79297df6485908c31f)]:
+  - @valbuild/server@0.131.0
+  - @valbuild/language-server@0.131.0
+
+## 0.130.0
+
+### Patch Changes
+
+- Updated dependencies [[`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75), [`8425378`](https://github.com/valbuild/val/commit/8425378c315ea46b5d822f1130b633e0449ff1b0), [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75), [`473a185`](https://github.com/valbuild/val/commit/473a185f70351b44388f3bc1852649e2c1dbe001), [`64f0de3`](https://github.com/valbuild/val/commit/64f0de339b8621cb5a6c422dfe55cae5b2bbe2a0), [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75)]:
+  - @valbuild/server@0.130.0
+  - @valbuild/core@0.130.0
+  - @valbuild/language-server@0.130.0
+  - @valbuild/shared@0.130.0
+
+## 0.129.0
+
+### Patch Changes
+
+- Updated dependencies [[`7d34ecc`](https://github.com/valbuild/val/commit/7d34ecce787a0709025ae7b4764cb6c3ad1f766b), [`0c351c4`](https://github.com/valbuild/val/commit/0c351c4f97ae7f09772eab0e856ae69821b803b7)]:
+  - @valbuild/core@0.129.0
+  - @valbuild/shared@0.129.0
+  - @valbuild/server@0.129.0
+  - @valbuild/language-server@0.129.0
+
+## 0.128.0
+
+### Patch Changes
+
+- Updated dependencies [[`8b52b33`](https://github.com/valbuild/val/commit/8b52b33e1f629f14f66cc71dcc7cf415d210c7d4), [`362fb49`](https://github.com/valbuild/val/commit/362fb49f30d2b04c4ff78d54dca2bf5ad978a05c), [`c595799`](https://github.com/valbuild/val/commit/c59579977a436ec530c6c69f2b340ab9829d97ab)]:
+  - @valbuild/core@0.128.0
+  - @valbuild/language-server@0.128.0
+  - @valbuild/server@0.128.0
+  - @valbuild/shared@0.128.0
+
+## 0.127.0
+
+### Patch Changes
+
+- Updated dependencies [[`7fa8699`](https://github.com/valbuild/val/commit/7fa869974bc895af992a7d5c18b76253636d7d65), [`5b7fe05`](https://github.com/valbuild/val/commit/5b7fe05cec6365f9cd1de9ba31e65ed4a87edb63), [`88262ac`](https://github.com/valbuild/val/commit/88262ac8db068650a664981ef73556457d87741a), [`7072e07`](https://github.com/valbuild/val/commit/7072e07623c953a09ac14388ae22dada0b431ce3), [`29811c3`](https://github.com/valbuild/val/commit/29811c3f8c7e001a950e6f4833af6888e6a4efea)]:
+  - @valbuild/core@0.127.0
+  - @valbuild/shared@0.127.0
+  - @valbuild/server@0.127.0
+  - @valbuild/language-server@0.127.0
+
+## 0.126.0
+
+### Patch Changes
+
+- [#652](https://github.com/valbuild/val/pull/652) [`f2fe70d`](https://github.com/valbuild/val/commit/f2fe70dab2b65000dfaf289f09c70b4a8291467a) Thanks [@freekh](https://github.com/freekh)! - `s.union` is now `s.discriminatedUnion` and `s.enum`.
+
+  `s.union` did two unrelated jobs and worked out which one you meant from its
+  first argument: a string key meant a tagged union of objects, literal schemas
+  meant a set of allowed strings. Those are now two schemas with two names.
+
+  ```ts
+  // A fixed set of strings — presents as a dropdown
+  s.enum("primary", "secondary", "ghost"); // Schema<"primary" | "secondary" | "ghost">
+
+  // One of several object shapes, told apart by a tag field
+  s.discriminatedUnion(
+    "type",
+    s.object({ type: s.literal("hero"), heading: s.string() }),
+    s.object({ type: s.literal("quote"), text: s.string() }),
+  );
+  ```
+
+  `s.enum` takes the strings directly, so the `s.literal(...)` wrapper is gone.
+
+  **`s.union` still works** — it is deprecated, and it builds exactly the schema
+  above, so nothing has to change today:
+
+  ```ts
+  s.union(s.literal("one"), s.literal("two")); // → s.enum("one", "two")
+  s.union("type", pageA, pageB); // → s.discriminatedUnion("type", pageA, pageB)
+  ```
+
+  The two are different kinds of node, and that is the reason for the split. A
+  discriminated union is a container: the selected variant's fields are the fields
+  being edited, and everything that walks a schema descends through it. An enum is
+  a leaf — a string with a closed domain — so nothing recurses into it. Told apart
+  only by the shape of `key`, every consumer had to re-derive which one it was
+  holding; each now has its own serialized type (`"discriminated-union"` and
+  `"enum"`) and Val Studio has a field per kind rather than one field that
+  branches.
+
+  Two behaviour changes fall out of the split, both of them fixes:
+
+  - A value that is not a string at all now fails an enum's validation with a
+    type error. `s.union` of literals only ever checked the value against its
+    literals when the value WAS a string, so a number or an object where an enum
+    was declared validated clean.
+  - An enum field now shows its validation errors in Val Studio where the field
+    is opened on its own — the module editor and the canvas's fields column — and
+    gets the compact error layout inside an inline list row. It is a leaf now, so
+    it goes through the same error rendering as every other leaf field; the string
+    union bypassed it and showed nothing in those places.
+
+  Several latent crashes in the old `s.union` are fixed on the way past, all of
+  them cases where it threw a `TypeError` instead of reporting:
+
+  - A required discriminated union holding `null` now reports a type error rather
+    than throwing, and resolving a path underneath a nullable one that is `null`
+    gives the error the API promises instead of a crash.
+  - `s.literal("")` is a legal discriminator tag, and `s.enum("")` a legal value.
+    Both used to be treated as absent by a truthiness check — in path resolution,
+    in stega encoding, and in the message that lists a union's valid tags. The
+    editor's dropdowns handle them too: an empty value is reserved by the select
+    component and had to be mapped around.
+  - A variant that omits the discriminator entirely is now reported as the schema
+    error it is, instead of throwing while the check looked for it.
+  - An enum's value is now indexed for search, like every other string leaf. The
+    old string union was never indexed at all, so searching for one of its values
+    could not find the field.
+  - A nullable discriminated union set to `null` no longer renders a spinner that
+    never resolves.
+
+  `s.discriminatedUnion` also requires at least one variant, as `s.enum` requires
+  at least one value: a union with nothing to select is not a thing to write, and
+  everything downstream reads the first variant where it needs any.
+
+  If you read serialized schemas yourself, that is the breaking part: `type` is no
+  longer `"union"`, an enum carries `values: string[]` instead of a `key` plus
+  `items` of literal schemas, and `UnionSchema` is no longer a class.
+  `SerializedUnionSchema`, `SerializedStringUnionSchema`,
+  `SerializedObjectUnionSchema` and `UnionSchema` remain as deprecated type
+  aliases.
+
+- Updated dependencies [[`5bfd630`](https://github.com/valbuild/val/commit/5bfd630b63dee2189e238f20fe72ecc5537160f7), [`ccbcda6`](https://github.com/valbuild/val/commit/ccbcda60b3e3c465071229ae1ba28ac735483e63), [`f2fe70d`](https://github.com/valbuild/val/commit/f2fe70dab2b65000dfaf289f09c70b4a8291467a), [`5c18c99`](https://github.com/valbuild/val/commit/5c18c99ecc84651f82123481fc042063db953833), [`171208a`](https://github.com/valbuild/val/commit/171208a20177e68ed5a8b1a6fdaabfe893a6aa5f)]:
+  - @valbuild/shared@0.126.0
+  - @valbuild/server@0.126.0
+  - @valbuild/core@0.126.0
+  - @valbuild/language-server@0.126.0
+
 ## 0.125.0
 
 ### Patch Changes

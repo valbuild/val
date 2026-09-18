@@ -21,6 +21,7 @@ describe("the shell's URL state", () => {
       canvasRoute: null,
       canvasView: "normal",
       canvasTransform: null,
+      locale: null,
     });
   });
 
@@ -35,6 +36,7 @@ describe("the shell's URL state", () => {
         canvasRoute: null,
         canvasView: "normal",
         canvasTransform: null,
+        locale: null,
       }),
     ).toBe("");
   });
@@ -46,8 +48,47 @@ describe("the shell's URL state", () => {
       canvasRoute: "/blogs/blog1",
       canvasView: "fields" as const,
       canvasTransform: { scale: 0.56, x: -120, y: 40 },
+      locale: "nb-NO",
     };
     expect(parseShellUrlState(applyShellUrlState("", state))).toEqual(state);
+  });
+
+  describe("the locale filter", () => {
+    test("all locales is the default, and writes nothing", () => {
+      // Most projects have no languages at all. They should not carry a param
+      // that says they are not filtered.
+      expect(parseShellUrlState("").locale).toBeNull();
+      expect(
+        applyShellUrlState("", {
+          panel: null,
+          canvasOpen: false,
+          canvasRoute: null,
+          canvasView: "normal",
+          canvasTransform: null,
+          locale: null,
+        }),
+      ).toBe("");
+    });
+
+    test("a chosen language round-trips", () => {
+      const written = applyShellUrlState("", {
+        panel: null,
+        canvasOpen: false,
+        canvasRoute: null,
+        canvasView: "normal",
+        canvasTransform: null,
+        locale: "nb-NO",
+      });
+      expect(written).toBe("?locale=nb-NO");
+      expect(parseShellUrlState(written).locale).toBe("nb-NO");
+    });
+
+    test("a language the project does not have is read, not rejected", () => {
+      // Parsing runs before the settings module has loaded, so there is nothing
+      // to check against here. The picker resolves it and falls back to all
+      // locales — see `LocaleFilter`.
+      expect(parseShellUrlState("?locale=sv-SE").locale).toBe("sv-SE");
+    });
   });
 
   test("keeps query params it knows nothing about", () => {
@@ -59,6 +100,7 @@ describe("the shell's URL state", () => {
       canvasRoute: null,
       canvasView: "normal",
       canvasTransform: null,
+      locale: null,
     });
     expect(written).toContain("session=abc123");
     expect(written).toContain("canvas=1");
@@ -73,6 +115,7 @@ describe("the shell's URL state", () => {
       canvasRoute: null,
       canvasView: "normal",
       canvasTransform: null,
+      locale: null,
     });
     expect(written).toBe("");
   });
@@ -102,6 +145,38 @@ describe("the shell's URL state", () => {
     });
   });
 
+  test("a position without a canvas is not written", () => {
+    // The workspace reports where it is from the moment it mounts, so the
+    // shell holds a position whether or not the canvas has ever been opened.
+    // Written out, that put `canvas-at=1.00,0,0` on every URL in the studio —
+    // a view of a canvas nobody had looked at, on a link to a module.
+    expect(
+      applyShellUrlState("", {
+        panel: null,
+        canvasOpen: false,
+        canvasRoute: null,
+        canvasView: "normal",
+        canvasTransform: { scale: 1, x: 0, y: 0 },
+        locale: null,
+      }),
+    ).toBe("");
+  });
+
+  test("closing the canvas takes the position with it", () => {
+    // Otherwise the param outlives the canvas it describes, and a reload
+    // restores a position for a canvas that is not open.
+    expect(
+      applyShellUrlState("?canvas=1&canvas-at=0.56%2C-120%2C40", {
+        panel: null,
+        canvasOpen: false,
+        canvasRoute: null,
+        canvasView: "normal",
+        canvasTransform: { scale: 0.56, x: -120, y: 40 },
+        locale: null,
+      }),
+    ).toBe("");
+  });
+
   test("rounds the position, because nobody reads six decimals", () => {
     const written = applyShellUrlState("", {
       panel: null,
@@ -109,6 +184,7 @@ describe("the shell's URL state", () => {
       canvasRoute: null,
       canvasView: "normal",
       canvasTransform: { scale: 0.5612345, x: -120.7, y: 40.2 },
+      locale: null,
     });
     expect(written).toContain("canvas-at=0.56%2C-121%2C40");
   });
@@ -129,6 +205,7 @@ describe("history for a view change", () => {
     canvasRoute: null,
     canvasView: "normal",
     canvasTransform: null,
+    locale: null,
     ...over,
   });
 

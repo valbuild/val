@@ -2,6 +2,8 @@ import { initVal } from "../initVal";
 import {
   assistantAvailability,
   ASSISTANT_SETTINGS_MAX_LENGTH,
+  THEME_RADIUS_LENGTHS,
+  THEME_RADIUS_STEPS,
 } from "../source/settings";
 import { ModuleFilePath, SourcePath } from "../val";
 import { deserializeSchema } from "./deserialize";
@@ -143,6 +145,71 @@ describe("SettingsSchema", () => {
     });
     expect(settingsVal).toBeDefined();
   });
+
+  test("a settings module can be defined with a theme", () => {
+    const settingsVal = c.define("/settings.val.ts", s.settings(), {
+      theme: {
+        accent: "#2563eb",
+        radius: "tight",
+        mode: "light",
+      },
+    });
+    expect(settingsVal).toBeDefined();
+  });
+
+  test("the theme's fields are all optional, like every other section's", () => {
+    expect(
+      settings()["executeValidate"]("path" as SourcePath, { theme: {} }),
+    ).toEqual(false);
+    expect(
+      settings()["executeValidate"]("path" as SourcePath, {
+        theme: { accent: null, radius: null, mode: null },
+      }),
+    ).toEqual(false);
+  });
+
+  test("an accent that is not a colour is reported", () => {
+    // Through the deserialized schema: a hand-edited settings file is the only
+    // way this arrives, and that is the schema the validation worker runs.
+    const schema = deserializeSchema(settings()["executeSerialize"]());
+    const res = schema["executeValidate"]("path" as SourcePath, {
+      theme: { accent: "cornflower" },
+    });
+    expect(res).not.toEqual(false);
+    expect(Object.keys(res || {})).toEqual(['path?p="theme"."accent"']);
+  });
+
+  test("an accent in the wrong notation is reported", () => {
+    // `s.color({ format: "hex" })` stores hex, so an hsl() string is a value
+    // the Studio would round-trip into something the author did not write.
+    const schema = deserializeSchema(settings()["executeSerialize"]());
+    const res = schema["executeValidate"]("path" as SourcePath, {
+      theme: { accent: "hsl(217 91% 60%)" },
+    });
+    expect(res).not.toEqual(false);
+  });
+
+  test("a radius step that does not exist is reported", () => {
+    const schema = deserializeSchema(settings()["executeSerialize"]());
+    const res = schema["executeValidate"]("path" as SourcePath, {
+      theme: { radius: "rounded" },
+    });
+    expect(res).not.toEqual(false);
+  });
+
+  test("every radius step the source type allows also validates", () => {
+    // The two lists have to agree: `THEME_RADIUS_LENGTHS` is what the Studio
+    // turns a step into, and the schema is what lets the step be written. A
+    // step in one and not the other is a setting that cannot be saved, or one
+    // that saves and does nothing.
+    const schema = deserializeSchema(settings()["executeSerialize"]());
+    for (const radius of THEME_RADIUS_STEPS) {
+      expect(
+        schema["executeValidate"]("path" as SourcePath, { theme: { radius } }),
+      ).toEqual(false);
+      expect(THEME_RADIUS_LENGTHS[radius]).toBeDefined();
+    }
+  });
 });
 
 describe("assistantAvailability", () => {
@@ -228,5 +295,208 @@ describe("resolveSettingsModule", () => {
         "'/config.val.ts' and '/settings.val.ts'",
       );
     }
+  });
+});
+
+/**
+ * The `studio` section: how the Studio behaves for this project's editors.
+ *
+ * One three-valued field so far, and the three values are the whole point —
+ * unset is not off. The Studio's own parser (`readStudioSettings`) has to agree
+ * with this schema about that, and nothing else checks the two against each
+ * other, so both ends are tested: this file for what the schema accepts, and
+ * `studioSettings` for what an unset value MEANS.
+ */
+describe("the studio section", () => {
+  test("a settings module can be defined with it", () => {
+    expect(
+      c.define("/settings.val.ts", s.settings(), { studio: { tour: false } }),
+    ).toBeDefined();
+  });
+
+  test("its field is optional, like every other section's", () => {
+    const schema = settings();
+    expect(schema["executeValidate"]("path" as SourcePath, {})).toEqual(false);
+    expect(
+      schema["executeValidate"]("path" as SourcePath, { studio: {} }),
+    ).toEqual(false);
+    // Explicitly unset, which is what the Studio writes when it creates the
+    // section for a sibling field. See `useWriteSettingsSection`.
+    expect(
+      schema["executeValidate"]("path" as SourcePath, {
+        studio: { tour: null },
+      }),
+    ).toEqual(false);
+  });
+
+  test("both booleans validate", () => {
+    const schema = settings();
+    for (const tour of [true, false]) {
+      expect(
+        schema["executeValidate"]("path" as SourcePath, { studio: { tour } }),
+      ).toEqual(false);
+    }
+  });
+
+  /**
+   * Through the deserialized schema, because that is the one the Studio's
+   * validation worker runs — a closure does not survive JSON, and a section
+   * that validated here and not there would go wrong silently.
+   */
+  test("a tour that is not a boolean is reported, through deserialize", () => {
+    const schema = deserializeSchema(settings()["executeSerialize"]());
+    const res = schema["executeValidate"]("path" as SourcePath, {
+      studio: { tour: "false" },
+    });
+    expect(Object.keys(res || {})).toEqual(['path?p="studio"."tour"']);
+  });
+
+  test("serializes as a nullable boolean", () => {
+    expect(settings()["executeSerialize"]()).toMatchObject({
+      items: {
+        studio: {
+          type: "settings",
+          items: { tour: { type: "boolean", opt: true } },
+        },
+      },
+    });
+  });
+});
+
+describe("the locales section", () => {
+  /** The errors for one settings source, as `path -> messages`. */
+  function validate(src: Record<string, unknown>): Record<string, string[]> {
+    const errors = settings()["executeValidate"](
+      "/settings.val.ts" as SourcePath,
+      src,
+    );
+    if (errors === false) {
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(errors).map(([path, list]) => [
+        path,
+        list.map((error) => error.message),
+      ]),
+    );
+  }
+
+  test("a project with no locales section is not translated, and says nothing", () => {
+    expect(validate({})).toEqual({});
+    expect(validate({ locales: {} })).toEqual({});
+  });
+
+  test("canonical tags pass", () => {
+    expect(
+      validate({
+        locales: { available: ["en-US", "fr-FR", "nb-NO"] },
+      }),
+    ).toEqual({});
+  });
+
+  test("a tag that is not canonical names the spelling to use", () => {
+    // The case that matters: `nb-no` parses, but nothing else in the stack
+    // agrees it is the same string as `nb-NO`.
+    expect(
+      validate({ locales: { available: ["nb-no"] } })[
+        '/settings.val.ts?p="locales"."available".0'
+      ],
+    ).toEqual(["'nb-no' is not canonical. Write it as 'nb-NO'"]);
+  });
+
+  test("an underscore is rejected as the POSIX spelling it is", () => {
+    expect(
+      validate({ locales: { available: ["nb_NO"] } })[
+        '/settings.val.ts?p="locales"."available".0'
+      ],
+    ).toEqual([
+      "'nb_NO' is not a language tag. Language then region, separated by a hyphen — 'nb-NO', not 'nb_NO'",
+    ]);
+  });
+
+  test("a language declared twice is reported on the repeat, not on the list", () => {
+    // The second `en-US` is the one to delete, so that is the row that carries
+    // the error — a message on the list itself would not say which.
+    expect(
+      validate({ locales: { available: ["en-US", "nb-NO", "en-US"] } }),
+    ).toEqual({
+      '/settings.val.ts?p="locales"."available".2': [
+        "'en-US' is declared twice",
+      ],
+    });
+  });
+
+  test("the section survives a hand-written module of the wrong shape", () => {
+    // Validation runs against whatever is in the file, including the shapes the
+    // per-key pass is reporting in the same breath. The cross-key rule must not
+    // throw on its way past them.
+    expect(() => validate({ locales: { available: "en-US" } })).not.toThrow();
+    expect(() => validate({ locales: { available: [1, null] } })).not.toThrow();
+  });
+
+  test("the rules survive serialization, so the Studio runs them too", () => {
+    // The Studio's validation worker never sees `settings()` — it deserializes
+    // a schema that arrived as JSON. A closure cannot make that trip, which is
+    // why the section is named in the serialized schema and the rules are
+    // looked up again on the way back.
+    const serialized = settings()["executeSerialize"]();
+    expect(serialized).toMatchObject({
+      items: { locales: { section: "locales" } },
+    });
+    const errors = deserializeSchema(serialized)["executeValidate"](
+      "/settings.val.ts" as SourcePath,
+      { locales: { available: ["en-US", "nb-NO", "en-US"] } },
+    );
+    expect(
+      errors &&
+        errors['/settings.val.ts?p="locales"."available".2' as SourcePath].map(
+          (error) => error.message,
+        ),
+    ).toEqual(["'en-US' is declared twice"]);
+  });
+
+  test("a section name this Val does not know leaves the rest of the schema working", () => {
+    // A schema written by a newer Val. Its rules cannot run — there is nothing
+    // here to run — but the shape still validates and a typo is still reported,
+    // which is better than refusing the schema outright.
+    const serialized = settings()["executeSerialize"]();
+    if (serialized.type !== "settings")
+      throw new Error("not a settings schema");
+    const locales = serialized.items["locales"];
+    if (locales?.type !== "settings") throw new Error("no locales section");
+    const schema = deserializeSchema({
+      ...serialized,
+      items: {
+        ...serialized.items,
+        locales: { ...locales, section: "locales-v2" },
+      },
+    });
+    expect(
+      schema["executeValidate"]("/settings.val.ts" as SourcePath, {
+        locales: { available: ["en-US", "en-US"] },
+      }),
+    ).toEqual(false);
+    const errors = schema["executeValidate"]("/settings.val.ts" as SourcePath, {
+      locales: { availabel: ["en-US"] },
+    });
+    expect(
+      errors &&
+        errors['/settings.val.ts?p="locales"' as SourcePath].map(
+          (error) => error.message,
+        ),
+    ).toEqual([
+      "Unknown settings key: 'availabel'. Expected one of: 'available'",
+    ]);
+  });
+
+  test("s.settings() declares the section, so a project can be typed against it", () => {
+    const module = c.define(
+      "/settings.val.ts" as ModuleFilePath,
+      s.settings(),
+      {
+        locales: { available: ["en-US", "nb-NO"] },
+      },
+    );
+    expect(module).toBeDefined();
   });
 });

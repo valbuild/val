@@ -79,15 +79,15 @@ to). `RecordFields` asks the same question of its entries, and lays an inline
 one out in place — under its key, since a record's rows are labelled by key and
 have no order to drag.
 
-### On a union, the variants may declare it
+### On a discriminated union, the variants may declare it
 
 `isInlineRender` (`core/src/render.ts`) is the one implementation of the
-question, and it delegates through a tagged union: the union is inline when the
-union itself declares it, or when ANY of its variants does.
+question, and it delegates through a discriminated union: the union is inline
+when the union itself declares it, or when ANY of its variants does.
 
 ```ts
 s.array(
-  s.union(
+  s.discriminatedUnion(
     "type",
     s
       .object({ type: s.literal("text"), text: s.richtext() })
@@ -127,7 +127,7 @@ const authors = s.array(author);
 ```
 
 The array reifies its rows by running each item's closure (`executePreviewItem`
-in `core/src/schema/index.ts`). A tagged union without a preview of its own
+in `core/src/schema/index.ts`). A discriminated union without a preview of its own
 dispatches to the variant the value takes, so page-builder blocks preview per
 block type. A `.preview` on the array/record itself describes the CONTAINER as
 a value, for when it is the item of something else.

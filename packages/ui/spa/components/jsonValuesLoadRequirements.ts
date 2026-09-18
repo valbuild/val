@@ -1,6 +1,5 @@
 import {
   ModuleFilePath,
-  SerializedObjectSchema,
   SerializedRecordSchema,
   SerializedSchema,
 } from "@valbuild/core";
@@ -123,6 +122,10 @@ function containsReferrer(
       return query.kind === "file" && schema.referencedModule === query.module;
     case "route":
       return query.kind === "route";
+    // A locale is a value, not a reference: it points at the settings module,
+    // which is never a `.jsonValues()` record.
+    case "locale":
+      return false;
     case "object":
     case "settings":
       return Object.values(schema.items).some((item) =>
@@ -131,16 +134,13 @@ function containsReferrer(
     case "array":
     case "record":
       return containsReferrer(schema.item, query, seen);
-    case "union":
-      // Covers both the tagged form (object variants) and the literal form,
-      // whose items are literals and match nothing.
-      return (
-        schema.items as (SerializedObjectSchema | SerializedSchema)[]
-      ).some((item) => containsReferrer(item, query, seen));
+    case "discriminated-union":
+      return schema.items.some((item) => containsReferrer(item, query, seen));
     case "string":
     case "number":
     case "boolean":
     case "literal":
+    case "enum":
     case "date":
     case "dateTime":
     case "color":

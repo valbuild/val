@@ -1,14 +1,25 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
-import { ASSISTANT_SETTINGS_MAX_LENGTH } from "@valbuild/core";
+import {
+  ASSISTANT_SETTINGS_MAX_LENGTH,
+  THEME_RADIUS_LENGTHS,
+} from "@valbuild/core";
+import { themeCustomProperties } from "@valbuild/shared/internal";
+import { mockProjectLogo } from "../mockShellData";
 import {
   AssistantSettingsFields,
   AssistantSettingsValue,
   NoSettingsModule,
+  SettingsLogoPlaceholder,
   SettingsPanel,
+  SettingsSectionDivider,
   SettingsTabs,
+  StudioSettingsFields,
+  StudioSettingsValue,
+  ThemeSettingsFields,
+  ThemeSettingsValue,
 } from "../SettingsPanel";
-import { Sparkles } from "lucide-react";
+import { AppWindow, Sparkles } from "lucide-react";
 import { ShellBreakpoint } from "../types";
 import { EnableAssistantPromptView } from "../../EnableAssistantPrompt";
 
@@ -57,6 +68,22 @@ type HarnessProps = {
   /** No settings module in the project at all. */
   missing?: boolean;
   errors?: Partial<Record<keyof AssistantSettingsValue, string>>;
+  /** Whether there is an assistant to ask. See `onGenerateTone`. */
+  canAskAssistant?: boolean;
+  /** The settings module's `theme` section, as source. */
+  initialTheme?: ThemeSettingsValue;
+  themeErrors?: Partial<Record<keyof ThemeSettingsValue, string>>;
+  /** Open on the Appearance tab instead of Assistant. */
+  appearance?: boolean;
+  /**
+   * What goes in the logo slot.
+   *
+   * A slot, not a value: uploading is `ImageField`'s job and it needs the
+   * stores, so the panel takes an element. "placeholder" is what a project with
+   * no `theme` section sees — the button that creates it — and "field" stands
+   * in for the real image field.
+   */
+  logoSlot?: "none" | "placeholder" | "field";
   readonly?: boolean;
   isLoading?: boolean;
   loadError?: string;
@@ -66,6 +93,12 @@ const UNSET: AssistantSettingsValue = {
   enabled: null,
   context: null,
   tone: null,
+};
+
+const UNSET_THEME: ThemeSettingsValue = {
+  accent: null,
+  radius: null,
+  mode: null,
 };
 
 /**
@@ -79,13 +112,115 @@ function SettingsPanelHarness({
   initial = UNSET,
   missing,
   errors,
+  canAskAssistant = true,
+  initialTheme = UNSET_THEME,
+  themeErrors,
+  appearance,
+  logoSlot = "none",
   readonly,
   isLoading,
   loadError,
 }: HarnessProps) {
   const [value, setValue] = useState<AssistantSettingsValue>(initial);
+  const [theme, setTheme] = useState<ThemeSettingsValue>(initialTheme);
+  // Unset, which is what an untouched project has: the tour is offered.
+  const [studio, setStudio] = useState<StudioSettingsValue>({ tour: null });
+  /*
+   * The theme is APPLIED here, not just edited, so a story shows what picking
+   * an accent does rather than only what the control looks like. In the real
+   * app this object is on the element that stamps `data-mode` — see
+   * `ValThemeProvider`; here the canvas the panel floats over stands in for it.
+   */
+  const themeStyle = themeCustomProperties({
+    accent: theme.accent,
+    radius: theme.radius === null ? null : THEME_RADIUS_LENGTHS[theme.radius],
+  });
+  const assistantTab = {
+    id: "assistant",
+    label: "Assistant",
+    icon: Sparkles,
+    content: (
+      <AssistantSettingsFields
+        value={value}
+        onChange={(field, next) =>
+          setValue((current) => ({ ...current, [field]: next }))
+        }
+        maxLength={ASSISTANT_SETTINGS_MAX_LENGTH}
+        errors={errors}
+        onGenerateTone={
+          canAskAssistant
+            ? () => {
+                // The real one opens the assistant and sends a prompt; there
+                // is no assistant here, so it writes what one would plausibly
+                // have written. What the story is for is the button's own
+                // rule: it is offered while the field is empty and gone once
+                // it is not.
+                setValue((current) => ({
+                  ...current,
+                  tone: "Plain and direct. British English, sentence case in headings, no exclamation marks. Contractions are fine. Sentences run short.",
+                }));
+              }
+            : undefined
+        }
+        readonly={readonly}
+      />
+    ),
+  };
+  /**
+   * Appearance and the tour in one tab, as two sections — what the app renders.
+   * See `ValSettingsSections`.
+   */
+  const studioTab = {
+    id: "studio",
+    label: "Studio",
+    icon: AppWindow,
+    content: (
+      <>
+        <ThemeSettingsFields
+          value={theme}
+          onChange={(field, next) =>
+            setTheme((current) => ({ ...current, [field]: next }))
+          }
+          errors={themeErrors}
+          logoField={
+            logoSlot === "placeholder" ? (
+              <SettingsLogoPlaceholder
+                onAdd={() => undefined}
+                disabled={readonly}
+              />
+            ) : logoSlot === "field" ? (
+              // A still of the real field: the point of the story is the row it
+              // sits in, not `ImageField`'s own states, which have stories of
+              // their own.
+              <div className="flex items-center gap-3">
+                <img
+                  src={mockProjectLogo.square.url}
+                  alt=""
+                  className="w-16 h-16 rounded-md border border-border-primary object-contain"
+                />
+                <div className="text-[0.6875rem] text-fg-secondary-alt">
+                  mark_a1b2c.svg
+                  <br />
+                  64 × 64 · image/svg+xml
+                </div>
+              </div>
+            ) : undefined
+          }
+          readonly={readonly}
+        />
+        <SettingsSectionDivider />
+        <StudioSettingsFields
+          value={studio}
+          onChange={(field, next) =>
+            setStudio((current) => ({ ...current, [field]: next }))
+          }
+          readonly={readonly}
+        />
+      </>
+    ),
+  };
   return (
-    <div className="relative w-full h-svh bg-bg-canvas">
+    <div className="relative w-full h-svh bg-bg-canvas" style={themeStyle}>
       <SettingsPanel
         breakpoint={breakpoint}
         onClose={() => undefined}
@@ -96,24 +231,9 @@ function SettingsPanelHarness({
           <NoSettingsModule />
         ) : (
           <SettingsTabs
-            tabs={[
-              {
-                id: "assistant",
-                label: "Assistant",
-                icon: Sparkles,
-                content: (
-                  <AssistantSettingsFields
-                    value={value}
-                    onChange={(field, next) =>
-                      setValue((current) => ({ ...current, [field]: next }))
-                    }
-                    maxLength={ASSISTANT_SETTINGS_MAX_LENGTH}
-                    errors={errors}
-                    readonly={readonly}
-                  />
-                ),
-              },
-            ]}
+            tabs={
+              appearance ? [studioTab, assistantTab] : [assistantTab, studioTab]
+            }
           />
         )}
       </SettingsPanel>
@@ -267,4 +387,119 @@ export const TheOfferEditorsSee: StoryObj<typeof EnableAssistantPromptView> = {
       </div>
     </div>
   ),
+};
+
+/**
+ * The Appearance tab as a project that has never touched it sees it.
+ *
+ * Val green selected, Default corners, no mode preference — which is the same
+ * state as `theme` being absent from the settings module altogether, because
+ * every one of those choices writes `null`. An untouched settings module stays
+ * `{}`.
+ */
+export const Appearance: Story = {
+  args: { appearance: true },
+};
+
+/**
+ * A themed Studio, live.
+ *
+ * The accent is applied to the canvas this panel floats over, so the swatches,
+ * the selected ring and the panel's own focus rings are all drawn from the
+ * generated ramp rather than from Val's green. This is what an editor sees
+ * while they pick: the theme is content, so the draft is what the Studio reads.
+ */
+export const AppearanceThemed: Story = {
+  args: {
+    appearance: true,
+    initialTheme: { accent: "#7c3aed", radius: "tight", mode: "light" },
+  },
+};
+
+/**
+ * An accent that is not a colour.
+ *
+ * Only reachable by hand-editing the settings file — the picker cannot produce
+ * it — and the reason the panel shows validation rather than trusting the
+ * field. Nothing is applied: `themeCustomProperties` returns an empty object
+ * for an accent it cannot parse, because half a ramp is worse than none.
+ */
+export const AppearanceInvalidAccent: Story = {
+  args: {
+    appearance: true,
+    initialTheme: { accent: "cornflower", radius: null, mode: null },
+    themeErrors: { accent: "Invalid color: 'cornflower'" },
+  },
+};
+
+/**
+ * The whole panel readonly, on a schema that says so.
+ *
+ * Both tabs: the swatches, the segmented controls and the colour field all go
+ * disabled together, since a readonly settings module is readonly as a whole.
+ */
+export const AppearanceReadonly: Story = {
+  args: {
+    appearance: true,
+    initialTheme: { accent: "#ea580c", radius: "soft", mode: "dark" },
+    readonly: true,
+  },
+};
+
+/**
+ * An empty tone of voice, offering to write itself.
+ *
+ * The button asks the assistant to read a spread of the project's content and
+ * write the field — through the ordinary chat, with the ordinary patch, so the
+ * editor sees which modules it read and gets a draft they can edit. Pressing it
+ * here fills the field with something a real run might produce, which is enough
+ * to show the rule: the offer is gone once there is something to overwrite.
+ */
+export const GenerateToneOfVoice: Story = {
+  args: {
+    initial: { enabled: true, context: null, tone: null },
+  },
+};
+
+/**
+ * Nothing to ask, so nothing offered.
+ *
+ * `onGenerateTone` is absent whenever the chat cannot take a message — an
+ * assistant the project turned off, one whose socket has not connected, or a
+ * layout with no chat surface at all. The button is not drawn rather than drawn
+ * and dead, which is the same rule the "mention this field" button follows.
+ */
+export const NoAssistantToAsk: Story = {
+  args: {
+    initial: { enabled: true, context: null, tone: null },
+    canAskAssistant: false,
+  },
+};
+
+/**
+ * The logo slot before the project has a `theme` section at all.
+ *
+ * The button is a necessity rather than a nicety: an image field writes
+ * `replace`, which fails for a key that does not exist, and until something has
+ * written the section there is no `logo` key for it to replace — the field's
+ * source never resolves and it renders a spinner that never stops. So the first
+ * step creates the section, as a change the editor asked for by pressing it.
+ */
+export const AppearanceLogoPlaceholder: Story = {
+  args: { appearance: true, logoSlot: "placeholder" },
+};
+
+/**
+ * The logo slot with an image in it.
+ *
+ * The real panel puts `ImageField` here — the upload, the progress, the alt
+ * text and the focal point all come with it. This is a still of that row, so
+ * the story is about the slot rather than about the field.
+ */
+export const AppearanceWithLogo: Story = {
+  args: {
+    appearance: true,
+    logoSlot: "field",
+    initialTheme: { accent: "#ea580c", radius: "tight", mode: null },
+  },
 };

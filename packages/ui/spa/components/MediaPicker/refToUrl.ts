@@ -1,19 +1,15 @@
-import { Internal } from "@valbuild/core";
+import { mediaUrlOf } from "../../utils/mediaUrl";
 
 /**
- * The URL a gallery entry's bytes are served from.
+ * A gallery ref (which is a file path) as a URL, draft patch included.
  *
- * A gallery is keyed by file path, so this takes a bare path where a field would
- * have a whole media object. `filePatchIds` is what says whether the bytes are
- * committed yet; `Internal.mediaUrl` is the rule itself, and the only copy of it.
+ * Kept as a name because the media picker's data layer reads in terms of refs;
+ * the rule itself is `mediaUrlOf`, which is where every other caller goes.
  */
 export function refToUrl(
   ref: string,
   filePatchIds: ReadonlyMap<string, string>,
 ): string {
-  const patchId = filePatchIds.get(ref);
-  return Internal.mediaUrl({
-    path: ref,
-    ...(patchId ? { patch_id: patchId } : {}),
-  });
+  // A ref is always a non-empty path, so there is always a URL.
+  return mediaUrlOf(ref, filePatchIds) ?? ref;
 }

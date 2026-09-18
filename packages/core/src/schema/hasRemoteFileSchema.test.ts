@@ -2,7 +2,7 @@ import { hasRemoteFileSchema } from "./hasRemoteFileSchema";
 import { initVal } from "../initVal";
 import { Schema, type SerializedSchema } from "./index";
 import type { SelectorSource } from "../selector";
-import type { SerializedObjectUnionSchema } from "./union";
+import type { SerializedDiscriminatedUnionSchema } from "./discriminatedUnion";
 import type { SourcePath } from "../val";
 
 const { s } = initVal();
@@ -14,7 +14,7 @@ const { s } = initVal();
  * `getSchemas()`, the Studio out of `host.receive`. Building the fixtures with
  * `s` and serializing is what makes the media-collection tests below mean
  * anything — the bug they cover was a walk that did not match the shape
- * `s.images()` actually produces, and a hand-written fixture would have agreed
+ * `s.imageset()` actually produces, and a hand-written fixture would have agreed
  * with the walk rather than with the schema.
  */
 function serialize<T extends SelectorSource>(
@@ -176,9 +176,9 @@ describe("hasRemoteFileSchema", () => {
     expect(hasRemoteFileSchema(schema)).toBe(true);
   });
 
-  it("should return false for a union schema with no remote files", () => {
-    const schema: SerializedObjectUnionSchema = {
-      type: "union",
+  it("should return false for a discriminated union schema with no remote files", () => {
+    const schema: SerializedDiscriminatedUnionSchema = {
+      type: "discriminated-union",
       opt: false,
       key: "type",
       items: [
@@ -205,9 +205,9 @@ describe("hasRemoteFileSchema", () => {
     expect(hasRemoteFileSchema(schema)).toBe(false);
   });
 
-  it("should return true for a union schema with a remote file", () => {
-    const schema: SerializedObjectUnionSchema = {
-      type: "union",
+  it("should return true for a discriminated union schema with a remote file", () => {
+    const schema: SerializedDiscriminatedUnionSchema = {
+      type: "discriminated-union",
       opt: false,
       key: "type",
       items: [
@@ -270,7 +270,7 @@ describe("hasRemoteFileSchema", () => {
   /**
    * Media collections, which is where the two old implementations disagreed.
    *
-   * `s.images()` / `s.files()` serialize as a `record` whose item is an object of
+   * `s.imageset()` / `s.fileset()` serialize as a `record` whose item is an object of
    * metadata — there is no file or image schema inside to find, because the file
    * is named by the record's KEY. So a walk that only recurses into `item` says
    * no, and the server's copy did exactly that.
@@ -280,23 +280,23 @@ describe("hasRemoteFileSchema", () => {
    * and the commit lands a remote ref with no bytes behind it.
    */
   describe("media collections", () => {
-    it("should return true for a remote s.images()", () => {
+    it("should return true for a remote s.imageset()", () => {
       expect(
         hasRemoteFileSchema(
-          serialize(s.images({ directory: "/public/val" }).remote()),
+          serialize(s.imageset({ dir: "/public/val" }).remote()),
         ),
       ).toBe(true);
     });
 
-    it("should return true for a remote s.files()", () => {
+    it("should return true for a remote s.fileset()", () => {
       // `directory` and `accept` are both required by the type; neither is what
       // this test is about.
       expect(
         hasRemoteFileSchema(
           serialize(
             s
-              .files({
-                directory: "/public/val",
+              .fileset({
+                dir: "/public/val",
                 accept: "application/pdf",
               })
               .remote(),
@@ -305,17 +305,17 @@ describe("hasRemoteFileSchema", () => {
       ).toBe(true);
     });
 
-    it("should return false for a local s.images()", () => {
+    it("should return false for a local s.imageset()", () => {
       expect(
-        hasRemoteFileSchema(serialize(s.images({ directory: "/public/val" }))),
+        hasRemoteFileSchema(serialize(s.imageset({ dir: "/public/val" }))),
       ).toBe(false);
     });
 
-    it("should return false for a local s.files()", () => {
+    it("should return false for a local s.fileset()", () => {
       expect(
         hasRemoteFileSchema(
           serialize(
-            s.files({ directory: "/public/val", accept: "application/pdf" }),
+            s.fileset({ dir: "/public/val", accept: "application/pdf" }),
           ),
         ),
       ).toBe(false);
@@ -327,18 +327,18 @@ describe("hasRemoteFileSchema", () => {
           serialize(
             s.object({
               title: s.string(),
-              gallery: s.images({ directory: "/public/val" }).remote(),
+              gallery: s.imageset({ dir: "/public/val" }).remote(),
             }),
           ),
         ),
       ).toBe(true);
     });
 
-    it("should find a remote gallery nested in a union", () => {
+    it("should find a remote gallery nested in a discriminated union", () => {
       expect(
         hasRemoteFileSchema(
           serialize(
-            s.union(
+            s.discriminatedUnion(
               "type",
               s.object({
                 type: s.literal("text"),
@@ -346,7 +346,7 @@ describe("hasRemoteFileSchema", () => {
               }),
               s.object({
                 type: s.literal("images"),
-                images: s.images({ directory: "/public/val" }).remote(),
+                images: s.imageset({ dir: "/public/val" }).remote(),
               }),
             ),
           ),

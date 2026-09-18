@@ -175,27 +175,16 @@ export function ImageField({
             fromCollection && !overridesAlt && "text-fg-secondary",
           )}
         />
+        {/*
+         * The counter and nothing else. An empty description is not a
+         * validation error — Val has no rule that alt text is required — so
+         * it gets no "Missing" badge, and no shortcut that fills it with a
+         * filename that describes the file rather than the picture.
+         */}
         <div className="mt-1.5 flex items-center gap-3">
           <span className="text-[0.6875rem] tabular-nums text-fg-secondary-alt">
             {(effectiveAlt ?? "").length} / {ALT_MAX}
           </span>
-          {(!fromCollection || overridesAlt) && (
-            <button
-              type="button"
-              onClick={() =>
-                onChange({ ...value, alt: readableFilename(value.name) })
-              }
-              className="text-[0.6875rem] text-fg-secondary underline underline-offset-2 hover:text-fg-primary"
-            >
-              Use the filename
-            </button>
-          )}
-          {effectiveAlt === null ||
-            (effectiveAlt === "" && (
-              <span className="text-[0.6875rem] text-fg-error-on-surface">
-                Missing
-              </span>
-            ))}
         </div>
       </Section>
 
@@ -306,17 +295,4 @@ export function SecondaryButton({
       {children}
     </button>
   );
-}
-
-/**
- * A filename as a first draft of alt text.
- *
- * Val's filenames carry a content hash — `hero-mountains_a1b2c.jpg` — so the
- * hash and the extension come off before this is offered to anyone.
- */
-export function readableFilename(name: string): string {
-  const withoutExtension = name.replace(/\.[^.]+$/, "");
-  const withoutHash = withoutExtension.replace(/_[0-9a-f]{5}$/, "");
-  const words = withoutHash.replace(/[-_]+/g, " ").trim();
-  return words.charAt(0).toUpperCase() + words.slice(1);
 }

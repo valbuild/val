@@ -1,11 +1,19 @@
-import { Info, PanelRight } from "lucide-react";
+import { Info, PanelRight, Sparkles } from "lucide-react";
 import { ReactNode } from "react";
+import { cn } from "../designSystem/cn";
 import { PreviewButton, PublishButton } from "./TopBar";
+import { LocaleFilter } from "./LocaleFilter";
 
 /**
  * The sticky mobile bottom bar. Preview and Publish are always reachable
  * here; auto save, dev mode and branch move behind the status button rather
  * than taking a permanent row.
+ *
+ * The assistant is here too, rather than in the top bar. On a phone the top
+ * right corner is the furthest point from a thumb, and it was sharing that
+ * corner with navigation, notifications and the account avatar - four icons in
+ * the row you reach for least. The top bar drops its Sparkles button below the
+ * mobile breakpoint, so there is still only one.
  */
 export function MobileBottomBar({
   pendingChanges,
@@ -14,7 +22,12 @@ export function MobileBottomBar({
   onPublish,
   publishSlot,
   onOpenStatus,
+  locales,
+  locale = null,
+  onLocaleChange,
   onOpenQuickActions,
+  onOpenAI,
+  isAIOpen,
   onToggleCanvas,
   isCanvasOpen,
   canvasActionLabel,
@@ -28,12 +41,27 @@ export function MobileBottomBar({
   /** The real publish control, when there is one. See `TopBarProps`. */
   publishSlot?: ReactNode;
   onOpenStatus: () => void;
+  /** The project's languages, for the locale filter. Empty hides it. */
+  locales?: string[];
+  /** The language being shown, or `null` for all of them. */
+  locale?: string | null;
+  onLocaleChange?: (locale: string | null) => void;
   /**
    * Quick actions — the same panel the top bar opens above the mobile
    * breakpoint. It holds the validation errors, Review changes, New page and
    * Upload media, none of which were reachable on a phone at all.
    */
   onOpenQuickActions?: () => void;
+  /**
+   * Open the assistant.
+   *
+   * Absent when the project has no assistant configured — see
+   * `ShellProps.aiEnabled` — and the button is then not offered at all, the
+   * same rule the top bar's follows.
+   */
+  onOpenAI?: () => void;
+  /** Whether the assistant panel is the one currently open. */
+  isAIOpen?: boolean;
   /** Absent when the selection has no route Val can put on a canvas. */
   onToggleCanvas?: () => void;
   isCanvasOpen?: boolean;
@@ -62,6 +90,42 @@ export function MobileBottomBar({
           <PanelRight size={16} />
         </button>
       )}
+      {onOpenAI && (
+        <button
+          type="button"
+          onClick={onOpenAI}
+          aria-label="AI assistant"
+          aria-pressed={isAIOpen}
+          // The assistant step points here on a phone, where the top bar's
+          // button is not drawn. Only one of the two is ever on screen, so the
+          // tour's lookup cannot find the wrong one.
+          data-val-tour="ai"
+          className={cn(
+            "grid h-9 w-9 shrink-0 place-items-center rounded-md border border-border-float",
+            // The open state is shown the same way the top bar's icon buttons
+            // show it, so the assistant looks open in the same way everywhere.
+            isAIOpen
+              ? "bg-bg-float-raised text-fg-primary"
+              : "text-fg-secondary",
+          )}
+        >
+          <Sparkles size={16} />
+        </button>
+      )}
+      {/*
+       * The phone's home for the locale filter, since the top bar here is the
+       * project name and a menu button. `above`, or the menu opens off the
+       * bottom of the screen.
+       */}
+      {locales !== undefined && onLocaleChange !== undefined && (
+        <LocaleFilter
+          locales={locales}
+          value={locale}
+          onChange={onLocaleChange}
+          menuPlacement="above"
+          className="h-9 shrink-0"
+        />
+      )}
       {/*
        * The same control as on desktop, not a second design of it.
        *
@@ -71,22 +135,50 @@ export function MobileBottomBar({
        * two behaviours drifted: the desktop menu explains what each one does and
        * the phone's pair of icons explained nothing.
        */}
-      <PreviewButton
-        onPreview={onPreview}
-        previewHref={previewHref}
-        onToggleCanvas={onToggleCanvas}
-        isCanvasOpen={isCanvasOpen}
-        canvasActionLabel={canvasActionLabel}
-        onExitCanvas={onExitCanvas}
-        menuPlacement="above"
-        alwaysShowLabel
-        className="h-9 flex-1"
-      />
+      {/*
+       * `min-w-0` on both, because a flex item's default minimum is its own
+       * content: without it neither of these can shrink below its label, and
+       * the row - three 36px icons, two labelled controls and the gaps between
+       * them - overflows a 320px phone and takes Publish off the edge. With it
+       * they give up width in step, and each clips its own label (the Preview
+       * split button is already `overflow-hidden`; Publish truncates).
+       */}
+      {/*
+       * Wrapped so the tour has something to point at on a phone, where the top
+       * bar's copies of these are not drawn — the same markers `TopBar` puts on
+       * its own. Only one bar is ever rendered, so the lookup cannot find both.
+       * `flex-1 min-w-0` moves to the wrapper, or the control inside it stops
+       * being able to give up width.
+       */}
+      <span data-val-tour="preview" className="flex min-w-0 flex-1">
+        <PreviewButton
+          onPreview={onPreview}
+          previewHref={previewHref}
+          onToggleCanvas={onToggleCanvas}
+          isCanvasOpen={isCanvasOpen}
+          canvasActionLabel={canvasActionLabel}
+          onExitCanvas={onExitCanvas}
+          menuPlacement="above"
+          alwaysShowLabel
+          className="h-9 min-w-0 flex-1"
+        />
+      </span>
+      {/*
+       * NOT wrapped for the tour, unlike Preview above.
+       *
+       * The publish control here is the app's own (`publishSlot`), and its
+       * button carries `min-w-[6.5rem]` that a wrapper cannot talk it out of.
+       * Putting it one level down inside a shrinkable span changes what this
+       * row's flex algorithm sees at 320px, where the comment above records
+       * that the fit was already fought for once. The publish STEP simply
+       * centres its card on a phone, which is what every step does where the
+       * control it points at is not drawn — see `TourStep.target`.
+       */}
       {publishSlot ?? (
         <PublishButton
           pendingChanges={pendingChanges}
           onPublish={onPublish}
-          className="flex-1 h-9"
+          className="h-9 min-w-0 flex-1"
         />
       )}
     </div>

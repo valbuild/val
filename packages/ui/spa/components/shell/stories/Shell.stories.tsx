@@ -7,6 +7,7 @@ import { ShellData, ShellPanel } from "../types";
 import {
   emptyShellData,
   mockDeployments,
+  mockProjectLogo,
   mockSelectionIds,
   mockShellData,
 } from "../mockShellData";
@@ -16,10 +17,21 @@ import { mockCanvasPage } from "../canvas/mockCanvasPage";
 import {
   AssistantSettingsFields,
   AssistantSettingsValue,
+  SettingsSectionDivider,
   SettingsTabs,
+  StudioSettingsFields,
+  StudioSettingsValue,
+  ThemeSettingsFields,
+  ThemeSettingsValue,
 } from "../SettingsPanel";
-import { Sparkles } from "lucide-react";
-import { ASSISTANT_SETTINGS_MAX_LENGTH } from "@valbuild/core";
+import { AppWindow, Sparkles } from "lucide-react";
+import {
+  ASSISTANT_SETTINGS_MAX_LENGTH,
+  THEME_RADIUS_LENGTHS,
+  THEME_RADIUS_STEPS,
+  ThemeRadius,
+} from "@valbuild/core";
+import { themeCustomProperties } from "@valbuild/shared/internal";
 
 /**
  * The whole shell in one story.
@@ -42,6 +54,19 @@ const meta: Meta<typeof ShellHarness> = {
     backgrounds: { disable: true },
   },
   argTypes: {
+    accent: {
+      control: "text",
+      description: "A hex accent. Empty for Val's own green.",
+    },
+    radius: {
+      control: "inline-radio",
+      options: [...THEME_RADIUS_STEPS],
+    },
+    logo: {
+      control: "inline-radio",
+      options: ["none", "square", "wide"],
+      description: "The project's own mark, in place of Val's.",
+    },
     openPanel: {
       control: "select",
       options: [
@@ -76,6 +101,11 @@ const meta: Meta<typeof ShellHarness> = {
     searchOpen: {
       control: "boolean",
       description: "Open the global search on mount (⌘K / Ctrl+K)",
+    },
+    tourOpen: {
+      control: "boolean",
+      description:
+        "Run the guided tour on mount. In the app it is only ever started by a button — the tour never opens itself",
     },
     aiEnabled: {
       control: "boolean",
@@ -146,10 +176,26 @@ type HarnessProps = {
   openPanel: ShellPanel | null;
   selectionId: string | null;
   empty: boolean;
+  /**
+   * Nothing queued, without emptying the project.
+   *
+   * Its own control because "no pending changes" and "a project with nothing
+   * in it" are different stories, and Review is the affordance that has to be
+   * there in both — see `ReviewButton`.
+   */
+  noPendingChanges: boolean;
   withoutRouters: boolean;
   searchOpen: boolean;
+  /** See `initialTourOpen`. */
+  tourOpen: boolean;
   aiEnabled: boolean;
   theme: "dark" | "light";
+  /** The project's accent, as `s.settings()`'s `theme.accent`. Empty for Val's green. */
+  accent: string;
+  /** The project's corner radius, as `s.settings()`'s `theme.radius`. */
+  radius: ThemeRadius;
+  /** The project's own mark, as `s.settings()`'s `theme.logo`. */
+  logo: "none" | "square" | "wide";
   publishState: PublishState;
   saveState: SaveState;
   mode: StatusBarProps["mode"];
@@ -210,6 +256,14 @@ function deploymentsFor(
  * something here the Settings panel in this story would be the empty-project
  * state, which is not what the panel normally looks like.
  */
+/**
+ * Both sections, with local state where the store would be.
+ *
+ * The Appearance tab edits its own copy rather than the story's `accent` arg,
+ * so picking a colour here does NOT restyle the shell around it — in the app it
+ * would, because the theme is content and the draft is what the Studio reads.
+ * `Shell/SettingsPanel`'s `AppearanceThemed` story shows that half.
+ */
 function MockSettingsSections() {
   const [value, setValue] = useState<AssistantSettingsValue>({
     enabled: true,
@@ -217,6 +271,14 @@ function MockSettingsSections() {
       "A CMS for developers, run by a team of four in Oslo. The product is Val, never VAL.",
     tone: "Plain and direct. British English, sentence case in headings, and no exclamation marks.",
   });
+  const [theme, setTheme] = useState<ThemeSettingsValue>({
+    accent: null,
+    radius: null,
+    mode: null,
+  });
+  // Unset, which is what an untouched project has, and which means the tour IS
+  // offered — see `StudioSettingsFields`.
+  const [studio, setStudio] = useState<StudioSettingsValue>({ tour: null });
   return (
     <SettingsTabs
       tabs={[
@@ -234,6 +296,30 @@ function MockSettingsSections() {
             />
           ),
         },
+        {
+          // Appearance and the tour together, as the app renders them — see
+          // `ValSettingsSections`.
+          id: "studio",
+          label: "Studio",
+          icon: AppWindow,
+          content: (
+            <>
+              <ThemeSettingsFields
+                value={theme}
+                onChange={(field, next) =>
+                  setTheme((current) => ({ ...current, [field]: next }))
+                }
+              />
+              <SettingsSectionDivider />
+              <StudioSettingsFields
+                value={studio}
+                onChange={(field, next) =>
+                  setStudio((current) => ({ ...current, [field]: next }))
+                }
+              />
+            </>
+          ),
+        },
       ]}
     />
   );
@@ -243,10 +329,15 @@ function ShellHarness({
   openPanel,
   selectionId,
   empty,
+  noPendingChanges,
   withoutRouters,
   aiEnabled,
   searchOpen,
+  tourOpen,
   theme,
+  accent,
+  radius,
+  logo,
   publishState,
   saveState,
   mode,
@@ -269,7 +360,7 @@ function ShellHarness({
    */
   const [autoSave, setAutoSave] = useState(false);
   const full = empty ? emptyShellData : mockShellData;
-  // A project of nothing but content files: no `s.router`, no `s.images()`.
+  // A project of nothing but content files: no `s.router`, no `s.imageset()`.
   // The shell answers by showing one destination instead of three.
   const base: ShellData = withoutRouters
     ? { ...full, hasRouters: false, pages: [], externalPages: [], media: [] }
@@ -282,19 +373,41 @@ function ShellHarness({
   const data = {
     ...withErrors,
     deployments: published && feed ? [published, ...feed] : feed,
+    // `s.settings()`'s `theme.logo` after `useShellData` has resolved it to a
+    // URL. Absent leaves Val's own mark, which is the resting state.
+    logo: logo === "none" ? undefined : mockProjectLogo[logo],
   };
   return (
     <Shell
       renderSettings={() => <MockSettingsSections />}
-      key={`${openPanel}-${selectionId}-${empty}-${withoutRouters}-${aiEnabled}-${searchOpen}-${isLoading}-${loadError}-${mode}-${deployments}-${deploymentsOpen}-${canvasOpen}-${canvasView}-${canvasReported}`}
+      key={`${openPanel}-${selectionId}-${empty}-${noPendingChanges}-${withoutRouters}-${aiEnabled}-${searchOpen}-${tourOpen}-${isLoading}-${loadError}-${mode}-${deployments}-${deploymentsOpen}-${canvasOpen}-${canvasView}-${canvasReported}`}
       data={data}
       initialPanel={openPanel}
       initialSelectionId={selectionId}
       initialSearchOpen={searchOpen}
+      initialTourOpen={tourOpen}
       aiEnabled={aiEnabled}
       theme={currentTheme}
+      /*
+       * What `ValThemeProvider` computes in the app. Passed as a prop so a
+       * story can show the whole chrome under a project's own accent — which is
+       * the only way to see all of it at once, since the accent lands on the
+       * rail, the top bar, the fields and the canvas outlines.
+       */
+      themeStyle={themeCustomProperties({
+        accent: accent || null,
+        radius: THEME_RADIUS_LENGTHS[radius],
+      })}
       onThemeChange={setCurrentTheme}
-      pendingChanges={empty ? 0 : 12}
+      pendingChanges={empty || noPendingChanges ? 0 : 12}
+      /*
+       * The review view, which every story has and none of them used to.
+       *
+       * Without `onCompare` the top bar renders no Review button at all, so
+       * the one control in the bar that answers "is anything of mine still
+       * unpublished?" could not be seen in Storybook - in either state.
+       */
+      onCompare={() => console.log("open the review view")}
       publishState={publishState}
       saveState={saveState}
       mode={mode}
@@ -306,14 +419,18 @@ function ShellHarness({
       canvasPage={canvasReported ? mockCanvasPage : undefined}
       initialCanvasOpen={canvasOpen}
       initialCanvasView={canvasView}
-      // Both page writes, so the Pages panel shows the New page button and the
-      // per-row Duplicate control. The mock routes carry the URLs already in
-      // `mockPages`, so the "already exists" state is reachable in both forms.
+      // All three page writes, so the Pages panel shows the New page button and
+      // both items of the per-row actions menu. The mock routes carry the URLs
+      // already in `mockPages`, so the "already exists" state is reachable in
+      // every form.
       onNewPage={(moduleFilePath, urlPath) =>
         console.log("New page", moduleFilePath, urlPath)
       }
       onDuplicatePage={(moduleFilePath, fromUrlPath, toUrlPath) =>
         console.log("Duplicate page", moduleFilePath, fromUrlPath, toUrlPath)
+      }
+      onRenamePage={(moduleFilePath, fromUrlPath, toUrlPath) =>
+        console.log("Rename page", moduleFilePath, fromUrlPath, toUrlPath)
       }
     />
   );
@@ -364,10 +481,15 @@ export const Default: Story = {
     openPanel: null,
     selectionId: null,
     empty: false,
+    noPendingChanges: false,
     withoutRouters: false,
     searchOpen: false,
+    tourOpen: false,
     aiEnabled: true,
     theme: "dark",
+    accent: "",
+    radius: "default",
+    logo: "none",
     publishState: "idle",
     saveState: "saved",
     mode: "fs",
@@ -380,6 +502,24 @@ export const Default: Story = {
     simulatePublish: false,
     canvasOpen: false,
     canvasView: "normal",
+  },
+};
+
+/**
+ * Nothing queued, in a project that is otherwise full.
+ *
+ * Review is in the bar all the same. It used to be `invisible` here - in the
+ * layout so the bar would not reflow, but unreachable by pointer, keyboard or
+ * screen reader - which made "is anything of mine still unpublished?"
+ * unanswerable from the bar: a hidden button and a button whose data has not
+ * loaded are the same picture. Publish is disabled, which is the difference
+ * between the two controls: one ships work, the other looks at it.
+ */
+export const NothingPendingToReview: Story = {
+  args: {
+    ...Default.args,
+    selectionId: mockSelectionIds.home,
+    noPendingChanges: true,
   },
 };
 
@@ -489,6 +629,17 @@ export const GlobalSearchOpen: Story = {
   },
 };
 
+/**
+ * The guided tour, mid-walk.
+ *
+ * The glowing launcher that starts it is in the top bar of every other story
+ * here, because Storybook's `localStorage` has never been through the tour —
+ * which is exactly the state a first-time editor is in.
+ */
+export const Tour: Story = {
+  args: { ...Default.args, tourOpen: true },
+};
+
 /** Nav panels while their data loads: placeholder rows, no filter yet. */
 export const Loading: Story = {
   args: { ...Default.args, openPanel: "pages", isLoading: true },
@@ -557,7 +708,7 @@ export const LightMode: Story = {
  * A brand new project: the router is there, nothing has been made yet.
  *
  * Only Pages is on the rail. Media and Data are not empty here so much as
- * absent — an `s.images()` module with no files still lists as a gallery, so a
+ * absent — an `s.imageset()` module with no files still lists as a gallery, so a
  * project with no galleries at all has nothing for Media to be about.
  */
 export const EmptyProject: Story = {
@@ -770,5 +921,125 @@ export const CanvasOnMobile: Story = {
     ...Default.args,
     selectionId: mockSelectionIds.home,
     canvasOpen: true,
+  },
+};
+
+/**
+ * The whole chrome under a project's own accent.
+ *
+ * `s.settings()`'s `theme.accent` is one hex, and the ramp the Studio draws
+ * from is generated out of it — so this is not a recoloured button but every
+ * brand token at once: Publish, the active rail item, the focus rings, the
+ * switch, the caret in the rich text field. The accent and the corner radius
+ * are both live controls on this story.
+ *
+ * The Val mark does NOT follow, and that is the one deliberate exception —
+ * see `architecture/logo.md`.
+ */
+export const ThemedStudio: Story = {
+  args: {
+    ...Default.args,
+    accent: "#2563eb",
+    radius: "tight",
+    selectionId: mockSelectionIds.home,
+  },
+};
+
+/**
+ * The same accent in light mode, from the same single value.
+ *
+ * Worth having as its own story because it is the property that makes one
+ * accent enough: the semantic tokens pick different STEPS of the ramp per mode
+ * (a tinted surface is step 200 in light and 800 in dark), so there is no light
+ * accent and dark accent to keep in step with each other.
+ */
+export const ThemedStudioLight: Story = {
+  args: {
+    ...ThemedStudio.args,
+    theme: "light",
+    openPanel: "pages",
+  },
+};
+
+/**
+ * A project that wants the chrome to say nothing at all.
+ *
+ * A grey accent is a legitimate answer, and cheaper than an "off" switch of its
+ * own: the ramp generator scales chroma, so a colour with none produces a ramp
+ * with none. Square corners with it, since the two together are what a project
+ * reaches for when it wants the tool to disappear.
+ */
+export const ThemedStudioQuiet: Story = {
+  args: {
+    ...Default.args,
+    accent: "#64748b",
+    radius: "square",
+    selectionId: mockSelectionIds.home,
+  },
+};
+
+/**
+ * The accent on the customer's own page.
+ *
+ * The canvas outlines every editable element, and those outlines are the
+ * accent: they follow it deliberately, so a project's brand colour frames the
+ * project's own site. The generated step is held to 3:1 against both white and
+ * black, so they stay visible whatever the site behind them looks like — see
+ * `accentRamp.test.ts`.
+ */
+export const ThemedCanvas: Story = {
+  args: {
+    ...ThemedStudio.args,
+    canvasOpen: true,
+    canvasView: "fields",
+  },
+};
+
+/**
+ * A project's own mark at the top of the rail.
+ *
+ * `s.settings()`'s `theme.logo`, in the slot Val's mark had. The Studio's two
+ * mark slots — the rail on desktop, beside the menu button below 1200px — say
+ * which WORKSPACE this is, so the project's own logo is the right label for
+ * them. The launcher on the project's own site keeps Val's mark: there the mark
+ * labels the tool. See `architecture/logo.md`.
+ */
+export const WithProjectLogo: Story = {
+  args: {
+    ...Default.args,
+    logo: "square",
+    selectionId: mockSelectionIds.home,
+  },
+};
+
+/**
+ * A wordmark in a slot built for a mark.
+ *
+ * Contained rather than cropped: all of it is there and none of it is legible
+ * at 32px wide. Kept as a story because it is the honest picture of the
+ * trade-off — cropping the ends off a logo would read as a bug in Val, and
+ * widening the rail for one image is a layout change rather than a setting.
+ */
+export const WithWideProjectLogo: Story = {
+  args: {
+    ...Default.args,
+    logo: "wide",
+    selectionId: mockSelectionIds.home,
+  },
+};
+
+/**
+ * The project's mark and the project's accent together, which is the point.
+ *
+ * A logo alone in green chrome still looks like Val's Studio with somebody
+ * else's picture in it; the two axes are what make it read as theirs.
+ */
+export const FullyBranded: Story = {
+  args: {
+    ...Default.args,
+    logo: "square",
+    accent: "#ea580c",
+    radius: "tight",
+    selectionId: mockSelectionIds.home,
   },
 };

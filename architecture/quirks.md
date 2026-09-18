@@ -83,6 +83,49 @@ user's file. Studio media edits are per-property for the same reason.
 
 ## React in the Studio
 
+**A `var()` inside a custom property is substituted where the property is
+DECLARED, not where it is used.** This is CSS, not React, and it is the trap
+that shipped a half-themed Studio. `index.css` says
+`--bg-page-selection: var(--colors-brand-green-600)`, so overriding the ramp on
+a descendant looks like enough to move it. It is not: that declaration lives in
+the light block, whose selector is `:host, :root, *[data-mode="light"]`, so on a
+`data-mode="dark"` element the rule does not match, nothing is declared there,
+and what the element inherits from `:host` is the value already substituted to
+green. An override on the element cannot reach backwards into a substitution
+that already happened on an ancestor.
+
+The brand tokens escape it only by accident of the theme: the dark block
+RE-DECLARES `--bg-brand-primary: var(--colors-brand-green-800)`, and that
+declaration is computed on the themed element, so it resolves against the
+override. Which is why an accent moved the whole chrome and left the page's
+outlines green — in dark mode only, since in light mode the block's own selector
+matches the themed element. So: a token that depends on the ramp must either be
+re-declared per mode or written explicitly by `themeCustomProperties`.
+`brandDerivedTokens.test.ts` scans the stylesheet and holds that.
+
+**The canvas outlines are drawn in the customer's document, where Val has no
+stylesheet at all.** `CanvasPage.tsx` is the Storybook mock; the real canvas is
+an iframe, and the outlines around editable elements come from a `<style>` that
+`ValCanvasBridge` (in `@valbuild/next` and `@valbuild/tanstack`) injects into the
+page. There are no tokens there to override — not overridden, absent — so the
+accent is SENT over the canvas protocol as a `theme` message and the bridge
+keeps it in state. Hunting a colour there through the Studio's CSS finds
+nothing, because the colour is a literal in a different package.
+
+**There are three nested `[data-mode]` elements, and the outermost is not the
+themed one.** `App.tsx` wraps the Studio in one, `Shell.tsx` draws its own
+inside that, and `ValPortalProvider` adds a third for everything portalled.
+Since `s.settings()` gained a `theme.accent`, the project's accent rides on the
+same elements as `data-mode` (`ValThemeProvider` hands out `themeStyle`) — but
+NOT on `App.tsx`'s, which is outside `ValProvider` and has no store to read
+settings from. It does not need it: it only sets a neutral background and text
+colour. The consequence is for debugging.
+`shadowRoot.querySelector("[data-mode]")` returns App's, whose
+`--colors-brand-green-500` is Val's green no matter what the project set — so a
+probe written the obvious way reports the feature as broken while the screen in
+front of you is plainly violet. Take the LAST match, or read the element that
+has a `style` attribute.
+
 **`useValConfig()` returns a ref, filled by an effect.** So the render where config
 arrives still sees `undefined`; only the render _after_ that sees it. This makes
 config-dependent early returns a hook-order trap, and makes reproducing one in a
@@ -222,7 +265,7 @@ hidden item quite happily; `e2e/keyof-create.spec.ts` is what caught it.
 `@valbuild/core`, and only that.** There used to be two — the server's, gating
 whether `/save` demands remote credentials, and the Studio's
 `findRequiredRemoteFiles`, gating the `/remote/settings` fetch — and they
-disagreed about `s.images({ ... }).remote()`. A media collection serializes as a
+disagreed about `s.imageset({ ... }).remote()`. A media collection serializes as a
 `record` of metadata with the file named by the KEY, so a walk that only recurses
 into `item` finds no image schema and says no; that was the server's answer. If
 you add a schema type, teach that one function about it: the `never` assignment in
@@ -322,6 +365,21 @@ replayed against the entry's `*.val.json` instead — `classifyJsonValuesOp` +
 `import(...)` specifier in the `.val.ts`, not derived from the key: entries may be
 hand-placed, and deriving would write a file the module does not read.
 
+**A patch that replaces the WHOLE record is expanded, not applied.** `{op:
+"replace", path: [], value}` names no entry key, so `classifyJsonValuesOp` — which
+finds the key by walking the op path — reads it as an ordinary source edit and
+would write the value straight into the `.val.ts`, over the `c.json(() =>
+import(...))` calls. `expandJsonValuesRootOp` fans it out against the record's
+live keys into an `add`, `replace` or `remove` per entry (and nothing at all for
+an entry already holding that content, so putting a module back does not rewrite
+every file in it). The value must be CONTENT: a `{_type:"json"}` marker as an
+entry's value is refused, because a marker is what a module's Source holds where
+the content is not, and writing markers back is the bug this exists to stop.
+Both sides expand through that one function — `ValOps.prepare` writes the files,
+`applyJsonValuesEntryPatches` builds the draft the Studio reads — because two
+implementations of the rule would differ silently, and the difference only shows
+up once it is published.
+
 ## External records
 
 **Three type-level details keep `s.record().external()` navigable, and all three
@@ -365,6 +423,31 @@ deliberately NOT applied by a blanket `val validate --fix`, because applying it
 writes to a live store.
 
 ## Patches
+
+**A discard is `source:patch-drop` and, usually, nothing else.** The source
+store announces a drop as its own event and then re-applies whatever survives
+in the module's chain, which is what emits `source:patch-apply` — so a discard
+that empties the chain, which is the ordinary "discard my changes", is the drop
+event alone. Every store that invalidated on the apply and not on the drop
+(validation, previews, the search and reference staleness marks) therefore kept
+showing the discarded edit until something unrelated touched the module. The
+symptom that found it: rename a page (a record key) with the AI, discard, and a
+`keyOf` field elsewhere goes on reporting that the key "does not exist" —
+about a key that is back. If a store reads source, it listens to both events —
+or to `source:change`, which `SourceStore.bump` emits for every way a revision
+can move and which the validation store now uses instead of enumerating them.
+`crossModuleValidation.test.ts` pins validation, previews, search and
+references.
+
+**A `keyOf` field's validity lives in another module's keys.** The schema emits
+a `keyof:check-keys` marker and the answer is settled when the errors are READ,
+against the referenced record's current keys — so nothing about the referring
+module's own source says whether it is valid. `ValidationStore` remembers, per
+validated module, which records its markers resolve against and the keys they
+had (`resolvedAgainst`), and invalidates the module when those keys move.
+Compared on keys deliberately: a router module is a page module, so "the
+referenced module changed" would put every module with an `s.route()` field
+back in the queue on each keystroke into any page.
 
 **`GET /patches` with no `patch_id` returns every patch.** The filter is applied
 to a table the endpoint already holds, so an absent filter is not "none" — it is
@@ -512,6 +595,88 @@ cleanup cancels, which is the only pass that writes to the editor that survives.
 **After `pnpm run build`, run `pnpm preconstruct dev`** or downstream packages keep
 resolving `dist/`. Also delete `examples/next/.next` — a production build left
 there makes the dev server 500 with `MODULE_NOT_FOUND` on Studio routes.
+
+## Two file names differing only in case break macOS and Windows, silently
+
+`StudioTour.tsx` and `studioTour.ts` in one directory are two files on Linux and
+ONE on a case-insensitive filesystem, which is what the Studio is developed on.
+`import { TourLauncher } from "./StudioTour"` resolved to the wrong module
+there, and the Studio did not come up:
+
+```
+Uncaught SyntaxError: The requested module
+'/api/val/static/spa/components/shell/StudioTour.ts'
+does not provide an export named 'TourLauncher'
+```
+
+Note the `.ts` in a path nobody wrote — that is the tell.
+
+Nothing caught it before a developer hit it: CI is Linux, the Playwright suites
+run on Linux, and every unit test passed. The collision is invisible on the
+platform everything is verified on and fatal on the platform everything is
+written on, which is exactly the asymmetry a convention cannot fix.
+`packages/ui/spa/components/caseCollisions.test.ts` is the guard, and it
+compares module STEMS — whole names miss it, because `StudioTour.tsx` and
+`studioTour.ts` do differ, in the extension.
+
+A directory and a same-cased module beside it (`Search/` and `Search.tsx`, which
+the SPA has) is a different thing and is fine: the resolver decides that one, the
+same way everywhere.
+
+## The Studio is not always a secure context
+
+`crypto.randomUUID` and `navigator.clipboard` exist on `https://` and on
+`localhost`, and NOWHERE ELSE. Not "throw when used" — absent, so
+`crypto.randomUUID()` is a TypeError.
+
+That is not theoretical for a dev tool: the Studio is served by the app's own
+dev server, and that gets opened on a plain-http address that is not
+`localhost` routinely — a phone on the LAN, a VM, or a browser on Windows
+reaching a dev server inside WSL at `http://172.23.x.x:3000`. The crash lands
+during the Studio's FIRST RENDER (`useStatus` names its websocket connection
+with one), so the symptom is a blank screen and
+`crypto.randomUUID is not a function` in the console, with a stack entirely
+inside minified bundle frames.
+
+This reads as TanStack-only and is not. It is about which URL you open: `next
+dev` binds `0.0.0.0` and prints a Local and a Network URL, so a WSL user stays
+on `localhost` and inside a secure context, while `vite dev` binds `localhost`
+only and says "use --host to expose" — so the WSL user who wants to see the
+site from Windows ends up with `--host` and the VM's IP. Same bundle, same bug,
+different default.
+
+`randomUUID` and `copyText` in `packages/ui/spa/utils` fall back
+(`crypto.getRandomValues`; `document.execCommand("copy")`), and an eslint rule
+over `packages/ui/spa` keeps the raw globals from coming back.
+
+`getRandomValues` is the right fallback for two independent reasons, and the
+second is easy to miss: it is not secure-context gated, AND it is
+cryptographically secure. **A patch id is a bearer token** — `/api/val/files`
+serves unpublished files with no auth at all, on the argument that a `patch_id`
+cannot be guessed, and `PatchStore` mints them through this helper. So there is
+no `Math.random` behind it: where neither source exists, `randomUUID` throws.
+A Studio that will not start is a better outcome than draft content served to
+whoever asks.
+
+Before reaching for another web API in the Studio, check whether it is
+secure-context-only.
+
+## `createRequire` is imported in one place in `@valbuild/server`
+
+webpack tries to resolve the argument of any `createRequire` call it can see,
+and warns `module.createRequire failed parsing argument.` when the argument is
+not a literal. `@valbuild/server` calls it twice — `evalValConfigFile` and
+`loadValModules` — and both times the argument is a path inside the user's
+project, known only at runtime. So there was nothing to resolve, nothing to fix,
+and the warning showed up on every `next build` of every app that has a Val API
+route, pointing into a `dist/` file the reader has no way to act on.
+
+`createNodeRequire` reaches the same function through the `Module` class, which
+webpack does not tag, and an eslint rule (`no-restricted-imports`, scoped to
+`packages/server/src`) stops the direct import coming back. It has to stay a
+real `node:module` import: jest hands out its own `node:module`, and a `require`
+obtained around it — through `process.getBuiltinModule`, say — would resolve
+against the real filesystem instead of the registry the tests run in.
 
 ## The `@valbuild/ui` build substitutes placeholders into bundler output
 

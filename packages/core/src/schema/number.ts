@@ -4,7 +4,7 @@ import {
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
-import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
+import { ItemPreviewInput, PreviewItem } from "../preview";
 import { FieldRender } from "../render";
 import { SourcePath } from "../val";
 import {
@@ -45,6 +45,23 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is INPUT HELP: it is shown where this field's value is
+   * entered — beside its input in the Val editor, and for a record's key
+   * schema in every form that asks for a key — so it is where you say what an
+   * editor needs to know to fill it in RIGHT, which the field name cannot
+   * carry. It is not a name for the value: that is `.preview(...)`, and it is
+   * read somewhere else. The description also travels in the serialized
+   * schema, which is what the AI assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s.number().describe("How many columns the grid uses");
+   * export default c.define("/example.val.ts", schema, 3);
+   */
   describe(description: string | null): NumberSchema<Src> {
     return new NumberSchema(
       this.options,
@@ -58,6 +75,26 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * @example
+   * const schema = s.number().validate((val) =>
+   *   Number.isInteger(val) ? false : "Must be a whole number",
+   * );
+   * export default c.define("/example.val.ts", schema, 3);
+   */
   validate(
     validationFunction: (src: Src) => false | string,
   ): NumberSchema<Src> {
@@ -167,7 +204,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     return new NumberSchema<Src | null>(
       this.options,
       true,
-      [],
+      this.customValidateFunctions as CustomValidateFunction<Src | null>[],
       this.isReadonly,
       this.isHidden,
       this.description,
@@ -202,6 +239,13 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     );
   }
 
+  /**
+   * Validate that the number is at most `max` (inclusive).
+   *
+   * @example
+   * const schema = s.number().max(4);
+   * export default c.define("/example.val.ts", schema, 3);
+   */
   max(max: number): NumberSchema<Src> {
     return new NumberSchema<Src>(
       { ...this.options, max },
@@ -215,6 +259,13 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     );
   }
 
+  /**
+   * Validate that the number is at least `min` (inclusive).
+   *
+   * @example
+   * const schema = s.number().min(1).max(4);
+   * export default c.define("/example.val.ts", schema, 3);
+   */
   min(min: number): NumberSchema<Src> {
     return new NumberSchema<Src>(
       { ...this.options, min },
@@ -245,6 +296,10 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
    * instead of a preview row that navigates to it.
    *
    * Static configuration, not a callback — see `render.ts`.
+   *
+   * @example
+   * const schema = s.array(s.number().render({ as: "inline" }));
+   * export default c.define("/example.val.ts", schema, [1, 2]);
    */
   render(input: FieldRender): NumberSchema<Src> {
     return new NumberSchema<Src>(
@@ -263,6 +318,12 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
    * How this VALUE is shown where a preview of it is needed — a row in a
    * sortable list, a reference dropdown, a search hit. Never how the field
    * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * const schema = s.array(
+   *   s.number().preview(({ val }) => ({ title: String(val) })),
+   * );
+   * export default c.define("/example.val.ts", schema, [1, 2]);
    */
   preview(select: ItemPreviewInput<Src>): NumberSchema<Src> {
     return new NumberSchema<Src>(
@@ -304,10 +365,6 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
       hidden: this.isHidden,
       description: this.description,
     };
-  }
-
-  protected executePreview(): ReifiedPreview {
-    return {};
   }
 }
 

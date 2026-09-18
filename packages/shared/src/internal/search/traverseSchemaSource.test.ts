@@ -186,12 +186,12 @@ describe("traverseSchemaSource", () => {
     });
   });
 
-  describe("union", () => {
-    test("tagged union (discriminated)", () => {
+  describe("unions and enums", () => {
+    test("discriminated union", () => {
       const module = c.define(
         "/test.val.ts",
         s.object({
-          item: s.union(
+          item: s.discriminatedUnion(
             "type",
             s.object({ type: s.literal("text"), content: s.string() }),
             s.object({ type: s.literal("link"), href: s.string() }),
@@ -210,11 +210,11 @@ describe("traverseSchemaSource", () => {
       ]);
     });
 
-    test("literal union (string values)", () => {
+    test("enum (string values)", () => {
       const module = c.define(
         "/test.val.ts",
         s.object({
-          value: s.union(s.literal("foo"), s.literal("bar")),
+          value: s.enum("foo", "bar"),
         }),
         { value: "foo" },
       );
@@ -297,7 +297,7 @@ describe("traverseSchemaSource", () => {
   });
 
   describe("complex nested schemas", () => {
-    test("object → array → union → object → record → richtext", () => {
+    test("object → array → discriminated union → object → record → richtext", () => {
       const recordMod = c.define(
         "/records.val.ts",
         s.record(s.object({ title: s.string() })),
@@ -308,7 +308,7 @@ describe("traverseSchemaSource", () => {
         s.object({
           container: s.object({
             items: s.array(
-              s.union(
+              s.discriminatedUnion(
                 "type",
                 s.object({
                   type: s.literal("content"),
@@ -353,13 +353,13 @@ describe("traverseSchemaSource", () => {
       expect(visited.some((v) => v.path.includes("record"))).toBe(true);
     });
 
-    test("record → array → union → object with file/image fields", () => {
+    test("record → array → discriminated union → object with file/image fields", () => {
       const module = c.define(
         "/test.val.ts",
         s.record(
           s.object({
             media: s.array(
-              s.union(
+              s.discriminatedUnion(
                 "type",
                 s.object({
                   type: s.literal("image"),

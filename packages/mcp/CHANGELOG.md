@@ -1,5 +1,123 @@
 # @valbuild/mcp
 
+## 0.132.0
+
+### Patch Changes
+
+- Updated dependencies [[`72cc676`](https://github.com/valbuild/val/commit/72cc6765e92a6e72b5c09ddd9eed8efa7ce899f2)]:
+  - @valbuild/server@0.132.0
+
+## 0.131.0
+
+### Patch Changes
+
+- Updated dependencies [[`0d5857b`](https://github.com/valbuild/val/commit/0d5857b731e11f7e6a011f79297df6485908c31f)]:
+  - @valbuild/server@0.131.0
+
+## 0.130.0
+
+### Minor Changes
+
+- [#684](https://github.com/valbuild/val/pull/684) [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75) Thanks [@freekh](https://github.com/freekh)! - A third ValOps mode, for a host that already holds its own source
+
+  EXPERIMENTAL. `fs` mode assumes a working tree it can watch and write; `http`
+  mode assumes Val's content service owns the patch chain and that a commit is a
+  git commit. A host that builds and publishes its own output is neither: it holds
+  the source already, it has nowhere to watch, and its "commit" is a new build.
+
+  Forcing such a host into `fs` mode cost three things, all now fixed: `/stat`
+  long-polled against watchers that could never fire, burning CPU for the whole
+  hold to learn nothing;
+  `/api/val/enable` 500'd; and every read of a `.val.ts` went through a shimmed
+  filesystem when the host could simply hand the source over.
+
+  `ValOpsMemory` takes the source as `sourceFiles`, refuses the local binary
+  members by name — this configuration uses Val's remote files — and answers the
+  history members with the same closed `not-supported-in-fs-mode` error `ValOpsFS`
+  gives, so the History UI degrades the way it already knows how rather than
+  inventing a commit list.
+
+  `getStat` still long-polls -- the hold is what paces the client, and an earlier
+  version that answered immediately turned a 20-second poll into a request every
+  6ms -- but it parks on a SIGNAL rather than a timer. This mode owns its store,
+  so it is told when something changes: no timers while parked, and a patch
+  written by another tab is seen at once rather than up to 250ms later.
+
+  Two seams come with it. `commitPrepared` lets a host take what a save produced
+  instead of a git commit, and `publishOverride` lets a publish be something other
+  than a push. Both are opt-in; an app that sets neither behaves exactly as before.
+
+  The in-memory patch store is explicitly **not durable**. It is behind
+  `ValPatchStore`, so a durable implementation is a swap rather than a rewrite,
+  but as shipped a restart loses unpublished patches.
+
+  **Memory mode authenticates.** `ValOps` gained `requiresAuth` alongside
+  `patchesAreLocal`, because one flag was answering two questions: whether a store
+  auto-saves or publishes (behaviour, reported as `mode` and keyed off by the UI),
+  and whether an unauthenticated request may write (security). With two
+  implementations the answers coincided — `fs` is a developer's own machine where
+  no credential exists, `http` is remote — so `getAuth` was written against
+  `patchesAreLocal` and returned anonymous _success_ for a missing cookie, an
+  invalid JWT, an unparseable payload, or no configured secret.
+
+  Memory mode splits them: its store is local, and it runs deployed. It therefore
+  requires a verified session, like `http` mode. A host that authorises requests
+  before Val sees them can opt out with `unsafelyAllowUnauthenticated`, which is
+  spelled that way on purpose and warns at startup. `fs` mode is unchanged.
+
+  Val's own MCP endpoint refuses memory mode outright. It has the same absence fs
+  mode has — no credential, no backend, every permission check on the far side of
+  one — and unlike fs mode it is meant to run deployed, so the existing
+  "development only" and loopback guards refuse nothing. A host in this mode owns
+  its own trust boundary and can offer the tools through it.
+
+  Internally, the routes' `instanceof ValOpsFS` checks meant "is this a local
+  store" — correct with two implementations and silently wrong with three. They are
+  now `ValOps.patchesAreLocal` at all 17 policy sites.
+
+### Patch Changes
+
+- Updated dependencies [[`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75), [`8425378`](https://github.com/valbuild/val/commit/8425378c315ea46b5d822f1130b633e0449ff1b0), [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75), [`473a185`](https://github.com/valbuild/val/commit/473a185f70351b44388f3bc1852649e2c1dbe001), [`64f0de3`](https://github.com/valbuild/val/commit/64f0de339b8621cb5a6c422dfe55cae5b2bbe2a0), [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75)]:
+  - @valbuild/server@0.130.0
+  - @valbuild/core@0.130.0
+  - @valbuild/shared@0.130.0
+
+## 0.129.0
+
+### Patch Changes
+
+- Updated dependencies [[`7d34ecc`](https://github.com/valbuild/val/commit/7d34ecce787a0709025ae7b4764cb6c3ad1f766b), [`0c351c4`](https://github.com/valbuild/val/commit/0c351c4f97ae7f09772eab0e856ae69821b803b7)]:
+  - @valbuild/core@0.129.0
+  - @valbuild/shared@0.129.0
+  - @valbuild/server@0.129.0
+
+## 0.128.0
+
+### Patch Changes
+
+- Updated dependencies [[`8b52b33`](https://github.com/valbuild/val/commit/8b52b33e1f629f14f66cc71dcc7cf415d210c7d4), [`362fb49`](https://github.com/valbuild/val/commit/362fb49f30d2b04c4ff78d54dca2bf5ad978a05c), [`c595799`](https://github.com/valbuild/val/commit/c59579977a436ec530c6c69f2b340ab9829d97ab)]:
+  - @valbuild/core@0.128.0
+  - @valbuild/server@0.128.0
+  - @valbuild/shared@0.128.0
+
+## 0.127.0
+
+### Patch Changes
+
+- Updated dependencies [[`7fa8699`](https://github.com/valbuild/val/commit/7fa869974bc895af992a7d5c18b76253636d7d65), [`5b7fe05`](https://github.com/valbuild/val/commit/5b7fe05cec6365f9cd1de9ba31e65ed4a87edb63), [`88262ac`](https://github.com/valbuild/val/commit/88262ac8db068650a664981ef73556457d87741a), [`7072e07`](https://github.com/valbuild/val/commit/7072e07623c953a09ac14388ae22dada0b431ce3), [`29811c3`](https://github.com/valbuild/val/commit/29811c3f8c7e001a950e6f4833af6888e6a4efea)]:
+  - @valbuild/core@0.127.0
+  - @valbuild/shared@0.127.0
+  - @valbuild/server@0.127.0
+
+## 0.126.0
+
+### Patch Changes
+
+- Updated dependencies [[`5bfd630`](https://github.com/valbuild/val/commit/5bfd630b63dee2189e238f20fe72ecc5537160f7), [`ccbcda6`](https://github.com/valbuild/val/commit/ccbcda60b3e3c465071229ae1ba28ac735483e63), [`f2fe70d`](https://github.com/valbuild/val/commit/f2fe70dab2b65000dfaf289f09c70b4a8291467a), [`5c18c99`](https://github.com/valbuild/val/commit/5c18c99ecc84651f82123481fc042063db953833), [`171208a`](https://github.com/valbuild/val/commit/171208a20177e68ed5a8b1a6fdaabfe893a6aa5f)]:
+  - @valbuild/shared@0.126.0
+  - @valbuild/server@0.126.0
+  - @valbuild/core@0.126.0
+
 ## 0.125.0
 
 ### Patch Changes

@@ -5,7 +5,7 @@ import { ChevronDown, ChevronsDown } from "lucide-react";
 import { Checkbox } from "./designSystem/checkbox";
 import { JSONValue } from "@valbuild/core/patch";
 import { ArrayAndRecordTools } from "./ArrayAndRecordTools";
-import { emptyOf } from "@valbuild/shared/internal";
+
 import { EmbeddedBooleanField } from "./fields/BooleanField";
 import {
   Accordion,
@@ -15,6 +15,7 @@ import {
 import { FieldValidationError } from "./FieldValidationError";
 import { ShallowSource } from "./ValFieldProvider";
 import { useFieldState } from "./useFieldState";
+import { useEmptyOf } from "../hooks/useEmptyOf";
 
 export function InlineField({
   label,
@@ -59,6 +60,7 @@ export function InlineField({
     isBoolean,
     isNullable,
   } = useFieldState(path, type, overrides);
+  const emptyOf = useEmptyOf();
   const effectiveReadonly = readonly || hasOverrides;
   return (
     <div

@@ -17,9 +17,9 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 import { Internal, ValModule } from "..";
-import { ItemPreviewInput, PreviewItem, ReifiedPreview } from "../preview";
+import { ItemPreviewInput, PreviewItem } from "../preview";
 import { FieldRender } from "../render";
-import { FilesEntryMetadata } from "./files";
+import { FilesetEntryMetadata } from "./fileset";
 import { getSource } from "../module";
 import { mimeTypeMatchesAccept } from "../mimeType";
 
@@ -51,7 +51,7 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly moduleMetadata: Record<
       ModulePath,
-      Record<string, FilesEntryMetadata>
+      Record<string, FilesetEntryMetadata>
     > = {},
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
@@ -62,6 +62,26 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is INPUT HELP: it is shown where this field's value is
+   * entered — beside its input in the Val editor, and for a record's key
+   * schema in every form that asks for a key — so it is where you say what an
+   * editor needs to know to fill it in RIGHT, which the field name cannot
+   * carry. It is not a name for the value: that is `.preview(...)`, and it is
+   * read somewhere else. The description also travels in the serialized
+   * schema, which is what the AI assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s.file().describe("The PDF offered for download");
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/example.pdf",
+   *   mimeType: "application/pdf",
+   * });
+   */
   describe(description: string | null): FileSchema<Src> {
     return new FileSchema(
       this.options,
@@ -77,6 +97,26 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     );
   }
 
+  /**
+   * Store the file on Val's remote content host instead of in your repository.
+   *
+   * The bytes still go into the patch store when the file is uploaded — the
+   * push to the remote host happens at publish. What changes is where the
+   * published file lives: `path` becomes a remote URL rather than a path under
+   * `/public`, so the repository does not grow with every upload.
+   *
+   * The `path` of a remote file is a URL on the content host, and it is not
+   * something to write by hand: upload the file in the Studio, or write a
+   * local path and let `npx val validate --fix` upload it and rewrite the
+   * `path` to the ref below.
+   *
+   * @example
+   * const schema = s.file({ accept: "application/pdf" }).remote();
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "https://remote.val.build/file/p/my-project/b/01/v/1.0.0/h/8f2a1c/f/3b9d70/p/public/val/example.pdf",
+   *   mimeType: "application/pdf",
+   * });
+   */
   remote(): FileSchema<Src> {
     return new FileSchema(
       this.options,
@@ -92,6 +132,32 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * The second argument carries the `path` of the field being validated, for
+   * when the message needs to say where the problem is.
+   *
+   * @example
+   * const schema = s.file().validate((val) =>
+   *   val.path.endsWith(".pdf") ? false : "Must be a PDF",
+   * );
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/example.pdf",
+   *   mimeType: "application/pdf",
+   * });
+   */
   validate(validationFunction: CustomValidateFunction<Src>): FileSchema<Src> {
     return new FileSchema(
       this.options,
@@ -300,7 +366,7 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
    * The entries of the gallery this field points at, or null when it is a
    * standalone field.
    */
-  private galleryEntries(): Record<string, FilesEntryMetadata> | null {
+  private galleryEntries(): Record<string, FilesetEntryMetadata> | null {
     const modulePaths = Object.keys(this.moduleMetadata);
     if (modulePaths.length === 0) {
       return null;
@@ -422,6 +488,12 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
    * instead of a preview row that navigates to it.
    *
    * Static configuration, not a callback — see `render.ts`.
+   *
+   * @example
+   * const schema = s.array(s.file().render({ as: "inline" }));
+   * export default c.define("/example.val.ts", schema, [
+   *   { path: "/public/val/example.pdf", mimeType: "application/pdf" },
+   * ]);
    */
   render(input: FieldRender): FileSchema<Src> {
     return new FileSchema(
@@ -442,6 +514,14 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
    * How this VALUE is shown where a preview of it is needed — a row in a
    * sortable list, a reference dropdown, a search hit. Never how the field
    * itself is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * const schema = s.array(
+   *   s.file().preview(({ val }) => ({ title: val.path })),
+   * );
+   * export default c.define("/example.val.ts", schema, [
+   *   { path: "/public/val/example.pdf", mimeType: "application/pdf" },
+   * ]);
    */
   preview(select: ItemPreviewInput<Src>): FileSchema<Src> {
     return new FileSchema(
@@ -492,10 +572,6 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       description: this.description,
     };
   }
-
-  protected executePreview(): ReifiedPreview {
-    return {};
-  }
 }
 
 /**
@@ -503,22 +579,22 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
  * field carries only the path.
  */
 export function file(
-  galleryModule: ValModule<Record<string, FilesEntryMetadata>>,
+  galleryModule: ValModule<Record<string, FilesetEntryMetadata>>,
 ): FileSchema<GalleryFileSource>;
 /** A file of its own, carrying its own mime type. */
 export function file(options?: FileOptions): FileSchema<FileSource>;
 export function file(
-  options?: FileOptions | ValModule<Record<string, FilesEntryMetadata>>,
+  options?: FileOptions | ValModule<Record<string, FilesetEntryMetadata>>,
 ): FileSchema<FileSource> | FileSchema<GalleryFileSource> {
   const isModule =
     !!options &&
     !!Internal.getValPath(
-      options as ValModule<Record<string, FilesEntryMetadata>>,
+      options as ValModule<Record<string, FilesetEntryMetadata>>,
     );
   if (isModule) {
-    const allModules: Record<string, Record<string, FilesEntryMetadata>> = {};
+    const allModules: Record<string, Record<string, FilesetEntryMetadata>> = {};
     for (const valModule of [
-      options as ValModule<Record<string, FilesEntryMetadata>>,
+      options as ValModule<Record<string, FilesetEntryMetadata>>,
     ]) {
       const modulePath = getValPath(valModule) as ModulePath | undefined;
       if (modulePath === undefined) {
@@ -528,7 +604,7 @@ export function file(
       }
       allModules[modulePath] = getSource(valModule) as Record<
         string,
-        FilesEntryMetadata
+        FilesetEntryMetadata
       >;
     }
     return new FileSchema<GalleryFileSource>({}, false, false, [], allModules);

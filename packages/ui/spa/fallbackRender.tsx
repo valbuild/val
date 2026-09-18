@@ -24,7 +24,7 @@ function ErrorContent({
   return (
     <div className="flex absolute top-0 left-0 justify-center items-center w-screen h-screen bg-bg-primary text-fg-primary">
       <div className="p-10 w-full h-full">
-        <div className="overflow-scroll p-10 w-full h-full bg-card text-fg-primary">
+        <div className="overflow-scroll p-10 w-full h-full bg-bg-primary text-fg-primary">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-[0.5em] text-lg font-bold text-center py-2">
               <Logo /> encountered an error

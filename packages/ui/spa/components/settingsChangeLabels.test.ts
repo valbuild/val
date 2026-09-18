@@ -27,9 +27,19 @@ describe("settingsFieldLabel", () => {
     expect(settingsFieldLabel(path('"assistant"'))).toBe("Assistant");
   });
 
+  test("the locales list is named the way the tab names it", () => {
+    // "Languages" is the tab's own word — "No languages yet", "Add a language".
+    // `available` is the key, and reviewing a change as "Locales / Available"
+    // names something the editor never read.
+    expect(settingsFieldLabel(path('"locales"."available"'))).toBe(
+      "Locales · Languages",
+    );
+    expect(settingsFieldLabel(path('"locales"'))).toBe("Locales");
+  });
+
   test("an unknown path has no label, rather than an invented one", () => {
     // A section from a newer Val than this Studio: the caller falls back to the
     // generic prettifier instead of guessing.
-    expect(settingsFieldLabel(path('"locales"."default"'))).toBe(null);
+    expect(settingsFieldLabel(path('"publishing"."schedule"'))).toBe(null);
   });
 });

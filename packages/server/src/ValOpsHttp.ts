@@ -112,6 +112,10 @@ const GetApplicablePatches = z.object({
         deploymentState: z.string(),
         createdAt: z.string(),
         updatedAt: z.string(),
+        // The git message, where the content service knows it. See
+        // `ValDeployment`: this is the only source for a deployment that Val
+        // did not publish, and zod would otherwise strip it here.
+        commitMessage: z.string().nullable().optional(),
       }),
     )
     .optional(),
@@ -342,6 +346,11 @@ export class ValOpsHttp extends ValOps {
     | { Authorization: string }
     | { "x-val-pat": string };
   private readonly root: string;
+  /** Val's content service owns the store. See {@link ValOps.patchesAreLocal}. */
+  override readonly patchesAreLocal = false;
+  /** See {@link ValOps.requiresAuth}. */
+  override readonly requiresAuth = true;
+
   constructor(
     private readonly contentUrl: string,
     private readonly project: string,
@@ -873,6 +882,7 @@ export class ValOpsHttp extends ValOps {
                 deploymentState: deployment.deploymentState,
                 createdAt: deployment.createdAt,
                 updatedAt: deployment.updatedAt,
+                commitMessage: deployment.commitMessage,
               });
             }
           }

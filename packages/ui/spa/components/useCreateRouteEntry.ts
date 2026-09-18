@@ -3,8 +3,9 @@ import { Internal, ModulePath } from "@valbuild/core";
 import { JSONValue } from "@valbuild/core/patch";
 import { useAddModuleFilePatch } from "./ValProvider";
 import { useSchemas, useAllSources } from "./ValFieldProvider";
-import { emptyOf } from "@valbuild/shared/internal";
+
 import { CreatableRouter, collectCreatableRouters } from "./creatableRouters";
+import { useEmptyOf } from "../hooks/useEmptyOf";
 
 export type { CreatableRouter };
 
@@ -45,6 +46,7 @@ export function useCreateRouteEntry(): (
 ) => string | null {
   const { addModuleFilePatch } = useAddModuleFilePatch();
   const schemas = useSchemas();
+  const emptyOf = useEmptyOf();
 
   return useCallback(
     (router: CreatableRouter, key: string) => {
@@ -73,6 +75,6 @@ export function useCreateRouteEntry(): (
       );
       return key;
     },
-    [addModuleFilePatch, schemas],
+    [addModuleFilePatch, schemas, emptyOf],
   );
 }

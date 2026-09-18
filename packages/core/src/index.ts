@@ -165,8 +165,15 @@ export {
 export {
   type SettingsSource,
   type AssistantSettingsSource,
+  type LocalesSettingsSource,
   type AssistantAvailability,
+  type ThemeSettingsSource,
+  type StudioSettingsSource,
+  type ThemeRadius,
   ASSISTANT_SETTINGS_MAX_LENGTH,
+  THEME_LOGO_DIRECTORY,
+  THEME_RADIUS_STEPS,
+  THEME_RADIUS_LENGTHS,
   assistantAvailability,
 } from "./source/settings";
 export {
@@ -175,6 +182,14 @@ export {
   isRootModuleFilePath,
   resolveSettingsModule,
 } from "./settingsModule";
+export { type Locale, localeTagError, localeOfValue } from "./locale";
+export { type SerializedLocaleSchema, LocaleSchema } from "./schema/locale";
+export {
+  type DeclaredKeySet,
+  declaredKeySetOf,
+  missingDeclaredKeys,
+} from "./schema/declaredKeys";
+export { discriminatedUnionBranchOf } from "./schema/discriminatedUnionBranch";
 export {
   type SerializedColorSchema,
   type ColorOptions,
@@ -204,8 +219,14 @@ export {
   RichTextSchema,
 } from "./schema/richtext";
 export {
+  type SerializedDiscriminatedUnionSchema,
+  type DiscriminatedUnionSourceOf,
+  DiscriminatedUnionSchema,
+} from "./schema/discriminatedUnion";
+export { type SerializedEnumSchema, EnumSchema } from "./schema/enum";
+export {
   type SerializedUnionSchema,
-  UnionSchema,
+  type UnionSchema,
   type SerializedStringUnionSchema,
   type SerializedObjectUnionSchema,
 } from "./schema/union";

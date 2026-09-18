@@ -11,6 +11,7 @@ import {
 } from "@valbuild/core";
 import {
   resolveSchemaSourceFixes,
+  SCHEMA_SOURCE_FIXES,
   type SchemaSourceSnapshot,
 } from "@valbuild/shared/internal";
 import {
@@ -519,7 +520,7 @@ function longestResolvedPrefixRange(
 /**
  * Gallery checks core emits unconditionally.
  *
- * `RecordSchema.validate` attaches these to every `s.images()` / `s.files()`
+ * `RecordSchema.validate` attaches these to every `s.imageset()` / `s.fileset()`
  * module whether or not anything is actually wrong (see
  * `packages/core/src/schema/record.ts`): they are placeholders asking someone to
  * go and look. `val validate` looks by running the matching fix handler, which
@@ -637,11 +638,17 @@ export function galleryCheckKey(
   return `${sourcePath}|${(error.fixes ?? []).join(",")}`;
 }
 
-/** Fixes core cannot resolve without a project-wide snapshot. */
-const DEFERRED_FIXES: readonly string[] = [
-  "keyof:check-keys",
-  "router:check-route",
-];
+/**
+ * Fixes core cannot resolve without a project-wide snapshot.
+ *
+ * The shared list, not a copy: this had its own and fell behind by two, so a
+ * locale field and a declared-key record each put the marker's developer-facing
+ * placeholder — "should typically be processed by Val internally … version
+ * mismatch" — into the editor's diagnostics whenever the snapshot was missing.
+ * Every caller that recognises some of these has to recognise all of them; see
+ * `SCHEMA_SOURCE_FIXES`.
+ */
+const DEFERRED_FIXES: readonly string[] = SCHEMA_SOURCE_FIXES;
 
 /**
  * Fallback for when no snapshot is available: drop the placeholders rather than
@@ -686,7 +693,7 @@ export type GalleryMembership = {
   /** Module path of the gallery this field points at. */
   referencedModule: string;
   /** The gallery's directory, when it declares one. */
-  directory?: string;
+  dir?: string;
   /** The path the field currently holds. */
   path: string;
   /** `image` or `file`, for wording and for which metadata to read. */
@@ -739,11 +746,11 @@ export function galleryMembershipAt({
     return undefined;
   }
   const gallery = snapshot?.schemas[referencedModule as never] as
-    | { type?: string; directory?: unknown }
+    | { type?: string; dir?: unknown }
     | undefined;
-  const directory =
-    gallery?.type === "record" && typeof gallery.directory === "string"
-      ? gallery.directory
+  const dir =
+    gallery?.type === "record" && typeof gallery.dir === "string"
+      ? gallery.dir
       : undefined;
   // Core emits TWO fixless errors on a gallery-backed field: this one, and "an
   // image from a gallery must not carry its own width, height...". Both look
@@ -764,7 +771,7 @@ export function galleryMembershipAt({
   }
   return {
     referencedModule,
-    ...(directory !== undefined ? { directory } : {}),
+    ...(dir !== undefined ? { dir } : {}),
     path: currentPath,
     mediaType: schema.type,
   };

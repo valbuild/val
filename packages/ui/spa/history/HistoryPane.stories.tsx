@@ -62,7 +62,7 @@ const now = toStoreData([
     MODULE,
     s.object({
       heading: s.string(),
-      cta: s.union(
+      cta: s.discriminatedUnion(
         "kind",
         s.object({
           kind: s.literal("link"),

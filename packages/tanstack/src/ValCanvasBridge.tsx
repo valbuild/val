@@ -1,6 +1,8 @@
 import React from "react";
 import { Internal } from "@valbuild/core";
 import {
+  DEFAULT_CANVAS_SELECTION,
+  DEFAULT_CANVAS_SELECTION_SOFT,
   isValCanvasStudioMessage,
   VAL_CANVAS_MESSAGE,
   ValCanvasElement,
@@ -8,14 +10,22 @@ import {
 } from "@valbuild/shared/client";
 
 /**
- * The colours Val outlines its content in.
+ * The colours Val outlines its content in, until the studio says otherwise.
  *
- * Literals, not the `--bg-page-selection` tokens they mirror: this runs inside
- * the customer's page, which has none of Val's stylesheet. If those tokens
- * change in `packages/ui/spa/index.css`, change these too.
+ * Not the `--bg-page-selection` tokens they mirror, and not because of
+ * tidiness: this runs inside the customer's page, which has none of Val's
+ * stylesheet — the tokens are not overridden there, they do not exist. So a
+ * project that sets `theme.accent` cannot reach these by cascade, and the
+ * studio SENDS them instead (the `theme` message, handled below).
+ *
+ * The defaults come from `@valbuild/shared/client` so there is one copy held
+ * against the stylesheet by a test, rather than a comment asking the next
+ * person to remember.
  */
-const SELECTION = "#079455";
-const SELECTION_SOFT = "rgba(7, 148, 85, 0.4)";
+const DEFAULT_SELECTION = {
+  selection: DEFAULT_CANVAS_SELECTION,
+  selectionSoft: DEFAULT_CANVAS_SELECTION_SOFT,
+};
 
 /**
  * How often the page is re-measured even when nothing said it changed.
@@ -53,6 +63,17 @@ export function ValCanvasBridge({
   isRefreshing?: boolean;
 }) {
   const [picking, setPicking] = React.useState(false);
+  /**
+   * The outline colours, as the studio last said.
+   *
+   * State rather than a prop, because it arrives over the protocol after mount:
+   * the studio sends it when the frame reports ready and again whenever the
+   * project's accent changes. Starts at Val's green so a page that is never
+   * told — an older studio, or a message that never arrives — still outlines
+   * its content.
+   */
+  const [selectionColors, setSelectionColors] =
+    React.useState(DEFAULT_SELECTION);
   const [highlighted, setHighlighted] = React.useState<string | null>(null);
   // Kept in a ref as well, because the capture-phase click listener below is
   // installed once and would otherwise close over the first value forever.
@@ -265,6 +286,13 @@ export function ValCanvasBridge({
         setPicking(message.picking);
         return;
       }
+      if (message.type === "theme") {
+        setSelectionColors({
+          selection: message.selection,
+          selectionSoft: message.selectionSoft,
+        });
+        return;
+      }
       if (message.type === "sourceUpdate") {
         /**
          * Handed straight to the listener the page already has.
@@ -464,10 +492,12 @@ export function ValCanvasBridge({
       dangerouslySetInnerHTML={{
         __html: [
           picking
-            ? `[data-val-path] { outline: 1px solid ${SELECTION_SOFT}; outline-offset: 1px; cursor: pointer; }
-[data-val-path]:hover { outline: 2px solid ${SELECTION}; }`
+            ? `[data-val-path] { outline: 1px solid ${selectionColors.selectionSoft}; outline-offset: 1px; cursor: pointer; }
+[data-val-path]:hover { outline: 2px solid ${selectionColors.selection}; }`
             : "",
-          highlighted ? highlightRule(highlighted) : "",
+          highlighted
+            ? highlightRule(highlighted, selectionColors.selection)
+            : "",
         ]
           .filter(Boolean)
           .join("\n"),
@@ -489,7 +519,7 @@ export function ValCanvasBridge({
  * and one in the middle. Between them they match the path as a complete list
  * item and nothing else.
  */
-function highlightRule(path: string): string {
+function highlightRule(path: string, selection: string): string {
   const value = JSON.stringify(path);
   const inner = JSON.stringify(`,${path},`);
   const first = JSON.stringify(`${path},`);
@@ -500,7 +530,7 @@ function highlightRule(path: string): string {
     `[data-val-path$=${last}]`,
     `[data-val-path*=${inner}]`,
   ].join(",\n");
-  return `${selectors} { outline: 2px solid ${SELECTION}; outline-offset: 1px; }`;
+  return `${selectors} { outline: 2px solid ${selection}; outline-offset: 1px; }`;
 }
 
 /**

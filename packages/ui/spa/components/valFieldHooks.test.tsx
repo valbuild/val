@@ -906,7 +906,7 @@ describe("media fields with no value", () => {
         "/media.val.ts",
         s.object({
           image: s.image().nullable(),
-          imageInDir: s.image({ directory: "/public/test/fields" }).nullable(),
+          imageInDir: s.image({ dir: "/public/test/fields" }).nullable(),
           file: s.file().nullable(),
         }),
         { image: null, imageInDir: null, file: null },

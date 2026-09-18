@@ -33,6 +33,7 @@ import { readImageFromFile } from "../../utils/readImage";
 import type { ReadImageEncode } from "../../utils/readImage";
 import { resolveEncodeSettings } from "../../utils/encodeImage";
 import { createFilePatch } from "./FileField";
+import { FIELD_WRITE_MAX_WAIT_MS } from "./useDebouncedFieldWrite";
 
 const DEBOUNCE_MS = 400;
 
@@ -67,6 +68,34 @@ export function RichTextField({
     (currentSourceData as unknown as EditorDocument) ?? [],
   );
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Non-null exactly while a run of typing is open.
+   *
+   * See `FIELD_WRITE_MAX_WAIT_MS`, which this field needs more than any other:
+   * it is the one people write paragraphs in, so it is the one where a trailing
+   * debounce never gets its pause. Continuous typing restarts `DEBOUNCE_MS` on
+   * every keystroke, and until it stops nothing outside the editor moves — the
+   * row naming this module, the heading, the page in the canvas.
+   */
+  const maxWaitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * End the current run of typing, timer-wise.
+   *
+   * Both timers together, wherever a run ends: they are two ways of asking when
+   * to write, so leaving one armed after the other has been answered writes a
+   * second time for typing that already went out.
+   */
+  const clearRunTimers = useCallback(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    if (maxWaitTimerRef.current) {
+      clearTimeout(maxWaitTimerRef.current);
+      maxWaitTimerRef.current = null;
+    }
+  }, []);
   const disabledRef = useRef(false);
   const suppressNextDirtyRef = useRef(false);
   /**
@@ -164,9 +193,7 @@ export function RichTextField({
 
   const imageModuleDirectory = useMemo(
     () =>
-      imageModuleSchema?.type === "record"
-        ? imageModuleSchema.directory
-        : undefined,
+      imageModuleSchema?.type === "record" ? imageModuleSchema.dir : undefined,
     [imageModuleSchema],
   );
 
@@ -270,10 +297,7 @@ export function RichTextField({
           mimeType: metadata?.mimeType,
         });
 
-        if (debounceTimerRef.current) {
-          clearTimeout(debounceTimerRef.current);
-          debounceTimerRef.current = null;
-        }
+        clearRunTimers();
         // This path patches the document itself, below, so the pending keystroke
         // it just cancelled is accounted for. Leaving the flag set would block
         // every foreign update from here on.
@@ -365,6 +389,7 @@ export function RichTextField({
     addAndUploadPatchWithFileOps,
     addModuleFilePatch,
     imageEncode,
+    clearRunTimers,
   ]);
 
   const handleDirty = useCallback(() => {
@@ -380,10 +405,19 @@ export function RichTextField({
     pendingDocRef.current = editorRef.current?.getDocument() ?? null;
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
-      debounceTimerRef.current = null;
+      clearRunTimers();
       writePendingRef.current();
     }, DEBOUNCE_MS);
-  }, []);
+    // Only if this keystroke starts a run: an already-armed cap is left to
+    // expire on its own schedule, which is the whole of what makes it a cap
+    // rather than a longer debounce. See `useDebouncedFieldWrite`.
+    if (maxWaitTimerRef.current === null) {
+      maxWaitTimerRef.current = setTimeout(() => {
+        clearRunTimers();
+        writePendingRef.current();
+      }, FIELD_WRITE_MAX_WAIT_MS);
+    }
+  }, [clearRunTimers]);
 
   /**
    * Write whatever was typed, now.
@@ -416,14 +450,14 @@ export function RichTextField({
    */
   useEffect(
     () => () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = null;
+      if (debounceTimerRef.current || maxWaitTimerRef.current) {
+        clearRunTimers();
         writePendingRef.current();
       }
       hasUnsentEditRef.current = false;
     },
-    [],
+    // `clearRunTimers` is stable, so this still attaches once.
+    [clearRunTimers],
   );
 
   if (schemaAtPath.status === "error") {

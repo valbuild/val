@@ -102,6 +102,29 @@ export function MediaPanel({
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  /**
+   * A project with exactly one gallery opens it.
+   *
+   * The reason everything starts closed is thumbnails: opening every gallery on
+   * mount fetches every image in the project to draw it at 24 pixels. With a
+   * single gallery there is nothing to choose between, and a panel called Media
+   * whose entire content is one collapsed row named after a module file is the
+   * panel that produced "what is the point of Media?". Its files are chunked
+   * and lazily loaded either way (see `CHUNK`), so the cost stays bounded by
+   * what is actually on screen.
+   *
+   * An effect rather than an initial value, because the galleries arrive after
+   * mount: on the first render `media` is empty and every project looks like a
+   * project with no gallery. Once per gallery id, so collapsing it is a
+   * decision that sticks.
+   */
+  const soleGalleryId = media.length === 1 ? media[0].id : null;
+  const autoOpened = useRef<string | null>(null);
+  useEffect(() => {
+    if (soleGalleryId === null || autoOpened.current === soleGalleryId) return;
+    autoOpened.current = soleGalleryId;
+    setExpanded((current) => new Set([...current, soleGalleryId]));
+  }, [soleGalleryId]);
 
   const q = query.trim().toLowerCase();
 
@@ -118,7 +141,7 @@ export function MediaPanel({
       .map((gallery) => {
         const galleryMatches =
           gallery.name.toLowerCase().includes(q) ||
-          gallery.directory.toLowerCase().includes(q);
+          gallery.dir.toLowerCase().includes(q);
         const files = (gallery.files ?? []).filter((file) =>
           file.ref.toLowerCase().includes(q),
         );
@@ -176,7 +199,9 @@ export function MediaPanel({
           <PanelErrorState message={loadError} onRetry={onRetryLoad} />
         ) : filtered.length === 0 ? (
           <PanelEmptyState>
-            {query ? "Nothing matches this filter." : "No galleries yet."}
+            {query
+              ? "Nothing matches this filter."
+              : "No galleries yet. A gallery is the shared library a picture is uploaded to once and used from anywhere."}
           </PanelEmptyState>
         ) : (
           filtered.map(({ gallery, files }) => {
@@ -186,7 +211,7 @@ export function MediaPanel({
                 <PanelRow
                   selected={selectedId === gallery.id}
                   // The module, because that is what the row is about; the
-                  // directory is the row's meta.
+                  // the directory is the row's meta.
                   title={gallery.moduleFilePath}
                   expanded={open}
                   /*
@@ -237,7 +262,7 @@ export function MediaPanel({
                   label={gallery.name}
                   // The served path, not the ref: `/public` is the web root, so
                   // `/val/images` is what a URL to anything in here looks like.
-                  meta={servedPath(gallery.directory)}
+                  meta={servedPath(gallery.dir)}
                   trailing={
                     <span className="text-[0.6875rem] tabular-nums text-fg-secondary-alt">
                       {gallery.itemCount}
@@ -300,17 +325,17 @@ function GalleryFiles({
 
   const visible = files.slice(0, shown);
   const remaining = files.length - visible.length;
-  const groups = groupByDirectory(visible, gallery.directory);
+  const groups = groupByDirectory(visible, gallery.dir);
 
   return (
     <div>
       {groups.map((group) => (
-        <div key={group.directory}>
+        <div key={group.dir}>
           {/* Only when there is more than one: a heading repeating the
               gallery's own directory on every row says nothing. */}
           {groups.length > 1 && (
             <p
-              title={servedPath(group.directory)}
+              title={servedPath(group.dir)}
               className="truncate pl-8 pr-3 pt-1.5 pb-0.5 text-[0.625rem] uppercase tracking-wide text-fg-secondary-alt"
             >
               {group.label}
@@ -467,7 +492,7 @@ function UploadMenu({
         aria-expanded={only ? undefined : isOpen}
         title={
           only
-            ? `Upload into ${servedPath(only.directory)}`
+            ? `Upload into ${servedPath(only.dir)}`
             : "Choose where to upload"
         }
         onClick={() => (only ? onUpload(only) : setIsOpen((open) => !open))}
@@ -500,7 +525,7 @@ function UploadMenu({
               )}
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-xs">
-                  {servedPath(gallery.directory)}
+                  {servedPath(gallery.dir)}
                 </span>
                 <span className="block text-[0.6875rem] text-fg-secondary-alt">
                   {gallery.mediaType === "images" ? "Images" : "Files"}
@@ -523,35 +548,32 @@ function UploadMenu({
 export function groupByDirectory(
   files: ShellMediaFile[],
   galleryDirectory: string,
-): { directory: string; label: string; files: ShellMediaFile[] }[] {
+): { dir: string; label: string; files: ShellMediaFile[] }[] {
   const groups = new Map<string, ShellMediaFile[]>();
   for (const file of files) {
-    const directory = file.ref.slice(0, file.ref.lastIndexOf("/")) || "/";
-    const existing = groups.get(directory);
+    const dir = file.ref.slice(0, file.ref.lastIndexOf("/")) || "/";
+    const existing = groups.get(dir);
     if (existing) existing.push(file);
-    else groups.set(directory, [file]);
+    else groups.set(dir, [file]);
   }
   return Array.from(groups.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([directory, groupFiles]) => ({
-      directory,
-      label: relativeDirectory(directory, galleryDirectory),
+    .map(([dir, groupFiles]) => ({
+      dir,
+      label: relativeDirectory(dir, galleryDirectory),
       files: groupFiles,
     }));
 }
 
-function relativeDirectory(
-  directory: string,
-  galleryDirectory: string,
-): string {
-  if (directory === galleryDirectory) return "In this folder";
+function relativeDirectory(dir: string, galleryDirectory: string): string {
+  if (dir === galleryDirectory) return "In this folder";
 
   const prefix = galleryDirectory.endsWith("/")
     ? galleryDirectory
     : `${galleryDirectory}/`;
-  return directory.startsWith(prefix)
-    ? directory.slice(prefix.length)
+  return dir.startsWith(prefix)
+    ? dir.slice(prefix.length)
     : // Not under the gallery at all, so there is nothing to make it relative
       // to and the whole path is shown — as it is served, like everywhere else.
-      servedPath(directory);
+      servedPath(dir);
 }

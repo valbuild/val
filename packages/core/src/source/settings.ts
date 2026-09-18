@@ -1,3 +1,5 @@
+import { ImageSource } from "./media";
+
 /**
  * The source of the project's settings module — `s.settings()`.
  *
@@ -22,6 +24,174 @@
  */
 export type SettingsSource = {
   assistant?: AssistantSettingsSource;
+  theme?: ThemeSettingsSource;
+  locales?: LocalesSettingsSource;
+  studio?: StudioSettingsSource;
+};
+
+/**
+ * How the Studio behaves for the people editing this project.
+ *
+ * Not how it looks — that is {@link ThemeSettingsSource} — and not one person's
+ * own preferences, which stay in their browser. This is the project's word on
+ * what its editors are offered, which is why it is content: a team that has
+ * decided something about the way they work should not need a developer and a
+ * deploy to say so.
+ */
+export type StudioSettingsSource = {
+  /**
+   * Whether editors are offered the guided tour of the Studio.
+   *
+   * Unset means yes, because the person this exists for is the one who has not
+   * answered any question yet. Setting it to `false` turns the offer off for
+   * everyone on the project, permanently and for good — which is the point:
+   * a team that finds it noisy can be rid of it once rather than each person
+   * dismissing it on each machine they use.
+   *
+   * It governs the OFFER, not the tour. Whoever wants it can still run it from
+   * Quick actions; what goes is the glowing button and the prompt on the empty
+   * editor. Whether a given person has already been through it is a fact about
+   * that browser and is not here.
+   */
+  tour?: boolean | null;
+};
+
+/**
+ * How the Studio looks in this project.
+ *
+ * Chrome, and only chrome: nothing here reaches a visitor to the site. It is
+ * the CMS that is being restyled, so that a project can make the tool it edits
+ * in feel like its own.
+ *
+ * This is deliberately NOT the light/dark switch. That one is per-person and
+ * per-machine (see `ValThemeProvider`, which keeps it in `localStorage`), and it
+ * has to stay that way — one editor working in a dark room is not a fact about
+ * the project. {@link ThemeSettingsSource.mode} is the project's DEFAULT for
+ * someone who has not chosen, which is a different statement.
+ */
+export type ThemeSettingsSource = {
+  /**
+   * The one colour the Studio's chrome is built from, as a hex string.
+   *
+   * Unset means Val's own green. What it replaces is not a single value but the
+   * whole ten-step brand ramp — `--colors-brand-green-100` through `-1000` —
+   * because every brand token in `index.css` points into that ramp, and light
+   * and dark pick different steps out of it. One accent therefore drives both
+   * modes, with nothing to keep in sync.
+   *
+   * Any hex is allowed rather than a list of approved ones, and that is safe
+   * for a measured reason rather than an optimistic one: the ramp is generated
+   * by reusing green's LIGHTNESS at each step and changing only the hue, and
+   * WCAG contrast is almost entirely a function of lightness. See
+   * `accentRamp` in `@valbuild/shared`, whose tests hold every
+   * foreground/background pair the chrome renders to AA across the hue circle.
+   */
+  accent?: string | null;
+  /**
+   * How round the Studio's corners are.
+   *
+   * Named steps rather than a length, for two reasons: a number input invites
+   * `7px`, which nothing in the chrome is drawn around, and the scale is Val's
+   * decision rather than the project's. See {@link THEME_RADIUS_LENGTHS} for
+   * what each one is worth.
+   */
+  radius?: ThemeRadius | null;
+  /**
+   * The mode the Studio opens in for someone who has not picked one.
+   *
+   * A default, not a setting: an editor who has flicked the switch behind the
+   * account button keeps their choice, and this never overrides it.
+   */
+  mode?: "dark" | "light" | null;
+  /**
+   * The project's own mark, shown where Val's is in the Studio.
+   *
+   * The top of the left rail on desktop, and beside the menu button on mobile.
+   * NOT the launcher that floats on the project's own site: there the mark says
+   * "this is Val", and a project's logo on its own page says nothing at all —
+   * see {@link THEME_LOGO_DIRECTORY} and `architecture/logo.md`.
+   *
+   * A square-ish mark rather than a wordmark, because the slot it goes in is
+   * 32px wide. A wide image is contained rather than cropped, so nothing is
+   * cut off — it is simply small.
+   */
+  logo?: ImageSource | null;
+};
+
+/**
+ * Where an uploaded logo goes.
+ *
+ * Its own directory rather than the `/public/val` default, so that the one
+ * image a project uploads through the settings panel does not land in the
+ * middle of its content's media. `val list-unused-files` reads what is
+ * referenced rather than where it sits, so nothing depends on this beyond
+ * tidiness.
+ */
+export const THEME_LOGO_DIRECTORY = "/public/val/brand";
+
+/** @see {@link ThemeSettingsSource.radius} */
+export type ThemeRadius = "square" | "tight" | "default" | "soft";
+
+export const THEME_RADIUS_STEPS: readonly ThemeRadius[] = [
+  "square",
+  "tight",
+  "default",
+  "soft",
+];
+
+/**
+ * What each radius step is worth, as a `--radius` value.
+ *
+ * `--radius` is the only length in the Studio's chrome that is a token:
+ * `rounded-sm`, `rounded-md` and `rounded-lg` are all `calc(var(--radius) …)`
+ * in `tailwind.config.js`, which is around three hundred call sites moving on
+ * one value. `default` is what `index.css` declares, so selecting it and
+ * clearing the setting look the same — which is what makes this list the whole
+ * of the feature.
+ *
+ * `rounded-full` and the hand-written `rounded-t` / `-r` / `-b` cases do not
+ * follow, and that is visible at `soft`: a pill stays a pill.
+ */
+export const THEME_RADIUS_LENGTHS: Record<ThemeRadius, string> = {
+  square: "0rem",
+  tight: "0.25rem",
+  default: "0.5rem",
+  soft: "1rem",
+};
+
+/**
+ * The languages this project publishes.
+ *
+ * Content rather than configuration, and deliberately: which languages a site
+ * has is a decision the people who write it make, and under a build-time
+ * constant it took a developer and a deploy. It is the same move `assistant`
+ * makes with `enabled`.
+ *
+ * Val ships no list of its own. A project with no `locales` section has not
+ * said it is translated, and nothing about locales appears anywhere — no picker
+ * in the Studio, no checks, nothing.
+ *
+ * **This list is a decision with a blast radius.** Every locale in content is
+ * checked against it, so removing one invalidates the content that uses it, and
+ * adding one leaves every locale-keyed record short of a language until it is
+ * filled in. That is the intended behaviour — a language that is declared and
+ * missing everywhere is worth being told about — but it is why the Studio warns
+ * before saving a removal rather than treating this as an ordinary field.
+ *
+ * There is no default language, deliberately. Every locale-specific field asks
+ * which language it is in, and a default is exactly the answer that lets that
+ * question go unanswered — content ends up filed under a language nobody chose,
+ * which is the state translation is meant to make visible.
+ */
+export type LocalesSettingsSource = {
+  /**
+   * The languages, as canonical BCP 47 tags: `en-US`, `nb-NO`.
+   *
+   * Order is the project's own, and it is kept: it decides the order of the
+   * Studio's picker and of the rows in a locale-keyed record, so a project can
+   * put the language it works in first.
+   */
+  available?: string[] | null;
 };
 
 /**
@@ -56,6 +226,22 @@ export type AssistantSettingsSource = {
    * `glossary`) rather than a field that looks like it should absorb them.
    */
   tone?: string | null;
+  /**
+   * How to translate into each language, keyed by language.
+   *
+   * Per language rather than one field, because translation rules are per
+   * language: bokmål or nynorsk, `du` or `De`, which product names stay in
+   * English. Only the target language's note is sent, so a French rule does not
+   * ride along in a Norwegian request.
+   *
+   * Keyed by language, so it holds every one of them once it exists at all —
+   * `null` where a language needs no special instruction, which is most of them.
+   * That is the same rule every locale-keyed record follows (see
+   * `declaredKeys.ts`): a gap you can count and see in a diff, rather than a key
+   * that is simply not there. A project with no notes at all leaves the whole
+   * field unset and nothing is required.
+   */
+  translation?: Record<string, string | null> | null;
 };
 
 /**

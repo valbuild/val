@@ -1,5 +1,426 @@
 # @valbuild/server
 
+## 0.132.0
+
+### Minor Changes
+
+- [#689](https://github.com/valbuild/val/pull/689) [`72cc676`](https://github.com/valbuild/val/commit/72cc6765e92a6e72b5c09ddd9eed8efa7ce899f2) Thanks [@freekh](https://github.com/freekh)! - `VAL_ENV=app` selects `http` mode.
+
+  A host knows WHERE it is running; which Val mode that implies is Val's to
+  derive. `VAL_ENV=app` says "this is the Val app" — a project built in a browser
+  and served from a Worker isolate — and Val reads that as http mode: there is no
+  disk, so `fs` is never the right fall-through, and the content is Val's own,
+  read over HTTP at a commit like any other deployed app.
+
+  Unlike `VAL_MODE=memory`, this **selects** the mode rather than only refusing a
+  fall-through, because everything http mode needs is an environment variable. The
+  point is what happens when one is missing: inference reads an absent
+  `VAL_API_KEY` as "not a proxy" and resolves `fs` mode, which in an isolate fails
+  on `.val/patches.lock` — a path, two layers below the actual mistake. Now each
+  of `VAL_API_KEY`, `VAL_SECRET`, `VAL_PROJECT`, `VAL_GIT_COMMIT` and
+  `VAL_GIT_BRANCH` is named when it is the one that is not set, and the message
+  says which variable put the app in http mode.
+
+  An explicit `VAL_MODE` still wins, including when it is a typo that has to be
+  refused, and `http` is still not a value `VAL_MODE` accepts. A host that passes
+  `sourceFiles` still gets memory mode: that is checked before the environment is
+  consulted at all, so a build published by an older platform keeps working.
+
+## 0.131.0
+
+### Minor Changes
+
+- [#686](https://github.com/valbuild/val/pull/686) [`0d5857b`](https://github.com/valbuild/val/commit/0d5857b731e11f7e6a011f79297df6485908c31f) Thanks [@freekh](https://github.com/freekh)! - Say `VAL_MODE=memory` where there is no disk, and get a sentence instead of an `EPERM`
+
+  Memory mode — the one for a host that holds the project's source itself — is
+  selected by passing `sourceFiles`, and it has to be: nothing in an environment
+  can supply a project's source, so a mode that an env var could switch on would
+  be a server with no content in it.
+
+  The cost was the failure when a host forgot. Val inferred `fs` mode, `fs` mode
+  went looking for a working tree, and in a Worker isolate the first thing to
+  touch the disk failed:
+
+  ```
+  patch-error /bundle/.val/patches.lock: EPERM
+  ```
+
+  That names a path two layers below the decision that caused it, and nobody
+  reading it would guess "your server was configured for the wrong mode".
+
+  So an environment can now DECLARE that it has no disk:
+
+  ```
+  VAL_MODE=memory
+  ```
+
+  It does not turn memory mode on. It says the host is supposed to be supplying
+  `sourceFiles`, so if none arrive, Val refuses at configuration time and says
+  where to pass them. `VAL_MODE=` counts as unset, the way a shell means it; any
+  other value is refused rather than ignored, since leaving you in `fs` mode is
+  the exact failure this is meant to catch.
+
+  **`initValContent` takes the same options, and this is the release that
+  noticed.** It builds a Val server of its own — these readers resolve content by
+  asking it, not by calling the API over HTTP — so configuring `initValServer`
+  alone left them inferring `fs` mode. On a host with no filesystem that is a
+  reader looking for a working tree that is not there; it went unnoticed because
+  published reads still worked.
+
+  ```ts
+  const patchStore = new InMemoryPatchStore(); // now exported from this package
+
+  const { valApiHandler, draftMode } = initValServer(valModules, config, {
+    sourceFiles: FILES,
+    patchStore,
+    unsafelyAllowUnauthenticated: true,
+  });
+
+  const { fetchValStega } = initValContent(config, valModules, {
+    draftMode,
+    // The same three. Two patch stores are two sets of pending edits, and a
+    // reader that checks a session the host never issues answers itself 401 and
+    // falls back to published content — a draft render showing the live site.
+    sourceFiles: FILES,
+    patchStore,
+    unsafelyAllowUnauthenticated: true,
+  });
+  ```
+
+  All three are optional. Left out, this reader gets its own store and its own
+  answer about authentication, which is right for published content.
+
+  `@valbuild/next` has no memory mode: its `initValServer` takes neither option,
+  so for a Next app `VAL_MODE=memory` names an environment Val cannot serve from,
+  and the error says so.
+
+  Nothing changes for an app that sets none of this: `http` when `VAL_API_KEY`
+  and `VAL_SECRET` are both present, `fs` otherwise, as before.
+
+## 0.130.0
+
+### Minor Changes
+
+- [#684](https://github.com/valbuild/val/pull/684) [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75) Thanks [@freekh](https://github.com/freekh)! - A third ValOps mode, for a host that already holds its own source
+
+  EXPERIMENTAL. `fs` mode assumes a working tree it can watch and write; `http`
+  mode assumes Val's content service owns the patch chain and that a commit is a
+  git commit. A host that builds and publishes its own output is neither: it holds
+  the source already, it has nowhere to watch, and its "commit" is a new build.
+
+  Forcing such a host into `fs` mode cost three things, all now fixed: `/stat`
+  long-polled against watchers that could never fire, burning CPU for the whole
+  hold to learn nothing;
+  `/api/val/enable` 500'd; and every read of a `.val.ts` went through a shimmed
+  filesystem when the host could simply hand the source over.
+
+  `ValOpsMemory` takes the source as `sourceFiles`, refuses the local binary
+  members by name — this configuration uses Val's remote files — and answers the
+  history members with the same closed `not-supported-in-fs-mode` error `ValOpsFS`
+  gives, so the History UI degrades the way it already knows how rather than
+  inventing a commit list.
+
+  `getStat` still long-polls -- the hold is what paces the client, and an earlier
+  version that answered immediately turned a 20-second poll into a request every
+  6ms -- but it parks on a SIGNAL rather than a timer. This mode owns its store,
+  so it is told when something changes: no timers while parked, and a patch
+  written by another tab is seen at once rather than up to 250ms later.
+
+  Two seams come with it. `commitPrepared` lets a host take what a save produced
+  instead of a git commit, and `publishOverride` lets a publish be something other
+  than a push. Both are opt-in; an app that sets neither behaves exactly as before.
+
+  The in-memory patch store is explicitly **not durable**. It is behind
+  `ValPatchStore`, so a durable implementation is a swap rather than a rewrite,
+  but as shipped a restart loses unpublished patches.
+
+  **Memory mode authenticates.** `ValOps` gained `requiresAuth` alongside
+  `patchesAreLocal`, because one flag was answering two questions: whether a store
+  auto-saves or publishes (behaviour, reported as `mode` and keyed off by the UI),
+  and whether an unauthenticated request may write (security). With two
+  implementations the answers coincided — `fs` is a developer's own machine where
+  no credential exists, `http` is remote — so `getAuth` was written against
+  `patchesAreLocal` and returned anonymous _success_ for a missing cookie, an
+  invalid JWT, an unparseable payload, or no configured secret.
+
+  Memory mode splits them: its store is local, and it runs deployed. It therefore
+  requires a verified session, like `http` mode. A host that authorises requests
+  before Val sees them can opt out with `unsafelyAllowUnauthenticated`, which is
+  spelled that way on purpose and warns at startup. `fs` mode is unchanged.
+
+  Val's own MCP endpoint refuses memory mode outright. It has the same absence fs
+  mode has — no credential, no backend, every permission check on the far side of
+  one — and unlike fs mode it is meant to run deployed, so the existing
+  "development only" and loopback guards refuse nothing. A host in this mode owns
+  its own trust boundary and can offer the tools through it.
+
+  Internally, the routes' `instanceof ValOpsFS` checks meant "is this a local
+  store" — correct with two implementations and silently wrong with three. They are
+  now `ValOps.patchesAreLocal` at all 17 policy sites.
+
+### Patch Changes
+
+- [#684](https://github.com/valbuild/val/pull/684) [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75) Thanks [@freekh](https://github.com/freekh)! - Stop telling people to run `val login` where a personal access token cannot be used
+
+  A PAT is read from a file in the _server's_ working directory, and only local
+  `fs` mode has one. `resolveRemoteFileAuth` knew that; two things upstream did not.
+
+  `RemoteFilesErrorDialog` was unconditional. Whatever went wrong with remote files,
+  it said "Personal access token file required" and told the reader to run a command
+  in their project root — for a server with no working directory, a directory that
+  does not exist, to produce a file it could not read. The reason was already on the
+  error object and simply never looked at. The dialog now shows only for the two
+  reasons a PAT can actually fix, and everything else gets its own message.
+
+  `resolveRemoteFileAuth` also answered `project-not-configured` for a non-fs mode
+  with no api key, which is wrong twice: the project may be configured perfectly
+  well, and it is the credential that is absent. It answers `api-key-missing` now,
+  already in the wire contract, and that message no longer says "production mode",
+  because every server that is not local dev gives it.
+
+- [#684](https://github.com/valbuild/val/pull/684) [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75) Thanks [@freekh](https://github.com/freekh)! - `createValApiRouter` no longer puts `fs` in every integration's module graph
+
+  `fs` and `path` were imported at module scope for `safeReadGit`, a local
+  development convenience that scans upwards for a `.git` to guess the commit and
+  branch, and whose only caller is the CLI. A static import put `fs` in the module
+  graph of everything reaching `createValApiRouter` — which is every server
+  integration, including ones that run where there is no filesystem at all.
+
+  Behaviour is unchanged where there is a filesystem.
+
+- Updated dependencies [[`be1e8be`](https://github.com/valbuild/val/commit/be1e8bee673207596b3eb3d9a9886b8ade9b332f), [`8425378`](https://github.com/valbuild/val/commit/8425378c315ea46b5d822f1130b633e0449ff1b0), [`7d13dbc`](https://github.com/valbuild/val/commit/7d13dbced9ea49d8243b6b6cf9854cd1a259501f), [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75), [`07db94c`](https://github.com/valbuild/val/commit/07db94c23b73c8c0b2b50a30a89926823c2da1d6), [`473a185`](https://github.com/valbuild/val/commit/473a185f70351b44388f3bc1852649e2c1dbe001), [`64f0de3`](https://github.com/valbuild/val/commit/64f0de339b8621cb5a6c422dfe55cae5b2bbe2a0)]:
+  - @valbuild/ui@0.130.0
+  - @valbuild/core@0.130.0
+  - @valbuild/shared@0.130.0
+
+## 0.129.0
+
+### Patch Changes
+
+- Updated dependencies [[`e20f6fb`](https://github.com/valbuild/val/commit/e20f6fbcc215c310eef49a44c1a592c1e2081613), [`7d34ecc`](https://github.com/valbuild/val/commit/7d34ecce787a0709025ae7b4764cb6c3ad1f766b), [`0c351c4`](https://github.com/valbuild/val/commit/0c351c4f97ae7f09772eab0e856ae69821b803b7), [`41a0d76`](https://github.com/valbuild/val/commit/41a0d76636a2dce3f1e506d93170d97e46041d98), [`9e0ebb0`](https://github.com/valbuild/val/commit/9e0ebb00430f05ef92dff031309f73b8075a7d99)]:
+  - @valbuild/ui@0.129.0
+  - @valbuild/core@0.129.0
+  - @valbuild/shared@0.129.0
+
+## 0.128.0
+
+### Patch Changes
+
+- Updated dependencies [[`8b52b33`](https://github.com/valbuild/val/commit/8b52b33e1f629f14f66cc71dcc7cf415d210c7d4), [`362fb49`](https://github.com/valbuild/val/commit/362fb49f30d2b04c4ff78d54dca2bf5ad978a05c), [`c595799`](https://github.com/valbuild/val/commit/c59579977a436ec530c6c69f2b340ab9829d97ab)]:
+  - @valbuild/core@0.128.0
+  - @valbuild/shared@0.128.0
+  - @valbuild/ui@0.127.0
+
+## 0.127.0
+
+### Minor Changes
+
+- [#608](https://github.com/valbuild/val/pull/608) [`7fa8699`](https://github.com/valbuild/val/commit/7fa869974bc895af992a7d5c18b76253636d7d65) Thanks [@freekh](https://github.com/freekh)! - A record whose schema declares its keys now holds every one of them.
+
+  Two key schemas enumerate their keys: `s.locale()`, whose set is the project's
+  `locales.available`, and a union of literals. For those, the keys are part of the
+  schema, so a missing one is a hole in the content rather than content nobody has
+  written yet — and validation now says so, naming what is missing.
+
+  ```typescript
+  s.record(s.locale(), s.object({ title: s.string() }));
+  // Missing key: 'nb-NO'. This record's keys are declared by its schema, so
+  // every one of them is an entry — an entry nobody has written yet is null,
+  // not absent.
+  ```
+
+  **An entry nobody has written yet is `null`.** Not an absent key: a null entry is
+  data you can count, filter and see in a diff, and it means half-translated
+  content stays _valid_ rather than blocking a publish. The value type of such a
+  record widens by `null` to match, so writing one in a `.val.ts` type-checks:
+
+  ```typescript
+  c.define(
+    "/content/jacket.val.ts",
+    s.record(s.locale(), s.object({ title: s.string() })),
+    {
+      "en-US": { title: "Winter jacket" },
+      "nb-NO": null, // nobody has translated this yet
+    },
+  );
+  ```
+
+  **This changes `s.record(s.union(...), item)`**, and closes a gap that was
+  already there: `s.record(s.union(s.literal("a"), s.literal("b")), item)` types as
+  `Record<"a" | "b", T>`, so TypeScript demanded both keys while the validator only
+  checked the ones present. It now checks them too, and — as above — accepts `null`
+  for an entry that has not been filled in. If you have such a record with keys
+  missing, validation will report them; adding the keys with `null` values is the
+  fix, and creating one from the Studio does it for you.
+
+  `emptyOf` creates these records with every key already in them rather than
+  empty, since an empty one is already missing keys. In the Studio use the
+  `useEmptyOf()` hook rather than importing `emptyOf` directly: a locale record's
+  keys are in the settings module, and the hook is what has read it.
+
+- [#608](https://github.com/valbuild/val/pull/608) [`5b7fe05`](https://github.com/valbuild/val/commit/5b7fe05cec6365f9cd1de9ba31e65ed4a87edb63) Thanks [@freekh](https://github.com/freekh)! - `s.locale()`: one of the project's languages.
+
+  The languages themselves are declared in the settings module (`locales.available`);
+  this says that a value is one of them.
+
+  ```typescript
+  // a field: everything in this entry is in this language
+  s.record(s.string(), s.object({ locale: s.locale(), title: s.string() }));
+
+  // a key: one entry per language
+  s.record(s.locale(), s.object({ title: s.string() }));
+  ```
+
+  Every locale in content is checked against the project's list, the way `keyOf`
+  and `route` are checked against what they point at. An undeclared language names
+  the ones the project has; a project that has declared none is told to declare
+  them rather than told the value is wrong.
+
+  A locale is stored as the tag itself — the value in content is `nb-NO`, and a
+  record keyed by `s.locale()` has `nb-NO` as its key. Spelling one differently
+  where it is stored (`/no/…` as a URL segment) is a real need and is deliberately
+  not in this release: it changes what is accepted as well as what is shown, so it
+  is being designed on its own rather than folded in here.
+
+  A locale is **never stega encoded**: it ends up in `<html lang>`, in `hreflang`
+  and in `Intl` constructors, none of which survive invisible characters.
+
+  `assistant.translation` joins the settings module alongside `context` and `tone`
+  — a note per language, keyed by language, so only the target language's rules are
+  sent when translating into it.
+
+### Patch Changes
+
+- Updated dependencies [[`7fa8699`](https://github.com/valbuild/val/commit/7fa869974bc895af992a7d5c18b76253636d7d65), [`600308d`](https://github.com/valbuild/val/commit/600308d0174990ad9f5c417147d160273489c65a), [`5b7fe05`](https://github.com/valbuild/val/commit/5b7fe05cec6365f9cd1de9ba31e65ed4a87edb63), [`88262ac`](https://github.com/valbuild/val/commit/88262ac8db068650a664981ef73556457d87741a), [`7072e07`](https://github.com/valbuild/val/commit/7072e07623c953a09ac14388ae22dada0b431ce3), [`29811c3`](https://github.com/valbuild/val/commit/29811c3f8c7e001a950e6f4833af6888e6a4efea), [`9983116`](https://github.com/valbuild/val/commit/99831164c5151aad7ca69de79e1d0d59878be251)]:
+  - @valbuild/core@0.127.0
+  - @valbuild/shared@0.127.0
+  - @valbuild/ui@0.127.0
+
+## 0.126.0
+
+### Patch Changes
+
+- [#664](https://github.com/valbuild/val/pull/664) [`5bfd630`](https://github.com/valbuild/val/commit/5bfd630b63dee2189e238f20fe72ecc5537160f7) Thanks [@freekh](https://github.com/freekh)! - Show the git message on deployments Val did not publish
+
+  The deploy feed could only name a publish when Val itself had made the commit:
+  the message came off Val's own `ValCommit`, and every other deployment — a
+  developer's push, a merged pull request, a revert — showed a seven-character
+  sha. On most projects those are the majority, so "what went out at 14:02?" had
+  no answer in the Studio.
+
+  A deployment can now carry its own `commitMessage`, which the Studio uses
+  wherever there is no Val commit to prefer. It is optional and nullable, so a
+  content service that does not report messages is unaffected — those publishes
+  keep showing the short sha, exactly as before.
+
+  Deployment rows also show only the subject line of a message now. A git message
+  is a subject, a blank line and a body, and the rows are one truncated line — so
+  a real push arrived as "Subject The body went on like this…". The classic
+  Draft changes view still has the whole message in its tooltip.
+
+- [#652](https://github.com/valbuild/val/pull/652) [`f2fe70d`](https://github.com/valbuild/val/commit/f2fe70dab2b65000dfaf289f09c70b4a8291467a) Thanks [@freekh](https://github.com/freekh)! - `s.union` is now `s.discriminatedUnion` and `s.enum`.
+
+  `s.union` did two unrelated jobs and worked out which one you meant from its
+  first argument: a string key meant a tagged union of objects, literal schemas
+  meant a set of allowed strings. Those are now two schemas with two names.
+
+  ```ts
+  // A fixed set of strings — presents as a dropdown
+  s.enum("primary", "secondary", "ghost"); // Schema<"primary" | "secondary" | "ghost">
+
+  // One of several object shapes, told apart by a tag field
+  s.discriminatedUnion(
+    "type",
+    s.object({ type: s.literal("hero"), heading: s.string() }),
+    s.object({ type: s.literal("quote"), text: s.string() }),
+  );
+  ```
+
+  `s.enum` takes the strings directly, so the `s.literal(...)` wrapper is gone.
+
+  **`s.union` still works** — it is deprecated, and it builds exactly the schema
+  above, so nothing has to change today:
+
+  ```ts
+  s.union(s.literal("one"), s.literal("two")); // → s.enum("one", "two")
+  s.union("type", pageA, pageB); // → s.discriminatedUnion("type", pageA, pageB)
+  ```
+
+  The two are different kinds of node, and that is the reason for the split. A
+  discriminated union is a container: the selected variant's fields are the fields
+  being edited, and everything that walks a schema descends through it. An enum is
+  a leaf — a string with a closed domain — so nothing recurses into it. Told apart
+  only by the shape of `key`, every consumer had to re-derive which one it was
+  holding; each now has its own serialized type (`"discriminated-union"` and
+  `"enum"`) and Val Studio has a field per kind rather than one field that
+  branches.
+
+  Two behaviour changes fall out of the split, both of them fixes:
+
+  - A value that is not a string at all now fails an enum's validation with a
+    type error. `s.union` of literals only ever checked the value against its
+    literals when the value WAS a string, so a number or an object where an enum
+    was declared validated clean.
+  - An enum field now shows its validation errors in Val Studio where the field
+    is opened on its own — the module editor and the canvas's fields column — and
+    gets the compact error layout inside an inline list row. It is a leaf now, so
+    it goes through the same error rendering as every other leaf field; the string
+    union bypassed it and showed nothing in those places.
+
+  Several latent crashes in the old `s.union` are fixed on the way past, all of
+  them cases where it threw a `TypeError` instead of reporting:
+
+  - A required discriminated union holding `null` now reports a type error rather
+    than throwing, and resolving a path underneath a nullable one that is `null`
+    gives the error the API promises instead of a crash.
+  - `s.literal("")` is a legal discriminator tag, and `s.enum("")` a legal value.
+    Both used to be treated as absent by a truthiness check — in path resolution,
+    in stega encoding, and in the message that lists a union's valid tags. The
+    editor's dropdowns handle them too: an empty value is reserved by the select
+    component and had to be mapped around.
+  - A variant that omits the discriminator entirely is now reported as the schema
+    error it is, instead of throwing while the check looked for it.
+  - An enum's value is now indexed for search, like every other string leaf. The
+    old string union was never indexed at all, so searching for one of its values
+    could not find the field.
+  - A nullable discriminated union set to `null` no longer renders a spinner that
+    never resolves.
+
+  `s.discriminatedUnion` also requires at least one variant, as `s.enum` requires
+  at least one value: a union with nothing to select is not a thing to write, and
+  everything downstream reads the first variant where it needs any.
+
+  If you read serialized schemas yourself, that is the breaking part: `type` is no
+  longer `"union"`, an enum carries `values: string[]` instead of a `key` plus
+  `items` of literal schemas, and `UnionSchema` is no longer a class.
+  `SerializedUnionSchema`, `SerializedStringUnionSchema`,
+  `SerializedObjectUnionSchema` and `UnionSchema` remain as deprecated type
+  aliases.
+
+- [#666](https://github.com/valbuild/val/pull/666) [`5c18c99`](https://github.com/valbuild/val/commit/5c18c99ecc84651f82123481fc042063db953833) Thanks [@freekh](https://github.com/freekh)! - `next build` no longer warns `module.createRequire failed parsing argument.`
+
+  Every Next app that bundles `@valbuild/server` into its Val API route got this
+  on every build, twice, with an import trace that led from `route.ts` down into
+  `valbuild-server.esm.js` and stopped there:
+
+  ```
+  ⚠ ./node_modules/.../@valbuild/server/dist/valbuild-server.esm.js
+  module.createRequire failed parsing argument.
+  ```
+
+  Nothing was wrong. webpack special-cases a `createRequire` binding imported from
+  `node:module` and tries to resolve the call's argument at build time; the two
+  calls in this package take a path inside the user's project, known only at
+  runtime, so there was nothing to resolve and nothing the warning could tell
+  anyone. Both now go through a helper that reaches the same function through the
+  `Module` class, which that analysis does not tag. Runtime behaviour is
+  unchanged, and a lint rule keeps the direct import from coming back.
+
+- Updated dependencies [[`719ad6b`](https://github.com/valbuild/val/commit/719ad6b607bcf136d0dbde9e90bf4b8a843561a4), [`9830277`](https://github.com/valbuild/val/commit/9830277e9aaca8da3030f629c2656ec58da47e45), [`64bfd0a`](https://github.com/valbuild/val/commit/64bfd0a6c85832ea5169b53e47087f22e193df36), [`7782979`](https://github.com/valbuild/val/commit/7782979e9b52f2015a6e72dc981e630d4f8c78e2), [`5bfd630`](https://github.com/valbuild/val/commit/5bfd630b63dee2189e238f20fe72ecc5537160f7), [`ccbcda6`](https://github.com/valbuild/val/commit/ccbcda60b3e3c465071229ae1ba28ac735483e63), [`f2fe70d`](https://github.com/valbuild/val/commit/f2fe70dab2b65000dfaf289f09c70b4a8291467a), [`755e1a3`](https://github.com/valbuild/val/commit/755e1a3953775cb8d2c2dce87d6810d3dc329640), [`c6b1ec8`](https://github.com/valbuild/val/commit/c6b1ec84f1883750a4cfe5f70470b177621e971f), [`656f680`](https://github.com/valbuild/val/commit/656f680043c640f678625a64e690389ab23a0a69), [`610a041`](https://github.com/valbuild/val/commit/610a0414b120b521f38a2eb1182b3778bf778b2b), [`171208a`](https://github.com/valbuild/val/commit/171208a20177e68ed5a8b1a6fdaabfe893a6aa5f)]:
+  - @valbuild/ui@0.126.0
+  - @valbuild/shared@0.126.0
+  - @valbuild/core@0.126.0
+
 ## 0.125.0
 
 ### Patch Changes

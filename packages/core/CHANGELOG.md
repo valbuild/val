@@ -1,5 +1,626 @@
 # @valbuild/core
 
+## 0.130.0
+
+### Patch Changes
+
+- [#663](https://github.com/valbuild/val/pull/663) [`8425378`](https://github.com/valbuild/val/commit/8425378c315ea46b5d822f1130b633e0449ff1b0) Thanks [@freekh](https://github.com/freekh)! - A value that has not been written yet offers to create it, instead of looking broken
+
+  Opening an array item or a record entry whose value is `null` rendered the item
+  schema's fields over nothing, so every one of them reported **Not Found** — a
+  column of broken fields where the truth is one fact about the value: nobody has
+  written it. It now shows one **Create** button.
+
+  A field inside an object always had this — the checkbox beside its label — but
+  a value opened on its own has no such wrapper, and that is exactly what
+  navigating to an entry does. Both places now agree.
+
+  This is most visible with a record whose keys are declared by its schema
+  (`s.record(s.locale(), …)` or `s.record(s.enum("a", "b"), …)`), where an entry
+  nobody has written is `null` rather than absent. There the wording follows: an
+  unwritten entry reads as **Not translated** in the list, and the button says
+  **Write this translation** rather than Create.
+
+  Also fixed: `Internal.resolvePath` reported a record entry that exists with a
+  falsy value — `null`, but equally `""`, `0` and `false`, in any record — as a
+  key the record does not have, so nothing could resolve a path to one.
+
+- [#679](https://github.com/valbuild/val/pull/679) [`473a185`](https://github.com/valbuild/val/commit/473a185f70351b44388f3bc1852649e2c1dbe001) Thanks [@freekh](https://github.com/freekh)! - `.preview()` now names a value wherever the Studio shows it, including a module's own root
+
+  Wherever the Studio shows a piece of content to a human it has to answer three
+  questions: what is this called, what is it, what does it look like. Every
+  surface answered them itself, out of the path, and they disagreed — the same
+  record entry read `blog1` in the heading, "Blog 1" in the scope trail and
+  `/blogs/blog1` in the sitemap. They now give one answer, and it is the one you
+  wrote:
+
+  ```ts
+  s.record(
+    s.object({ title: s.string(), author: s.string(), cover: s.image() }),
+  ).preview((blog) => ({
+    title: blog.title,
+    subtitle: blog.author,
+    image: blog.cover,
+  }));
+  ```
+
+  That title, subtitle and image are what the heading, list rows, search hits,
+  cards and chosen references show. Nothing is required: a project with no
+  `.preview()` reads exactly as it did — the route, the key, `[#3](https://github.com/valbuild/val/issues/3)`, or the
+  prettified file name — so this is somewhere to improve from rather than
+  something to adopt.
+
+  **`.preview()` on a module's own schema now works.** It was accepted and never
+  run: a preview was only ever reified by a CONTAINER for its rows, and a module
+  root has no container. So `c.define("/content/authors.val.ts", s.record(…)
+.preview(…), …)` can name the module itself — "Forfattere" rather than
+  `authors.val.ts` — and the same is true of a field of an object.
+
+  **A page's URL is carried separately from its title.** A route is not a worse
+  name for a page, it is the page's identity: two drafts both titled "Launch" are
+  told apart by `/blog/launch-2026` and by nothing else. Title a page with
+  `.preview()` and its route moves to the line under the heading rather than
+  disappearing.
+
+  Two things a preview is deliberately NOT used for, because a preview is a
+  closure over source and so changes as an editor types:
+
+  - The breadcrumb, the Explorer and the Pages tree stay path segments. A trail
+    of titles names three things and locates none of them. The one exception is a
+    page, whose trail is its ROUTE instead of the file it is stored in — nobody
+    reaches a page through the file.
+  - Help text. `.describe()` is input help and is shown where a field or a key is
+    being ENTERED; a record key's description no longer appears in the heading,
+    where the key cannot be edited, and appears in every form that asks for one.
+
+  Also fixed: a just-uploaded image stayed blank until save in list rows, headings
+  and reference dropdowns, which built the URL of the published file rather than
+  the pending patch's.
+
+- [#677](https://github.com/valbuild/val/pull/677) [`64f0de3`](https://github.com/valbuild/val/commit/64f0de339b8621cb5a6c422dfe55cae5b2bbe2a0) Thanks [@freekh](https://github.com/freekh)! - A guided tour of the Studio, and a `studio.tour` setting to turn it off
+
+  Editors kept asking what Pages, Media and Data are for. The three words are
+  precise inside Val and vague everywhere else, and the Studio said each of them
+  in three places — the rail tooltip, the panel header, the empty state — without
+  ever defining any.
+
+  **A guided tour**, offered by a glowing "Take a tour" button on the empty editor
+  at `/val/~` and kept permanently in **Quick actions**: welcome, then Pages, Media
+  and Data where the project has them, then the assistant where there is one, then
+  Review, Preview and Publish. It never opens itself, and the glow stops for good
+  once somebody has been through it on that browser.
+
+  Turn it off for the whole project under **Settings → Studio** — a new
+  `studio.tour` field on `s.settings()`, unset meaning the tour is offered. A team
+  that finds it noisy switches it off once, for everyone, instead of each person
+  dismissing it on each machine; the tour stays in Quick actions for anyone who
+  wants it.
+
+  Also, for the same first-run problem:
+
+  - **Rail tooltips carry a definition** under the label: "The pages of your site,
+    by URL", "Shared images and files, uploaded once", "Content that is not tied
+    to one page".
+  - **The empty editor is a short glossary** of the destinations this project
+    actually has, rather than "No item selected".
+  - **Empty states explain instead of reporting.** "No pages yet" now says who
+    creates the routes pages go under; "No galleries yet" says what a gallery is
+    for.
+  - **A project with a single media gallery opens it**, so Media shows media
+    instead of one collapsed row named after a module file.
+  - **A site map of twenty pages or fewer arrives open.** With a home page at `/`
+    the whole site nests under one root row, so Pages used to show a single row
+    called Home. Larger sites keep the old behaviour.
+  - **Settings points at Account** for the per-person settings — the theme, and
+    how the Studio behaves on this machine.
+  - Page rows with children now carry `aria-expanded`, as the media panel's rows
+    always did.
+
+## 0.129.0
+
+### Minor Changes
+
+- [#655](https://github.com/valbuild/val/pull/655) [`7d34ecc`](https://github.com/valbuild/val/commit/7d34ecce787a0709025ae7b4764cb6c3ad1f766b) Thanks [@freekh](https://github.com/freekh)! - A project can now make Val Studio look like its own.
+
+  `s.settings()` has a new `theme` section, edited under **Settings → Appearance**
+  in the Studio. It is content like everything else: edited as a draft, shown in
+  the publish diff, and the same for everyone working on the project.
+
+  ```ts
+  export default c.define("/settings.val.ts", s.settings(), {
+    theme: {
+      accent: "#2563eb",
+      radius: "tight",
+      mode: "light",
+    },
+  });
+  ```
+
+  **`accent` is one hex, and it restyles the whole chrome** — Publish, the active
+  rail item, focus rings, switches, the caret in a rich text field, and the
+  outlines the canvas draws around editable elements on your own page. Any colour
+  is allowed, not a list of approved ones, because what the accent replaces is a
+  ten-step ramp that is _generated_ from it: each step keeps the lightness of the
+  step it replaces and changes only the hue. WCAG contrast is almost entirely a
+  function of lightness, so every foreground/background pair the chrome renders
+  stays at AA — which is asserted across the hue circle, pure black and a
+  saturated yellow included, rather than argued for. One value drives both light
+  and dark mode, since the semantic tokens pick different steps of the ramp in
+  each.
+
+  **`radius`** is `square`, `tight`, `default` or `soft`, and moves every corner
+  in the Studio.
+
+  The accent also moves the outlines the canvas draws around editable elements on
+  your own page. Those are drawn inside your document, which has none of Val's
+  stylesheet, so the colour is sent to the page over the canvas protocol — which
+  means a project on an older `@valbuild/next` or `@valbuild/tanstack` than its
+  Studio keeps Val's green there until it upgrades, rather than breaking.
+
+  **`mode`** is the mode the Studio opens in for an editor who has never picked
+  one. It never overrides an editor who has — that choice stays theirs, per
+  person and per browser, behind the account button.
+
+  Every field is optional, and unset means Val's own look, so an existing
+  settings module needs no change.
+
+  Two smaller fixes that came with it:
+
+  - **A settings change is its own entry in the publish diff.** Editing the
+    assistant's tone used to collapse the entire settings module into one change
+    card labelled "Settings", because the patch that writes a settings field is
+    an `add`, and `PatchSets` had no case for a settings section — so it gave up
+    and grouped the whole module. Two unrelated settings edits now show as two
+    changes, each under the name the panel gives it.
+  - **The Val mark keeps its green.** It named a step of the brand ramp, so it
+    would have recoloured along with a project's accent. It has its own token now.
+
+- [#657](https://github.com/valbuild/val/pull/657) [`0c351c4`](https://github.com/valbuild/val/commit/0c351c4f97ae7f09772eab0e856ae69821b803b7) Thanks [@freekh](https://github.com/freekh)! - A project can put its own logo in Val Studio.
+
+  `s.settings()`'s `theme` section takes a `logo`, uploaded from **Settings →
+  Appearance**. It replaces Val's mark at the top of the left rail, and beside the
+  menu button below the desktop breakpoint — the two slots that say which
+  workspace you are in.
+
+  ```ts
+  export default c.define("/settings.val.ts", s.settings(), {
+    theme: {
+      logo: {
+        path: "/public/val/brand/mark_a1b2c.png",
+        width: 512,
+        height: 512,
+        mimeType: "image/png",
+      },
+    },
+  });
+  ```
+
+  It is an ordinary image field, so it comes with the upload, the alt text and
+  everything else `s.image()` has, and the file lands in `/public/val/brand` so it
+  does not sit in the middle of your content's media. A draft logo shows
+  immediately and publishes with the rest of your changes.
+
+  Two things are deliberate:
+
+  - **A square-ish mark, not a wordmark.** The slot is 32px wide. A wide image is
+    fitted into it rather than cropped, so all of it is there and none of it is
+    large.
+  - **Val's mark stays on the launcher that floats on your own site.** In the
+    Studio the mark labels the workspace, so your logo belongs there. On your own
+    page it labels the tool — it is the button that opens Val — and your logo
+    floating over your own website says nothing.
+
+## 0.128.0
+
+### Minor Changes
+
+- [#637](https://github.com/valbuild/val/pull/637) [`8b52b33`](https://github.com/valbuild/val/commit/8b52b33e1f629f14f66cc71dcc7cf415d210c7d4) Thanks [@freekh](https://github.com/freekh)! - **Breaking:** the `directory` option is now `dir`, on every schema that takes
+  it — `s.imageset()`, `s.fileset()` and `s.image()`.
+
+  ```ts
+  // before
+  s.imageset({ directory: "/public/val/images" });
+  s.fileset({ accept: "application/pdf", directory: "/public/val/docs" });
+  s.image({ directory: "/public/val/heroes" });
+
+  // after
+  s.imageset({ dir: "/public/val/images" });
+  s.fileset({ accept: "application/pdf", dir: "/public/val/docs" });
+  s.image({ dir: "/public/val/heroes" });
+  ```
+
+  Same meaning: where uploads for that schema land. Still required on
+  `s.imageset()` and `s.fileset()`, still optional on `s.image()`.
+
+  **`files.directory` in `val.config.ts` is NOT renamed.** That is the
+  project-wide files directory, a different option with a different scope, and it
+  keeps its name.
+
+  `dir` is the serialized name too, and two things follow from that. Neither
+  needs any action, but both are worth knowing:
+
+  - **History still reads pre-rename commits.** A commit record stores the schema
+    each module was under, so commits from before this release carry `directory`.
+    The serialized-schema parser accepts that key and reads it as `dir`, which is
+    what keeps a historical gallery from showing up with no directory at all.
+  - **Published remote files re-validate once.** The serialized schema is what a
+    remote file's validation hash is computed from, so a file uploaded under a
+    schema that sets this option gets one re-download and re-check, after which
+    the ref is rewritten with the new hash. This is the same self-healing path a
+    core version bump already takes.
+
+- [#643](https://github.com/valbuild/val/pull/643) [`362fb49`](https://github.com/valbuild/val/commit/362fb49f30d2b04c4ff78d54dca2bf5ad978a05c) Thanks [@freekh](https://github.com/freekh)! - `s.imageset({ alt })` now types an entry's `alt` from the `alt` schema, instead
+  of always calling it `string | null`.
+
+  That single hard-coded type made the locale-record form **unusable** and the
+  required form **unsound**, in opposite directions:
+
+  ```ts
+  // Before: documented, but the source could not be typed.
+  //   Type '{ en: string; no: string; }' is not assignable to type 'string'
+  s.imageset({ dir: "/public/val/img", alt: s.record(s.string()) });
+
+  // Before: this compiled, then failed validation with
+  //   Expected 'string', got 'null'
+  s.imageset({ dir: "/public/val/img", alt: s.string() });
+  // → { width, height, mimeType, alt: null }
+  ```
+
+  Both now behave as the schema says: a locale record types as
+  `Record<string, string>`, a required alt as `string`, and an omitted or
+  `.nullable()` alt as `string | null` exactly as before.
+
+  `ImagesetEntryMetadata` takes an optional alt parameter and defaults to
+  `string | null`, so existing references keep working unchanged. Where a gallery
+  of any alt shape is acceptable — `s.image(galleryModule)` is the one that
+  matters, since a field carries its own alt and never reads the gallery's — write
+  `ImagesetEntryMetadata<AltSource>`.
+
+  The one thing to know if you had worked around this: an explicit
+  `Record<string, ImagesetEntryMetadata>` annotation on the source of a
+  **required**-alt gallery is now too wide and will not compile. Name the alt type
+  (`ImagesetEntryMetadata<string>`), or drop the annotation and let the schema
+  type it.
+
+- [#637](https://github.com/valbuild/val/pull/637) [`c595799`](https://github.com/valbuild/val/commit/c59579977a436ec530c6c69f2b340ab9829d97ab) Thanks [@freekh](https://github.com/freekh)! - **Breaking:** `s.images()` is now `s.imageset()`, and `s.files()` is now
+  `s.fileset()`.
+
+  ```ts
+  // before
+  s.images({ directory: "/public/val/images" });
+  s.files({ accept: "application/pdf", directory: "/public/val/docs" });
+
+  // after
+  s.imageset({ dir: "/public/val/images" });
+  s.fileset({ accept: "application/pdf", dir: "/public/val/docs" });
+  ```
+
+  Nothing about their behaviour changed — same `.remote()`, same
+  record-of-metadata content keyed by file path. (`directory` is renamed to
+  `dir` in the same release; see the separate note.)
+
+  The old names were a trap. `s.images()` and `s.image()` differ by one letter,
+  which reads as "the same thing, but several" — while the real difference is that
+  `s.imageset()` defines a **whole module** and `s.image()` defines a **field**.
+  They are not variants of each other, and the plural spelling suggested they were.
+  `-set` names the container instead, so the two now look as different as they are.
+
+  `s.image(imagesetModule)` and `s.file(filesetModule)` are unchanged: that is
+  still how a field picks one entry out of a set.
+
+  If you are also moving off the `remote` option (removed in the same release),
+  the combined migration is:
+
+  ```ts
+  // before
+  s.images({ directory: "/public/val/images", remote: true });
+
+  // after
+  s.imageset({ dir: "/public/val/images" }).remote();
+  ```
+
+  The rename is a hard error rather than a silent one: `s.images` no longer
+  exists, so an un-migrated call fails immediately in TypeScript and at runtime.
+
+## 0.127.0
+
+### Minor Changes
+
+- [#608](https://github.com/valbuild/val/pull/608) [`7fa8699`](https://github.com/valbuild/val/commit/7fa869974bc895af992a7d5c18b76253636d7d65) Thanks [@freekh](https://github.com/freekh)! - A record whose schema declares its keys now holds every one of them.
+
+  Two key schemas enumerate their keys: `s.locale()`, whose set is the project's
+  `locales.available`, and a union of literals. For those, the keys are part of the
+  schema, so a missing one is a hole in the content rather than content nobody has
+  written yet — and validation now says so, naming what is missing.
+
+  ```typescript
+  s.record(s.locale(), s.object({ title: s.string() }));
+  // Missing key: 'nb-NO'. This record's keys are declared by its schema, so
+  // every one of them is an entry — an entry nobody has written yet is null,
+  // not absent.
+  ```
+
+  **An entry nobody has written yet is `null`.** Not an absent key: a null entry is
+  data you can count, filter and see in a diff, and it means half-translated
+  content stays _valid_ rather than blocking a publish. The value type of such a
+  record widens by `null` to match, so writing one in a `.val.ts` type-checks:
+
+  ```typescript
+  c.define(
+    "/content/jacket.val.ts",
+    s.record(s.locale(), s.object({ title: s.string() })),
+    {
+      "en-US": { title: "Winter jacket" },
+      "nb-NO": null, // nobody has translated this yet
+    },
+  );
+  ```
+
+  **This changes `s.record(s.union(...), item)`**, and closes a gap that was
+  already there: `s.record(s.union(s.literal("a"), s.literal("b")), item)` types as
+  `Record<"a" | "b", T>`, so TypeScript demanded both keys while the validator only
+  checked the ones present. It now checks them too, and — as above — accepts `null`
+  for an entry that has not been filled in. If you have such a record with keys
+  missing, validation will report them; adding the keys with `null` values is the
+  fix, and creating one from the Studio does it for you.
+
+  `emptyOf` creates these records with every key already in them rather than
+  empty, since an empty one is already missing keys. In the Studio use the
+  `useEmptyOf()` hook rather than importing `emptyOf` directly: a locale record's
+  keys are in the settings module, and the hook is what has read it.
+
+- [#608](https://github.com/valbuild/val/pull/608) [`5b7fe05`](https://github.com/valbuild/val/commit/5b7fe05cec6365f9cd1de9ba31e65ed4a87edb63) Thanks [@freekh](https://github.com/freekh)! - `s.locale()`: one of the project's languages.
+
+  The languages themselves are declared in the settings module (`locales.available`);
+  this says that a value is one of them.
+
+  ```typescript
+  // a field: everything in this entry is in this language
+  s.record(s.string(), s.object({ locale: s.locale(), title: s.string() }));
+
+  // a key: one entry per language
+  s.record(s.locale(), s.object({ title: s.string() }));
+  ```
+
+  Every locale in content is checked against the project's list, the way `keyOf`
+  and `route` are checked against what they point at. An undeclared language names
+  the ones the project has; a project that has declared none is told to declare
+  them rather than told the value is wrong.
+
+  A locale is stored as the tag itself — the value in content is `nb-NO`, and a
+  record keyed by `s.locale()` has `nb-NO` as its key. Spelling one differently
+  where it is stored (`/no/…` as a URL segment) is a real need and is deliberately
+  not in this release: it changes what is accepted as well as what is shown, so it
+  is being designed on its own rather than folded in here.
+
+  A locale is **never stega encoded**: it ends up in `<html lang>`, in `hreflang`
+  and in `Intl` constructors, none of which survive invisible characters.
+
+  `assistant.translation` joins the settings module alongside `context` and `tone`
+  — a note per language, keyed by language, so only the target language's rules are
+  sent when translating into it.
+
+- [#608](https://github.com/valbuild/val/pull/608) [`88262ac`](https://github.com/valbuild/val/commit/88262ac8db068650a664981ef73556457d87741a) Thanks [@freekh](https://github.com/freekh)! - Locale scopes: a subtree in one language, and one function that answers which.
+
+  A **locale scope** is content governed by a single language. Two things open one
+  today (a third, locale segments in routes, follows):
+
+  ```typescript
+  // a locale field: this object and everything below it is in one language
+  s.object({ locale: s.locale(), title: s.string(), body: s.richtext() });
+
+  // a locale-keyed record: each entry is in the language its key names
+  s.record(s.locale(), s.object({ title: s.string() }));
+  ```
+
+  **A scope may not contain another scope**, and an object may have only one
+  locale field. Both are reported as schema errors, naming what to move:
+
+  ```
+  An object can be in one language, so it can have one locale field.
+  Found 'locale', 'language'.
+
+  Everything here is already in one language, so 'byLanguage' cannot set
+  another. Move the locale-keyed record out of this object, or take the outer
+  one away.
+  ```
+
+  A scope three levels deep is reported once, by the scope immediately enclosing
+  it, rather than by every ancestor.
+
+  The rule is **validated rather than typed**. Expressing "no scope below this
+  one" as a type constraint means threading it through every schema class's type
+  parameter, and the errors a recursive constraint like that produces name the
+  whole tree — an unrelated typo in a `.val.ts` would print pages.
+
+  `localeAt(path, snapshot)` (from `@valbuild/shared/internal`) answers which
+  language governs a path, and is the one implementation of that question, so the
+  Studio, the server and the validation worker cannot disagree. It returns the
+  tag, which is what `<html lang>`, `Intl` and `locales.available` all want.
+
+  It answers `null` where no scope governs the path, where the project has
+  declared no languages, and where a locale field holds something that is not one
+  of them — validation is already reporting the last, and guessing would put a
+  language in `<html lang>` that nobody chose.
+
+- [#608](https://github.com/valbuild/val/pull/608) [`29811c3`](https://github.com/valbuild/val/commit/29811c3f8c7e001a950e6f4833af6888e6a4efea) Thanks [@freekh](https://github.com/freekh)! - Settings: declare the languages a project publishes.
+
+  A new `locales` section in the settings module says which languages a project
+  has:
+
+  ```typescript
+  export default c.define("/settings.val.ts", s.settings(), {
+    locales: {
+      available: ["en-US", "fr-FR", "nb-NO"],
+    },
+  });
+  ```
+
+  The order is the project's own and is kept rather than sorted: it is the order
+  of the Studio's locale picker and of the rows in a locale-keyed record. There
+  is no default language — every locale-specific field asks which language it is
+  in, and a default is the answer that lets that question go unanswered.
+
+  Like every other settings section it is optional, so a project that is not
+  translated writes nothing and sees nothing: no locale controls appear anywhere
+  until `available` has something in it.
+
+  This is content rather than configuration, and deliberately: which languages a
+  site has is a decision the people who write it make, and under a build-time
+  constant it took a developer and a deploy. It is the same move `assistant`
+  already makes with `enabled`.
+
+  Tags are BCP 47 (`en-US`, `nb-NO`), checked through `Intl.getCanonicalLocales` —
+  the same implementation `<html lang>` and every `Intl` constructor use — and
+  they have to be in canonical form. `nb-no` parses, but nothing else in the stack
+  agrees it is the same string as `nb-NO`, and a locale is compared as a string
+  everywhere it is used. Validation names the spelling to use, and reports a
+  language declared twice on the repeat rather than on the list — that is the row
+  to delete, and a message on the list itself would not say which.
+
+  Edited under Settings → Locales in the Studio, which names each language in its
+  own language.
+
+### Patch Changes
+
+- [#665](https://github.com/valbuild/val/pull/665) [`7072e07`](https://github.com/valbuild/val/commit/7072e07623c953a09ac14388ae22dada0b431ce3) Thanks [@freekh](https://github.com/freekh)! - `.nullable()` no longer drops the field's `.validate(...)` functions.
+
+  `.nullable()` returns a copy of the schema, and most of the schema classes built
+  that copy with an empty list of custom validators — so a validator declared
+  before the `.nullable()` was silently thrown away:
+
+  ```ts
+  s.number()
+    .validate((n) => (n > 100 ? "Too big" : false))
+    .nullable(); // the validator never ran
+  ```
+
+  `array`, `object`, `discriminatedUnion`, `enum`, `number`, `boolean`, `literal`,
+  `keyOf`, `date`, `dateTime`, `code`, `color` and `richtext` were affected;
+  `string`, `record`, `route`, `file` and `image` already carried them over, which
+  is why the bug was easy to miss. Validators now survive `.nullable()` on every
+  schema, in either order.
+
+  A validator on a nullable schema is called with `null` when the value is unset,
+  rather than being skipped — the same thing the schemas that never dropped them
+  have always done. If yours was written before the `.nullable()`, its argument is
+  typed as non-null even though `null` can reach it, so guard for it.
+
+## 0.126.0
+
+### Minor Changes
+
+- [#652](https://github.com/valbuild/val/pull/652) [`f2fe70d`](https://github.com/valbuild/val/commit/f2fe70dab2b65000dfaf289f09c70b4a8291467a) Thanks [@freekh](https://github.com/freekh)! - `s.union` is now `s.discriminatedUnion` and `s.enum`.
+
+  `s.union` did two unrelated jobs and worked out which one you meant from its
+  first argument: a string key meant a tagged union of objects, literal schemas
+  meant a set of allowed strings. Those are now two schemas with two names.
+
+  ```ts
+  // A fixed set of strings — presents as a dropdown
+  s.enum("primary", "secondary", "ghost"); // Schema<"primary" | "secondary" | "ghost">
+
+  // One of several object shapes, told apart by a tag field
+  s.discriminatedUnion(
+    "type",
+    s.object({ type: s.literal("hero"), heading: s.string() }),
+    s.object({ type: s.literal("quote"), text: s.string() }),
+  );
+  ```
+
+  `s.enum` takes the strings directly, so the `s.literal(...)` wrapper is gone.
+
+  **`s.union` still works** — it is deprecated, and it builds exactly the schema
+  above, so nothing has to change today:
+
+  ```ts
+  s.union(s.literal("one"), s.literal("two")); // → s.enum("one", "two")
+  s.union("type", pageA, pageB); // → s.discriminatedUnion("type", pageA, pageB)
+  ```
+
+  The two are different kinds of node, and that is the reason for the split. A
+  discriminated union is a container: the selected variant's fields are the fields
+  being edited, and everything that walks a schema descends through it. An enum is
+  a leaf — a string with a closed domain — so nothing recurses into it. Told apart
+  only by the shape of `key`, every consumer had to re-derive which one it was
+  holding; each now has its own serialized type (`"discriminated-union"` and
+  `"enum"`) and Val Studio has a field per kind rather than one field that
+  branches.
+
+  Two behaviour changes fall out of the split, both of them fixes:
+
+  - A value that is not a string at all now fails an enum's validation with a
+    type error. `s.union` of literals only ever checked the value against its
+    literals when the value WAS a string, so a number or an object where an enum
+    was declared validated clean.
+  - An enum field now shows its validation errors in Val Studio where the field
+    is opened on its own — the module editor and the canvas's fields column — and
+    gets the compact error layout inside an inline list row. It is a leaf now, so
+    it goes through the same error rendering as every other leaf field; the string
+    union bypassed it and showed nothing in those places.
+
+  Several latent crashes in the old `s.union` are fixed on the way past, all of
+  them cases where it threw a `TypeError` instead of reporting:
+
+  - A required discriminated union holding `null` now reports a type error rather
+    than throwing, and resolving a path underneath a nullable one that is `null`
+    gives the error the API promises instead of a crash.
+  - `s.literal("")` is a legal discriminator tag, and `s.enum("")` a legal value.
+    Both used to be treated as absent by a truthiness check — in path resolution,
+    in stega encoding, and in the message that lists a union's valid tags. The
+    editor's dropdowns handle them too: an empty value is reserved by the select
+    component and had to be mapped around.
+  - A variant that omits the discriminator entirely is now reported as the schema
+    error it is, instead of throwing while the check looked for it.
+  - An enum's value is now indexed for search, like every other string leaf. The
+    old string union was never indexed at all, so searching for one of its values
+    could not find the field.
+  - A nullable discriminated union set to `null` no longer renders a spinner that
+    never resolves.
+
+  `s.discriminatedUnion` also requires at least one variant, as `s.enum` requires
+  at least one value: a union with nothing to select is not a thing to write, and
+  everything downstream reads the first variant where it needs any.
+
+  If you read serialized schemas yourself, that is the breaking part: `type` is no
+  longer `"union"`, an enum carries `values: string[]` instead of a `key` plus
+  `items` of literal schemas, and `UnionSchema` is no longer a class.
+  `SerializedUnionSchema`, `SerializedStringUnionSchema`,
+  `SerializedObjectUnionSchema` and `UnionSchema` remain as deprecated type
+  aliases.
+
+### Patch Changes
+
+- [#661](https://github.com/valbuild/val/pull/661) [`171208a`](https://github.com/valbuild/val/commit/171208a20177e68ed5a8b1a6fdaabfe893a6aa5f) Thanks [@freekh](https://github.com/freekh)! - Every schema method now has a worked `@example` in its JSDoc, so hovering it in
+  your editor shows what to write.
+
+  That covers the whole builder surface — `.describe()`, `.validate()`,
+  `.nullable()`, `.readonly()`, `.hidden()`, `.preview()`, `.render()`, and the
+  per-type methods such as `.minLength()`, `.regexp()`, `.raw()`, `.multiline()`,
+  `.from()` / `.to()`, `.remote()`, `.jsonValues()` and `.external()` — as well as
+  `c.define()`, `c.json()`, `c.external()` and the `val` helpers (`val.attrs`,
+  `val.raw`, `val.unstable_getPath` and friends).
+
+  One of the examples corrected a real trap: a custom validator returns
+  `false | string`, so the natural-looking
+
+  ```ts
+  s.string().validate((val) => val.trim() === val || "No surrounding spaces");
+  ```
+
+  does not type check — `||` yields `true`, and `true` is not one of the two
+  answers. Write it as a ternary instead:
+
+  ```ts
+  s.string().validate((val) =>
+    val.trim() === val ? false : "No surrounding spaces",
+  );
+  ```
+
+  The examples are checked in CI, not just written: one test asks the TypeScript
+  checker for the doc each method actually resolves to and fails if it has no
+  `@example`, and another compiles every example it finds.
+
 ## 0.125.0
 
 ### Minor Changes

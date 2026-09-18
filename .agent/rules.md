@@ -10,7 +10,7 @@ expensive to re-derive from the code:
 - [`architecture/stores.md`](../architecture/stores.md) — the Studio's client
   state in one page: marks vs demand, the two realms, `peek`/`get`, and why
   reference stability is load-bearing.
-- [`architecture/media.md`](../architecture/media.md) — `s.images()` / `s.files()`
+- [`architecture/media.md`](../architecture/media.md) — `s.imageset()` / `s.fileset()`
   vs `s.image()` / `s.file()`, where uploaded bytes land, and how a file's URL is
   chosen (the rule that has been got wrong repeatedly).
 - [`architecture/patch-store.md`](../architecture/patch-store.md) — where
@@ -137,6 +137,111 @@ export type SelectorSource =
 
 If you see `Type 'X' does not satisfy the constraint 'Source'`, the fix is almost always adding a type to `SelectorSource`, NOT using intersections.
 
+## `describe` vs `preview` vs `render`
+
+**`.describe()` is INPUT HELP and is shown wherever that field — or a record's
+key — is being ENTERED; `.preview()` is a NAME and is shown wherever the value
+is REFERRED TO rather than edited; `.render()` is LAYOUT and applies only while
+the field is open in front of you.**
+
+The test that settles every case: **can the reader change something here?**
+
+| Yes — a description belongs here        | No — a preview belongs here          |
+| --------------------------------------- | ------------------------------------ |
+| The input beside a field's label        | A list row                           |
+| The key box in "New entry" / "New page" | A reference, once it has been chosen |
+| "Rename key", "Duplicate entry"         | A search hit                         |
+| The key half of a reference dropdown    | A card                               |
+| A field open in the overlay             | The heading of what you navigated to |
+
+So a record's `key` schema carries its own description ("The URL of this blog
+post. Lower case, no spaces.") and every form that asks for a key shows it —
+`AddRecordPopover`, `DuplicateRecordPopover`, `ChangeRecordPopover`,
+`NewPageForm`, `KeySelector`. A key description shown where the key cannot be
+edited is a bug, not a label.
+
+That asymmetry is why a description is plain data on the serialized schema and a
+preview is a closure: a description is true before any value exists and says the
+same thing to everyone filling the field in, and a preview cannot exist without
+the one value it names. A description must therefore never be used as a
+subtitle — it would repeat one sentence under every row of a list — and a
+preview must never be used as help text, because there is nothing to preview
+until after the value has been entered. None of the three substitutes for
+another: a field with a perfect description still previews as `#3` until
+someone writes the preview.
+
+### Where a preview comes from
+
+A value's preview reaches it by ONE of two routes, and which one depends on
+whether it has a container:
+
+- **Its own `self`** — for a module root, or a field of an object: anything that
+  is nobody's row. `executePreview` emits it at the value's own path. Before
+  that existed, `.preview()` on a module's own schema was dead code.
+- **Its container's `rows`** — for an item of an array or record, reified by the
+  container from the ITEM schema's closure. Deliberately NOT also a `self`: it
+  is one closure, and array and record pass `selfIsReifiedByParent` to their
+  direct items so it runs once per row rather than twice.
+
+`ReifiedPreview` therefore maps a path to `{ self?, rows? }`. Two fields, not a
+union, because a path can have both: `s.array(section).preview(...)` where
+`section` also previews is a list that shows its rows AND names itself.
+
+Two traps, both of which shipped once:
+
+- **A module's `self` must never reach a path below it.** `PreviewStore` hands a
+  row the module-root entry so the row can find itself in that entry's windowed
+  `rows`; handing the entry over whole made every author read back the record's
+  own title. `asSeenFromBelow` strips `self`.
+- **A preview is computed for a module with a LISTENER on it, and no other.**
+  `get()` does not count. A nav reads sources without subscribing
+  (`useShallowModulesAtPaths` says so), so a nav that NAMES its rows must call
+  `usePreviewDemand` — one listener per module, never one per row. Without it
+  the titles appear only for the module the editor is currently in, which reads
+  as data missing rather than as a feature not used.
+
+### A preview is a TITLE, never a LOCATION
+
+This is the line that decides every surface, and it was got wrong once in each
+direction:
+
+- **A title** is what a thing is CALLED, where the thing is shown as a thing:
+  the heading of what you opened, a card, a list row, a search hit, a reference
+  once it has been chosen. A preview belongs in all of these.
+- **A location** is WHERE YOU ARE, and it is made of path segments: the
+  breadcrumb under the heading, the Explorer tree, the Pages tree. A preview
+  belongs in NONE of these — not even for a module root, not even when it reads
+  better.
+
+Two reasons, and the second is the one that settles it:
+
+1. A trail of titles names three things and locates none of them.
+   `Content / Forfattere / Theodor René Carlsen` cannot be typed into a URL bar,
+   grepped for, or matched against the file an editor is looking at.
+2. A preview is a CLOSURE OVER SOURCE, so a title changes as an editor types.
+   A location that moves under you is not a location.
+
+The one thing a location may take from the heading is a page's ROUTE, because a
+route IS the page's location. And it takes it INSTEAD of the file path, not
+beside it: `/app/blogs/[blog]/page.val.ts?p="/blogs/blog2"` reads `/blogs/blog2`
+and nothing else, because nobody reaches a page through the file — the Pages
+panel is a tree of routes. `scopePartsBelowPageRouter` is that rule.
+
+### `describePath` is the one implementation
+
+`packages/ui/spa/utils/describePath.ts` turns a source path into the
+`{ title, subtitle, image, url, pathLabel }` a human is shown — the preview side of the rule, and only that. It prefers the
+value's preview and falls back to the route, the key, the index or the file
+name, and `origin` says which happened, so a surface can tell a name someone
+wrote from a key we had lying around.
+
+Anything that TITLES a path goes through it rather than deriving a name of its
+own — the heading, list rows, search hits and references disagreed with each
+other before it existed. Anything that LOCATES a path does not go near it: the
+breadcrumb and the Explorer use path segments, per the rule above.
+`useDescription` is the hook; `useRefPreview` is the rows lookup underneath it
+and stays the right call for a list row, which has no `self` to read.
+
 ## Schema System
 
 ### Schema-Source Relationship
@@ -151,6 +256,31 @@ Each Schema class validates and types its corresponding Source type:
 | `RichTextSchema<O>` | `RichTextSource<O>`                           | `s.richtext(options)` |
 | `ObjectSchema<T>`   | `SourceObject`                                | `s.object({...})`     |
 | `ArraySchema<T>`    | `SourceArray`                                 | `s.array(schema)`     |
+
+### Choosing between two shapes: `s.discriminatedUnion` and `s.enum`
+
+These were one schema (`s.union`, still exported and still working, now
+deprecated), and splitting them is the whole point: they are not the same kind
+of node, and everything that walks a schema tree has to treat them differently.
+
+- **`s.discriminatedUnion(key, ...objects)`** is a CONTAINER. Every variant is
+  an object with `key` set to a distinct `s.literal(...)`, the value's tag says
+  which variant it is, and the variant's fields are the fields being edited. A
+  walk has to descend through the matching variant — and the variants SHARE the
+  union's path, which is why `executeCustomValidateAt` and `executePreviewItem`
+  dispatch there rather than the caller resolving a child path. Serializes as
+  `{ type: "discriminated-union", key, items }`.
+- **`s.enum("a", "b")`** is a LEAF — a string with a closed domain, like
+  `s.literal` with more than one allowed value. There are no member schemas, so
+  nothing recurses into it, and (like a literal) it is NEVER stega encoded:
+  consumer code compares against those exact strings. Serializes as
+  `{ type: "enum", values }`.
+
+`s.union` dispatches on its first argument (a string key → discriminated union,
+literal schemas → enum) and produces exactly those two, byte-identically
+serialized. There is no third serialized form and no `UnionSchema` class any
+more — `UnionSchema`, `SerializedUnionSchema`, `SerializedStringUnionSchema`
+and `SerializedObjectUnionSchema` are deprecated type aliases.
 
 ## Module System
 
@@ -291,7 +421,7 @@ is typed structurally (`SharpLike`), so this package typechecks in a project
 that has never heard of sharp; `sharpImageProcessor.test.ts` assigns the real
 library to that type, which is what stops it drifting.
 
-Remote images (`s.image().remote()`, `s.images({ remote: true })`) work too, and
+Remote images (`s.image().remote()`, `s.imageset({...}).remote()`) work too, and
 the thing to know is that **nothing is uploaded to the content host when the
 image is added**. The bytes go into the patch store like any local pending file;
 the push to `remote.val.build` happens at publish, from
@@ -325,7 +455,7 @@ Four things in there are load-bearing, and the first three were got wrong first:
 3. **A remote ref's validation hash is computed from a schema that has to
    match what the validator will resolve.** For a gallery entry that is a
    SYNTHESIZED `SerializedImageSchema` carrying the record's `accept` and
-   `directory` — `galleryEntryImageSchema`, which must stay identical to
+   `dir` — `galleryEntryImageSchema`, which must stay identical to
    `handleRemoteGalleryFileUpload`'s. Get it wrong and the file uploads and
    then never validates, silently, because `validateRemoteFiles` is a stub.
 4. **`accept` is checked after the conversion, never before it.**
@@ -405,12 +535,27 @@ pnpm run -r typecheck                  # tsc --noEmit per package
 pnpm test                              # jest
 pnpm run build                         # top-level: preconstruct + pnpm --filter @valbuild/ui build
 cd examples/next && pnpm run build     # next build for the example app
+cd examples/tanstack && pnpm run build # vite build for the TanStack example (no CI job yet)
+```
+
+Two more checks have no CI job YET — `check.yml` has no `smoke` job and its
+`e2e` matrix selects only `chromium` and `chromium-http` — so for now they are
+yours to run. They are the gate for "the Studio does not come up at all", on
+both frameworks and in an insecure context, which is the one class of failure
+that reaches every user at once, so run them before shipping anything the
+Studio loads through:
+
+```bash
+pnpm exec playwright test --project=tanstack                         # ~1 min
+pnpm exec playwright test --project=chromium e2e/smoke.spec.ts \
+  e2e/insecure-context.spec.ts                                       # ~4 min
 ```
 
 Notes:
 
 - `pnpm run build` at the root is NOT recursive — it only runs `preconstruct build && pnpm --filter @valbuild/ui build`. Do not use `pnpm -r build` to verify CI; recursive build pulls in example-project fixtures that aren't part of CI and have unrelated pre-existing issues.
 - `examples/next` build is its own CI job and must be run separately. It is also the only job that type-checks with `next-env.d.ts` present, so a green `pnpm run -r typecheck` does not imply a green example build — see "'X' cannot be used as a JSX component" under Common Fixes.
+- The `tanstack` Playwright project and the `examples/tanstack` build are the only things that run that app at all, and both were added after `crypto.randomUUID is not a function` shipped: nothing exercised TanStack, and nothing ran outside a secure context. Neither has a CI job yet — the workflow change adding `build-tanstack` and a blocking `smoke` job is pending a maintainer (the session that wrote them had no `workflow` scope). Until then a green CI does NOT mean the Studio comes up on TanStack. See `e2e/tanstack/studio.spec.ts`.
 - `prettier --check .` walks the whole tree; untracked local files (e.g. `.claude/settings.local.json`) can show as warnings locally but won't affect CI since CI only sees tracked files.
 
 ### Don't run `pnpm run build` during development
@@ -504,7 +649,7 @@ these bytes served from" and "what does the gallery know about this path".
 
 ### Re-encoding uploads (`encode`)
 
-`s.image({ encode: { type: "webp" } })` and `s.images({ encode })` convert an
+`s.image({ encode: { type: "webp" } })` and `s.imageset({ encode })` convert an
 upload to WebP before it is uploaded. **Off by default.**
 `quality` defaults to 0.8, `maxWidth`/`maxHeight` to 2560, and `encode: false`
 turns it off where a gallery turned it on.

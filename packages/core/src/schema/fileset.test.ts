@@ -1,5 +1,9 @@
 import { SourcePath } from "../val";
-import { files, FilesEntryMetadata, SerializedFilesSchema } from "./files";
+import {
+  fileset,
+  FilesetEntryMetadata,
+  SerializedFilesetSchema,
+} from "./fileset";
 
 // Strip deferred-check errors (require CLI/filesystem context, not schema validation)
 function filterCheckErrors(
@@ -26,11 +30,11 @@ function filterCheckErrors(
 describe("FilesSchema", () => {
   describe("assert", () => {
     test("should return success if src is a valid files object", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf",
       });
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "/public/val/document.pdf": {
           mimeType: "application/pdf",
         },
@@ -42,8 +46,8 @@ describe("FilesSchema", () => {
     });
 
     test("should return error if src is null (non-nullable)", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf",
       });
       const result = schema["executeAssert"]("path" as SourcePath, null);
@@ -51,8 +55,8 @@ describe("FilesSchema", () => {
     });
 
     test("should return success if src is null (nullable)", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf",
       }).nullable();
       expect(schema["executeAssert"]("path" as SourcePath, null)).toEqual({
@@ -62,8 +66,8 @@ describe("FilesSchema", () => {
     });
 
     test("should return error if src is not an object", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf",
       });
       const result = schema["executeAssert"]("path" as SourcePath, "test");
@@ -71,8 +75,8 @@ describe("FilesSchema", () => {
     });
 
     test("should return error if src is an array", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf",
       });
       const result = schema["executeAssert"]("path" as SourcePath, []);
@@ -82,11 +86,11 @@ describe("FilesSchema", () => {
 
   describe("validate", () => {
     test("should validate directory prefix", () => {
-      const schema = files({
+      const schema = fileset({
         accept: "application/pdf",
-        directory: "/public/val/documents",
+        dir: "/public/val/documents",
       });
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "/public/val/wrong/document.pdf": {
           mimeType: "application/pdf",
         },
@@ -104,11 +108,11 @@ describe("FilesSchema", () => {
     });
 
     test("should accept valid directory prefix", () => {
-      const schema = files({
+      const schema = fileset({
         accept: "application/pdf",
-        directory: "/public/val/documents",
+        dir: "/public/val/documents",
       });
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "/public/val/documents/report.pdf": {
           mimeType: "application/pdf",
         },
@@ -126,11 +130,11 @@ describe("FilesSchema", () => {
     });
 
     test("should validate mimeType against accept pattern", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf",
       });
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "/public/val/document.docx": {
           mimeType:
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -149,11 +153,11 @@ describe("FilesSchema", () => {
     });
 
     test("should accept wildcard mimeType patterns", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/*",
       });
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "/public/val/document.pdf": {
           mimeType: "application/pdf",
         },
@@ -170,8 +174,8 @@ describe("FilesSchema", () => {
     });
 
     test("should accept any mimeType with */*", () => {
-      const schema = files({ directory: "/public/val", accept: "*/*" });
-      const src: Record<string, FilesEntryMetadata> = {
+      const schema = fileset({ dir: "/public/val", accept: "*/*" });
+      const src: Record<string, FilesetEntryMetadata> = {
         "/public/val/anything.xyz": {
           mimeType: "application/octet-stream",
         },
@@ -188,11 +192,11 @@ describe("FilesSchema", () => {
     });
 
     test("should use default directory /public/val", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf",
       });
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "/public/val/document.pdf": {
           mimeType: "application/pdf",
         },
@@ -210,11 +214,11 @@ describe("FilesSchema", () => {
     });
 
     test("should accept /public as directory", () => {
-      const schema = files({
+      const schema = fileset({
         accept: "application/pdf",
-        directory: "/public",
+        dir: "/public",
       });
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "/public/document.pdf": {
           mimeType: "application/pdf",
         },
@@ -232,8 +236,8 @@ describe("FilesSchema", () => {
     });
 
     test("should validate mimeType is a string", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf",
       });
       const src = {
@@ -243,7 +247,7 @@ describe("FilesSchema", () => {
       };
       const result = schema["executeValidate"](
         "path" as SourcePath,
-        src as unknown as Record<string, FilesEntryMetadata>,
+        src as unknown as Record<string, FilesetEntryMetadata>,
       );
       expect(result).toBeTruthy();
     });
@@ -251,31 +255,31 @@ describe("FilesSchema", () => {
 
   describe("serialization", () => {
     test("should serialize with correct type", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf",
       });
       const serialized = schema["executeSerialize"]();
       expect(serialized.type).toBe("record");
-      expect((serialized as SerializedFilesSchema).mediaType).toBe("files");
+      expect((serialized as SerializedFilesetSchema).mediaType).toBe("files");
       expect(serialized.accept).toBe("application/pdf");
-      expect(serialized.directory).toBe("/public/val");
+      expect(serialized.dir).toBe("/public/val");
       expect(serialized.opt).toBe(false);
       expect(serialized.remote).toBe(false);
     });
 
     test("should serialize with custom directory", () => {
-      const schema = files({
+      const schema = fileset({
         accept: "application/pdf",
-        directory: "/public/val/custom",
+        dir: "/public/val/custom",
       });
       const serialized = schema["executeSerialize"]();
-      expect(serialized.directory).toBe("/public/val/custom");
+      expect(serialized.dir).toBe("/public/val/custom");
     });
 
     test("should serialize remote flag", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf",
       }).remote();
       const serialized = schema["executeSerialize"]();
@@ -283,8 +287,8 @@ describe("FilesSchema", () => {
     });
 
     test("should serialize nullable flag", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf",
       }).nullable();
       const serialized = schema["executeSerialize"]();
@@ -294,8 +298,8 @@ describe("FilesSchema", () => {
 
   describe("remote", () => {
     test("should create remote variant", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf",
       });
       const remoteSchema = schema.remote();
@@ -303,11 +307,11 @@ describe("FilesSchema", () => {
     });
 
     test("should reject remote URLs when remote is not enabled", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf",
       });
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/document.pdf":
           {
             mimeType: "application/pdf",
@@ -323,11 +327,11 @@ describe("FilesSchema", () => {
     });
 
     test("should accept remote URLs when remote is enabled", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf",
       }).remote();
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/document.pdf":
           {
             mimeType: "application/pdf",
@@ -338,11 +342,11 @@ describe("FilesSchema", () => {
     });
 
     test("should flag local paths as upload-remote when remote is enabled", () => {
-      const schema = files({
+      const schema = fileset({
         accept: "application/pdf",
-        directory: "/public/val/documents",
+        dir: "/public/val/documents",
       }).remote();
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "/public/val/documents/local.pdf": {
           mimeType: "application/pdf",
         },
@@ -360,11 +364,11 @@ describe("FilesSchema", () => {
     });
 
     test("should flag only local paths when mixing remote and local", () => {
-      const schema = files({
+      const schema = fileset({
         accept: "application/pdf",
-        directory: "/public/val/documents",
+        dir: "/public/val/documents",
       }).remote();
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "/public/val/documents/local.pdf": {
           mimeType: "application/pdf",
         },
@@ -386,11 +390,11 @@ describe("FilesSchema", () => {
     });
 
     test("should reject invalid remote URLs", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf",
       }).remote();
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "not-a-valid-url": {
           mimeType: "application/pdf",
         },
@@ -405,11 +409,11 @@ describe("FilesSchema", () => {
     });
 
     test("should reject paths outside directory when remote is enabled but path is not a URL", () => {
-      const schema = files({
+      const schema = fileset({
         accept: "application/pdf",
-        directory: "/public/val/documents",
+        dir: "/public/val/documents",
       }).remote();
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "/public/other/document.pdf": {
           mimeType: "application/pdf",
         },
@@ -424,11 +428,11 @@ describe("FilesSchema", () => {
     });
 
     test("should accept http URLs when remote is enabled", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf",
       }).remote();
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "http://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/document.pdf":
           {
             mimeType: "application/pdf",
@@ -439,11 +443,11 @@ describe("FilesSchema", () => {
     });
 
     test("should reject non-Val remote URLs", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf",
       }).remote();
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "https://example.com/document.pdf": {
           mimeType: "application/pdf",
         },
@@ -458,11 +462,11 @@ describe("FilesSchema", () => {
     });
 
     test("should reject remote URLs with wrong directory in path", () => {
-      const schema = files({
+      const schema = fileset({
         accept: "application/pdf",
-        directory: "/public/val/documents",
+        dir: "/public/val/documents",
       }).remote();
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         // Remote URL with public/val/other instead of public/val/documents
         "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/other/document.pdf":
           {
@@ -481,11 +485,11 @@ describe("FilesSchema", () => {
 
   describe("directory validation", () => {
     test("should reject paths with wrong prefix", () => {
-      const schema = files({
+      const schema = fileset({
         accept: "application/pdf",
-        directory: "/public/val/documents",
+        dir: "/public/val/documents",
       });
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "/wrong/path/document.pdf": {
           mimeType: "application/pdf",
         },
@@ -500,11 +504,11 @@ describe("FilesSchema", () => {
     });
 
     test("should accept paths with exact directory match", () => {
-      const schema = files({
+      const schema = fileset({
         accept: "application/pdf",
-        directory: "/public",
+        dir: "/public",
       });
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "/public/document.pdf": {
           mimeType: "application/pdf",
         },
@@ -522,11 +526,11 @@ describe("FilesSchema", () => {
     });
 
     test("should accept paths in subdirectories", () => {
-      const schema = files({
+      const schema = fileset({
         accept: "application/pdf",
-        directory: "/public/val",
+        dir: "/public/val",
       });
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "/public/val/nested/deep/document.pdf": {
           mimeType: "application/pdf",
         },
@@ -546,8 +550,8 @@ describe("FilesSchema", () => {
 
   describe("custom validation", () => {
     test("should support custom validation function", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf",
       }).validate((src) => {
         if (Object.keys(src ?? {}).length === 0) {
@@ -555,7 +559,7 @@ describe("FilesSchema", () => {
         }
         return false;
       });
-      const src: Record<string, FilesEntryMetadata> = {};
+      const src: Record<string, FilesetEntryMetadata> = {};
       const result = schema["executeValidate"]("path" as SourcePath, src);
       expect(result).toBeTruthy();
       const errors = Object.values(result as object).flat();
@@ -568,16 +572,16 @@ describe("FilesSchema", () => {
 
   describe("accept patterns", () => {
     test("should accept comma-separated mime types", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf, application/msword",
       });
-      const src1: Record<string, FilesEntryMetadata> = {
+      const src1: Record<string, FilesetEntryMetadata> = {
         "/public/val/document.pdf": {
           mimeType: "application/pdf",
         },
       };
-      const src2: Record<string, FilesEntryMetadata> = {
+      const src2: Record<string, FilesetEntryMetadata> = {
         "/public/val/document.doc": {
           mimeType: "application/msword",
         },
@@ -597,11 +601,11 @@ describe("FilesSchema", () => {
     });
 
     test("should reject mime types not in accept list", () => {
-      const schema = files({
-        directory: "/public/val",
+      const schema = fileset({
+        dir: "/public/val",
         accept: "application/pdf, application/msword",
       });
-      const src: Record<string, FilesEntryMetadata> = {
+      const src: Record<string, FilesetEntryMetadata> = {
         "/public/val/document.txt": {
           mimeType: "text/plain",
         },

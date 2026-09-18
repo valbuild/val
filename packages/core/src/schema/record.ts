@@ -11,6 +11,7 @@ import {
   PreviewItem,
   ReifiedPreview,
   PreviewScope,
+  mergePreviewInto,
 } from "../preview";
 import { splitModuleFilePathAndModulePath } from "../module";
 import { FieldRender } from "../render";
@@ -30,11 +31,12 @@ import {
 import { splitRemoteRef } from "../remote/splitRemoteRef";
 import { mimeTypeMatchesAccept } from "../mimeType";
 import type { ImageEncodeOption } from "./image";
+import { declaredKeySetOf, type DeclaredKeySet } from "./declaredKeys";
 
 type MediaOptions = {
   type: "files" | "images";
   accept: string;
-  directory: string;
+  dir: string;
   remote: boolean;
   altSchema?: Schema<SelectorSource>;
   /** Images only: how uploads are re-encoded in the browser. See `image.ts`. */
@@ -59,7 +61,7 @@ export type SerializedRecordSchema = {
   // Optional media collection marker for files/images that are backed by a record
   mediaType?: "files" | "images";
   accept?: string;
-  directory?: string;
+  dir?: string;
   remote?: boolean;
   encode?: ImageEncodeOption;
   alt?: SerializedSchema;
@@ -142,6 +144,25 @@ export class RecordSchema<
     super();
   }
 
+  /**
+   * Describe this field.
+   *
+   * The description is INPUT HELP: it is shown where this field's value is
+   * entered — beside its input in the Val editor, and for a record's key
+   * schema in every form that asks for a key — so it is where you say what an
+   * editor needs to know to fill it in RIGHT, which the field name cannot
+   * carry. It is not a name for the value: that is `.preview(...)`, and it is
+   * read somewhere else. The description also travels in the serialized
+   * schema, which is what the AI assistant and the MCP tools read.
+   *
+   * Pass `null` to clear a description set earlier.
+   *
+   * @example
+   * const schema = s
+   *   .record(s.string())
+   *   .describe("Button labels, keyed by locale");
+   * export default c.define("/example.val.ts", schema, { en: "Read more" });
+   */
   describe(description: string | null): RecordSchema<T, K, Src> {
     return new RecordSchema(
       this.item,
@@ -160,6 +181,31 @@ export class RecordSchema<
     );
   }
 
+  /**
+   * Add a custom validation rule to this field.
+   *
+   * The function is called with the field's value and returns `false` when the
+   * value is fine, or a STRING with the message to show when it is not. Call it
+   * more than once to add more rules — they all run, and every message is
+   * reported.
+   *
+   * Write the check as a ternary, not as `ok || "message"`: that returns `true`
+   * when the value is fine, and `true` is not one of the two answers.
+   *
+   * Validation runs in the Studio as you type, in `npx val validate` and
+   * before a publish.
+   *
+   * The function is given the whole record. To validate one entry, put a
+   * `.validate(...)` on the ITEM schema instead — that reports the error on
+   * the entry's own row, and on a `.jsonValues()` record it does not force
+   * every entry to be loaded.
+   *
+   * @example
+   * const schema = s.record(s.string()).validate((val) =>
+   *   "en" in val ? false : "There has to be an 'en' entry",
+   * );
+   * export default c.define("/example.val.ts", schema, { en: "Read more" });
+   */
   validate(
     validationFunction: (src: Src) => false | string,
   ): RecordSchema<T, K, Src> {
@@ -235,9 +281,9 @@ export class RecordSchema<
           ? ("images:check-unique-folder" as const)
           : ("files:check-unique-folder" as const);
       const uniqueCheckError: ValidationError = {
-        message: `Gallery directory '${this.mediaOptions.directory}' must be unique across all galleries`,
+        message: `Gallery directory '${this.mediaOptions.dir}' must be unique across all galleries`,
         value: {
-          directory: this.mediaOptions.directory,
+          dir: this.mediaOptions.dir,
           type: this.mediaOptions.type,
         },
         fixes: [checkFix],
@@ -256,9 +302,9 @@ export class RecordSchema<
           ? ("images:check-all-files" as const)
           : ("files:check-all-files" as const);
       const allFilesCheckError: ValidationError = {
-        message: `Directory '${this.mediaOptions.directory}' may have files not tracked by this gallery`,
+        message: `Directory '${this.mediaOptions.dir}' may have files not tracked by this gallery`,
         value: {
-          directory: this.mediaOptions.directory,
+          dir: this.mediaOptions.dir,
           type: this.mediaOptions.type,
         },
         fixes: [allFilesCheckFix],
@@ -269,6 +315,11 @@ export class RecordSchema<
         error = { ...error, [path]: [allFilesCheckError] };
       }
     }
+    // A record whose keys are declared by its schema holds every one of them,
+    // and an entry nobody has written yet is `null` rather than absent — so
+    // `null` is a value here, not a value of the wrong type, and the item
+    // schema is not asked about it.
+    const hasDeclaredKeys = this.declaredKeySet() !== null;
     Object.entries(src).forEach(([key, elem]) => {
       if (this.keySchema) {
         const keyPath = createValPathOfItem(path, key);
@@ -313,6 +364,8 @@ export class RecordSchema<
           this.markKeyErrorsAtPath(entryErr, subPath);
         }
         error = this.mergeValidationErrors(error, entryErr);
+      } else if (hasDeclaredKeys && elem === null) {
+        // Not filled in. See above: the key is required, the content is not.
       } else if (this.isJsonValues && isJson(elem)) {
         // jsonValues record, entry not loaded: the value is a lazy JsonSource
         // marker. Deep validation is deferred and run per-entry once the backing
@@ -329,7 +382,93 @@ export class RecordSchema<
         error = this.mergeValidationErrors(error, subError);
       }
     });
+    const declaredKeys = this.getDeclaredKeysValidation(path, src);
+    error = this.mergeValidationErrors(error, declaredKeys);
+    for (const scopeError of this.localeScopeErrors()) {
+      error = this.appendValidationError(
+        error,
+        path,
+        scopeError.message,
+        src,
+        scopeError.schemaError,
+      );
+    }
     return error;
+  }
+
+  /**
+   * The check that a record with a DECLARED key set holds every one of them.
+   *
+   * `s.record(s.locale(), item)` has one entry per language and
+   * `s.record(s.union(s.literal("a"), s.literal("b")), item)` has both — the
+   * keys are part of the schema either way, so a missing one is a hole in the
+   * content rather than content nobody has written yet. TypeScript already
+   * demanded both keys of the second; this is the validator catching up, which
+   * is why the two now behave the same.
+   *
+   * Deferred to `resolveSchemaSourceFixes` even for the literal case, where the
+   * keys are known right here: a locale record's keys are in another file, and
+   * one code path for both is one message, one fix and one thing to be wrong.
+   */
+  private getDeclaredKeysValidation(
+    path: SourcePath,
+    src: Record<string, unknown>,
+  ): ValidationErrors {
+    if (this.keySchema === null) {
+      return false;
+    }
+    const declared = this.declaredKeySet();
+    if (declared === null) {
+      return false;
+    }
+    return {
+      [path]: [
+        {
+          fixes: ["record:fill-keys"],
+          message: `Did not validate record keys. This error (record:fill-keys) should typically be processed by Val internally. Seeing this error most likely means you have a Val version mismatch.`,
+          value: {
+            present: Object.keys(src),
+            declared: declared.kind === "literals" ? declared.keys : null,
+          },
+        },
+      ],
+    };
+  }
+
+  /**
+   * The key set this record's schema declares, computed once.
+   *
+   * `declaredKeySetOf` reads a SERIALIZED schema, and serializing the key
+   * schema walks it — twice per validate, and once per record instance, for an
+   * answer that is a property of the schema and cannot move between them. A
+   * schema is built once and validated against many times, so the walk happens
+   * on the first question and not on any after it.
+   */
+  private declaredKeys: DeclaredKeySet | null | undefined;
+
+  private declaredKeySet(): DeclaredKeySet | null {
+    if (this.declaredKeys === undefined) {
+      this.declaredKeys =
+        this.keySchema === null
+          ? null
+          : declaredKeySetOf(this.keySchema["executeSerialize"]());
+    }
+    return this.declaredKeys;
+  }
+
+  protected override opensLocaleScope(): "field" | "key" | null {
+    return this.keySchema !== null && this.keySchema["isLocaleField"]()
+      ? "key"
+      : null;
+  }
+
+  protected override localeScopeChildren(): {
+    key: string;
+    schema: Schema<SelectorSource>;
+  }[] {
+    // The KEY schema is not a child here. A locale key is what opens this
+    // record's scope; it is not something inside the scope.
+    return [{ key: "*", schema: this.item }];
   }
 
   private isRemoteUrl(url: string): boolean {
@@ -347,13 +486,13 @@ export class RecordSchema<
     if (!this.mediaOptions) {
       return false;
     }
-    const { directory, remote: isRemote, type } = this.mediaOptions;
+    const { dir, remote: isRemote, type } = this.mediaOptions;
     const mediaLabel = type === "images" ? "images" : "files";
     const checkRemoteFix =
       type === "images" ? "images:check-remote" : "files:check-remote";
 
     const isRemoteUrl = this.isRemoteUrl(key);
-    const isLocalPath = key === directory || key.startsWith(directory + "/");
+    const isLocalPath = key === dir || key.startsWith(dir + "/");
 
     if (isRemote) {
       // When remote is enabled, accept either remote URLs or local paths
@@ -373,14 +512,11 @@ export class RecordSchema<
         }
         // Check that the file path in the remote URL matches our directory constraint
         const remotePath = "/" + remoteResult.filePath;
-        if (
-          remotePath !== directory &&
-          !remotePath.startsWith(directory + "/")
-        ) {
+        if (remotePath !== dir && !remotePath.startsWith(dir + "/")) {
           return {
             [path]: [
               {
-                message: `Remote file path '${remotePath}' is not in expected directory '${directory}'. Use Val tooling to upload ${mediaLabel} to the correct directory.`,
+                message: `Remote file path '${remotePath}' is not in expected directory '${dir}'. Use Val tooling to upload ${mediaLabel} to the correct directory.`,
                 value: key,
                 fixes: [checkRemoteFix],
               },
@@ -393,7 +529,7 @@ export class RecordSchema<
         return {
           [path]: [
             {
-              message: `Expected a remote URL (https://...) or a local path starting with ${directory}/. Got: ${key}`,
+              message: `Expected a remote URL (https://...) or a local path starting with ${dir}/. Got: ${key}`,
               value: key,
             },
           ],
@@ -432,7 +568,7 @@ export class RecordSchema<
         return {
           [path]: [
             {
-              message: `File path must be within the ${directory}/ directory. Got: ${key}`,
+              message: `File path must be within the ${dir}/ directory. Got: ${key}`,
               value: key,
             },
           ],
@@ -624,6 +760,10 @@ export class RecordSchema<
    * must come BEFORE `.external()`: afterwards the value is a `Schema`, and
    * there is no `.readonly()` left to call — which is the error the compiler
    * gives, and a clearer one than a runtime throw.
+   *
+   * @example
+   * const schema = s.record(s.string()).readonly();
+   * export default c.define("/example.val.ts", schema, { en: "Read more" });
    */
   readonly<B extends boolean = true>(
     isReadonly: B = true as B,
@@ -663,6 +803,23 @@ export class RecordSchema<
     );
   }
 
+  /**
+   * Turn this record into a page router: its keys are route paths of your
+   * application, and they are validated against the router's conventions.
+   *
+   * `s.router(router, item)` builds the same thing in one call and is what
+   * most code should use — this is for adding a router to a record that
+   * already exists.
+   *
+   * @example
+   * import { nextAppRouter } from "../val.config";
+   * const schema = s
+   *   .record(s.object({ title: s.string() }))
+   *   .router(nextAppRouter);
+   * export default c.define("/app/[slug]/page.val.ts", schema, {
+   *   "/a-page-slug": { title: "First Page" },
+   * });
+   */
   router(router: ValRouter): RecordSchema<T, K, Src> {
     return new RecordSchema(
       this.item,
@@ -681,6 +838,30 @@ export class RecordSchema<
     );
   }
 
+  /**
+   * Allow the files in this gallery to be stored on Val's remote content host
+   * instead of in your repository.
+   *
+   * For `s.imageset()` and `s.fileset()`, which are records of media. Remote is off
+   * until this is called.
+   *
+   * Each entry is then keyed by its URL on the content host rather than by a
+   * path under `/public`. That key is not something to write by hand: upload
+   * in the Studio, or add a local path and let `npx val validate --fix`
+   * upload it and rewrite the key.
+   *
+   * @example
+   * const schema = s.imageset({ dir: "/public/val/images" }).remote();
+   * export default c.define("/content/images.val.ts", schema, {
+   *   "https://remote.val.build/file/p/my-project/b/01/v/1.0.0/h/8f2a1c/f/3b9d70/p/public/val/images/hero.webp":
+   *     {
+   *       width: 1920,
+   *       height: 1080,
+   *       mimeType: "image/webp",
+   *       alt: "Hero image",
+   *     },
+   * });
+   */
   remote(): RecordSchema<T, K, Src> {
     return new RecordSchema(
       this.item,
@@ -706,17 +887,31 @@ export class RecordSchema<
    * which lets the runtime, the Studio and validation work one entry at a time
    * so a record/router can scale to many thousands of entries.
    *
-   * Not supported on image/file galleries (`s.images()` / `s.files()`).
+   * Not supported on image/file galleries (`s.imageset()` / `s.fileset()`).
    *
    * Only supported on a module's ROOT record/router — a `.jsonValues()` record
    * nested inside an object/array/record is rejected at startup with a module
    * error, because the single-entry fetch endpoint, the Studio's content
    * substitution and content validation are all root-only.
+   *
+   * Must come BEFORE `.validate()` and `.preview()`: those are typed against
+   * the un-lazy source shape, so a validator or preview declared first cannot
+   * be carried over, and declaring one first throws rather than silently
+   * dropping it.
+   *
+   * @example
+   * import { nextAppRouter } from "../val.config";
+   * const schema = s
+   *   .router(nextAppRouter, s.object({ title: s.string(), body: s.string() }))
+   *   .jsonValues();
+   * export default c.define("/app/support/[slug]/page.val.ts", schema, {
+   *   "/support/faq": c.json(() => import("./content/faq.val.json")),
+   * });
    */
   jsonValues(): RecordSchema<T, K, JsonValuesRecordSrc<T, K>> {
     if (this.mediaOptions) {
       throw new Error(
-        ".jsonValues() cannot be used with image/file galleries (s.images()/s.files())",
+        ".jsonValues() cannot be used with image/file galleries (s.imageset()/s.fileset())",
       );
     }
     if (this.customValidateFunctions.length > 0) {
@@ -762,7 +957,7 @@ export class RecordSchema<
    * bucket — instead of in the module.
    *
    * Available on every record-derived schema, which is `s.record()`,
-   * `s.router()`, `s.images()` and `s.files()` alike: a router is a
+   * `s.router()`, `s.imageset()` and `s.fileset()` alike: a router is a
    * `RecordSchema` with a `ValRouter`, a gallery one with media options, so all
    * four get external storage from this one method.
    *
@@ -775,6 +970,19 @@ export class RecordSchema<
    * nested external record would leave a hole in the middle of a module's
    * source, and the Studio, patching and validation all assume a module's
    * source is complete apart from its entries.
+   *
+   * @example
+   * const schema = s.record(s.object({ title: s.string() })).external("posts");
+   * export default c.define("/content/posts.val.ts", schema, c.external());
+   *
+   * @example
+   * // A read-only external record: `.readonly()` must come FIRST, because
+   * // afterwards there is no `.readonly()` left on the type to call.
+   * const schema = s
+   *   .record(s.object({ title: s.string() }))
+   *   .readonly()
+   *   .external("posts");
+   * export default c.define("/content/posts.val.ts", schema, c.external());
    */
   external<L extends string>(
     label: L,
@@ -956,7 +1164,7 @@ export class RecordSchema<
     if (this.mediaOptions) {
       result.mediaType = this.mediaOptions.type;
       result.accept = this.mediaOptions.accept;
-      result.directory = this.mediaOptions.directory;
+      result.dir = this.mediaOptions.dir;
       result.remote = this.mediaOptions.remote;
       if (this.mediaOptions.encode !== undefined) {
         result.encode = this.mediaOptions.encode;
@@ -985,6 +1193,7 @@ export class RecordSchema<
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
     scope?: PreviewScope,
+    selfIsReifiedByParent?: boolean,
   ): ReifiedPreview {
     const res: ReifiedPreview = {};
     if (src === null) {
@@ -1010,11 +1219,12 @@ export class RecordSchema<
       if (scope !== undefined && !scope.wantsUnder(subPath)) {
         continue;
       }
-      const itemResult = this.item["executePreview"](subPath, itemSrc, scope);
-      for (const keyS in itemResult) {
-        const key = keyS as SourcePath | ModuleFilePath;
-        res[key] = itemResult[key];
-      }
+      mergePreviewInto(
+        res,
+        // `true`: this item is a ROW, and its preview is the closure reified
+        // into `rows` below. See `executePreview` on `Schema`.
+        this.item["executePreview"](subPath, itemSrc, scope, true),
+      );
     }
     // The entries preview comes from the ITEM schema's own `preview` — the
     // container just runs it per entry. Asked as a fact rather than by running
@@ -1056,13 +1266,19 @@ export class RecordSchema<
           };
         }
       }
-      res[sourcePath] = {
+      const rows: ReifiedPreview = {};
+      rows[sourcePath] = {
         status: "success",
-        data: {
-          parent: "record",
-          items,
-        },
+        data: { rows: { parent: "record", items } },
       };
+      mergePreviewInto(res, rows);
+    }
+    // ...and what the RECORD ITSELF is called — a different closure on a
+    // different schema. Skipped when this record is itself a ROW, whose
+    // closure the outer container has already run. See the same block in
+    // `array`, and `PreviewNode`.
+    if (!selfIsReifiedByParent) {
+      mergePreviewInto(res, this.executeSelfPreview(sourcePath, src, scope));
     }
     return res;
   }
@@ -1085,6 +1301,25 @@ export class RecordSchema<
    * is the item of another container, in search, in references. What its
    * entries show is the ITEM schema's `preview`, not this. Never how the field
    * is edited (that is `render`). See `preview.ts`.
+   *
+   * @example
+   * // The preview of the RECORD, for where it is an item of something else.
+   * // What its own rows show is the ITEM schema's preview — see below.
+   * const labels = s.record(s.string()).preview(({ val }) => ({
+   *   title: `${Object.keys(val).length} locales`,
+   * }));
+   * export default c.define("/example.val.ts", s.array(labels), [
+   *   { en: "Read more" },
+   * ]);
+   *
+   * @example
+   * // Rows of a record come from the ITEM's preview, not the record's:
+   * const author = s
+   *   .object({ name: s.string(), role: s.string() })
+   *   .preview(({ val }) => ({ title: val.name, subtitle: val.role }));
+   * export default c.define("/example.val.ts", s.record(author), {
+   *   ada: { name: "Ada", role: "Engineer" },
+   * });
    */
   preview(select: ItemPreviewInput<Src>): RecordSchema<T, K, Src> {
     return new RecordSchema(
@@ -1110,6 +1345,10 @@ export class RecordSchema<
    * instead of a preview row that navigates to it.
    *
    * Static configuration, not a callback — see `render.ts`.
+   *
+   * @example
+   * const schema = s.array(s.record(s.string()).render({ as: "inline" }));
+   * export default c.define("/example.val.ts", schema, [{ en: "Read more" }]);
    */
   render(input: FieldRender): RecordSchema<T, K, Src> {
     return new RecordSchema(
@@ -1130,14 +1369,34 @@ export class RecordSchema<
   }
 }
 
+/**
+ * The source of a record, given what its key schema says about its keys.
+ *
+ * A key schema that ENUMERATES its keys (a union of literals, or `s.locale()`)
+ * makes every one of them an entry of the record, and an entry nobody has
+ * written yet is `null` rather than absent — so the value type widens by
+ * `null`. That is the whole of option F at the type level: a half-translated
+ * record is a record with nulls in it, which is data you can count, filter and
+ * see in a diff, rather than keys that are simply not there.
+ *
+ * For a union of literals TypeScript already required every key, since
+ * `SelectorOfSchema<K>` is the literal union itself. `s.locale()` is a flavoured
+ * string, so it requires nothing here and the requirement is the validator's —
+ * deliberately: which languages exist is in the settings module, where the
+ * project can change it without a deploy.
+ */
+export type RecordSrcOf<
+  K extends Schema<string>,
+  S extends Schema<SelectorSource>,
+> = K extends { __declaresRecordKeys: true }
+  ? Record<SelectorOfSchema<K>, SelectorOfSchema<S> | null>
+  : Record<SelectorOfSchema<K>, SelectorOfSchema<S>>;
+
 // Overload: with key schema
 export function record<
   K extends Schema<string>,
   S extends Schema<SelectorSource>,
->(
-  key: K,
-  schema: S,
-): RecordSchema<S, K, Record<SelectorOfSchema<K>, SelectorOfSchema<S>>>;
+>(key: K, schema: S): RecordSchema<S, K, RecordSrcOf<K, S>>;
 
 // Overload: without key schema
 export function record<S extends Schema<SelectorSource>>(
@@ -1148,10 +1407,7 @@ export function record<S extends Schema<SelectorSource>>(
 export function record<
   K extends Schema<string>,
   S extends Schema<SelectorSource>,
->(
-  keyOrSchema: K | S,
-  schema?: S,
-): RecordSchema<S, K, Record<SelectorOfSchema<K>, SelectorOfSchema<S>>> {
+>(keyOrSchema: K | S, schema?: S): RecordSchema<S, K, RecordSrcOf<K, S>> {
   if (schema) {
     // Two-argument call: first is key schema, second is value schema
     return new RecordSchema(schema, false, [], null, keyOrSchema as K);

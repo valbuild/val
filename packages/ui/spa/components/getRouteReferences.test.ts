@@ -235,7 +235,7 @@ describe("getRouteReferences", () => {
         "/content.val.ts",
         s.object({
           items: s.array(
-            s.union(
+            s.discriminatedUnion(
               "type",
               s.object({
                 type: s.literal("link"),

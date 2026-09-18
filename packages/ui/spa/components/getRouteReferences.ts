@@ -58,29 +58,26 @@ export function getRouteReferences(
           i++;
         }
       }
-    } else if (schema.type === "union") {
-      // Handle tagged unions
+    } else if (schema.type === "discriminated-union") {
       const schemaKey = schema.key;
-      if (typeof schemaKey === "string") {
-        if (isObjectSource(source)) {
-          const itemKey = (source as Record<string, Source>)[schemaKey];
-          if (typeof itemKey === "string") {
-            const schemaOfItem = (schema.items as SerializedObjectSchema[])
-              .filter((item) => item.type === "object")
-              .find((item) => {
-                const itemKeySchema = item.items[schemaKey];
-                if (itemKeySchema?.type === "literal") {
-                  return itemKeySchema.value === itemKey;
-                }
-              });
-            if (schemaOfItem) {
-              go(sourcePath, schemaOfItem, source);
-            }
+      if (isObjectSource(source)) {
+        const itemKey = (source as Record<string, Source>)[schemaKey];
+        if (typeof itemKey === "string") {
+          const schemaOfItem = (schema.items as SerializedObjectSchema[])
+            .filter((item) => item.type === "object")
+            .find((item) => {
+              const itemKeySchema = item.items[schemaKey];
+              if (itemKeySchema?.type === "literal") {
+                return itemKeySchema.value === itemKey;
+              }
+            });
+          if (schemaOfItem) {
+            go(sourcePath, schemaOfItem, source);
           }
         }
       }
     }
-    // Ignore other schema types (string, number, boolean, literal, date, image, file, richtext, keyOf)
+    // Ignore other schema types (string, number, boolean, literal, enum, date, image, file, richtext, keyOf)
   };
 
   for (const moduleFilePathS in schemas) {

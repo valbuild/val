@@ -27,7 +27,7 @@ export default c.define(
      * silently wrote to `/public/val` — outside the directory the schema names.
      */
     imageInSubdir: s
-      .image({ directory: "/public/test/fields" })
+      .image({ dir: "/public/test/fields" })
       .nullable()
       .describe("An image field with its own directory"),
     /** Gallery-backed: the picker offers what the gallery holds. */
@@ -41,7 +41,7 @@ export default c.define(
      * crash above.
      */
     sections: s.array(
-      s.union(
+      s.discriminatedUnion(
         "type",
         s.object({ type: s.literal("text"), text: s.string() }),
         s.object({ type: s.literal("image"), image: s.image() }),

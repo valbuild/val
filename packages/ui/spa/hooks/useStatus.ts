@@ -15,6 +15,7 @@ import React, {
   useCallback,
 } from "react";
 import { z } from "zod";
+import { randomUUID } from "../utils/randomUUID";
 
 const PatchId = z
   .string()
@@ -191,7 +192,7 @@ export function useStatus(client: ValClient) {
   });
 
   const webSocketRef = useRef<WebSocket | null>(null);
-  const connectionIdRef = useRef<string>(crypto.randomUUID());
+  const connectionIdRef = useRef<string>(randomUUID());
   const {
     authenticationState,
     setAuthenticationLoadingIfNotAuthenticated,
@@ -543,6 +544,11 @@ async function execStat(
                           deploymentState: message.deployment.deploymentState,
                           createdAt: message.deployment.createdAt,
                           updatedAt: message.deployment.updatedAt,
+                          // The git message, where the content service sends
+                          // one. Copied field by field here, so leaving it out
+                          // dropped it as surely as the schema stripping it
+                          // would have. See `ValDeployment`.
+                          commitMessage: message.deployment.commitMessage,
                         }),
                       },
                       waitStart:

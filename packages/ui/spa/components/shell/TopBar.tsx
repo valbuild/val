@@ -21,9 +21,10 @@ import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
 import { Avatar } from "../Avatar";
 import { AccountErrorDot } from "./AccountError";
-import { ValLogo } from "./ValLogo";
-import { ShellBreakpoint, ShellPanel } from "./types";
+import { StudioMark } from "./ValLogo";
+import { ShellBreakpoint, ShellLogo, ShellPanel } from "./types";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
+import { LocaleFilter } from "./LocaleFilter";
 
 export type TopBarProps = {
   breakpoint: ShellBreakpoint;
@@ -54,6 +55,13 @@ export type TopBarProps = {
   /** Absent until a profile loads, and in modes that have none. */
   user?: { name: string; avatarUrl?: string };
   onOpenSearch: () => void;
+  /**
+   * The project's languages, for the locale filter. Empty hides it entirely.
+   */
+  locales?: string[];
+  /** The language being shown, or `null` for all of them. */
+  locale?: string | null;
+  onLocaleChange?: (locale: string | null) => void;
   onPreview: () => void;
   /**
    * Opens the canvas beside the editor.
@@ -105,6 +113,11 @@ export type TopBarProps = {
    * altogether and there was no way left to reach the panel that explains it.
    */
   accountError?: { message: string };
+  /**
+   * The project's own mark, from `s.settings()`'s `theme.logo`. Absent leaves
+   * Val's. Shown only below the desktop breakpoint, where the rail is not.
+   */
+  logo?: ShellLogo;
   /** Blinks the mark, as a terminal caret does while it waits. */
   isLoading?: boolean;
   /**
@@ -115,7 +128,8 @@ export type TopBarProps = {
    * Whether this project has an assistant. See `ShellProps.aiEnabled`.
    *
    * Absent hides the button rather than disabling it: it is the only thing in
-   * the bar that opens a panel with nothing behind it.
+   * the bar that opens a panel with nothing behind it. On mobile the button is
+   * not here at all — the bottom bar carries it.
    */
   aiEnabled?: boolean;
 };
@@ -127,9 +141,10 @@ export type PublishState = "idle" | "publishing" | "error" | "blocked";
  * The floating top bar.
  *
  * Review, Preview and Publish stay visible at every breakpoint above mobile —
- * in that order, which is the order they are done in; on mobile Preview and
- * Publish move to the sticky bottom bar, Review moves to the Quick actions
- * panel, and the top bar keeps only navigation, notifications, AI and account.
+ * in that order, which is the order they are done in; on mobile Preview,
+ * Publish and the assistant move to the sticky bottom bar, Review moves to the
+ * Quick actions panel, and the top bar keeps only navigation, history,
+ * notifications and account.
  */
 export function TopBar({
   breakpoint,
@@ -142,6 +157,9 @@ export function TopBar({
   historyEnabled = false,
   user,
   onOpenSearch,
+  locales,
+  locale = null,
+  onLocaleChange,
   onPreview,
   onToggleCanvas,
   isCanvasOpen,
@@ -152,6 +170,7 @@ export function TopBar({
   reviewCount,
   publishState = "idle",
   accountError,
+  logo,
   isLoading,
   aiEnabled = false,
   previewHref,
@@ -179,12 +198,24 @@ export function TopBar({
       )}
       {!isDesktop && (
         <div className="grid place-items-center w-7 h-7 shrink-0 text-fg-primary">
-          <ValLogo className="h-5" blinking={isLoading} />
+          <StudioMark logo={logo} className="h-5" blinking={isLoading} />
         </div>
       )}
       <ProjectName projectName={projectName} projectHref={projectHref} />
       <SearchTrigger breakpoint={breakpoint} onClick={onOpenSearch} />
       <div className="ml-auto flex items-center gap-1.5 shrink-0">
+        {/*
+         * First in the cluster, and before the divider: everything after it is
+         * something you DO, and this is what you are looking at while you do it.
+         * On a phone it moves to the bottom bar, where the actions are.
+         */}
+        {!isMobile && locales !== undefined && onLocaleChange !== undefined && (
+          <LocaleFilter
+            locales={locales}
+            value={locale}
+            onChange={onLocaleChange}
+          />
+        )}
         {!isMobile && (
           <>
             <ReviewButton
@@ -192,19 +223,32 @@ export function TopBar({
               pendingChanges={pendingChanges}
               reviewCount={reviewCount}
             />
-            <PreviewButton
-              onPreview={onPreview}
-              previewHref={previewHref}
-              onToggleCanvas={onToggleCanvas}
-              isCanvasOpen={isCanvasOpen}
-            />
-            {publishSlot ?? (
-              <PublishButton
-                pendingChanges={pendingChanges}
-                onPublish={onPublish}
-                publishState={publishState}
+            {/*
+             * Wrappers, only so the tour has something to point at.
+             *
+             * `PreviewButton` is a split control and the publish control is
+             * supplied by the app (`publishSlot`), so neither is a single
+             * element this file can put an attribute on. `inline-flex` rather
+             * than `contents`: a box with no layout of its own measures zero,
+             * and a spotlight on a zero-sized box is a dot.
+             */}
+            <span data-val-tour="preview" className="inline-flex">
+              <PreviewButton
+                onPreview={onPreview}
+                previewHref={previewHref}
+                onToggleCanvas={onToggleCanvas}
+                isCanvasOpen={isCanvasOpen}
               />
-            )}
+            </span>
+            <span data-val-tour="publish" className="inline-flex">
+              {publishSlot ?? (
+                <PublishButton
+                  pendingChanges={pendingChanges}
+                  onPublish={onPublish}
+                  publishState={publishState}
+                />
+              )}
+            </span>
             <BarDivider />
           </>
         )}
@@ -217,11 +261,18 @@ export function TopBar({
             <History size={16} />
           </IconButton>
         )}
-        {aiEnabled && (
+        {/*
+         * Above mobile only: on a phone the assistant is in the bottom bar,
+         * where the thumb is - see `MobileBottomBar`. Two Sparkles buttons on
+         * one screen would be two places to look for the same panel, and the
+         * top right corner of a phone is the furthest point from a thumb.
+         */}
+        {aiEnabled && !isMobile && (
           <IconButton
             label="AI assistant"
             active={openPanel === "ai"}
             onClick={() => onTogglePanel("ai")}
+            tourTarget="ai"
           >
             <Sparkles size={16} />
           </IconButton>
@@ -231,6 +282,7 @@ export function TopBar({
             label="Quick actions"
             active={openPanel === "utility"}
             onClick={() => onTogglePanel("utility")}
+            tourTarget="utility"
           >
             <PanelRight size={16} />
           </IconButton>
@@ -545,22 +597,25 @@ function BarDivider() {
 /**
  * Review, first of the three actions and to the left of Preview.
  *
- * Present whenever the shell can review at all, and merely INVISIBLE until
- * there is something to review. Not `null`, which is what it was: this group is
- * `ml-auto`, so its right edge is pinned and its left edge grows — a button
- * mounting inside it moves the group's left edge, and everything left of that
- * edge, by its own width. That happens exactly when the first change lands,
- * which is exactly when someone is working in there, and while Review sat
- * BETWEEN Preview and Publish it also moved Preview out from under a click that
- * had already started. `canvas.spec.ts` caught it as a click that hit nothing;
- * a person gets the same miss and no error. Being leftmost now spares Preview
- * and Publish specifically, but the space still has to be held: the search
- * field and the project name are to the left of it, and they would take the
- * jump instead.
+ * Offered whether or not anything is pending. It used to be `invisible` with
+ * nothing queued — present in the layout so the bar would not reflow, but
+ * unreachable and hidden from assistive tech. That made "is anything of mine
+ * still unpublished?" unanswerable from the bar: an absent button and a button
+ * whose data has not loaded look identical, so the only way to find out was to
+ * publish and see what happened. The phone's Quick actions row already answers
+ * it — see `reviewChangesLabel` — and this is the same rule above that
+ * breakpoint. What it opens says the same thing in a sentence; see
+ * `NothingToReview`.
  *
- * `visibility: hidden` rather than opacity: it holds the space, takes no
- * clicks, takes no tab stop, and is not announced — so nothing is offered that
- * cannot be used.
+ * Never `null`, which is what it was before it was `invisible`, and the reason
+ * survives both: this group is `ml-auto`, so its right edge is pinned and its
+ * left edge grows — a button mounting inside it moves the group's left edge,
+ * and everything left of that edge, by its own width. That happens exactly when
+ * the first change lands, which is exactly when someone is working in there,
+ * and while Review sat BETWEEN Preview and Publish it also moved Preview out
+ * from under a click that had already started. `canvas.spec.ts` caught it as a
+ * click that hit nothing; a person gets the same miss and no error. A button
+ * that is always there holds the space by being there.
  *
  * The badge shows `reviewCount`, which is the pending patch count zeroed when
  * all of it has been reverted. In that case the button stays — the review view
@@ -584,7 +639,7 @@ function ReviewButton({
     <button
       type="button"
       onClick={onCompare}
-      {...(hasWork ? {} : { "aria-hidden": true, tabIndex: -1 })}
+      data-val-tour="review"
       aria-label={
         showCount
           ? `Review ${reviewCount} ${reviewCount === 1 ? "change" : "changes"}`
@@ -594,7 +649,6 @@ function ReviewButton({
         "relative inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md shrink-0",
         "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
-        !hasWork && "invisible",
       )}
     >
       <GitCompare size={15} />
@@ -615,11 +669,14 @@ function IconButton({
   active,
   onClick,
   children,
+  tourTarget,
 }: {
   label: string;
   active?: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  /** Marks this button as the thing a tour step points at. See `StudioTour`. */
+  tourTarget?: string;
 }) {
   return (
     <button
@@ -627,6 +684,7 @@ function IconButton({
       aria-label={label}
       aria-pressed={active}
       onClick={onClick}
+      data-val-tour={tourTarget}
       className={cn(
         "relative grid place-items-center w-8 h-8 rounded-md shrink-0",
         active
@@ -676,19 +734,29 @@ export function PublishButton({
       )}
     >
       {publishState === "publishing" ? (
-        <Loader2 size={14} className="animate-spin" />
+        <Loader2 size={14} className="shrink-0 animate-spin" />
       ) : publishState === "error" ? (
-        <AlertTriangle size={14} />
+        <AlertTriangle size={14} className="shrink-0" />
       ) : (
-        <Upload size={14} />
+        <Upload size={14} className="shrink-0" />
       )}
-      {publishState === "publishing"
-        ? "Publishing…"
-        : publishState === "error"
-          ? "Publish failed"
-          : "Publish"}
+      {/*
+       * Truncates, so the button can be narrower than its word. On the phone's
+       * bottom bar this shares a row with Preview and three icon buttons, and
+       * `min-w-0` there is only half the answer: a label that cannot clip makes
+       * the button refuse to shrink however small its box is asked to be.
+       */}
+      <span className="truncate">
+        {publishState === "publishing"
+          ? "Publishing…"
+          : publishState === "error"
+            ? "Publish failed"
+            : "Publish"}
+      </span>
       {publishState === "idle" && pendingChanges > 0 && (
-        <span className="tabular-nums opacity-80">{pendingChanges}</span>
+        <span className="shrink-0 tabular-nums opacity-80">
+          {pendingChanges}
+        </span>
       )}
     </button>
   );

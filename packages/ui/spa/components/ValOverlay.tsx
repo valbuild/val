@@ -313,7 +313,12 @@ export function ValOverlay(props: ValOverlayProps) {
     }
   }, [mode, editMode]);
 
-  const { theme } = useTheme();
+  /*
+   * `theme` as well as `resolvedTheme`: `theme === null` still means "nothing
+   * has said what mode this is yet", which is what the menu shows its loading
+   * state for. `resolvedTheme` is never null, because it is what gets stamped.
+   */
+  const { theme, resolvedTheme, themeStyle } = useTheme();
   const [dropZone, setDropZoneRaw] = useState<DropZones | null>(null);
   const config = useValConfig();
   const defaultDropZone = "val-menu-right-center"; // TODO: get from config
@@ -407,7 +412,13 @@ export function ValOverlay(props: ValOverlayProps) {
   return (
     <OverlaySessionContext.Provider value={{ bornSessionId, setBornSessionId }}>
       <div
-        {...(theme ? { "data-mode": theme } : {})}
+        data-mode={resolvedTheme}
+        /*
+         * The theme travels with `data-mode`, and this realm is the one where
+         * it matters most: the outlines the canvas draws around editable
+         * elements are `--bg-page-selection*`, which the accent moves.
+         */
+        style={themeStyle}
         id="val-overlay-container"
       >
         <Window
@@ -1216,7 +1227,9 @@ function WindowField({
   if (schemaAtPath.status === "error") {
     return (
       <div className="flex flex-col gap-4">
-        <div className="text-fg-error text-sm">{schemaAtPath.error}</div>
+        <div className="text-fg-error-on-surface text-sm">
+          {schemaAtPath.error}
+        </div>
       </div>
     );
   }
@@ -1377,7 +1390,12 @@ function ValMenu({
       setShowAllBoundingBoxes(false);
     }, 200);
   };
-  const { theme, setTheme } = useTheme();
+  /*
+   * `resolvedTheme`, so the switch shows the mode that is on screen. `theme`
+   * can still be null here — nobody has chosen — while the project's own
+   * default from `s.settings()` is what is being drawn.
+   */
+  const { resolvedTheme, setTheme } = useTheme();
   const patchIds = useCurrentPatchIds();
   const validationErrors = useAllValidationErrors() || {};
   const validationErrorCount = Object.keys(validationErrors).length;
@@ -1648,9 +1666,11 @@ function ValMenu({
                     ))}
                   </SelectContent>
                 </Select>
-                <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
+                <span>
+                  {resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
+                </span>
                 <Switch
-                  checked={theme === "dark"}
+                  checked={resolvedTheme === "dark"}
                   onCheckedChange={(checked) => {
                     if (checked) {
                       setTheme("dark");

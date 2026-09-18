@@ -52,24 +52,31 @@ describe("RecordSchema", () => {
       '/test.val.ts?p="upper-key"."bar"': {
         status: "success",
         data: {
-          parent: "record",
-          items: [
-            ["test1", { title: "baz", subtitle: undefined, image: undefined }],
-          ],
+          rows: {
+            parent: "record",
+            items: [
+              [
+                "test1",
+                { title: "baz", subtitle: undefined, image: undefined },
+              ],
+            ],
+          },
         },
       },
       "/test.val.ts": {
         status: "success",
         data: {
-          parent: "record",
-          // The null entry is skipped, not previewed: an item preview closure
-          // receives NonNullable values.
-          items: [
-            [
-              "upper-key",
-              { title: "test", subtitle: undefined, image: undefined },
+          rows: {
+            parent: "record",
+            // The null entry is skipped, not previewed: an item preview closure
+            // receives NonNullable values.
+            items: [
+              [
+                "upper-key",
+                { title: "test", subtitle: undefined, image: undefined },
+              ],
             ],
-          ],
+          },
         },
       },
     });
@@ -94,13 +101,15 @@ describe("RecordSchema", () => {
     expect(res["/test.val.ts" as SourcePath]).toStrictEqual({
       status: "success",
       data: {
-        parent: "record",
-        items: [
-          [
-            "loaded",
-            { title: "Loaded", subtitle: undefined, image: undefined },
+        rows: {
+          parent: "record",
+          items: [
+            [
+              "loaded",
+              { title: "Loaded", subtitle: undefined, image: undefined },
+            ],
           ],
-        ],
+        },
       },
     });
   });
@@ -123,10 +132,12 @@ describe("RecordSchema", () => {
     expect(res["/test.val.ts" as SourcePath]).toStrictEqual({
       status: "success",
       data: {
-        parent: "record",
-        items: [
-          ["ok", { title: "fine", subtitle: undefined, image: undefined }],
-        ],
+        rows: {
+          parent: "record",
+          items: [
+            ["ok", { title: "fine", subtitle: undefined, image: undefined }],
+          ],
+        },
       },
     });
     // ...and the failure is reported at the key that caused it.
@@ -607,10 +618,12 @@ describe("RecordSchema", () => {
       "/test.val.ts": {
         status: "success",
         data: {
-          parent: "record",
-          items: [
-            ["ada", { title: "Ada", subtitle: undefined, image: undefined }],
-          ],
+          rows: {
+            parent: "record",
+            items: [
+              ["ada", { title: "Ada", subtitle: undefined, image: undefined }],
+            ],
+          },
         },
       },
     };

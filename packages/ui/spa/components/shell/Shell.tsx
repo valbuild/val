@@ -1,4 +1,5 @@
 import {
+  CSSProperties,
   ReactNode,
   useCallback,
   useEffect,
@@ -47,10 +48,16 @@ import { isDeploymentNews, MobileDeployments } from "./Deployments";
 import { PublishState, TopBar } from "./TopBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { availableDestinations } from "./shellDataMapping";
+import { StudioTour } from "./StudioTour";
+import {
+  readTourCompleted,
+  studioTourSteps,
+  writeTourCompleted,
+} from "./tourSteps";
 import { servedPath } from "../../utils/mediaPath";
 import { useShellBreakpoint } from "./useShellBreakpoint";
 import {
-  ShellActivityEntry,
+  ShellChangeActivity,
   ShellData,
   ShellDataModule,
   ShellExternalPage,
@@ -106,7 +113,36 @@ export type ShellProps = {
   initialSelectionId?: string | null;
   /** Open the global search on mount. */
   initialSearchOpen?: boolean;
+  /**
+   * Run the guided tour on mount.
+   *
+   * For stories and tests. Nothing in the app passes it: the tour is started
+   * by a person pressing a button, never by the Studio opening — see
+   * `TourLauncher`.
+   */
+  initialTourOpen?: boolean;
+  /**
+   * Whether this PROJECT offers the tour — `studio.tour` in `s.settings()`.
+   *
+   * Defaults to true, which is also what an unset setting means: the person the
+   * tour exists for is the one who has not answered any question yet. False
+   * takes the prompt away for everyone on the project; the tour itself stays in
+   * Quick actions, so there is no way to make it unreachable by accident.
+   *
+   * A prop rather than a hook, like `theme` and `autoSave` beside it: the shell
+   * is the presentational half, and everything that decides how it behaves
+   * arrives the same way.
+   */
+  tourEnabled?: boolean;
   theme: "dark" | "light";
+  /**
+   * The project's theme, as CSS custom properties — see `ValThemeProvider`.
+   *
+   * A prop rather than a `useTheme()` call, so that a story can set an accent:
+   * the shell is the presentational half, and every other thing that decides
+   * how it looks arrives the same way.
+   */
+  themeStyle?: CSSProperties;
   onThemeChange: (theme: "dark" | "light") => void;
   /** How Val is running. See `StatusBarProps`. */
   mode?: StatusBarProps["mode"];
@@ -188,6 +224,24 @@ export type ShellProps = {
     canvasView: CanvasView;
     canvasTransform: CanvasTransform | null;
   }) => void;
+  /**
+   * The project's languages, for the locale filter.
+   *
+   * Undefined or empty hides the filter entirely — see `LocaleFilter`. Passed
+   * in rather than read here for the same reason everything else is: the shell
+   * is drawn in Storybook without the Val providers.
+   */
+  locales?: string[];
+  /**
+   * The language being shown, or `null` for all of them.
+   *
+   * Controlled, unlike the panel and the canvas: the filter has to reach the
+   * FIELDS, which the shell renders through `renderEditor` and does not own. So
+   * whoever owns the editor owns this, and puts it in a context the fields can
+   * read — see `LocaleFilterProvider`.
+   */
+  locale?: string | null;
+  onLocaleChange?: (locale: string | null) => void;
   /** Open the canvas on mount. */
   initialCanvasOpen?: boolean;
   initialCanvasView?: CanvasView;
@@ -337,11 +391,18 @@ export type ShellProps = {
   /** The last error from fetching patches, for that same report. */
   pendingChangesError?: string | null;
   onSelectValidationError?: (error: ShellValidationError) => void;
-  onSelectActivity?: (entry: ShellActivityEntry) => void;
+  /** Open a change row's field. Publishes are not selectable — see `UtilityPanelProps`. */
+  onSelectActivity?: (entry: ShellChangeActivity) => void;
   /** Create a page under a route. See `PagesPanelProps`. */
   onNewPage?: (moduleFilePath: ModuleFilePath, urlPath: string) => void;
   /** Copy a page to another URL under the same route. See `PagesPanelProps`. */
   onDuplicatePage?: (
+    moduleFilePath: ModuleFilePath,
+    fromUrlPath: string,
+    toUrlPath: string,
+  ) => void;
+  /** Move a page to another URL under the same route. See `PagesPanelProps`. */
+  onRenamePage?: (
     moduleFilePath: ModuleFilePath,
     fromUrlPath: string,
     toUrlPath: string,
@@ -383,7 +444,10 @@ export function Shell({
   initialPanel = null,
   initialSelectionId = null,
   initialSearchOpen = false,
+  initialTourOpen = false,
+  tourEnabled = true,
   theme,
+  themeStyle,
   onThemeChange,
   mode,
   saveState = "saved",
@@ -408,6 +472,9 @@ export function Shell({
   onViewStateChange,
   initialCanvasOpen = false,
   initialCanvasView = "normal",
+  locales,
+  locale = null,
+  onLocaleChange,
   restoreViewState,
   skipTransition,
   selectionId,
@@ -433,6 +500,7 @@ export function Shell({
   onSelectActivity,
   onNewPage,
   onDuplicatePage,
+  onRenamePage,
   onUploadMedia,
   onCompare,
   onDiscardAll,
@@ -523,19 +591,16 @@ export function Shell({
     setDeploymentsOpen(open);
     setDeploymentsAutoOpened(false);
   }, []);
-  const [dismissedDeployments, setDismissedDeployments] = useState<
-    ReadonlySet<string>
-  >(() => new Set());
-  const dismissDeployment = useCallback((commitSha: string) => {
-    setDismissedDeployments((current) => new Set(current).add(commitSha));
-  }, []);
-  const deployments = useMemo(
-    () =>
-      data.deployments?.filter(
-        (deployment) => !dismissedDeployments.has(deployment.commitSha),
-      ),
-    [data.deployments, dismissedDeployments],
-  );
+  /*
+   * The feed as it comes, unfiltered.
+   *
+   * The shell used to hold a set of dismissed commit shas and subtract it from
+   * the feed. That control existed for a list that grew - the client
+   * accumulated every deployment a session had ever seen - and the feed is the
+   * last few publishes now, oldest falling off the end on their own. See
+   * `mergeCommitsAndDeployments` and `toDeployments`.
+   */
+  const deployments = data.deployments;
 
   // A publish is the one thing here that finishes somewhere else, so the list
   // opens itself when a commit Val has not seen before shows up. The first
@@ -573,17 +638,24 @@ export function Shell({
    * already grouped by the thing that changed. Five, because this is a "take me
    * back" list rather than a history: past that it stops being a shortcut and
    * starts being something to read.
+   *
+   * Changes only: the feed also carries publishes, and a search result is a
+   * thing to open. Filtered BEFORE the slice, so a busy publishing afternoon
+   * does not leave the recent list short.
    */
   const recentSearchResults = useMemo(
     (): SearchResult[] =>
-      (data.activity ?? []).slice(0, RECENT_SEARCH_LIMIT).map((entry) => ({
-        id: entry.sourcePath,
-        kind: "recent",
-        label: entry.title,
-        detail: entry.author
-          ? `${entry.timestamp} · ${entry.author}`
-          : entry.timestamp,
-      })),
+      (data.activity ?? [])
+        .filter((entry) => entry.kind === "change")
+        .slice(0, RECENT_SEARCH_LIMIT)
+        .map((entry) => ({
+          id: entry.sourcePath,
+          kind: "recent",
+          label: entry.title,
+          detail: entry.author
+            ? `${entry.timestamp} · ${entry.author}`
+            : entry.timestamp,
+        })),
     [data.activity],
   );
 
@@ -592,6 +664,65 @@ export function Shell({
     () => availableDestinations(data, isLoading),
     [isLoading, data],
   );
+
+  const [isTourOpen, setIsTourOpen] = useState(initialTourOpen);
+  /**
+   * Whether this browser has already been through the tour.
+   *
+   * Read once, on mount: it is a per-browser fact rather than shared state, so
+   * nothing else can change it underneath us, and reading storage on every
+   * render to find out the answer is still the same is not worth a try/catch
+   * per frame. Whether the tour is offered at all is `tourEnabled`, which is
+   * the PROJECT's answer and arrives as a prop.
+   */
+  const [tourCompleted, setTourCompleted] = useState(readTourCompleted);
+  const startTour = useCallback(() => setIsTourOpen(true), []);
+  /**
+   * The tour opening a panel. Stable, because the tour re-runs it whenever the
+   * step changes and an identity that changed every render would reopen the
+   * panel on every keystroke elsewhere in the shell.
+   */
+  const openPanelForTour = useCallback(
+    (panel: ShellPanel | null | undefined) => setOpenPanel(panel ?? null),
+    [],
+  );
+  /**
+   * Leaving the tour, however it was left.
+   *
+   * Finishing it and abandoning it both count as done, because what this flag
+   * decides is whether to GLOW at someone — and having already said no once is
+   * the clearest possible answer to that. The tour never becomes unreachable:
+   * Quick actions and the Account panel both keep it.
+   */
+  const closeTour = useCallback(() => {
+    setIsTourOpen(false);
+    setTourCompleted(true);
+    writeTourCompleted(true);
+  }, []);
+  const tourSteps = useMemo(
+    () => studioTourSteps({ destinations, mode: mode ?? "unknown", aiEnabled }),
+    [destinations, mode, aiEnabled],
+  );
+  /**
+   * Whether the tour can be STARTED at all right now.
+   *
+   * Not while the navigation is loading, and this is not caution: the steps are
+   * built from `destinations`, and `availableDestinations` deliberately offers
+   * all three while `isLoading` so the rail does not grow icons as data
+   * arrives. A tour started in that window is a tour of Pages and Media for a
+   * project that turns out to have neither — and the list then SHRINKS under
+   * the open tour, which is the stuck state `stepIndex` clamps for.
+   */
+  const canStartTour = !isLoading;
+  /**
+   * Whether to offer it — the glow, and the button on the empty editor.
+   *
+   * `tourEnabled` is the project's answer (`studio.tour`), and false means
+   * nobody is prompted. Quick actions keeps the tour either way, which is what
+   * makes switching the offer off safe rather than destructive.
+   */
+  const showTourPrompt =
+    tourEnabled && !tourCompleted && !isTourOpen && canStartTour;
   /**
    * Opening a panel from deep inside the shell — a row in the publish diff
    * linking to Settings, say. The URL is read once on mount, so an in-app link
@@ -784,8 +915,17 @@ export function Shell({
         select(next);
         return;
       }
-      // A content hit is a path inside a module, which no row can stand for.
-      onOpenSearchResult?.(result);
+      // A content or recent hit is a path inside a module, which no row can
+      // stand for, so it is opened by path instead.
+      //
+      // A NAVIGATION row that resolves to nothing is a different thing: its id
+      // is not a source path, so opening it as one navigates to something that
+      // does not exist. `collectSearchResults` no longer offers those rows;
+      // this makes the fallback say what it means rather than treat every
+      // unresolved id as a path.
+      if (result.kind === "content" || result.kind === "recent") {
+        onOpenSearchResult?.(result);
+      }
     },
     [data, select, onOpenSearchResult],
   );
@@ -819,7 +959,16 @@ export function Shell({
   const editorColumn = editorOverride ? (
     editorOverride
   ) : selection === null ? (
-    <EmptyEditorState />
+    <EmptyEditorState
+      destinations={destinations}
+      /*
+       * One of the two places the tour is offered, so it follows the project's
+       * setting: with `studio.tour` off nobody is prompted anywhere, and the
+       * tour is reached from Quick actions by whoever wants it.
+       */
+      onStartTour={tourEnabled && canStartTour ? startTour : undefined}
+      tourPrompt={showTourPrompt}
+    />
   ) : (
     /*
      * Held until the server's pending changes have landed — see
@@ -851,7 +1000,9 @@ export function Shell({
       <div
         data-mode={theme}
         className="relative w-full overflow-hidden bg-bg-canvas text-fg-primary font-sans"
-        style={{ height: "100svh" }}
+        // The theme travels with `data-mode`: everything below draws its brand
+        // tokens out of these custom properties. See `ValThemeProvider`.
+        style={{ height: "100svh", ...themeStyle }}
       >
         <PageWorkspace
           breakpoint={breakpoint}
@@ -894,6 +1045,7 @@ export function Shell({
             user={data.user}
             hasDraftChanges={pendingChanges > 0}
             accountError={accountError}
+            logo={data.logo}
             isLoading={isLoading}
           />
         )}
@@ -902,6 +1054,7 @@ export function Shell({
           breakpoint={breakpoint}
           projectName={data.projectName}
           projectHref={data.admin?.project}
+          logo={data.logo}
           openPanel={openPanel}
           onTogglePanel={togglePanel}
           // The menu button opens the first destination this project has, which
@@ -909,6 +1062,9 @@ export function Shell({
           // land somewhere that exists.
           onOpenMenu={() => setOpenPanel(destinations[0] ?? "account")}
           onOpenSearch={openSearch}
+          locales={locales}
+          locale={locale}
+          onLocaleChange={onLocaleChange}
           unreadNotifications={
             data.notifications === undefined ? undefined : unreadNotifications
           }
@@ -952,11 +1108,13 @@ export function Shell({
                 deployments={deployments}
                 open={deploymentsOpen}
                 onOpenChange={setDeploymentsOpenByUser}
-                onDismiss={dismissDeployment}
                 autoClose={deploymentsAutoOpened}
               />
             )}
             <MobileBottomBar
+              locales={locales}
+              locale={locale}
+              onLocaleChange={onLocaleChange}
               pendingChanges={pendingChanges}
               onPreview={onPreview ?? (() => undefined)}
               previewHref={previewHref}
@@ -981,6 +1139,16 @@ export function Shell({
               publishSlot={publishSlot}
               onOpenStatus={() => setOpenPanel("account")}
               onOpenQuickActions={() => setOpenPanel("utility")}
+              /*
+               * The same gate and the same ACT as the top bar's button above
+               * this breakpoint: absent when there is no assistant, and a
+               * toggle rather than an open, so the button that shows the panel
+               * as open is the button that closes it. It only opened, which on
+               * a phone - where the panel covers the editor - meant the
+               * obvious way to dismiss it did nothing.
+               */
+              onOpenAI={aiEnabled ? () => togglePanel("ai") : undefined}
+              isAIOpen={openPanel === "ai"}
             />
           </>
         ) : (
@@ -995,7 +1163,6 @@ export function Shell({
             deploymentsOpen={deploymentsOpen}
             onDeploymentsOpenChange={setDeploymentsOpenByUser}
             deploymentsAutoOpened={deploymentsAutoOpened}
-            onDismissDeployment={dismissDeployment}
           />
         )}
 
@@ -1018,6 +1185,7 @@ export function Shell({
             }}
             onNewPage={onNewPage ?? (() => undefined)}
             onDuplicatePage={onDuplicatePage}
+            onRenamePage={onRenamePage}
             // Only where a route accepts one. A project of static routes has no
             // key to invent, so there is nothing for a New page button to do.
             newPage={onNewPage ? data.newPage : undefined}
@@ -1041,7 +1209,7 @@ export function Shell({
                 // the whole gallery.
                 id: file.sourcePath,
                 title: file.ref.split("/").pop() ?? file.ref,
-                urlPath: servedPath(gallery.directory),
+                urlPath: servedPath(gallery.dir),
                 sourcePath: file.sourcePath,
               })
             }
@@ -1104,7 +1272,6 @@ export function Shell({
              * feed (`mode === "http"`); the panel was missed.
              */
             deployments={mode === "fs" ? undefined : deployments}
-            onDismissDeployment={dismissDeployment}
             // Passed through as-is: absent means there is no session to end, and
             // the panel then shows no Sign out button rather than a dead one.
             onSignOut={onSignOut}
@@ -1131,6 +1298,9 @@ export function Shell({
             onOpenAI={aiEnabled ? () => setOpenPanel("ai") : undefined}
             onCompare={onCompare}
             reviewCount={reviewCount ?? pendingChanges}
+            // The tour's permanent home, whatever the project's setting says —
+            // but not until the destinations it is built from are the real ones.
+            onStartTour={canStartTour ? startTour : undefined}
             onDiscardAll={onDiscardAll}
             discardAllDescription={discardAllDescription}
             portalContainer={portalContainer}
@@ -1186,6 +1356,14 @@ export function Shell({
               )
             }
             onClose={closePanel}
+          />
+        )}
+
+        {isTourOpen && (
+          <StudioTour
+            steps={tourSteps}
+            onClose={closeTour}
+            onOpenPanel={openPanelForTour}
           />
         )}
 
@@ -1266,7 +1444,7 @@ function toMediaSelection(gallery: ShellMediaGallery): ShellSelection {
     title: gallery.name,
     // Where its files are served from, not where they are stored: `/public` is
     // the web root, so the ref and the URL differ by exactly that prefix.
-    urlPath: servedPath(gallery.directory),
+    urlPath: servedPath(gallery.dir),
     sourcePath: gallery.moduleFilePath,
   };
 }
