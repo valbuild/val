@@ -1,5 +1,64 @@
 # @valbuild/server
 
+## 0.132.1
+
+### Patch Changes
+
+- [#695](https://github.com/valbuild/val/pull/695) [`c07b1ab`](https://github.com/valbuild/val/commit/c07b1abe30e226c80ef7ec4b4f0f5ccdae061c11) Thanks [@freekh](https://github.com/freekh)! - A publish result can now say which commit it was built on, and what tree it points at
+
+  `CommitResult` gains two optional fields, `parent` and `tree`, filled in from
+  the content service's commit response when it reports them.
+
+  Both matter to a host that keeps its own record of what each commit changed —
+  a build cache, or an incremental publisher that rebuilds from the last thing it
+  built rather than from scratch. Such a host can only tell whether its record is
+  COMPLETE by chaining the commits it holds back to the one it last built. With
+  just a sha per commit the record is a set of snapshots with no way to notice a
+  gap, so a commit somebody else made in between is silently absent instead of
+  detected — and the host rebuilds from a source tree that is missing a change it
+  never knew about. `parent` is what closes that.
+
+  `tree` identifies the CONTENT of a commit rather than the commit itself, so two
+  commits carrying the same tree are the same source. A host that has already
+  built one of them can recognise the other and skip the work.
+
+  Both are optional, and absent means NOT REPORTED rather than absent-in-git: a
+  content service that predates these fields sends neither, and a caller must not
+  read a missing `parent` as "this is a root commit". They are plain strings
+  rather than branded shas for the same reason — they are passed through as what
+  a separately versioned service said, not as something this end has checked.
+
+  Nothing changes for a host that does not look at them. The publish route's own
+  response is unchanged.
+
+- [#678](https://github.com/valbuild/val/pull/678) [`cbfa2b8`](https://github.com/valbuild/val/commit/cbfa2b884898f1603bde8e5aa5cd9da78778101f) Thanks [@freekh](https://github.com/freekh)! - Putting a whole module back works for `.jsonValues()` records
+
+  A `.jsonValues()` record's entries are not in the module's source: the `.val.ts`
+  holds `c.json(() => import("./entry.val.json"))` per entry and the content lives
+  in those files. Val already routed a patch that named an entry key into the
+  right file, but a patch that replaced the **whole record** named no key — so it
+  was applied as an ordinary source edit, writing over the imports that make the
+  entries load at all. "Put everything back" in the history pane left such a module
+  out for exactly that reason.
+
+  A whole-record write is now expanded into per-entry ops before anything acts on
+  it: an entry added, one removed, one changed, and nothing at all for an entry
+  that already holds what the write says — so putting a module back does not
+  rewrite every file in it. The same expansion produces the draft the Studio shows
+  and the files a publish writes, so a draft cannot show one thing and publish
+  another.
+
+  Nothing that writes a patch has to know a record is `.jsonValues()`: write the
+  module as if it were ordinary content, and it lands in the right files.
+
+  "Put everything back" and "Restore this whole module" now cover `.jsonValues()`
+  modules. They read each entry as it was at the commit and put the content back —
+  never the recorded source, which is markers rather than content, and is now
+  refused rather than written.
+
+- Updated dependencies [[`c9a5cd3`](https://github.com/valbuild/val/commit/c9a5cd3a4ab5908ecb9757b7a95db17a77e3b173), [`f413c5c`](https://github.com/valbuild/val/commit/f413c5cebca27ba82052825abc8c632b6177747e), [`1ddf245`](https://github.com/valbuild/val/commit/1ddf245ec73ad5af8099c3d18d4d33c6a1cc1254), [`a19997a`](https://github.com/valbuild/val/commit/a19997a542e65cc1375837b1bdb11c8af9e10160), [`76c5d41`](https://github.com/valbuild/val/commit/76c5d41c3afa7cc8180d156c9e19fb082af7fba4), [`cbfa2b8`](https://github.com/valbuild/val/commit/cbfa2b884898f1603bde8e5aa5cd9da78778101f), [`003419a`](https://github.com/valbuild/val/commit/003419ab72f3069d92e67dfea931d5accc63e730)]:
+  - @valbuild/ui@0.132.1
+
 ## 0.132.0
 
 ### Minor Changes
