@@ -282,6 +282,73 @@ serialized. There is no third serialized form and no `UnionSchema` class any
 more — `UnionSchema`, `SerializedUnionSchema`, `SerializedStringUnionSchema`
 and `SerializedObjectUnionSchema` are deprecated type aliases.
 
+### `s.view()` points at another module; it does not contain one
+
+`s.view(otherVal)` is a field whose source is a POINTER and nothing else:
+
+```typescript
+const schema = s.object({ title: s.string(), people: s.view(employeesVal) });
+export default c.define("/app/menneskene/page.val.ts", schema, {
+  title: "Våre folk",
+  people: { view: "/data/employees.val.ts" },
+});
+```
+
+The module it names keeps its own source, patches, validation and address. In
+the editor the field is a ROW that navigates there — it does not render the
+target's fields inline — which is also what stops an editor mistaking a shared
+module for a field of the page they are on.
+
+Eight things decide how it behaves, and each was a choice:
+
+- **A plain object, not a constructor.** Same rule as media: the value has to
+  work in a `.val.ts` and in a `*.val.json`, and a literal survives the static
+  extraction (`evaluateExpression`) that a call expression does not.
+- **A module carries its own id in its type.** `ValModule<T, Id>`, inferred from
+  `c.define`'s first argument, so `s.view(fooVal)` produces a schema whose source
+  type is the LITERAL `{ view: "/foo.val.ts" }`. The path autocompletes, and a
+  source naming a different module than its schema does is a type error. The
+  runtime check in `ValViewSchema.executeValidate` is for hand-written JSON, which
+  the compiler never saw.
+- **`view` is a reserved object key** (`ObjectSchemaProps`, beside `_type` and
+  `patch_id`). An ordinary `s.object({ view: s.string() })` is structurally
+  identical to a pointer, and would be mapped to `ValView<T>` and lose every
+  field it has — silently.
+- **The read side is `ValView<T>`, with no properties.** A new arm in
+  `Selector<T>` and in `StegaOfSource`, above `SourceObject` (the marker is structurally an
+  object) — the same position and the same reason as the `ExternalRecordSrc`
+  arm. Never stega encoded: an edit tag woven into a path corrupts the path.
+- **No cycles.** `viewCycles.ts`, called from `extractValModules` next to
+  `resolveSettingsModule` and for the same reason: it is a property of the whole
+  set of schemas, so no single module can see it. **Nothing else would catch
+  it** — a view stores a pointer rather than content, so there is no data cycle
+  for a source walk to trip over. A DIAMOND (two paths to one module) is not a
+  cycle and is allowed.
+- **A module cannot BE a view.** `c.define(path, s.view(x), …)` throws.
+- **The exported names carry a `Val` prefix, and this family alone does.**
+  `ValView<T>`, `ValViewSource`, `isValViewSource`, `ValViewSchema` and
+  `SerializedValViewSchema` — where every other schema is `ImageSchema` /
+  `ImageSource` with no prefix. `View` is the name a consuming
+  app is most likely to have its own of (React Native's, every design system's,
+  the local one in half the projects that would install this), and the rest
+  follow it so the family reads as one. It is a deliberate break from the
+  convention, not an oversight: do not "fix" it back. The WIRE form is
+  untouched — `type: "view"` is the serialized discriminant and renaming it
+  would break every stored schema and the zod parser.
+- **`hidden` and `readonly` are the view's own, never the target's.** A view
+  whose target module is hidden is still shown, and still leads there — which
+  is the whole point, because `hidden` on a MODULE's root schema means "the nav
+  does not list this" (`useTrees` for the Explorer, `collectMediaModules` for
+  Media). A module has no parent to be hidden from, so it can mean nothing
+  else. The pair is what lets `employees.val.ts` be a `keyOf` target a dozen
+  modules point into, out of the nav, and reached from the one page it belongs
+  to. It also forced `AnyField`'s `ignoreHidden`, set by `Module` alone: the
+  page an editor has navigated to is not a parent's field list, so honouring
+  `hidden` there renders a blank page instead of hiding a row.
+
+Not built yet, and deliberately: rendering the target inline
+(`render({ as: "inline" })`) and resolving a view through `useVal`/`fetchVal`.
+
 ## Module System
 
 ### c.define() Pattern
@@ -973,6 +1040,53 @@ Fix, in this order:
 A newly added package is the usual trigger: its trusted publisher gets created
 long after everyone else's, with the newer default. Tick the `npm publish` box
 when you set it up, and expect this failure on the first release if you forget.
+
+## Adding a `ValidationFix` code
+
+A fix code is declared in one place and DISPATCHED ON in seven, spread over five
+packages. Nothing makes you visit them: the union is a `const` array, so a
+missing entry is a silent no-op rather than a type error, and the symptom is
+always the same — the error is reported somewhere it should have been quietly
+repaired, or a quick fix is offered nowhere while looking fine everywhere else.
+
+Visit all of these, in this order:
+
+1. **`core/src/schema/validation/ValidationFix.ts`** — the code itself.
+2. **`shared/src/internal/ApiRoutes.ts`** — a `z.literal` in the fixes union.
+   Not compiler-enforced: the zod schema is typed against the core union, so a
+   missing literal is a RUNTIME parse failure of the response that carries it.
+3. **The schema** that reports it (`fixes: [...]` on the `ValidationError`).
+4. **`shared/…/validation/partitionValidationErrors.ts`** — exhaustive switch,
+   so this one DOES fail to compile. `true` means the Studio hides it because
+   the server repairs it on save; `false` means an editor has to see it. This
+   also decides publish gating, via `filterBlockingValidationErrors` — which is
+   why `blockingValidationErrors.ts`, `ValErrorProvider` and `createSystem` need
+   nothing of their own.
+5. **`server/src/createFixPatch.ts`** — the branch that builds the patch. Read
+   the schema at the path with `Internal.resolvePath(modulePath, moduleSource,
+moduleSchema)` rather than trusting what the error carries.
+6. **`server/src/fixHandlers.ts`** — the entry the CLI dispatches on. The
+   registry's key type excludes the four `SCHEMA_SOURCE_FIXES`, so a fix that is
+   neither excluded nor registered fails to compile; one that is missing at
+   runtime makes `val validate` emit `unknown-fix`. Return
+   `shouldApplyPatch: true` to hand off to `createFixPatch`, and a
+   `fixableErrorMessage` when `ctx.fix` is off, or `--fix`-less runs report it as
+   a plain error instead of a fixable one.
+7. **`language-server/src/codeActions.ts`** — `LOCAL_FIXES` and `FIX_TITLES`.
+   Neither is exhaustive. A fix absent from `LOCAL_FIXES` is silently never
+   offered as a quick fix, which is how you get a diagnostic in VS Code with no
+   lightbulb and no explanation.
+
+Two lists that are NOT per-fix, and must not be copied: `SCHEMA_SOURCE_FIXES`
+(`shared/src/internal/resolveSchemaSourceFixes.ts`) is the set that only a
+project-wide snapshot can answer — the language server imports it as
+`DEFERRED_FIXES` rather than keeping its own, because its own fell two behind.
+
+**Verify end to end, not by reading.** Build a throwaway project in the
+scratchpad and run the CLI against it — `pnpm exec tsx src/cli.ts validate
+--root <dir>` from `packages/cli`, then again with `--fix`, and diff the file.
+That exercises module loading, validation, the handler, the patch and the TS
+rewrite in one go; the unit tests cover none of that seam.
 
 ## Common Fixes
 

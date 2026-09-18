@@ -25,6 +25,7 @@ import {
   CODE_LANGUAGES,
 } from "@valbuild/core";
 import { SourcePath } from "./SourcePath";
+import { ModuleFilePath } from "./ModuleFilePath";
 
 // A render is static config, so unlike a `preview` it travels WHOLE — this
 // is the field the editor reads the layout from. See `core/src/render.ts`.
@@ -410,6 +411,24 @@ export const SerializedSettingsSchema: z.ZodType<SerializedSettingsSchemaT> =
     });
   });
 
+/**
+ * A view field shows another module and stores nothing of its own.
+ *
+ * Nothing in the type system forces this member to exist: `SerializedSchema` is
+ * declared as `z.ZodType<SerializedSchemaT>`, so a missing member is not a type
+ * error — it is a runtime parse failure of the WHOLE module's schema, since the
+ * containing object fails with it.
+ */
+export const SerializedValViewSchema = z.object({
+  type: z.literal("view"),
+  render: FieldRender.optional(),
+  moduleFilePath: ModuleFilePath,
+  opt: z.literal(false),
+  readonly: z.boolean().optional(),
+  hidden: z.boolean().optional(),
+  description: z.string().optional(),
+});
+
 export const SerializedSchema: z.ZodType<SerializedSchemaT> = z.union([
   SerializedStringSchema,
   SerializedLiteralSchema,
@@ -431,4 +450,5 @@ export const SerializedSchema: z.ZodType<SerializedSchemaT> = z.union([
   SerializedCodeSchema,
   SerializedSettingsSchema,
   SerializedImageSchema,
+  SerializedValViewSchema,
 ]);

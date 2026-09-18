@@ -50,6 +50,16 @@ type ObjectSchemaProps = { [key: string]: Schema<SelectorSource> } & {
   _type?: never;
   /** Cannot create object with key: _ref. It is a reserved name */
   _ref?: never;
+  /**
+   * Cannot create object with key: view. It is a reserved name.
+   *
+   * A view field's source is `{ view: "/other.val.ts" }`, and the read side
+   * maps that shape to an opaque {@link ValView} handle. An ordinary object
+   * with a single `view: string` key is structurally identical, so it would be
+   * mapped the same way and lose every one of its fields — silently. Reserving
+   * the key is what makes the shape unambiguous.
+   */
+  view?: never;
   // The ones below we might want to allow (they are no longer intended to be used):
   /** Cannot create object with key: andThen. It is a reserved name */
   andThen?: never;

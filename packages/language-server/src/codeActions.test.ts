@@ -85,6 +85,17 @@ describe("isLocalFix", () => {
     expect(isLocalFix("file:add-metadata")).toBe(true);
   });
 
+  /**
+   * The fix writes a value the schema already names — nothing read, nothing
+   * fetched — so it belongs with the metadata fixes rather than the deferred or
+   * remote ones. Pinned because the list is a copy of a decision made in
+   * `createFixPatch`, and a fix missing from it is offered nowhere while looking
+   * like it works everywhere else.
+   */
+  test("accepts a view pointing at the wrong module", () => {
+    expect(isLocalFix("view:check-module")).toBe(true);
+  });
+
   test("rejects fixes that need network or credentials", () => {
     // Offering these as plain quick fixes would produce actions that fail
     // without a logged-in session.

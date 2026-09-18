@@ -1,4 +1,12 @@
-import { mediaValue } from "./createFixPatch";
+import {
+  initVal,
+  Schema,
+  SelectorSource,
+  Source,
+  SourcePath,
+  ValidationError,
+} from "@valbuild/core";
+import { createFixPatch, mediaValue } from "./createFixPatch";
 
 /**
  * The value the four remote fixes replace a media field with.
@@ -64,5 +72,90 @@ describe("mediaValue", () => {
     expect(mediaValue("/public/val/hero.png", [1, 2])).toEqual({
       path: "/public/val/hero.png",
     });
+  });
+});
+
+/**
+ * A view's pointer can only disagree with its schema in hand-written JSON — in
+ * a `.val.ts` the source type is the literal path, so a mismatch does not
+ * compile. When it does happen there is nothing to decide: the schema names the
+ * module, so the one correct value is already known and gets written.
+ */
+describe("view:check-module", () => {
+  const { s, c } = initVal();
+  const otherVal = c.define("/other.val.ts", s.string(), "hi");
+  const pageSchema = s.object({
+    title: s.string(),
+    shared: s.view(otherVal),
+  });
+  const moduleSchema = (pageSchema as unknown as Schema<SelectorSource>)[
+    "executeSerialize"
+  ]();
+  const moduleSource: Source = {
+    title: "Hello",
+    shared: { view: "/wrong.val.ts" },
+  };
+  const validationError: ValidationError = {
+    message:
+      "This view points at '/wrong.val.ts', but its schema says '/other.val.ts'",
+    value: { view: "/wrong.val.ts" },
+    fixes: ["view:check-module"],
+  };
+
+  test("writes the module the schema names", async () => {
+    const res = await createFixPatch(
+      { projectRoot: "/tmp", remoteHost: "https://remote.val.build" },
+      true,
+      '/page.val.ts?p="shared"' as SourcePath,
+      validationError,
+      {},
+      moduleSource,
+      moduleSchema,
+    );
+    expect(res?.patch).toEqual([
+      {
+        op: "replace",
+        path: ["shared"],
+        value: { view: "/other.val.ts" },
+      },
+    ]);
+    expect(res?.remainingErrors).toEqual([]);
+  });
+
+  test("without --fix it reports what the fix would write, and patches nothing", async () => {
+    const res = await createFixPatch(
+      { projectRoot: "/tmp", remoteHost: "https://remote.val.build" },
+      false,
+      '/page.val.ts?p="shared"' as SourcePath,
+      validationError,
+      {},
+      moduleSource,
+      moduleSchema,
+    );
+    expect(res?.patch).toEqual([]);
+    expect(res?.remainingErrors).toEqual([
+      expect.objectContaining({
+        message:
+          "This view points at the wrong module. Expected '/other.val.ts'.",
+      }),
+    ]);
+  });
+
+  test("a schema that is not a view at that path is reported, not guessed at", async () => {
+    const res = await createFixPatch(
+      { projectRoot: "/tmp", remoteHost: "https://remote.val.build" },
+      true,
+      '/page.val.ts?p="title"' as SourcePath,
+      validationError,
+      {},
+      moduleSource,
+      moduleSchema,
+    );
+    expect(res?.patch).toEqual([]);
+    expect(res?.remainingErrors).toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("is 'string', not a view"),
+      }),
+    ]);
   });
 });

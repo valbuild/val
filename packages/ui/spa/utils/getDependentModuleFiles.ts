@@ -24,6 +24,12 @@ export function getDependentModuleFiles(
       for (const key in schemaNode.items) {
         rec(rootModuleFilePath, schemaNode.items[key]);
       }
+    } else if (schemaNode.type === "view") {
+      // A view IS a dependency: the module it points at decides what the row
+      // shows, so a change there is a change to this module's screen.
+      if (schemaNode.moduleFilePath === moduleFilePath) {
+        dependentModulePaths.add(rootModuleFilePath);
+      }
     } else if (schemaNode.type === "keyOf") {
       const [dependency] = Internal.splitModuleFilePathAndModulePath(
         schemaNode.path,

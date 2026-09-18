@@ -6,6 +6,7 @@ import { SerializedBooleanSchema } from "./boolean";
 import { SerializedFileSchema } from "./file";
 import { SerializedImageSchema } from "./image";
 import { SerializedKeyOfSchema } from "./keyOf";
+import { SerializedValViewSchema } from "./view";
 import { SerializedLiteralSchema } from "./literal";
 import { SerializedNumberSchema } from "./number";
 import { SerializedObjectSchema } from "./object";
@@ -53,7 +54,8 @@ export type SerializedSchema =
   | SerializedRouteSchema
   | SerializedLocaleSchema
   | SerializedSettingsSchema
-  | SerializedImageSchema;
+  | SerializedImageSchema
+  | SerializedValViewSchema;
 
 type Primitives = number | string | boolean | null | FileSource;
 export type AssertError =

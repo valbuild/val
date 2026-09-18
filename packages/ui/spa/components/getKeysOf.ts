@@ -64,7 +64,9 @@ export function getKeysOf(
       schema.type === "file" ||
       schema.type === "richtext" ||
       schema.type === "route" ||
-      schema.type === "locale"
+      schema.type === "locale" ||
+      // A view holds no source, so it cannot contain a keyOf reference.
+      schema.type === "view"
     ) {
       // ignore these
     } else {

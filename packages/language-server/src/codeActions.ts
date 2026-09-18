@@ -74,6 +74,9 @@ const LOCAL_FIXES: readonly ValidationFix[] = [
   // stored metadata, dropping entries whose file has gone. Filesystem only.
   "images:check-all-files",
   "files:check-all-files",
+  // A view pointing at the wrong module: the schema names the right one, so the
+  // fix is a value the patch already knows. Nothing read, nothing fetched.
+  "view:check-module",
 ];
 
 /**
@@ -99,6 +102,7 @@ const FIX_TITLES: Partial<Record<ValidationFix, string>> = {
   "images:check-all-files": "Val: update gallery image metadata",
   "files:check-all-files": "Val: update gallery file metadata",
   "jsonValues:extract-entry": "Val: move entry into its own .val.json",
+  "view:check-module": "Val: point this view at the module its schema names",
 };
 
 export function isLocalFix(fix: string): fix is ValidationFix {

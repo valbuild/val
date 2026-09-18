@@ -125,6 +125,7 @@ function containsReferrer(
     // A locale is a value, not a reference: it points at the settings module,
     // which is never a `.jsonValues()` record.
     case "locale":
+    case "view": // a view holds no source of its own, so nothing to load
       return false;
     case "object":
     case "settings":
