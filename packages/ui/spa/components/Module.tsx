@@ -38,6 +38,7 @@ import {
 import { ModuleGallery } from "./fields/ModuleGallery";
 import { ScopeTrail, scopePartsBelowPageRouter } from "./ModuleScope";
 import { PathHeading } from "./PathHeading";
+import { useEditorDensity } from "./EditorDensity";
 import { useDescription } from "./useDescription";
 
 export function Module({
@@ -68,6 +69,9 @@ export function Module({
   }, [pendingPatchesRes]);
   const portalContainer = useValPortal();
   const description = useDescription(path);
+  /** How much room the heading may spend. See {@link EditorDensity}. */
+  const density = useEditorDensity();
+  const isCompact = density === "compact";
   /*
    * The MODULE's schema, not this path's — needed to answer "is this a page".
    */
@@ -198,7 +202,21 @@ export function Module({
     ) : undefined;
 
   return (
-    <div className="flex flex-col gap-6 pt-4 pb-40">
+    /*
+     * The gap above and below the heading follows the heading's own size.
+     *
+     * Beside the canvas the editor is one of three panes that start on the same
+     * line, and the other two are using their space by then — the preview's
+     * address bar is a control, the On page header is a count and a filter. 16px
+     * of padding over a 52px title block over a 24px gap is 124px spent before
+     * the first field, to say one short name. See {@link EditorDensity}.
+     */
+    <div
+      className={cn(
+        "flex flex-col pb-40",
+        isCompact ? "gap-4 pt-0" : "gap-6 pt-4",
+      )}
+    >
       <div className="flex flex-col gap-2 text-left overflow-hidden">
         <div
           className={cn({
@@ -220,6 +238,7 @@ export function Module({
           <PathHeading
             description={description}
             title={titleNode}
+            density={density}
             tools={tools}
             scope={
               init.length > 0 ? (

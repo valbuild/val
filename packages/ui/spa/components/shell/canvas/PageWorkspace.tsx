@@ -33,6 +33,7 @@ import {
   CanvasPreviewStatus,
 } from "./CanvasPreviewNotice";
 import { CANVAS_MAX_WIDTH } from "../EditorCanvas";
+import { EditorDensityProvider } from "../../EditorDensity";
 import { SourcePath } from "@valbuild/core";
 import { ShellBreakpoint } from "../types";
 import {
@@ -784,7 +785,20 @@ export function PageWorkspace({
           columnClearsTopBar ? "pt-20 desktop:pt-24" : paneTopPadding,
         )}
       >
-        {children}
+        {/*
+         * The editor is told how much room it is entitled to, and the canvas
+         * being open is the whole of the answer.
+         *
+         * Open, this column is one of three panes that start on the same line,
+         * and the other two are using their space by then: the preview's
+         * address bar is a control you type in, the On page header is a count
+         * and a filter. A 24px title with 124px of chrome around it does not
+         * read as the heading having presence beside those — it reads as a pane
+         * that has not finished loading. See {@link EditorDensity}.
+         */}
+        <EditorDensityProvider density={open ? "compact" : "full"}>
+          {children}
+        </EditorDensityProvider>
       </div>
     </div>
   );

@@ -58,6 +58,48 @@ test.describe("the module header", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("/");
   });
 
+  /**
+   * The heading is smaller when the editor is sharing the screen.
+   *
+   * Beside the canvas the editor is one of three panes that begin on the same
+   * line, and the other two are using their space by then: the preview's
+   * address bar is a control you type in, the On page header is a count and a
+   * filter. A 24px title with 124px of chrome around it reads as a pane that
+   * has not loaded yet rather than as a heading with presence.
+   *
+   * Measured as a RELATIONSHIP rather than against a number: what must hold is
+   * that the heading gives way when the page is beside it and does not when the
+   * editor is alone, and a pixel count here would fail every time either size
+   * is tuned.
+   */
+  test("the heading gives way to the canvas, and only to the canvas", async ({
+    page,
+  }) => {
+    const headingBox = async () => {
+      const box = await page
+        .getByRole("heading", { level: 1 })
+        .first()
+        .boundingBox();
+      if (box === null) {
+        throw new Error("expected the heading to be laid out");
+      }
+      return box;
+    };
+
+    await openStudio(page, PAGE);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("/");
+    const alone = await headingBox();
+
+    await openStudio(page, `${PAGE}&canvas=1`);
+    await expect(
+      page.getByRole("button", { name: "Fit page width" }),
+    ).toBeVisible({ timeout: 30000 });
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("/");
+    const besideTheCanvas = await headingBox();
+
+    expect(besideTheCanvas.height).toBeLessThan(alone.height);
+  });
+
   test("a page names itself and nothing else", async ({ page }) => {
     await openStudio(page, PAGE);
 
