@@ -1524,14 +1524,14 @@ function SegmentedControl<T extends string>({
 }
 
 /**
- * The phone's one switch: the module editor, the page's fields, or the page.
+ * The phone's one switch: the module's own content, the fields the page
+ * reported, or the page.
  *
  * Three options in reading order, left to right, matching where each one puts
- * you: Structure and On page are both the left pane and sit together on the
- * left;
- * Preview is the pane to their right and sits on the right. Every option names
- * a destination — there is no "Editor" meaning "away from the page", which is
- * what the pair of two-state switches this replaces ended up saying.
+ * you. Structure and On page are both the left pane and sit together on the
+ * left; Preview is the pane to their right and sits on the right. Every option
+ * names a destination — there is no "Editor" meaning "away from the page",
+ * which is what the pair of two-state switches this replaces ended up saying.
  */
 function MobileModeToggle({
   mode,
