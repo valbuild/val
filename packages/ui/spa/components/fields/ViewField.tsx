@@ -23,6 +23,14 @@ import { prettyModuleName } from "../MediaPicker/GalleryUploadTarget";
  * The row reads the TARGET's schema for its description. It deliberately does
  * not read the target's source: a view is a link, and a link should not pull a
  * module's content into the page that links to it.
+ *
+ * Nor does it read the target's `hidden` or `readonly`. Those are the target
+ * MODULE's, and they answer a different question — whether the Explorer lists
+ * it, and whether an editor may change it once there. Whether this row exists
+ * is the VIEW's own `hidden`, which `AnyField` has already applied by the time
+ * this renders. A hidden module behind a shown view is the case the feature is
+ * for: `employees.val.ts` is a `keyOf` target that does not belong in the nav,
+ * and belongs on `/menneskene`.
  */
 export function ViewField({
   path,

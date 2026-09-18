@@ -194,7 +194,7 @@ the editor the field is a ROW that navigates there — it does not render the
 target's fields inline — which is also what stops an editor mistaking a shared
 module for a field of the page they are on.
 
-Six things decide how it behaves, and each was a choice:
+Seven things decide how it behaves, and each was a choice:
 
 - **A plain object, not a constructor.** Same rule as media: the value has to
   work in a `.val.ts` and in a `*.val.json`, and a literal survives the static
@@ -220,10 +220,19 @@ Six things decide how it behaves, and each was a choice:
   for a source walk to trip over. A DIAMOND (two paths to one module) is not a
   cycle and is allowed.
 - **A module cannot BE a view.** `c.define(path, s.view(x), …)` throws.
+- **`hidden` and `readonly` are the view's own, never the target's.** A view
+  whose target module is hidden is still shown, and still leads there — which
+  is the whole point, because `hidden` on a MODULE's root schema means "the nav
+  does not list this" (`useTrees` for the Explorer, `collectMediaModules` for
+  Media). A module has no parent to be hidden from, so it can mean nothing
+  else. The pair is what lets `employees.val.ts` be a `keyOf` target a dozen
+  modules point into, out of the nav, and reached from the one page it belongs
+  to. It also forced `AnyField`'s `ignoreHidden`, set by `Module` alone: the
+  page an editor has navigated to is not a parent's field list, so honouring
+  `hidden` there renders a blank page instead of hiding a row.
 
 Not built yet, and deliberately: rendering the target inline
-(`render({ as: "inline" })`), resolving a view through `useVal`/`fetchVal`, and
-an auto-fix for a pointer that disagrees with its schema.
+(`render({ as: "inline" })`) and resolving a view through `useVal`/`fetchVal`.
 
 ## Module System
 

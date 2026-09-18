@@ -37,6 +37,7 @@ export function AnyField({
   inline,
   hideUpload,
   errorDisplay = "default",
+  ignoreHidden,
 }: {
   path: SourcePath;
   schema: SerializedSchema;
@@ -46,11 +47,20 @@ export function AnyField({
   inline?: boolean;
   hideUpload?: boolean;
   errorDisplay?: ErrorDisplay;
+  /**
+   * Draw this even if its schema says `hidden`.
+   *
+   * `hidden` means "do not list this among its parent's fields". The page an
+   * editor has NAVIGATED to is not a parent's field list — it is the thing
+   * being looked at — so honouring the flag there renders a blank page instead
+   * of hiding anything. Set by `Module`, and nowhere else.
+   */
+  ignoreHidden?: boolean;
 }) {
   // Before the guard: a hook below an early return is a hook-order trap — see
   // `architecture/quirks.md`.
   const writeHeld = usePendingWriteHold();
-  if (schema.hidden) {
+  if (schema.hidden && !ignoreHidden) {
     return null;
   }
   /*

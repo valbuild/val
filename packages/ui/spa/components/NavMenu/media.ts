@@ -19,6 +19,12 @@ export function isGallerySchema(
 /**
  * The project's galleries, labelled by the directory each is constrained to -
  * which is the unit an editor thinks in, rather than the `.val.ts` declaring it.
+ *
+ * A gallery whose schema is `hidden` is left out, for the same reason
+ * `useTrees` leaves a hidden module out of the Explorer: a module has no parent
+ * to be hidden from, so the flag can only mean "do not list this". It stays
+ * reachable — from an `s.view()` row, from a field that picks out of it, from
+ * search — and opens in full.
  */
 export function collectMediaModules(
   schemas: Record<ModuleFilePath, SerializedSchema>,
@@ -28,7 +34,7 @@ export function collectMediaModules(
   for (const moduleFilePathS in schemas) {
     const moduleFilePath = moduleFilePathS as ModuleFilePath;
     const schema = schemas[moduleFilePath];
-    if (!isGallerySchema(schema)) {
+    if (!isGallerySchema(schema) || schema.hidden) {
       continue;
     }
     media.push({

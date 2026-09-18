@@ -71,6 +71,31 @@ describe("collectMediaModules", () => {
     expect(media).toHaveLength(1);
     expect(media[0].dir).toBe("/content/photos.val.ts");
   });
+
+  /**
+   * Same rule the Explorer applies in `useTrees`: a module has no parent to be
+   * hidden from, so `hidden` on its schema can only mean "do not list this".
+   * It stays reachable — an `s.view()` row pointing at it is shown by the
+   * view's OWN `hidden`, never by the target's.
+   */
+  test("a hidden gallery is not listed", () => {
+    const media = collectMediaModules(
+      {
+        ["/content/photos.val.ts" as ModuleFilePath]: {
+          ...gallery("images", "/public/val/photos"),
+          hidden: true,
+        },
+        ["/content/docs.val.ts" as ModuleFilePath]: gallery(
+          "files",
+          "/public/val/docs",
+        ),
+      },
+      () => undefined,
+    );
+    expect(media.map((m) => m.moduleFilePath)).toEqual([
+      "/content/docs.val.ts",
+    ]);
+  });
 });
 
 describe("excludePathsFromTree", () => {

@@ -174,9 +174,11 @@ export class ViewSchema<Id extends string = string, T = unknown> extends Schema<
   /**
    * Marks the row read-only.
    *
-   * A view is already a link rather than an editor, so this changes nothing
-   * today. It exists because every schema has it, and because a view that
-   * renders its target inline would need it.
+   * The view's OWN flag, and it says nothing about the module it names: that
+   * module has its own `readonly`, which is what governs editing once an
+   * editor is there. A view is a link rather than an editor, so this changes
+   * nothing about the row today — it exists because every schema has it, and
+   * because a view that renders its target inline would need it.
    *
    * @example
    * import otherVal from "./other.val"; // another module
@@ -200,7 +202,13 @@ export class ViewSchema<Id extends string = string, T = unknown> extends Schema<
   }
 
   /**
-   * Hide this field in the editor.
+   * Hide the ROW in the editor.
+   *
+   * The view's OWN flag, and it is the only thing that decides whether the row
+   * is drawn — a view whose TARGET is hidden is still shown, and still leads
+   * there. That is the point of it: a module that many modules `keyOf` into is
+   * noise in the nav and belongs on exactly one page, so it is hidden from the
+   * listing and reached through the view that puts it where it belongs.
    *
    * @example
    * import otherVal from "./other.val"; // another module
