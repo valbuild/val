@@ -82,7 +82,10 @@
  *
  * No auth flow. `http` mode rejects any request without a session, so the tests
  * mint the `val_session` cookie directly (see `e2e/httpMode.ts`). Login has its
- * own coverage and is not what these tests are for.
+ * own coverage and is not what these tests are for. A human driving the same
+ * stack by hand has no such seam, so `/__test__/login` mints one into the
+ * browser — off unless `MOCK_CONTENT_SESSION_SECRET` is set, which only
+ * `scripts/devProxyMode.ts` does.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -93,6 +96,7 @@ import {
 } from "node:http";
 import path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
+import { encodeJwt, getExpire } from "../../packages/server/src/jwt";
 
 // #region config
 
@@ -104,6 +108,21 @@ const PUBLIC_PROJECT_ID =
   process.env.MOCK_CONTENT_PUBLIC_PROJECT_ID ?? "mockproj";
 /** Where the repo is on disk, so `location: "repo"` reads can be served. */
 const REPO_ROOT = process.env.MOCK_CONTENT_REPO_ROOT ?? process.cwd();
+
+/**
+ * What `val_session` cookies are signed with, for `/__test__/login`.
+ *
+ * Unset under Playwright, and that is the point: a test mints its own cookie
+ * from `e2e/http/config.ts` and never asks this host for one. It is set only
+ * by `scripts/devProxyMode.ts`, where a human needs a session and cannot get
+ * one — proxy mode refuses every request without it, and the real login goes
+ * to admin.val.build, which is the one part of the product a content-host mock
+ * cannot stand in for.
+ */
+const SESSION_SECRET = process.env.MOCK_CONTENT_SESSION_SECRET ?? null;
+
+/** Where `/__test__/login` sends the browser once the cookie is set. */
+const APP_URL = process.env.MOCK_CONTENT_APP_URL ?? null;
 
 /**
  * The people who can be editing.
@@ -2576,6 +2595,71 @@ const controlPlane: Handler = async (req, res, url) => {
     state.snapshots.set(commitSha, new Map(state.repoOverlay));
     broadcast({ type: "commit", commit: record });
     json(res, 200, { commit: record });
+    return;
+  }
+  if (action === "login" && req.method === "GET") {
+    /*
+     * Log a human in, because nothing else can.
+     *
+     * Proxy mode rejects every request without a signed `val_session`
+     * (`getAuth` in `ValServer.ts`), and the real login round-trips through
+     * admin.val.build, which this host does not stand in for. The e2e suite
+     * sidesteps that by minting the cookie into a browser context; a developer
+     * driving the Studio by hand has no such seam, so this is it.
+     *
+     * A redirect rather than a JSON token: the cookie has to reach the BROWSER,
+     * and the app is on a different port. Ports are not part of a cookie's
+     * scope, so one set here for host `localhost` is sent to the app as well —
+     * which is what makes a one-URL login possible at all.
+     */
+    if (SESSION_SECRET === null) {
+      json(res, 400, {
+        message:
+          "This host was started without MOCK_CONTENT_SESSION_SECRET, so it cannot mint a session. Start it through `pnpm run dev:example-next:http`.",
+      });
+      return;
+    }
+    const requested = url.searchParams.get("user") ?? "ada";
+    const profile = PROFILES.find(
+      (candidate) =>
+        candidate.profileId === requested ||
+        candidate.profileId === `profile-${requested}`,
+    );
+    if (profile === undefined) {
+      json(res, 404, {
+        message: `No such editor: ${requested}. This host knows ${PROFILES.map(
+          (candidate) => candidate.profileId,
+        ).join(", ")}.`,
+      });
+      return;
+    }
+    const [org, project] = PROJECT.split("/");
+    const token = encodeJwt(
+      {
+        sub: profile.profileId,
+        exp: getExpire(),
+        token: "mock-val-build-token",
+        org,
+        project,
+      },
+      SESSION_SECRET,
+    );
+    const redirectTo = url.searchParams.get("redirect") ?? `${APP_URL}/val`;
+    res.writeHead(302, {
+      /*
+       * Percent-encoded, because that is how the real server writes it:
+       * `initValServer` sets `encodeURIComponent(cookie.value)` and the read
+       * side decodes. An HMAC signature is base64 and routinely contains `+`
+       * and `/`, so a raw value decodes to a different string and reads as an
+       * invalid session — which the Studio reports as "you will need to login
+       * again", pointing nowhere near the cause.
+       */
+      "Set-Cookie": `val_session=${encodeURIComponent(
+        token,
+      )}; Path=/; HttpOnly; SameSite=Lax`,
+      Location: redirectTo,
+    });
+    res.end();
     return;
   }
   json(res, 404, { message: `Unknown control action: ${action}` });
