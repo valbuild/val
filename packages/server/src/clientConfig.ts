@@ -10,6 +10,7 @@ import type { ValConfig } from "@valbuild/core";
  */
 type BranchSource =
   | { mode: "fs"; config: ValConfig }
+  | { mode: "memory"; config: ValConfig }
   | { mode: "http"; branch: string; config: ValConfig };
 
 /**
@@ -31,9 +32,15 @@ type BranchSource =
  *
  * - **`val.config` wins.** A branch named in the file is the author's answer,
  *   and the environment's is the fallback.
- * - **fs mode is left alone.** There is no branch there — `ValOpsFS` has no
- *   commits of its own — and the shell hides what needs one rather than being
- *   handed a name that means nothing.
+ * - **Every other mode is left alone.** Neither `fs` nor `memory` has a branch:
+ *   `ValOpsFS` has no commits of its own, and a memory host holds its own
+ *   source and never had any. The shell hides what needs a branch rather than
+ *   being handed a name that means nothing.
+ *
+ * The modes are enumerated rather than written as "http, or anything else", and
+ * that is worth keeping: `memory` arrived after this function did, and spelling
+ * every mode out is what turned "does this one have a branch?" into a compile
+ * error somebody had to answer instead of a default that silently applied.
  */
 export function clientConfig(options: BranchSource): ValConfig {
   if (options.mode !== "http") {

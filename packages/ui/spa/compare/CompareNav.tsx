@@ -5,7 +5,10 @@ import {
   ChevronRight,
   File,
   FileText,
+  Files,
+  Folder,
   Image as ImageIcon,
+  Images,
 } from "lucide-react";
 import { cn } from "../components/designSystem/cn";
 import { ChangeKindIcon, changeKindLabel } from "./ChangeKindIcon";
@@ -52,24 +55,33 @@ import type {
  */
 
 /**
- * The panels' icons, not this component's own.
+ * The panels' icons, on every row.
  *
  * `File` for a page and `Braces` for a module are what `PagesPanel` and
  * `DataPanel` draw, so a row here and the same row under Pages or Data are
- * recognisably the same thing. `null` means the row draws no icon at all, which
- * is also copied rather than invented: a row with children already carries a
- * chevron, and both panels say the same thing about it — "the leading slot is
- * one icon wide, and a second icon in it overlaps the label".
+ * recognisably the same thing.
  *
- * A gallery is `null` for that reason too; its FILES take the media icons, the
- * way `MediaPanel` draws a thumbnail for an image and `FileText` for anything
- * else.
+ * Rows with children get an icon too, and that is a deliberate DIVERGENCE from
+ * the panels rather than an oversight. Both of them note that "the leading slot
+ * is one icon wide, and a second icon in it overlaps the label" — but that is a
+ * fact about THEIR layout, where the chevron and the icon compete for one slot.
+ * This nav puts the chevron in its own button, outside the row's navigate
+ * button, precisely so a folder can be expanded without being selected. There
+ * are two slots here, so the constraint that produced the rule does not hold,
+ * and copying the rule without its premise left every folder and gallery
+ * unmarked.
+ *
+ * A gallery is split by what it holds: `Images` for an `s.imageset()` and
+ * `Files` for an `s.fileset()`, because the two are different modules and the
+ * row is the only place that says which. Their entries follow `MediaPanel` —
+ * an image icon for an image, `FileText` for anything else.
  */
-const KIND_ICONS: Record<CompareNavKind, typeof FileText | null> = {
+const KIND_ICONS: Record<CompareNavKind, typeof FileText> = {
   page: File,
-  folder: null,
+  folder: Folder,
   module: Braces,
-  "media-dir": null,
+  "media-dir": Images,
+  "media-fileset": Files,
   "media-file": ImageIcon,
   "media-doc": FileText,
 };
@@ -222,13 +234,11 @@ function NavRow({
           aria-current={isSelected ? "true" : undefined}
           className="flex min-w-0 flex-1 items-center gap-2 py-1 pr-2 text-left"
         >
-          {Icon !== null && (
-            <Icon
-              size={13}
-              className="shrink-0 text-fg-secondary-alt"
-              aria-hidden
-            />
-          )}
+          <Icon
+            size={13}
+            className="shrink-0 text-fg-secondary-alt"
+            aria-hidden
+          />
           <span className="min-w-0 flex-1">
             <span
               className={cn(

@@ -686,7 +686,7 @@ export const compareModel: CompareModel = {
           id: "media-docs",
           label: directoryName("/public/val/docs"),
           sublabel: servedPath("/public/val/docs"),
-          kind: "media-dir",
+          kind: "media-fileset",
           change: "changed",
           changedCount: 1,
           authorIds: ["profile-ada"],
