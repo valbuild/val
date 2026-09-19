@@ -761,6 +761,12 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
+  packages/tanstack-build:
+    devDependencies:
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
   packages/ui:
     devDependencies:
       '@codemirror/lang-angular':
