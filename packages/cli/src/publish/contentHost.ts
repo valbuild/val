@@ -38,6 +38,15 @@ export class ContentHostError extends Error {
   }
 }
 
+/** GET JSON from content. Same envelope, same failures, one less body. */
+export async function getJson(options: {
+  url: string;
+  headers: Record<string, string>;
+  fetchImpl?: typeof fetch;
+}): Promise<unknown> {
+  return requestJson({ method: "GET", ...options });
+}
+
 /**
  * POST JSON to content and read JSON back.
  *
@@ -53,16 +62,28 @@ export async function postJson(options: {
   body?: unknown;
   fetchImpl?: typeof fetch;
 }): Promise<unknown> {
+  return requestJson({ method: "POST", ...options });
+}
+
+async function requestJson(options: {
+  method: "GET" | "POST";
+  url: string;
+  headers: Record<string, string>;
+  body?: unknown;
+  fetchImpl?: typeof fetch;
+}): Promise<unknown> {
   const fetchImpl = options.fetchImpl ?? fetch;
   let res: Response;
   try {
     res = await fetchImpl(options.url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
-      body: JSON.stringify(options.body ?? {}),
+      method: options.method,
+      headers:
+        options.method === "GET"
+          ? options.headers
+          : { "Content-Type": "application/json", ...options.headers },
+      ...(options.method === "GET"
+        ? {}
+        : { body: JSON.stringify(options.body ?? {}) }),
     });
   } catch (err) {
     // No status at all: DNS, TLS, a dropped connection. 0 is the shape the

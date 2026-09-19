@@ -9,6 +9,7 @@ import { login } from "./login";
 import { lsp } from "./lsp";
 import { debug } from "./debug";
 import { deleteUnappliablePatches } from "./deleteUnappliablePatches";
+import { publish } from "./publish";
 
 async function main(): Promise<void> {
   const { input, flags, showHelp } = meow(
@@ -24,6 +25,7 @@ async function main(): Promise<void> {
         login
         files
         connect
+        publish
         versions
         lsp
         debug
@@ -47,6 +49,23 @@ async function main(): Promise<void> {
       Description: connect your local project to a Val Build project at admin.val.build
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
+
+      Command: publish
+      Description: publish this project's build to its Val project.
+        Offers the built files to content.val.build, uploads the ones it does not have,
+        and asks it to verify and go live. Authenticates with VAL_PROJECT_TOKEN, or with
+        the "val login" token in .val/pat.json (which needs the project, as "<org>/<project>",
+        in val.config or VAL_PROJECT). Never as a flag: an argument is visible to anyone
+        who can list processes.
+      Options:
+        --root [root], -r [root] Set project root directory (default process.cwd())
+        --dir [dir]              The build output to publish (default: the first of
+                                 .output, dist, build, .next that exists)
+        --commit [sha]           The commit this build is of (default VAL_GIT_COMMIT,
+                                 else GITHUB_SHA, else git HEAD)
+        --branch [name]          The branch content commits saves to (default VAL_GIT_BRANCH,
+                                 else GITHUB_REF_NAME, else the current git branch)
+        --dry-run                Verify, and stop before the site changes
 
       Command: list-unused-files
       Description: EXPERIMENTAL.
@@ -110,6 +129,9 @@ async function main(): Promise<void> {
           type: "string",
         },
         out: {
+          type: "string",
+        },
+        dir: {
           type: "string",
         },
         commit: {
@@ -180,6 +202,14 @@ async function main(): Promise<void> {
         dryRun: flags.dryRun,
         yes: flags.yes,
         verbose: flags.verbose,
+      });
+    case "publish":
+      return publish({
+        root: flags.root,
+        dir: flags.dir,
+        commit: flags.commit,
+        branch: flags.branch,
+        dryRun: flags.dryRun,
       });
     case "login":
       return login({
