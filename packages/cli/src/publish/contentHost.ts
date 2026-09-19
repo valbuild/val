@@ -29,13 +29,41 @@ export function getContentHost(env: NodeJS.ProcessEnv = process.env): string {
  */
 export class ContentHostError extends Error {
   readonly statusCode: number;
-  readonly details: string | undefined;
-  constructor(statusCode: number, message: string, details?: string) {
+  /**
+   * Whatever was in `details`, unread.
+   *
+   * The publish routes put a `PublishProblem[]` there - every problem with a
+   * declaration rather than the first - and the older routes put a sentence.
+   * Keeping it unparsed here lets each caller read the one it expects without
+   * this file having to know about either.
+   */
+  readonly details: unknown;
+  /**
+   * The whole answer.
+   *
+   * Some refusals carry a field of their own beside the message - a stale
+   * pointer answers with the `head` the branch is at now, which is the one
+   * thing that tells a publisher what happened - so the body is kept rather
+   * than reduced to two strings on the way past.
+   */
+  readonly body: unknown;
+  constructor(
+    statusCode: number,
+    message: string,
+    details?: unknown,
+    body?: unknown,
+  ) {
     super(message);
     this.name = "ContentHostError";
     this.statusCode = statusCode;
     this.details = details;
+    this.body = body;
   }
+}
+
+/** The `details` of a refusal, when it is a sentence rather than a list. */
+export function detailText(details: unknown): string | null {
+  return typeof details === "string" && details !== "" ? details : null;
 }
 
 /** GET JSON from content. Same envelope, same failures, one less body. */
@@ -108,6 +136,7 @@ async function requestJson(options: {
       res.status,
       errorMessageOf(parsed) ?? `${res.status} ${res.statusText}`,
       errorDetailsOf(parsed),
+      parsed,
     );
   }
   return parsed;
@@ -123,12 +152,9 @@ function errorMessageOf(body: unknown): string | undefined {
   return undefined;
 }
 
-function errorDetailsOf(body: unknown): string | undefined {
+function errorDetailsOf(body: unknown): unknown {
   if (typeof body === "object" && body !== null && "details" in body) {
-    const details = body.details;
-    if (typeof details === "string" && details !== "") {
-      return details;
-    }
+    return body.details;
   }
   return undefined;
 }

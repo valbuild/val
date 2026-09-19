@@ -17,11 +17,11 @@ export type PublishCredential = {
   /** Presented as `Authorization: Bearer`. Never logged, never in argv. */
   token: string;
   /**
-   * Which of the two ways below produced it. For messages only: "your login
+   * Which of the ways below produced it. For messages only: "your login
    * expired" and "the repository's token was revoked" have different fixes and
    * different people to tell.
    */
-  origin: "VAL_PROJECT_TOKEN" | "val login";
+  origin: "VAL_PROJECT_TOKEN" | "val login" | "VAL_APP_TOKEN";
   /** ISO 8601, or null for a standing token that does not expire. */
   expiresAt: string | null;
 };
@@ -96,6 +96,26 @@ export async function resolvePublishCredential(options: {
     return pat;
   }
   if (pat.status === "none") {
+    /*
+     * The old names, still read.
+     *
+     * This is where the api key used to be passed, and this platform's own CI
+     * still passes it: a rename that breaks the publisher is a rename that gets
+     * reverted. It will not be accepted for long - publishing is being taken
+     * out of what an api key may do - and content says so in its own words
+     * when it refuses one, which is a better sentence than a guess here.
+     */
+    const legacy = (env.VAL_APP_TOKEN ?? env.PLATFORM_TOKEN)?.trim();
+    if (legacy) {
+      return {
+        status: "ok",
+        credential: {
+          token: legacy,
+          origin: "VAL_APP_TOKEN",
+          expiresAt: null,
+        },
+      };
+    }
     return { status: "error", message: NO_CREDENTIAL };
   }
 

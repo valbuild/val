@@ -2,22 +2,24 @@ import crypto from "crypto";
 import http from "http";
 
 /**
- * A local stand-in for content.val.build's publish API.
+ * A local stand-in for the publish API on content.val.build.
  *
- * It implements the whole protocol - the token exchange, the five publish
- * calls, and a storage endpoint the presigned URLs point at - over real HTTP,
- * so `val publish` runs against it exactly as it runs against the service: one
- * `VAL_CONTENT_URL` and nothing stubbed inside the CLI.
+ * It implements the protocol over real HTTP - the token exchange, the five
+ * publish calls, and an object store the presigned PUTs point at - so
+ * `val publish` runs against it exactly as it runs against the service: one
+ * `VAL_CONTENT_URL`, and nothing stubbed inside the CLI.
  *
- * Two things it does for real, because they are the two the CLI can get
+ * Three things it does for real, because they are the three the CLI can get
  * wrong on its own:
  *
- * - **It re-hashes what landed.** An artifact whose bytes do not match the
- *   hash the CLI offered comes back in `missing`, which is how a truncated
- *   upload is caught here rather than by a reader of the live site.
- * - **It only presigns what it does not have.** Publishing the same build
- *   twice uploads nothing the second time, which is the property that makes a
- *   one-line change a one-chunk publish.
+ * - **It re-hashes what landed.** Bytes that do not match the declared sha256
+ *   are answered with `409 ARTIFACT_MISMATCH`, which is how a truncated upload
+ *   is caught here rather than by a reader of the live site.
+ * - **It holds artifacts per project by hash.** Declaring the same build twice
+ *   mints no slots the second time - the dedupe the whole declare step exists
+ *   for.
+ * - **It is idempotent on `buildHash`.** A re-declared build is the same
+ *   publish, so a retried CI job resumes rather than starting again.
  *
  * Run it by hand to publish against nothing:
  *
@@ -25,55 +27,58 @@ import http from "http";
  *     VAL_CONTENT_URL=<fake.url> VAL_PROJECT_TOKEN=val_pt_x npx val publish
  */
 export type FakeContentOptions = {
-  /** Hashes it already holds, so their artifacts are never asked for. */
-  have?: string[];
-  /** The token it accepts. Any token is accepted when absent. */
+  /** The project token it accepts. Any token is accepted when absent. */
   token?: string;
-  /**
-   * Swallow the first N uploads: accept the PUT, store nothing. This is a
-   * dropped connection that looks like a success, which is the failure the
-   * re-hash exists to catch.
-   */
+  /** sha256s it already holds for this project, so no slot is minted. */
+  have?: string[];
+  /** Swallow the first N uploads: accept the PUT, store nothing. */
   dropUploads?: number;
-  /** Answer this many uploads with a 500 before accepting any. */
+  /** Answer the first N uploads with a 503 before accepting any. */
   failUploadsWith5xx?: number;
-  /**
-   * What verifying does: pass, fail with problems, or take `verifyPolls`
-   * polls of `GET /v1/publish/{id}` to finish.
-   */
+  /** Answer the first N uploads with a 403, as an expired slot does. */
+  expireSlots?: number;
+  /** What the canary does. */
   verify?: "ok" | "fail";
-  verifyPolls?: number;
-  promote?: "ok" | "fail";
+  /** Refuse the promote because the branch moved on. */
+  promote?: "ok" | "stale";
+  /** The head the branch is at now, reported by a stale promote. */
+  head?: string;
 };
 
 export type FakeContentService = {
   url: string;
-  /** Every request it answered: method, path, and the bearer it was given. */
   calls: Array<{ method: string; path: string; authorization: string | null }>;
-  /** What is in storage now, by artifact path. */
+  /** What is in the object store now, by artifact key. */
   stored: Map<string, Buffer>;
+  /** What each publish was declared with, by publish id. */
+  declarations: Map<string, unknown>;
   close: () => Promise<void>;
 };
 
+type Artifact = { key: string; sha256: string; bytes: number };
+
 type Publish = {
   id: string;
-  commit: string;
-  branch: string;
-  artifacts: Array<{ path: string; hash: string; size: number }>;
+  buildHash: string;
+  commit: string | null;
+  branch: string | null;
+  artifacts: Artifact[];
   state: string;
-  problems: Array<{ code: string; message: string }>;
-  pollsLeft: number;
+  problems: Array<{ code: string; message: string; keys?: string[] }>;
 };
 
 export async function startFakeContentService(
   options: FakeContentOptions,
 ): Promise<FakeContentService> {
-  const have = new Set(options.have ?? []);
+  const held = new Set(options.have ?? []);
   const calls: FakeContentService["calls"] = [];
   const stored = new Map<string, Buffer>();
+  const declarations = new Map<string, unknown>();
   const publishes = new Map<string, Publish>();
+  const byBuildHash = new Map<string, string>();
   let dropsLeft = options.dropUploads ?? 0;
   let failuresLeft = options.failUploadsWith5xx ?? 0;
+  let expiriesLeft = options.expireSlots ?? 0;
   let nextId = 1;
 
   const server = http.createServer((req, res) => {
@@ -82,26 +87,17 @@ export async function startFakeContentService(
     });
   });
 
-  const missingOf = (publish: Publish) =>
-    publish.artifacts
-      .filter((artifact) => !have.has(artifact.hash))
-      .map((artifact) => ({
-        path: artifact.path,
-        hash: artifact.hash,
-        url: `${baseUrl()}/storage/${encodeURIComponent(publish.id)}/${encodeURIComponent(
-          artifact.path,
-        )}`,
-        method: "PUT",
-        headers: { "x-fake-artifact": artifact.hash },
-      }));
+  const outstanding = (publish: Publish): Artifact[] =>
+    publish.artifacts.filter((artifact) => !held.has(artifact.sha256));
 
-  const statusOf = (publish: Publish) => ({
-    publishId: publish.id,
-    state: publish.state,
-    missing: missingOf(publish),
-    problems: publish.problems,
-    url: publish.state === "published" ? "https://example.test" : null,
-  });
+  const slotsFor = (publish: Publish) =>
+    outstanding(publish).map((artifact) => ({
+      key: artifact.key,
+      url: `${baseUrl()}/store/${encodeURIComponent(publish.id)}/${encodeURIComponent(artifact.key)}`,
+      method: "PUT",
+      headers: { "content-length": String(artifact.bytes) },
+      expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+    }));
 
   const handle = async (
     req: http.IncomingMessage,
@@ -110,24 +106,26 @@ export async function startFakeContentService(
     const url = new URL(req.url ?? "/", baseUrl());
     const parts = url.pathname.split("/").filter((part) => part !== "");
     const authorization = req.headers.authorization ?? null;
-    calls.push({
-      method: req.method ?? "",
-      path: url.pathname,
-      authorization,
-    });
+    calls.push({ method: req.method ?? "", path: url.pathname, authorization });
 
-    // Storage. A presigned URL is the one thing here that is not content: it
-    // is a URL the CLI was handed, and it carries no credential of ours.
-    if (parts[0] === "storage") {
+    // The object store. A presigned URL is the one thing here that is not
+    // content, and it carries no credential of ours.
+    if (parts[0] === "store") {
       const body = await readBody(req);
+      if (expiriesLeft > 0) {
+        expiriesLeft--;
+        send(res, 403, { statusCode: 403, message: "Request has expired" });
+        return;
+      }
       if (failuresLeft > 0) {
         failuresLeft--;
-        send(res, 503, { statusCode: 503, message: "slow down" });
+        send(res, 503, { statusCode: 503, message: "Slow down" });
         return;
       }
       if (dropsLeft > 0) {
         dropsLeft--;
-        // Accepted, and thrown away.
+        // Accepted, and thrown away: a connection that died mid-body looks
+        // exactly like this from the publisher's side.
         send(res, 200, {});
         return;
       }
@@ -163,28 +161,65 @@ export async function startFakeContentService(
       send(res, 404, { statusCode: 404, message: "No such route" });
       return;
     }
+    if (!authorization?.startsWith("Bearer val_pt_")) {
+      send(res, 401, {
+        statusCode: 401,
+        message: "This needs a project token as `Authorization: Bearer`.",
+      });
+      return;
+    }
     if (
       options.token !== undefined &&
       authorization !== `Bearer ${options.token}`
     ) {
-      send(res, 401, { statusCode: 401, message: "Invalid project token" });
+      send(res, 401, {
+        statusCode: 401,
+        message: "This project token is not valid. It may have been revoked.",
+      });
       return;
     }
 
-    // POST /v1/publish
+    // POST /v1/publish - declare.
     if (parts.length === 2 && req.method === "POST") {
       const body = parseJson(await readBody(req));
-      const publish: Publish = {
+      const problems = declarationProblems(body);
+      if (problems.length > 0) {
+        send(res, 400, {
+          statusCode: 400,
+          message: "This publish cannot be declared",
+          details: problems,
+        });
+        return;
+      }
+      const buildHash = stringOf(body, "buildHash");
+      declarations.set(buildHash, body);
+      const existingId = byBuildHash.get(buildHash);
+      const publish: Publish = publishes.get(existingId ?? "") ?? {
         id: `pub_${nextId++}`,
-        commit: stringOf(body, "commit"),
-        branch: stringOf(body, "branch"),
+        buildHash,
+        commit: nullableStringOf(body, "commit"),
+        branch: nullableStringOf(body, "branch"),
         artifacts: artifactsOf(body),
         state: "awaiting-artifacts",
         problems: [],
-        pollsLeft: 0,
       };
       publishes.set(publish.id, publish);
-      send(res, 200, statusOf(publish));
+      byBuildHash.set(buildHash, publish.id);
+      // A live publish is not re-opened: re-declaring would mint slots to
+      // overwrite the bytes of a build that is currently serving.
+      const uploads = publish.state === "live" ? [] : slotsFor(publish);
+      send(res, 200, {
+        publishId: publish.id,
+        state: publish.state,
+        project: {
+          publicProjectId: "fake-project",
+          siteUrl: "https://example.test",
+        },
+        uploads,
+        have: publish.artifacts
+          .filter((artifact) => held.has(artifact.sha256))
+          .map((artifact) => artifact.key),
+      });
       return;
     }
 
@@ -194,20 +229,15 @@ export async function startFakeContentService(
       return;
     }
 
-    // GET /v1/publish/{id}
+    // GET /v1/publish/{id} - status.
     if (parts.length === 3 && req.method === "GET") {
-      if (publish.pollsLeft > 0) {
-        publish.pollsLeft--;
-        if (publish.pollsLeft === 0) {
-          publish.state = options.verify === "fail" ? "failed" : "verified";
-          if (options.verify === "fail") {
-            publish.problems = [
-              { code: "render", message: "/ threw on the server" },
-            ];
-          }
-        }
-      }
-      send(res, 200, statusOf(publish));
+      send(res, 200, {
+        publishId: publish.id,
+        state: publish.state,
+        buildHash: publish.buildHash,
+        missing: outstanding(publish).map((artifact) => artifact.key),
+        problems: publish.problems,
+      });
       return;
     }
 
@@ -217,51 +247,83 @@ export async function startFakeContentService(
     }
     await readBody(req);
 
-    // POST /v1/publish/{id}/artifacts - what actually landed, re-hashed.
+    // POST /v1/publish/{id}/artifacts - confirm. What landed is re-hashed.
     if (parts[3] === "artifacts") {
-      for (const artifact of publish.artifacts) {
-        const bytes = stored.get(artifact.path);
-        if (bytes && sha256(bytes) === artifact.hash) {
-          have.add(artifact.hash);
+      const problems: Publish["problems"] = [];
+      for (const artifact of outstanding(publish)) {
+        const bytes = stored.get(artifact.key);
+        if (!bytes) {
+          problems.push({
+            code: "ARTIFACT_NOT_UPLOADED",
+            message: "Nothing was uploaded for this artifact.",
+            keys: [artifact.key],
+          });
+          continue;
         }
+        if (
+          sha256(bytes) !== artifact.sha256 ||
+          bytes.length !== artifact.bytes
+        ) {
+          problems.push({
+            code: "ARTIFACT_MISMATCH",
+            message: "The bytes are not the sha256 or the size declared.",
+            keys: [artifact.key],
+          });
+          continue;
+        }
+        held.add(artifact.sha256);
       }
-      publish.state =
-        missingOf(publish).length === 0
-          ? "artifacts-received"
-          : "awaiting-artifacts";
-      send(res, 200, statusOf(publish));
+      if (problems.length > 0) {
+        send(res, 409, {
+          statusCode: 409,
+          message: "Some artifacts did not arrive as declared",
+          details: problems,
+        });
+        return;
+      }
+      publish.state = "ready";
+      send(res, 200, { state: publish.state, problems: [] });
       return;
     }
 
-    // POST /v1/publish/{id}/verify - a canary build and render, server side.
+    // POST /v1/publish/{id}/verify - a canary build and render.
     if (parts[3] === "verify") {
-      const polls = options.verifyPolls ?? 0;
-      if (polls > 0) {
-        publish.state = "verifying";
-        publish.pollsLeft = polls;
-      } else if (options.verify === "fail") {
-        publish.state = "failed";
-        publish.problems = [
-          { code: "render", message: "/ threw on the server" },
-        ];
-      } else {
-        publish.state = "verified";
-      }
-      send(res, 200, statusOf(publish));
+      const ok = options.verify !== "fail";
+      publish.state = ok ? "verified" : "failed";
+      publish.problems = ok
+        ? []
+        : [
+            {
+              code: "PLATFORM_RENDER_FAILED",
+              message: "/ threw on the server",
+            },
+          ];
+      send(res, 200, {
+        state: publish.state,
+        ok,
+        previewUrl: ok ? "https://canary.example.test" : null,
+        problems: publish.problems,
+      });
       return;
     }
 
     // POST /v1/publish/{id}/promote - the pointer moves, or it does not.
     if (parts[3] === "promote") {
-      if (options.promote === "fail") {
-        publish.state = "failed";
-        publish.problems = [
-          { code: "head-moved", message: "The branch has moved on since" },
-        ];
-      } else {
-        publish.state = "published";
+      if (options.promote === "stale") {
+        send(res, 409, {
+          statusCode: 409,
+          code: "POINTER_STALE",
+          message: "This commit is no longer the branch head",
+          head: options.head ?? "f00ba4f00ba4f00ba4f00ba4f00ba4f00ba4f00b",
+        });
+        return;
       }
-      send(res, 200, statusOf(publish));
+      publish.state = "live";
+      send(res, 200, {
+        state: publish.state,
+        url: "https://example.test",
+        commit: publish.commit,
+      });
       return;
     }
 
@@ -282,11 +344,60 @@ export async function startFakeContentService(
     url: baseUrl(),
     calls,
     stored,
+    declarations,
     close: () =>
       new Promise<void>((resolve, reject) =>
         server.close((err) => (err ? reject(err) : resolve())),
       ),
   };
+}
+
+/**
+ * The half of `publishPlan.ts` a publisher can actually trip over.
+ *
+ * Not all of it - the point here is that a declaration is answered with EVERY
+ * problem at once, and that the required keys and the layer rule are enforced
+ * somewhere the CLI has to cope with.
+ */
+function declarationProblems(
+  body: unknown,
+): Array<{ code: string; message: string; keys?: string[] }> {
+  const problems: Array<{ code: string; message: string; keys?: string[] }> =
+    [];
+  const artifacts = artifactsOf(body);
+  const keys = new Set(artifacts.map((artifact) => artifact.key));
+  const missing = ["server", "client"].filter((key) => !keys.has(key));
+  if (missing.length > 0) {
+    problems.push({
+      code: "ARTIFACT_MISSING",
+      message: "A publish needs at least a server and a client bundle.",
+      keys: missing,
+    });
+  }
+  if (keys.has("layer") && !nullableStringOf(body, "layerRev")) {
+    problems.push({
+      code: "LAYER_REV_MISSING",
+      message: "A layer artifact must be declared with the layerRev it is.",
+      keys: ["layer"],
+    });
+  }
+  if (nullableStringOf(body, "branch") === "HEAD") {
+    problems.push({
+      code: "BRANCH_INVALID",
+      message: "'HEAD' is not a branch.",
+    });
+  }
+  const bad = artifacts
+    .filter((artifact) => !/^[0-9a-f]{64}$/.test(artifact.sha256))
+    .map((artifact) => artifact.key);
+  if (bad.length > 0) {
+    problems.push({
+      code: "ARTIFACT_SHA_INVALID",
+      message: "sha256 must be 64 lowercase hex characters.",
+      keys: bad,
+    });
+  }
+  return problems;
 }
 
 function send(res: http.ServerResponse, statusCode: number, body: unknown) {
@@ -307,25 +418,28 @@ function sha256(bytes: Buffer): string {
 }
 
 function parseJson(body: Buffer): unknown {
-  if (body.length === 0) {
-    return {};
-  }
-  return JSON.parse(body.toString("utf-8"));
+  return body.length === 0 ? {} : JSON.parse(body.toString("utf-8"));
 }
 
 function stringOf(body: unknown, key: string): string {
+  const value = nullableStringOf(body, key);
+  if (value === null) {
+    throw new Error(`Fake content service: no ${key} in the body`);
+  }
+  return value;
+}
+
+function nullableStringOf(body: unknown, key: string): string | null {
   if (typeof body === "object" && body !== null) {
     const value = Reflect.get(body, key);
-    if (typeof value === "string") {
+    if (typeof value === "string" && value !== "") {
       return value;
     }
   }
-  throw new Error(`Fake content service: no ${key} in the body`);
+  return null;
 }
 
-function artifactsOf(
-  body: unknown,
-): Array<{ path: string; hash: string; size: number }> {
+function artifactsOf(body: unknown): Artifact[] {
   if (typeof body !== "object" || body === null) {
     throw new Error("Fake content service: no body");
   }
@@ -334,11 +448,11 @@ function artifactsOf(
     throw new Error("Fake content service: no artifacts");
   }
   return raw.map((entry) => ({
-    path: stringOf(entry, "path"),
-    hash: stringOf(entry, "hash"),
-    size:
+    key: stringOf(entry, "key"),
+    sha256: stringOf(entry, "sha256"),
+    bytes:
       typeof entry === "object" && entry !== null
-        ? Number(Reflect.get(entry, "size"))
+        ? Number(Reflect.get(entry, "bytes"))
         : 0,
   }));
 }

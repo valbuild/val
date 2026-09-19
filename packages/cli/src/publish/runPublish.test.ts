@@ -2,34 +2,40 @@ import crypto from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import zlib from "zlib";
 import { startFakeContentService } from "./fakeContent";
 import { runPublish } from "./runPublish";
 
 /**
  * `val publish` against a content service that is really there.
  *
- * The fake speaks the protocol over HTTP and re-hashes what lands, so what is
- * under test is the whole command: which calls it makes, in which order, with
- * which credential, and what it does when an upload is lost, when the canary
- * does not render, and when the pointer does not move.
+ * The fake speaks the publish API over HTTP and re-hashes what lands, so what
+ * is under test is the whole command: which calls it makes, in which order,
+ * with which credential, and what it does when a slot expires, when an upload
+ * is lost, when the canary does not render, and when somebody pushed while it
+ * was building.
  */
 const TOKEN = "val_pt_test";
 
-function makeProject(files: Record<string, string>): string {
+const A_BUILD: Record<string, string> = {
+  server: "export default { fetch() {} }\n",
+  client: "console.log('client')\n",
+  "chunk/client/app-a1b2c3.js": "export const app = 1\n",
+  "public/index.html": "<!doctype html><title>hi</title>\n",
+};
+
+function makeArtifacts(files: Record<string, string> = A_BUILD): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "val-publish-run-"));
-  for (const [file, contents] of Object.entries(files)) {
-    const absolute = path.join(root, file);
+  for (const [key, contents] of Object.entries(files)) {
+    const absolute = path.join(root, ".val", "publish", key);
     fs.mkdirSync(path.dirname(absolute), { recursive: true });
     fs.writeFileSync(absolute, contents);
   }
   return root;
 }
 
-const A_BUILD = {
-  ".output/server/index.mjs": "export default () => 'hello'\n",
-  ".output/public/index.html": "<!doctype html><title>hi</title>\n",
-  ".output/public/assets/app-a1b2c3.js": "console.log('app')\n",
-};
+const sha256 = (contents: string) =>
+  crypto.createHash("sha256").update(contents).digest("hex");
 
 function run(
   root: string,
@@ -41,55 +47,91 @@ function run(
     commit: "1234567890abcdef1234567890abcdef12345678",
     branch: "main",
     env: { VAL_PROJECT_TOKEN: TOKEN, VAL_CONTENT_URL: url },
-    // Polling should not really wait: what is under test is that it polls.
     sleep: () => Promise.resolve(),
     log: () => undefined,
     ...overrides,
   });
 }
 
-const publishCalls = (calls: Array<{ method: string; path: string }>) =>
+const apiCalls = (calls: Array<{ method: string; path: string }>) =>
   calls
     .filter(({ path: p }) => p.startsWith("/v1/publish"))
     .map(({ method, path: p }) => `${method} ${p}`);
 
 describe("val publish", () => {
-  test("uploads the build, has it verified, and promotes it", async () => {
+  test("declares, uploads, confirms, verifies and promotes", async () => {
     const fake = await startFakeContentService({ token: TOKEN });
-    const root = makeProject(A_BUILD);
+    const root = makeArtifacts();
     try {
       const result = await run(root, fake.url);
 
       expect(result).toEqual({
-        status: "published",
+        status: "live",
         publishId: "pub_1",
         url: "https://example.test",
-        artifacts: 3,
-        uploaded: 3,
+        commit: "1234567890abcdef1234567890abcdef12345678",
+        artifacts: 4,
+        uploaded: 4,
         uploadedBytes: Object.values(A_BUILD).reduce(
           (sum, contents) => sum + Buffer.byteLength(contents),
           0,
         ),
+        previewUrl: "https://canary.example.test",
       });
-      // The bytes that landed are the bytes on disk - the fake re-hashed them
-      // and would have asked again if they were not.
-      expect(fake.stored.get("public/index.html")?.toString()).toBe(
-        A_BUILD[".output/public/index.html"],
-      );
-      expect(publishCalls(fake.calls)).toEqual([
+      expect(apiCalls(fake.calls)).toEqual([
         "POST /v1/publish",
         "POST /v1/publish/pub_1/artifacts",
         "POST /v1/publish/pub_1/verify",
         "POST /v1/publish/pub_1/promote",
       ]);
+      // The bytes that landed are the bytes on disk, under the key the file
+      // was at - content re-hashed them and would have refused otherwise.
+      expect(fake.stored.get("public/index.html")?.toString()).toBe(
+        A_BUILD["public/index.html"],
+      );
+      expect(fake.stored.get("chunk/client/app-a1b2c3.js")?.toString()).toBe(
+        A_BUILD["chunk/client/app-a1b2c3.js"],
+      );
     } finally {
       await fake.close();
     }
   });
 
-  test("every call to content carries the project token", async () => {
+  test("the declaration says what the build is, by key and by hash", async () => {
     const fake = await startFakeContentService({ token: TOKEN });
-    const root = makeProject(A_BUILD);
+    const root = makeArtifacts();
+    try {
+      await run(root, fake.url);
+
+      const [declaration] = [...fake.declarations.values()];
+      expect(declaration).toMatchObject({
+        commit: "1234567890abcdef1234567890abcdef12345678",
+        branch: "main",
+        layerRev: null,
+        // Null is a third answer - "this build did not say" - not false.
+        linksOwnCss: null,
+        artifacts: [
+          {
+            key: "chunk/client/app-a1b2c3.js",
+            sha256: sha256(A_BUILD["chunk/client/app-a1b2c3.js"]),
+            bytes: Buffer.byteLength(A_BUILD["chunk/client/app-a1b2c3.js"]),
+          },
+          { key: "client", sha256: sha256(A_BUILD["client"]) },
+          {
+            key: "public/index.html",
+            sha256: sha256(A_BUILD["public/index.html"]),
+          },
+          { key: "server", sha256: sha256(A_BUILD["server"]) },
+        ],
+      });
+    } finally {
+      await fake.close();
+    }
+  });
+
+  test("every call to content carries the project token, and the store gets none", async () => {
+    const fake = await startFakeContentService({ token: TOKEN });
+    const root = makeArtifacts();
     try {
       await run(root, fake.url);
 
@@ -100,10 +142,10 @@ describe("val publish", () => {
       for (const call of toContent) {
         expect(call.authorization).toBe(`Bearer ${TOKEN}`);
       }
-      // The presigned PUTs carry none: the URL is the credential, and sending
-      // ours to storage would hand a bucket a token that can publish.
+      // A presigned URL is the permission. Sending ours would hand a bucket a
+      // token that can publish.
       for (const call of fake.calls.filter(({ path: p }) =>
-        p.startsWith("/storage/"),
+        p.startsWith("/store/"),
       )) {
         expect(call.authorization).toBeNull();
       }
@@ -112,20 +154,19 @@ describe("val publish", () => {
     }
   });
 
-  test("an artifact content already has is not uploaded again", async () => {
-    const known = crypto
-      .createHash("sha256")
-      .update(A_BUILD[".output/public/index.html"])
-      .digest("hex");
-    const fake = await startFakeContentService({ token: TOKEN, have: [known] });
-    const root = makeProject(A_BUILD);
+  test("an artifact content already holds gets no slot", async () => {
+    const fake = await startFakeContentService({
+      token: TOKEN,
+      have: [sha256(A_BUILD["public/index.html"])],
+    });
+    const root = makeArtifacts();
     try {
       const result = await run(root, fake.url);
 
-      expect(result.status).toBe("published");
-      if (result.status === "published") {
-        expect(result.artifacts).toBe(3);
-        expect(result.uploaded).toBe(2);
+      expect(result.status).toBe("live");
+      if (result.status === "live") {
+        expect(result.artifacts).toBe(4);
+        expect(result.uploaded).toBe(3);
       }
       expect(fake.stored.has("public/index.html")).toBe(false);
     } finally {
@@ -133,51 +174,73 @@ describe("val publish", () => {
     }
   });
 
-  test("a publish with nothing new still goes through", async () => {
-    // Content has the whole build: the publish is a verify and a pointer move,
-    // and it has to happen anyway - the pointer is what is out of date.
-    const hashes = Object.values(A_BUILD).map((contents) =>
-      crypto.createHash("sha256").update(contents).digest("hex"),
-    );
-    const fake = await startFakeContentService({ token: TOKEN, have: hashes });
-    const root = makeProject(A_BUILD);
+  test("a build content holds entirely still confirms, verifies and promotes", async () => {
+    const fake = await startFakeContentService({
+      token: TOKEN,
+      have: Object.values(A_BUILD).map(sha256),
+    });
+    const root = makeArtifacts();
     try {
       const result = await run(root, fake.url);
 
-      expect(result.status).toBe("published");
-      if (result.status === "published") {
+      expect(result.status).toBe("live");
+      if (result.status === "live") {
         expect(result.uploaded).toBe(0);
       }
-      expect(publishCalls(fake.calls)).toContain(
+      // The pointer is what was out of date, so the publish still has to happen.
+      expect(apiCalls(fake.calls)).toContain(
         "POST /v1/publish/pub_1/artifacts",
       );
+      expect(fake.stored.size).toBe(0);
     } finally {
       await fake.close();
     }
   });
 
-  test("an upload that is accepted and lost is offered again", async () => {
-    // The re-hash is the only thing that can notice this: storage answered
-    // 200 and stored nothing, which is what a connection dropped mid-body
-    // looks like from here.
+  test("re-publishing a build that is live is a success, not a second publish", async () => {
+    const fake = await startFakeContentService({ token: TOKEN });
+    const root = makeArtifacts();
+    try {
+      await run(root, fake.url);
+      const again = await run(root, fake.url);
+
+      // Idempotent on the build hash: the same publish, not re-opened - that
+      // would mint slots to overwrite bytes that are currently serving.
+      expect(again.status).toBe("live");
+      if (again.status === "live") {
+        expect(again.publishId).toBe("pub_1");
+        expect(again.uploaded).toBe(0);
+      }
+      expect(
+        apiCalls(fake.calls).filter((call) => call.endsWith("/promote")),
+      ).toHaveLength(1);
+    } finally {
+      await fake.close();
+    }
+  });
+
+  test("an upload that is accepted and lost is declared again and sent again", async () => {
+    // The re-hash is the only thing that can notice: the store answered 200
+    // and kept nothing, which is what a connection dying mid-body looks like.
     const fake = await startFakeContentService({
       token: TOKEN,
       dropUploads: 1,
     });
-    const root = makeProject(A_BUILD);
+    const root = makeArtifacts();
     try {
       const result = await run(root, fake.url);
 
-      expect(result.status).toBe("published");
-      expect(fake.stored.size).toBe(3);
-      if (result.status === "published") {
-        // Three artifacts, one of them sent twice. Counting attempts would
-        // report four uploaded out of three.
-        expect(result.uploaded).toBe(3);
+      expect(result.status).toBe("live");
+      expect(fake.stored.size).toBe(4);
+      if (result.status === "live") {
+        // Four artifacts, one of them sent twice: counting attempts would
+        // report five uploaded out of four.
+        expect(result.uploaded).toBe(4);
       }
-      expect(publishCalls(fake.calls)).toEqual([
+      expect(apiCalls(fake.calls)).toEqual([
         "POST /v1/publish",
         "POST /v1/publish/pub_1/artifacts",
+        "POST /v1/publish",
         "POST /v1/publish/pub_1/artifacts",
         "POST /v1/publish/pub_1/verify",
         "POST /v1/publish/pub_1/promote",
@@ -187,22 +250,38 @@ describe("val publish", () => {
     }
   });
 
-  test("storage saying 'slow down' is retried within the round", async () => {
+  test("an expired slot is declared again rather than failing the publish", async () => {
+    const fake = await startFakeContentService({
+      token: TOKEN,
+      expireSlots: 1,
+    });
+    const root = makeArtifacts();
+    try {
+      const result = await run(root, fake.url);
+
+      expect(result.status).toBe("live");
+      expect(fake.stored.size).toBe(4);
+      expect(
+        apiCalls(fake.calls).filter((call) => call === "POST /v1/publish"),
+      ).toHaveLength(2);
+    } finally {
+      await fake.close();
+    }
+  });
+
+  test("a store saying 'slow down' is retried without declaring again", async () => {
     const fake = await startFakeContentService({
       token: TOKEN,
       failUploadsWith5xx: 2,
     });
-    const root = makeProject(A_BUILD);
+    const root = makeArtifacts();
     try {
       const result = await run(root, fake.url);
 
-      expect(result.status).toBe("published");
-      expect(fake.stored.size).toBe(3);
-      // One round: the retries happened inside it rather than by re-offering.
+      expect(result.status).toBe("live");
+      expect(fake.stored.size).toBe(4);
       expect(
-        publishCalls(fake.calls).filter(
-          (call) => call === "POST /v1/publish/pub_1/artifacts",
-        ),
+        apiCalls(fake.calls).filter((call) => call === "POST /v1/publish"),
       ).toHaveLength(1);
     } finally {
       await fake.close();
@@ -214,18 +293,25 @@ describe("val publish", () => {
       token: TOKEN,
       verify: "fail",
     });
-    const root = makeProject(A_BUILD);
+    const root = makeArtifacts();
     try {
       const result = await run(root, fake.url);
 
       expect(result.status).toBe("failed");
       if (result.status === "failed") {
+        expect(result.state).toBe("failed");
+        // The platform's own code, passed through: rewording it would lose the
+        // only sentence that says what to change.
         expect(result.problems).toEqual([
-          { code: "render", message: "/ threw on the server", detail: null },
+          {
+            code: "PLATFORM_RENDER_FAILED",
+            message: "/ threw on the server",
+            hint: null,
+            keys: [],
+          },
         ]);
       }
-      // The pointer is never asked to move.
-      expect(publishCalls(fake.calls)).not.toContain(
+      expect(apiCalls(fake.calls)).not.toContain(
         "POST /v1/publish/pub_1/promote",
       );
     } finally {
@@ -233,58 +319,121 @@ describe("val publish", () => {
     }
   });
 
-  test("verifying is waited on when it does not answer at once", async () => {
+  test("a push while we were building is a rebuild, not a retry", async () => {
     const fake = await startFakeContentService({
       token: TOKEN,
-      verifyPolls: 3,
+      promote: "stale",
+      head: "abcdef1234567890abcdef1234567890abcdef12",
     });
-    const root = makeProject(A_BUILD);
+    const root = makeArtifacts();
     try {
       const result = await run(root, fake.url);
 
-      expect(result.status).toBe("published");
-      expect(
-        publishCalls(fake.calls).filter(
-          (call) => call === "GET /v1/publish/pub_1",
-        ),
-      ).toHaveLength(3);
-    } finally {
-      await fake.close();
-    }
-  });
-
-  test("a publish that never leaves verifying gives up, and says what it was", async () => {
-    const fake = await startFakeContentService({
-      token: TOKEN,
-      // More polls than the deadline below allows.
-      verifyPolls: 1000,
-    });
-    const root = makeProject(A_BUILD);
-    try {
-      const result = await run(root, fake.url, {
-        timings: { pollIntervalMs: 1, verifyTimeoutMs: 20 },
-      });
-
       expect(result.status).toBe("failed");
       if (result.status === "failed") {
-        expect(result.state).toBe("verifying");
-        expect(result.problems.map((problem) => problem.code)).toContain(
-          "timeout",
-        );
+        expect(result.message).toContain("abcdef1");
+        expect(result.message).toContain("rebuild, not a retry");
+        expect(result.problems[0].code).toBe("POINTER_STALE");
       }
     } finally {
       await fake.close();
     }
   });
 
-  test("--dry-run verifies and leaves the site alone", async () => {
+  test("a refused declaration reports every problem, not the first", async () => {
     const fake = await startFakeContentService({ token: TOKEN });
-    const root = makeProject(A_BUILD);
+    // No server bundle, and a layer with no rev to name it by.
+    const root = makeArtifacts({
+      client: "console.log('client')\n",
+      layer: "not gzip at all",
+    });
+    try {
+      const result = await run(root, fake.url, { layerRev: "" });
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        // Read before anything is declared: the layer is unreadable here.
+        expect(result.message).toContain("gzipped JSON");
+      }
+    } finally {
+      await fake.close();
+    }
+  });
+
+  test("the layer names itself, and the rev comes from inside it", async () => {
+    const fake = await startFakeContentService({ token: TOKEN });
+    const root = makeArtifacts();
+    fs.writeFileSync(
+      path.join(root, ".val", "publish", "layer"),
+      zlib.gzipSync(
+        JSON.stringify({ rev: "layer-rev-7", worker: {}, browser: {} }),
+      ),
+    );
+    try {
+      const result = await run(root, fake.url);
+
+      expect(result.status).toBe("live");
+      const [declaration] = [...fake.declarations.values()];
+      // A layer that is SENT has to say which it is: that is the name the
+      // loader stores and later reuses it by.
+      expect(declaration).toMatchObject({ layerRev: "layer-rev-7" });
+    } finally {
+      await fake.close();
+    }
+  });
+
+  test("a layer content already holds is named rather than sent", async () => {
+    const fake = await startFakeContentService({ token: TOKEN });
+    const root = makeArtifacts();
+    try {
+      const result = await run(root, fake.url, { layerRev: "layer-rev-9" });
+
+      expect(result.status).toBe("live");
+      const [declaration] = [...fake.declarations.values()];
+      expect(declaration).toMatchObject({ layerRev: "layer-rev-9" });
+      expect(fake.stored.has("layer")).toBe(false);
+    } finally {
+      await fake.close();
+    }
+  });
+
+  test("a declaration content refuses is reported with all of its problems", async () => {
+    const fake = await startFakeContentService({ token: TOKEN });
+    const root = makeArtifacts({ client: "console.log('client')\n" });
+    try {
+      const result = await run(root, fake.url);
+
+      expect(result.status).toBe("failed");
+      if (result.status === "failed") {
+        expect(result.message).toBe("This publish cannot be declared");
+        expect(result.problems).toEqual([
+          {
+            code: "ARTIFACT_MISSING",
+            message: "A publish needs at least a server and a client bundle.",
+            hint: null,
+            keys: ["server"],
+          },
+        ]);
+      }
+      // Nothing was uploaded: a malformed declaration is refused before any
+      // slot is minted.
+      expect(fake.stored.size).toBe(0);
+    } finally {
+      await fake.close();
+    }
+  });
+
+  test("--dry-run verifies and leaves the pointer alone", async () => {
+    const fake = await startFakeContentService({ token: TOKEN });
+    const root = makeArtifacts();
     try {
       const result = await run(root, fake.url, { dryRun: true });
 
       expect(result.status).toBe("verified");
-      expect(publishCalls(fake.calls)).toEqual([
+      if (result.status === "verified") {
+        expect(result.previewUrl).toBe("https://canary.example.test");
+      }
+      expect(apiCalls(fake.calls)).toEqual([
         "POST /v1/publish",
         "POST /v1/publish/pub_1/artifacts",
         "POST /v1/publish/pub_1/verify",
@@ -294,36 +443,17 @@ describe("val publish", () => {
     }
   });
 
-  test("a refused promote is a failed publish, not a published one", async () => {
-    const fake = await startFakeContentService({
-      token: TOKEN,
-      promote: "fail",
-    });
-    const root = makeProject(A_BUILD);
+  test("a token that is not a project token is refused with that sentence", async () => {
+    const fake = await startFakeContentService({ token: TOKEN });
+    const root = makeArtifacts();
     try {
-      const result = await run(root, fake.url);
-
-      expect(result.status).toBe("failed");
-      if (result.status === "failed") {
-        expect(result.problems[0].message).toBe(
-          "The branch has moved on since",
-        );
-      }
-    } finally {
-      await fake.close();
-    }
-  });
-
-  test("a revoked token is reported as the refusal it is", async () => {
-    const fake = await startFakeContentService({ token: "val_pt_other" });
-    const root = makeProject(A_BUILD);
-    try {
-      const result = await run(root, fake.url);
+      const result = await run(root, fake.url, {
+        env: { VAL_PROJECT_TOKEN: "val_pt_other", VAL_CONTENT_URL: fake.url },
+      });
 
       expect(result.status).toBe("error");
       if (result.status === "error") {
-        expect(result.message).toContain("Invalid project token");
-        expect(result.message).toContain("revoked");
+        expect(result.message).toContain("may have been revoked");
       }
     } finally {
       await fake.close();
@@ -331,30 +461,22 @@ describe("val publish", () => {
   });
 
   test("nothing to publish is said before a credential is asked for", async () => {
-    const root = makeProject({ "src/index.ts": "" });
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "val-publish-empty-"));
 
-    const result = await runPublish({
-      root,
-      commit: "abc",
-      branch: "main",
-      env: {},
-      log: () => undefined,
-    });
+    const result = await runPublish({ root, env: {}, log: () => undefined });
 
     expect(result.status).toBe("error");
     if (result.status === "error") {
-      expect(result.message).toContain(".output");
-      expect(result.message).toContain("--dir");
+      expect(result.message).toContain("--artifacts");
     }
   });
 
   test("an unknown commit is refused rather than guessed", async () => {
-    const root = makeProject(A_BUILD);
+    const root = makeArtifacts();
 
     const result = await runPublish({
       root,
       branch: "main",
-      // No git, no CI variables, and nothing passed.
       env: {},
       log: () => undefined,
     });
@@ -366,11 +488,11 @@ describe("val publish", () => {
   });
 
   test("a detached HEAD is not a branch", async () => {
-    const root = makeProject(A_BUILD);
+    const root = makeArtifacts();
 
     const result = await runPublish({
       root,
-      commit: "abc",
+      commit: "abc1234",
       env: { VAL_GIT_BRANCH: "HEAD" },
       log: () => undefined,
     });

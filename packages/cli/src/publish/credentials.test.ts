@@ -254,6 +254,50 @@ describe("the publish credential", () => {
     }
   });
 
+  test("the old names are still read, after a login and before failing", async () => {
+    // This repository's own CI still passes VAL_APP_TOKEN, and a rename that
+    // breaks the publisher is a rename that gets reverted. Content says what
+    // it thinks of the value; that is not this function's call to make.
+    const resolved = await resolvePublishCredential({
+      root: makeRoot(),
+      project: "acme/site",
+      env: { VAL_APP_TOKEN: "val_pt_old" },
+    });
+
+    expect(resolved).toEqual({
+      status: "ok",
+      credential: {
+        token: "val_pt_old",
+        origin: "VAL_APP_TOKEN",
+        expiresAt: null,
+      },
+    });
+  });
+
+  test("a login is preferred to the old names", async () => {
+    const content = await startFakeContent((req, res) => {
+      if (req.url === "/v1/acme/site/publish-token") {
+        json(res, 200, { token: "val_pt_minted", expiresAt: null });
+        return;
+      }
+      json(res, 404, { statusCode: 404, message: "no such route" });
+    });
+    try {
+      const resolved = await resolvePublishCredential({
+        root: makeRoot(A_PAT),
+        project: "acme/site",
+        env: { VAL_APP_TOKEN: "val_pt_old", VAL_CONTENT_URL: content.url },
+      });
+
+      expect(resolved.status).toBe("ok");
+      if (resolved.status === "ok") {
+        expect(resolved.credential.token).toBe("val_pt_minted");
+      }
+    } finally {
+      await content.close();
+    }
+  });
+
   test("no credential at all names both ways of having one", async () => {
     const resolved = await resolvePublishCredential({
       root: makeRoot(),

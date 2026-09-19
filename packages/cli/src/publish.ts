@@ -3,30 +3,38 @@ import { error } from "./logger";
 import { formatBytes, runPublish } from "./publish/runPublish";
 
 /**
- * `val publish` - build output in, live site out.
+ * `val publish` - a built project in, a live site out.
  *
- * The command is a thin shell around `runPublish`: everything it decides is
- * decided there, and everything colourful happens here. A CI job reads the
- * exit code, a person reads the lines.
+ * A thin shell around `runPublish`: everything it decides is decided there,
+ * and everything colourful happens here. A CI job reads the exit code, a
+ * person reads the lines.
  */
 export async function publish(options: {
   root?: string;
-  dir?: string;
+  artifacts?: string;
   commit?: string;
   branch?: string;
+  layerRev?: string;
+  buildHash?: string;
+  linksOwnCss?: boolean;
   dryRun?: boolean;
 }): Promise<void> {
   const result = await runPublish({
     ...(options.root ? { root: options.root } : {}),
-    ...(options.dir ? { dir: options.dir } : {}),
+    ...(options.artifacts ? { artifacts: options.artifacts } : {}),
     ...(options.commit ? { commit: options.commit } : {}),
     ...(options.branch ? { branch: options.branch } : {}),
+    ...(options.layerRev ? { layerRev: options.layerRev } : {}),
+    ...(options.buildHash ? { buildHash: options.buildHash } : {}),
+    ...(options.linksOwnCss === undefined
+      ? {}
+      : { linksOwnCss: options.linksOwnCss }),
     ...(options.dryRun ? { dryRun: options.dryRun } : {}),
     log: (line) => console.log(pc.dim(line)),
   });
 
   switch (result.status) {
-    case "published":
+    case "live":
     case "verified": {
       const uploaded =
         result.uploaded === 0
@@ -34,7 +42,7 @@ export async function publish(options: {
           : `${result.uploaded} uploaded, ${formatBytes(result.uploadedBytes)}`;
       console.log(
         pc.green(
-          result.status === "published"
+          result.status === "live"
             ? "✅ Published"
             : "✅ Verified (not published: --dry-run)",
         ) +
@@ -42,26 +50,29 @@ export async function publish(options: {
             ` — ${result.artifacts} artifact${result.artifacts === 1 ? "" : "s"}, ${uploaded}`,
           ),
       );
-      if (result.url) {
+      if (result.status === "live" && result.url) {
         console.log(pc.cyan(result.url));
+      }
+      if (result.previewUrl) {
+        console.log(pc.dim("Canary: ") + pc.cyan(result.previewUrl));
       }
       return;
     }
     case "failed": {
       error(result.message);
       for (const problem of result.problems) {
-        // Verbatim: content knows what went wrong with the canary and this
-        // does not, so paraphrasing it can only lose the sentence that helps.
-        console.error(
-          pc.red(problem.code ? `  ${problem.code}: ` : "  ") + problem.message,
-        );
-        if (problem.detail) {
-          console.error(pc.dim(`    ${problem.detail}`));
-        }
+        printProblem(problem);
       }
-      console.error(
-        pc.dim(`Publish ${result.publishId} is in state "${result.state}".`),
-      );
+      if (result.previewUrl) {
+        console.error(pc.dim("Canary: ") + pc.cyan(result.previewUrl));
+      }
+      if (result.publishId) {
+        console.error(
+          pc.dim(
+            `Publish ${result.publishId}${result.state ? ` is "${result.state}"` : ""}.`,
+          ),
+        );
+      }
       process.exitCode = 1;
       return;
     }
@@ -70,5 +81,35 @@ export async function publish(options: {
       process.exitCode = 1;
       return;
     }
+  }
+}
+
+/**
+ * A problem, as content wrote it.
+ *
+ * Verbatim, including the codes the build platform passed through: content
+ * knows what went wrong with the canary and this does not, so rewording can
+ * only lose the sentence that says what to change. The hint is printed for the
+ * same reason - a gate that merely fails is useless.
+ */
+function printProblem(problem: {
+  code: string;
+  message: string;
+  hint: string | null;
+  keys: string[];
+}) {
+  console.error(
+    pc.red(problem.code ? `  ${problem.code}: ` : "  ") + problem.message,
+  );
+  if (problem.keys.length > 0) {
+    const shown = problem.keys.slice(0, 10).join(", ");
+    console.error(
+      pc.dim(
+        `    ${shown}${problem.keys.length > 10 ? `, and ${problem.keys.length - 10} more` : ""}`,
+      ),
+    );
+  }
+  if (problem.hint) {
+    console.error(pc.dim(`    ${problem.hint}`));
   }
 }

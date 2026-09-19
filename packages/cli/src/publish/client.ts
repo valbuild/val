@@ -1,30 +1,37 @@
 import fs from "fs";
-import path from "path";
 import { getJson, postJson } from "./contentHost";
 import {
-  ArtifactDescriptor,
-  PendingUpload,
-  PublishStatus,
-  parsePublishStatus,
+  ArtifactsResponse,
+  DeclareResponse,
+  PromoteResponse,
+  StatusResponse,
+  UploadSlot,
+  VerifyResponse,
+  parseArtifacts,
+  parseDeclare,
+  parsePromote,
+  parseStatus,
+  parseVerify,
 } from "./protocol";
 
+export type DeclareBody = {
+  buildHash: string;
+  /** Null only for a seed publish, which is not something a project does. */
+  commit: string | null;
+  branch: string | null;
+  layerRev: string | null;
+  /** Null is a third answer - "this build did not say" - and is not false. */
+  linksOwnCss: boolean | null;
+  artifacts: Array<{ key: string; sha256: string; bytes: number }>;
+};
+
 export type PublishClient = {
-  /** `POST /v1/publish` - offer the build, get back what content lacks. */
-  create(options: {
-    commit: string;
-    branch: string;
-    artifacts: ArtifactDescriptor[];
-  }): Promise<PublishStatus>;
-  /** `POST /v1/publish/{id}/artifacts` - that is all of them; re-hash. */
-  artifactsDone(publishId: string): Promise<PublishStatus>;
-  /** `POST /v1/publish/{id}/verify` - canary build and render, server side. */
-  verify(publishId: string): Promise<PublishStatus>;
-  /** `POST /v1/publish/{id}/promote` - flip the pointer. */
-  promote(publishId: string): Promise<PublishStatus>;
-  /** `GET /v1/publish/{id}` - state, problems, what is still missing. */
-  status(publishId: string): Promise<PublishStatus>;
-  /** `PUT <presigned url>` - one artifact, direct to storage. */
-  upload(upload: PendingUpload, dir: string): Promise<void>;
+  declare(body: DeclareBody): Promise<DeclareResponse>;
+  confirmArtifacts(publishId: string): Promise<ArtifactsResponse>;
+  verify(publishId: string): Promise<VerifyResponse>;
+  promote(publishId: string): Promise<PromoteResponse>;
+  status(publishId: string): Promise<StatusResponse>;
+  upload(slot: UploadSlot, file: string): Promise<void>;
 };
 
 export function createPublishClient(options: {
@@ -34,105 +41,107 @@ export function createPublishClient(options: {
 }): PublishClient {
   const { host, token } = options;
   const fetchImpl = options.fetchImpl ?? fetch;
-  const auth = { Authorization: `Bearer ${token}` };
-  const call = async (
-    method: "GET" | "POST",
-    url: string,
-    body: unknown,
-    context: { call: string; publishId?: string },
-  ): Promise<PublishStatus> => {
-    const answer =
-      method === "GET"
-        ? await getJson({ url, headers: auth, fetchImpl })
-        : await postJson({ url, headers: auth, body, fetchImpl });
-    return parsePublishStatus(answer, context);
-  };
+  // Every call, and nothing else: not a cookie, not the project's api key, not
+  // a personal access token.
+  const headers = { Authorization: `Bearer ${token}` };
+  const publishUrl = (publishId: string, step?: string) =>
+    `${host}/v1/publish/${encodeURIComponent(publishId)}${step ? `/${step}` : ""}`;
+
   return {
-    create: ({ commit, branch, artifacts }) =>
-      call(
-        "POST",
-        `${host}/v1/publish`,
-        { commit, branch, artifacts },
-        { call: "POST /v1/publish" },
+    declare: async (body) =>
+      parseDeclare(
+        await postJson({ url: `${host}/v1/publish`, headers, body, fetchImpl }),
       ),
-    artifactsDone: (publishId) =>
-      call(
-        "POST",
-        `${host}/v1/publish/${encodeURIComponent(publishId)}/artifacts`,
-        {},
-        { call: "POST /v1/publish/{id}/artifacts", publishId },
+    confirmArtifacts: async (publishId) =>
+      parseArtifacts(
+        await postJson({
+          url: publishUrl(publishId, "artifacts"),
+          headers,
+          fetchImpl,
+        }),
       ),
-    verify: (publishId) =>
-      call(
-        "POST",
-        `${host}/v1/publish/${encodeURIComponent(publishId)}/verify`,
-        {},
-        { call: "POST /v1/publish/{id}/verify", publishId },
+    verify: async (publishId) =>
+      parseVerify(
+        await postJson({
+          url: publishUrl(publishId, "verify"),
+          headers,
+          fetchImpl,
+        }),
       ),
-    promote: (publishId) =>
-      call(
-        "POST",
-        `${host}/v1/publish/${encodeURIComponent(publishId)}/promote`,
-        {},
-        { call: "POST /v1/publish/{id}/promote", publishId },
+    promote: async (publishId) =>
+      parsePromote(
+        await postJson({
+          url: publishUrl(publishId, "promote"),
+          headers,
+          fetchImpl,
+        }),
       ),
-    status: (publishId) =>
-      call(
-        "GET",
-        `${host}/v1/publish/${encodeURIComponent(publishId)}`,
-        undefined,
-        { call: "GET /v1/publish/{id}", publishId },
+    status: async (publishId) =>
+      parseStatus(
+        await getJson({ url: publishUrl(publishId), headers, fetchImpl }),
       ),
-    upload: (upload, dir) => putArtifact(upload, dir, fetchImpl),
+    upload: (slot, file) => putArtifact(slot, file, fetchImpl),
   };
 }
 
-/** Storage refused, or could not be reached. */
+/** Object storage refused the bytes, or could not be reached. */
 export class UploadError extends Error {
   readonly statusCode: number;
-  constructor(statusCode: number, message: string) {
+  readonly key: string;
+  constructor(statusCode: number, key: string, message: string) {
     super(message);
     this.name = "UploadError";
     this.statusCode = statusCode;
+    this.key = key;
   }
 }
 
+/**
+ * A slot's permission to write has run out.
+ *
+ * Not a failed publish: declaring again mints fresh slots and the publish
+ * carries on from where it was, which is why this is its own kind of failure
+ * rather than an error message.
+ */
+export function isExpiredSlot(err: UploadError): boolean {
+  return err.statusCode === 403 || err.statusCode === 401;
+}
+
 async function putArtifact(
-  upload: PendingUpload,
-  dir: string,
+  slot: UploadSlot,
+  file: string,
   fetchImpl: typeof fetch,
 ): Promise<void> {
-  const absolute = path.join(dir, ...upload.path.split("/"));
   /*
    * Read, rather than streamed.
    *
-   * A presigned PUT is signed over a `Content-Length`, and a streamed body
-   * goes out chunked - which storage answers with a signature mismatch, a
-   * failure that says nothing about its cause. Build artifacts are bundles and
-   * images; if one ever turns up big enough for this to matter, the fix is a
-   * multipart upload from content's side, not a chunked PUT from here.
+   * `ContentLength` is signed into the slot's URL, so the store rejects a body
+   * of a different size - and a streamed body goes out chunked, which is a
+   * different size as far as the signature is concerned. An artifact is capped
+   * at 128 MB by the API, which is the bound this trades against.
    */
-  const body = await fs.promises.readFile(absolute);
+  const body = await fs.promises.readFile(file);
   let res: Response;
   try {
-    res = await fetchImpl(upload.url, {
-      method: upload.method,
-      headers: upload.headers,
+    res = await fetchImpl(slot.url, {
+      method: slot.method,
+      headers: slot.headers,
       body,
     });
   } catch (err) {
     throw new UploadError(
       0,
-      `${upload.path}: ${err instanceof Error ? err.message : String(err)}`,
+      slot.key,
+      `${slot.key}: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   if (!res.ok) {
-    // Storage answers XML, and a whole error document in a CI log buries the
-    // line that matters. The status is the actionable half: 403 is an expired
-    // or wrong signature, and the next `POST .../artifacts` presigns again.
+    // The store answers XML, and a whole error document in a CI log buries the
+    // line that matters. The status is the actionable half.
     throw new UploadError(
       res.status,
-      `${upload.path}: storage answered ${res.status} ${res.statusText}`,
+      slot.key,
+      `${slot.key}: object storage answered ${res.status} ${res.statusText}`,
     );
   }
 }
@@ -140,10 +149,10 @@ async function putArtifact(
 /**
  * Run `worker` over `items`, `limit` at a time.
  *
- * A build is hundreds of small files, so one at a time is minutes of latency
- * and all at once is hundreds of open sockets on a CI runner. The first
- * failure stops the pool - there is no point uploading the rest of a publish
- * that is not going to be promoted.
+ * A project can have hundreds of small artifacts, so one at a time is minutes
+ * of latency and all at once is hundreds of open sockets on a CI runner. The
+ * first failure stops the pool: there is no point uploading the rest of a
+ * publish that is not going to be promoted.
  */
 export async function pool<T>(
   items: T[],
