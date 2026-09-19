@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import http from "http";
+import { PublishProblem } from "./contentApi";
 
 /**
  * A local stand-in for the publish API on content.val.build.
@@ -41,7 +42,13 @@ export type FakeContentOptions = {
   verify?: "ok" | "fail";
   /** Refuse the promote because the branch moved on. */
   promote?: "ok" | "stale";
-  /** The head the branch is at now, reported by a stale promote. */
+  /**
+   * The head the branch is at now.
+   *
+   * Only sent when a test asks for it: the API's written contract has it on a
+   * stale promote and the handler does not send it, which is a difference
+   * worth being able to drive from both sides.
+   */
   head?: string;
 };
 
@@ -64,7 +71,7 @@ type Publish = {
   branch: string | null;
   artifacts: Artifact[];
   state: string;
-  problems: Array<{ code: string; message: string; keys?: string[] }>;
+  problems: PublishProblem[];
 };
 
 export async function startFakeContentService(
@@ -95,7 +102,9 @@ export async function startFakeContentService(
       key: artifact.key,
       url: `${baseUrl()}/store/${encodeURIComponent(publish.id)}/${encodeURIComponent(artifact.key)}`,
       method: "PUT",
-      headers: { "content-length": String(artifact.bytes) },
+      // What `mintUploadSlots` sends. The size is signed into the URL rather
+      // than declared in a header.
+      headers: { "content-type": "application/octet-stream" },
       expiresAt: new Date(Date.now() + 3600_000).toISOString(),
     }));
 
@@ -255,7 +264,9 @@ export async function startFakeContentService(
         if (!bytes) {
           problems.push({
             code: "ARTIFACT_NOT_UPLOADED",
-            message: "Nothing was uploaded for this artifact.",
+            message:
+              "These artifacts were declared but nothing was uploaded for them.",
+            hint: "Upload slots expire. Declare the publish again for fresh ones.",
             keys: [artifact.key],
           });
           continue;
@@ -266,7 +277,8 @@ export async function startFakeContentService(
         ) {
           problems.push({
             code: "ARTIFACT_MISMATCH",
-            message: "The bytes are not the sha256 or the size declared.",
+            message: "What was uploaded is not what was declared.",
+            hint: "The bytes at that key do not match the sha256 or the size given for it.",
             keys: [artifact.key],
           });
           continue;
@@ -301,7 +313,9 @@ export async function startFakeContentService(
       send(res, 200, {
         state: publish.state,
         ok,
-        previewUrl: ok ? "https://canary.example.test" : null,
+        // Null either way today: `CANARY_HAS_NO_PREVIEW`. A test that wants a
+        // URL here is testing a service that does not exist yet.
+        previewUrl: null,
         problems: publish.problems,
       });
       return;
@@ -310,11 +324,21 @@ export async function startFakeContentService(
     // POST /v1/publish/{id}/promote - the pointer moves, or it does not.
     if (parts[3] === "promote") {
       if (options.promote === "stale") {
+        // The shape `postPublishPromote.ts` sends: the ordinary error envelope,
+        // with the code in `details`. `head` is in the API's written contract
+        // and is not sent today, so it is only here when a test asks for it.
         send(res, 409, {
           statusCode: 409,
-          code: "POINTER_STALE",
-          message: "This commit is no longer the branch head",
-          head: options.head ?? "f00ba4f00ba4f00ba4f00ba4f00ba4f00ba4f00b",
+          message:
+            "This build's commit is no longer the head of its branch, so it " +
+            "was not promoted. Rebuild from the current head.",
+          details: [
+            {
+              code: "POINTER_STALE",
+              message: "not-fast-forward",
+            },
+          ],
+          ...(options.head ? { head: options.head } : {}),
         });
         return;
       }

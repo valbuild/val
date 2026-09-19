@@ -1,5 +1,6 @@
 import pc from "picocolors";
 import { error } from "./logger";
+import { PublishProblem } from "./publish/protocol";
 import { formatBytes, runPublish } from "./publish/runPublish";
 
 /**
@@ -92,20 +93,16 @@ export async function publish(options: {
  * only lose the sentence that says what to change. The hint is printed for the
  * same reason - a gate that merely fails is useless.
  */
-function printProblem(problem: {
-  code: string;
-  message: string;
-  hint: string | null;
-  keys: string[];
-}) {
+function printProblem(problem: PublishProblem) {
   console.error(
     pc.red(problem.code ? `  ${problem.code}: ` : "  ") + problem.message,
   );
-  if (problem.keys.length > 0) {
-    const shown = problem.keys.slice(0, 10).join(", ");
+  const keys = problem.keys ?? [];
+  if (keys.length > 0) {
+    const shown = keys.slice(0, 10).join(", ");
     console.error(
       pc.dim(
-        `    ${shown}${problem.keys.length > 10 ? `, and ${problem.keys.length - 10} more` : ""}`,
+        `    ${shown}${keys.length > 10 ? `, and ${keys.length - 10} more` : ""}`,
       ),
     );
   }

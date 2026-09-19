@@ -76,7 +76,9 @@ describe("val publish", () => {
           (sum, contents) => sum + Buffer.byteLength(contents),
           0,
         ),
-        previewUrl: "https://canary.example.test",
+        // `CANARY_HAS_NO_PREVIEW`: null, until the platform has somewhere to
+        // point at.
+        previewUrl: null,
       });
       expect(apiCalls(fake.calls)).toEqual([
         "POST /v1/publish",
@@ -306,8 +308,6 @@ describe("val publish", () => {
           {
             code: "PLATFORM_RENDER_FAILED",
             message: "/ threw on the server",
-            hint: null,
-            keys: [],
           },
         ]);
       }
@@ -331,8 +331,9 @@ describe("val publish", () => {
 
       expect(result.status).toBe("failed");
       if (result.status === "failed") {
+        // Content's own sentence, kept: it already says what to do.
+        expect(result.message).toContain("Rebuild from the current head");
         expect(result.message).toContain("abcdef1");
-        expect(result.message).toContain("rebuild, not a retry");
         expect(result.problems[0].code).toBe("POINTER_STALE");
       }
     } finally {
@@ -410,7 +411,6 @@ describe("val publish", () => {
           {
             code: "ARTIFACT_MISSING",
             message: "A publish needs at least a server and a client bundle.",
-            hint: null,
             keys: ["server"],
           },
         ]);
@@ -431,7 +431,7 @@ describe("val publish", () => {
 
       expect(result.status).toBe("verified");
       if (result.status === "verified") {
-        expect(result.previewUrl).toBe("https://canary.example.test");
+        expect(result.previewUrl).toBeNull();
       }
       expect(apiCalls(fake.calls)).toEqual([
         "POST /v1/publish",

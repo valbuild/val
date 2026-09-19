@@ -175,7 +175,15 @@ describe("the publish credential", () => {
   test("a trailing slash on VAL_CONTENT_URL does not double the path", async () => {
     const content = await startFakeContent((req, res) => {
       if (req.url === "/v1/acme/site/publish-token") {
-        json(res, 200, { token: "val_pt_minted", expiresAt: null });
+        // The whole answer, as `Api["/publish-token"]["POST"]["res"]` declares
+        // it. A fixture that sends less is a fixture testing a service that
+        // does not exist.
+        json(res, 200, {
+          token: "val_pt_minted",
+          expiresAt: null,
+          publicProjectId: "p1",
+          productionUrl: null,
+        });
         return;
       }
       json(res, 404, { statusCode: 404, message: "no such route" });
@@ -277,7 +285,15 @@ describe("the publish credential", () => {
   test("a login is preferred to the old names", async () => {
     const content = await startFakeContent((req, res) => {
       if (req.url === "/v1/acme/site/publish-token") {
-        json(res, 200, { token: "val_pt_minted", expiresAt: null });
+        // The whole answer, as `Api["/publish-token"]["POST"]["res"]` declares
+        // it. A fixture that sends less is a fixture testing a service that
+        // does not exist.
+        json(res, 200, {
+          token: "val_pt_minted",
+          expiresAt: null,
+          publicProjectId: "p1",
+          productionUrl: null,
+        });
         return;
       }
       json(res, 404, { statusCode: 404, message: "no such route" });

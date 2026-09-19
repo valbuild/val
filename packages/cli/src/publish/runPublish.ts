@@ -438,22 +438,27 @@ async function promote(
       };
     }
     if (err instanceof ContentHostError && err.statusCode === 409) {
+      /*
+       * Somebody pushed while this was building.
+       *
+       * Content's own sentence already says what to do ("Rebuild from the
+       * current head"), so it is passed through rather than replaced, and the
+       * `POINTER_STALE` code and the loader's words come out of `details` the
+       * way every other refusal's problems do.
+       *
+       * `head` is read if it is there and not required: the API's written
+       * contract says a stale promote carries the sha the branch is at now,
+       * and `postPublishPromote.ts` does not send it today. Naming the sha is
+       * worth having when it arrives; failing without it would be this CLI
+       * refusing an answer that is otherwise complete.
+       */
       const head = stringField(err.body, "head");
       return {
         status: "stale",
         message:
-          "Somebody pushed while this was building, so this build is no longer " +
-          "the branch head." +
-          (head ? ` The branch is at ${head.slice(0, 7)} now.` : "") +
-          "\nThat is a rebuild, not a retry.",
-        problems: [
-          {
-            code: stringField(err.body, "code") ?? "POINTER_STALE",
-            message: err.message,
-            hint: null,
-            keys: [],
-          },
-        ],
+          err.message +
+          (head ? ` The branch is at ${head.slice(0, 7)} now.` : ""),
+        problems: parseProblems(err.details),
       };
     }
     throw err;

@@ -4,6 +4,7 @@ import {
   parsePersonalAccessTokenFile,
 } from "@valbuild/server";
 import { ContentHostError, getContentHost, postJson } from "./contentHost";
+import { PublishProtocolError, parsePublishToken } from "./protocol";
 
 /**
  * The credential `val publish` presents to content, and where it came from.
@@ -182,21 +183,21 @@ async function exchangePersonalAccessToken(options: {
     }
     throw err;
   }
-  const token = stringField(body, "token");
-  if (!token) {
-    return {
-      status: "error",
-      message:
-        `${url} answered without a token. This is a bug in the content\n` +
-        "service rather than in your setup.",
-    };
+  let exchanged;
+  try {
+    exchanged = parsePublishToken(body, `POST ${url}`);
+  } catch (err) {
+    if (err instanceof PublishProtocolError) {
+      return { status: "error", message: err.message };
+    }
+    throw err;
   }
   return {
     status: "ok",
     credential: {
-      token,
+      token: exchanged.token,
       origin: "val login",
-      expiresAt: stringField(body, "expiresAt") ?? null,
+      expiresAt: exchanged.expiresAt,
     },
   };
 }
@@ -254,14 +255,4 @@ function readPersonalAccessToken(
     };
   }
   return { status: "ok", pat: parsed.data.pat };
-}
-
-function stringField(body: unknown, key: string): string | null {
-  if (typeof body === "object" && body !== null && key in body) {
-    const value = Reflect.get(body, key);
-    if (typeof value === "string" && value !== "") {
-      return value;
-    }
-  }
-  return null;
 }

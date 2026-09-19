@@ -2,6 +2,7 @@ import fs from "fs";
 import { getJson, postJson } from "./contentHost";
 import {
   ArtifactsResponse,
+  DeclareBody,
   DeclareResponse,
   PromoteResponse,
   StatusResponse,
@@ -13,17 +14,6 @@ import {
   parseStatus,
   parseVerify,
 } from "./protocol";
-
-export type DeclareBody = {
-  buildHash: string;
-  /** Null only for a seed publish, which is not something a project does. */
-  commit: string | null;
-  branch: string | null;
-  layerRev: string | null;
-  /** Null is a third answer - "this build did not say" - and is not false. */
-  linksOwnCss: boolean | null;
-  artifacts: Array<{ key: string; sha256: string; bytes: number }>;
-};
 
 export type PublishClient = {
   declare(body: DeclareBody): Promise<DeclareResponse>;
