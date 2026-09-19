@@ -1,3 +1,6 @@
+import { z } from "zod";
+import { fromError } from "zod-validation-error";
+
 /**
  * The publish API on content.val.build, as `val publish` speaks it.
  *
@@ -17,10 +20,15 @@
  * publishing possible with a project token at all, since the platform's canary
  * renders into a throwaway project that only an operator token can reach.
  *
- * The source of truth is `content/src/handlers/Api.ts` and
- * `content/src/utils/publishPlan.ts` in valbuild/home. The parsers below exist
- * so that a disagreement with it says which field was missing, here, rather
- * than surfacing as `undefined` three functions later.
+ * **These are declared here rather than imported.** The service's own types
+ * live in `content/src/handlers/Api.ts` in valbuild/home, which is private and
+ * publishes nothing to npm, so this package cannot see them - and even if it
+ * could, a type is not a check: what arrives is JSON over HTTP from a service
+ * that versions separately. So this file is a schema per answer, parsed, the
+ * same way `ValOpsHttp` in `@valbuild/server` reads every other content route.
+ * It is the one file to reconcile when the service moves, and a disagreement
+ * with it says which field was wrong, here, rather than surfacing as
+ * `undefined` three functions later.
  */
 
 /**
@@ -30,22 +38,15 @@
  * artifacts where they are, so re-verifying is one call rather than a whole
  * re-upload. Only `live` and `expired` are ends.
  */
-export type PublishState =
-  | "awaiting-artifacts"
-  | "ready"
-  | "verified"
-  | "live"
-  | "failed"
-  | "expired";
-
-const STATES: PublishState[] = [
+export const PublishState = z.enum([
   "awaiting-artifacts",
   "ready",
   "verified",
   "live",
   "failed",
   "expired",
-];
+]);
+export type PublishState = z.infer<typeof PublishState>;
 
 /**
  * Something content wants said to whoever ran the publish.
@@ -55,12 +56,26 @@ const STATES: PublishState[] = [
  * verify, unchanged. `hint` is printed rather than swallowed - a gate that
  * merely fails is useless.
  */
-export type PublishProblem = {
-  code: string;
-  message: string;
-  hint: string | null;
-  keys: string[];
-};
+export const PublishProblem = z
+  .object({
+    code: z.string().optional(),
+    message: z.string().optional(),
+    hint: z.string().nullish(),
+    /** The artifact keys it is about, when it is about some rather than all. */
+    keys: z.array(z.string()).optional(),
+  })
+  .transform((problem) => ({
+    code: problem.code ?? "",
+    message: problem.message ?? "",
+    hint: problem.hint ?? null,
+    keys: problem.keys ?? [],
+  }));
+export type PublishProblem = z.infer<typeof PublishProblem>;
+
+const problems = z
+  .array(PublishProblem)
+  .optional()
+  .transform((value) => value ?? []);
 
 /** An artifact, as it is declared: by key, by hash, by size. */
 export type DeclaredArtifact = {
@@ -70,53 +85,97 @@ export type DeclaredArtifact = {
 };
 
 /** Permission to write one artifact's bytes to object storage. */
-export type UploadSlot = {
-  key: string;
-  url: string;
-  method: string;
-  headers: Record<string, string>;
-  /** ISO 8601, an hour out. A slot that has expired is re-declared, not retried. */
-  expiresAt: string;
-};
+export const UploadSlot = z
+  .object({
+    key: z.string().min(1),
+    url: z.string().min(1),
+    method: z.string().optional(),
+    /** The headers the signature covers - `ContentLength`, and what else the store wants. */
+    headers: z.record(z.string(), z.string()).optional(),
+    /** ISO 8601, an hour out. An expired slot is re-declared, not retried. */
+    expiresAt: z.string().optional(),
+  })
+  .transform((slot) => ({
+    key: slot.key,
+    url: slot.url,
+    method: slot.method ?? "PUT",
+    headers: slot.headers ?? {},
+    expiresAt: slot.expiresAt ?? "",
+  }));
+export type UploadSlot = z.infer<typeof UploadSlot>;
 
-export type DeclareResponse = {
-  publishId: string;
-  state: PublishState;
-  project: { publicProjectId: string; siteUrl: string | null };
+export const DeclareResponse = z.object({
+  publishId: z.string().min(1),
+  state: PublishState,
+  project: z.object({
+    publicProjectId: z.string(),
+    /** Null when the project has no site yet - reported, not refused. */
+    siteUrl: z
+      .string()
+      .nullish()
+      .transform((url) => url ?? null),
+  }),
   /**
    * One per artifact this project does not already hold, and nothing else - so
    * it doubles as the answer to "what is missing".
    */
-  uploads: UploadSlot[];
-  have: string[];
-};
+  uploads: z
+    .array(UploadSlot)
+    .optional()
+    .transform((slots) => slots ?? []),
+  have: z
+    .array(z.string())
+    .optional()
+    .transform((keys) => keys ?? []),
+});
+export type DeclareResponse = z.infer<typeof DeclareResponse>;
 
-export type ArtifactsResponse = {
-  state: PublishState;
-  problems: PublishProblem[];
-};
+export const ArtifactsResponse = z.object({
+  state: PublishState,
+  problems,
+});
+export type ArtifactsResponse = z.infer<typeof ArtifactsResponse>;
 
-export type VerifyResponse = {
-  state: PublishState;
-  ok: boolean;
-  previewUrl: string | null;
-  problems: PublishProblem[];
-};
+export const VerifyResponse = z.object({
+  state: PublishState,
+  ok: z.boolean(),
+  /** Where the canary can be looked at, when it rendered. */
+  previewUrl: z
+    .string()
+    .nullish()
+    .transform((url) => url ?? null),
+  problems,
+});
+export type VerifyResponse = z.infer<typeof VerifyResponse>;
 
-export type PromoteResponse = {
-  state: PublishState;
-  url: string | null;
-  commit: string | null;
-};
+export const PromoteResponse = z.object({
+  state: PublishState,
+  url: z
+    .string()
+    .nullish()
+    .transform((url) => url ?? null),
+  commit: z
+    .string()
+    .nullish()
+    .transform((commit) => commit ?? null),
+});
+export type PromoteResponse = z.infer<typeof PromoteResponse>;
 
-export type StatusResponse = {
-  publishId: string;
-  state: PublishState;
-  buildHash: string;
+export const StatusResponse = z.object({
+  publishId: z.string().min(1),
+  state: PublishState,
+  buildHash: z
+    .string()
+    .optional()
+    .transform((hash) => hash ?? ""),
   /** Artifact keys not yet uploaded. */
-  missing: string[];
-  problems: PublishProblem[];
-};
+  missing: z
+    .array(z.string())
+    .optional()
+    .transform((keys) => keys ?? []),
+  problems,
+});
+export type StatusResponse = z.infer<typeof StatusResponse>;
 
 /**
  * Content answered, and the answer was not one this CLI can act on.
@@ -132,63 +191,20 @@ export class PublishProtocolError extends Error {
   }
 }
 
-export function parseDeclare(body: unknown): DeclareResponse {
-  const call = "POST /v1/publish";
-  const object = asObject(body, call);
-  return {
-    publishId: requiredString(object, "publishId", call),
-    state: requiredState(object, call),
-    project: parseProject(object, call),
-    uploads: parseUploads(object, call),
-    have: stringArray(object, "have"),
-  };
-}
+export const parseDeclare = (body: unknown): DeclareResponse =>
+  parse(DeclareResponse, body, "POST /v1/publish");
 
-export function parseArtifacts(body: unknown): ArtifactsResponse {
-  const call = "POST /v1/publish/{id}/artifacts";
-  const object = asObject(body, call);
-  return {
-    state: requiredState(object, call),
-    problems: parseProblems(Reflect.get(object, "problems")),
-  };
-}
+export const parseArtifacts = (body: unknown): ArtifactsResponse =>
+  parse(ArtifactsResponse, body, "POST /v1/publish/{id}/artifacts");
 
-export function parseVerify(body: unknown): VerifyResponse {
-  const call = "POST /v1/publish/{id}/verify";
-  const object = asObject(body, call);
-  const ok = Reflect.get(object, "ok");
-  if (typeof ok !== "boolean") {
-    throw new PublishProtocolError(`${call} answered without ok.`);
-  }
-  return {
-    state: requiredState(object, call),
-    ok,
-    previewUrl: optionalString(object, "previewUrl") ?? null,
-    problems: parseProblems(Reflect.get(object, "problems")),
-  };
-}
+export const parseVerify = (body: unknown): VerifyResponse =>
+  parse(VerifyResponse, body, "POST /v1/publish/{id}/verify");
 
-export function parsePromote(body: unknown): PromoteResponse {
-  const call = "POST /v1/publish/{id}/promote";
-  const object = asObject(body, call);
-  return {
-    state: requiredState(object, call),
-    url: optionalString(object, "url") ?? null,
-    commit: optionalString(object, "commit") ?? null,
-  };
-}
+export const parsePromote = (body: unknown): PromoteResponse =>
+  parse(PromoteResponse, body, "POST /v1/publish/{id}/promote");
 
-export function parseStatus(body: unknown): StatusResponse {
-  const call = "GET /v1/publish/{id}";
-  const object = asObject(body, call);
-  return {
-    publishId: requiredString(object, "publishId", call),
-    state: requiredState(object, call),
-    buildHash: optionalString(object, "buildHash") ?? "",
-    missing: stringArray(object, "missing"),
-    problems: parseProblems(Reflect.get(object, "problems")),
-  };
-}
+export const parseStatus = (body: unknown): StatusResponse =>
+  parse(StatusResponse, body, "GET /v1/publish/{id}");
 
 /**
  * The `details` of a refusal, when it carries a list of problems.
@@ -196,129 +212,22 @@ export function parseStatus(body: unknown): StatusResponse {
  * Every non-2xx is `{ statusCode, message, details? }`, and the publish routes
  * put `PublishProblem[]` in `details` - a declaration is answered with EVERY
  * problem rather than the first, because finding them one round trip at a time
- * is how a publish takes six attempts.
+ * is how a publish takes six attempts. Anything else in there is somebody
+ * else's `details` and is left to the caller's own message.
  */
 export function parseProblems(details: unknown): PublishProblem[] {
-  if (!Array.isArray(details)) {
-    return [];
-  }
-  const problems: PublishProblem[] = [];
-  for (const entry of details) {
-    if (typeof entry !== "object" || entry === null) {
-      continue;
-    }
-    const message = optionalString(entry, "message");
-    const code = optionalString(entry, "code");
-    if (!message && !code) {
-      continue;
-    }
-    problems.push({
-      code: code ?? "",
-      message: message ?? "",
-      hint: optionalString(entry, "hint") ?? null,
-      keys: stringArray(entry, "keys"),
-    });
-  }
-  return problems;
+  const parsed = z.array(PublishProblem).safeParse(details);
+  return parsed.success ? parsed.data : [];
 }
 
-function parseProject(
-  object: object,
-  call: string,
-): { publicProjectId: string; siteUrl: string | null } {
-  const project = Reflect.get(object, "project");
-  if (typeof project !== "object" || project === null) {
-    throw new PublishProtocolError(`${call} answered without a project.`);
-  }
-  return {
-    publicProjectId: requiredString(project, "publicProjectId", call),
-    // Null when the project has no site yet: reported, not refused.
-    siteUrl: optionalString(project, "siteUrl") ?? null,
-  };
-}
-
-function parseUploads(object: object, call: string): UploadSlot[] {
-  const raw = Reflect.get(object, "uploads");
-  if (raw === undefined || raw === null) {
-    return [];
-  }
-  if (!Array.isArray(raw)) {
+function parse<T>(schema: z.ZodType<T>, body: unknown, call: string): T {
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
     throw new PublishProtocolError(
-      `${call} answered with a non-array uploads.`,
+      `${call} answered with something this CLI cannot read: ${fromError(
+        parsed.error,
+      ).toString()}`,
     );
   }
-  return raw.map((entry, index) => {
-    if (typeof entry !== "object" || entry === null) {
-      throw new PublishProtocolError(
-        `${call}: uploads[${index}] is not an object.`,
-      );
-    }
-    return {
-      key: requiredString(entry, "key", `${call}: uploads[${index}]`),
-      url: requiredString(entry, "url", `${call}: uploads[${index}]`),
-      method: optionalString(entry, "method") ?? "PUT",
-      headers: parseHeaders(entry),
-      expiresAt: optionalString(entry, "expiresAt") ?? "",
-    };
-  });
-}
-
-function parseHeaders(entry: object): Record<string, string> {
-  const raw = Reflect.get(entry, "headers");
-  if (typeof raw !== "object" || raw === null) {
-    return {};
-  }
-  const headers: Record<string, string> = {};
-  for (const [key, value] of Object.entries(raw)) {
-    if (typeof value === "string") {
-      // A dropped header is a header the signature covers, and the upload then
-      // fails at the store with a mismatch - a long way from the cause.
-      headers[key] = value;
-    }
-  }
-  return headers;
-}
-
-function asObject(body: unknown, call: string): object {
-  if (typeof body !== "object" || body === null) {
-    throw new PublishProtocolError(
-      `${call} answered with ${body === null ? "null" : typeof body}, not an object.`,
-    );
-  }
-  return body;
-}
-
-function requiredState(object: object, call: string): PublishState {
-  const state = optionalString(object, "state");
-  if (!state) {
-    throw new PublishProtocolError(`${call} answered without a state.`);
-  }
-  const known = STATES.find((candidate) => candidate === state);
-  if (!known) {
-    throw new PublishProtocolError(
-      `${call} answered with a state this CLI does not know: "${state}".`,
-    );
-  }
-  return known;
-}
-
-function requiredString(object: object, key: string, call: string): string {
-  const value = optionalString(object, key);
-  if (!value) {
-    throw new PublishProtocolError(`${call} answered without a ${key}.`);
-  }
-  return value;
-}
-
-function optionalString(object: object, key: string): string | undefined {
-  const value = Reflect.get(object, key);
-  return typeof value === "string" && value !== "" ? value : undefined;
-}
-
-function stringArray(object: object, key: string): string[] {
-  const value = Reflect.get(object, key);
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.filter((entry): entry is string => typeof entry === "string");
+  return parsed.data;
 }

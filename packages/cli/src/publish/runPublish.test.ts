@@ -460,6 +460,37 @@ describe("val publish", () => {
     }
   });
 
+  test("an answer this CLI cannot read names the field, not the symptom", async () => {
+    // The service versions separately, so its answers are parsed rather than
+    // trusted: a type from a private repo could not have caught this, and a
+    // missing field surfacing three functions later is the failure worth
+    // spending a schema on.
+    const fake = await startFakeContentService({ token: TOKEN });
+    const root = makeArtifacts();
+    const truncating: typeof fetch = async (input, init) => {
+      const res = await fetch(input, init);
+      const url = typeof input === "string" ? input : String(input);
+      if (url.endsWith("/v1/publish") && init?.method === "POST") {
+        return new Response(JSON.stringify({ state: "awaiting-artifacts" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return res;
+    };
+    try {
+      const result = await run(root, fake.url, { fetchImpl: truncating });
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.message).toContain("POST /v1/publish");
+        expect(result.message).toContain("publishId");
+      }
+    } finally {
+      await fake.close();
+    }
+  });
+
   test("nothing to publish is said before a credential is asked for", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "val-publish-empty-"));
 
