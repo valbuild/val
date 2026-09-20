@@ -365,8 +365,45 @@ Custom color tokens map to CSS variables (e.g., `bg-background` → `var(--backg
 
 ## Framework packages
 
-`@valbuild/next` and `@valbuild/tanstack` are the two framework bindings, and
-they are deliberately near-copies of each other: the provider, the overlay
+**TanStack Start is the PRIMARY release target.** Next.js is still supported and
+still the older of the two bindings, but when the two disagree — about which one
+gets a feature first, which one a doc example is written against, which one is
+driven by a test — TanStack wins. So a change to `@valbuild/next` that
+`@valbuild/tanstack` has not got is unfinished work, not a decision; the
+reverse is an ordinary lag.
+
+Two things follow, and they are the ones that get forgotten:
+
+- **`examples/tanstack` is the feature showcase, and it is only useful while it
+  is complete.** It exists to be the app where every schema type and every
+  schema modifier can be seen working, so ADDING A SCHEMA FEATURE INCLUDES
+  ADDING IT THERE — a module (or a field in one), registered in
+  `val.modules.ts`, rendered by a route, and passing `val validate`. A feature
+  that exists only in `packages/core` is a feature nobody can look at.
+  `examples/next` is the FIXTURE app: it carries the awkward shapes the e2e
+  suite and the language server drive, and it is allowed to hold things the
+  showcase does not.
+- **The TanStack checks have no CI job yet**, so they are yours to run. See the
+  CI section: `pnpm exec playwright test --project=tanstack` and
+  `cd examples/tanstack && pnpm run build`. Neither is optional for a change the
+  Studio loads through.
+
+The showcase covers, as of writing: every `s.*` factory except `s.union`
+(deprecated) and `s.view` (unreleased); `describe` / `preview` / `render` /
+`validate` / `nullable` / `readonly` / `hidden`; `minLength` / `maxLength` /
+`min` / `max` / `regexp` / `multiline` on strings and numbers, `from` / `to` on
+dates, `include` / `exclude` on routes; `s.record(key, item)` and the
+three-argument `s.router(router, key, item)` so a KEY can carry its own
+description; `.jsonValues()` with `c.json()`; `tanstackRouter` and
+`externalPageRouter`; and the settings sections `locales`, `theme` and
+`assistant`. What it does NOT cover, and why: `.remote()` on media and
+`.external()` on a record, because both need credentials or an adapter a plain
+`pnpm dev` does not have — `examples/next` gates the remote one behind
+`NEXT_PUBLIC_VAL_EXAMPLE_REMOTE_MEDIA`. When you add to the list, add to that
+sentence too, so the gap stays a decision rather than an oversight.
+
+`@valbuild/next` and `@valbuild/tanstack` are deliberately near-copies of each
+other: the provider, the overlay
 context, the canvas bridge, the client hooks and the route helpers are the same
 code with a different framework underneath. When you change one, ask whether the
 other needs it — `packages/tanstack/README.md` has a table of what actually

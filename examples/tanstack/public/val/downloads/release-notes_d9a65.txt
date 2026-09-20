@@ -1,0 +1,4 @@
+Val release notes
+=================
+
+An s.fileset() holds any file type its `accept` allows.

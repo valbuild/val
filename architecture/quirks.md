@@ -76,6 +76,19 @@ recursion. Harmless while a marker on the value could still be found; the moment
 detection needs the schema, it strips `url` from every image on every production
 page. `disabled` gates the steganography and nothing else.
 
+**`val list-unused-files` finds files through VALIDATION ERRORS, so a correct
+gallery reads as unused.** `listUnusedFiles` collects the paths it considers
+in use by walking what `service.get(..., { validate: true })` reports and
+picking the errors whose value looks like a file ref — a single `s.image()` /
+`s.file()` field always reports a `check-metadata` fix, so its file is found,
+while an `s.imageset()` / `s.fileset()` ENTRY reports nothing when it is
+correct and its file is not. `examples/next` hides this by accident: its
+gallery's one entry declares 800x600 for a 944x944 image, and that error is
+the only reason the file counts as used. `examples/tanstack`, whose content
+validates cleanly, lists every gallery file it has. So treat the output as a
+starting point, and never as a delete list — the function's own TODO says the
+same about the heuristic.
+
 **The server drops `patch_id` before writing a `.val.ts`.** It marks a media
 source whose bytes are not committed, and it is a sibling of `path` — so a
 whole-object write built from the client's optimistic view would print it into a

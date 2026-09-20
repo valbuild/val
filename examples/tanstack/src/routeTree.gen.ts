@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SiteRouteImport } from './routes/_site'
 import { Route as ValRouteRouteImport } from './routes/val/route'
 import { Route as SiteIndexRouteImport } from './routes/_site.index'
+import { Route as SiteShowcaseRouteImport } from './routes/_site.showcase'
 import { Route as ValIndexRouteImport } from './routes/val/index'
 import { Route as ValSplatRouteImport } from './routes/val/$'
 import { Route as SiteDocsSplatRouteImport } from './routes/_site.docs.$'
@@ -30,6 +31,11 @@ const ValRouteRoute = ValRouteRouteImport.update({
 const SiteIndexRoute = SiteIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => SiteRoute,
+} as any)
+const SiteShowcaseRoute = SiteShowcaseRouteImport.update({
+  id: '/showcase',
+  path: '/showcase',
   getParentRoute: () => SiteRoute,
 } as any)
 const ValIndexRoute = ValIndexRouteImport.update({
@@ -61,6 +67,7 @@ const ApiValSplatRoute = ApiValSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/val': typeof ValRouteRouteWithChildren
   '/': typeof SiteIndexRoute
+  '/showcase': typeof SiteShowcaseRoute
   '/val/$': typeof ValSplatRoute
   '/val/': typeof ValIndexRoute
   '/docs/$': typeof SiteDocsSplatRoute
@@ -68,6 +75,7 @@ export interface FileRoutesByFullPath {
   '/api/val/$': typeof ApiValSplatRoute
 }
 export interface FileRoutesByTo {
+  '/showcase': typeof SiteShowcaseRoute
   '/val/$': typeof ValSplatRoute
   '/': typeof SiteIndexRoute
   '/val': typeof ValIndexRoute
@@ -79,6 +87,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/val': typeof ValRouteRouteWithChildren
   '/_site': typeof SiteRouteWithChildren
+  '/_site/showcase': typeof SiteShowcaseRoute
   '/val/$': typeof ValSplatRoute
   '/_site/': typeof SiteIndexRoute
   '/val/': typeof ValIndexRoute
@@ -91,17 +100,26 @@ export interface FileRouteTypes {
   fullPaths:
     | '/val'
     | '/'
+    | '/showcase'
     | '/val/$'
     | '/val/'
     | '/docs/$'
     | '/posts/$postId'
     | '/api/val/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/val/$' | '/' | '/val' | '/docs/$' | '/posts/$postId' | '/api/val/$'
+  to:
+    | '/showcase'
+    | '/val/$'
+    | '/'
+    | '/val'
+    | '/docs/$'
+    | '/posts/$postId'
+    | '/api/val/$'
   id:
     | '__root__'
     | '/val'
     | '/_site'
+    | '/_site/showcase'
     | '/val/$'
     | '/_site/'
     | '/val/'
@@ -137,6 +155,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof SiteIndexRouteImport
+      parentRoute: typeof SiteRoute
+    }
+    '/_site/showcase': {
+      id: '/_site/showcase'
+      path: '/showcase'
+      fullPath: '/showcase'
+      preLoaderRoute: typeof SiteShowcaseRouteImport
       parentRoute: typeof SiteRoute
     }
     '/val/': {
@@ -192,12 +217,14 @@ const ValRouteRouteWithChildren = ValRouteRoute._addFileChildren(
 )
 
 interface SiteRouteChildren {
+  SiteShowcaseRoute: typeof SiteShowcaseRoute
   SiteIndexRoute: typeof SiteIndexRoute
   SiteDocsSplatRoute: typeof SiteDocsSplatRoute
   SitePostsPostIdRoute: typeof SitePostsPostIdRoute
 }
 
 const SiteRouteChildren: SiteRouteChildren = {
+  SiteShowcaseRoute: SiteShowcaseRoute,
   SiteIndexRoute: SiteIndexRoute,
   SiteDocsSplatRoute: SiteDocsSplatRoute,
   SitePostsPostIdRoute: SitePostsPostIdRoute,
