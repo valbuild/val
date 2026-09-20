@@ -22,6 +22,16 @@ let mockSchemas: Remote<Record<ModuleFilePath, SerializedSchema>> = {
 jest.mock("../ValFieldProvider", () => ({
   __esModule: true,
   useSchemas: () => mockSchemas,
+  // The rows' preview text, which these cases are not about: what is asserted
+  // below is WHICH modules the menu lists, and a module with no preview is
+  // listed under its own name.
+  useAllPreviews: () => ({}),
+}));
+// Registers demand for the sitemap's previews. A subscription, not a read —
+// there is no store here to register against, and nothing below depends on it.
+jest.mock("../usePreviewDemand", () => ({
+  __esModule: true,
+  usePreviewDemand: () => undefined,
 }));
 jest.mock("../ValProvider", () => ({
   __esModule: true,
