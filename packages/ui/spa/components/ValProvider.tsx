@@ -994,7 +994,7 @@ function useProfilesData(
   /**
    * How many times this has been tried since the last success or manual retry.
    *
-   * A view rather than state: it is read inside the request that increments it,
+   * A ref rather than state: it is read inside the request that increments it,
    * and rendering has nothing to say about it — what the UI shows is the status
    * and whether another attempt is coming, both of which are in state.
    */
@@ -1008,7 +1008,7 @@ function useProfilesData(
   }, []);
   useEffect(() => clearRetry, [clearRetry]);
 
-  // Through a view so a failure can schedule the next attempt without the
+  // Through a ref so a failure can schedule the next attempt without the
   // callback having to name itself.
   const loadProfilesRef = useRef<() => void>(() => undefined);
   const loadProfiles = useCallback(async () => {

@@ -325,6 +325,11 @@ describe("SerializedSchema keeps every field the schema wrote", () => {
         .describe("d"),
     ],
     ["settings", s.settings()],
+    // `moduleFilePath` is a view's whole content, and the parser is declared
+    // `z.ZodType<SerializedSchemaT>` — so a missing or stripped arm here is not
+    // a type error but a RUNTIME parse failure of every schema in the module
+    // that holds the view. The core view tests would stay green through it.
+    ["view", s.view(gallery).describe("d")],
   ];
 
   test.each(cases)("%s", (_name, schema) => {

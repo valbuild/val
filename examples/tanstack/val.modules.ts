@@ -25,4 +25,6 @@ export default modules(config, [
   { def: () => import("./src/content/translated.val") },
   // `readonly()` and `hidden()`, which only the Studio enforces.
   { def: () => import("./src/content/access.val") },
+  // Hidden from the nav, reached through the `s.view()` row on access.val.ts.
+  { def: () => import("./src/content/roster.val") },
 ]);

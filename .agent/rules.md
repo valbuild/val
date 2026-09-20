@@ -456,7 +456,7 @@ Two things follow, and they are the ones that get forgotten:
   Studio loads through.
 
 The showcase covers, as of writing: every `s.*` factory except `s.union`
-(deprecated) and `s.view` (unreleased); `describe` / `preview` / `render` /
+(deprecated); `describe` / `preview` / `render` /
 `validate` / `nullable` / `readonly` / `hidden`; `minLength` / `maxLength` /
 `min` / `max` / `regexp` / `multiline` on strings and numbers, `from` / `to` on
 dates, `include` / `exclude` on routes; `s.record(key, item)` and the

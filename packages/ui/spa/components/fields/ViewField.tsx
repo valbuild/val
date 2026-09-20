@@ -1,14 +1,12 @@
-import {
-  ModuleFilePath,
-  SerializedValViewSchema,
-  SourcePath,
-} from "@valbuild/core";
+import { SerializedValViewSchema, SourcePath } from "@valbuild/core";
 import { ChevronRight } from "lucide-react";
-import { useSchemaAtPath, useShallowSourceAtPath } from "../ValFieldProvider";
+import {
+  useModuleSchemaRemote,
+  useShallowSourceAtPath,
+} from "../ValFieldProvider";
 import { useNavigation } from "../ValRouter";
 import { FieldLoading } from "../FieldLoading";
 import { FieldNotFound } from "../FieldNotFound";
-import { FieldSchemaError } from "../FieldSchemaError";
 import { FieldSourceError } from "../FieldSourceError";
 import { prettyModuleName } from "../MediaPicker/GalleryUploadTarget";
 
@@ -44,24 +42,42 @@ export function ViewField({
   const target = schema.moduleFilePath;
   const targetPath = target as unknown as SourcePath;
   const sourceAtPath = useShallowSourceAtPath(path, type);
-  const targetSchema = useSchemaAtPath(targetPath);
+  /*
+   * The target's schema, by module path — NOT `useSchemaAtPath`.
+   *
+   * Resolving a schema against a source PATH needs the module's source, so
+   * `useSchemaAtPath` peeks and demands it; for a `.jsonValues()` target that is
+   * every entry of a record this row only links to. A view is a link, and a link
+   * must not pull in what it links to, so this asks the schema store directly.
+   */
+  const targetSchema = useModuleSchemaRemote(target);
   if (sourceAtPath.status === "error") {
     return (
+      /*
+       * THIS field's schema, not the target's.
+       *
+       * The generic repair is `emptyOf(schema)`, and the empty value of a view
+       * is the pointer itself — which is exactly the fix a malformed pointer
+       * wants. Handing it the target's schema instead offered a Fix that wrote
+       * an empty value of the TARGET's shape into this field.
+       */
       <FieldSourceError
         path={path}
         error={sourceAtPath.error}
-        schema={targetSchema}
+        schema={{ status: "success", data: schema }}
       />
     );
   }
-  if (targetSchema.status === "error") {
-    return (
-      <FieldSchemaError path={path} error={targetSchema.error} type={type} />
-    );
-  }
   if (targetSchema.status === "not-found") {
-    // The schema names a module the project does not have. Validation reports
-    // it too; this is what the field itself shows meanwhile.
+    /*
+     * The schema names a module the project does not have.
+     *
+     * Nothing else reports this: `executeValidate` checks the pointer against
+     * the schema, and `viewCycleErrors` only looks for cycles — a target that is
+     * not a module of the project is deliberately skipped there. So this row is
+     * where an editor finds out, and `val validate` stays quiet about it. See
+     * the follow-up in the changeset.
+     */
     return <FieldNotFound path={targetPath} type={type} />;
   }
   if (targetSchema.status === "loading") {
@@ -77,9 +93,7 @@ export function ViewField({
         }}
       >
         <span className="min-w-0">
-          <span className="block truncate">
-            {prettyModuleName(target as ModuleFilePath)}
-          </span>
+          <span className="block truncate">{prettyModuleName(target)}</span>
           {targetSchema.data.description && (
             <span className="block truncate text-xs text-text-quartenary">
               {targetSchema.data.description}
