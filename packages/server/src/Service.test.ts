@@ -262,4 +262,30 @@ describe("Service.patch with .jsonValues()", () => {
       service.patch(MODULE, [{ op: "remove", path: ["/blogs/test"] }]),
     ).rejects.toThrow(/only edits INSIDE an entry/);
   });
+
+  test("refuses a write of the WHOLE record, and writes nothing", async () => {
+    // A root op names no entry key, so it reads as an ordinary source edit and
+    // would replace the record - `c.json(() => import(...))` calls and all -
+    // with inline content. `ValOps.prepare` expands such a write into per-entry
+    // ops; this path cannot, so it refuses instead of writing the wrong thing.
+    const service = await createService(tmpDir, createTestHost());
+    const valTsBefore = nodeFs.readFileSync(
+      path.join(tmpDir, "blogs.val.ts"),
+      "utf8",
+    );
+
+    await expect(
+      service.patch(MODULE, [
+        {
+          op: "replace",
+          path: [],
+          value: { "/blogs/test": { title: "Whole" } },
+        },
+      ]),
+    ).rejects.toThrow(/whole .jsonValues\(\) record/);
+    expect(nodeFs.readFileSync(path.join(tmpDir, "blogs.val.ts"), "utf8")).toBe(
+      valTsBefore,
+    );
+    expect(readEntry()).toEqual({ title: "Hello from JSON" });
+  });
 });

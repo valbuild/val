@@ -1,13 +1,8 @@
-import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
+import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "./designSystem/button";
-import {
-  useAddPatch,
-  useSchemaAtPath,
-  useShallowSourceAtPath,
-} from "./ValFieldProvider";
+import { useSchemaAtPath, useShallowSourceAtPath } from "./ValFieldProvider";
 import { useValPortal } from "./ValPortalProvider";
-import { useNavigation } from "./ValRouter";
 import {
   Popover,
   PopoverContent,
@@ -21,14 +16,11 @@ import {
 } from "./designSystem/tooltip";
 import { RoutePattern } from "@valbuild/shared/internal";
 import { RouteForm } from "./RouteForm";
-import { Patch } from "@valbuild/core/patch";
-import { array } from "@valbuild/core/fp";
 import { ReferencesResult } from "./useJsonValuesLoad";
-import { useValSystem } from "../stores/react/SystemContext";
+import { useRenameRecordEntry } from "./useRenameRecordEntry";
 
 export function ChangeRecordPopover({
   defaultValue,
-  path,
   parentPath,
   variant,
   references,
@@ -39,7 +31,6 @@ export function ChangeRecordPopover({
   keyDescription,
 }: {
   defaultValue: string;
-  path: SourcePath;
   parentPath: SourcePath | ModuleFilePath;
   variant: "ghost" | "outline" | "default" | "secondary";
   size: "icon" | "sm" | "lg" | "default";
@@ -54,7 +45,6 @@ export function ChangeRecordPopover({
   onComplete?: () => void;
   keyDescription?: string;
 }) {
-  const { navigate } = useNavigation();
   const [open, setOpen] = useState(false);
   const portalContainer = useValPortal();
   useEffect(() => {
@@ -68,11 +58,6 @@ export function ChangeRecordPopover({
       window.removeEventListener("keydown", keyDownListener);
     };
   }, []);
-  const { addPatch, addModuleFilePatch } = useAddPatch(path);
-  const [moduleFilePath, parentModulePath] =
-    Internal.splitModuleFilePathAndModulePath(parentPath);
-  const parentPatchPath = Internal.createPatchPath(parentModulePath);
-
   // Get actual record keys from parent source for duplicate validation
   const parentSource = useShallowSourceAtPath(parentPath, "record");
   const parentSchema = useSchemaAtPath(parentPath);
@@ -89,15 +74,16 @@ export function ChangeRecordPopover({
     }
     return [];
   }, [parentSource]);
-  const val = useValSystem();
-  // A `.jsonValues()` entry's content is lazily loaded. If we move an entry that
-  // is still an opaque marker, the marker (not the content) lands on the new key
-  // and opening it would fetch `/json?key=<newKey>` — which 404s, since the base
-  // source still only has the old key. Load it first.
   const isJsonValuesRecord =
     parentSchema.status === "success" &&
     parentSchema.data.type === "record" &&
     parentSchema.data.jsonValues === true;
+  // The move, the referrer rewrites and the navigate that follows them are
+  // `useRenameRecordEntry`'s - the same write the Pages panel goes through, so
+  // the two entry points cannot come to disagree about what renaming means.
+  // What is this component's own is the gate below: it is the one that KNOWS
+  // whether the reference scan finished.
+  const renameRecordEntry = useRenameRecordEntry();
   const onSubmit = useCallback(
     async (key: string) => {
       if (references.status !== "success") {
@@ -110,56 +96,21 @@ export function ChangeRecordPopover({
         );
         return;
       }
-      if (isJsonValuesRecord) {
-        await val?.system.sourceStore.loadEntries(moduleFilePath, [
-          defaultValue,
-        ]);
-      }
-      const patchOps: Patch = [
-        {
-          op: "move",
-          from: parentPatchPath.concat(
-            defaultValue,
-          ) as array.NonEmptyArray<string>,
-          path: parentPatchPath.concat(key) as array.NonEmptyArray<string>,
-        },
-      ];
-      addPatch(patchOps, "record");
-      for (const ref of references.refs) {
-        const [refModuleFilePath, refModulePath] =
-          Internal.splitModuleFilePathAndModulePath(ref);
-        const refPatchPath = Internal.createPatchPath(refModulePath);
-        addModuleFilePatch(
-          refModuleFilePath,
-          [
-            {
-              op: "replace",
-              path: refPatchPath,
-              value: key,
-            },
-          ],
-          "record",
-        );
-      }
-      const newSourcePath = Internal.joinModuleFilePathAndModulePath(
-        moduleFilePath,
-        Internal.patchPathToModulePath(parentPatchPath.concat(key)),
-      );
-      navigate(newSourcePath, {
-        replace: true,
+      await renameRecordEntry({
+        parentPath,
+        fromKey: defaultValue,
+        toKey: key,
+        refs: references.refs,
+        jsonValues: isJsonValuesRecord,
       });
       if (onComplete) {
         onComplete();
       }
     },
     [
-      addPatch,
-      addModuleFilePatch,
-      moduleFilePath,
-      parentPatchPath,
-      navigate,
+      renameRecordEntry,
+      parentPath,
       onComplete,
-      val,
       isJsonValuesRecord,
       defaultValue,
       references,

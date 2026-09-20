@@ -1,0 +1,174 @@
+import { ShellDestination, ShellPanel } from "./types";
+import { TOUR_COPY } from "./tourCopy";
+
+/*
+ * NOT `studioTour.ts`, which is what this was called.
+ *
+ * `StudioTour.tsx` sits beside it, and two files in one directory whose names
+ * differ only in case are one file on macOS and on Windows: `./StudioTour`
+ * resolved to THIS module there, and the Studio died on `does not provide an
+ * export named 'TourLauncher'`. Linux resolves both correctly, so CI, the e2e
+ * suite and every test here stayed green — see `caseCollisions.test.ts`, which
+ * is what actually catches it now.
+ */
+
+/**
+ * One stop on the guided tour.
+ *
+ * A step is data, not a component: what the tour has to get right is WHICH
+ * stops a given project has and what each of them says, and that is a question
+ * about the project rather than about the DOM — so it is decided here, where a
+ * test can read it, rather than inside the overlay that draws it.
+ */
+export type TourStep = {
+  /** Stable id, so a test can name a step without matching its prose. */
+  id: string;
+  /** From `tourCopy.ts`, which is the one place the tour's words live. */
+  title: string;
+  body: string;
+  /**
+   * The `data-val-tour` value of the control this step is about.
+   *
+   * Absent, or present but not on screen, leaves the step a card in the middle
+   * with no spotlight — which is what happens on a phone, where the rail and
+   * half the top bar are not drawn. The words still land; only the arrow is
+   * missing. A step must therefore never say "this button here".
+   */
+  target?: string;
+  /**
+   * A panel to open while the step is up, so the thing being explained is
+   * behind the card rather than described in the abstract.
+   */
+  panel?: ShellPanel;
+};
+
+/**
+ * How Val is running, for the one step whose subject is named differently in
+ * each. See `PublishButton`: on a local checkout it says "Save".
+ */
+export type TourMode = "fs" | "http" | "unknown";
+
+/** What the tour has to know about this project to decide its stops. */
+export type TourProject = {
+  /** The destinations the rail offers. See `availableDestinations`. */
+  destinations: readonly ShellDestination[];
+  /** How Val is running, for the one step that is named differently in each. */
+  mode?: TourMode;
+  /** Whether this project has an assistant. See `ShellProps.aiEnabled`. */
+  aiEnabled?: boolean;
+};
+
+/**
+ * The tour, for this project.
+ *
+ * Almost every stop is conditional on the project HAVING the thing, because the
+ * fastest way to make someone more confused than they started is to explain a
+ * concept their project does not use and then show them an icon that is not
+ * there. A project of pure content files gets Data and not Pages; a project
+ * with no assistant is not told about one.
+ *
+ * Review, Preview and Publish are the exceptions: every project ships changes,
+ * and they are in the order the top bar puts them, which is the order they are
+ * done in. The assistant comes before them because it is part of MAKING a
+ * change, and everything after it is about sending one.
+ */
+export function studioTourSteps({
+  destinations,
+  mode = "http",
+  aiEnabled = false,
+}: TourProject): TourStep[] {
+  const steps: TourStep[] = [{ id: "welcome", ...TOUR_COPY.welcome }];
+  if (destinations.includes("pages")) {
+    steps.push({
+      id: "pages",
+      ...TOUR_COPY.pages,
+      target: "pages",
+      panel: "pages",
+    });
+  }
+  if (destinations.includes("media")) {
+    steps.push({
+      id: "media",
+      ...TOUR_COPY.media,
+      target: "media",
+      panel: "media",
+    });
+  }
+  if (destinations.includes("data")) {
+    steps.push({
+      id: "data",
+      ...TOUR_COPY.data,
+      target: "data",
+      panel: "data",
+    });
+  }
+  if (aiEnabled) {
+    // The one step that opens a panel on the RIGHT, which is why the card has
+    // to be able to step either way around what it must not cover — see
+    // `placeCard`.
+    steps.push({ id: "ai", ...TOUR_COPY.ai, target: "ai", panel: "ai" });
+  }
+  steps.push({ id: "review", ...TOUR_COPY.review, target: "review" });
+  steps.push({ id: "preview", ...TOUR_COPY.preview, target: "preview" });
+  // One step, two wordings, and the id stays `publish` either way: it is the
+  // same stop, and the control it points at carries one marker.
+  steps.push({
+    id: "publish",
+    ...(mode === "fs" ? TOUR_COPY.save : TOUR_COPY.publish),
+    target: "publish",
+  });
+  // The closing step names Settings, which a project without an `s.settings()`
+  // module does not have — see `availableDestinations`.
+  steps.push({
+    id: "finish",
+    ...(destinations.includes("settings")
+      ? TOUR_COPY.finish
+      : TOUR_COPY.finishWithoutSettings),
+    target: "utility",
+  });
+  return steps;
+}
+
+/**
+ * Whether this browser has been through the tour.
+ *
+ * The ONLY thing about the tour kept per browser, and it is per browser because
+ * it is a fact about one person on one machine rather than a decision: there is
+ * nothing for a team to agree about in "have you seen this yet". Whether the
+ * tour is offered AT ALL is the project's, in `s.settings()` under `studio.tour`
+ * — so a team that finds it noisy turns it off once, for everyone. See
+ * `readStudioSettings`.
+ *
+ * Getting this one wrong costs a button that glows for one session.
+ */
+const COMPLETED_KEY = "val:tour:completed";
+
+/**
+ * Reading and writing storage can throw outright — a private window, a browser
+ * set to block site data — and an onboarding nicety is the last thing in the
+ * Studio that should be allowed to take it down. Every accessor swallows.
+ */
+function read(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function write(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Nothing to do and nothing worth saying: the tour still runs, it just
+    // will not be remembered next time.
+  }
+}
+
+export function readTourCompleted(): boolean {
+  return read(COMPLETED_KEY) === "true";
+}
+
+export function writeTourCompleted(completed: boolean): void {
+  write(COMPLETED_KEY, completed ? "true" : "false");
+}

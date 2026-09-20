@@ -297,7 +297,10 @@ export class PatchSets {
             Array.from(schemaTypesAtPath),
             op.path,
           );
-          if (op.op === "move") {
+          if (op.op === "move" || op.op === "copy") {
+            // `copy` as well as `move`: it does not write the source, but it
+            // READS it, so the value it produces depends on every pending edit
+            // to that source and on the indices around it.
             const path = op.from.slice(0, -1);
             const schemaTypesAtPath = schemaTypesOfPath(schema, path);
             this.insertPath(
@@ -314,6 +317,26 @@ export class PatchSets {
         } else if (
           schemaTypesAtPath.size === 1 &&
           (schemaTypesAtPath.has("record") ||
+            // An OBJECT is keyed too: its keys are named rather than
+            // positional, so neither `add` (create-or-set, `addToNode` in
+            // `@valbuild/core/patch`) nor `remove` (delete the property)
+            // disturbs any sibling. Either way the op affects exactly the key
+            // it names and nothing else, which is the property this branch
+            // needs — unlike an array, where both shift every later index.
+            //
+            // The studio emits `add` rather than `replace` here on purpose, so
+            // that the write survives the key having gone away in the meantime:
+            // see `ImageField`'s alt write and
+            // `ModuleGallery.handleAltTextChange`, which both say so.
+            //
+            // That last one is why this branch exists. `s.imageset()`
+            // serializes as a record whose ITEM is an object, so editing the
+            // alt text of a gallery entry resolves `object` here, hit the throw
+            // below, and terminated the whole media module into one patch set —
+            // once per keystroke. Staging any one change in that module then
+            // dragged every other change in it along, because a patch group has
+            // to contain a prefix of each patch set it touches.
+            schemaTypesAtPath.has("object") ||
             // A settings SECTION is addressed like a record: its keys are
             // named, and an `add` at ["theme", "accent"] modifies exactly that
             // one. Without this it fell to the throw below — every settings
@@ -337,8 +360,30 @@ export class PatchSets {
             Array.from(schemaTypesAtPath),
             op.path,
           );
-          if (op.op === "move") {
-            const path = op.from;
+          if (op.op === "move" || op.op === "copy") {
+            // The SOURCE is classified on its own terms, not the
+            // destination's. A move out of an array item shifts every later
+            // index, so that side has to be the array — exactly as the branch
+            // above does for a move whose destination is an array. Only when
+            // the source parent is keyed too does `op.from` name the whole of
+            // what the op affects.
+            //
+            // `copy` reaches here as well as `move`. It does not write the
+            // source, but the value it produces is read from it, so it depends
+            // on every pending edit to that source just as a move does — and
+            // `editWouldRestage` in `patchGroups` says so, checking `from` for
+            // both. Duplicating a record entry (`useDuplicateRecordEntry`) is
+            // the copy that actually ships, and its source went ungrouped.
+            const fromParent = op.from.slice(0, -1);
+            const fromParentTypes = schemaTypesOfPath(schema, fromParent);
+            // ANY possible array parent widens, rather than only an
+            // unambiguous one: a discriminated union resolves to every
+            // variant's type at once, so a source inside one can be an array
+            // here and an object there. Requiring a single type grouped it at
+            // the item, which is wrong the moment the array variant is the
+            // live one — and the whole array is the safe direction.
+            const isPositionalSource = fromParentTypes.has("array");
+            const path = isPositionalSource ? fromParent : op.from;
             const schemaTypesAtPath = schemaTypesOfPath(schema, path);
             this.insertPath(
               moduleFilePath,
@@ -355,10 +400,19 @@ export class PatchSets {
           schemaTypesAtPath.size === 1 &&
           !(schemaTypesAtPath.has("image") || schemaTypesAtPath.has("file"))
         ) {
+          // What is left is a parent this function cannot isolate a key
+          // inside. Two different reasons end up here, and the message covers
+          // both: a PRIMITIVE cannot hold the key at all, which means the path
+          // no longer fits the schema — a genuinely stale patch; and `richtext`
+          // can, but its children are positional, so isolating one would let a
+          // node insert be staged without the edits whose indices it shifted.
+          // Both keep reporting, and the catch below terminates the module,
+          // which is the conservative thing to do when we cannot say what a
+          // change affects.
           throw new Error(
-            `Cannot perform op: '${
+            `Cannot isolate a patch set for op: '${
               op.op
-            }' on non-array or non-record schema. Type: ${
+            }' — no addressable key inside schema type: ${
               schemaTypesAtPath.values().next().value
             }`,
           );

@@ -15,6 +15,7 @@ import {
 function input(over: Partial<PublishButtonInput> = {}): PublishButtonInput {
   return {
     mode: "fs",
+    publishRefusal: null,
     validationErrorCount: 0,
     conflictingChangeCount: 0,
     isPublishing: false,
@@ -240,5 +241,63 @@ describe("nothing to publish: reverted against held back", () => {
     ).toBe(
       "3 changes are held back, so there is nothing to publish. Stage them in Review to publish.",
     );
+  });
+});
+
+/**
+ * A server that cannot publish this project AT ALL.
+ *
+ * Every other state here is about this client's changes and suggests something
+ * the reader could do -- fix the errors, discard the conflicts, stage the held
+ * patches. This one is a fact about the deployment: true before anything was
+ * edited, and unchanged by any of those. So it is checked first, and it offers
+ * nothing to press.
+ */
+describe("a deployment that cannot publish", () => {
+  const REFUSAL =
+    "This project mirrors its content into a git repository (branch 'main'), " +
+    "but this deployment was not built from one.";
+
+  test("BLOCKS, and says what the server said", () => {
+    const state = describePublishButton(
+      input({ mode: "http", publishRefusal: REFUSAL }),
+    );
+    expect(state).toMatchObject({
+      kind: "blocked",
+      label: "Publish",
+      reason: REFUSAL,
+      // Not `show-errors`: there is nothing in the content to go and look at.
+      // Not `publish`: the whole point of carrying this on `/stat` is that the
+      // refusal arrives before the click rather than after a commit message
+      // has been typed.
+      action: "none",
+    });
+  });
+
+  test("...before any reason the reader could act on", () => {
+    /*
+     * Ordering is the assertion. Offering "fix 3 validation errors" to someone
+     * whose deployment cannot publish at all sends them to do work that
+     * changes nothing -- and they would find that out only at the click this
+     * exists to prevent.
+     */
+    const state = describePublishButton(
+      input({
+        mode: "http",
+        publishRefusal: REFUSAL,
+        validationErrorCount: 3,
+        conflictingChangeCount: 2,
+      }),
+    );
+    expect(state.reason).toBe(REFUSAL);
+    expect(state.action).toBe("none");
+  });
+
+  test("...and says Save rather than Publish in dev", () => {
+    // It cannot happen in `fs` mode today, but the label is the mode's and not
+    // the refusal's: a button that renamed itself when it went wrong would be
+    // a second thing to explain.
+    const state = describePublishButton(input({ publishRefusal: REFUSAL }));
+    expect(state.label).toBe("Save");
   });
 });

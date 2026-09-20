@@ -58,8 +58,7 @@ function opsAnsweringChain(patchIds: PatchId[]) {
   const ops = new ValOpsHttp(
     "https://content.val.build",
     "acme/site",
-    "commit-sha",
-    "main",
+    { commit: "commit-sha", branch: "main" },
     { apiKey: "key" },
     // Nothing on this path evaluates a module or reads a schema.
     { modules: [] } as never,

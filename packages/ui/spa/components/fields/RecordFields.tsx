@@ -37,6 +37,7 @@ import { PreviewError } from "../PreviewError";
 import { Field } from "../../components/Field";
 import { AnyField } from "../../components/AnyField";
 import { LocaleFiltered } from "../LocaleFilterProvider";
+import { FieldNull } from "../../components/FieldNull";
 
 export function RecordFields({
   path,
@@ -92,11 +93,21 @@ export function RecordFields({
       />
     );
   }
-  if (schemaAtPath.data.mediaType) {
-    return <ModuleGallery path={path} />;
-  }
   const source = sourceAtPath.data;
   const schema = schemaAtPath.data;
+  // BEFORE the media dispatch below, and that order is the point. A record
+  // that has not been created renders nothing on either path — which reads as
+  // "this record is empty", a different and writable state. A gallery is the
+  // case where that is not merely misleading: `s.imageset().nullable()` keeps
+  // its media options, so a null one reached `ModuleGallery`, looked like an
+  // empty gallery, and offered an upload whose `add` patch targeted `null`.
+  // See `FieldNull`.
+  if (source === null) {
+    return <FieldNull path={path} schema={schema} readonly={readonly} />;
+  }
+  if (schema.mediaType) {
+    return <ModuleGallery path={path} />;
+  }
   /**
    * The keys the locale filter leaves on screen.
    *
@@ -128,16 +139,12 @@ export function RecordFields({
   // `SortableList`. Records are unordered, so there is nothing to sort; the key
   // is the row's label.
   if (inline || isInlineRender(schema.item)) {
-    const sourceEntries = source as Record<string, SourcePath> | null;
-    if (sourceEntries === null) {
-      return null;
-    }
     return (
       <div id={path}>
         <div className={`flex flex-col ${compact ? "gap-3" : "gap-4"}`}>
           {schema.item.hidden
             ? null
-            : Object.entries(sourceEntries)
+            : Object.entries(source)
                 .filter(([key]) =>
                   matchesLocale({ key, keySchema: schema.key }),
                 )
@@ -175,7 +182,7 @@ export function RecordFields({
     previewAtPath &&
     "data" in previewAtPath &&
     previewAtPath.data &&
-    previewAtPath.data.parent === "record"
+    previewAtPath.data.rows?.parent === "record"
       ? previewAtPath.data
       : undefined;
   return (
@@ -183,7 +190,7 @@ export function RecordFields({
       {previewAtPath?.status === "error" && (
         <PreviewError error={previewAtPath.message} path={path} />
       )}
-      {previewAtPathData && source && (
+      {previewAtPathData && (
         <RecordPreviewList
           path={path}
           // The KEYS come from the source, not from the preview's `items`: for a
@@ -196,7 +203,7 @@ export function RecordFields({
           keyDecidesLocale={keyDecidesLocale}
         />
       )}
-      {!previewAtPathData && source && (
+      {!previewAtPathData && (
         <RecordCardList
           path={path}
           keys={visibleKeys(Object.keys(source))}
@@ -208,6 +215,19 @@ export function RecordFields({
     </div>
   );
 }
+
+/**
+ * What an unwritten row is called.
+ *
+ * A locale-keyed record holds every declared language, so a row whose entry is
+ * `null` is a language nobody has translated into — the state the whole design
+ * exists to make countable. The generic `<empty>` said the same thing as a row
+ * whose content happens to be blank, which is the one distinction that matters
+ * here. Every other record keeps the generic wording: its keys say nothing
+ * about language, so there is nothing better to call it.
+ */
+const UNTRANSLATED_LABEL = (keyDecidesLocale: boolean): string | undefined =>
+  keyDecidesLocale ? "Not translated" : undefined;
 
 /**
  * Row height estimate for the default card layout: gap (16) + border (2) +
@@ -324,7 +344,10 @@ function RecordCardList({
                       height={PREVIEW_ROW_CONTENT_HEIGHT}
                     />
                   ) : (
-                    <RefPreview path={sourcePathOfItem(path, key)} />
+                    <RefPreview
+                      path={sourcePathOfItem(path, key)}
+                      nullLabel={UNTRANSLATED_LABEL(keyDecidesLocale)}
+                    />
                   )}
                 </div>
               </div>
@@ -451,7 +474,10 @@ function RecordPreviewList({
                     height={PREVIEW_ROW_CONTENT_HEIGHT}
                   />
                 ) : (
-                  <RefPreview path={sourcePathOfItem(path, key)} />
+                  <RefPreview
+                    path={sourcePathOfItem(path, key)}
+                    nullLabel={UNTRANSLATED_LABEL(keyDecidesLocale)}
+                  />
                 )}
               </button>
             </div>

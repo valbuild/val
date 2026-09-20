@@ -1,10 +1,10 @@
 import {
   SerializedSchema,
-  Json,
   Internal,
   DEFAULT_COLOR_FORMAT,
   declaredKeySetOf,
 } from "@valbuild/core";
+import { JSONValue } from "@valbuild/core/patch";
 
 /**
  * Local `yyyy-MM-dd`, which is the one thing this module used `date-fns` for.
@@ -76,10 +76,22 @@ export type EmptyOfContext = {
   selectedLocale?: string;
 };
 
+/**
+ * The empty value for a schema — the thing a "create this" affordance writes.
+ *
+ * Returns `JSONValue`, the MUTABLE shape, rather than `Json`. Every value here
+ * is built fresh on the way out — `Object.fromEntries`, a new array, a
+ * primitive — and none of it aliases anything a caller could then mutate out
+ * from under someone. Saying `Json` instead made the type readonly, which is
+ * a claim about sharing that is not true of anything this returns, and left
+ * every caller asserting `as JSONValue` at the point of writing a patch. A
+ * `JSONValue` is still assignable to `Json`, so a reader of the value loses
+ * nothing.
+ */
 export function emptyOf(
   schema: SerializedSchema,
   context?: EmptyOfContext,
-): Json {
+): JSONValue {
   if (schema.type === "object") {
     return Object.fromEntries(
       Object.keys(schema.items).map((key) => [
@@ -177,7 +189,7 @@ export function emptyOf(
 function emptyRecord(
   schema: SerializedSchema & { type: "record" },
   context: EmptyOfContext | undefined,
-): Json {
+): JSONValue {
   const declared = declaredKeySetOf(schema.key);
   if (declared === null) {
     return {};

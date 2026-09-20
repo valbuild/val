@@ -10,6 +10,7 @@ import {
   PreviewItem,
   ReifiedPreview,
   PreviewScope,
+  mergePreviewInto,
 } from "../preview";
 import { FieldRender } from "../render";
 import { SelectorSource } from "../selector";
@@ -67,10 +68,13 @@ export class ArraySchema<
   /**
    * Describe this field.
    *
-   * The description is shown next to the field's label in the Val editor, so
-   * it is where you say what an editor needs to know but the field name cannot
-   * carry. It also travels in the serialized schema, which is what the AI
-   * assistant and the MCP tools read.
+   * The description is INPUT HELP: it is shown where this field's value is
+   * entered — beside its input in the Val editor, and for a record's key
+   * schema in every form that asks for a key — so it is where you say what an
+   * editor needs to know to fill it in RIGHT, which the field name cannot
+   * carry. It is not a name for the value: that is `.preview(...)`, and it is
+   * read somewhere else. The description also travels in the serialized
+   * schema, which is what the AI assistant and the MCP tools read.
    *
    * Pass `null` to clear a description set earlier.
    *
@@ -276,6 +280,7 @@ export class ArraySchema<
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
     scope?: PreviewScope,
+    selfIsReifiedByParent?: boolean,
   ): ReifiedPreview {
     const res: ReifiedPreview = {};
     if (src === null) {
@@ -291,11 +296,12 @@ export class ArraySchema<
       if (scope !== undefined && !scope.wantsUnder(subPath)) {
         continue;
       }
-      const itemResult = this.item["executePreview"](subPath, itemSrc, scope);
-      for (const keyS in itemResult) {
-        const key = keyS as SourcePath | ModuleFilePath;
-        res[key] = itemResult[key];
-      }
+      mergePreviewInto(
+        res,
+        // `true`: this item is a ROW, and its preview is the closure reified
+        // into `rows` below. See `executePreview` on `Schema`.
+        this.item["executePreview"](subPath, itemSrc, scope, true),
+      );
     }
     // The rows preview comes from the ITEM schema's own `preview` — the
     // container just runs it per row. Asked as a fact rather than by running
@@ -340,13 +346,24 @@ export class ArraySchema<
           };
         }
       }
-      res[sourcePath] = {
+      const rows: ReifiedPreview = {};
+      rows[sourcePath] = {
         status: "success",
-        data: {
-          parent: "array",
-          items,
-        },
+        data: { rows: { parent: "array", items } },
       };
+      mergePreviewInto(res, rows);
+    }
+    // ...and what the LIST ITSELF is called, which is a different closure on a
+    // different schema: `s.array(section.preview(...)).preview(...)` previews
+    // its rows AND names itself for when it is nested in something. Merged
+    // rather than assigned, or one of the two would win. See `PreviewNode`.
+    //
+    // Unless this list is itself a ROW of an outer array or record, which has
+    // already run this very closure to reify it — a container both PASSES the
+    // flag to its items and RECEIVES it as one, and honouring only the first
+    // half ran `s.array(s.array(x).preview(...))`'s closure twice per row.
+    if (!selfIsReifiedByParent) {
+      mergePreviewInto(res, this.executeSelfPreview(sourcePath, src, scope));
     }
     return res;
   }

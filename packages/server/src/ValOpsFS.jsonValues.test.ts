@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import synchronizedPrettier from "@prettier/sync";
 import type { OrderedPatches } from "./ValOps";
+import type { JSONValue } from "@valbuild/core/patch";
 
 const MODULE_PATH = "/test/pages.val.ts" as ModuleFilePath;
 
@@ -585,6 +586,169 @@ describe("ValOpsFS jsonValues commit flow", () => {
     const source = res.sources[MODULE_PATH] as Record<string, unknown>;
     expect(Object.keys(source)).toEqual(["/blog/renamed"]);
     expect(Internal.isJson(source["/blog/renamed"])).toBe(true);
+  });
+
+  describe("a write of the WHOLE record", () => {
+    /*
+     * The op a patch author writes when they do not know - and should not have
+     * to know - that this record's entries live in their own files: "put the
+     * module back to this". It names no entry key, so it is the one op the
+     * per-op routing cannot classify; it is expanded into ops that DO name a
+     * key before anything else sees it.
+     */
+    const rootReplace = (value: Record<string, JSONValue>) => [
+      { op: "replace" as const, path: [], value },
+    ];
+
+    test("adds, replaces and removes the entries it names", async () => {
+      const { ops } = setup();
+      const pc = await prepareSingle(
+        ops,
+        rootReplace({
+          "/blog/hello": { title: "Hello!", order: 1 },
+          "/blog/new": { title: "New", order: 3 },
+        }),
+      );
+      expect(pc.hasErrors).toBe(false);
+      // changed: written to the entry's own file
+      expect(
+        JSON.parse(
+          pc.patchedSourceFiles["/test/content/hello.val.json"] as string,
+        ),
+      ).toEqual({ title: "Hello!", order: 1 });
+      // added: a new file, and a thunk in the `.val.ts` pointing at it
+      expect(
+        JSON.parse(
+          pc.patchedSourceFiles["/test/pages/blog/new.val.json"] as string,
+        ),
+      ).toEqual({ title: "New", order: 3 });
+      // absent from the record: deleted
+      expect(pc.patchedSourceFiles["/test/content/world.val.json"]).toBeNull();
+      const ts = pc.patchedSourceFiles[MODULE_PATH] as string;
+      expect(ts).toContain(`import("./pages/blog/new.val.json")`);
+      expect(ts).not.toContain(`"/blog/world"`);
+      // and the entries that stay keep loading from their own files
+      expect(ts).toContain(`import("./content/hello.val.json")`);
+      expect(ts).not.toContain("_type");
+    });
+
+    test("an entry it leaves as it is is not rewritten", async () => {
+      const { ops } = setup();
+      const pc = await prepareSingle(
+        ops,
+        rootReplace({
+          "/blog/hello": { title: "Hello!", order: 1 },
+          "/blog/world": { title: "World", order: 2 },
+        }),
+      );
+      expect(pc.hasErrors).toBe(false);
+      expect(
+        pc.patchedSourceFiles["/test/content/world.val.json"],
+      ).toBeUndefined();
+      // nothing about the record changed, so neither did the `.val.ts`
+      expect(pc.patchedSourceFiles[MODULE_PATH]).toBeUndefined();
+    });
+
+    test("markers are refused, not written over the entries' content", async () => {
+      /*
+       * A module's Source holds `{_type:"json"}` markers where the content is.
+       * Handing that back - which is what reverting from an archived Source
+       * does - used to write markers into the `.val.ts` over the
+       * `c.json(() => import(...))` calls. Now it is refused, and nothing is
+       * written.
+       */
+      const { ops } = setup();
+      const pc = await prepareSingle(
+        ops,
+        rootReplace({
+          "/blog/hello": { _type: "json", patch_id: "p1" },
+          "/blog/world": { _type: "json" },
+        }),
+      );
+      expect(pc.hasErrors).toBe(true);
+      expect(pc.patchedSourceFiles[MODULE_PATH]).toBeUndefined();
+      expect(
+        pc.patchedSourceFiles["/test/content/hello.val.json"],
+      ).toBeUndefined();
+    });
+
+    test("the draft the Studio reads is what publishing writes", async () => {
+      /*
+       * The read side and the write side expand through the same function, and
+       * this is the assertion that says so: one patch, both paths, same content
+       * per entry. Two expansions of the rule would differ silently - the draft
+       * showing one thing and the publish writing another.
+       */
+      const { ops } = setup();
+      const patch = rootReplace({
+        "/blog/hello": { title: "Hello!", order: 1 },
+        "/blog/new": { title: "New", order: 3 },
+      });
+      await createPatch(ops, patch);
+
+      const draft = await ops.getJsonEntries(MODULE_PATH, {
+        keys: ["/blog/hello", "/blog/world", "/blog/new"],
+      });
+      expect(draft).toMatchObject({
+        status: "success",
+        entries: [
+          { key: "/blog/hello", content: { title: "Hello!", order: 1 } },
+          { key: "/blog/new", content: { title: "New", order: 3 } },
+        ],
+        missing: ["/blog/world"],
+      });
+
+      const patches = await ops.fetchPatches({ excludePatchOps: false });
+      const analysis = ops.analyzePatches(patches.patches);
+      const pc = await ops.prepare({ ...analysis, ...patches });
+      expect(pc.hasErrors).toBe(false);
+      expect(
+        JSON.parse(
+          pc.patchedSourceFiles["/test/content/hello.val.json"] as string,
+        ),
+      ).toEqual({ title: "Hello!", order: 1 });
+      expect(
+        JSON.parse(
+          pc.patchedSourceFiles["/test/pages/blog/new.val.json"] as string,
+        ),
+      ).toEqual({ title: "New", order: 3 });
+      expect(pc.patchedSourceFiles["/test/content/world.val.json"]).toBeNull();
+    });
+
+    test("a key that would write outside the module's folder is refused", async () => {
+      // Entry keys are client-supplied, and a whole-record write is a record of
+      // them. An added key becomes a file path, so the traversal guard in
+      // `getNewJsonEntryPaths` is what stands between a patch and an arbitrary
+      // file write - reached through this expansion like through any add.
+      const { ops } = setup();
+      const pc = await prepareSingle(
+        ops,
+        rootReplace({
+          "/blog/hello": { title: "Hello", order: 1 },
+          "/blog/world": { title: "World", order: 2 },
+          "/../../../../tmp/pwn": { title: "Nope", order: 9 },
+        }),
+      );
+      expect(pc.hasErrors).toBe(true);
+      expect(pc.patchedSourceFiles[MODULE_PATH]).toBeUndefined();
+    });
+
+    test("getSources: the record's key set follows, and stays markers", async () => {
+      const { ops } = setup();
+      const res = await getSourcesWith(
+        ops,
+        rootReplace({
+          "/blog/hello": { title: "Hello!", order: 1 },
+          "/blog/new": { title: "New", order: 3 },
+        }),
+      );
+      expect(res.errors[MODULE_PATH]).toBeUndefined();
+      const source = res.sources[MODULE_PATH] as Record<string, unknown>;
+      expect(Object.keys(source).sort()).toEqual(["/blog/hello", "/blog/new"]);
+      // content never lands in the module source: the entries are markers
+      expect(Internal.isJson(source["/blog/hello"])).toBe(true);
+      expect(Internal.isJson(source["/blog/new"])).toBe(true);
+    });
   });
 
   test("move between different entries' content is an error", async () => {

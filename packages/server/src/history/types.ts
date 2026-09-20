@@ -10,8 +10,10 @@ import type { HistoryError } from "./HistoryError";
 /** One commit, as history lists it. */
 export type HistoricalCommit = {
   commitSha: string;
-  parentCommitSha: string;
-  clientCommitSha: string;
+  /** `null` for a root commit. See `ValCommit`. */
+  parentCommitSha: string | null;
+  /** `null` when the publisher did not say where it was. See `ValCommit`. */
+  clientCommitSha: string | null;
   branch: string;
   createdBranch: string | null;
   creator: string | null;

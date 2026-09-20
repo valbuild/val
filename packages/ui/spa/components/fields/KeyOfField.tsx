@@ -364,7 +364,7 @@ function NewKeyForm({
           placeholder="Key"
           onChange={(ev) => setKey(ev.target.value)}
         />
-        {error && <p className="text-xs text-fg-error">{error}</p>}
+        {error && <p className="text-xs text-fg-error-on-surface">{error}</p>}
       </div>
       <div className="flex gap-2 justify-end pt-1">
         <Button size="sm" variant="ghost" type="button" onClick={onCancel}>
@@ -657,7 +657,7 @@ export function KeyOfField({
             {/* Edits here go to the referenced module (this is the SHARED
                 entry, not a copy), which is what a reference means — but it is
                 worth a label so nobody mistakes it for row-local content. */}
-            <div className="pb-2 text-xs text-fg-quaternary truncate">
+            <div className="pb-2 text-xs text-fg-secondary-alt truncate">
               {source}
             </div>
             <AnyField
@@ -682,12 +682,12 @@ function buildKeyPreviews(
   if (!previewAtPath || !("data" in previewAtPath) || !previewAtPath.data) {
     return undefined;
   }
-  const previewData = previewAtPath.data;
-  if (previewData.parent !== "record") {
+  const rows = previewAtPath.data.rows;
+  if (rows?.parent !== "record") {
     return undefined;
   }
   const out: Record<string, KeyPreview> = {};
-  for (const [key, value] of previewData.items) {
+  for (const [key, value] of rows.items) {
     out[key] = {
       title: value.title,
       subtitle: value.subtitle ?? null,

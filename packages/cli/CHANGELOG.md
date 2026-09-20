@@ -1,5 +1,103 @@
 # @valbuild/cli
 
+## 0.133.0
+
+### Minor Changes
+
+- [#700](https://github.com/valbuild/val/pull/700) [`802412b`](https://github.com/valbuild/val/commit/802412b92c06bc1abbca78c86885e39c8710dd83) Thanks [@freekh](https://github.com/freekh)! - http mode no longer needs a git repository
+
+  A Val app can now run in http mode with no commit and no branch — its content
+  service is the store of record, and git is an optional mirror of the code. This
+  is what `fs` mode has always done: it has never had git, and it works.
+
+  Before this, `VAL_API_KEY` and `VAL_SECRET` were not enough. `VAL_GIT_COMMIT`
+  and `VAL_GIT_BRANCH` were required too, so a deployment with no commit to name
+  either threw at boot or fell through to `fs` mode and reached for a working
+  tree that was not there.
+
+  **Breaking, if you pass `http` options in code.** `gitCommit` and `gitBranch`
+  are replaced by one optional `git`:
+
+  ```diff
+   initValServer(valModules, config, {
+     http: {
+       apiKey,
+       valSecret,
+  -    gitCommit: process.env.VAL_GIT_COMMIT,
+  -    gitBranch: "main",
+  +    // Only for a project whose content is mirrored into a repository.
+  +    // Omit it entirely otherwise.
+  +    git: { commit: process.env.VAL_GIT_COMMIT, branch: "main" },
+     },
+   })
+  ```
+
+  `VAL_GIT_COMMIT` and `VAL_GIT_BRANCH` still work and are still read; they are
+  simply no longer required. Set both or neither — a commit without a branch, or
+  a branch without a commit, is refused at startup with a message naming the
+  missing half, rather than failing later at a publish.
+
+  **What a commit is for, where you have one.** Turning pending patches into new
+  `.val.ts` text means reading the current text first, and that read goes to the
+  content service at that commit. It is the publish path, not the serving path: a
+  committed render reads the source compiled into the build and asks the content
+  service nothing. With no repository there is nothing to write `.val.ts` into,
+  so a publish records the module's data and its schema and skips the file — and
+  that data is what history reads, so nothing is lost.
+
+  **A publish can now be refused by name, before it is attempted.** If a project
+  mirrors its commits into a repository but the running deployment was built
+  before that repository existed, it has no commit to write the mirror against.
+  Publishing anyway would save the content and silently leave the repository
+  behind. The Studio now disables Publish and shows why, and `/save` refuses with
+  a `no-base` code instead of failing partway.
+
+  **Also:** `ValCommit` and `HistoricalCommit` have nullable `parentCommitSha`
+  and `clientCommitSha`, and `/stat`'s `commitSha` is optional. A root commit has
+  no parent, and a publisher with no repository does not report where it was. If
+  you read these fields, handle `null`.
+
+### Patch Changes
+
+- Updated dependencies [[`802412b`](https://github.com/valbuild/val/commit/802412b92c06bc1abbca78c86885e39c8710dd83)]:
+  - @valbuild/server@0.133.0
+  - @valbuild/shared@0.133.0
+  - @valbuild/language-server@0.133.0
+
+## 0.132.1
+
+### Patch Changes
+
+- Updated dependencies [[`c07b1ab`](https://github.com/valbuild/val/commit/c07b1abe30e226c80ef7ec4b4f0f5ccdae061c11), [`cbfa2b8`](https://github.com/valbuild/val/commit/cbfa2b884898f1603bde8e5aa5cd9da78778101f), [`f2ac188`](https://github.com/valbuild/val/commit/f2ac1887c11397b597081eef7206063b52b21c5b)]:
+  - @valbuild/server@0.132.1
+  - @valbuild/language-server@0.132.1
+
+## 0.132.0
+
+### Patch Changes
+
+- Updated dependencies [[`72cc676`](https://github.com/valbuild/val/commit/72cc6765e92a6e72b5c09ddd9eed8efa7ce899f2)]:
+  - @valbuild/server@0.132.0
+  - @valbuild/language-server@0.132.0
+
+## 0.131.0
+
+### Patch Changes
+
+- Updated dependencies [[`0d5857b`](https://github.com/valbuild/val/commit/0d5857b731e11f7e6a011f79297df6485908c31f)]:
+  - @valbuild/server@0.131.0
+  - @valbuild/language-server@0.131.0
+
+## 0.130.0
+
+### Patch Changes
+
+- Updated dependencies [[`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75), [`8425378`](https://github.com/valbuild/val/commit/8425378c315ea46b5d822f1130b633e0449ff1b0), [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75), [`473a185`](https://github.com/valbuild/val/commit/473a185f70351b44388f3bc1852649e2c1dbe001), [`64f0de3`](https://github.com/valbuild/val/commit/64f0de339b8621cb5a6c422dfe55cae5b2bbe2a0), [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75)]:
+  - @valbuild/server@0.130.0
+  - @valbuild/core@0.130.0
+  - @valbuild/language-server@0.130.0
+  - @valbuild/shared@0.130.0
+
 ## 0.129.0
 
 ### Patch Changes

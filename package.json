@@ -20,7 +20,9 @@
     "release": "pnpm run build && changeset publish",
     "dev:example-next": "concurrently -k \"cd  packages/ui; pnpm run dev\" \"cd examples/next; pnpm run dev\"",
     "dev:example-tanstack": "concurrently -k \"cd  packages/ui; pnpm run dev\" \"cd examples/tanstack; pnpm run dev\"",
-    "dev:storybook:": "cd packages/ui; pnpm run storybook",
+    "dev:storybook": "pnpm --filter @valbuild/ui run storybook",
+    "dev:storybook:host": "pnpm --filter @valbuild/ui run storybook:host",
+    "build:storybook": "pnpm --filter @valbuild/ui run build-storybook",
     "debug:replay": "tsx scripts/debugReplay.ts"
   },
   "devDependencies": {

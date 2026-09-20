@@ -7,7 +7,15 @@ import {
   useState,
 } from "react";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
-import { ChevronDown, ChevronRight, Copy, File, Plus } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  File,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+} from "lucide-react";
 import {
   FloatingPanel,
   PanelEmptyState,
@@ -38,13 +46,24 @@ import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 /**
  * The header's form, as an id, so one state can hold either it or a row's.
  *
- * One piece of state for every form in the panel, because only one of them may
- * be open: a New page popover and a row's Duplicate popover on screen together
- * are two forms asking the same question about two different pages.
+ * One piece of state for every menu and form in the panel, because only one of
+ * them may be open: a New page popover and a row's Duplicate popover on screen
+ * together are two forms asking the same question about two different pages.
  */
 const HEADER_FORM = "\u0000header";
-/** A row's Duplicate form, keyed by page id, in the same state. */
-const duplicateForm = (pageId: string): string => `\u0000duplicate:${pageId}`;
+/**
+ * How many pages a site can have before the panel stops opening it on sight.
+ *
+ * Chosen for what fits: the panel is 300px wide and a row is 28px, so about
+ * twenty rows fill the visible area of a laptop's panel without scrolling. Past
+ * that, opening everything buries the top of the tree rather than revealing it.
+ */
+const SMALL_SITE = 20;
+/** What a row's action button has open: its menu, or one of the two forms. */
+type RowForm = "menu" | "duplicate" | "rename";
+/** A row's menu or form, keyed by page id, in the same state as the header's. */
+const rowForm = (pageId: string, form: RowForm): string =>
+  `\u0000${form}:${pageId}`;
 
 /**
  * The New page button, and the form it opens.
@@ -104,63 +123,130 @@ function NewPageButton({
 }
 
 /**
- * Duplicate this page, to a URL you pick.
+ * A row's own actions: duplicate this page, or change its URL.
  *
- * Beside the row rather than in a menu behind it: the site map is where an
- * editor is already looking at the page they want a copy of, and the copy's URL
- * is a segment of the one on screen. `RouteForm` is the same form the page's
- * own toolbar opens for this, prefilled with the source URL - so the usual
- * answer is one edit away, and the rules about what a URL may look like have
- * one implementation.
+ * A menu behind a "…" rather than a button each, because the row is 28px tall
+ * and a site map is a list of pages - two icons per row turns it into a list of
+ * controls, and there is no reason to stop at two. The menu is a one-click
+ * detour to controls nobody needs on every row.
+ *
+ * Both actions open the SAME form: `RouteForm`, the one the page's own toolbar
+ * opens, prefilled with the URL on screen. Duplicating and renaming ask exactly
+ * one question and it is the same question - which URL - so the only thing that
+ * differs between the two is what the button says and what happens to the
+ * original.
  */
-function DuplicatePageButton({
+function PageActionsButton({
   page,
   route,
-  isOpen,
+  open,
   onOpenChange,
-  onSubmit,
+  onDuplicate,
+  onRename,
 }: {
   page: ShellPage;
   route: AvailableRoute;
-  isOpen: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSubmit: (toUrlPath: string) => void;
+  /** Which of this row's things is on screen, if any. */
+  open: RowForm | null;
+  onOpenChange: (form: RowForm | null) => void;
+  /** Absent in a mode that cannot write; the menu then omits the item. */
+  onDuplicate?: (toUrlPath: string) => void;
+  onRename?: (toUrlPath: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const close = useCallback(() => onOpenChange(false), [onOpenChange]);
-  useDismissOnOutsidePointer(containerRef, isOpen, close);
+  const close = useCallback(() => onOpenChange(null), [onOpenChange]);
+  useDismissOnOutsidePointer(containerRef, open !== null, close);
+  /**
+   * Escape dismisses what this row has open - and nothing else.
+   *
+   * In the CAPTURE phase, and stopping there, because `FloatingPanel` closes
+   * the whole Pages panel on Escape and listens for it on `window`, which is
+   * the LAST thing a bubbling event reaches. Without this, the one key that
+   * should close a menu closes the panel the menu is in.
+   */
+  useEffect(() => {
+    if (open === null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      close();
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [open, close]);
   return (
     <div ref={containerRef} className="relative shrink-0">
       <button
         type="button"
-        aria-label={`Duplicate ${page.urlPath}`}
-        aria-expanded={isOpen}
-        onClick={() => onOpenChange(!isOpen)}
+        aria-label={`Page actions ${page.urlPath}`}
+        aria-haspopup="menu"
+        aria-expanded={open !== null}
+        onClick={() => onOpenChange(open === null ? "menu" : null)}
         className={cn(
           "grid place-items-center w-6 h-6 rounded text-fg-secondary-alt",
           "hover:bg-bg-float-raised hover:text-fg-primary",
           // Out of the way until the row is pointed at or the control is
           // focused, so a long site map is a list of pages rather than a list
           // of buttons. `focus-visible` so it is reachable by keyboard.
-          isOpen
+          open !== null
             ? "bg-bg-float-raised text-fg-primary"
             : "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100",
         )}
       >
-        <Copy size={12} />
+        <MoreHorizontal size={12} />
       </button>
-      {isOpen && (
+      {open === "menu" && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-window mt-1 w-40 rounded-md border border-border-float bg-bg-float p-1 shadow-lg"
+        >
+          {onDuplicate && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => onOpenChange("duplicate")}
+              className="flex items-center gap-2 w-full h-7 px-2 rounded text-xs text-left text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+            >
+              <Copy size={12} />
+              Duplicate
+            </button>
+          )}
+          {onRename && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => onOpenChange("rename")}
+              className="flex items-center gap-2 w-full h-7 px-2 rounded text-xs text-left text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
+            >
+              <Pencil size={12} />
+              Rename
+            </button>
+          )}
+        </div>
+      )}
+      {(open === "duplicate" || open === "rename") && (
         <div className="absolute right-0 top-full z-window mt-1 w-[17rem] rounded-md border border-border-float bg-bg-float p-3 shadow-lg">
           <div className="pb-2 text-sm font-medium text-fg-primary">
-            Duplicate page
+            {open === "duplicate" ? "Duplicate page" : "Rename page"}
           </div>
+          {open === "rename" && (
+            <div className="pb-2 text-xs text-fg-secondary-alt">
+              Changes this page&apos;s URL. Links to it are updated.
+            </div>
+          )}
           <RouteForm
             routePattern={route.routePattern}
             existingKeys={route.existingKeys}
             defaultValue={page.urlPath}
-            submitText="Duplicate"
+            submitText={open === "duplicate" ? "Duplicate" : "Rename"}
             keyDescription={route.keyDescription}
-            onSubmit={onSubmit}
+            onSubmit={(toUrlPath) => {
+              if (open === "duplicate") {
+                onDuplicate?.(toUrlPath);
+              } else {
+                onRename?.(toUrlPath);
+              }
+            }}
             onCancel={close}
           />
         </div>
@@ -228,10 +314,24 @@ export type PagesPanelProps = {
    *
    * The panel does not know what is on the page - that is the whole point of
    * duplicating it rather than making one - so it hands back the two URLs and
-   * the app copies the entry. Absent in modes that cannot write, and then rows
-   * carry no Duplicate control.
+   * the app copies the entry. Absent in modes that cannot write, and then the
+   * row menu omits the item.
    */
   onDuplicatePage?: (
+    moduleFilePath: ModuleFilePath,
+    fromUrlPath: string,
+    toUrlPath: string,
+  ) => void;
+  /**
+   * Move a page to another URL under the same route.
+   *
+   * Handed back the same way a duplicate is, and for the same reason: the panel
+   * knows which URL was asked for and nothing else. What the app does with it is
+   * more than a copy - a rename moves the page out from under everything linking
+   * to it, so those have to be rewritten too. See `useRenamePage`. Absent in
+   * modes that cannot write, and then the row menu omits the item.
+   */
+  onRenamePage?: (
     moduleFilePath: ModuleFilePath,
     fromUrlPath: string,
     toUrlPath: string,
@@ -241,8 +341,9 @@ export type PagesPanelProps = {
    * then there is no New button at all: a form whose only answer is "no routes
    * accept new pages" is worse than no button.
    *
-   * Duplicate needs it too, for the route pattern the copy's URL has to fit -
-   * and a router that accepts no new page accepts no copy of one either.
+   * Duplicate and rename need it too, for the route pattern the URL they ask
+   * for has to fit - and a router that accepts no new page accepts no copy of
+   * one either.
    */
   newPage?: ShellNewPageRoutes;
   onClose: () => void;
@@ -358,6 +459,7 @@ export function PagesPanel({
   externalIssueCount,
   onNewPage,
   onDuplicatePage,
+  onRenamePage,
   newPage,
   onClose,
   navSwitcher,
@@ -372,6 +474,48 @@ export function PagesPanel({
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(ancestorsOf(pages, selectedId)),
   );
+  /**
+   * A small site opens itself.
+   *
+   * The rule above is about a site map that does not fit; a project with a
+   * dozen pages is not that. On any site with a home page at `/`,
+   * `toShellPages` nests the whole thing under that one root row — so "nothing
+   * is open" meant a panel called Pages showing a single row called Home, which
+   * is how someone concludes there is nothing here.
+   *
+   * Once per tree shape, so collapsing a folder sticks: `pageCount` changing is
+   * pages arriving or being added, not somebody closing a row.
+   */
+  const pageCount = countPages(pages);
+  /**
+   * Decided once, when the site map first arrives — not on every change to it.
+   *
+   * This was keyed on the page COUNT, which is not a tree shape: collapse a
+   * folder, add a page, and the count changes, so the effect unioned every id
+   * back into `expanded` and reopened the folder that had just been closed on
+   * purpose. Once the tree has arrived, how it is expanded is the reader's.
+   */
+  const autoExpanded = useRef(false);
+  // Read inside the effect rather than depended on: `pages` is a fresh array
+  // on every render, and re-running on it would re-open every folder a moment
+  // after it was collapsed. See `restoreRef` in `Shell` for the same shape.
+  const pagesRef = useRef(pages);
+  pagesRef.current = pages;
+  useEffect(() => {
+    if (autoExpanded.current || pageCount === 0) {
+      return;
+    }
+    // The site map is here. Whatever its size, this is the only chance to open
+    // it: a project that starts large and is edited down to a dozen pages must
+    // not suddenly re-open every folder.
+    autoExpanded.current = true;
+    if (pageCount > SMALL_SITE) {
+      return;
+    }
+    setExpanded(
+      (current) => new Set([...current, ...collectIds(pagesRef.current)]),
+    );
+  }, [pageCount]);
   // The selection can change from outside the panel — the app's route, a
   // search result — and the panel has to follow it rather than leave the row
   // hidden. Only opening, never closing: a folder you opened stays open.
@@ -438,6 +582,13 @@ export function PagesPanel({
     },
     [onDuplicatePage],
   );
+  const submitRenamePage = useCallback(
+    (route: AvailableRoute, page: ShellPage, toUrlPath: string) => {
+      setOpenForm(null);
+      onRenamePage?.(route.moduleFilePath, page.urlPath, toUrlPath);
+    },
+    [onRenamePage],
+  );
 
   const renderPage = (page: ShellPage, depth: number): React.ReactNode => {
     const children = page.children ?? [];
@@ -448,16 +599,32 @@ export function PagesPanel({
     const errorCount = isOpen ? page.errorCount : subtreeErrorCount(page);
     const hasDraft = isOpen ? page.hasDraft : subtreeHasDraft(page);
     // Only a real page under a route Val can name: a row that is only a path
-    // segment has nothing to copy, and a route this panel cannot place the
-    // copy under has no URL to offer for it. See `routeOfPage`.
-    const duplicateRoute =
-      onDuplicatePage && newPage ? routeOfPage(newPage.routes, page) : null;
+    // segment has nothing to copy or rename, and a route this panel cannot name
+    // has no URL to offer for either. See `routeOfPage`.
+    const actionsRoute =
+      (onDuplicatePage || onRenamePage) && newPage
+        ? routeOfPage(newPage.routes, page)
+        : null;
+    /** Which of this row's menu or forms is open, of the one panel-wide state. */
+    const openRowForm: RowForm | null =
+      openForm === rowForm(page.id, "menu")
+        ? "menu"
+        : openForm === rowForm(page.id, "duplicate")
+          ? "duplicate"
+          : openForm === rowForm(page.id, "rename")
+            ? "rename"
+            : null;
     return (
       <div key={page.id}>
         <PanelRow
           depth={depth}
           selected={selectedId === page.id}
           title={page.urlPath}
+          // A row with children is a disclosure and has to say whether it is
+          // open — the media panel's rows always did. It matters more now that
+          // a small site map arrives expanded: without this, neither a screen
+          // reader nor a test can tell "open it" from "close it".
+          expanded={hasChildren ? isOpen : undefined}
           onClick={() => {
             onSelectPage(page);
             if (hasChildren && !forcedExpanded) toggle(page.id);
@@ -488,16 +655,23 @@ export function PagesPanel({
           errorCount={errorCount}
           hasDraft={hasDraft}
           action={
-            duplicateRoute ? (
-              <DuplicatePageButton
+            actionsRoute ? (
+              <PageActionsButton
                 page={page}
-                route={duplicateRoute}
-                isOpen={openForm === duplicateForm(page.id)}
-                onOpenChange={(open) =>
-                  setOpenForm(open ? duplicateForm(page.id) : null)
+                route={actionsRoute}
+                open={openRowForm}
+                onOpenChange={(form) =>
+                  setOpenForm(form === null ? null : rowForm(page.id, form))
                 }
-                onSubmit={(toUrlPath) =>
-                  submitDuplicatePage(duplicateRoute, page, toUrlPath)
+                onDuplicate={
+                  onDuplicatePage &&
+                  ((toUrlPath) =>
+                    submitDuplicatePage(actionsRoute, page, toUrlPath))
+                }
+                onRename={
+                  onRenamePage &&
+                  ((toUrlPath) =>
+                    submitRenamePage(actionsRoute, page, toUrlPath))
                 }
               />
             ) : undefined
@@ -565,7 +739,11 @@ export function PagesPanel({
           </PanelSectionLabel>
           {filtered.length === 0 ? (
             <PanelEmptyState>
-              {query ? "No pages match this filter." : "No pages yet."}
+              {query
+                ? "No pages match this filter."
+                : newPage
+                  ? "No pages yet. New adds one, under a route a developer has set up."
+                  : "No pages yet. A developer adds the routes pages can be created under."}
             </PanelEmptyState>
           ) : (
             filtered.map((page) => renderPage(page, 0))

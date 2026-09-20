@@ -697,7 +697,7 @@ describe("ValOpsFS patch store", () => {
 
       await ops.adoptCommittedSources(
         { ...ops.analyzePatches([]), patches: [] },
-        { patchedJsonEntries: {} },
+        { patchedJsonEntries: {}, patchedSourceFiles: {} },
       );
 
       expect(await ops.getBaseSha()).toBe(before);

@@ -18,11 +18,14 @@ import { mockCanvasPage } from "../canvas/mockCanvasPage";
 import {
   AssistantSettingsFields,
   AssistantSettingsValue,
+  SettingsSectionDivider,
   SettingsTabs,
+  StudioSettingsFields,
+  StudioSettingsValue,
   ThemeSettingsFields,
   ThemeSettingsValue,
 } from "../SettingsPanel";
-import { Palette, Sparkles } from "lucide-react";
+import { AppWindow, Sparkles } from "lucide-react";
 import {
   ASSISTANT_SETTINGS_MAX_LENGTH,
   THEME_RADIUS_LENGTHS,
@@ -99,6 +102,11 @@ const meta: Meta<typeof ShellHarness> = {
     searchOpen: {
       control: "boolean",
       description: "Open the global search on mount (⌘K / Ctrl+K)",
+    },
+    tourOpen: {
+      control: "boolean",
+      description:
+        "Run the guided tour on mount. In the app it is only ever started by a button — the tour never opens itself",
     },
     aiEnabled: {
       control: "boolean",
@@ -179,6 +187,8 @@ type HarnessProps = {
   noPendingChanges: boolean;
   withoutRouters: boolean;
   searchOpen: boolean;
+  /** See `initialTourOpen`. */
+  tourOpen: boolean;
   aiEnabled: boolean;
   theme: "dark" | "light";
   /** The project's accent, as `s.settings()`'s `theme.accent`. Empty for Val's green. */
@@ -267,6 +277,9 @@ function MockSettingsSections() {
     radius: null,
     mode: null,
   });
+  // Unset, which is what an untouched project has, and which means the tour IS
+  // offered — see `StudioSettingsFields`.
+  const [studio, setStudio] = useState<StudioSettingsValue>({ tour: null });
   return (
     <SettingsTabs
       tabs={[
@@ -285,16 +298,27 @@ function MockSettingsSections() {
           ),
         },
         {
-          id: "theme",
-          label: "Appearance",
-          icon: Palette,
+          // Appearance and the tour together, as the app renders them — see
+          // `ValSettingsSections`.
+          id: "studio",
+          label: "Studio",
+          icon: AppWindow,
           content: (
-            <ThemeSettingsFields
-              value={theme}
-              onChange={(field, next) =>
-                setTheme((current) => ({ ...current, [field]: next }))
-              }
-            />
+            <>
+              <ThemeSettingsFields
+                value={theme}
+                onChange={(field, next) =>
+                  setTheme((current) => ({ ...current, [field]: next }))
+                }
+              />
+              <SettingsSectionDivider />
+              <StudioSettingsFields
+                value={studio}
+                onChange={(field, next) =>
+                  setStudio((current) => ({ ...current, [field]: next }))
+                }
+              />
+            </>
           ),
         },
       ]}
@@ -310,6 +334,7 @@ function ShellHarness({
   withoutRouters,
   aiEnabled,
   searchOpen,
+  tourOpen,
   theme,
   accent,
   radius,
@@ -370,11 +395,12 @@ function ShellHarness({
           onOpenEntry={onSelectExternalPage}
         />
       )}
-      key={`${openPanel}-${selectionId}-${empty}-${noPendingChanges}-${withoutRouters}-${aiEnabled}-${searchOpen}-${isLoading}-${loadError}-${mode}-${deployments}-${deploymentsOpen}-${canvasOpen}-${canvasView}-${canvasReported}`}
+      key={`${openPanel}-${selectionId}-${empty}-${noPendingChanges}-${withoutRouters}-${aiEnabled}-${searchOpen}-${tourOpen}-${isLoading}-${loadError}-${mode}-${deployments}-${deploymentsOpen}-${canvasOpen}-${canvasView}-${canvasReported}`}
       data={data}
       initialPanel={openPanel}
       initialSelectionId={selectionId}
       initialSearchOpen={searchOpen}
+      initialTourOpen={tourOpen}
       aiEnabled={aiEnabled}
       theme={currentTheme}
       /*
@@ -408,14 +434,18 @@ function ShellHarness({
       canvasPage={canvasReported ? mockCanvasPage : undefined}
       initialCanvasOpen={canvasOpen}
       initialCanvasView={canvasView}
-      // Both page writes, so the Pages panel shows the New page button and the
-      // per-row Duplicate control. The mock routes carry the URLs already in
-      // `mockPages`, so the "already exists" state is reachable in both forms.
+      // All three page writes, so the Pages panel shows the New page button and
+      // both items of the per-row actions menu. The mock routes carry the URLs
+      // already in `mockPages`, so the "already exists" state is reachable in
+      // every form.
       onNewPage={(moduleFilePath, urlPath) =>
         console.log("New page", moduleFilePath, urlPath)
       }
       onDuplicatePage={(moduleFilePath, fromUrlPath, toUrlPath) =>
         console.log("Duplicate page", moduleFilePath, fromUrlPath, toUrlPath)
+      }
+      onRenamePage={(moduleFilePath, fromUrlPath, toUrlPath) =>
+        console.log("Rename page", moduleFilePath, fromUrlPath, toUrlPath)
       }
     />
   );
@@ -469,6 +499,7 @@ export const Default: Story = {
     noPendingChanges: false,
     withoutRouters: false,
     searchOpen: false,
+    tourOpen: false,
     aiEnabled: true,
     theme: "dark",
     accent: "",
@@ -611,6 +642,17 @@ export const GlobalSearchOpen: Story = {
     searchOpen: true,
     selectionId: mockSelectionIds.home,
   },
+};
+
+/**
+ * The guided tour, mid-walk.
+ *
+ * The glowing launcher that starts it is in the top bar of every other story
+ * here, because Storybook's `localStorage` has never been through the tour —
+ * which is exactly the state a first-time editor is in.
+ */
+export const Tour: Story = {
+  args: { ...Default.args, tourOpen: true },
 };
 
 /** Nav panels while their data loads: placeholder rows, no filter yet. */

@@ -1,5 +1,8 @@
 import { deserializeSchema } from "./deserialize";
 import { string } from "./string";
+import { SourcePath } from "../val";
+
+const path = "/test.val.ts" as SourcePath;
 
 describe("StringSchema", () => {
   /**
@@ -112,8 +115,26 @@ describe("StringSchema", () => {
     }
   });
 
-  /** A string has no items, so it has nothing to preview. */
-  test("preview: a string never previews, render or not", () => {
-    expect(string().multiline()["executePreview"]()).toEqual({});
+  /** A string has no items, so it reifies nothing for anything below it. */
+  test("preview: a string with no `.preview()` reifies nothing", () => {
+    expect(string().multiline()["executePreview"](path, "hello there")).toEqual(
+      {},
+    );
+  });
+
+  /**
+   * ...but it previews ITSELF when it declares one. A leaf has no container to
+   * reify it, so before self previews existed a `.preview()` here was dead.
+   */
+  test("preview: a string with `.preview()` previews itself", () => {
+    const schema = string().preview(({ val }) => ({ title: val.slice(0, 4) }));
+    expect(schema["executePreview"](path, "hello there")).toEqual({
+      [path]: {
+        status: "success",
+        data: {
+          self: { title: "hell", subtitle: undefined, image: undefined },
+        },
+      },
+    });
   });
 });

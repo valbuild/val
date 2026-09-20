@@ -305,9 +305,9 @@ function useRouteSelectorRoutes(
             modulePreview &&
             "data" in modulePreview &&
             modulePreview.data &&
-            modulePreview.data.parent === "record"
+            modulePreview.data.rows?.parent === "record"
           ) {
-            for (const [key, value] of modulePreview.data.items) {
+            for (const [key, value] of modulePreview.data.rows.items) {
               itemMap.set(key, {
                 title: value.title,
                 subtitle: value.subtitle ?? null,

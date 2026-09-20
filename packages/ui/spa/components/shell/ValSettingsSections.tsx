@@ -31,10 +31,12 @@ import {
   LocalesSettingsValue,
   NoSettingsModule,
   SettingsLogoPlaceholder,
+  SettingsSectionDivider,
   SettingsTabs,
+  StudioSettingsFields,
   ThemeSettingsFields,
 } from "./SettingsPanel";
-import { Languages, Palette, Sparkles } from "lucide-react";
+import { AppWindow, Languages, Sparkles } from "lucide-react";
 import { PanelSkeleton } from "./PanelPrimitives";
 
 /**
@@ -72,7 +74,7 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
   const assistantPath = sourcePathOfItem(moduleFilePath, "assistant");
   const contextPath = sourcePathOfItem(assistantPath, "context");
   const tonePath = sourcePathOfItem(assistantPath, "tone");
-  const enabledValue = useAssistantEnabledField(
+  const enabledValue = useSettingsBooleanField(
     sourcePathOfItem(assistantPath, "enabled"),
   );
   const contextValue = useAssistantField(contextPath);
@@ -102,6 +104,23 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
     moduleFilePath,
     "locales",
     LOCALES_FIELDS,
+  );
+
+  /**
+   * The `studio` section: how the Studio behaves for this project's editors.
+   *
+   * `STUDIO_FIELDS` rather than one key inline because `useWriteSettingsSection`
+   * needs every field the section has — the first write creates the section and
+   * nulls the siblings, so a list that is short by one silently drops it.
+   */
+  const studioPath = sourcePathOfItem(moduleFilePath, "studio");
+  const tourValue = useSettingsBooleanField(
+    sourcePathOfItem(studioPath, "tour"),
+  );
+  const writeStudioSetting = useWriteSettingsSection(
+    moduleFilePath,
+    "studio",
+    STUDIO_FIELDS,
   );
 
   const themePath = sourcePathOfItem(moduleFilePath, "theme");
@@ -164,42 +183,61 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
           ),
         },
         {
-          id: "theme",
-          label: "Appearance",
-          icon: Palette,
+          /*
+           * Appearance and the tour in one tab, as two sections.
+           *
+           * They are two SCHEMA sections — `theme` and `studio` — and that is
+           * not a reason to be two tabs: a tab is a place to look, and "how the
+           * Studio looks and behaves for this project" is one place. Four tabs
+           * also overflowed the 360px panel, which is what made the question
+           * worth asking rather than answering by scrolling past it.
+           */
+          id: "studio",
+          label: "Studio",
+          icon: AppWindow,
           content: (
-            <ThemeSettingsFields
-              value={{
-                accent: accentValue,
-                radius: radiusValue,
-                mode: modeValue,
-              }}
-              onChange={writeThemeSetting}
-              errors={{
-                accent: accentErrors[0]?.message,
-                radius: radiusErrors[0]?.message,
-                mode: modeErrors[0]?.message,
-              }}
-              /*
-               * The real image field, at the logo's own source path — it does
-               * its own upload and reports its own validation, so nothing about
-               * the logo goes through `writeThemeSetting`.
-               *
-               * Except the first write of all, which has to create the section
-               * the key lives in. See `SettingsLogoPlaceholder`.
-               */
-              logoField={
-                hasThemeSection ? (
-                  <ImageField path={logoPath} readonly={readonly} />
-                ) : (
-                  <SettingsLogoPlaceholder
-                    onAdd={() => writeThemeSetting("logo", null)}
-                    disabled={readonly}
-                  />
-                )
-              }
-              readonly={readonly}
-            />
+            <>
+              <ThemeSettingsFields
+                value={{
+                  accent: accentValue,
+                  radius: radiusValue,
+                  mode: modeValue,
+                }}
+                onChange={writeThemeSetting}
+                errors={{
+                  accent: accentErrors[0]?.message,
+                  radius: radiusErrors[0]?.message,
+                  mode: modeErrors[0]?.message,
+                }}
+                /*
+                 * The real image field, at the logo's own source path — it does
+                 * its own upload and reports its own validation, so nothing about
+                 * the logo goes through `writeThemeSetting`.
+                 *
+                 * Except the first write of all, which has to create the section
+                 * the key lives in. See `SettingsLogoPlaceholder`.
+                 */
+                logoField={
+                  hasThemeSection ? (
+                    <ImageField path={logoPath} readonly={readonly} />
+                  ) : (
+                    <SettingsLogoPlaceholder
+                      onAdd={() => writeThemeSetting("logo", null)}
+                      disabled={readonly}
+                    />
+                  )
+                }
+                readonly={readonly}
+              />
+              <SettingsSectionDivider />
+              <StudioSettingsFields
+                value={{ tour: tourValue }}
+                onChange={(field, next) =>
+                  writeStudioSetting({ [field]: next })
+                }
+                readonly={readonly}
+              />
+            </>
           ),
         },
         {
@@ -302,7 +340,17 @@ function useLocalesErrors(
  * Returns the tri-state rather than a boolean: unset is not `false`, and the
  * difference is what the whole setting is for — see `assistantAvailability`.
  */
-function useAssistantEnabledField(path: SourcePath): boolean | null {
+/** Every field of the `studio` section. See `useWriteSettingsSection`. */
+const STUDIO_FIELDS = ["tour"] as const;
+
+/**
+ * A settings boolean, or `null` where it is unset.
+ *
+ * Three-valued on purpose, and shared by every settings switch: an absent key
+ * is not an error here, and "nobody has decided" is a state each of these
+ * sections means something specific by.
+ */
+function useSettingsBooleanField(path: SourcePath): boolean | null {
   const source = useShallowSourceAtPath(path, "boolean");
   if ("data" in source && typeof source.data === "boolean") {
     return source.data;

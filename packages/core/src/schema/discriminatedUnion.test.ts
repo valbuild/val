@@ -132,25 +132,27 @@ describe("DiscriminatedUnionSchema", () => {
       '/test.foo.val.ts?p="innerObject"': {
         status: "success",
         data: {
-          parent: "record",
-          items: [
-            [
-              "record1",
-              {
-                title: "test value 1",
-                subtitle: undefined,
-                image: undefined,
-              },
+          rows: {
+            parent: "record",
+            items: [
+              [
+                "record1",
+                {
+                  title: "test value 1",
+                  subtitle: undefined,
+                  image: undefined,
+                },
+              ],
+              [
+                "record2",
+                {
+                  title: "test value 2",
+                  subtitle: undefined,
+                  image: undefined,
+                },
+              ],
             ],
-            [
-              "record2",
-              {
-                title: "test value 2",
-                subtitle: undefined,
-                image: undefined,
-              },
-            ],
-          ],
+          },
         },
       },
     });

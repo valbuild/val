@@ -1,4 +1,4 @@
-import { initVal } from "@valbuild/core";
+import { initVal, type ModuleFilePath } from "@valbuild/core";
 import type { HistoricalPatchSet } from "@valbuild/shared/internal";
 import { containsJsonValues, planRevertAll } from "./revertAll";
 
@@ -28,54 +28,104 @@ function patchSet(modules: HistoricalPatchSet["modules"]): HistoricalPatchSet {
 }
 
 describe("reverting a `.jsonValues()` module", () => {
+  const MODULE = "/app/support/[slug]/page.val.ts" as ModuleFilePath;
+  const schema = s
+    .record(s.object({ title: s.string() }))
+    .jsonValues()
+    ["executeSerialize"]();
+  const module = {
+    schema,
+    source: {
+      "/support/faq": { _type: "json", patch_id: "p1" },
+      "/support/getting-started": { _type: "json" },
+    },
+    patchIds: [],
+    changedPaths: [],
+    failures: [],
+  };
+
   /**
    * A `.jsonValues()` record's entries are NOT in the module's Source. The
    * Source holds `{ _type: "json" }` markers and the content lives in each
    * entry's `*.val.json`, so the recorded Source of such a module is markers,
-   * not data. A root `replace` with it would write those markers into the
-   * `.val.ts` over the `c.json(() => import(...))` calls — and the server routes
-   * a root op as a plain source edit (`classifyJsonValuesOp` never sees a
-   * jsonValues record at an empty path), so nothing downstream would catch it.
+   * not data. Written back it would put those markers where the content is -
+   * which the server now refuses, and which this must not ask it to do.
    *
-   * The plan therefore has to leave such a module out and say why, the same
-   * way it leaves out a module with no recorded content.
+   * So the plan asks for the CONTENT, naming the keys it needs. The Source is
+   * still what says which entries the module had: as a key set it is exact.
    */
-  test("is blocked rather than written as markers over the entry imports", () => {
-    const schema = s
-      .record(s.object({ title: s.string() }))
-      .jsonValues()
-      ["executeSerialize"]();
-    const plan = planRevertAll(
-      patchSet({
-        "/app/support/[slug]/page.val.ts": {
-          schema,
-          source: {
-            "/support/faq": { _type: "json", patch_id: "p1" },
-            "/support/getting-started": { _type: "json" },
-          },
-          patchIds: [],
-          changedPaths: [],
-          failures: [],
-        },
-      }),
-    );
+  test("asks for the entry content at the commit, naming every key", () => {
+    const plan = planRevertAll(patchSet({ [MODULE]: module }));
     expect(plan.modules).toEqual([]);
-    expect(plan.blocked).toHaveLength(1);
+    expect(plan.blocked).toEqual([]);
+    expect(plan.needsJsonEntries).toEqual([
+      {
+        moduleFilePath: MODULE,
+        entryKeys: ["/support/faq", "/support/getting-started"],
+      },
+    ]);
+  });
+
+  test("with the content, it is one root replace of the whole record", () => {
+    // A root replace is all a caller writes. The server fans it out into
+    // per-entry ops - an entry added, removed, changed, or left alone - so
+    // nothing here has to know that these entries live in their own files.
+    const plan = planRevertAll(patchSet({ [MODULE]: module }), {
+      [MODULE]: {
+        "/support/faq": { title: "FAQ" },
+        "/support/getting-started": { title: "Getting started" },
+      },
+    });
+    expect(plan.needsJsonEntries).toEqual([]);
+    expect(plan.blocked).toEqual([]);
+    expect(plan.modules).toEqual([
+      {
+        moduleFilePath: MODULE,
+        patch: [
+          {
+            op: "replace",
+            path: [],
+            value: {
+              "/support/faq": { title: "FAQ" },
+              "/support/getting-started": { title: "Getting started" },
+            },
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("content for only SOME of the entries is not enough", () => {
+    // The record names every entry it has, so an entry left out of the value is
+    // an entry the write deletes. Half the content is not half a revert.
+    const plan = planRevertAll(patchSet({ [MODULE]: module }), {
+      [MODULE]: {
+        "/support/faq": { title: "FAQ" },
+      },
+    });
+    expect(plan.modules).toEqual([]);
+    expect(plan.needsJsonEntries).toHaveLength(1);
+  });
+
+  test("markers are never what gets written", () => {
+    const plan = planRevertAll(patchSet({ [MODULE]: module }), {
+      [MODULE]: {
+        "/support/faq": { title: "FAQ" },
+        "/support/getting-started": { title: "Getting started" },
+      },
+    });
+    expect(JSON.stringify(plan.modules)).not.toContain("_type");
   });
 });
 
 /**
- * The same exclusion, asked directly.
+ * Which schemas store their values outside the module.
  *
- * `planRevertAll` is not the only thing that writes a ROOT `replace` with a
- * module's recorded Source: "Restore this whole module" does too, and it was
- * added later. Both ask this one function, so the reasoning above cannot end up
- * applying to one of them and not the other — which is exactly how the guard
- * would come to be half true.
- *
- * The distinction it draws is root-vs-field, not module-vs-module: restoring one
- * FIELD inside a jsonValues module is fine, because the op path then reaches the
- * record and `classifyJsonValuesOp` can see it.
+ * `planRevertAll` is not the only thing that puts a module's old value back:
+ * "Restore this whole module" does too, and it was added later. Both ask
+ * `planModuleRevert`, so the rule about what a jsonValues module's value IS
+ * cannot end up applying to one of them and not the other — which is exactly
+ * how a guard comes to be half true.
  */
 describe("which schemas hold entries stored outside the module", () => {
   test("a `.jsonValues()` record does", () => {

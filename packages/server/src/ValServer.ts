@@ -48,9 +48,13 @@ import {
   OrderedPatches,
   SchemaSha,
   SourcesSha,
+  ValOps,
+  type GenericErrorMessage,
+  type PreparedCommit,
 } from "./ValOps";
 import { fromError } from "zod-validation-error";
 import { ValOpsHttp } from "./ValOpsHttp";
+import { ValOpsMemory, type ValPatchStore } from "./ValOpsMemory";
 import { result } from "@valbuild/core/fp";
 import type { HistoryError } from "./history/HistoryError";
 import { historyErrorMessage } from "./history/HistoryError";
@@ -80,7 +84,105 @@ export type ValServerOptions = {
   apiKey?: string;
   project?: string;
   config: ValConfig;
+  /**
+   * Called after a save has applied its patches, with the files it produced.
+   *
+   * EXPERIMENTAL. The seam a host needs when "commit" does not mean "write to
+   * the working tree and let git take it from here". `patchedSourceFiles` is
+   * already path -> content (null = delete), which is what such a host
+   * publishes, so this hands over the thing that already exists rather than
+   * inventing a format.
+   *
+   * It runs AFTER the files are saved, not instead: the save is what makes the
+   * patches consumed, and a host that also wants them elsewhere is adding a
+   * destination, not replacing one. Throwing here fails the save.
+   */
+  commitPrepared?: (commit: {
+    patchedSourceFiles: Record<string, string | null>;
+  }) => Promise<void>;
+  /**
+   * What a publish DOES, in `http` mode.
+   *
+   * EXPERIMENTAL. By default a publish there is a git commit through the
+   * content API — the content service holds the patches, and publishing means
+   * turning them into a commit on the project's repository. A host whose
+   * "publish" is something else entirely (this one builds the site and flips a
+   * pointer) has no way to say so.
+   *
+   * The default is handed over as {@link CommitContext.commitToGit} rather than
+   * simply skipped, and that is the whole point: it lets a host REPLACE the
+   * commit (never call it) or ADD to it (call it, then do its own work with the
+   * files). Those are two genuinely different products — one where the
+   * repository is the source of truth and one where the build is — and this
+   * seam should not decide which.
+   *
+   * Return what the route should report. Throwing fails the publish, with the
+   * patches left where they were.
+   */
+  publishOverride?: (context: CommitContext) => Promise<CommitResult>;
 };
+
+/** What {@link ValServerOptions.publishOverride} is given. */
+export type CommitContext = {
+  /** The files this commit produced: `path -> content`, `null` = delete. */
+  patchedSourceFiles: Record<string, string | null>;
+  /** Everything else the commit knows, for a host that needs more. */
+  preparedCommit: PreparedCommit;
+  message: string;
+  authorId: AuthorId;
+  /** The patch group this commit empties, if it empties one. */
+  patchGroupId?: string;
+  /**
+   * The default: a git commit through the content API.
+   *
+   * Call it to publish to the repository as well, or leave it alone to replace
+   * that step. Not calling it means the patches are NOT marked published by the
+   * content API, so a host that replaces the commit owns that too.
+   */
+  commitToGit: () => Promise<CommitResult>;
+};
+
+/** What a publish reports back, in either shape. */
+export type CommitResult =
+  | {
+      isNotFastForward?: boolean;
+      updatedFiles: string[];
+      commit: CommitSha;
+      /**
+       * The commit this one was built on.
+       *
+       * Optional because it is only as available as the content service is
+       * willing to say: a service that predates this field sends nothing, and
+       * `undefined` there means "not reported", never "this commit has no
+       * parent". A host that needs it has to handle its absence rather than
+       * treat it as a root commit.
+       *
+       * What it is FOR: a host that keeps its own record of what each commit
+       * changed -- a build cache, an incremental publisher -- can only tell
+       * whether its record is complete by chaining the commits it holds back to
+       * the one it last built. Without a parent the record is a set of
+       * snapshots with no way to notice a gap, and a commit made by somebody
+       * else in between is silently absent rather than detected.
+       *
+       * Not `CommitSha`-typed for the same reason it is optional: it is
+       * reported by a remote service and validated on arrival, and a branded
+       * type here would suggest this end had checked it.
+       */
+      parent?: string;
+      /**
+       * The git tree this commit points at.
+       *
+       * Optional for the same reason as {@link parent}. A tree hash identifies
+       * the CONTENT of a commit rather than the commit itself, so two commits
+       * with the same tree are the same source -- which is what lets a host
+       * recognise that a commit it is being asked to build is one it has built
+       * already, under a different sha, and skip the work.
+       */
+      tree?: string;
+      branch: string;
+      error?: undefined;
+    }
+  | { isNotFastForward?: boolean; error: GenericErrorMessage };
 
 export type ValServerConfig = ValServerOptions &
   (
@@ -93,9 +195,34 @@ export type ValServerConfig = ValServerOptions &
         mode: "http";
         apiKey: string;
         project: string;
-        commit: string;
-        branch: string;
+        /**
+         * The repository this project's commits are mirrored into, if any.
+         *
+         * Absent is a project whose content service is the store of record --
+         * which is every project that has not attached a repository, and the
+         * normal case. See `git` on {@link ValApiOptions}.
+         */
+        git?: { commit: string; branch: string };
         root?: string;
+        config: ValConfig;
+      }
+    /**
+     * EXPERIMENTAL -- a host that holds the project's source itself.
+     *
+     * Neither of the other two fits a host that builds and publishes its own
+     * output: `fs` assumes a working tree it can watch and write, and `http`
+     * assumes Val's content service owns the patch chain and that a commit is a
+     * git commit. See {@link ValOpsMemory}, and `commitPrepared` above for
+     * where the publish goes.
+     */
+    | {
+        mode: "memory";
+        /** The project's source, by path. */
+        sourceFiles: Record<string, string>;
+        /** Where pending patches live. Defaults to memory; see ValPatchStore. */
+        patchStore?: ValPatchStore;
+        /** See ValServerOverrides. Off by default; memory mode authenticates. */
+        unsafelyAllowUnauthenticated?: boolean;
         config: ValConfig;
       }
   );
@@ -131,7 +258,10 @@ export const ValServer = (
       }),
     ),
   });
-  const serverOps: ValOpsHttp | ValOpsFS = createValOps(valModules, options);
+  const serverOps: ValOpsHttp | ValOpsFS | ValOpsMemory = createValOps(
+    valModules,
+    options,
+  );
   const getAuthorizeUrl = (publicValApiRe: string, token: string): string => {
     if (!options.project) {
       throw new Error("Project is not set");
@@ -148,7 +278,9 @@ export const ValServer = (
     return url.toString();
   };
   const commit =
-    options.mode === "http" ? (options.commit as CommitSha) : undefined;
+    options.mode === "http"
+      ? (options.git?.commit as CommitSha | undefined)
+      : undefined;
 
   const getAppErrorUrl = (error: string): string => {
     if (!options.project) {
@@ -228,8 +360,17 @@ export const ValServer = (
     | { id: string; error?: undefined }
     | { error: null; id: null } => {
     const cookie = cookies[VAL_SESSION_COOKIE];
+    /*
+     * `requiresAuth`, not `patchesAreLocal`.
+     *
+     * These four exits return anonymous SUCCESS -- `{ error: null }` -- and all
+     * 29 routes below treat that as authorised. That is right for fs mode,
+     * which is a developer's own machine with no credential to require. It was
+     * keyed on the wrong question: a local patch store is about publishing, not
+     * about who may write, and memory mode is local AND deployed.
+     */
     if (!options.valSecret) {
-      if (serverOps instanceof ValOpsFS) {
+      if (!serverOps.requiresAuth) {
         return {
           error: null,
           id: null,
@@ -243,7 +384,7 @@ export const ValServer = (
     if (typeof cookie === "string") {
       const verifiedToken = verifyJwt(cookie, options.valSecret);
       if (!verifiedToken.success) {
-        if (serverOps instanceof ValOpsFS) {
+        if (!serverOps.requiresAuth) {
           return {
             error: null,
             id: null,
@@ -257,7 +398,7 @@ export const ValServer = (
         verifiedToken.data,
       );
       if (!verification.success) {
-        if (serverOps instanceof ValOpsFS) {
+        if (!serverOps.requiresAuth) {
           return {
             error: null,
             id: null,
@@ -271,7 +412,7 @@ export const ValServer = (
         id: verification.data.sub,
       };
     } else {
-      if (serverOps instanceof ValOpsFS) {
+      if (!serverOps.requiresAuth) {
         return {
           error: null,
           id: null,
@@ -328,7 +469,7 @@ export const ValServer = (
     | {
         status: 400;
         json: {
-          errorCode: "project-not-configured" | "pat-error";
+          errorCode: "project-not-configured" | "pat-error" | "api-key-missing";
           message: string;
         };
       }
@@ -707,7 +848,13 @@ export const ValServer = (
         }
         const remoteFileAuth = remoteFileAuthRes.json.remoteFileAuth;
 
-        const settingsRes = await getSettings(options.project, remoteFileAuth);
+        // The content url this server was CONFIGURED with, not whatever was in
+        // the environment when @valbuild/server was built. See getSettings.
+        const settingsRes = await getSettings(
+          options.project,
+          remoteFileAuth,
+          options.valContentUrl,
+        );
         if (!settingsRes.success) {
           console.warn(
             "Could not get remote files settings: " + settingsRes.message,
@@ -788,27 +935,33 @@ export const ValServer = (
             json: currentStat.error,
           };
         }
-        const mode =
-          serverOps instanceof ValOpsFS
-            ? "fs"
-            : serverOps instanceof ValOpsHttp
-              ? "http"
-              : "unknown";
-        if (mode === "unknown") {
-          return {
-            status: 500,
-            json: {
-              message:
-                "Server mode is neither fs nor http - this is an internal Val bug",
-            },
-          };
-        }
+        /*
+         * The wire value names a class and the question it answers does not.
+         *
+         * The client reads `mode` to decide whether it auto-saves and hides the
+         * account panel, or whether it publishes and shows deployments -- which
+         * is {@link ValOps.patchesAreLocal} and nothing else. It was derived by
+         * `instanceof` while there were exactly two implementations, so a third
+         * local store fell through to `"unknown"` and the Studio refused to
+         * start against a server that was working.
+         */
+        const mode = serverOps.patchesAreLocal ? "fs" : "http";
+        /*
+         * Why publishing is unavailable, so the Studio can say so.
+         *
+         * Spread rather than set to null, so a server that can publish sends
+         * no such key at all: the Studio's "can I publish" is then the
+         * presence of the field, and there is no null to mistake for a reason
+         * it failed to compute.
+         */
+        const publishRefusal = serverOps.publishRefusal();
         return {
           status: 200,
           json: {
             ...currentStat,
             profileId: profileId ?? null,
             mode,
+            ...(publishRefusal ? { publishRefusal } : {}),
             config: options.config,
           },
         };
@@ -897,7 +1050,7 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           // In FS mode patch-file uploads are buffered through this server (no remote round-trip),
           // so baseUrl points at /api/val/upload. AI image uploads, however, go straight to the
           // content host — we resolve a contentBaseUrl + a PAT-issued nonce here so the browser
@@ -908,6 +1061,21 @@ export const ValServer = (
           if (!options.project) {
             console.warn(
               "Direct content-host uploads (AI images) disabled: no `project` set in val.config (and VAL_PROJECT env var is not set).",
+            );
+          } else if (!(serverOps instanceof ValOpsFS)) {
+            /*
+             * Presigning needs a content host to presign AGAINST, and a local
+             * store does not necessarily have one configured: `fs` mode has the
+             * developer's `valContentUrl`, and a host holding its own source has
+             * no such setting.
+             *
+             * Warned and disabled, like the missing-project case above, rather
+             * than failing the request: everything else this route answers --
+             * the patch upload base url -- still works, and the only thing lost
+             * is the browser posting AI images straight to the content host.
+             */
+            console.warn(
+              "Direct content-host uploads (AI images) disabled: this store has no content host to presign against.",
             );
           } else {
             const authDataRes = await getRemoteFileAuth();
@@ -997,7 +1165,7 @@ export const ValServer = (
         }
         const { patchGroupId, patchIds } = req.body;
         const withPatchIds = req.body.withPatchIds ?? [];
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return {
             status: 200,
             json: { patchGroupId, patchIds: [...patchIds, ...withPatchIds] },
@@ -1037,7 +1205,7 @@ export const ValServer = (
         }
         const { patchGroupId, patchIds } = req.body;
         const withPatchIds = req.body.withPatchIds ?? [];
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return {
             status: 200,
             json: { patchGroupId, patchIds: [...patchIds, ...withPatchIds] },
@@ -1104,7 +1272,7 @@ export const ValServer = (
                 withPatchIds: requestedWith ?? [],
               }
             : undefined;
-        if (patchGroup !== undefined && serverOps instanceof ValOpsFS) {
+        if (patchGroup !== undefined && serverOps.patchesAreLocal) {
           /*
            * `fs` has no shared store and one author, so there is no group to
            * join. Refused rather than acknowledged: answering 200 would tell the
@@ -1911,7 +2079,7 @@ export const ValServer = (
         const authDataRes = await getRemoteFileAuth();
         if (authDataRes.status !== 200) {
           if (
-            serverOps instanceof ValOpsFS &&
+            serverOps.patchesAreLocal &&
             authDataRes.json.errorCode === "pat-error"
           ) {
             return {
@@ -1980,7 +2148,7 @@ export const ValServer = (
             };
           }
         };
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return execFetch(
             getProfileAuthHeaders(authData, null, "application/json"),
           );
@@ -2035,6 +2203,29 @@ export const ValServer = (
           patchIds,
           excludePatchOps: false,
         });
+        /*
+         * Can this deployment publish this project AT ALL?
+         *
+         * After the fetch above, deliberately: that call is what tells the
+         * data layer what the project expects, and asking before it would be
+         * asking a question nothing has answered yet. It is still before
+         * anything is written, which is the part that matters.
+         *
+         * The Studio already knows -- `/stat` carries the same refusal, so the
+         * action is disabled with the reason shown. This is the second half of
+         * that: a stat can be stale by a poll, and nothing may reach `prepare`
+         * on a project it cannot mirror.
+         */
+        const refusal = serverOps.publishRefusal();
+        if (refusal) {
+          return {
+            status: 409,
+            json: {
+              message: refusal.message,
+              publishRefusal: refusal,
+            },
+          };
+        }
         /*
          * Exactly the patches this request consumes, and the ONLY ones it may
          * delete afterwards.
@@ -2106,7 +2297,7 @@ export const ValServer = (
          * editing is told what was thrown away.
          */
         let removed: DroppedPatch[] = [];
-        if (preparedCommit.hasErrors && serverOps instanceof ValOpsFS) {
+        if (preparedCommit.hasErrors && serverOps.patchesAreLocal) {
           removed = computePatchesToDrop(preparedCommit);
           /*
            * Nothing to drop means nothing a second `prepare` could do better.
@@ -2174,42 +2365,112 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsFS) {
-          const isRemoteRequired = getIsRemoteRequired(
-            await serverOps.getSchemas(),
-          );
-          let mode: "skip-remote" | "upload-remote";
-          let remoteFileAuthRes:
-            | undefined
-            | Awaited<ReturnType<typeof getRemoteFileAuth>>;
-          if (isRemoteRequired) {
-            mode = "upload-remote";
-            remoteFileAuthRes = await getRemoteFileAuth();
-          } else {
-            mode = "skip-remote";
+        if (serverOps.patchesAreLocal) {
+          /*
+           * Writing the files is the one step that is not shared.
+           *
+           * Everything around it is: applying the patches, telling the ops the
+           * sources moved, handing the result to the host, dropping the patches
+           * this request consumed. Only the destination differs -- `fs` mode has
+           * a working tree to write into and remote binaries to push, and a host
+           * that holds its own source has neither. So this branch is on the
+           * store that CAN write files rather than on "is this local", which is
+           * what the rest of the flow asks.
+           */
+          /*
+           * Remote binary files, which publish separately from the source.
+           *
+           * Val uploads a remote file at PUBLISH rather than when it is added:
+           * until then the bytes are a pending change like any other. So a
+           * local store has to push them before the source that references them
+           * goes live, or the new build ships a URL that 404s. `ValOpsFS` does
+           * this inside `saveOrUploadFiles`, alongside writing its working
+           * tree; a store with no working tree does only the push.
+           */
+          if (serverOps instanceof ValOpsMemory) {
+            const isRemoteRequired = getIsRemoteRequired(
+              await serverOps.getSchemas(),
+            );
+            if (isRemoteRequired) {
+              const authRes = await getRemoteFileAuth();
+              if (authRes.status !== 200) {
+                return authRes;
+              }
+              const uploadRes = await serverOps.uploadRemoteFiles(
+                preparedCommit,
+                authRes.json.remoteFileAuth,
+              );
+              if (Object.keys(uploadRes.errors).length > 0) {
+                console.error(
+                  "Val: Failed to upload remote files",
+                  uploadRes.errors,
+                );
+                return {
+                  status: 400,
+                  json: {
+                    message: "Failed to save files",
+                    details: Object.entries(uploadRes.errors).map(
+                      ([ref, error]) => ({
+                        message: `Got error: ${error.message} in ${ref}`,
+                      }),
+                    ),
+                  },
+                };
+              }
+            }
           }
-          if (remoteFileAuthRes && remoteFileAuthRes.status !== 200) {
-            return remoteFileAuthRes;
+          if (serverOps instanceof ValOpsFS) {
+            const isRemoteRequired = getIsRemoteRequired(
+              await serverOps.getSchemas(),
+            );
+            let mode: "skip-remote" | "upload-remote";
+            let remoteFileAuthRes:
+              | undefined
+              | Awaited<ReturnType<typeof getRemoteFileAuth>>;
+            if (isRemoteRequired) {
+              mode = "upload-remote";
+              remoteFileAuthRes = await getRemoteFileAuth();
+            } else {
+              mode = "skip-remote";
+            }
+            if (remoteFileAuthRes && remoteFileAuthRes.status !== 200) {
+              return remoteFileAuthRes;
+            }
+            const remoteFileAuth = remoteFileAuthRes?.json?.remoteFileAuth;
+            const saveRes = await serverOps.saveOrUploadFiles(
+              preparedCommit,
+              mode,
+              remoteFileAuth,
+            );
+            if (Object.keys(saveRes.errors).length > 0) {
+              console.error("Val: Failed to save files", saveRes.errors);
+              return {
+                status: 400,
+                json: {
+                  message: "Failed to save files",
+                  details: Object.entries(saveRes.errors).map(
+                    ([key, error]) => {
+                      return {
+                        message: `Got error: ${error} in ${key}`,
+                      };
+                    },
+                  ),
+                },
+              };
+            }
           }
-          const remoteFileAuth = remoteFileAuthRes?.json?.remoteFileAuth;
-          const saveRes = await serverOps.saveOrUploadFiles(
-            preparedCommit,
-            mode,
-            remoteFileAuth,
-          );
-          if (Object.keys(saveRes.errors).length > 0) {
-            console.error("Val: Failed to save files", saveRes.errors);
-            return {
-              status: 400,
-              json: {
-                message: "Failed to save files",
-                details: Object.entries(saveRes.errors).map(([key, error]) => {
-                  return {
-                    message: `Got error: ${error} in ${key}`,
-                  };
-                }),
-              },
-            };
+          /*
+           * The host's destination, after the store's own.
+           *
+           * Ordered this way so a store that writes has already succeeded by
+           * the time the host is told: `commitPrepared` throwing fails the save,
+           * and a host that publishes what it was handed should not be handed
+           * files the store could not write.
+           */
+          if (options.commitPrepared) {
+            await options.commitPrepared({
+              patchedSourceFiles: preparedCommit.patchedSourceFiles,
+            });
           }
           /*
            * The files on disk are the committed content now, so say so here too.
@@ -2309,20 +2570,38 @@ export const ValServer = (
               "Val CMS update (" +
                 Object.keys(analysis.patchesByModule).length +
                 " files changed)";
-            const commitRes = await serverOps.commit(
-              preparedCommit,
-              message,
-              auth.id as AuthorId,
-              options.config.files?.directory || "/public/val",
-              undefined,
-              /*
-               * Forwarded verbatim, and only the client can decide it: the
-               * content API closes the group it is named without checking that
-               * the commit shipped all of it, and whether it did needs the
-               * patch sets, which live in the browser.
-               */
-              body.patchGroupId,
-            );
+            const commitToGit = () =>
+              serverOps.commit(
+                preparedCommit,
+                message,
+                auth.id as AuthorId,
+                options.config.files?.directory || "/public/val",
+                undefined,
+                /*
+                 * Forwarded verbatim, and only the client can decide it: the
+                 * content API closes the group it is named without checking
+                 * that the commit shipped all of it, and whether it did needs
+                 * the patch sets, which live in the browser.
+                 */
+                body.patchGroupId,
+              );
+            /*
+             * A host may publish somewhere other than the repository.
+             *
+             * See `publishOverride`. It is handed `commitToGit` rather than
+             * having it skipped, so it can replace the commit or add to it --
+             * and it is the host, not this route, that knows which.
+             */
+            const commitRes = options.publishOverride
+              ? await options.publishOverride({
+                  patchedSourceFiles: preparedCommit.patchedSourceFiles,
+                  preparedCommit,
+                  message,
+                  authorId: auth.id as AuthorId,
+                  patchGroupId: body.patchGroupId,
+                  commitToGit,
+                })
+              : await commitToGit();
             if (commitRes.error) {
               console.error("Failed to commit", commitRes.error);
               if (
@@ -2485,7 +2764,7 @@ export const ValServer = (
             };
           }
         };
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return execFetch(
             getProfileAuthHeaders(authData, null, "application/json"),
           );
@@ -2587,7 +2866,7 @@ export const ValServer = (
             };
           }
         };
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return execFetch(
             getProfileAuthHeaders(authData, null, "application/json"),
           );
@@ -2667,7 +2946,7 @@ export const ValServer = (
             };
           }
         };
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return execFetch(
             getProfileAuthHeaders(authData, null, "application/json"),
           );
@@ -2784,7 +3063,7 @@ export const ValServer = (
             };
           }
         };
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           return execFetch(
             getProfileAuthHeaders(authData, null, "application/json"),
           );
@@ -2831,7 +3110,7 @@ export const ValServer = (
         }
         const authData = authDataRes.json.remoteFileAuth;
         let headers: HeadersInit;
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           headers = getProfileAuthHeaders(authData, null, "application/json");
         } else {
           if (!("id" in auth) || !auth.id) {
@@ -2924,6 +3203,11 @@ export const ValServer = (
                 },
               };
             }
+            // Deliberately `ValOpsFS` and not `patchesAreLocal`: this writes
+            // BYTES into a patch directory, which is a thing only the fs store
+            // has. A local store without local binary files (ValOpsMemory, which
+            // uses Val's remote files) skips it, and the draft image is served
+            // from the content host rather than mirrored.
             if (serverOps instanceof ValOpsFS) {
               // Mirror the binaries from the content host into local patch
               // storage so /files?patch_id=... can serve them. Match upstream
@@ -3035,7 +3319,7 @@ export const ValServer = (
         }
         const authData = authDataRes.json.remoteFileAuth;
         let headers: HeadersInit;
-        if (serverOps instanceof ValOpsFS) {
+        if (serverOps.patchesAreLocal) {
           headers = getProfileAuthHeaders(authData, null, "application/json");
         } else {
           if (!("id" in auth) || !auth.id) {
@@ -3472,7 +3756,14 @@ export function boundUnstageClosure(
  * not ask for scoping gets and must keep getting.
  */
 export async function resolveOwnPatchScope(
-  serverOps: ValOpsFS | ValOpsHttp,
+  /*
+   * `ValOps`, not the two concrete stores: the one thing this needs is whether
+   * a content service holds the groups, and it asks that below with an
+   * `instanceof ValOpsHttp`. Naming the implementations here meant every new
+   * store had to be added to a list to be allowed to call a function that does
+   * not use it.
+   */
+  serverOps: ValOps,
   opts: {
     /** A caller that named a list already knows what it wants. */
     explicitPatchIds: PatchId[] | undefined;

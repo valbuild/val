@@ -319,12 +319,31 @@ export function resolvePath<
           `Schema type error: expected source to be type of record, but got ${typeof resolvedSource}`,
         );
       }
-      if (!resolvedSource[part]) {
+      // PRESENCE, not truthiness. An entry that exists and is falsy is an
+      // entry: `null` for a declared key nobody has written yet, but also `""`,
+      // `0` and `false` in any record at all. Testing the value made every one
+      // of those report as a key the record does not have, so nothing could
+      // resolve them — not the Studio, not the language server, not a fix.
+      //
+      // A record source that is itself `null` keeps resolving as `null`, one
+      // part per level, the way the object branch below does: the path still
+      // names a real place in the schema, and the caller wants the schema
+      // there in order to say that nothing is written yet.
+      //
+      // `hasOwnProperty`, never `in`: `in` walks the prototype chain, so
+      // `"toString"` would resolve on every record and hand back
+      // `Object.prototype.toString` as if it were Source. Same reason
+      // `patch/json.ts` guards every key it reads.
+      if (
+        resolvedSource !== null &&
+        !Object.prototype.hasOwnProperty.call(resolvedSource, part)
+      ) {
         throw Error(
           `Invalid path: record source did not have key ${part} from path: ${path}`,
         );
       }
-      resolvedSource = resolvedSource[part];
+      resolvedSource =
+        resolvedSource === null ? resolvedSource : resolvedSource[part];
       resolvedSchema =
         resolvedSchema instanceof RecordSchema
           ? resolvedSchema?.["item"]
@@ -596,7 +615,18 @@ export function safeResolvePath<
           message: `Schema type error: expected source to be type of record, but got ${typeof resolvedSource}`,
         };
       }
-      if (resolvedSource[part] === undefined) {
+      // A `null` record keeps resolving as `null`, as the object branch below
+      // does — see the same note in `resolvePath`. Without it, indexing `null`
+      // threw a TypeError out of the function whose whole point is not to
+      // throw.
+      //
+      // Own properties only. Testing `resolvedSource[part] === undefined` let
+      // an inherited name through — `"toString"` is not undefined on any
+      // object — so the walk continued into `Object.prototype`.
+      if (
+        resolvedSource !== null &&
+        !Object.prototype.hasOwnProperty.call(resolvedSource, part)
+      ) {
         return {
           status: "source-undefined",
           path: origParts
@@ -605,7 +635,8 @@ export function safeResolvePath<
             .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
         };
       }
-      resolvedSource = resolvedSource[part];
+      resolvedSource =
+        resolvedSource === null ? resolvedSource : resolvedSource[part];
       resolvedSchema =
         resolvedSchema instanceof RecordSchema
           ? resolvedSchema?.["item"]

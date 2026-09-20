@@ -30,6 +30,7 @@ import { Module } from "../Module";
 import { useRequestUpload } from "../UploadRequest";
 import { useAddPage } from "../useAddPage";
 import { useDuplicatePage } from "../useDuplicatePage";
+import { useRenamePage } from "../useRenamePage";
 import { PublishButton } from "../PublishButton";
 import { ValidationErrorsView } from "../ValidationErrors";
 import { ComparePatchSets, CompareLoading } from "../ComparePatchSets";
@@ -102,6 +103,8 @@ import { AIChatSurface } from "../AIChatSurface";
 import { useAIChatActions, useInsertFieldRef } from "../AIChatActionsContext";
 import { useValSystem } from "../../stores/react/SystemContext";
 import { useProjectLocales } from "../../hooks/useProjectLocales";
+import { useStudioSettings } from "../../hooks/useStudioSettings";
+import { isTourOffered } from "../../hooks/studioSettings";
 import { LocaleFilterProvider } from "../LocaleFilterProvider";
 
 /**
@@ -182,6 +185,11 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * panel, which is where `aiConnectionError` and its retry are shown.
    */
   const { isAIChatEnabled, setOpenAIChatImpl } = useAIChatActions();
+  /**
+   * Whether this project offers the guided tour — `studio.tour` in
+   * `s.settings()`. Unset means yes; see `isTourOffered`.
+   */
+  const studioSettings = useStudioSettings();
   const insertFieldRef = useInsertFieldRef();
   const navigation = useNavigation();
   const { history } = useHistoryParams();
@@ -730,6 +738,15 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * toolbar goes through as well.
    */
   const duplicatePage = useDuplicatePage();
+  /**
+   * Change a page's URL, and open it there.
+   *
+   * More than a rename of a key: everything pointing at the old URL has to be
+   * rewritten in the same breath, which is what `useRenamePage` is for - and
+   * what makes it worth a hook of its own rather than a second call to
+   * `useRenameRecordEntry` here.
+   */
+  const renamePage = useRenamePage();
 
   const requestUpload = useRequestUpload();
   const uploadInto = useCallback(
@@ -1099,6 +1116,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         renderEditor={renderEditor}
         renderSettings={renderSettings}
         renderExternalPages={renderExternalPages}
+        tourEnabled={isTourOffered(studioSettings)}
         editorOverride={overrideEditor}
         publishSlot={<PublishButton />}
         publishState={publishState}
@@ -1162,6 +1180,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         onViewStateChange={setViewState}
         onNewPage={addPage}
         onDuplicatePage={duplicatePage}
+        onRenamePage={renamePage}
         onUploadMedia={uploadInto}
         onPreview={openPreviewTab}
         // Also as an href, so the menu item is a link that can be copied. The URL
@@ -1308,7 +1327,7 @@ function CompareView() {
   }
   if (patchSetsResult.status === "error") {
     return (
-      <div className="text-sm text-fg-error py-8 text-center">
+      <div className="text-sm text-fg-error-on-surface py-8 text-center">
         Failed to load changes: {patchSetsResult.error}
       </div>
     );

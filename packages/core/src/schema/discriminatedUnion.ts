@@ -9,6 +9,7 @@ import {
   PreviewItem,
   ReifiedPreview,
   PreviewScope,
+  mergePreviewInto,
 } from "../preview";
 import { FieldRender } from "../render";
 import { createValPathOfItem } from "../selector/SelectorProxy";
@@ -97,10 +98,13 @@ export class DiscriminatedUnionSchema<
   /**
    * Describe this field.
    *
-   * The description is shown next to the field's label in the Val editor, so it is
-   * where you say what an editor needs to know but the field name cannot carry. It
-   * also travels in the serialized schema, which is what the AI assistant and the
-   * MCP tools read.
+   * The description is INPUT HELP: it is shown where this field's value is
+   * entered — beside its input in the Val editor, and for a record's key
+   * schema in every form that asks for a key — so it is where you say what an
+   * editor needs to know to fill it in RIGHT, which the field name cannot
+   * carry. It is not a name for the value: that is `.preview(...)`, and it is
+   * read somewhere else. The description also travels in the serialized
+   * schema, which is what the AI assistant and the MCP tools read.
    *
    * Pass `null` to clear a description set earlier.
    *
@@ -643,6 +647,7 @@ export class DiscriminatedUnionSchema<
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
     scope?: PreviewScope,
+    selfIsReifiedByParent?: boolean,
   ): ReifiedPreview {
     const res: ReifiedPreview = {};
     if (src === null) {
@@ -677,10 +682,24 @@ export class DiscriminatedUnionSchema<
       },
     );
     if (thisSchema) {
-      const itemResult = thisSchema["executePreview"](sourcePath, src, scope);
-      for (const keyS in itemResult) {
-        const key = keyS as SourcePath | ModuleFilePath;
-        res[key] = itemResult[key];
+      // The variant owns the path — see the note on `executeCustomValidateAt`.
+      // It contributes a `self` of its own here; the union's comes second and
+      // wins, because `executePreviewItem` already encodes the precedence (the
+      // union's own closure if it has one, else the matched variant's) and
+      // there must not be a second copy of that rule.
+      // The variant SHARES this path, so the flag passes straight through: a
+      // union that is a row is a variant that is a row.
+      mergePreviewInto(
+        res,
+        thisSchema["executePreview"](
+          sourcePath,
+          src,
+          scope,
+          selfIsReifiedByParent,
+        ),
+      );
+      if (!selfIsReifiedByParent) {
+        mergePreviewInto(res, this.executeSelfPreview(sourcePath, src, scope));
       }
       return res;
     }
