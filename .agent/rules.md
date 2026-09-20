@@ -235,6 +235,7 @@ Eight things decide how it behaves, and each was a choice:
   `Internal.` already namespaces them and nothing can collide with them. So
   does the WIRE form: `type: "view"` is the serialized discriminant, and
   renaming it would break every stored schema and the zod parser.
+
 - **`hidden` and `readonly` are the view's own, never the target's.** A view
   whose target module is hidden is still shown, and still leads there — which
   is the whole point, because `hidden` on a MODULE's root schema means "the nav
