@@ -479,7 +479,9 @@ export function stegaEncode(
   // say what happened instead.
   if (isValViewSource(input)) {
     throw Error(
-      `Cannot resolve the view of '${input.view}': it has been serialized, which drops the module it points at. ` +
+      `Cannot resolve the view of '${input.view}': it carries no module. ` +
+        `Either it crossed a server/client boundary, which drops the module because it rides on a symbol, ` +
+        `or it points at a different module than its schema declares — which \`val validate --fix\` repairs. ` +
         `Resolve it in the same component that read the module containing it, or read '${input.view}' directly.`,
     );
   }
@@ -498,6 +500,24 @@ export function stegaEncode(
     if (recOpts?.schema && recOpts.schema.type === "view") {
       const valModule = viewModules.get(recOpts.schema.moduleFilePath);
       if (valModule === undefined || !isValViewSource(sourceOrSelector)) {
+        return sourceOrSelector;
+      }
+      /*
+       * The POINTER decides what may be attached, not the schema alone.
+       *
+       * The two can disagree: a `.val.ts` cannot express it (the source type is
+       * the literal path), but hand-written JSON and a patch can, which is the
+       * whole reason `view:check-module` exists as a fix. Keying only on the
+       * schema attached the schema's module to a pointer naming a different one,
+       * so `useVal(page.field)` read a module the value does not name — silently,
+       * and looking exactly like a correct read.
+       *
+       * So a mismatch gets no handle: the value stays the bare pointer, and
+       * reading it throws rather than answering with the wrong module. The
+       * Studio still renders the field and still offers the repair; nothing here
+       * refuses to encode the page over it.
+       */
+      if (sourceOrSelector.view !== recOpts.schema.moduleFilePath) {
         return sourceOrSelector;
       }
       return Internal.createViewHandle(sourceOrSelector, valModule);

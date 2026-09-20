@@ -113,7 +113,9 @@ export function resolveViewedModule(selector: unknown): unknown {
   }
   if (isValViewSource(selector)) {
     throw Error(
-      `Cannot resolve the view of '${selector.view}': it has been serialized, which drops the module it points at. ` +
+      `Cannot resolve the view of '${selector.view}': it carries no module. ` +
+        `Either it crossed a server/client boundary, which drops the module because it rides on a symbol, ` +
+        `or it points at a different module than its schema declares — which \`val validate --fix\` repairs. ` +
         `Resolve it in the same component that read the module containing it, or read '${selector.view}' directly.`,
     );
   }

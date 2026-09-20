@@ -823,9 +823,36 @@ describe("view handles", () => {
   test("a handle that lost its module says so", () => {
     const page = stegaEncode(pageVal, {});
     const overTheWire = JSON.parse(JSON.stringify(page.header));
-    expect(() => stegaEncode(overTheWire, {})).toThrow(
-      /has been serialized, which drops the module it points at/,
-    );
+    expect(() => stegaEncode(overTheWire, {})).toThrow(/it carries no module/);
+  });
+
+  /**
+   * A pointer that disagrees with its schema gets NO module.
+   *
+   * The two can disagree: a `.val.ts` cannot express it, since the source type
+   * is the literal path — but hand-written JSON and a patch can, which is why
+   * `view:check-module` exists as a fix at all. Attaching by schema alone read
+   * a module the value does not name, silently and looking exactly like a
+   * correct read.
+   *
+   * The source is fed in through `getModule` because that is the shape the case
+   * actually takes: a draft the editor holds, as plain JSON that never went near
+   * a module.
+   */
+  test("a pointer naming another module than its schema is not resolved", () => {
+    const page = stegaEncode(pageVal, {
+      getModule: (moduleId) => {
+        if (moduleId === "/page.val.ts") {
+          return { title: "Hello", header: { view: "/somewhere-else.val.ts" } };
+        }
+      },
+    });
+    // The value is untouched — the Studio still renders the field and still
+    // offers the repair, so encoding the page must not throw over it.
+    expect(page.header).toEqual({ view: "/somewhere-else.val.ts" });
+    // But reading it answers with an error rather than with the wrong module.
+    expect(() => stegaEncode(page.header, {})).toThrow(/it carries no module/);
+    expect(Internal.viewHandleModule(page.header)).toBe(undefined);
   });
 
   test("a resolved handle shows the target's draft, not its committed source", () => {
@@ -901,7 +928,7 @@ describe("reading a route or an entry through a view", () => {
     const page = stegaEncode(pageVal, {});
     const overTheWire = JSON.parse(JSON.stringify(page.notes));
     expect(() => Internal.resolveViewedModule(overTheWire)).toThrow(
-      /has been serialized, which drops the module it points at/,
+      /it carries no module/,
     );
   });
 
