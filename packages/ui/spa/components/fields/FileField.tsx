@@ -439,12 +439,15 @@ export function FileField({
                * `ImageField`: a file opened on its own has no `Field` wrapper
                * and so no nullable checkbox, and `readonly` alone gates it
                * because taking a file out needs none of what putting one in
-               * does.
+               * does — with the same one exception, an upload in flight, whose
+               * `replace` is enqueued after the read and would land on top of
+               * the `null` and put the file back.
                */}
               {schemaAtPath.data.opt && source && !readonly && (
                 <Button
                   variant="ghost"
                   size="sm"
+                  disabled={loading}
                   onClick={() => {
                     addPatch(
                       [{ op: "replace", path: patchPath, value: null }],

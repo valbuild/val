@@ -58,11 +58,12 @@ jest.mock("../Preview", () => ({
   PreviewLoading: () => null,
   PreviewNull: () => null,
 }));
+const mockUploading = jest.fn<boolean, []>(() => false);
 jest.mock("./useImageUpload", () => ({
   __esModule: true,
   useImageUpload: () => ({
     uploadImage: jest.fn(),
-    loading: false,
+    loading: mockUploading(),
     error: null,
     progressPercentage: null,
   }),
@@ -83,7 +84,9 @@ function mount(
   schema: SerializedSchema,
   source: typeof IMAGE | null,
   readonly = false,
+  uploading = false,
 ) {
+  mockUploading.mockReturnValue(uploading);
   mockSchema.mockReturnValue({ status: "success", data: schema });
   mockSource.mockReturnValue({
     status: "success",
@@ -120,5 +123,23 @@ describe("Remove, on a media field", () => {
   test("is not offered on a readonly field", () => {
     mount(s.image().nullable()["executeSerialize"](), IMAGE, true);
     expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+  });
+
+  /**
+   * An upload in flight is the one thing that disables it, and it is an
+   * ordering bug rather than a permission.
+   *
+   * `uploadImage` reads, encodes and hashes the file before enqueuing its
+   * `replace`, so a Remove clicked inside that window writes `null` first and
+   * the upload lands on top of it and puts the file back — a removal that
+   * looks like it was ignored. Only reachable while REPLACING, since an empty
+   * field has nothing to remove.
+   */
+  test("is disabled while an upload is in flight", () => {
+    mount(s.image().nullable()["executeSerialize"](), IMAGE, false, true);
+    const remove = screen.getByRole("button", { name: "Remove" });
+    expect(remove.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(remove);
+    expect(mockAddPatch).not.toHaveBeenCalled();
   });
 });

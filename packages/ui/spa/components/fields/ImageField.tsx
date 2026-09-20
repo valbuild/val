@@ -482,11 +482,20 @@ export function ImageField({
                * going IN. Taking one out needs none of them, and a field
                * pointing at a gallery that is gone is exactly when an editor
                * wants to.
+               *
+               * An upload IN FLIGHT is the exception, and it is an ordering
+               * bug rather than a permission: `uploadImage` reads, encodes and
+               * hashes the file before it enqueues its `replace`, so a Remove
+               * clicked inside that window writes `null` first and the upload
+               * lands afterwards and puts the file back. Only reachable while
+               * REPLACING — an empty field has nothing to remove — which is
+               * exactly when it looks like the removal was ignored.
                */}
               {schemaAtPath.data.opt && source && !readonly && (
                 <Button
                   variant="ghost"
                   size="sm"
+                  disabled={loading}
                   onClick={() => {
                     addPatch(
                       [{ op: "replace", path: patchPath, value: null }],
