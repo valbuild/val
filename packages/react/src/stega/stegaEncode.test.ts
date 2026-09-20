@@ -783,6 +783,38 @@ describe("view handles", () => {
   });
 
   /**
+   * `useValStega` memoises `getModuleIds` on `[selector]`, and for a view that
+   * dependency is new on every render: the handle is built by `createViewHandle`
+   * inside `stegaEncode`, so `page.header` is a fresh object each time the page
+   * is encoded. Without a cache of its own, every render of a component reading
+   * a view rebuilds the target's whole serialized schema.
+   *
+   * Pinned by IDENTITY, because that is the only visible difference — a
+   * recomputed answer is equal to a cached one, so `toEqual` would pass either
+   * way and the memo could stop hitting without a single test noticing.
+   */
+  test("resolving the same view twice does not recompute", () => {
+    const first = stegaEncode(pageVal, {});
+    const second = stegaEncode(pageVal, {});
+    // The premise: two encodes really do give two different handles, so the
+    // test below is not passing for the boring reason.
+    expect(first.header).not.toBe(second.header);
+    expect(getModuleIds(first.header)).toBe(getModuleIds(second.header));
+    // And a handle shares the answer with the module it points at, since it
+    // resolves to it before the cache is consulted.
+    expect(getModuleIds(first.header)).toBe(getModuleIds(headerVal));
+  });
+
+  /**
+   * The answer is shared between callers, so it cannot be a mutable array: one
+   * consumer sorting in place would corrupt every later caller's subscription,
+   * and nothing would say so.
+   */
+  test("the shared answer cannot be mutated", () => {
+    expect(Object.isFrozen(getModuleIds(headerVal))).toBe(true);
+  });
+
+  /**
    * A handle passed from a server component to a client one arrives as plain
    * JSON: the symbol is gone, and with it the module. Resolving it would return
    * the pointer — an object that looks like content and holds none — so it says

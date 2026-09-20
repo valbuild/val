@@ -786,12 +786,47 @@ export function stegaClean(source: string) {
   return vercelStegaSplit(source).cleaned;
 }
 
+/**
+ * Answers already computed, keyed by the selector they were computed from.
+ *
+ * `getModuleIds` is not cheap: it calls `executeSerialize()`, which rebuilds the
+ * whole serialized schema tree on every call — ~31us for a 40-field schema with
+ * a nested array, against ~4us for a small one. It is called from `useValStega`
+ * on every render whose `useMemo` misses.
+ *
+ * That memo misses on every render for a VIEW, and cannot be fixed there: the
+ * handle is built by `createViewHandle` inside `stegaEncode`, so `page.authors`
+ * is a fresh object each time the page is encoded, and `[selector]` is a new
+ * dependency every render. Caching here rather than in the hooks fixes it for
+ * both copies of the hook at once, and for any other caller.
+ *
+ * Keyed on the selector, which is the module itself for the case that matters —
+ * a view resolves to it on the line below, and a module is a module-level
+ * constant, so the entry is hit for the life of the process. A fresh nested
+ * selector misses, as it did before; a `WeakMap` lets those entries go.
+ *
+ * The array is shared, so it is frozen: nothing may sort or splice it in place.
+ * Every consumer today copies first (`createSubscriberId` does `paths.slice()`),
+ * and freezing is what keeps that true.
+ */
+const moduleIdsCache = new WeakMap<object, string[]>();
+
 export function getModuleIds(input: any): string[] {
   // A view handle names one module: the one it points at. Resolved first so a
-  // `useVal(page.header)` subscribes to the header rather than to nothing.
+  // `useVal(page.header)` subscribes to the header rather than to nothing — and
+  // so the recursive call lands on the module, which is what the cache above
+  // can actually key on.
   const resolved = Internal.viewHandleModule(input);
   if (resolved !== undefined) {
     return getModuleIds(resolved);
+  }
+  const cacheable = typeof input === "object" && input !== null;
+  if (cacheable) {
+    const cached = moduleIdsCache.get(input);
+    if (cached) {
+      // Frozen, so handing the same array to every caller is safe.
+      return cached;
+    }
   }
   const modules: Set<string> = new Set();
   function rec(sourceOrSelector: any): undefined {
@@ -850,7 +885,14 @@ export function getModuleIds(input: any): string[] {
     return;
   }
   rec(input);
-  return Array.from(modules);
+  const moduleIds = Array.from(modules);
+  // Frozen before it is shared, not after: a consumer that sorts in place would
+  // otherwise corrupt every later caller's answer, and silently.
+  Object.freeze(moduleIds);
+  if (cacheable) {
+    moduleIdsCache.set(input, moduleIds);
+  }
+  return moduleIds;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
