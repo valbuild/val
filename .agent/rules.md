@@ -338,13 +338,19 @@ Eight things decide how it behaves, and each was a choice:
 - **`hidden` and `readonly` are the view's own, never the target's.** A view
   whose target module is hidden is still shown, and still leads there — which
   is the whole point, because `hidden` on a MODULE's root schema means "the nav
-  does not list this" (`useTrees` for the Explorer, `collectMediaModules` for
-  Media). A module has no parent to be hidden from, so it can mean nothing
-  else. The pair is what lets `employees.val.ts` be a `keyOf` target a dozen
-  modules point into, out of the nav, and reached from the one page it belongs
-  to. It also forced `AnyField`'s `ignoreHidden`, set by `Module` alone: the
-  page an editor has navigated to is not a parent's field list, so honouring
-  `hidden` there renders a blank page instead of hiding a row.
+  does not list this", at EVERY destination the menu has: the Explorer and
+  Pages (both in `useTrees`, which drops a hidden module before it sorts
+  routers from the rest), Media (`collectMediaModules`) and Settings
+  (`useNavMenuData`, which resolves the settings module first and drops it
+  after — two settings modules must stay an error rather than become a way to
+  pick between them). A module has no parent to be hidden from, so it can mean
+  nothing else. The pair is what lets `employees.val.ts` be a `keyOf` target a
+  dozen modules point into, out of the nav, and reached from the one page it
+  belongs to. It also forced `AnyField`'s `ignoreHidden`, set by `Module`
+  alone: the page an editor has navigated to is not a parent's field list, so
+  honouring `hidden` there renders a blank page instead of hiding a row.
+  Hiding a page ROUTER is the sharp edge — its pages leave the sitemap with it,
+  so the site's URLs are listed nowhere.
 
 Not built yet, and deliberately: rendering the target inline
 (`render({ as: "inline" })`) and resolving a view through `useVal`/`fetchVal`.

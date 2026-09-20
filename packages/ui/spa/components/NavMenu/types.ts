@@ -109,7 +109,7 @@ export type ExternalModule = {
  */
 export type NavMenuData = {
   /**
-   * Whether the project declares any `s.router` module at all.
+   * Whether the project has any `s.router` module the nav may LIST.
    *
    * Not the same as `sitemap` being present: a router with no entries yet, or
    * one whose source folder has not resolved, has no tree to show but is still
@@ -117,6 +117,12 @@ export type NavMenuData = {
    * the Pages destination entirely when a project has no routes — a site map
    * for a project that is only content files is an empty room — and hiding it
    * for a project that merely has not created its first page would be wrong.
+   *
+   * Nor is it "declares any router": a `hidden()` router is not listed, so a
+   * project whose only router is hidden reads as false here and gets no Pages
+   * destination. That follows from what `hidden` on a module root means, and it
+   * is the sharp edge of it — hiding a page router takes the site's URLs out of
+   * the sitemap with them.
    */
   hasRouters: boolean;
   /** Site map data (if a page router exists) */
