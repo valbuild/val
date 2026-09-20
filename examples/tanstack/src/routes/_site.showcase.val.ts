@@ -45,7 +45,8 @@ export default c.define(
         kb: "A .jsonValues() record: each entry is its own file, loaded on demand.",
         translated:
           "s.locale(), both ways: a locale-keyed record and a locale field.",
-        access: "readonly() and hidden(), which only the Studio enforces.",
+        access:
+          "readonly() and hidden(), which only the Studio enforces — and s.view(), a row that leads to a hidden module the nav does not list.",
       },
     },
   },
