@@ -74,19 +74,77 @@ export function toShellPages(
 /**
  * The external router's record keys are the URLs themselves; there is no
  * separate label, so the host is what a person can recognise a row by.
+ *
+ * The error count is per ENTRY rather than per module, which is the only
+ * reading that means anything here: every external page lives in the same
+ * module, so a module-level count would put the same number on every row.
+ * It is what makes a `.validate(...)` an editor wrote on the item schema
+ * visible in the list - the router's own checks are about the key, and a
+ * project's own rule about the entry had nowhere to show.
  */
 export function toExternalPages(
   record: Record<string, SourcePath> | null | undefined,
+  errors?: Record<SourcePath, { message?: string }[]>,
 ): ShellExternalPage[] {
   if (!record) return [];
-  return Object.entries(record).map(
-    ([url, sourcePath]): ShellExternalPage => ({
+  const byEntry = errors ? collectErrorsByEntry(errors) : undefined;
+  return Object.entries(record).map(([url, sourcePath]): ShellExternalPage => {
+    const entryErrors = byEntry?.get(sourcePath);
+    return {
       // As with pages: the id is what the row opens.
       id: sourcePath,
       name: hostLabel(url),
       url,
       sourcePath,
-    }),
+      errorCount: byEntry ? (entryErrors?.length ?? 0) : undefined,
+      errorMessages: entryErrors,
+    };
+  });
+}
+
+/**
+ * Validation errors gathered against the record entry they are inside.
+ *
+ * An error on a field of an entry is an error on that entry: a source path is
+ * `<entry path>.<field>`, so everything under an entry's path belongs to it.
+ * Built as one pass over the error map rather than a scan per row, so a
+ * project with two hundred external pages does not walk the errors two
+ * hundred times.
+ */
+function collectErrorsByEntry(
+  errors: Record<SourcePath, { message?: string }[]>,
+): Map<SourcePath, string[]> {
+  const byEntry = new Map<SourcePath, string[]>();
+  for (const sourcePathS of Object.keys(errors)) {
+    const sourcePath = sourcePathS as SourcePath;
+    const entryPath = entryPathOf(sourcePath);
+    const messages = byEntry.get(entryPath) ?? [];
+    for (const error of errors[sourcePath]) {
+      messages.push(error.message ?? "Validation error");
+    }
+    byEntry.set(entryPath, messages);
+  }
+  return byEntry;
+}
+
+/**
+ * The first module-path segment of a source path, with the module file.
+ *
+ * Taken apart with the core's own path functions rather than by cutting the
+ * string: a record key is JSON-encoded into the module path, so a URL's dots
+ * and quotes are inside a segment rather than between them, and every
+ * hand-rolled split of this has had to learn that.
+ */
+function entryPathOf(sourcePath: SourcePath): SourcePath {
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(sourcePath);
+  const segments = Internal.createPatchPath(modulePath);
+  if (segments.length <= 1) {
+    return sourcePath;
+  }
+  return Internal.joinModuleFilePathAndModulePath(
+    moduleFilePath,
+    Internal.patchPathToModulePath(segments.slice(0, 1)),
   );
 }
 

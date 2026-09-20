@@ -1,6 +1,7 @@
 import {
   ComponentProps,
   ReactNode,
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -58,6 +59,7 @@ import {
 } from "./externalPageGroups";
 import { ExternalUrlSchemePolicy } from "@valbuild/core";
 import { checkExternalUrls, ExternalUrlIssue } from "./externalUrlChecks";
+import { parseExternalUrl } from "./externalUrls";
 import {
   ExternalUrlProbe,
   ExternalUrlProber,
@@ -160,6 +162,18 @@ export function ExternalPagesDialog({
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [openUrl, setOpenUrl] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  /**
+   * The URL added from this dialog, until its row has been scrolled to.
+   *
+   * Only the scroll needs it - `openUrl` already says which row is open - and
+   * it is cleared once the row has arrived and been brought into view, so a
+   * list someone has since scrolled away from does not jump back every time it
+   * re-renders.
+   */
+  const [added, setAdded] = useState<string | null>(null);
+  // Stable, because a row's scroll effect depends on it: a new function every
+  // render would re-run the effect and scroll the list a second time.
+  const clearAdded = useCallback(() => setAdded(null), []);
   /**
    * The URLs the last press of Check was about.
    *
@@ -280,6 +294,37 @@ export function ExternalPagesDialog({
   const openDetail = (url: string) => {
     setChecked(null);
     setOpenUrl(url);
+  };
+
+  /**
+   * Adding a URL, and then showing what was added.
+   *
+   * The add alone was not enough: the new key is sorted into a list of two
+   * dozen by a grouping nobody was thinking about while they typed it, so it
+   * lands somewhere off screen and the dialog looks like it did nothing. So
+   * everything that could hide the new row is undone - the text filter, the
+   * Flagged/Unused narrowing, the group it belongs to if that was collapsed,
+   * the check report sitting over the detail pane - and then it is opened and
+   * scrolled to.
+   *
+   * It is opened before it exists. The entry arrives through a patch, so there
+   * is nothing to select on this render; `openUrl` is a URL rather than a row,
+   * so it simply resolves when the row appears.
+   */
+  const addPage = (url: string) => {
+    onAddPage?.(url);
+    setQuery("");
+    setFilter("all");
+    setChecked(null);
+    setOpenUrl(url);
+    setAdded(url);
+    const { group } = parseExternalUrl(url);
+    setCollapsed((prev) => {
+      if (!prev.has(group)) return prev;
+      const next = new Set(prev);
+      next.delete(group);
+      return next;
+    });
   };
 
   const stopCheck = () => {
@@ -416,7 +461,7 @@ export function ExternalPagesDialog({
           onStop={stopCheck}
           running={running}
           progress={progress}
-          onAddPage={onAddPage}
+          onAddPage={onAddPage && addPage}
         />
 
         <div className="min-h-0 grid md:grid-cols-[minmax(0,1fr)_22rem]">
@@ -494,6 +539,8 @@ export function ExternalPagesDialog({
                           onOpen={openDetail}
                           showHost={false}
                           revealOnHover={revealOnHover}
+                          scrollTo={added}
+                          onScrolledTo={clearAdded}
                         />
                       ))
                     : flat.map((row) => (
@@ -506,6 +553,8 @@ export function ExternalPagesDialog({
                           onOpen={() => openDetail(row.page.url)}
                           showHost
                           revealOnHover={revealOnHover}
+                          scrollIntoView={added === row.page.url}
+                          onScrolledTo={clearAdded}
                         />
                       ))}
                 </>
@@ -751,6 +800,8 @@ function Group({
   onOpen,
   showHost,
   revealOnHover,
+  scrollTo,
+  onScrolledTo,
 }: {
   group: ExternalPageGroup;
   collapsed: boolean;
@@ -762,6 +813,9 @@ function Group({
   onOpen: (url: string) => void;
   showHost: boolean;
   revealOnHover: boolean;
+  /** The URL to bring into view once its row exists, if it is in this group. */
+  scrollTo?: string | null;
+  onScrolledTo?: () => void;
 }) {
   const all = group.rows.every((row) => selected.has(row.page.url));
   const some = !all && group.rows.some((row) => selected.has(row.page.url));
@@ -810,6 +864,8 @@ function Group({
             onOpen={() => onOpen(row.page.url)}
             showHost={showHost}
             revealOnHover={revealOnHover}
+            scrollIntoView={scrollTo === row.page.url}
+            onScrolledTo={onScrolledTo}
             indented
           />
         ))}
@@ -836,6 +892,8 @@ function Row({
   showHost,
   indented,
   revealOnHover,
+  scrollIntoView,
+  onScrolledTo,
 }: {
   row: ExternalPageRowData;
   selected: boolean;
@@ -845,8 +903,26 @@ function Row({
   revealOnHover: boolean;
   showHost: boolean;
   indented?: boolean;
+  /**
+   * Bring this row into view, once.
+   *
+   * Set for a URL that was just added: the row does not exist on the render
+   * that added it, so the scroll cannot be done by the caller - it has to
+   * happen where the element finally is. `onScrolledTo` is how the caller
+   * forgets about it again.
+   */
+  scrollIntoView?: boolean;
+  onScrolledTo?: () => void;
 }) {
   const { page, parsed, status, usageCount, issues, probe } = row;
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!scrollIntoView) return;
+    // `nearest` so a row already on screen does not move: the point is to
+    // make it visible, not to put it anywhere in particular.
+    ref.current?.scrollIntoView({ block: "nearest" });
+    onScrolledTo?.();
+  }, [scrollIntoView, onScrolledTo]);
   const notesId = useId();
   const notes = [
     probe?.state === "checking" ? "Being checked" : null,
@@ -862,6 +938,7 @@ function Row({
   ].filter((note): note is string => note !== null);
   return (
     <div
+      ref={ref}
       className={cn(
         // `group/row` is what the hover-revealed checkbox keys off.
         "group/row flex items-center gap-2 pr-3",
@@ -1059,6 +1136,31 @@ function EntryDetail({
         )}
       </Section>
 
+      {page.errorMessages !== undefined && page.errorMessages.length > 0 && (
+        // Separate from Checks, and that separation is the point. Checks are
+        // this dialog's own reading of the URL; these are the project's rules
+        // about the entry - the item schema, and any `.validate(...)` on it -
+        // reported by the same validation that fails a publish. A row could
+        // pass every check here and still not be publishable.
+        <Section title="Validation">
+          <ul className="space-y-1.5">
+            {page.errorMessages.map((message, index) => (
+              <li
+                key={`${index}:${message}`}
+                className="flex items-start gap-1.5 text-xs"
+              >
+                <CircleAlert
+                  size={12}
+                  aria-hidden
+                  className="mt-0.5 shrink-0 text-fg-error-on-surface"
+                />
+                <span className="text-fg-secondary">{message}</span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
       <Section title="Value">
         {page.fields === undefined ? (
           <p className="text-xs text-fg-secondary-alt">Loading…</p>
@@ -1194,9 +1296,16 @@ function IssueList({ issues }: { issues: readonly ExternalUrlIssue[] }) {
 /**
  * What the Check button produces.
  *
- * The point of it is the clean rows: a badge can say "something is wrong here",
- * but only a report can say "these eleven were looked at and they are fine",
- * and that is the answer someone pressing a Check button wants.
+ * A report of the FINDINGS, not a transcript of the run. The first version
+ * printed every URL it had looked at with every issue under it, so checking
+ * twenty links produced twenty entries of which seventeen said "No issues." -
+ * and the three that mattered were somewhere in the middle of it. Nobody reads
+ * that, which makes a check nobody reads.
+ *
+ * So the clean rows are a number and the flagged ones are the list. Each gets
+ * one line: the worst thing found, with the rest a click away in the detail
+ * pane, because a row with four findings still only needs one reason to be
+ * looked at.
  */
 function CheckReport({
   rows,
@@ -1210,82 +1319,110 @@ function CheckReport({
   const opened = rows.some((row) => row.probe !== undefined);
   const inFlight = rows.filter((row) => row.probe?.state === "checking").length;
   // Counted over the rows that have answered. A URL still being opened is not
-  // "fine" — it is unknown, and a running total that calls it fine is a number
+  // "fine" - it is unknown, and a running total that calls it fine is a number
   // that goes DOWN as the bad news arrives.
-  const totals = countStatuses(
-    rows.filter((row) => row.probe?.state !== "checking"),
-  );
+  const settled = rows.filter((row) => row.probe?.state !== "checking");
+  const totals = countStatuses(settled);
+  // A `mailto:` is not a link that passed; it is a link with nothing to open.
+  // Counted apart so "fine" keeps meaning "was opened and answered" - and only
+  // among the clean rows, so a key that is broken AND unopenable is reported
+  // once, as broken.
+  const notOpened = settled.filter(
+    (row) =>
+      row.status === "ok" &&
+      row.probe?.state === "done" &&
+      row.probe.result.kind === "skipped",
+  ).length;
+  const fine = totals.ok - notOpened;
+  // Broken before worth-a-look, and the ones still opening last: a report you
+  // read from the top should start with the links that are actually gone.
+  // `sort` is stable, so the list order survives inside each severity.
+  const flagged = rows
+    .filter((row) => row.status !== "ok" || row.probe?.state === "checking")
+    .sort((a, b) => findingRank(a) - findingRank(b));
   return (
-    <div className="p-4 space-y-4">
-      <div className="space-y-1">
+    <div className="p-4 space-y-3">
+      <div className="flex items-baseline gap-2">
         <h3 className="text-xs font-semibold text-fg-primary">
           {inFlight > 0 ? "Checking" : "Checked"} {rows.length} URL
           {rows.length === 1 ? "" : "s"}
         </h3>
-        <p className="text-[0.6875rem] text-fg-secondary-alt">
-          {totals.error > 0 && `${totals.error} with errors · `}
-          {totals.warning > 0 && `${totals.warning} worth a look · `}
-          {totals.ok} fine
-          {inFlight > 0 && ` · ${inFlight} still opening`}
-        </p>
-        <p className="text-[0.6875rem] text-fg-secondary-alt">
-          {opened
-            ? "Each URL was read and opened. A page behind a login answers 403 to the server and fine to a visitor, so those are flagged rather than failed."
-            : "These findings are from the URLs themselves — nothing was opened, so a link that has gone dead still looks fine here."}
-        </p>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="ml-auto -my-1"
+          onClick={onDismiss}
+        >
+          Done
+        </Button>
       </div>
-      <ul className="space-y-2.5">
-        {rows.map((row) => (
-          <li key={row.page.url} className="space-y-1">
-            <button
-              type="button"
-              onClick={() => onOpen(row.page.url)}
-              className="flex items-start gap-1.5 w-full text-left"
-            >
-              {row.probe?.state === "checking" ? (
-                <Loader2
-                  size={12}
-                  aria-hidden
-                  className="shrink-0 animate-spin text-fg-secondary-alt"
-                />
-              ) : (
-                <StatusIcon status={row.status} issues={row.issues} />
-              )}
-              <span className="min-w-0 font-mono text-[0.625rem] leading-4 text-fg-secondary break-all hover:text-fg-primary">
-                {row.page.url}
-              </span>
-            </button>
-            {row.probe?.state === "checking" ? (
-              <p className="pl-5 flex items-center gap-1.5 text-[0.6875rem] text-fg-secondary-alt">
-                <Loader2 size={10} aria-hidden className="animate-spin" />
-                Opening…
-              </p>
-            ) : row.issues.length === 0 ? (
-              <p className="pl-5 text-[0.6875rem] text-fg-secondary-alt">
-                {row.probe?.state === "done"
-                  ? probeSummary(row.probe.result)
-                  : "No issues."}
-              </p>
-            ) : (
-              <ul className="pl-5 space-y-1">
-                {row.issues.map((issue) => (
-                  <li
-                    key={issue.code}
-                    className="text-[0.6875rem] text-fg-secondary"
-                  >
-                    {issue.message}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </li>
-        ))}
-      </ul>
-      <Button size="sm" variant="ghost" onClick={onDismiss}>
-        Done
-      </Button>
+
+      {flagged.length === 0 ? (
+        <p className="flex items-center gap-1.5 text-xs text-fg-secondary">
+          <CircleCheck
+            size={12}
+            aria-hidden
+            className="text-fg-brand-primary"
+          />
+          {totals.ok === 0
+            ? "Nothing to report."
+            : `All ${totals.ok} look fine.`}
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {flagged.map((row) => (
+            <li key={row.page.url}>
+              <button
+                type="button"
+                onClick={() => onOpen(row.page.url)}
+                className="w-full text-left group/finding"
+              >
+                <span className="flex items-start gap-1.5">
+                  {row.probe?.state === "checking" ? (
+                    <Loader2
+                      size={12}
+                      aria-hidden
+                      className="mt-0.5 shrink-0 animate-spin text-fg-secondary-alt"
+                    />
+                  ) : (
+                    <StatusIcon status={row.status} issues={row.issues} />
+                  )}
+                  <span className="min-w-0 font-mono text-[0.625rem] leading-4 text-fg-secondary break-all group-hover/finding:text-fg-primary">
+                    {row.page.url}
+                  </span>
+                </span>
+                <span className="block pl-5 text-[0.6875rem] text-fg-secondary-alt">
+                  {row.probe?.state === "checking"
+                    ? "Opening…"
+                    : (row.issues[0]?.message ?? "")}
+                  {row.issues.length > 1 && ` +${row.issues.length - 1} more`}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className="text-[0.6875rem] text-fg-secondary-alt">
+        {[
+          flagged.length > 0 && fine > 0 ? `${fine} fine` : null,
+          notOpened > 0 ? `${notOpened} with nothing to open` : null,
+          inFlight > 0 ? `${inFlight} still opening` : null,
+          opened
+            ? null
+            : "Nothing was opened — these findings are from the URLs themselves.",
+        ]
+          .filter((part): part is string => typeof part === "string")
+          .join(" · ")}
+      </p>
     </div>
   );
+}
+
+/** Where a flagged row sorts in the report. */
+function findingRank(row: ExternalPageRowData): number {
+  if (row.probe?.state === "checking") return 2;
+  return row.status === "error" ? 0 : 1;
 }
 
 /**

@@ -54,7 +54,23 @@ export type ShellExternalPage = {
   url: string;
   /** Where the entry's content lives, for navigation. */
   sourcePath?: string;
+  /**
+   * Validation errors on this ENTRY, not on the module.
+   *
+   * Every external page lives in the same module, so a module-level count
+   * would read the same on every row. Undefined while nothing has been
+   * validated yet, which is not the same as zero.
+   */
   errorCount?: number;
+  /**
+   * What those errors say, in the order they were reported.
+   *
+   * The count answers "is something wrong here"; only the messages answer
+   * "what", and a project's own `.validate(...)` on the item schema is where
+   * the interesting ones come from - the router checks the key, and the rule
+   * an editor wrote about the entry has nowhere else to appear.
+   */
+  errorMessages?: string[];
   /**
    * The entry's own fields, flattened for reading.
    *

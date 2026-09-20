@@ -44,9 +44,15 @@ import { ExternalUrlProbeResult } from "../externalUrlReachability";
  * button while it runs, and rows that never got an answer go back to unchecked
  * rather than sitting on a spinner forever.
  *
+ * The report it produces is the FINDINGS, not a transcript: the clean rows
+ * are a number, and each flagged one gets a single line with the worst thing
+ * found. Press Check on `AFewUrls` to see the other half of that - "All 5
+ * look fine" is the answer a check button exists to give, and it is one line.
+ *
  * Try: Check everything, then tick two rows and press it again. Filter to
  * `Flagged` once the answers are in, or to `Unused`. Open a row to see the
- * entry's own value, what answered, and the places that link to it.
+ * entry's own value, every finding rather than the first, what answered, and
+ * the places that link to it.
  */
 const meta: Meta<typeof DialogHarness> = {
   title: "Shell/ExternalPages",

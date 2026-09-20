@@ -342,8 +342,12 @@ export const mockExternalPages: ShellExternalPage[] = [
       usages: [usage("/app/page.val.ts", "promo.href", "Home / Promo")],
     },
   ),
+  // A project's own rule about the entry, from a `.validate(...)` on the item
+  // schema. Nothing is wrong with the URL - the error is about what is behind
+  // it, which is why it is a section of its own in the detail pane.
   externalPage("https://jobs.example.com/val", {
     errorCount: 1,
+    errorMessages: ["Title is required for an external page"],
     fields: [
       { label: "title", value: "" },
       { label: "description", value: "Open positions at Val" },
@@ -362,6 +366,9 @@ export const mockExternalPages: ShellExternalPage[] = [
   }),
   externalPage("discord.gg/val", {
     errorCount: 1,
+    errorMessages: [
+      'URL "discord.gg/val" cannot be used here. Must start with a scheme, like https:// or mailto:.',
+    ],
     fields: [{ label: "title", value: "Discord" }],
     usages: [
       usage("/content/footer.val.ts", "social.4.url", "Footer / Social / 5"),
