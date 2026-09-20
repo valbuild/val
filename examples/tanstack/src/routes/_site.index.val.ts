@@ -15,6 +15,16 @@ export const schema = s.object({
     lead: s.richtext({ bold: true, italic: true, a: true }),
   }),
   author: s.keyOf(authorsVal),
+  /**
+   * A pointer at the authors module, rather than a copy of it.
+   *
+   * `s.keyOf` above picks ONE author; the editor who wants to fix a name has to
+   * go and find `/src/content/authors.val.ts` for themselves. This puts a row on
+   * this page's screen that leads straight there — and, because the page now
+   * declares which module it shows, the route component reads the list through
+   * `useVal(page.authors)` instead of importing the module a second time.
+   */
+  authors: s.view(authorsVal),
   tags: s.array(s.string()),
 });
 
@@ -46,6 +56,7 @@ export default c.define(
         ],
       },
       author: "freekh",
+      authors: { view: "/src/content/authors.val.ts" },
       tags: ["CMS", "react", "tanstack"],
     },
   },
