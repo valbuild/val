@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { GitCompareArrows, History, Undo2 } from "lucide-react";
 import { Button } from "../components/designSystem/button";
+import { Checkbox } from "../components/designSystem/checkbox";
 import { cn } from "../components/designSystem/cn";
 import { FieldPatchAuthorsPure } from "../components/FieldPatchAuthors";
 import type { Profile } from "../components/ValProvider";
@@ -499,15 +500,27 @@ function Row({
         checked && "bg-bg-secondary",
       )}
     >
-      <label className="flex shrink-0 cursor-pointer items-center">
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={() => onToggle(!checked)}
-          aria-label={`Select ${row.description.title}`}
-          className="h-3.5 w-3.5 cursor-pointer accent-[var(--bg-brand-primary)]"
-        />
-      </label>
+      {/*
+       * The design system's checkbox, not a bare `<input type="checkbox">`.
+       *
+       * A native checkbox is painted by the browser from `color-scheme`, which
+       * nothing sets here — Val's dark mode is `[data-mode="dark"]` on a shadow
+       * root, and the UA has no way to know. So in the dark theme the UNCHECKED
+       * box came out as a solid white square: indistinguishable from a ticked
+       * one, on the control this whole page turns on. `accent-color` does not
+       * save it, because it only recolours the checked fill.
+       *
+       * The themed one is also the only one that can be themed at all — the
+       * brand fill is `--bg-brand-primary` and projects change it — and it is
+       * where `indeterminate` lives, which is a DOM property with no HTML
+       * attribute and therefore not something to re-implement per surface.
+       */}
+      <Checkbox
+        checked={checked}
+        onCheckedChange={(next) => onToggle(next === true)}
+        aria-label={`Select ${row.description.title}`}
+        className="shrink-0 cursor-pointer"
+      />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
           {named && (
