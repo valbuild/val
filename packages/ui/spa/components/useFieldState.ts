@@ -51,15 +51,29 @@ export function useFieldState(
   const sourceData = "data" in sourceAtPath ? sourceAtPath.data : undefined;
   const schemaData = "data" in schemaAtPath ? schemaAtPath.data : undefined;
 
+  /**
+   * Whether an empty media field is shown, kept in step with the source.
+   *
+   * `showEmptyFileOrImage` only means something while the source is `null`: it
+   * is how a media field says "shown, nothing uploaded yet", which is a state a
+   * media value cannot be written in. Two rules keep it honest:
+   *
+   * - A media field that is NOT nullable has no empty state to offer, so it is
+   *   always shown.
+   * - Once a file IS there the flag has nothing left to say, so it is cleared.
+   *   Leaving it set is what made removing a nullable image look like a no-op:
+   *   the source went back to `null` and the field stayed open and ticked,
+   *   because the flag still claimed it had been opened by hand.
+   */
   useEffect(() => {
     if (overrides) return;
-    if (
-      sourceData === null &&
-      schemaData &&
-      !schemaData.opt &&
-      (schemaData.type === "image" || schemaData.type === "file")
-    ) {
-      setShowEmptyFileOrImage(true);
+    if (schemaData?.type !== "image" && schemaData?.type !== "file") return;
+    if (sourceData === null) {
+      if (!schemaData.opt) {
+        setShowEmptyFileOrImage(true);
+      }
+    } else if (sourceData !== undefined) {
+      setShowEmptyFileOrImage(false);
     }
   }, [sourceData, schemaData?.opt, schemaData?.type, overrides]);
 

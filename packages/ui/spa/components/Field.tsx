@@ -144,13 +144,28 @@ export function Field({
                   checked={source !== null || showEmptyFileOrImage}
                   onCheckedChange={() => {
                     if (effectiveReadonly) return;
-                    if (
-                      (schema.type === "image" || schema.type === "file") &&
-                      source === null
-                    ) {
-                      setShowEmptyFileOrImage(true);
-                    } else {
-                      if (source === null) {
+                    /*
+                     * Which way this click goes is decided by what the box
+                     * SHOWS, not by the source alone.
+                     *
+                     * A media field has a third state: source `null` with the
+                     * field shown, which is what "on" means before anything has
+                     * been uploaded. Branching on `source === null` conflated
+                     * that with "off", so a media field turned on and then off
+                     * again re-ran the turn-on branch: the box stayed ticked,
+                     * the empty field stayed open, and a nullable image could
+                     * not be cleared at all once it had been added.
+                     */
+                    const isMedia =
+                      schema.type === "image" || schema.type === "file";
+                    const isChecked = source !== null || showEmptyFileOrImage;
+                    if (!isChecked) {
+                      if (isMedia) {
+                        // There is no empty media value to write — a media
+                        // source without a file is not valid — so turning it on
+                        // opens the field, and the upload writes the patch.
+                        setShowEmptyFileOrImage(true);
+                      } else {
                         addPatch(
                           [
                             {
@@ -164,18 +179,23 @@ export function Field({
                           ],
                           schema.type,
                         );
-                      } else {
-                        addPatch(
-                          [
-                            {
-                              op: "replace",
-                              path: patchPath,
-                              value: null,
-                            },
-                          ],
-                          schema.type,
-                        );
                       }
+                      return;
+                    }
+                    if (isMedia) {
+                      setShowEmptyFileOrImage(false);
+                    }
+                    if (source !== null) {
+                      addPatch(
+                        [
+                          {
+                            op: "replace",
+                            path: patchPath,
+                            value: null,
+                          },
+                        ],
+                        schema.type,
+                      );
                     }
                   }}
                 />
