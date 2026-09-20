@@ -65,8 +65,7 @@ const SOURCE = { "/content/test.val.ts": "export default 1" };
 const HTTP = {
   apiKey: "key",
   valSecret: "secret",
-  gitCommit: "0000000000000000000000000000000000000000",
-  gitBranch: "main",
+  git: { commit: "0".repeat(40), branch: "main" },
 };
 
 const optionsPassed = (): Record<string, unknown> => {
@@ -125,14 +124,14 @@ describe("initValContent in http mode", () => {
     /*
      * The one field that is silently wrong rather than loudly missing.
      *
-     * Every read in this mode fetches the module's path from the content
-     * service at this commit. A reader given a different one from the API
-     * resolves a different version of the same file -- so a draft render shows
-     * content that is neither the draft nor what the site is serving, with
-     * nothing failing anywhere.
+     * Producing the `.val.ts` mirror a publish commits means reading the
+     * current text from the content service at this commit. A reader given a
+     * different one from the API patches a different version of the same file
+     * -- so the commit writes over content that is neither the draft nor what
+     * the site is serving, with nothing failing anywhere.
      */
     initValContent(config, valModules, { http: HTTP });
-    expect(optionsPassed().gitCommit).toBe(HTTP.gitCommit);
+    expect(optionsPassed().git).toEqual(HTTP.git);
   });
 
   test("a content url reaches it too, for a stand-in host", () => {
@@ -145,6 +144,6 @@ describe("initValContent in http mode", () => {
   test("a host that passes none of it is left exactly as it was", () => {
     initValContent(config, valModules, {});
     expect("apiKey" in optionsPassed()).toBe(false);
-    expect("gitCommit" in optionsPassed()).toBe(false);
+    expect("git" in optionsPassed()).toBe(false);
   });
 });

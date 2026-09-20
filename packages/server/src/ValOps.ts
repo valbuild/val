@@ -264,7 +264,8 @@ export abstract class ValOps {
         nonce: string;
         baseSha: BaseSha;
         schemaSha: SchemaSha;
-        commitSha: CommitSha;
+        /** Absent for a project with no repository. See `git` on ValApiOptions. */
+        commitSha?: CommitSha;
         sourcesSha: SourcesSha;
         patches: PatchId[];
       }
@@ -2221,11 +2222,32 @@ export abstract class ValOps {
       ModuleFilePath,
       Record<string, JSONValue | null>
     > = {};
-    const allResults = await Promise.all(
-      Object.entries(patchesByModule).map(([path, patches]) =>
-        applySourceFilePatches(path as ModuleFilePath, patches),
-      ),
-    );
+    /*
+     * Patching the FILE TEXT, for a store that has somewhere to put it.
+     *
+     * Where there is nowhere -- an http project with no repository -- the
+     * patches are still all applied, because they are: `getSources(analysis)`
+     * below applies them to Source, and that is what the commit records and
+     * what every reader of this project sees. What is skipped is rendering
+     * that data back out as `.val.ts` and `*.val.json`, which would be a
+     * mirror with no repository to mirror into -- and which cannot even be
+     * attempted, because producing it starts by READING the current text from
+     * the repository that is not there.
+     */
+    const allResults: Awaited<ReturnType<typeof applySourceFilePatches>>[] =
+      await Promise.all(
+        Object.entries(patchesByModule).map(([path, patches]) =>
+          this.mirrorsSourceFiles
+            ? applySourceFilePatches(path as ModuleFilePath, patches)
+            : Promise.resolve({
+                path: path as ModuleFilePath,
+                appliedPatches: patches.map((p) => p.patchId),
+                result: null,
+                extraFiles: {},
+                jsonEntries: {},
+              }),
+        ),
+      );
     let hasErrors = false;
     const sourceFilePatchErrors: Record<ModuleFilePath, PatchSourceError[]> =
       {};
@@ -2433,6 +2455,46 @@ export abstract class ValOps {
         : {}),
     });
   }
+
+  /**
+   * Why a publish cannot happen here, or `null` when one can.
+   *
+   * Named rather than thrown, and asked BEFORE the click: the Studio shows the
+   * reason and disables the action, instead of letting someone write a commit
+   * message and then meeting a failure from four layers down.
+   *
+   * `no-base` is the only code so far and means what it says: there is nowhere
+   * for this publish's commit to be based. Note which way round that is --
+   * a project whose content service is the store of record always HAS a base
+   * (the service's own chain, which mints its own shas), so the refusal is not
+   * about missing git. It is about a deployment that cannot do what its
+   * project requires.
+   */
+  publishRefusal(): PublishRefusal | null {
+    return null;
+  }
+
+  /**
+   * Whether a commit here produces `.val.ts` TEXT as well as data.
+   *
+   * True everywhere there is somewhere to put it: a working tree in `fs` mode,
+   * a host holding its own source in memory mode, a git repository in `http`
+   * mode. False for an `http` project whose content service is the store of
+   * record and which has no repository attached -- see `git` on
+   * {@link ValApiOptions}.
+   *
+   * WHAT IS NOT AFFECTED, and it is the part worth being sure of:
+   * `moduleVersions` -- what each changed module IS after the commit, with its
+   * schema -- comes from `getSources(analysis)`, which applies the ops to
+   * Source in the stores. It does not go near the file text. So a commit with
+   * no mirror still records everything history and a later `connect-github`
+   * fold need; what it does not record is a rendering of that data as code.
+   *
+   * WHAT IS: the ops are no longer applied to the file text as well, so a
+   * patch that would not fit the `.val.ts` is not reported here. That check
+   * only ever existed for the text being produced, and there is none.
+   */
+  protected readonly mirrorsSourceFiles: boolean = true;
 
   /**
    * Take the `.val.ts` text a commit produced as the new committed source.
@@ -2789,6 +2851,19 @@ export type OpsMetadata<T extends "file" | "image"> =
     };
 
 export type BinaryFileType = "file" | "image";
+
+/**
+ * Why a publish is refused, in a form a person can be shown.
+ *
+ * `code` is for the Studio to branch on and `message` is what it says. Both,
+ * rather than a code and a lookup table on the client: the server knows what
+ * is actually missing -- which branch, which commit -- and a client-side table
+ * could only ever say the generic version.
+ */
+export type PublishRefusal = {
+  code: "no-base";
+  message: string;
+};
 
 export type PreparedCommit = {
   /**

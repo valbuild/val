@@ -32,8 +32,7 @@ describe("ValOpsHttp.fetchPatches chunking", () => {
     const ops = new ValOpsHttp(
       "https://content.example",
       "org/project",
-      "commit",
-      "main",
+      { commit: "commit", branch: "main" },
       { apiKey: "test" },
       { config, modules: [] },
       { config },

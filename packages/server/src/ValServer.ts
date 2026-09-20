@@ -194,8 +194,14 @@ export type ValServerConfig = ValServerOptions &
         mode: "http";
         apiKey: string;
         project: string;
-        commit: string;
-        branch: string;
+        /**
+         * The repository this project's commits are mirrored into, if any.
+         *
+         * Absent is a project whose content service is the store of record --
+         * which is every project that has not attached a repository, and the
+         * normal case. See `git` on {@link ValApiOptions}.
+         */
+        git?: { commit: string; branch: string };
         root?: string;
         config: ValConfig;
       }
@@ -271,7 +277,9 @@ export const ValServer = (
     return url.toString();
   };
   const commit =
-    options.mode === "http" ? (options.commit as CommitSha) : undefined;
+    options.mode === "http"
+      ? (options.git?.commit as CommitSha | undefined)
+      : undefined;
 
   const getAppErrorUrl = (error: string): string => {
     if (!options.project) {
@@ -937,12 +945,22 @@ export const ValServer = (
          * start against a server that was working.
          */
         const mode = serverOps.patchesAreLocal ? "fs" : "http";
+        /*
+         * Why publishing is unavailable, so the Studio can say so.
+         *
+         * Spread rather than set to null, so a server that can publish sends
+         * no such key at all: the Studio's "can I publish" is then the
+         * presence of the field, and there is no null to mistake for a reason
+         * it failed to compute.
+         */
+        const publishRefusal = serverOps.publishRefusal();
         return {
           status: 200,
           json: {
             ...currentStat,
             profileId: profileId ?? null,
             mode,
+            ...(publishRefusal ? { publishRefusal } : {}),
             config: options.config,
           },
         };
@@ -2163,6 +2181,29 @@ export const ValServer = (
           patchIds,
           excludePatchOps: false,
         });
+        /*
+         * Can this deployment publish this project AT ALL?
+         *
+         * After the fetch above, deliberately: that call is what tells the
+         * data layer what the project expects, and asking before it would be
+         * asking a question nothing has answered yet. It is still before
+         * anything is written, which is the part that matters.
+         *
+         * The Studio already knows -- `/stat` carries the same refusal, so the
+         * action is disabled with the reason shown. This is the second half of
+         * that: a stat can be stale by a poll, and nothing may reach `prepare`
+         * on a project it cannot mirror.
+         */
+        const refusal = serverOps.publishRefusal();
+        if (refusal) {
+          return {
+            status: 409,
+            json: {
+              message: refusal.message,
+              publishRefusal: refusal,
+            },
+          };
+        }
         /*
          * Exactly the patches this request consumes, and the ONLY ones it may
          * delete afterwards.
