@@ -264,9 +264,13 @@ export type ShellPanel =
   | "account"
   | "utility"
   | "ai"
-  | "notifications"
-  /** The list of publishes, and the way into the two-pane history view. */
-  | "history";
+  | "notifications";
+/*
+ * There is no `"history"` panel. The list of publishes is a PAGE — see
+ * `VAL_HISTORY_ROUTE` — because every step of a restore after picking the
+ * commit is already a link, and the step you start at was the only one that
+ * could not be sent to a colleague.
+ */
 
 /** Breakpoint the shell is rendering at. */
 export type ShellBreakpoint = "mobile" | "tablet" | "desktop";

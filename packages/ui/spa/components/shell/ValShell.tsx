@@ -46,6 +46,7 @@ import { useTheme } from "../ValThemeProvider";
 import {
   VAL_COMPARE_ROUTE,
   VAL_ERRORS_ROUTE,
+  VAL_HISTORY_ROUTE,
   scrollToStudioPath,
   useNavigation,
   useHistoryParams,
@@ -977,6 +978,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const unlistedModulePath =
     !navigation.isCompareView &&
     !navigation.isErrorsView &&
+    !navigation.isHistoryView &&
     selectionId === null &&
     navigation.currentSourcePath
       ? (navigation.currentSourcePath as SourcePath)
@@ -985,6 +987,16 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     <CompareView />
   ) : navigation.isErrorsView ? (
     <ValidationErrorsView />
+  ) : navigation.isHistoryView ? (
+    /*
+     * The list of publishes, as the whole editor column.
+     *
+     * Mounted only on this route, so opening the Studio does not fetch a list
+     * nobody asked for — the head of it moves on every publish, so it is not
+     * cached and there would be nothing to warm. That was the one good
+     * property of it being a panel, and a route keeps it.
+     */
+    <HistoryView />
   ) : unlistedModulePath ? (
     <Module path={unlistedModulePath} showModuleGalleryChild={null} />
   ) : null;
@@ -1176,16 +1188,16 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
           isAIChatEnabled ? <AIChatSurface className="h-full" /> : undefined
         }
         /*
-         * The list of publishes.
+         * Whether to offer History at all.
          *
-         * `undefined` in FS mode, which also hides the button: local dev has git
-         * rather than a commit archive, so there is no published history to list
-         * and `/history/commits` answers `not-supported-in-fs-mode`. Mounted only
-         * while the panel is open, so opening the Studio does not fetch a list
-         * nobody asked for — the head of it moves on every publish, so it is not
-         * cached and there would be nothing to warm.
+         * False in FS mode: local dev has git rather than a commit archive, so
+         * there is no published history to list and `/history/commits` answers
+         * `not-supported-in-fs-mode`. The button is hidden rather than leading
+         * to a page whose only content is an apology.
          */
-        historySlot={mode === "http" ? <CommitListSurface /> : undefined}
+        historyEnabled={mode === "http"}
+        historyActive={navigation.isHistoryView}
+        onOpenHistory={() => navigation.navigate(VAL_HISTORY_ROUTE)}
         onMentionField={(sourcePath) =>
           insertFieldRef(sourcePath as SourcePath)
         }
@@ -1199,13 +1211,17 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
 }
 
 /**
- * The History panel's contents: the commit list, wired up.
+ * The `/val/history` page: the commit list, wired up.
  *
  * Separated from `ValShell` so the fetch lives with the thing that shows it —
- * and so it unmounts with the panel, which is what keeps the list from being
+ * and so it unmounts with the route, which is what keeps the list from being
  * fetched on every Studio load.
+ *
+ * Picking a commit here sets `?commit=` and the two-pane view opens over
+ * whatever the editor is on. That is the same layering the panel had: history
+ * is a LAYER over a route, and this page is only the place you pick from.
  */
-function CommitListSurface() {
+function HistoryView() {
   const config = useValConfig();
   const { history, setHistory } = useHistoryParams();
   const branch = config?.gitBranch ?? null;

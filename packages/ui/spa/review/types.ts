@@ -31,15 +31,38 @@ export type ReviewModel = {
    */
   stagingEnabled: boolean;
   profiles: Record<string, { fullName: string; avatar?: string | null }>;
+  /**
+   * Who is looking, so "Mine" can be one click.
+   *
+   * Null when the profile has not loaded or there is no session — and then the
+   * "Mine" preset is absent rather than present and selecting nothing, which is
+   * the same rule the staging checkboxes follow in fs mode.
+   */
+  currentAuthorId: string | null;
   /** Fixed clock, so relative dates are screenshottable. */
   now: Date;
 };
 
 export type ReviewModuleGroup = {
-  /** The module's path, which is what makes the group unique. */
+  /**
+   * The module's path, which is what makes the group unique.
+   *
+   * An id, not a label. It is never printed: an editor has no checkout, so
+   * `/app/blogs/[blog]/page.val.ts` names a file they cannot open. What they
+   * see is {@link description} and {@link location}.
+   */
   moduleFilePath: string;
   /** What the module is CALLED — a heading is a title surface. */
   description: Description;
+  /**
+   * WHERE it is, spelled for a reader: `Content`, `App / Blogs / Blog`.
+   *
+   * A location, so it is still path segments and still holds still while
+   * someone types — `prettyModuleLocation` only changes how they are spelled.
+   * It is what tells two modules called `Page` apart, which is the one job the
+   * raw path was doing here. Null when there is no folder to name.
+   */
+  location: string | null;
   rows: ReviewRow[];
 };
 
@@ -59,8 +82,21 @@ export type ReviewRow = {
    * the name; a list row is a preview surface, so it is used when present.
    */
   description: Description;
-  /** The path under the module, for a row that is not the module root. */
-  patchPath: string[];
+  /**
+   * WHERE in the module this is, spelled for a reader. Empty at the root.
+   *
+   * Not the patch path verbatim, and that is the whole reason it has its own
+   * field: a gallery's keys ARE file paths, so a patch path rendered as-is puts
+   * `/public/val/images/hero-a1b2c.jpg` in front of an editor who has no
+   * checkout — the same leak the module path was.
+   *
+   * A router record's key is the one that stays whole. `/blogs/getting-started`
+   * is the page's IDENTITY, not a path to a file, and shortening it to
+   * `getting-started` takes away the only thing that tells two drafts called
+   * "Launch" apart. The adapter decides which of the two a segment is; the page
+   * renders what it is given.
+   */
+  trail: string[];
   /** What kinds of edit are in here, for the one-line summary. */
   summary: string;
   /** Who staged it, and when — the same shape the compare rows carry. */
@@ -68,6 +104,15 @@ export type ReviewRow = {
   lastUpdated: string;
   /** How many patches coalesced into this set. */
   patchCount: number;
+  /**
+   * Which half of the page this row is in.
+   *
+   * It is no longer what the checkbox shows. The checkbox is a SELECTION —
+   * what you are about to act on — and staged-ness is the section the row sits
+   * in, because one control cannot answer both "is this going out" and "am I
+   * about to change that" without the answer to one being mistaken for the
+   * other. `partial` sits with the staged rows and says so on the row.
+   */
   staging: RowStagingState;
   /**
    * What staging this row would additionally pull in, by author name.

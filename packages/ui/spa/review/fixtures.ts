@@ -1,6 +1,7 @@
 import type { Description } from "../utils/describePath";
 import type { CompareAuthorship } from "../compare/types";
-import type { ReviewModel, ReviewRow } from "./types";
+import { prettyModuleLocation } from "../utils/prettyModulePath";
+import type { ReviewModel, ReviewModuleGroup, ReviewRow } from "./types";
 
 /**
  * The same publish the compare fixtures describe, seen as a publish decision.
@@ -61,7 +62,7 @@ function named(title: string, pathLabel: string): Description {
 function row(
   id: string,
   description: Description,
-  patchPath: string[],
+  trail: string[],
   summary: string,
   authors: CompareAuthorship,
   extra?: Partial<ReviewRow>,
@@ -69,13 +70,31 @@ function row(
   return {
     id,
     description,
-    patchPath,
+    trail,
     summary,
     authors,
     lastUpdated: minutesAgo(12),
     patchCount: 1,
     staging: "staged",
     ...extra,
+  };
+}
+
+/**
+ * A module group, with its location derived from its path the way the adapter
+ * will derive it — rather than typed out, which is how a fixture ends up
+ * showing a spelling the real page can never produce.
+ */
+function group(
+  moduleFilePath: string,
+  description: Description,
+  rows: ReviewRow[],
+): ReviewModuleGroup {
+  return {
+    moduleFilePath,
+    description,
+    location: prettyModuleLocation(moduleFilePath),
+    rows,
   };
 }
 
@@ -87,109 +106,105 @@ export const PROFILES = {
 export const reviewModel: ReviewModel = {
   stagingEnabled: true,
   profiles: PROFILES,
+  /* Ada is looking, so "Mine" is one of the presets. */
+  currentAuthorId: "profile-ada",
   now: NOW,
   modules: [
-    {
-      moduleFilePath: "/app/page.val.ts",
-      description: named("Landing page", "page"),
-      rows: [
-        row(
-          "landing-heading",
-          unnamed("heading"),
-          ["heading"],
-          "Text changed",
-          byBoth(),
-          { patchCount: 3 },
-        ),
-        row(
-          "landing-brand",
-          unnamed("brand"),
-          ["theme", "brand"],
-          "Colour changed",
-          by("profile-linus", "replace", 55),
-        ),
-        row(
-          "landing-badge",
-          unnamed("badge"),
-          ["badge"],
-          "Added",
-          by("profile-ada", "add", 12),
-        ),
-      ],
-    },
-    {
-      moduleFilePath: "/content/authors.val.ts",
-      description: named("Authors", "authors"),
-      rows: [
-        row(
-          "authors-kimmid",
-          named("Kim Midtlid", "kimmid"),
-          ["kimmid"],
-          "Entry added",
-          by("profile-linus", "add", 200),
-          { patchCount: 2 },
-        ),
-        row(
-          "authors-erlamd",
-          unnamed("erlamd"),
-          ["erlamd"],
-          "Entry removed",
-          by("profile-ada", "remove", 30),
-        ),
-        row(
-          "authors-teddy",
-          named("Theodor R. Carlsen", "teddy"),
-          ["teddy", "name"],
-          "Text changed",
-          by("profile-linus", "replace", 45),
-        ),
-      ],
-    },
-    {
-      moduleFilePath: "/app/blogs/[blog]/page.val.ts",
-      description: named("Blog posts", "Pages"),
-      rows: [
+    group("/app/page.val.ts", named("Landing page", "page"), [
+      row(
+        "landing-heading",
+        unnamed("heading"),
+        ["heading"],
+        "Text changed",
+        byBoth(),
+        { patchCount: 3 },
+      ),
+      row(
+        "landing-brand",
+        unnamed("brand"),
+        ["theme", "brand"],
+        "Colour changed",
+        by("profile-linus", "replace", 55),
+      ),
+      row(
+        "landing-badge",
+        unnamed("badge"),
+        ["badge"],
+        "Added",
+        by("profile-ada", "add", 12),
+      ),
+    ]),
+    group("/content/authors.val.ts", named("Authors", "authors"), [
+      row(
+        "authors-kimmid",
+        named("Kim Midtlid", "kimmid"),
+        ["kimmid"],
+        "Entry added",
+        by("profile-linus", "add", 200),
+        { patchCount: 2 },
+      ),
+      row(
+        "authors-erlamd",
+        unnamed("erlamd"),
+        ["erlamd"],
+        "Entry removed",
+        by("profile-ada", "remove", 30),
+      ),
+      row(
+        "authors-teddy",
+        named("Theodor R. Carlsen", "teddy"),
+        ["teddy", "name"],
+        "Text changed",
+        by("profile-linus", "replace", 45),
+      ),
+    ]),
+    /*
+     * A page module, whose location is the one that used to read
+     * `/app/blogs/[blog]/page.val.ts`. It is `App / Blogs / Blog` now — the
+     * same segments, spelled for someone who has never seen a Next route.
+     */
+    group("/app/blogs/[blog]/page.val.ts", named("Blog posts", "Pages"), [
+      /*
+       * Held back, and it pulls somebody else's work in if you stage it.
+       *
+       * Both states on one row on purpose: this is the case the page exists
+       * to make legible, and it is the one a flat list of diffs cannot show
+       * at all.
+       */
+      row(
+        "blogs-getting-started",
+        named("Getting started with Val", "/blogs/getting-started"),
+        ["/blogs/getting-started", "title"],
+        "Text changed",
+        by("profile-ada", "replace", 20),
+        {
+          staging: "held",
+          alsoStages: ["Linus Pauling"],
+        },
+      ),
+      row(
+        "blogs-renamed",
+        named("History, restored", "/blogs/history-and-restore"),
+        ["/blogs/history-and-restore"],
+        "Page renamed",
+        by("profile-linus", "move", 90),
+        { staging: "held" },
+      ),
+    ]),
+    group("/content/media.val.ts", unnamed("media"), [
+      row(
+        "media-hero",
+        unnamed("hero-a1b2c.jpg"),
         /*
-         * Held back, and it pulls somebody else's work in if you stage it.
-         *
-         * Both states on one row on purpose: this is the case the page exists
-         * to make legible, and it is the one a flat list of diffs cannot show
-         * at all.
+         * The gallery's key is `/public/val/images/hero-a1b2c.jpg`; what an
+         * editor is shown is the file name. A route key would stay whole —
+         * see `ReviewRow.trail`.
          */
-        row(
-          "blogs-getting-started",
-          named("Getting started with Val", "/blogs/getting-started"),
-          ["/blogs/getting-started", "title"],
-          "Text changed",
-          by("profile-ada", "replace", 20),
-          {
-            staging: "held",
-            alsoStages: ["Linus Pauling"],
-          },
-        ),
-        row(
-          "blogs-renamed",
-          named("History, restored", "/blogs/history-and-restore"),
-          ["/blogs/history-and-restore"],
-          "Page renamed",
-          by("profile-linus", "move", 90),
-          { staging: "held" },
-        ),
-      ],
-    },
-    {
-      moduleFilePath: "/content/media.val.ts",
-      description: unnamed("media"),
-      rows: [
-        row(
-          "media-hero",
-          unnamed("hero-a1b2c.jpg"),
-          ["/public/val/images/hero-a1b2c.jpg"],
-          "Image added",
-          by("profile-ada", "file", 8),
-        ),
-      ],
-    },
+        ["hero-a1b2c.jpg"],
+        "Image added",
+        by("profile-ada", "file", 8),
+      ),
+    ]),
   ],
 };
 
@@ -202,16 +217,16 @@ export const emptyReviewModel: ReviewModel = {
 /**
  * fs mode, where the server cannot store patch groups.
  *
- * Every checkbox is gone rather than present and inert — the rule
- * `PatchStaging.enabled` already states. Discard still works, because
- * discarding a patch does not need a group to put it in.
+ * Stage and Unstage are gone rather than present and inert — the rule
+ * `PatchStaging.enabled` already states. Revert still works, because dropping
+ * a patch does not need a group to put it in.
  */
 export const noStagingReviewModel: ReviewModel = {
   ...reviewModel,
   stagingEnabled: false,
-  modules: reviewModel.modules.map((group) => ({
-    ...group,
-    rows: group.rows.map((entry) => ({
+  modules: reviewModel.modules.map((moduleGroup) => ({
+    ...moduleGroup,
+    rows: moduleGroup.rows.map((entry) => ({
       ...entry,
       staging: "staged" as const,
       alsoStages: undefined,
@@ -222,16 +237,16 @@ export const noStagingReviewModel: ReviewModel = {
 /** One patch set mid-flight, so the third checkbox state is on screen. */
 export const partialStagingReviewModel: ReviewModel = {
   ...reviewModel,
-  modules: reviewModel.modules.map((group) =>
-    group.moduleFilePath === "/content/authors.val.ts"
+  modules: reviewModel.modules.map((moduleGroup) =>
+    moduleGroup.moduleFilePath === "/content/authors.val.ts"
       ? {
-          ...group,
-          rows: group.rows.map((entry) =>
+          ...moduleGroup,
+          rows: moduleGroup.rows.map((entry) =>
             entry.id === "authors-kimmid"
               ? { ...entry, staging: "partial" as const }
               : entry,
           ),
         }
-      : group,
+      : moduleGroup,
   ),
 };

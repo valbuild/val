@@ -27,7 +27,8 @@ equivalent and are therefore invisible in the normal dev loop:
 History is the reason this page exists. `ValOpsFS` has no commit records of its
 own — git has the files but cannot say which of a commit's changes were one
 editor's patch set — so it answers `not-supported-in-fs-mode`, and `ValShell`
-hides the History button entirely (`historySlot` is `undefined` in `fs` mode).
+hides the History button entirely (`historyEnabled` is false in `fs` mode, so
+`/val/history` is never linked to).
 There is no amount of clicking in `pnpm run dev:example-next` that reaches the
 history UI.
 

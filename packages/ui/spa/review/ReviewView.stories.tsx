@@ -20,12 +20,20 @@ import type { ReviewModel } from "./types";
  * the two screens are meant to be opened one after the other, and a fixture
  * that told a different story would hide whether they agree.
  */
-function Harness({ model }: { model: ReviewModel }) {
+function Harness({
+  model,
+  initialSelection,
+}: {
+  model: ReviewModel;
+  initialSelection?: string[];
+}) {
   return (
     <div className="h-screen w-full bg-bg-primary">
       <ReviewView
         model={model}
+        initialSelection={initialSelection}
         onCompare={() => undefined}
+        onRestore={() => undefined}
         onStage={() => undefined}
         onUnstage={() => undefined}
         onDiscard={() => undefined}
@@ -52,19 +60,62 @@ type Story = StoryObj<typeof Harness>;
  * - **No diffs, anywhere.** This page answers "what is going out", and the
  *   existing `/val/compare` answers "what changed". A publish decision is made
  *   over the whole list, and a list of diffs cannot be read whole.
- * - **One Compare button, at the top.** Not one per row: a publish ships the
- *   staged set as a unit, and a per-row dialog would open a compare whose nav
- *   had a single entry in it.
- * - **A row is a patch set**, which is the unit staging moves and discard
+ * - **Two sections, and the checkbox is neither of them.** Staged-ness is the
+ *   section a row sits in; the tick is a SELECTION of rows to act on. One
+ *   control cannot answer "is this going out" and "am I about to change that"
+ *   without each answer being mistaken for the other.
+ * - **The presets are the point of the checkboxes.** "Mine" before a publish
+ *   is the commonest thing an editor wants — ship what I did, leave the rest —
+ *   and it is one click rather than nine.
+ * - **A row is a patch set**, which is the unit staging moves and a revert
  *   removes. Finer would offer a control that cannot be honoured; coarser is
  *   the module, which routinely holds two unrelated edits by two people.
- * - **The held rows still have a Discard button.** A change you are not
- *   publishing is exactly the one you may want gone.
+ * - **No file paths.** `App / Blogs / Blog` is the same location
+ *   `/app/blogs/[blog]/page.val.ts` was, spelled for someone who has never
+ *   seen a Next route and has no checkout to open it in.
+ * - **Revert and Restore are different buttons.** Revert drops a staged change
+ *   that never shipped; Restore goes to history for something that did. See
+ *   `undoWords` — the words are shared with the compare dialog, which is the
+ *   only way they stay the same words.
  * - **`Getting started with Val` says whose work it drags in.** Staging a later
  *   patch set cannot leave its predecessors behind — the prefix invariant — so
  *   the names are on the row, before the click, not in a confirmation after it.
  */
 export const Default: Story = {};
+
+/**
+ * Mid-selection: three rows ticked, so the action bar is live.
+ *
+ * The bar is on screen with nothing selected too, and that is deliberate — a
+ * bar that appears on the first tick moves every row under the cursor at the
+ * exact moment someone is aiming at a checkbox. This is what it looks like once
+ * it has something to act on.
+ */
+export const Selecting: Story = {
+  args: {
+    initialSelection: ["landing-heading", "landing-badge", "authors-erlamd"],
+  },
+};
+
+/**
+ * What the "Mine" preset produces for Ada: her four rows, across three modules
+ * and both sections.
+ *
+ * Both sections on purpose. A preset selects by WHO, not by where the row
+ * already is, so pressing Stage here pulls her held-back blog change into the
+ * publish and leaves Linus's alone — which is the sentence the preset exists
+ * to make one gesture.
+ */
+export const MineSelected: Story = {
+  args: {
+    initialSelection: [
+      "landing-badge",
+      "authors-erlamd",
+      "blogs-getting-started",
+      "media-hero",
+    ],
+  },
+};
 
 /** The same page in light mode. */
 export const Light: Story = { globals: { theme: "light" } };
@@ -80,19 +131,21 @@ export const Empty: Story = { args: { model: emptyReviewModel } };
 /**
  * fs mode, where the server cannot store patch groups.
  *
- * Every checkbox is gone rather than present and inert — the rule
+ * Stage and Unstage are gone rather than present and inert — the rule
  * `PatchStaging.enabled` already states, and the reason it exists: a control
- * that silently does nothing is worse than no control. Discard stays, because
- * discarding a patch does not need a group to put it in.
+ * that silently does nothing is worse than no control. The checkboxes stay,
+ * because selecting rows to revert works without a group to put them in, and
+ * so does the Held back section — empty, saying so.
  */
 export const NoStaging: Story = { args: { model: noStagingReviewModel } };
 
 /**
- * One patch set mid-flight, so the third checkbox state is on screen.
+ * One patch set mid-flight, so the third staging state is on screen.
  *
  * `partial` is transient — a patch set is the unit staging moves — but it has
- * to be drawable, because the alternative is a checkbox that reads as settled
- * while it is not.
+ * to be drawable, and it sits with the staged rows: a row halfway into the
+ * publish is in the publish. The badge is what says it is not settled, now that
+ * the checkbox means something else.
  */
 export const PartiallyStaged: Story = {
   args: { model: partialStagingReviewModel },

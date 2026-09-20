@@ -16,6 +16,29 @@ import {
 
 export const VAL_COMPARE_ROUTE = "/val/compare";
 export const VAL_ERRORS_ROUTE = "/val/errors";
+/**
+ * The published history, as a page rather than a panel.
+ *
+ * It was a floating panel on the right, which made it the one part of the
+ * restore flow that could not be linked to: every stage AFTER it is in the
+ * query — `?commit=`, `?restore=`, the two paths — and is a link precisely so
+ * that a destructive action can be reviewed by somebody other than the person
+ * doing it. The list you pick the commit FROM was reachable only by pressing a
+ * button, so "start here" was the one step of the flow you had to describe in
+ * words.
+ *
+ * `?commit=` still works from anywhere, and still means the two-pane view —
+ * history is a LAYER over a route, which is what kept the left pane's
+ * navigation from having to learn about any of this. This is a route you can
+ * be ON, with nothing selected yet.
+ */
+export const VAL_HISTORY_ROUTE = "/val/history";
+
+/** The routes that are a whole view rather than a module being opened. */
+type ValStandaloneRoute =
+  | typeof VAL_COMPARE_ROUTE
+  | typeof VAL_ERRORS_ROUTE
+  | typeof VAL_HISTORY_ROUTE;
 
 type ValRouterContextValue = {
   hardLink: boolean;
@@ -30,22 +53,14 @@ type ValRouterContextValue = {
    * link cannot advertise one destination and take you to another.
    */
   hrefOf: (
-    path:
-      | SourcePath
-      | ModuleFilePath
-      | typeof VAL_COMPARE_ROUTE
-      | typeof VAL_ERRORS_ROUTE,
+    path: SourcePath | ModuleFilePath | ValStandaloneRoute,
     params?: {
       scrollToPath?: SourcePath | ModuleFilePath;
       errorFields?: SourcePath[];
     },
   ) => string;
   navigate: (
-    path:
-      | SourcePath
-      | ModuleFilePath
-      | typeof VAL_COMPARE_ROUTE
-      | typeof VAL_ERRORS_ROUTE,
+    path: SourcePath | ModuleFilePath | ValStandaloneRoute,
     params?: {
       scrollToPath?: SourcePath | ModuleFilePath;
       replace?: true;
@@ -68,6 +83,7 @@ type ValRouterContextValue = {
   focusedSourcePath: SourcePath | null;
   isCompareView: boolean;
   isErrorsView: boolean;
+  isHistoryView: boolean;
   errorFields: SourcePath[];
   /**
    * The history view's state, parsed from the query.
@@ -212,6 +228,7 @@ export function ValRouter({
   );
   const [isCompareView, setIsCompareView] = useState(false);
   const [isErrorsView, setIsErrorsView] = useState(false);
+  const [isHistoryView, setIsHistoryView] = useState(false);
   const [errorFields, setErrorFields] = useState<SourcePath[]>([]);
   // Read `?session=` synchronously on the first render: consumers capture this
   // value once on mount (see initialSessionIdRef in AIChatSurface), so populating
@@ -241,6 +258,7 @@ export function ValRouter({
       ) {
         setIsCompareView(true);
         setIsErrorsView(false);
+        setIsHistoryView(false);
         setErrorFields([]);
         setSourcePath("" as SourcePath);
         setReady(true);
@@ -252,6 +270,7 @@ export function ValRouter({
       ) {
         setIsErrorsView(true);
         setIsCompareView(false);
+        setIsHistoryView(false);
         setErrorFields(
           new URLSearchParams(location.search).getAll(
             "error-field",
@@ -261,8 +280,21 @@ export function ValRouter({
         setReady(true);
         return;
       }
+      if (
+        location.pathname === VAL_HISTORY_ROUTE ||
+        location.pathname === VAL_HISTORY_ROUTE + "/"
+      ) {
+        setIsHistoryView(true);
+        setIsCompareView(false);
+        setIsErrorsView(false);
+        setErrorFields([]);
+        setSourcePath("" as SourcePath);
+        setReady(true);
+        return;
+      }
       setIsCompareView(false);
       setIsErrorsView(false);
+      setIsHistoryView(false);
       setErrorFields([]);
       const valPathIndex = location.pathname.indexOf(VAL_CONTENT_VIEW_ROUTE);
       if (valPathIndex > -1) {
@@ -327,11 +359,7 @@ export function ValRouter({
    */
   const hrefOf = useCallback(
     (
-      path:
-        | SourcePath
-        | ModuleFilePath
-        | typeof VAL_COMPARE_ROUTE
-        | typeof VAL_ERRORS_ROUTE,
+      path: SourcePath | ModuleFilePath | ValStandaloneRoute,
       params?: {
         scrollToPath?: SourcePath | ModuleFilePath;
         errorFields?: SourcePath[];
@@ -339,6 +367,9 @@ export function ValRouter({
     ): string => {
       const isCompare = path === VAL_COMPARE_ROUTE;
       const isErrors = path === VAL_ERRORS_ROUTE;
+      const isHistory = path === VAL_HISTORY_ROUTE;
+      /** A whole view, so there is no module path to append. */
+      const isStandalone = isCompare || isErrors || isHistory;
       const errorFieldsQuery =
         isErrors && params?.errorFields && params.errorFields.length > 0
           ? "?" +
@@ -350,7 +381,9 @@ export function ValRouter({
         ? VAL_COMPARE_ROUTE
         : isErrors
           ? VAL_ERRORS_ROUTE + errorFieldsQuery
-          : `${VAL_CONTENT_VIEW_ROUTE}${path}`;
+          : isHistory
+            ? VAL_HISTORY_ROUTE
+            : `${VAL_CONTENT_VIEW_ROUTE}${path}`;
       /**
        * Carry the studio's own state across the navigation.
        *
@@ -398,7 +431,7 @@ export function ValRouter({
        * hash, which the studio strips on read and which never reaches a reload.
        */
       const focused =
-        !isCompare && !isErrors && params?.scrollToPath !== path
+        !isStandalone && params?.scrollToPath !== path
           ? (params?.scrollToPath ?? null)
           : null;
       if (focused) {
@@ -414,11 +447,7 @@ export function ValRouter({
 
   const navigate = useCallback(
     (
-      path:
-        | SourcePath
-        | ModuleFilePath
-        | typeof VAL_COMPARE_ROUTE
-        | typeof VAL_ERRORS_ROUTE,
+      path: SourcePath | ModuleFilePath | ValStandaloneRoute,
       params?: {
         scrollToPath?: SourcePath | ModuleFilePath;
         replace?: true;
@@ -427,17 +456,18 @@ export function ValRouter({
     ) => {
       const isCompare = path === VAL_COMPARE_ROUTE;
       const isErrors = path === VAL_ERRORS_ROUTE;
+      const isHistory = path === VAL_HISTORY_ROUTE;
+      const isStandalone = isCompare || isErrors || isHistory;
       const finalTo = hrefOf(path, params);
       const focused =
-        !isCompare && !isErrors && params?.scrollToPath !== path
+        !isStandalone && params?.scrollToPath !== path
           ? (params?.scrollToPath ?? null)
           : null;
       setIsCompareView(isCompare);
       setIsErrorsView(isErrors);
+      setIsHistoryView(isHistory);
       setErrorFields(isErrors ? (params?.errorFields ?? []) : []);
-      setSourcePath(
-        isCompare || isErrors ? ("" as SourcePath) : (path as SourcePath),
-      );
+      setSourcePath(isStandalone ? ("" as SourcePath) : (path as SourcePath));
       setFocusedSourcePath(focused as SourcePath | null);
       if (!overlay) {
         const shadowRoot =
@@ -526,6 +556,7 @@ export function ValRouter({
         ready,
         isCompareView,
         isErrorsView,
+        isHistoryView,
         errorFields,
         history,
         setHistory,
@@ -547,6 +578,7 @@ export function useNavigation() {
     ready,
     isCompareView,
     isErrorsView,
+    isHistoryView,
     errorFields,
   } = useContext(ValRouterContext);
   return {
@@ -557,6 +589,7 @@ export function useNavigation() {
     ready,
     isCompareView,
     isErrorsView,
+    isHistoryView,
     errorFields,
   };
 }

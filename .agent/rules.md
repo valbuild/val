@@ -605,8 +605,8 @@ several things exist only there: a publish is a git commit, published patches
 are marked applied rather than deleted, deployments arrive over a WebSocket —
 and **history and restore**, which `ValOpsFS` answers
 `not-supported-in-fs-mode` for. `ValShell` hides the History button entirely in
-fs mode (`historySlot` is `undefined`), so no amount of clicking in the normal
-dev loop reaches that UI.
+fs mode (`historyEnabled` is false, so `/val/history` is never linked to), and
+no amount of clicking in the normal dev loop reaches that UI.
 
 `scripts/devProxyMode.ts` starts the same three processes the `chromium-http`
 Playwright project uses — `e2e/mock-content-host`, the Studio's Vite server,
