@@ -163,7 +163,11 @@ export {
   type StoredPatch,
   type ValOpsMemoryOptions,
 } from "./ValOpsMemory";
-export { loadValModules, createValModuleFileInspector } from "./loadValModules";
+export {
+  loadValModules,
+  createValModuleFileInspector,
+  findDefaultExport,
+} from "./loadValModules";
 export type { ValModuleFileInspection } from "./loadValModules";
 export { formatPatchSourceError } from "./ValOps";
 export {
