@@ -6,6 +6,7 @@ import {
   discardAll,
   expandRow,
   expectNoPatchesOnServer,
+  navPanel,
   openNavPanel,
   openSiteMap,
   openStudio,
@@ -93,7 +94,8 @@ test.describe("the Studio, through its own UI", () => {
 
     // The non-router modules, which come from the schemas rather than from the
     // routers: a different read, and one that has its own panel.
-    const dataPanel = await openNavPanel(page, "Data");
+    await openNavPanel(page, "Data");
+    const dataPanel = navPanel(page, "Data");
     await expect(
       dataPanel.getByRole("button", { name: "authors", exact: true }),
     ).toBeVisible();
