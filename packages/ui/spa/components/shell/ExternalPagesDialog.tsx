@@ -21,6 +21,7 @@ import {
   ExternalLink,
   Link2,
   Loader2,
+  Maximize2,
   Plus,
   ShieldCheck,
   Trash2,
@@ -77,6 +78,17 @@ export type ExternalPagesDialogProps = {
   onOpenEntry: (page: ShellExternalPage) => void;
   /** Open one of the places a URL is linked from. */
   onOpenUsage?: (usage: ShellExternalPageUsage) => void;
+  /**
+   * The open entry's own fields, editable, in the detail pane.
+   *
+   * A render prop for the reason every slot in the shell is one: these are the
+   * Studio's real field editors, which read the schema and source stores and
+   * write patches, and this dialog is presentational so that a story can
+   * render it without the provider tree. Absent - in Storybook, and in a mode
+   * that cannot write - and the pane shows `page.fields` instead, which is the
+   * same values as text.
+   */
+  renderEntry?: (page: ShellExternalPage) => ReactNode;
   /**
    * Add a URL to the router.
    *
@@ -143,6 +155,7 @@ export function ExternalPagesDialog({
   pages,
   onOpenEntry,
   onOpenUsage,
+  renderEntry,
   onAddPage,
   schemes,
   onRemovePage,
@@ -465,7 +478,10 @@ export function ExternalPagesDialog({
           onAddPage={onAddPage && addPage}
         />
 
-        <div className="min-h-0 grid md:grid-cols-[minmax(0,1fr)_22rem]">
+        {/* 24rem rather than 22: the detail pane went from something you read
+            to something you type into, and a text input in 22rem with a label
+            beside it is an input you cannot see the end of. */}
+        <div className="min-h-0 grid md:grid-cols-[minmax(0,1fr)_24rem]">
           {showList && (
             <div className="min-h-0 overflow-y-auto border-r border-border-float">
               {isLoading ? (
@@ -587,6 +603,7 @@ export function ExternalPagesDialog({
               ) : openRow !== null ? (
                 <EntryDetail
                   row={openRow}
+                  renderEntry={renderEntry}
                   onOpenEntry={() => {
                     onOpenEntry(openRow.page);
                     onOpenChange(false);
@@ -1083,18 +1100,33 @@ function EmptyList({ children }: { children: ReactNode }) {
 
 function EntryDetail({
   row,
+  renderEntry,
   onOpenEntry,
   onOpenUsage,
   onRemove,
   portalContainer,
 }: {
   row: ExternalPageRowData;
+  renderEntry?: (page: ShellExternalPage) => ReactNode;
   onOpenEntry: () => void;
   onOpenUsage?: (usage: ShellExternalPageUsage) => void;
   onRemove?: () => void;
   portalContainer?: HTMLElement | null;
 }) {
   const { page, issues, usageCount } = row;
+  /*
+   * What to say at the top, given what the fields below are going to say.
+   *
+   * `entry-invalid` is the project's own validation, and when the real field
+   * editors are here each of those errors is already printed against the field
+   * it is about - which is a better place for it than a list at the top. So
+   * the top list keeps the findings that have nowhere else to go: the ones
+   * about the URL itself. Without the editors (a story, a read-only mode) it
+   * keeps them all, because then nothing else would say them.
+   */
+  const problems = renderEntry
+    ? issues.filter((issue) => issue.code !== "entry-invalid")
+    : issues;
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-start gap-1.5">
@@ -1126,9 +1158,9 @@ function EntryDetail({
           that announces "Checks" and then says "nothing wrong with this URL"
           spends four lines saying that nothing happened, on every URL, which
           is most of them. */}
-      {issues.length > 0 && (
+      {problems.length > 0 && (
         <ul className="space-y-1.5">
-          {issues.map((issue, index) => (
+          {problems.map((issue, index) => (
             <li
               key={`${index}:${issue.code}`}
               className="flex items-start gap-1.5 text-xs"
@@ -1172,10 +1204,17 @@ function EntryDetail({
         )
       )}
 
-      {/* The fields label themselves, so the "Value" heading was a word above
-          a word. A router that stores nothing but the URL shows nothing here
-          rather than a sentence saying so on every one of its entries. */}
-      {page.fields === undefined ? (
+      {/* The entry itself, edited here. Reading what is behind a link and
+          fixing the title that is wrong are the same visit, and sending
+          someone to the editor for a one-word change meant losing the list
+          they were working through. The fields label themselves, so there is
+          no heading above them - the "Value" heading was a word above a word.
+
+          Full view is still a button, because this column is 24rem and an
+          entry with a richtext or an image wants the whole editor. */}
+      {renderEntry ? (
+        renderEntry(page)
+      ) : page.fields === undefined ? (
         <p className="text-xs text-fg-secondary-alt">Loading…</p>
       ) : (
         page.fields.length > 0 && (
@@ -1246,7 +1285,8 @@ function EntryDetail({
 
       <div className="flex items-center gap-2 pt-1">
         <Button size="sm" variant="secondary" onClick={onOpenEntry}>
-          Open in editor
+          <Maximize2 size={14} className="mr-1" aria-hidden />
+          Open in full view
         </Button>
         {onRemove && (
           <RemoveUrlButton

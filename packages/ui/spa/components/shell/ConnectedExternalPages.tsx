@@ -1,5 +1,9 @@
 import { useCallback } from "react";
 import { ModuleFilePath } from "@valbuild/core";
+import { AnyField } from "../AnyField";
+import { useSchemas } from "../ValFieldProvider";
+import { externalItemSchema } from "./externalPageDetails";
+import { sourcePathOfChild } from "../../utils/sourcePath";
 import { useNavigation } from "../ValRouter";
 import { useAddModuleFilePatch } from "../ValProvider";
 import {
@@ -51,6 +55,18 @@ export function ConnectedExternalPages({
   const createRouteEntry = useCreateRouteEntry();
   const enriched = useExternalPages(pages, moduleFilePath, true);
   const onProbe = useExternalUrlProber();
+  const schemas = useSchemas();
+  /**
+   * The record's item schema, which is what an entry's fields are.
+   *
+   * Absent while the schemas are still loading, and the dialog falls back to
+   * showing the values as text - which is what it did everywhere before this
+   * and is still what a story sees.
+   */
+  const itemSchema =
+    moduleFilePath !== undefined && "data" in schemas
+      ? externalItemSchema(schemas.data?.[moduleFilePath])
+      : undefined;
 
   /**
    * Adding is the same operation the sitemap's Add page performs — the key,
@@ -100,6 +116,28 @@ export function ConnectedExternalPages({
       // the navigation, so it is navigated to directly. Same reason
       // `onOpenSearchResult` exists.
       onOpenUsage={(usage) => navigate(usage.sourcePath)}
+      /*
+       * The Studio's own field editors, in the detail pane.
+       *
+       * `AnyField` is the same component the editor column renders, at the
+       * same path - so an edit made here is an edit made there, through the
+       * same patches, with the same validation underneath it. Built from the
+       * module and the key rather than read off the row, because the record's
+       * keys ARE the URLs and that is what keeps the `SourcePath` branded
+       * without an assertion.
+       */
+      renderEntry={
+        moduleFilePath === undefined || itemSchema === undefined
+          ? undefined
+          : (page) => (
+              <AnyField
+                key={page.url}
+                path={sourcePathOfChild(moduleFilePath, page.url)}
+                schema={itemSchema}
+                compact
+              />
+            )
+      }
       onProbe={onProbe}
       onAddPage={externalRouter === null ? undefined : onAddPage}
       schemes={externalRouter?.schemes}

@@ -49,6 +49,14 @@ import { ExternalUrlProbeResult } from "../externalUrlReachability";
  * found. Press Check on `AFewUrls` to see the other half of that - "All 5
  * look fine" is the answer a check button exists to give, and it is one line.
  *
+ * Opening a row shows the entry's own fields. In the Studio those are the
+ * real editors - the same `AnyField` the editor column renders, at the same
+ * path, so a title fixed here is fixed everywhere - and `Open in full view`
+ * is for the entry that wants more than a 24rem column. These stories have no
+ * provider tree to write patches through, so they show the same values as
+ * text instead; that is the `renderEntry` prop being absent, not a second
+ * design.
+ *
  * Try: Check everything, then tick two rows and press it again. Filter to
  * `Flagged` once the answers are in, or to `Unused`. Open a row to see the
  * entry's own value, every finding rather than the first, what answered, and

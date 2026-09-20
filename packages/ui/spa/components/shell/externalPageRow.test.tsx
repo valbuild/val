@@ -140,3 +140,55 @@ describe("the detail pane's open-in-a-new-tab link", () => {
     expect(screen.getAllByText(url).length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * Where a validation error is printed, given what else is on the pane.
+ *
+ * With the real field editors in the pane, each error is already shown
+ * against the field it is about - a better place for it than a list at the
+ * top, and printing it in both is the same sentence twice. Without them, the
+ * list is the only thing that would say it.
+ */
+describe("an entry that does not validate", () => {
+  const invalid = { errorCount: 1, errorMessages: ["Title is required"] };
+
+  test("is listed at the top when the fields are shown as text", () => {
+    renderDialog([page("https://example.com/a", invalid)]);
+    fireEvent.click(screen.getByTitle("https://example.com/a"));
+    expect(screen.getAllByText("Title is required").length).toBe(1);
+  });
+
+  test("is left to the fields when the fields are editable", () => {
+    render(
+      <ExternalPagesDialog
+        open
+        onOpenChange={() => undefined}
+        breakpoint="desktop"
+        pages={[page("https://example.com/a", invalid)]}
+        onOpenEntry={() => undefined}
+        renderEntry={() => <div>the editors</div>}
+      />,
+    );
+    fireEvent.click(screen.getByTitle("https://example.com/a"));
+    expect(screen.queryByText("Title is required")).toBeNull();
+    expect(screen.getByText("the editors")).not.toBeNull();
+  });
+
+  test("a URL finding is still listed, editors or not", () => {
+    // Nothing else on the pane would say it: the fields are about the entry,
+    // and this is about the key.
+    render(
+      <ExternalPagesDialog
+        open
+        onOpenChange={() => undefined}
+        breakpoint="desktop"
+        pages={[page("http://example.com/a", invalid)]}
+        onOpenEntry={() => undefined}
+        renderEntry={() => <div>the editors</div>}
+      />,
+    );
+    fireEvent.click(screen.getByTitle("http://example.com/a"));
+    // More than one: the pane's list, and the row's own hidden description.
+    expect(screen.getAllByText(/Uses http:\/\//).length).toBeGreaterThan(0);
+  });
+});
