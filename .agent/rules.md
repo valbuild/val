@@ -137,6 +137,111 @@ export type SelectorSource =
 
 If you see `Type 'X' does not satisfy the constraint 'Source'`, the fix is almost always adding a type to `SelectorSource`, NOT using intersections.
 
+## `describe` vs `preview` vs `render`
+
+**`.describe()` is INPUT HELP and is shown wherever that field — or a record's
+key — is being ENTERED; `.preview()` is a NAME and is shown wherever the value
+is REFERRED TO rather than edited; `.render()` is LAYOUT and applies only while
+the field is open in front of you.**
+
+The test that settles every case: **can the reader change something here?**
+
+| Yes — a description belongs here        | No — a preview belongs here          |
+| --------------------------------------- | ------------------------------------ |
+| The input beside a field's label        | A list row                           |
+| The key box in "New entry" / "New page" | A reference, once it has been chosen |
+| "Rename key", "Duplicate entry"         | A search hit                         |
+| The key half of a reference dropdown    | A card                               |
+| A field open in the overlay             | The heading of what you navigated to |
+
+So a record's `key` schema carries its own description ("The URL of this blog
+post. Lower case, no spaces.") and every form that asks for a key shows it —
+`AddRecordPopover`, `DuplicateRecordPopover`, `ChangeRecordPopover`,
+`NewPageForm`, `KeySelector`. A key description shown where the key cannot be
+edited is a bug, not a label.
+
+That asymmetry is why a description is plain data on the serialized schema and a
+preview is a closure: a description is true before any value exists and says the
+same thing to everyone filling the field in, and a preview cannot exist without
+the one value it names. A description must therefore never be used as a
+subtitle — it would repeat one sentence under every row of a list — and a
+preview must never be used as help text, because there is nothing to preview
+until after the value has been entered. None of the three substitutes for
+another: a field with a perfect description still previews as `#3` until
+someone writes the preview.
+
+### Where a preview comes from
+
+A value's preview reaches it by ONE of two routes, and which one depends on
+whether it has a container:
+
+- **Its own `self`** — for a module root, or a field of an object: anything that
+  is nobody's row. `executePreview` emits it at the value's own path. Before
+  that existed, `.preview()` on a module's own schema was dead code.
+- **Its container's `rows`** — for an item of an array or record, reified by the
+  container from the ITEM schema's closure. Deliberately NOT also a `self`: it
+  is one closure, and array and record pass `selfIsReifiedByParent` to their
+  direct items so it runs once per row rather than twice.
+
+`ReifiedPreview` therefore maps a path to `{ self?, rows? }`. Two fields, not a
+union, because a path can have both: `s.array(section).preview(...)` where
+`section` also previews is a list that shows its rows AND names itself.
+
+Two traps, both of which shipped once:
+
+- **A module's `self` must never reach a path below it.** `PreviewStore` hands a
+  row the module-root entry so the row can find itself in that entry's windowed
+  `rows`; handing the entry over whole made every author read back the record's
+  own title. `asSeenFromBelow` strips `self`.
+- **A preview is computed for a module with a LISTENER on it, and no other.**
+  `get()` does not count. A nav reads sources without subscribing
+  (`useShallowModulesAtPaths` says so), so a nav that NAMES its rows must call
+  `usePreviewDemand` — one listener per module, never one per row. Without it
+  the titles appear only for the module the editor is currently in, which reads
+  as data missing rather than as a feature not used.
+
+### A preview is a TITLE, never a LOCATION
+
+This is the line that decides every surface, and it was got wrong once in each
+direction:
+
+- **A title** is what a thing is CALLED, where the thing is shown as a thing:
+  the heading of what you opened, a card, a list row, a search hit, a reference
+  once it has been chosen. A preview belongs in all of these.
+- **A location** is WHERE YOU ARE, and it is made of path segments: the
+  breadcrumb under the heading, the Explorer tree, the Pages tree. A preview
+  belongs in NONE of these — not even for a module root, not even when it reads
+  better.
+
+Two reasons, and the second is the one that settles it:
+
+1. A trail of titles names three things and locates none of them.
+   `Content / Forfattere / Theodor René Carlsen` cannot be typed into a URL bar,
+   grepped for, or matched against the file an editor is looking at.
+2. A preview is a CLOSURE OVER SOURCE, so a title changes as an editor types.
+   A location that moves under you is not a location.
+
+The one thing a location may take from the heading is a page's ROUTE, because a
+route IS the page's location. And it takes it INSTEAD of the file path, not
+beside it: `/app/blogs/[blog]/page.val.ts?p="/blogs/blog2"` reads `/blogs/blog2`
+and nothing else, because nobody reaches a page through the file — the Pages
+panel is a tree of routes. `scopePartsBelowPageRouter` is that rule.
+
+### `describePath` is the one implementation
+
+`packages/ui/spa/utils/describePath.ts` turns a source path into the
+`{ title, subtitle, image, url, pathLabel }` a human is shown — the preview side of the rule, and only that. It prefers the
+value's preview and falls back to the route, the key, the index or the file
+name, and `origin` says which happened, so a surface can tell a name someone
+wrote from a key we had lying around.
+
+Anything that TITLES a path goes through it rather than deriving a name of its
+own — the heading, list rows, search hits and references disagreed with each
+other before it existed. Anything that LOCATES a path does not go near it: the
+breadcrumb and the Explorer use path segments, per the rule above.
+`useDescription` is the hook; `useRefPreview` is the rows lookup underneath it
+and stays the right call for a list row, which has no `self` to read.
+
 ## Schema System
 
 ### Schema-Source Relationship
@@ -333,8 +438,45 @@ Custom color tokens map to CSS variables (e.g., `bg-background` → `var(--backg
 
 ## Framework packages
 
-`@valbuild/next` and `@valbuild/tanstack` are the two framework bindings, and
-they are deliberately near-copies of each other: the provider, the overlay
+**TanStack Start is the PRIMARY release target.** Next.js is still supported and
+still the older of the two bindings, but when the two disagree — about which one
+gets a feature first, which one a doc example is written against, which one is
+driven by a test — TanStack wins. So a change to `@valbuild/next` that
+`@valbuild/tanstack` has not got is unfinished work, not a decision; the
+reverse is an ordinary lag.
+
+Two things follow, and they are the ones that get forgotten:
+
+- **`examples/tanstack` is the feature showcase, and it is only useful while it
+  is complete.** It exists to be the app where every schema type and every
+  schema modifier can be seen working, so ADDING A SCHEMA FEATURE INCLUDES
+  ADDING IT THERE — a module (or a field in one), registered in
+  `val.modules.ts`, rendered by a route, and passing `val validate`. A feature
+  that exists only in `packages/core` is a feature nobody can look at.
+  `examples/next` is the FIXTURE app: it carries the awkward shapes the e2e
+  suite and the language server drive, and it is allowed to hold things the
+  showcase does not.
+- **The TanStack checks have no CI job yet**, so they are yours to run. See the
+  CI section: `pnpm exec playwright test --project=tanstack` and
+  `cd examples/tanstack && pnpm run build`. Neither is optional for a change the
+  Studio loads through.
+
+The showcase covers, as of writing: every `s.*` factory except `s.union`
+(deprecated) and `s.view` (unreleased); `describe` / `preview` / `render` /
+`validate` / `nullable` / `readonly` / `hidden`; `minLength` / `maxLength` /
+`min` / `max` / `regexp` / `multiline` on strings and numbers, `from` / `to` on
+dates, `include` / `exclude` on routes; `s.record(key, item)` and the
+three-argument `s.router(router, key, item)` so a KEY can carry its own
+description; `.jsonValues()` with `c.json()`; `tanstackRouter` and
+`externalPageRouter`; and the settings sections `locales`, `theme` and
+`assistant`. What it does NOT cover, and why: `.remote()` on media and
+`.external()` on a record, because both need credentials or an adapter a plain
+`pnpm dev` does not have — `examples/next` gates the remote one behind
+`NEXT_PUBLIC_VAL_EXAMPLE_REMOTE_MEDIA`. When you add to the list, add to that
+sentence too, so the gap stays a decision rather than an oversight.
+
+`@valbuild/next` and `@valbuild/tanstack` are deliberately near-copies of each
+other: the provider, the overlay
 context, the canvas bridge, the client hooks and the route helpers are the same
 code with a different framework underneath. When you change one, ask whether the
 other needs it — `packages/tanstack/README.md` has a table of what actually

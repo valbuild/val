@@ -120,8 +120,7 @@ export async function createDebugContext(options: {
       serverOps: new ValOpsHttp(
         contentUrl,
         project,
-        commit,
-        branch,
+        { commit, branch },
         auth,
         valModules,
         { root: config.root, config },

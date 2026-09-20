@@ -1,7 +1,7 @@
 import {
   anchoredScroll,
   clampScale,
-  fitScale,
+  fitWidthScale,
   MAX_SCALE,
   MIN_SCALE,
   screenSpan,
@@ -19,23 +19,18 @@ import {
  * A plain object stands in for the element: `anchoredScroll` reads four numbers
  * off it and nothing else, which is deliberate.
  */
-function windowOf(
-  clientWidth: number,
-  clientHeight: number,
-  scrollLeft = 0,
-  scrollTop = 0,
-) {
-  return { clientWidth, clientHeight, scrollLeft, scrollTop };
+function windowOf(clientWidth: number, scrollLeft = 0, scrollTop = 0) {
+  return { clientWidth, scrollLeft, scrollTop };
 }
 
 describe("anchoredScroll", () => {
-  /** A page big enough that the window scrolls in both directions. */
-  const page = { width: 1280, height: 2000 };
+  /** A page wide enough that the window scrolls across. */
+  const pageWidth = 1280;
 
   test("the point under the pointer stays under the pointer", () => {
-    const el = windowOf(800, 600, 200, 400);
+    const el = windowOf(800, 200, 400);
     const at = { x: 500, y: 700 };
-    const next = anchoredScroll(el, page, 1, 2, at, at);
+    const next = anchoredScroll(el, pageWidth, 1, 2, at, at);
 
     // Where the anchor was on screen before, and where it is after. The whole
     // contract is that these are the same number.
@@ -46,11 +41,12 @@ describe("anchoredScroll", () => {
   });
 
   test("zooming out holds the same point too", () => {
-    const el = windowOf(800, 600, 300, 900);
+    const el = windowOf(800, 300, 900);
     const at = { x: 640, y: 1000 };
-    const next = anchoredScroll(el, page, 1, 0.5, at, at);
-    // Vertically the page still overflows at half size (1000px of page in a
-    // 600px window), so the anchor is held exactly.
+    const next = anchoredScroll(el, pageWidth, 1, 0.5, at, at);
+    // Vertically there is nothing to account for at any zoom — the page is
+    // pinned to the top of the window rather than centred in it — so the
+    // anchor is held exactly whether or not the page still overflows.
     expect(-next.y + at.y * 0.5).toBeCloseTo(-el.scrollTop + at.y);
     // Horizontally it no longer does — 640px of page in an 800px window — and
     // once a page fits, the window CENTRES it. Nothing can hold an anchor
@@ -63,10 +59,10 @@ describe("anchoredScroll", () => {
   test("a pinch that does not change span moves the page by the finger travel", () => {
     // Fingers that slide 60px to the right across the page, at 1:1, should move
     // the page 60px right — which is 60px LESS scroll.
-    const el = windowOf(800, 600, 200, 400);
+    const el = windowOf(800, 200, 400);
     const hold = { x: 500, y: 700 };
     const at = { x: 560, y: 700 };
-    const next = anchoredScroll(el, page, 1, 1, at, hold);
+    const next = anchoredScroll(el, pageWidth, 1, 1, at, hold);
     expect(next.x).toBeCloseTo(el.scrollLeft - 60);
     expect(next.y).toBeCloseTo(el.scrollTop);
   });
@@ -80,27 +76,26 @@ describe("anchoredScroll", () => {
      * previous frame instead of the gesture's origin keeps accelerating.
      */
     const hold = { x: 500, y: 700 };
-    let el = windowOf(800, 600, 200, 400);
+    let el = windowOf(800, 200, 400);
     let at = { x: 560, y: 700 };
 
-    const first = anchoredScroll(el, page, 1, 1, at, hold);
+    const first = anchoredScroll(el, pageWidth, 1, 1, at, hold);
     // The finger did not move; the content under it did.
     const moved = first.x - el.scrollLeft;
-    el = windowOf(800, 600, first.x, first.y);
+    el = windowOf(800, first.x, first.y);
     at = { x: at.x + moved, y: at.y };
 
-    const second = anchoredScroll(el, page, 1, 1, at, hold);
+    const second = anchoredScroll(el, pageWidth, 1, 1, at, hold);
     expect(second.x).toBeCloseTo(first.x);
   });
 
-  test("a page smaller than the window is centred, and the centring is accounted for", () => {
+  test("a page narrower than the window is centred, and the centring is accounted for", () => {
     // 400px of page in an 800px window sits 200px in. A zoom about a point has
     // to know that, or it lands off by half the difference — which is the bug
     // that made zooming feel like it dragged the page sideways.
-    const small = { width: 400, height: 300 };
-    const el = windowOf(800, 600);
+    const el = windowOf(800);
     const at = { x: 200, y: 150 };
-    const next = anchoredScroll(el, small, 1, 1.5, at, at);
+    const next = anchoredScroll(el, 400, 1, 1.5, at, at);
 
     const offsetBefore = (800 - 400 * 1) / 2;
     const offsetAfter = (800 - 400 * 1.5) / 2;
@@ -108,46 +103,55 @@ describe("anchoredScroll", () => {
       offsetBefore + at.x * 1 - el.scrollLeft,
     );
   });
+
+  test("and is not centred vertically, however short it is", () => {
+    /*
+     * The other half of the rule the window is built on: across, a page that
+     * does not fill the window is centred; down, it is pinned to the top. A
+     * zoom that accounted for a vertical centring that is not there would slide
+     * the page up or down by half the slack on every press of + — which is what
+     * `centeringOffset` existing for one axis only is there to prevent.
+     */
+    const el = windowOf(800);
+    const at = { x: 100, y: 50 };
+    const next = anchoredScroll(el, 400, 1, 2, at, at);
+    expect(-next.y + at.y * 2).toBeCloseTo(-el.scrollTop + at.y * 1);
+  });
 });
 
-describe("fitScale", () => {
-  test("fits by whichever side runs out first", () => {
-    // A tall page in a wide window is limited by height.
-    expect(
-      fitScale({ width: 400, height: 2000 }, { width: 2000, height: 1048 }),
-    ).toBeCloseTo(0.5);
-    // And a wide one in a tall window by width.
-    expect(
-      fitScale({ width: 2000, height: 400 }, { width: 1048, height: 2000 }),
-    ).toBeCloseTo(0.5);
+describe("fitWidthScale", () => {
+  test("fills the width, whatever the page's height", () => {
+    // The height is not an input: a page twice as tall as the window is shown
+    // at the same scale as one that fits, and the rest of it is scrolled to.
+    expect(fitWidthScale(2000, 1000)).toBeCloseTo(0.5);
+    expect(fitWidthScale(1280, 640)).toBeCloseTo(0.5);
   });
 
-  test("never returns a scale outside what the window will show", () => {
+  test("never magnifies past 1:1", () => {
+    // A phone layout in a desktop-sized pane would fit its width at nearly 3x.
+    // A 390px page drawn 1100px wide is not a preview of it.
+    expect(fitWidthScale(390, 1100)).toBe(1);
+    // Not even a little: a page 20px narrower than the pane stays 1:1.
+    expect(fitWidthScale(1280, 1300)).toBe(1);
+  });
+
+  test("never returns a scale the window will not show", () => {
     // A phone-sized pane showing a desktop page is the case that matters: the
     // floor has to be low enough to reach, or the window claims to be showing
-    // the whole page while it overflows.
-    const phone = fitScale(
-      { width: 1280, height: 800 },
-      { width: 340, height: 520 },
-    );
+    // the whole width while it overflows.
+    const phone = fitWidthScale(1280, 340);
     expect(phone).toBeGreaterThanOrEqual(MIN_SCALE);
-    expect(phone).toBeLessThanOrEqual(1);
     expect(1280 * phone).toBeLessThanOrEqual(340);
-
-    // And a tiny page in a huge window is not blown up past the ceiling.
-    expect(
-      fitScale({ width: 100, height: 100 }, { width: 4000, height: 4000 }),
-    ).toBe(MAX_SCALE);
+    // And the ceiling is never reached from here, since fitting only ever
+    // shrinks — zooming in past 1:1 is something to ask for.
+    expect(fitWidthScale(100, 4000)).toBeLessThan(MAX_SCALE);
   });
 
   test("survives a window that has not been laid out yet", () => {
     // Measured before the pane has a size, which happens on the first frame.
     // Any finite scale will do; a NaN or an Infinity would be written into the
     // URL and restored on the next load.
-    const scale = fitScale(
-      { width: 1280, height: 800 },
-      { width: 0, height: 0 },
-    );
+    const scale = fitWidthScale(1280, 0);
     expect(Number.isFinite(scale)).toBe(true);
     expect(scale).toBeGreaterThan(0);
   });

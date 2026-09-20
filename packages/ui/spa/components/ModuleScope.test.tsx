@@ -1,7 +1,11 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen } from "@testing-library/react";
 import { SourcePath } from "@valbuild/core";
-import { ScopePart, ScopeTrail } from "./ModuleScope";
+import {
+  ScopePart,
+  ScopeTrail,
+  scopePartsBelowPageRouter,
+} from "./ModuleScope";
 
 /**
  * The scope line is made of links.
@@ -10,8 +14,8 @@ import { ScopePart, ScopeTrail } from "./ModuleScope";
  * where you were and not go there. What is pinned here is the three rules the
  * header's doc comment states, because each of them is a thing that was wrong
  * and would be easy to make wrong again: real anchors carrying the URL the
- * navigation goes to, modified clicks left to the browser, and the parent named
- * by its own title rather than its raw key.
+ * navigation goes to, modified clicks left to the browser, and path segments
+ * rather than preview titles.
  */
 const mockNavigate = jest.fn();
 const mockHrefOf = jest.fn(
@@ -23,13 +27,6 @@ jest.mock("./ValRouter", () => ({
   VAL_COMPARE_ROUTE: "/val/compare",
   VAL_ERRORS_ROUTE: "/val/errors",
   useNavigation: () => ({ navigate: mockNavigate, hrefOf: mockHrefOf }),
-}));
-
-const mockPreviews: Record<string, string> = {};
-jest.mock("./useRefPreview", () => ({
-  __esModule: true,
-  useRefPreview: (path: string) =>
-    mockPreviews[path] ? { title: mockPreviews[path] } : undefined,
 }));
 
 function part(text: string, sourcePath: string): ScopePart {
@@ -48,9 +45,6 @@ describe("the scope trail", () => {
   beforeEach(() => {
     mockNavigate.mockClear();
     mockHrefOf.mockClear();
-    for (const key of Object.keys(mockPreviews)) {
-      delete mockPreviews[key];
-    }
   });
 
   test("renders every segment as a link to where it goes", () => {
@@ -95,21 +89,18 @@ describe("the scope trail", () => {
     ).toBeNull();
   });
 
-  test("the arrow is named by the parent's title, not its key", () => {
-    mockPreviews[TWO] = "Biography";
-    render(
-      trail([part("Authors", AUTHORS), part("one", ONE), part("bio", TWO)]),
-    );
-    expect(
-      screen.getByLabelText("Up one level, to Biography").getAttribute("href"),
-    ).toBe(mockHrefOf(TWO));
-  });
-
-  test("a segment is named by its title, not its key", () => {
-    mockPreviews[ONE] = "Ada Lovelace";
-    render(trail([part("Authors", AUTHORS), part("one", ONE)]));
-    expect(screen.queryByText("one")).toBeNull();
-    expect(screen.getByText("Ada Lovelace")).not.toBeNull();
+  /**
+   * A trail segment is a PATH segment, whatever a `.preview(...)` calls the
+   * value there.
+   *
+   * A preview is a title — what a thing is called where it is shown as a thing.
+   * This line is where you ARE, and where you are is a path. It also must not
+   * move under an editor as they type, which a title computed from source does.
+   */
+  test("a segment keeps its path name, never a preview title", () => {
+    render(trail([part("Authors", AUTHORS), part("teddy", ONE)]));
+    expect(screen.getByText("Authors")).not.toBeNull();
+    expect(screen.getByText("teddy")).not.toBeNull();
   });
 
   test("a long path collapses its middle, and says how much is hidden", () => {
@@ -165,5 +156,38 @@ describe("the scope trail", () => {
   test("nothing to show above the module means no trail at all", () => {
     const { container } = render(trail([]));
     expect(container.querySelector("nav")).toBeNull();
+  });
+});
+
+/**
+ * A page's location is its ROUTE — not the file the route happens to live in.
+ */
+describe("scopePartsBelowPageRouter", () => {
+  const PAGES = "/app/blogs/[blog]/page.val.ts";
+  const ROUTE = `${PAGES}?p="/blogs/blog2"` as SourcePath;
+  /** What `splitIntoInitAndLastParts` produces: every file segment shares the
+   *  module's own path as its `sourcePath`. */
+  const fileParts: ScopePart[] = [
+    { text: "App", sourcePath: PAGES as SourcePath, isDirectory: true },
+    { text: "Blogs", sourcePath: PAGES as SourcePath, isDirectory: true },
+    { text: "Blog", sourcePath: PAGES as SourcePath, isDirectory: true },
+    { text: "Pages", sourcePath: PAGES as SourcePath },
+  ];
+
+  test("a page's trail drops the file it lives in", () => {
+    expect(scopePartsBelowPageRouter(fileParts, PAGES, true)).toEqual([]);
+  });
+
+  test("a field inside a page keeps the route above it", () => {
+    const route: ScopePart = { text: "/blogs/blog2", sourcePath: ROUTE };
+    expect(
+      scopePartsBelowPageRouter([...fileParts, route], PAGES, true),
+    ).toEqual([route]);
+  });
+
+  test("anything not inside a page router keeps its whole trail", () => {
+    expect(scopePartsBelowPageRouter(fileParts, PAGES, false)).toEqual(
+      fileParts,
+    );
   });
 });

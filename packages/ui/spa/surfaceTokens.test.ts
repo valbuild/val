@@ -106,8 +106,10 @@ function sourceFiles(): string[] {
     }
   };
   walk(SPA);
-  // This file names the forbidden classes in order to look for them.
-  return found.filter((f) => path.resolve(f) !== path.resolve(__filename));
+  // A test never paints anything, and the ones that guard token names have to
+  // name them to look for them — this file, and `colorTokens.test.ts` next to
+  // it, which bans a different thing (a token declared in NO block at all).
+  return found.filter((f) => !/\.test\.tsx?$/.test(f));
 }
 
 describe("surface tokens", () => {

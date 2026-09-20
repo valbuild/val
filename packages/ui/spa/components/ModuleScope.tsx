@@ -3,7 +3,6 @@ import { ChevronLeft } from "lucide-react";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { cn } from "./designSystem/cn";
 import { useNavLink } from "./navLink";
-import { useRefPreview } from "./useRefPreview";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,9 +32,14 @@ import {
  *    link, with the same label. An arrow at the head of the line pointed at a
  *    destination three segments away from it. Separators are plain slashes,
  *    which are not directional and so cannot be mistaken for it.
- * 3. **The parent's own title.** Not the raw key: `useRefPreview` resolves the
- *    title a record entry is shown under everywhere else in the studio, so the
- *    scope names the parent the way the navigation named it.
+ * 3. **Path segments, never previews.** A `.preview(...)` is a TITLE — what a
+ *    thing is called where it is shown as a thing: the heading, a card, a list
+ *    row, a search hit. This line is not that. It is WHERE YOU ARE, and where
+ *    you are is a path: `Content / Authors / teddy`, the folder, the module and
+ *    the key, each as it is written. A trail that read
+ *    `Content / Forfattere / Theodor René Carlsen` names three things and
+ *    locates none of them — and it changes under an editor as they type, which
+ *    is the one thing a location must not do.
  */
 export type ScopePart = {
   /** What the path segment is called, before a render override improves on it. */
@@ -54,6 +58,36 @@ export type ScopePart = {
 };
 
 /**
+ * The trail for a path, with a PAGE's file location left out.
+ *
+ * `/app/blogs/[blog]/page.val.ts?p="/blogs/blog2"` used to read
+ * `App / … / Blog / Pages / /blogs/blog2` — four segments saying where the
+ * module is stored, then the one segment saying where the page is. Nobody
+ * reaches a page that way: the Pages panel is a tree of ROUTES, and a route is
+ * already the complete path. The file is provenance, and it stays on hover and
+ * in the address bar.
+ *
+ * So inside a page router the trail starts below the module. For the page
+ * itself that leaves nothing, and the heading's own route fills the line; for a
+ * field inside a page it leaves the route and then the field.
+ *
+ * Not applied to the router module ITSELF — "Pages" has no route of its own, so
+ * where its file is, is the only location it has.
+ */
+export function scopePartsBelowPageRouter(
+  parts: readonly ScopePart[],
+  moduleFilePath: string,
+  isInsidePageRouter: boolean,
+): ScopePart[] {
+  if (!isInsidePageRouter) {
+    return [...parts];
+  }
+  // Every module-file-path segment — the folders AND the module — is handed the
+  // module's own path as its `sourcePath`. See `splitIntoInitAndLastParts`.
+  return parts.filter((part) => (part.sourcePath as string) !== moduleFilePath);
+}
+
+/**
  * One segment, as a link.
  *
  * `isParent` adds the up arrow: the last segment of the trail is the level
@@ -70,20 +104,11 @@ function ScopeLink({
   className?: string;
 }) {
   const link = useNavLink(part.sourcePath);
-  /**
-   * The title the rest of the studio shows for this path.
-   *
-   * A record entry's key is `blog1`; the nav row, the reference list and the
-   * search results all call it "Blog 1", because the schema's `render.select`
-   * says so. The scope has to agree with them — a path whose segments do not
-   * match the names they were clicked under reads as a different path.
-   */
-  const preview = useRefPreview(part.sourcePath);
-  const label = preview?.title?.trim() || part.text;
+  const label = part.text;
   if (part.isDirectory) {
     // Text, not a link: see `ScopePart.isDirectory`.
     return (
-      <span className={cn("truncate text-fg-quaternary", className)}>
+      <span className={cn("truncate text-fg-secondary-alt", className)}>
         {label}
       </span>
     );
@@ -108,7 +133,7 @@ function ScopeLink({
 /** The separator. Not an arrow — the line has exactly one of those. */
 function ScopeSeparator() {
   return (
-    <span aria-hidden className="shrink-0 text-fg-quaternary">
+    <span aria-hidden className="shrink-0 text-fg-secondary-alt">
       /
     </span>
   );
@@ -124,8 +149,7 @@ function ScopeSeparator() {
  */
 function ScopeMenuLink({ part }: { part: ScopePart }) {
   const link = useNavLink(part.sourcePath);
-  const preview = useRefPreview(part.sourcePath);
-  const label = preview?.title?.trim() || part.text;
+  const label = part.text;
   if (part.isDirectory) {
     // A folder is not a destination here either — see `ScopePart.isDirectory`.
     return (
@@ -197,7 +221,7 @@ export function ScopeTrail({
     <nav
       aria-label="Scope"
       className={cn(
-        "flex min-w-0 items-center gap-1 text-xs text-fg-quaternary",
+        "flex min-w-0 items-center gap-1 text-xs text-fg-secondary-alt",
         className,
       )}
     >

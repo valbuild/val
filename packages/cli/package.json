@@ -1,7 +1,7 @@
 {
   "name": "@valbuild/cli",
   "private": false,
-  "version": "0.129.0",
+  "version": "0.133.0",
   "description": "Val CLI tools",
   "repository": {
     "type": "git",
@@ -32,7 +32,9 @@
     "fast-glob": "^3.3.3",
     "jszip": "^3.10.1",
     "meow": "^9.0.0",
-    "picocolors": "^1.1.1"
+    "picocolors": "^1.1.1",
+    "zod": "^4.4.3",
+    "zod-validation-error": "^5.0.0"
   },
   "peerDependencies": {
     "prettier": "*",

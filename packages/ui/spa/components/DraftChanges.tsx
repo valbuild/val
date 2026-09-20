@@ -630,7 +630,7 @@ function TimeSpent({ since }: { since: Date }) {
     };
   }, [since]);
   return (
-    <div className="text-xs font-light text-fg-quaternary">
+    <div className="text-xs font-light text-fg-secondary-alt">
       {minutes}
       {seconds !== null ? `:${seconds}` : " mins"}
     </div>

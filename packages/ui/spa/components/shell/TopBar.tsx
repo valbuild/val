@@ -223,19 +223,32 @@ export function TopBar({
               pendingChanges={pendingChanges}
               reviewCount={reviewCount}
             />
-            <PreviewButton
-              onPreview={onPreview}
-              previewHref={previewHref}
-              onToggleCanvas={onToggleCanvas}
-              isCanvasOpen={isCanvasOpen}
-            />
-            {publishSlot ?? (
-              <PublishButton
-                pendingChanges={pendingChanges}
-                onPublish={onPublish}
-                publishState={publishState}
+            {/*
+             * Wrappers, only so the tour has something to point at.
+             *
+             * `PreviewButton` is a split control and the publish control is
+             * supplied by the app (`publishSlot`), so neither is a single
+             * element this file can put an attribute on. `inline-flex` rather
+             * than `contents`: a box with no layout of its own measures zero,
+             * and a spotlight on a zero-sized box is a dot.
+             */}
+            <span data-val-tour="preview" className="inline-flex">
+              <PreviewButton
+                onPreview={onPreview}
+                previewHref={previewHref}
+                onToggleCanvas={onToggleCanvas}
+                isCanvasOpen={isCanvasOpen}
               />
-            )}
+            </span>
+            <span data-val-tour="publish" className="inline-flex">
+              {publishSlot ?? (
+                <PublishButton
+                  pendingChanges={pendingChanges}
+                  onPublish={onPublish}
+                  publishState={publishState}
+                />
+              )}
+            </span>
             <BarDivider />
           </>
         )}
@@ -259,6 +272,7 @@ export function TopBar({
             label="AI assistant"
             active={openPanel === "ai"}
             onClick={() => onTogglePanel("ai")}
+            tourTarget="ai"
           >
             <Sparkles size={16} />
           </IconButton>
@@ -268,6 +282,7 @@ export function TopBar({
             label="Quick actions"
             active={openPanel === "utility"}
             onClick={() => onTogglePanel("utility")}
+            tourTarget="utility"
           >
             <PanelRight size={16} />
           </IconButton>
@@ -624,6 +639,7 @@ function ReviewButton({
     <button
       type="button"
       onClick={onCompare}
+      data-val-tour="review"
       aria-label={
         showCount
           ? `Review ${reviewCount} ${reviewCount === 1 ? "change" : "changes"}`
@@ -653,11 +669,14 @@ function IconButton({
   active,
   onClick,
   children,
+  tourTarget,
 }: {
   label: string;
   active?: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  /** Marks this button as the thing a tour step points at. See `StudioTour`. */
+  tourTarget?: string;
 }) {
   return (
     <button
@@ -665,6 +684,7 @@ function IconButton({
       aria-label={label}
       aria-pressed={active}
       onClick={onClick}
+      data-val-tour={tourTarget}
       className={cn(
         "relative grid place-items-center w-8 h-8 rounded-md shrink-0",
         active

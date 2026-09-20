@@ -9,6 +9,7 @@ import { login } from "./login";
 import { lsp } from "./lsp";
 import { debug } from "./debug";
 import { deleteUnappliablePatches } from "./deleteUnappliablePatches";
+import { publish } from "./publish";
 
 async function main(): Promise<void> {
   const { input, flags, showHelp } = meow(
@@ -24,6 +25,7 @@ async function main(): Promise<void> {
         login
         files
         connect
+        publish
         versions
         lsp
         debug
@@ -47,6 +49,32 @@ async function main(): Promise<void> {
       Description: connect your local project to a Val Build project at admin.val.build
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
+
+      Command: publish
+      Description: publish this project's build through content.val.build.
+        Declares the build's artifacts, uploads the ones content does not already hold,
+        and has content verify it by building and rendering a canary before the site
+        changes. Authenticates with VAL_PROJECT_TOKEN, or with the "val login" token in
+        .val/pat.json (which needs the project, as "<org>/<project>", in val.config or
+        VAL_PROJECT). Never as a flag: an argument is visible to anyone who can list
+        processes, and it is kept in shell history and in every CI log.
+      Options:
+        --root [root], -r [root] Set project root directory (default process.cwd())
+        --artifacts [dir]        The built artifacts (default <root>/.val/publish). The path
+                                 of each file under it is its artifact key: server, client,
+                                 css, rsc, layer, or a path under chunk/server, chunk/client,
+                                 chunk/rsc, asset, public
+        --commit [sha]           The commit this build is of (default VAL_GIT_COMMIT,
+                                 else GITHUB_SHA, else git HEAD)
+        --branch [name]          The branch content commits saves to (default VAL_GIT_BRANCH,
+                                 else GITHUB_REF_NAME, else the current git branch)
+        --layer-rev [rev]        Name the dependency layer content already holds, when this
+                                 build does not send one
+        --build-hash [hash]      Identify the build (default: a hash of its artifacts).
+                                 Declaring the same one twice resumes that publish
+        --links-own-css          The app links its own CSS (--no-links-own-css for the
+                                 opposite; omit it when the build did not say)
+        --dry-run                Verify, and stop before the site changes
 
       Command: list-unused-files
       Description: EXPERIMENTAL.
@@ -111,6 +139,18 @@ async function main(): Promise<void> {
         },
         out: {
           type: "string",
+        },
+        artifacts: {
+          type: "string",
+        },
+        layerRev: {
+          type: "string",
+        },
+        buildHash: {
+          type: "string",
+        },
+        linksOwnCss: {
+          type: "boolean",
         },
         commit: {
           type: "string",
@@ -180,6 +220,17 @@ async function main(): Promise<void> {
         dryRun: flags.dryRun,
         yes: flags.yes,
         verbose: flags.verbose,
+      });
+    case "publish":
+      return publish({
+        root: flags.root,
+        artifacts: flags.artifacts,
+        commit: flags.commit,
+        branch: flags.branch,
+        layerRev: flags.layerRev,
+        buildHash: flags.buildHash,
+        linksOwnCss: flags.linksOwnCss,
+        dryRun: flags.dryRun,
       });
     case "login":
       return login({

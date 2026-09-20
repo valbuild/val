@@ -1,5 +1,3 @@
-import { promises as fs } from "fs";
-import * as path from "path";
 import { ValConfig, ValModules } from "@valbuild/core";
 import {
   Api,
@@ -18,6 +16,9 @@ type Versions = {
     next?: string;
   };
 };
+import type { ValPatchStore } from "./ValOpsMemory";
+import type { CommitContext, CommitResult } from "./ValServer";
+
 export type ValApiOptions = ValServerOverrides & ValConfig & Versions;
 
 type ValServerOverrides = Partial<{
@@ -59,22 +60,66 @@ type ValServerOverrides = Partial<{
    */
   mode: "proxy" | "local";
   /**
-   * Current git commit.
+   * The project's source, by path -- and, by being present, the choice of an
+   * in-memory store over the local filesystem.
    *
-   * Required if mode is "proxy".
+   * EXPERIMENTAL. For a host that HOLDS the project's source rather than having
+   * it on a disk: it hands it over here, patches live in `patchStore`, and a
+   * publish is whatever `commitPrepared` does with the files. See
+   * `ValOpsMemory`.
    *
-   * @example "e83c5163316f89bfbde7d9ab23ca2e25604af290"
+   * Selected by presence rather than by a `mode` value because unlike "local"
+   * and "proxy" this one cannot be inferred from the environment -- there is
+   * nothing to infer it FROM, and a mode that can be turned on without
+   * supplying the source would be a server with no content in it.
+   *
+   * An environment that has no disk can still say it EXPECTS this, by setting
+   * `VAL_MODE=memory`. That does not select the mode; it makes forgetting to
+   * pass the source an error here rather than an `EPERM` from `fs` mode two
+   * layers down.
    */
-  gitCommit: string;
-
+  sourceFiles: Record<string, string>;
   /**
-   * Current git branch.
+   * Serve memory mode without authenticating any request. Off by default.
    *
-   * Required if mode is "proxy".
-   *
-   * @example "main"
+   * Set this only when the host authorises every request before it reaches
+   * Val. Without it, memory mode requires a verified session like `http` mode
+   * does -- unlike `fs` mode, this one runs deployed, so an unauthenticated
+   * server is one where anyone who can reach the port can create patches and
+   * trigger a publish.
    */
-  gitBranch: string;
+  unsafelyAllowUnauthenticated?: boolean;
+  /**
+   * Where pending patches live, with {@link sourceFiles}. Defaults to memory,
+   * which is not durable -- see `ValPatchStore`.
+   */
+  patchStore: ValPatchStore;
+  /**
+   * The git commit this code was built from, and the branch a publish mirrors
+   * into -- for a project that HAS a repository.
+   *
+   * OPTIONAL, including in http mode, and absent is the normal case for a
+   * project whose content service is the store of record. It used to be
+   * required, which made a repository a precondition for editing anything: a
+   * deployment with no commit to name fell through to `fs` mode and reached
+   * for a working tree that was not there.
+   *
+   * What it is FOR, where there is one: a publish turns pending patches into
+   * new `.val.ts` text, and to patch a file you must first read it. That read
+   * goes to the content service AT THIS COMMIT. Give it a commit the deployed
+   * code did not come from and the publish writes over a different version of
+   * the file than the one the site is running.
+   *
+   * It is NOT what a committed render reads -- that reads the source compiled
+   * into the build and asks the content service nothing.
+   *
+   * A normal deploy bakes this at build time, because the commit really is a
+   * property of those bytes. `VAL_GIT_COMMIT` / `VAL_GIT_BRANCH` supply it
+   * where a build system sets environment variables instead.
+   *
+   * @example { commit: "e83c5163316f89bfbde7d9ab23ca2e25604af290", branch: "main" }
+   */
+  git?: { commit: string; branch: string };
   /**
    * The base url of Val.
    *
@@ -134,12 +179,26 @@ export async function createValServer(
   config: ValConfig,
   callbacks: ValServerCallbacks,
   formatter?: (code: string, filePath: string) => string | Promise<string>,
+  /**
+   * Called after a save has applied its patches. EXPERIMENTAL — see
+   * `ValServerOptions.commitPrepared`.
+   */
+  commitPrepared?: (commit: {
+    patchedSourceFiles: Record<string, string | null>;
+  }) => Promise<void>,
+  /**
+   * What a publish does in http mode. EXPERIMENTAL — see
+   * `ValServerOptions.publishOverride`.
+   */
+  publishOverride?: (context: CommitContext) => Promise<CommitResult>,
 ): Promise<ValServer> {
   const valServerConfig = await initHandlerOptions(route, opts, config);
   return ValServer(
     valModules,
     {
       formatter,
+      commitPrepared,
+      publishOverride,
       ...valServerConfig,
     },
     callbacks,
@@ -147,9 +206,24 @@ export async function createValServer(
 }
 
 // TODO: remove
+/**
+ * `fs` and `path` are imported INSIDE this function, not at the top of the file.
+ *
+ * This is the only thing in this module that touches either, and it is a local
+ * development convenience: scanning upwards for a `.git` to guess the commit and
+ * branch. A static import put `fs` in the module graph of everything reaching
+ * `createValApiRouter` -- which is every server integration, including ones that
+ * run where there is no filesystem. Workerd provides no `fs`, so such a build
+ * could not be bundled at all without stubbing it.
+ *
+ * The `await import` costs nothing here: the only caller is the CLI, on a
+ * machine that has both.
+ */
 export async function safeReadGit(
   cwd: string,
 ): Promise<{ commit?: string; branch?: string }> {
+  const { promises: fs } = await import("fs");
+  const path = await import("path");
   async function findGitHead(
     currentDir: string,
     depth: number,
@@ -205,10 +279,13 @@ export async function safeReadGit(
   }
 }
 
+/** Only reached from {@link safeReadGit}; same reason for the local imports. */
 async function readCommit(
   gitDir: string,
   branchName: string,
 ): Promise<string | undefined> {
+  const { promises: fs } = await import("fs");
+  const path = await import("path");
   try {
     return (
       await fs.readFile(

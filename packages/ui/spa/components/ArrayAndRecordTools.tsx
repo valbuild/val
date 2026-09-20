@@ -184,7 +184,6 @@ export function ArrayAndRecordTools({
           {canParentChange && (
             <ChangeRecordPopover
               defaultValue={last.text}
-              path={path}
               parentPath={maybeParentPath}
               variant={getButtonVariant(variant)}
               size={getButtonSize(variant)}

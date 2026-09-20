@@ -139,9 +139,15 @@ export function applyShellUrlState(
   set(PARAM.canvasOpen, state.canvasOpen ? "1" : null);
   set(PARAM.canvasRoute, state.canvasRoute);
   set(PARAM.canvasView, state.canvasView === "fields" ? "fields" : null);
+  // Only alongside an open canvas. The workspace reports its position from the
+  // moment it mounts, which it does whether or not the canvas has ever been
+  // opened — so written unconditionally this put `canvas-at=1.00,0,0` on every
+  // URL in the studio, naming a view of something nobody had looked at. It
+  // restores nothing on its own either: the canvas fits itself when it opens,
+  // and it is `canvas=1` that makes a position mean anything.
   set(
     PARAM.canvasTransform,
-    state.canvasTransform === null
+    !state.canvasOpen || state.canvasTransform === null
       ? null
       : formatTransform(state.canvasTransform),
   );

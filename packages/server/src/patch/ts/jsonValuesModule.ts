@@ -34,6 +34,34 @@ export function analyzeJsonValuesEntries(
   return entries;
 }
 
+/**
+ * Every key of a `.jsonValues()` record's source literal, thunked or not.
+ *
+ * {@link analyzeJsonValuesEntries} answers "which entries have a file behind
+ * them", which is the question for resolving a path. This is the other one:
+ * which keys the record HAS. They differ on a value that is not a
+ * `c.json(...)` call - written inline, or mid-edit - and telling an existing
+ * key from a new one is what decides whether a whole-record write adds a
+ * `c.json(...)` thunk or replaces one. Using the thunk set for that would
+ * insert a second property with a key the literal already has.
+ */
+export function jsonValuesRecordKeys(source: ts.Expression): string[] {
+  const keys: string[] = [];
+  if (!ts.isObjectLiteralExpression(source)) {
+    return keys;
+  }
+  for (const prop of source.properties) {
+    if (!ts.isPropertyAssignment(prop)) {
+      continue;
+    }
+    const key = getPropertyKey(prop.name);
+    if (key !== null) {
+      keys.push(key);
+    }
+  }
+  return keys;
+}
+
 function getPropertyKey(name: ts.PropertyName): string | null {
   if (ts.isStringLiteralLike(name)) {
     return name.text;

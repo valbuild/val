@@ -3,6 +3,7 @@ import {
   Internal,
   isPageRouter,
   ModuleFilePath,
+  ReifiedPreview,
   resolveSettingsModule,
   SerializedSchema,
   SourcePath,
@@ -12,7 +13,8 @@ import {
   useShallowModulesAtPaths,
   usePageRouterSrcFolder,
 } from "../ValProvider";
-import { useSchemas } from "../ValFieldProvider";
+import { useAllPreviews, useSchemas } from "../ValFieldProvider";
+import { usePreviewDemand } from "../usePreviewDemand";
 import {
   getPageRouterSitemapTree,
   SitemapNode,
@@ -30,6 +32,7 @@ import {
 import { PathNode } from "../../utils/pathTree";
 import { Remote } from "../../utils/Remote";
 import { useAllValidationErrors } from "../ValErrorProvider";
+import { resolveRefPreview } from "../useRefPreview";
 
 /**
  * Transforms a SitemapNode (from shared/internal) to our SitemapItem type.
@@ -42,6 +45,7 @@ function transformSitemapNode(
   node: SitemapNode | PageNode,
   navErrors: NavErrorsIndex,
   schemas?: Record<ModuleFilePath, SerializedSchema>,
+  previews?: Record<ModuleFilePath, ReifiedPreview | null>,
 ): SitemapItem {
   const canAddChild = !!node.pattern?.includes("[");
   const routePattern =
@@ -61,6 +65,29 @@ function transformSitemapNode(
     canAddChild && moduleFilePath ? schemas?.[moduleFilePath] : undefined;
   const keyDescription =
     routerSchema?.type === "record" ? routerSchema.key?.description : undefined;
+
+  /*
+   * What a `.preview(...)` calls this page.
+   *
+   * A page is an entry of a router RECORD, so its preview is in that module's
+   * reified rows rather than at its own path — `resolveRefPreview` is the same
+   * lookup `useRefPreview` does, reused rather than re-derived (a route key is
+   * a quoted path segment, and getting the unquoting wrong here is how the
+   * lookup silently missed everywhere before).
+   */
+  const pageModuleFilePath = node.moduleFilePath as ModuleFilePath | undefined;
+  const pageSchema = pageModuleFilePath
+    ? schemas?.[pageModuleFilePath]
+    : undefined;
+  const title =
+    sourcePath && pageModuleFilePath && pageSchema
+      ? resolveRefPreview(
+          sourcePath,
+          pageModuleFilePath as unknown as SourcePath,
+          pageSchema,
+          previews?.[pageModuleFilePath]?.[pageModuleFilePath],
+        )?.title?.trim() || undefined
+      : undefined;
 
   // The URL this row resolves to, which is what navigation, key creation and
   // the row's own label all need. `pattern` is the route *pattern*
@@ -82,9 +109,10 @@ function transformSitemapNode(
     routePattern,
     existingKeys,
     keyDescription,
+    title,
     errors,
     children: node.children.map((child) =>
-      transformSitemapNode(child, navErrors, schemas),
+      transformSitemapNode(child, navErrors, schemas, previews),
     ),
   };
 }
@@ -142,6 +170,18 @@ export function useNavMenuData(): Remote<NavMenuData> {
   const srcFolder = usePageRouterSrcFolder();
   const validationErrors = useAllValidationErrors();
   const schemas = useSchemas();
+  /*
+   * The sitemap NAMES its rows, so it has to ask for the previews that name
+   * them.
+   *
+   * `useShallowModulesAtPaths` above reads sources without subscribing, and a
+   * subscription is the only thing the preview store treats as demand — so
+   * without this the titles appeared for whichever router module the editor
+   * happened to be in and nowhere else. One listener per router module (there
+   * are rarely more than a handful), never one per page.
+   */
+  usePreviewDemand(sitemapPaths);
+  const previews = useAllPreviews();
 
   return useMemo((): Remote<NavMenuData> => {
     if (trees.status !== "success") {
@@ -185,6 +225,7 @@ export function useNavMenuData(): Remote<NavMenuData> {
           sitemapTree,
           navErrors,
           schemas.status === "success" ? schemas.data : undefined,
+          previews,
         );
       } else if (
         srcFolder.status === "loading" ||
@@ -267,5 +308,10 @@ export function useNavMenuData(): Remote<NavMenuData> {
     shallowModules,
     validationErrors,
     schemas,
+    // Demand resolves ASYNCHRONOUSLY: the listeners registered above make the
+    // previews appear some time after the first render, so leaving this out
+    // left the sitemap on its pre-preview answer until an unrelated
+    // dependency happened to change.
+    previews,
   ]);
 }

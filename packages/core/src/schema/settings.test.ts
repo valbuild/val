@@ -298,6 +298,71 @@ describe("resolveSettingsModule", () => {
   });
 });
 
+/**
+ * The `studio` section: how the Studio behaves for this project's editors.
+ *
+ * One three-valued field so far, and the three values are the whole point —
+ * unset is not off. The Studio's own parser (`readStudioSettings`) has to agree
+ * with this schema about that, and nothing else checks the two against each
+ * other, so both ends are tested: this file for what the schema accepts, and
+ * `studioSettings` for what an unset value MEANS.
+ */
+describe("the studio section", () => {
+  test("a settings module can be defined with it", () => {
+    expect(
+      c.define("/settings.val.ts", s.settings(), { studio: { tour: false } }),
+    ).toBeDefined();
+  });
+
+  test("its field is optional, like every other section's", () => {
+    const schema = settings();
+    expect(schema["executeValidate"]("path" as SourcePath, {})).toEqual(false);
+    expect(
+      schema["executeValidate"]("path" as SourcePath, { studio: {} }),
+    ).toEqual(false);
+    // Explicitly unset, which is what the Studio writes when it creates the
+    // section for a sibling field. See `useWriteSettingsSection`.
+    expect(
+      schema["executeValidate"]("path" as SourcePath, {
+        studio: { tour: null },
+      }),
+    ).toEqual(false);
+  });
+
+  test("both booleans validate", () => {
+    const schema = settings();
+    for (const tour of [true, false]) {
+      expect(
+        schema["executeValidate"]("path" as SourcePath, { studio: { tour } }),
+      ).toEqual(false);
+    }
+  });
+
+  /**
+   * Through the deserialized schema, because that is the one the Studio's
+   * validation worker runs — a closure does not survive JSON, and a section
+   * that validated here and not there would go wrong silently.
+   */
+  test("a tour that is not a boolean is reported, through deserialize", () => {
+    const schema = deserializeSchema(settings()["executeSerialize"]());
+    const res = schema["executeValidate"]("path" as SourcePath, {
+      studio: { tour: "false" },
+    });
+    expect(Object.keys(res || {})).toEqual(['path?p="studio"."tour"']);
+  });
+
+  test("serializes as a nullable boolean", () => {
+    expect(settings()["executeSerialize"]()).toMatchObject({
+      items: {
+        studio: {
+          type: "settings",
+          items: { tour: { type: "boolean", opt: true } },
+        },
+      },
+    });
+  });
+});
+
 describe("the locales section", () => {
   /** The errors for one settings source, as `path -> messages`. */
   function validate(src: Record<string, unknown>): Record<string, string[]> {

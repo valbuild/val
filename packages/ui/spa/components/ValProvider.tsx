@@ -125,6 +125,19 @@ export type AIMessagesResponse = {
 
 type ValContextValue = {
   mode: "http" | "fs" | "unknown";
+  /**
+   * Why this server cannot publish this project at all, or `null`.
+   *
+   * A fact about the DEPLOYMENT, not about this client's changes: true before
+   * anything was edited, and unchanged by discarding, staging or fixing. The
+   * server's own words -- it knows which branch and which repository, and a
+   * message assembled here could only ever say the generic version.
+   *
+   * See `PublishRefusal` in `@valbuild/shared`'s `ApiRoutes`. The Studio shows
+   * it and turns the publish action off; `/save` refuses the same way for a
+   * client whose stat is a poll out of date.
+   */
+  publishRefusal: string | null;
   profileId: string | null;
   profileAuthError: string | null;
   /**
@@ -791,6 +804,10 @@ export function ValProvider({
         setPublishSummaryState,
         profileId: statProfileId,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
+        publishRefusal:
+          "data" in stat && stat.data
+            ? (stat.data.publishRefusal?.message ?? null)
+            : null,
         profileAuthError:
           profilesData.status === "auth-error" ? profilesData.error : null,
         profilesError:
@@ -2046,6 +2063,12 @@ function toPendingPatch(record: PatchRecord, isPending: boolean): PendingPatch {
 export function useValMode(): "http" | "fs" | "unknown" {
   const { mode } = useContext(ValContext);
   return mode;
+}
+
+/** See {@link ValContextValue.publishRefusal}. */
+export function usePublishRefusal(): string | null {
+  const { publishRefusal } = useContext(ValContext);
+  return publishRefusal;
 }
 
 /**

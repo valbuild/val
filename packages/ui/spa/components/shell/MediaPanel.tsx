@@ -102,6 +102,29 @@ export function MediaPanel({
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  /**
+   * A project with exactly one gallery opens it.
+   *
+   * The reason everything starts closed is thumbnails: opening every gallery on
+   * mount fetches every image in the project to draw it at 24 pixels. With a
+   * single gallery there is nothing to choose between, and a panel called Media
+   * whose entire content is one collapsed row named after a module file is the
+   * panel that produced "what is the point of Media?". Its files are chunked
+   * and lazily loaded either way (see `CHUNK`), so the cost stays bounded by
+   * what is actually on screen.
+   *
+   * An effect rather than an initial value, because the galleries arrive after
+   * mount: on the first render `media` is empty and every project looks like a
+   * project with no gallery. Once per gallery id, so collapsing it is a
+   * decision that sticks.
+   */
+  const soleGalleryId = media.length === 1 ? media[0].id : null;
+  const autoOpened = useRef<string | null>(null);
+  useEffect(() => {
+    if (soleGalleryId === null || autoOpened.current === soleGalleryId) return;
+    autoOpened.current = soleGalleryId;
+    setExpanded((current) => new Set([...current, soleGalleryId]));
+  }, [soleGalleryId]);
 
   const q = query.trim().toLowerCase();
 
@@ -176,7 +199,9 @@ export function MediaPanel({
           <PanelErrorState message={loadError} onRetry={onRetryLoad} />
         ) : filtered.length === 0 ? (
           <PanelEmptyState>
-            {query ? "Nothing matches this filter." : "No galleries yet."}
+            {query
+              ? "Nothing matches this filter."
+              : "No galleries yet. A gallery is the shared library a picture is uploaded to once and used from anywhere."}
           </PanelEmptyState>
         ) : (
           filtered.map(({ gallery, files }) => {

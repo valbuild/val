@@ -3,9 +3,11 @@
 The Val language server: validation, quick fixes and completions for `*.val.ts`
 files, over the Language Server Protocol.
 
-It ships **inside Val**, as a dependency of `@valbuild/next` and
-`@valbuild/cli`. You do not install it — a project on a recent enough Val
-already has it. That is the point: an editor client resolves the server out of
+It ships **inside Val**, as a dependency of the framework bindings and the CLI —
+`@valbuild/next`, `@valbuild/tanstack` and `@valbuild/cli`. Not of every
+`@valbuild/*` a project depends on: `@valbuild/core` and `@valbuild/server`
+could not carry it without a cycle, since the server depends on them. You do not
+install it — a project on a recent enough Val already has it. That is the point: an editor client resolves the server out of
 the user's own `node_modules`, so one published client works against every
 version of Val, and a feature Val gains works without an editor release.
 
@@ -45,18 +47,34 @@ import { createRequire } from "node:module";
 
 const rootPkg = path.join(projectRoot, "package.json");
 // A direct dependency wins; otherwise go through whichever package carries it.
-// @valbuild/core and @valbuild/server are NOT valid anchors -- they do not
-// depend on the language server, and could not without a cycle.
-for (const anchor of [null, "@valbuild/next", "@valbuild/cli"]) {
-  const from =
-    anchor === null
-      ? rootPkg
-      : createRequire(rootPkg).resolve(`${anchor}/package.json`);
-  const pkgPath = createRequire(from).resolve(
-    "@valbuild/language-server/package.json",
-  );
-  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
-  return path.resolve(path.dirname(pkgPath), pkg.bin["val-language-server"]);
+// One anchor per framework binding, plus the CLI. @valbuild/core and
+// @valbuild/server are NOT valid anchors -- they do not depend on the language
+// server, and could not without a cycle. Better still: read the project's own
+// @valbuild/* dependencies out of its package.json and try those first, so a
+// framework package added after your client shipped resolves anyway.
+for (const anchor of [
+  null,
+  "@valbuild/next",
+  "@valbuild/tanstack",
+  "@valbuild/cli",
+]) {
+  // The try/catch is load-bearing, not defensive: `resolve` THROWS when it
+  // finds nothing. Under pnpm the first (`null`) attempt is exactly that case,
+  // so without it the anchors below are never reached and the recipe fails on
+  // the one layout it exists for.
+  try {
+    const from =
+      anchor === null
+        ? rootPkg
+        : createRequire(rootPkg).resolve(`${anchor}/package.json`);
+    const pkgPath = createRequire(from).resolve(
+      "@valbuild/language-server/package.json",
+    );
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+    return path.resolve(path.dirname(pkgPath), pkg.bin["val-language-server"]);
+  } catch {
+    // Not reachable through this anchor. Try the next.
+  }
 }
 ```
 
@@ -238,7 +256,7 @@ local RESOLVE = [[
 const { createRequire } = require("node:module");
 const fs = require("fs"), path = require("path");
 const rootPkg = path.join(process.argv[2], "package.json");
-for (const anchor of [null, "@valbuild/next", "@valbuild/cli"]) {
+for (const anchor of [null, "@valbuild/next", "@valbuild/tanstack", "@valbuild/cli"]) {
   try {
     const from = anchor === null
       ? rootPkg
@@ -269,7 +287,7 @@ local function val_server_cmd(root)
   -- its dependencies are not installed. Say so rather than starting nothing.
   vim.notify(
     "Val: no @valbuild/language-server in " .. root ..
-      " -- upgrade @valbuild/next or @valbuild/cli.",
+      " -- upgrade @valbuild/next, @valbuild/tanstack or @valbuild/cli.",
     vim.log.levels.WARN
   )
   return nil
