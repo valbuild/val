@@ -281,6 +281,25 @@ export async function openNavPanel(
 }
 
 /**
+ * The open panel itself, rather than the whole Studio.
+ *
+ * `openNavPanel` returns the shadow root, so a name matched against it also
+ * matches the module pane the panel is floating over. That is fine for a name
+ * only one of them can have and a strict-mode violation for one they can share
+ * — which `s.view()` made ordinary, since a view row is most naturally named
+ * after the module it points at, and the nav lists that module under the same
+ * name. Scope to the panel when asserting that the panel LISTS something.
+ *
+ * Every panel is a `FloatingPanel`, which is `role="dialog"` labelled by its
+ * title, so the panel's name is the same string `openNavPanel` takes.
+ */
+export function navPanel(page: Page, panel: PanelName): Locator {
+  return page
+    .locator("#val-shadow-root")
+    .getByRole("dialog", { name: panel, exact: true });
+}
+
+/**
  * Expand a row in the Pages panel, by name.
  *
  * Reaching a nested page means opening the rows above it — and a SMALL site map

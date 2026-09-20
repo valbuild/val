@@ -3,12 +3,21 @@ import { ValImage, ValRichText } from "@valbuild/tanstack";
 import { useVal, useValRoute } from "../val/client";
 import pageVal, { type Content } from "./_site.index.val";
 import { NotFound } from "../components/NotFound";
-import authorsVal from "../content/authors.val";
 import siteVal from "../content/site.val";
 
 export const Route = createFileRoute("/_site/")({
   component: Home,
 });
+
+/**
+ * What the route's entry reads as, so the child below can be typed from it.
+ *
+ * Not `Content`: that is the SOURCE type, where a view is the stored pointer
+ * `{ view: "/src/content/authors.val.ts" }`. What a reader hands back is the
+ * pointer with the module attached, which is the only thing `useVal` can
+ * resolve — so the prop has to come from the reader, not from the schema.
+ */
+type PageContent = NonNullable<ReturnType<typeof useValRoute<typeof pageVal>>>;
 
 /**
  * Content read in the component, which is the everyday way.
@@ -21,7 +30,6 @@ export const Route = createFileRoute("/_site/")({
  */
 function Home() {
   const page = useValRoute(pageVal, {});
-  const authors = useVal(authorsVal);
   const site = useVal(siteVal);
   if (page === null) {
     /*
@@ -35,7 +43,6 @@ function Home() {
      */
     return <NotFound />;
   }
-  const author = authors[page.author];
   return (
     <main>
       <h1>{page.hero.title}</h1>
@@ -45,11 +52,11 @@ function Home() {
       <p>
         <a href={page.hero.ctaHref}>{page.hero.ctaLabel}</a>
       </p>
-      {author && (
-        <aside>
-          By {author.name}, published {page.published}
-        </aside>
-      )}
+      <Authors
+        authors={page.authors}
+        authorKey={page.author}
+        published={page.published}
+      />
       <p>{page.tags.join(", ")}</p>
       {page.blocks.map((block, i) => (
         <Block key={i} block={block} />
@@ -59,6 +66,52 @@ function Home() {
       </p>
       <footer>{site.footer}</footer>
     </main>
+  );
+}
+
+/**
+ * The authors module, read through the page's own `s.view()` field.
+ *
+ * `page.authors` is a pointer — `{ view: "/src/content/authors.val.ts" }` — and
+ * the reader resolves it, so this is the same content `useVal(authorsVal)` would
+ * give. What it buys is that the page DECLARES which module it shows and this
+ * component follows that declaration, where the import it replaces would have
+ * gone on reading authors whatever the schema said.
+ *
+ * Its own component because `page` can be `null` and a hook cannot be: reading
+ * the view where `page.authors` exists means reading it after the early return
+ * above, which is exactly what the rules of hooks forbid. A child that is only
+ * mounted once there IS a page keeps every hook unconditional.
+ */
+function Authors({
+  authors: authorsView,
+  authorKey,
+  published,
+}: {
+  authors: PageContent["authors"];
+  authorKey: PageContent["author"];
+  published: PageContent["published"];
+}) {
+  const authors = useVal(authorsView);
+  const author = authors[authorKey];
+  return (
+    <>
+      {author && (
+        <aside>
+          By {author.name}, published {published}
+        </aside>
+      )}
+      {/*
+       * Everyone in the viewed module, not just the one `s.keyOf` picked —
+       * which is the point of reading the whole thing rather than a key.
+       */}
+      <aside>
+        Authors:{" "}
+        {Object.values(authors)
+          .map((a) => a.name)
+          .join(", ")}
+      </aside>
+    </>
   );
 }
 

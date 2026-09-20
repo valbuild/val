@@ -22,6 +22,16 @@ export const schema = s.object({
    * Reference to other content:
    */
   author: s.keyOf(authorsVal),
+  /**
+   * A pointer at the authors module, rather than a copy of it.
+   *
+   * `s.keyOf` above picks ONE author; the editor who wants to fix a name has to
+   * go and find `/content/authors.val.ts` for themselves. This puts a row on
+   * this page's screen that leads straight there — and, because the page now
+   * declares which module it shows, `page.tsx` reads the list through
+   * `fetchVal(page.authors)` instead of importing the module a second time.
+   */
+  authors: s.view(authorsVal),
   link: s.route(),
   /**
    * Rich Text that is optional:
@@ -71,6 +81,7 @@ export default c.define("/app/page.val.ts", s.router(nextAppRouter, schema), {
     },
     tags: ["CMS", "react", "github", "NextJS"],
     author: "freekh",
+    authors: { view: "/content/authors.val.ts" },
     text: [
       {
         tag: "p",

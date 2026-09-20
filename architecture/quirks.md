@@ -340,6 +340,30 @@ appends socket messages. Both feed the same fold, which keeps the last entry per
 commit sha — so anything reading that list has to sort before folding, or a
 finished build gets overwritten by the pending one it replaced.
 
+## `fetchVal` in draft mode loads EVERY module, once per call
+
+`initFetchValStega` (next `rsc`, and the same code in tanstack `server`) asks
+`/sources/~` with `path: "/"` — the whole tree — and then hands `stegaEncode` a
+`getModule` that reads one entry out of the result. So a draft render that calls
+`fetchVal` three times fetches and validates every module in the project three
+times, no matter how small the three selectors are.
+
+Two things keep it from being a production problem, and neither makes it a
+non-problem:
+
+- It is **draft mode only**. With Val disabled the reader never touches the
+  server: `stegaEncode(selector, { disabled: true })` runs against the statically
+  imported module and nothing else.
+- The client readers do NOT do this. `useVal` subscribes to exactly
+  `getModuleIds(selector)`, so a page subscribes to the page.
+
+It predates `s.view()` and is the same on `main`. Narrowing it is not a
+one-liner: `getModuleIds` can name several modules (a gallery-backed image
+references another), and `/sources/~` takes ONE `path`, so it is either N
+requests or a new list parameter — and the endpoint also does validation and
+patch resolution whose scope would move with it. Measure a draft render before
+assuming this is the slow part, and do it in its own change.
+
 ## `.jsonValues()`
 
 **A validation error can point where the module source cannot go.** A

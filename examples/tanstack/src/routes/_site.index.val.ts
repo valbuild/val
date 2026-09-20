@@ -111,6 +111,19 @@ export const schema = s.object({
   }),
   /** `s.keyOf()`: a reference to a key of another module's record. */
   author: s.keyOf(authorsVal).describe("Who wrote this page"),
+  /**
+   * `s.view()`: a POINTER at another module, not a copy of it.
+   *
+   * `s.keyOf` above picks ONE author, and an editor wanting to fix a name had
+   * to go and find `/src/content/authors.val.ts` for themselves. This puts a row
+   * on this page's screen that leads straight there.
+   *
+   * It also makes the page DECLARE which module it shows, so the route
+   * component reads the list through `useVal(page.authors)` instead of
+   * importing the module a second time. Point this somewhere else and the read
+   * follows; the import it replaces would have gone on reading authors.
+   */
+  authors: s.view(authorsVal).describe("Everyone who can be an author"),
   tags: s.array(s.string()),
   /** `s.date()`: a calendar date, no time and no timezone to get wrong. */
   published: s.date(),
@@ -161,6 +174,7 @@ export default c.define(
         ctaHref: "/docs/getting-started",
       },
       author: "freekh",
+      authors: { view: "/src/content/authors.val.ts" },
       tags: ["CMS", "react", "tanstack"],
       published: "2025-01-09",
       blocks: [

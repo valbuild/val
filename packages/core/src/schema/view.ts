@@ -54,6 +54,16 @@ export class ValViewSchema<
 > extends Schema<ValViewSource<Id, T>> {
   constructor(
     private readonly moduleFilePath: Id,
+    /**
+     * The module this points at, as an object.
+     *
+     * Not serialized and not part of the schema's identity — it is here so the
+     * READ path can resolve a view without a path-to-module registry, which the
+     * app does not have (`val.modules` is lazy thunks, `<ValModulesClient>` is
+     * optional). Absent on a schema that came off the wire, which is fine: the
+     * Studio navigates to a view, it does not resolve one.
+     */
+    private readonly valModule: unknown = undefined,
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
@@ -83,6 +93,7 @@ export class ValViewSchema<
   describe(description: string | null): ValViewSchema<Id, T> {
     return new ValViewSchema(
       this.moduleFilePath,
+      this.valModule,
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
@@ -195,6 +206,7 @@ export class ValViewSchema<
   readonly(isReadonly: boolean = true): ValViewSchema<Id, T> {
     return new ValViewSchema(
       this.moduleFilePath,
+      this.valModule,
       isReadonly,
       this.isHidden,
       this.description,
@@ -225,6 +237,7 @@ export class ValViewSchema<
   hidden(isHidden: boolean = true): ValViewSchema<Id, T> {
     return new ValViewSchema(
       this.moduleFilePath,
+      this.valModule,
       this.isReadonly,
       isHidden,
       this.description,
@@ -250,6 +263,7 @@ export class ValViewSchema<
   render(input: FieldRender): ValViewSchema<Id, T> {
     return new ValViewSchema(
       this.moduleFilePath,
+      this.valModule,
       this.isReadonly,
       this.isHidden,
       this.description,
@@ -304,5 +318,5 @@ export const view = <
   if (!path) {
     throw new Error("s.view() must be given a Val module");
   }
-  return new ValViewSchema(path as unknown as ModuleIdOf<M>);
+  return new ValViewSchema(path as unknown as ModuleIdOf<M>, valModule);
 };
