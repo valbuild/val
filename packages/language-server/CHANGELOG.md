@@ -1,5 +1,62 @@
 # @valbuild/language-server
 
+## 0.133.0
+
+### Patch Changes
+
+- Updated dependencies [[`802412b`](https://github.com/valbuild/val/commit/802412b92c06bc1abbca78c86885e39c8710dd83)]:
+  - @valbuild/server@0.133.0
+  - @valbuild/shared@0.133.0
+
+## 0.132.1
+
+### Patch Changes
+
+- [#685](https://github.com/valbuild/val/pull/685) [`f2ac188`](https://github.com/valbuild/val/commit/f2ac1887c11397b597081eef7206063b52b21c5b) Thanks [@freekh](https://github.com/freekh)! - Editor clients: resolve the language server through `@valbuild/tanstack` too
+
+  `@valbuild/language-server` ships inside Val's framework bindings and its CLI —
+  `@valbuild/next`, `@valbuild/tanstack` and `@valbuild/cli` — but the resolution
+  recipes in this package's README, which exist to be copied into an editor
+  client, only ever anchored on `next` and `cli`.
+
+  Under pnpm's isolated `node_modules` a transitive dependency is reachable _only_
+  through a package the project declares, so a client built from those snippets
+  finds nothing at all in a TanStack Start project. The Neovim configuration in
+  here then tells the user to upgrade `@valbuild/next` — a package they do not
+  have and should not add.
+
+  The snippets now anchor on `@valbuild/tanstack` as well, and point at the better
+  version of the rule: read the project's own `@valbuild/*` dependencies out of its
+  `package.json` and try those first, so the framework binding after this one works
+  with no client release. Docs only — the server itself is unchanged, and the VS
+  Code extension already resolved this way.
+
+- Updated dependencies [[`c07b1ab`](https://github.com/valbuild/val/commit/c07b1abe30e226c80ef7ec4b4f0f5ccdae061c11), [`cbfa2b8`](https://github.com/valbuild/val/commit/cbfa2b884898f1603bde8e5aa5cd9da78778101f)]:
+  - @valbuild/server@0.132.1
+
+## 0.132.0
+
+### Patch Changes
+
+- Updated dependencies [[`72cc676`](https://github.com/valbuild/val/commit/72cc6765e92a6e72b5c09ddd9eed8efa7ce899f2)]:
+  - @valbuild/server@0.132.0
+
+## 0.131.0
+
+### Patch Changes
+
+- Updated dependencies [[`0d5857b`](https://github.com/valbuild/val/commit/0d5857b731e11f7e6a011f79297df6485908c31f)]:
+  - @valbuild/server@0.131.0
+
+## 0.130.0
+
+### Patch Changes
+
+- Updated dependencies [[`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75), [`8425378`](https://github.com/valbuild/val/commit/8425378c315ea46b5d822f1130b633e0449ff1b0), [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75), [`473a185`](https://github.com/valbuild/val/commit/473a185f70351b44388f3bc1852649e2c1dbe001), [`64f0de3`](https://github.com/valbuild/val/commit/64f0de339b8621cb5a6c422dfe55cae5b2bbe2a0), [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75)]:
+  - @valbuild/server@0.130.0
+  - @valbuild/core@0.130.0
+  - @valbuild/shared@0.130.0
+
 ## 0.129.0
 
 ### Patch Changes

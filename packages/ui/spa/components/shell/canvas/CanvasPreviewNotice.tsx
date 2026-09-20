@@ -101,6 +101,35 @@ export function CanvasPreviewNotice({
   if (status === "live") return null;
 
   const label = describePreviewStatus(status, isWarning);
+  /**
+   * Whether the pill draws the sentence, or lets the button be it.
+   *
+   * The pill says ONE thing. Where the thing to do fits on a button — "Turn on
+   * preview mode" — a sentence beside it is a vaguer copy of the same message:
+   * "Preview is not ready yet" next to the button that makes it ready tells
+   * nobody anything the button did not, and reads as two problems rather than
+   * one act.
+   *
+   * It comes back once the wait is up, because then it is saying something the
+   * button cannot: the button has been there for twenty seconds and the canvas
+   * still is not working, so WHICH way it is failing is now the useful part.
+   */
+  const hasFix = status === "preview-off" || status === "no-answer";
+  const showsLabel = !hasFix || isWarning;
+  /**
+   * Whether to say what is KNOWN rather than what is safe to say in passing.
+   *
+   * The pill withholds a diagnosis for {@link PREVIEW_WARNING_DELAY_MS}
+   * because it is ambient: it appears without being asked for, over a page
+   * that is very often just compiling, and naming a fault there is how the
+   * thing this replaces came to look like a failure screen.
+   *
+   * The panel is not ambient — it was opened, deliberately, by someone asking
+   * what is going on. Answering "the page has not reported what is on it yet"
+   * to a page that HAS reported, and reported that preview mode is off, is not
+   * caution; it is the one place being unhelpful on purpose.
+   */
+  const known = isWarning || hasFix;
   return (
     /*
      * `pointer-events-none` on the layer, `auto` on the pill.
@@ -145,7 +174,21 @@ export function CanvasPreviewNotice({
          * past the pane instead - taking the controls out of reach on a
          * narrow canvas.
          */}
-        <span className="flex min-w-0 items-center gap-1.5" role="status">
+        <span
+          className={cn(
+            "flex min-w-0 items-center gap-1.5",
+            /*
+             * Still in the DOM where it is not drawn.
+             *
+             * `role="status"` is what announces the canvas's state, and a
+             * button appearing announces nothing — so dropping the sentence
+             * from the pill would take the whole state change away from a
+             * screen reader rather than tidying it.
+             */
+            !showsLabel && "sr-only",
+          )}
+          role="status"
+        >
           {isWarning ? (
             <TriangleAlert size={12} className="shrink-0" aria-hidden />
           ) : (
@@ -176,12 +219,6 @@ export function CanvasPreviewNotice({
           >
             Turn on preview mode
           </button>
-        )}
-        {status === "enabling" && (
-          <span className="inline-flex shrink-0 items-center gap-1 px-1 font-medium">
-            <Loader2 size={11} className="animate-spin" aria-hidden />
-            Turning on…
-          </span>
         )}
         <button
           type="button"
@@ -218,20 +255,25 @@ export function CanvasPreviewNotice({
             "max-h-[min(70vh,32rem)] overflow-y-auto scrollbar-slim",
           )}
         >
-          <h3 className="text-xs font-medium text-fg-primary">{label}</h3>
+          <h3 className="text-xs font-medium text-fg-primary">
+            {describePreviewStatus(status, known)}
+          </h3>
           <p className="mt-1.5 text-[0.6875rem] leading-relaxed text-fg-secondary">
-            {explainPreviewStatus(status, isWarning)}
+            {explainPreviewStatus(status, known)}
           </p>
           {/*
-           * The developer's checklist, where the page never answered. Folded
-           * away for the same reason it always was: most people looking at
-           * this are editors, for whom a code snippet is noise and slightly
-           * alarming, and the developer they will ask is the one who needs
-           * it.
+           * The developer's checklist, wherever something is wrong.
+           *
+           * It used to be offered only where the page never answered, on the
+           * grounds that a page which answered is wired up correctly. True, and
+           * it withheld the checklist from exactly the person who needs it:
+           * someone whose preview mode will not stay on presses the button,
+           * lands back on `preview-off`, and is in the one state with no route
+           * to the setup help. It is a closed `details` in every state, so
+           * offering it everywhere costs one line and asks nothing of the
+           * editors who do not want it.
            */}
-          {(status === "no-answer" || status === "connecting") && (
-            <SetupInstructions />
-          )}
+          <SetupInstructions />
           {/*
            * Reload only. Turning preview mode on is the ONE thing most
            * people here need, so it is on the pill itself - see above -
@@ -338,12 +380,14 @@ function useWarningAfterDelay(
 }
 
 /**
- * What a DEVELOPER needs when the page never answers.
+ * What a DEVELOPER needs when the canvas will not work.
  *
  * The most likely cause of silence is not a fault at all — it is an app that has
  * not been wired up: no `ValProvider` in the root layout, or one that is not
  * above the page being previewed. That is a five-line fix and completely opaque
- * from this side of the iframe, so the answer is worth having on screen.
+ * from this side of the iframe, so the answer is worth having on screen —
+ * offered in every state the canvas is not working in, because the state
+ * someone is stuck in is rarely the one they would have guessed.
  *
  * A `details` gives the editor and the developer the right thing without a mode
  * switch, and it is native, so it needs no state and cannot get stuck open.

@@ -47,7 +47,21 @@ function willRun(project: string): boolean {
  * thing keeping it out of `chromium` was supposed to prevent. It has to be
  * absent from the config entirely unless it was named.
  */
-const screensRequested = requestedProjects.has("screens");
+const screensRequested =
+  requestedProjects.has("screens") || process.env.VAL_E2E_SCREENS === "1";
+/*
+ * Carried to the workers in the environment, because argv does not reach them.
+ *
+ * A worker re-evaluates this file in its own process, and its argv is
+ * Playwright's own — no `--project=screens` in it. So the project was declared
+ * in the runner and absent in every worker, and `--project=screens` failed with
+ * "Project "screens" not found in the worker process" no matter how it was
+ * invoked: the script could not be run at all. Workers are forked after the
+ * config is evaluated, so they inherit whatever is set here.
+ */
+if (requestedProjects.has("screens")) {
+  process.env.VAL_E2E_SCREENS = "1";
+}
 
 /**
  * Which apps this run needs, and therefore which servers start.
@@ -327,8 +341,23 @@ export default defineConfig({
               VAL_API_KEY: MOCK_API_KEY,
               VAL_SECRET: MOCK_SECRET,
               VAL_PROJECT: MOCK_PROJECT,
-              VAL_GIT_COMMIT: MOCK_INITIAL_COMMIT,
-              VAL_GIT_BRANCH: "main",
+              /*
+               * A repository to mirror commits into -- unless the run says
+               * otherwise.
+               *
+               * `VAL_E2E_MANAGED=1` omits both, which is a project whose
+               * content service is the store of record: no repository, no
+               * commit baked into the build, http mode on credentials alone.
+               * That is the case this suite could not reach before, because
+               * these two were unconditional and their absence used to be a
+               * boot error.
+               */
+              ...(process.env.VAL_E2E_MANAGED
+                ? {}
+                : {
+                    VAL_GIT_COMMIT: MOCK_INITIAL_COMMIT,
+                    VAL_GIT_BRANCH: "main",
+                  }),
               VAL_CONTENT_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
               VAL_BUILD_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
             },

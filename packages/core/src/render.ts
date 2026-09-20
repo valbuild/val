@@ -1,6 +1,32 @@
 import type { SerializedSchema } from "./schema";
 
 /**
+ * THE RULE, and the only sentence that needs to be remembered:
+ *
+ *   **`.describe()` is INPUT HELP and is shown wherever that field — or a
+ *   record's key — is being ENTERED; `.preview()` is a NAME and is shown
+ *   wherever the value is REFERRED TO rather than edited; `.render()` is
+ *   LAYOUT and applies only while the field is open in front of you.**
+ *
+ * The test that settles every case: **can the reader change something here?**
+ * If yes it is a place for a description — the input beside a label, the key
+ * box in "New entry", "Rename key", "Duplicate", "New page", the key half of a
+ * reference dropdown. If no, it is a place for a preview — a list row, a
+ * reference once chosen, a search hit, a sitemap row, the heading of what you
+ * navigated to.
+ *
+ * That is why a description is plain data on the serialized schema and a
+ * preview is a closure: a description is true before any value exists and says
+ * the same thing to everyone filling the field in, and a preview cannot exist
+ * without the one value it names. So a description must never be used as a
+ * subtitle — it would repeat one sentence under every row of a list — and a
+ * preview must never be used as help text, because there is nothing to preview
+ * until after the value has been entered.
+ *
+ * None of the three substitutes for another: a field with a perfect
+ * description still previews as `#3` until someone writes the preview.
+ */
+/**
  * A RENDER is how the FIELD ITSELF is laid out in the editor, and it applies
  * only when you are looking at the field: `.render({ as: "inline" })` on an
  * array/record item.

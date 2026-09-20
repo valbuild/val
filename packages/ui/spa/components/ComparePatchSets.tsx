@@ -1978,10 +1978,14 @@ function ChangeTypeLabel({
     );
   }
   if (changeType === "removed") {
-    return <span className="text-sm text-fg-error shrink-0">Removed</span>;
+    return (
+      <span className="text-sm text-fg-error-on-surface shrink-0">Removed</span>
+    );
   }
   if (changeType === "moved") {
-    return <span className="text-sm text-fg-warning shrink-0">Moved</span>;
+    return (
+      <span className="text-sm text-fg-warning-primary shrink-0">Moved</span>
+    );
   }
   return null; // field-change has no badge — the side-by-side rails carry it.
 }
@@ -2016,7 +2020,7 @@ function ChangeTypeIcon({
       return (
         <Minus
           size={size}
-          className="shrink-0 text-fg-error"
+          className="shrink-0 text-fg-error-on-surface"
           aria-label="Removed"
         />
       );
@@ -2024,7 +2028,7 @@ function ChangeTypeIcon({
       return (
         <ArrowRight
           size={size}
-          className="shrink-0 text-fg-warning"
+          className="shrink-0 text-fg-warning-primary"
           aria-label="Moved"
         />
       );
@@ -2553,7 +2557,7 @@ function SingleSideContentInner({
     <div className="max-w-xl">
       <DiffSide diffStyle={diffStyle}>
         {diffStyle === "removed" ? (
-          <div className="[&_div]:decoration-fg-error [&_pre]:decoration-fg-error line-through decoration-fg-error">
+          <div className="[&_div]:decoration-fg-error-on-surface [&_pre]:decoration-fg-error-on-surface line-through decoration-fg-error-on-surface">
             <AnyField
               path={sourcePath}
               schema={schema}
@@ -2589,7 +2593,7 @@ function DiffSide({
   return (
     <div
       className={classNames("border-l-[3px] pl-3 pr-1 py-2 min-w-0", {
-        "border-fg-error": diffStyle === "removed",
+        "border-fg-error-on-surface": diffStyle === "removed",
         "border-fg-brand-primary": diffStyle === "added",
       })}
     >

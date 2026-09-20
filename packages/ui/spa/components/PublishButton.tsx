@@ -10,6 +10,7 @@ import {
   usePendingServerSidePatchIds,
   usePublishSummary,
   useValMode,
+  usePublishRefusal,
 } from "./ValProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useValPortal } from "./ValPortalProvider";
@@ -111,12 +112,14 @@ export function PublishButton({
   // a colleague's change is not theirs to stage. See `useOwnHeldPatchIds`.
   const heldChangeIds = useOwnHeldPatchIds();
   const mode = useValMode();
+  const publishRefusal = usePublishRefusal();
   const portalContainer = useValPortal();
   const { autoPublish } = useAutoPublish();
   const { navigate } = useNavigation();
 
   const state = describePublishButton({
     mode: mode === "fs" ? "fs" : mode === null ? "unknown" : "http",
+    publishRefusal,
     validationErrorCount: validationErrorPaths.length,
     conflictingChangeCount,
     isPublishing,

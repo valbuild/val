@@ -6,6 +6,7 @@ import { THEME_RADIUS_STEPS, ThemeRadius } from "@valbuild/core";
 // module reaches the whole editor tree, and this panel is presentational.
 import { ColorFieldPure } from "../fields/ColorFieldPure";
 import { FloatingPanel, PanelEmptyState } from "./FloatingPanel";
+import { useShellPanelLink } from "./shellPanelLink";
 import { PanelErrorState, PanelSkeleton } from "./PanelPrimitives";
 import { Switch } from "../designSystem/switch";
 import { cn } from "../designSystem/cn";
@@ -76,9 +77,38 @@ export function SettingsPanel({
       ) : loadError ? (
         <PanelErrorState message={loadError} onRetry={onRetryLoad} />
       ) : (
-        children
+        <>
+          {children}
+          <PersonalSettingsPointer />
+        </>
       )}
     </FloatingPanel>
+  );
+}
+
+/**
+ * Where the OTHER settings are.
+ *
+ * The split between this panel and the account panel is real — one is project
+ * content and gets published, the other is one person on one machine — but it
+ * is invisible from here, and "Settings" is where anybody goes looking for the
+ * dark mode switch. A line at the foot of the panel is cheaper than either
+ * duplicating those controls or renaming a destination.
+ */
+function PersonalSettingsPointer() {
+  const link = useShellPanelLink("account");
+  return (
+    <p className="px-4 py-4 text-[0.6875rem] leading-relaxed text-fg-secondary-alt">
+      These settings belong to the project and are published with your content.
+      Your own — theme, and how the Studio behaves on this machine — are under{" "}
+      <a
+        {...link}
+        className="underline underline-offset-2 hover:text-fg-primary"
+      >
+        Account
+      </a>
+      .
+    </p>
   );
 }
 
@@ -110,33 +140,47 @@ export function SettingsTabs({ tabs }: { tabs: SettingsTab[] }) {
   }
   return (
     <div className="flex flex-col">
-      <div
-        role="tablist"
-        aria-label="Settings sections"
-        // Left-aligned and natural width, not `flex-1`: with one tab, stretching
-        // it to the panel drew a full-width button rather than a tab, and a strip
-        // that re-flows every tab as sections are added is one that moves the tab
-        // an editor had learned the position of.
-        className="flex gap-0.5 m-3 p-0.5 rounded-md bg-bg-float-raised self-start w-fit"
-      >
-        {tabs.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={current.id === id}
-            onClick={() => setActive(id)}
-            className={cn(
-              "inline-flex items-center justify-center gap-1.5 h-7 px-3 rounded text-[0.6875rem]",
-              current.id === id
-                ? "bg-bg-float text-fg-primary shadow-sm font-medium"
-                : "text-fg-secondary hover:text-fg-primary",
-            )}
-          >
-            <Icon size={13} />
-            {label}
-          </button>
-        ))}
+      {/*
+       * The strip scrolls sideways when it does not fit.
+       *
+       * The panel is 360px and a tab is as wide as its label, so four of them
+       * already overflowed — and an overflowing flex row does not wrap, it
+       * squashes: the last tab was clipped with no way to reach it. Scrolling
+       * rather than wrapping because a strip that re-flows onto two lines moves
+       * every tab an editor had learned the position of, which is the same
+       * reason it is not `flex-1`.
+       *
+       * The scroller is the outer element and carries the margin; the strip
+       * inside keeps `w-fit` so the pill background is the width of the tabs
+       * rather than of the panel.
+       */}
+      <div className="m-3 overflow-x-auto overscroll-x-contain scrollbar-slim">
+        <div
+          role="tablist"
+          aria-label="Settings sections"
+          className="flex gap-0.5 p-0.5 rounded-md bg-bg-float-raised w-fit"
+        >
+          {tabs.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={current.id === id}
+              onClick={() => setActive(id)}
+              className={cn(
+                // `shrink-0`, or the flex row squashes the tabs to fit instead
+                // of letting the scroller do its job.
+                "inline-flex shrink-0 items-center justify-center gap-1.5 h-7 px-3 rounded text-[0.6875rem] whitespace-nowrap",
+                current.id === id
+                  ? "bg-bg-float text-fg-primary shadow-sm font-medium"
+                  : "text-fg-secondary hover:text-fg-primary",
+              )}
+            >
+              <Icon size={13} />
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
       <div role="tabpanel">{current.content}</div>
     </div>
@@ -145,19 +189,100 @@ export function SettingsTabs({ tabs }: { tabs: SettingsTab[] }) {
 
 /** One settings section: a lead paragraph and the fields under it. */
 export function SettingsSection({
+  title,
   description,
   children,
 }: {
+  /**
+   * The section's name, where a tab holds more than one.
+   *
+   * Absent for a tab that IS one section — a heading over the only thing on
+   * screen repeats the tab that is already selected above it.
+   */
+  title?: string;
   description: string;
   children: ReactNode;
 }) {
   return (
-    <section className="px-4 pb-4">
+    <section className="px-4 pb-5">
+      {title !== undefined && (
+        <h3 className="pb-1.5 text-[0.6875rem] font-semibold uppercase tracking-wider text-fg-secondary-alt">
+          {title}
+        </h3>
+      )}
       <p className="text-xs text-fg-secondary-alt leading-relaxed">
         {description}
       </p>
       <div className="mt-3 flex flex-col gap-4">{children}</div>
     </section>
+  );
+}
+
+/**
+ * A hairline between two sections in one tab.
+ *
+ * An element rather than a border on the section, so a section does not have to
+ * know whether it is the first one in whichever tab it has been put in.
+ */
+export function SettingsSectionDivider() {
+  return <hr className="mx-4 mb-5 border-t border-border-float" />;
+}
+
+export type StudioSettingsValue = {
+  /**
+   * Three states, not two.
+   *
+   * `null` is "nobody has decided", and it means the tour IS offered — the
+   * person it exists for is the one who has not answered any question. Only an
+   * explicit `false` turns it off.
+   */
+  tour: boolean | null;
+};
+
+/**
+ * How the Studio behaves for the people editing this project.
+ *
+ * One switch so far, and it is here rather than beside the theme and auto save
+ * in the Account panel because of what it is FOR: a team that finds the tour
+ * noisy turns it off once, for everyone, instead of each person dismissing it
+ * on each machine they use. That makes it a decision about the project, which
+ * makes it content — published, reviewable, and the same for the whole team.
+ *
+ * What stays per-browser is whether a given person has already been through it.
+ * That is not a decision and there is nothing to agree about.
+ */
+export function StudioSettingsFields({
+  value,
+  onChange,
+  readonly,
+}: {
+  value: StudioSettingsValue;
+  onChange: (field: keyof StudioSettingsValue, next: boolean) => void;
+  readonly?: boolean;
+}) {
+  const isOff = value.tour === false;
+  return (
+    <SettingsSection
+      title="Tour"
+      description="The one-minute walkthrough of the Studio, for somebody opening it for the first time."
+    >
+      <div className="flex items-center justify-between gap-3">
+        <label htmlFor="val-studio-tour" className="text-xs font-medium">
+          Offer the tour
+          <span className="block mt-0.5 text-[0.6875rem] font-normal text-fg-secondary-alt">
+            {isOff
+              ? "Off. Nobody is prompted. The tour is still in Quick actions for anyone who wants it."
+              : "Editors who have not been through the guided tour are offered it once."}
+          </span>
+        </label>
+        <Switch
+          id="val-studio-tour"
+          checked={!isOff}
+          disabled={readonly}
+          onCheckedChange={(next) => onChange("tour", next)}
+        />
+      </div>
+    </SettingsSection>
   );
 }
 
@@ -545,7 +670,10 @@ export function ThemeSettingsFields({
 }: ThemeSettingsFieldsProps) {
   const accent = value.accent?.trim().toLowerCase() ?? null;
   return (
-    <SettingsSection description="The Studio's own chrome, for everyone working on this project. Nothing here changes the site.">
+    <SettingsSection
+      title="Appearance"
+      description="The Studio's own chrome, for everyone working on this project. Nothing here changes the site."
+    >
       <div>
         <span className="text-xs font-medium">Accent</span>
         <span className="block mt-0.5 text-[0.6875rem] text-fg-secondary-alt leading-relaxed">

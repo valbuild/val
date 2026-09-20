@@ -14,6 +14,15 @@ export type RailItem = {
   panel: ShellDestination;
   label: string;
   icon: typeof FileText;
+  /**
+   * What the word means, for the tooltip's second line.
+   *
+   * "Pages", "Media" and "Data" are precise inside Val and vague everywhere
+   * else, and a tooltip that repeats the label a reader has already read is
+   * the one place a definition costs nothing. Kept to a clause: the tour is
+   * where the long version is.
+   */
+  description: string;
 };
 
 /**
@@ -38,10 +47,30 @@ export type RailItem = {
  * — see `visibleRailItems`.
  */
 export const RAIL_ITEMS: RailItem[] = [
-  { panel: "pages", label: "Pages", icon: FileText },
-  { panel: "media", label: "Media", icon: Image },
-  { panel: "data", label: "Data", icon: Braces },
-  { panel: "settings", label: "Settings", icon: Settings },
+  {
+    panel: "pages",
+    label: "Pages",
+    icon: FileText,
+    description: "The pages of your site, by URL",
+  },
+  {
+    panel: "media",
+    label: "Media",
+    icon: Image,
+    description: "Shared images and files, uploaded once",
+  },
+  {
+    panel: "data",
+    label: "Data",
+    icon: Braces,
+    description: "Content that is not tied to one page",
+  },
+  {
+    panel: "settings",
+    label: "Settings",
+    icon: Settings,
+    description: "This project's own settings, published like content",
+  },
 ];
 
 /**
@@ -126,7 +155,7 @@ export function LeftRail({
       <div className="grid place-items-center w-8 h-8 mb-1 shrink-0 text-fg-primary">
         <StudioMark logo={logo} className="h-6" blinking={isLoading} />
       </div>
-      {topItems.map(({ panel, label, icon: Icon }) => (
+      {topItems.map(({ panel, label, icon: Icon, description }) => (
         <Tooltip key={panel}>
           <TooltipTrigger asChild>
             <button
@@ -134,6 +163,8 @@ export function LeftRail({
               aria-label={label}
               aria-current={openPanel === panel ? "true" : undefined}
               onClick={() => onSelect(panel)}
+              // What a tour step points at. See `StudioTour`.
+              data-val-tour={panel}
               className={cn(
                 "grid place-items-center w-8 h-8 rounded-md shrink-0 transition-colors",
                 openPanel === panel
@@ -144,7 +175,9 @@ export function LeftRail({
               <Icon size={17} />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="right">{label}</TooltipContent>
+          <TooltipContent side="right">
+            <RailTooltip label={label} description={description} />
+          </TooltipContent>
         </Tooltip>
       ))}
       {/*
@@ -183,7 +216,12 @@ export function LeftRail({
                 <footItem.icon size={17} />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="right">{footItem.label}</TooltipContent>
+            <TooltipContent side="right">
+              <RailTooltip
+                label={footItem.label}
+                description={footItem.description}
+              />
+            </TooltipContent>
           </Tooltip>
         )}
         {user ? (
@@ -236,5 +274,21 @@ export function LeftRail({
         )}
       </div>
     </nav>
+  );
+}
+
+/** The label, and under it what the word means. See `RailItem.description`. */
+function RailTooltip({
+  label,
+  description,
+}: {
+  label: string;
+  description: string;
+}) {
+  return (
+    <span className="block max-w-[13rem]">
+      <span className="block font-medium">{label}</span>
+      <span className="block text-fg-secondary-alt">{description}</span>
+    </span>
   );
 }

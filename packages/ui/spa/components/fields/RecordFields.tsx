@@ -182,7 +182,7 @@ export function RecordFields({
     previewAtPath &&
     "data" in previewAtPath &&
     previewAtPath.data &&
-    previewAtPath.data.parent === "record"
+    previewAtPath.data.rows?.parent === "record"
       ? previewAtPath.data
       : undefined;
   return (

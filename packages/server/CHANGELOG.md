@@ -1,5 +1,320 @@
 # @valbuild/server
 
+## 0.133.0
+
+### Minor Changes
+
+- [#700](https://github.com/valbuild/val/pull/700) [`802412b`](https://github.com/valbuild/val/commit/802412b92c06bc1abbca78c86885e39c8710dd83) Thanks [@freekh](https://github.com/freekh)! - http mode no longer needs a git repository
+
+  A Val app can now run in http mode with no commit and no branch — its content
+  service is the store of record, and git is an optional mirror of the code. This
+  is what `fs` mode has always done: it has never had git, and it works.
+
+  Before this, `VAL_API_KEY` and `VAL_SECRET` were not enough. `VAL_GIT_COMMIT`
+  and `VAL_GIT_BRANCH` were required too, so a deployment with no commit to name
+  either threw at boot or fell through to `fs` mode and reached for a working
+  tree that was not there.
+
+  **Breaking, if you pass `http` options in code.** `gitCommit` and `gitBranch`
+  are replaced by one optional `git`:
+
+  ```diff
+   initValServer(valModules, config, {
+     http: {
+       apiKey,
+       valSecret,
+  -    gitCommit: process.env.VAL_GIT_COMMIT,
+  -    gitBranch: "main",
+  +    // Only for a project whose content is mirrored into a repository.
+  +    // Omit it entirely otherwise.
+  +    git: { commit: process.env.VAL_GIT_COMMIT, branch: "main" },
+     },
+   })
+  ```
+
+  `VAL_GIT_COMMIT` and `VAL_GIT_BRANCH` still work and are still read; they are
+  simply no longer required. Set both or neither — a commit without a branch, or
+  a branch without a commit, is refused at startup with a message naming the
+  missing half, rather than failing later at a publish.
+
+  **What a commit is for, where you have one.** Turning pending patches into new
+  `.val.ts` text means reading the current text first, and that read goes to the
+  content service at that commit. It is the publish path, not the serving path: a
+  committed render reads the source compiled into the build and asks the content
+  service nothing. With no repository there is nothing to write `.val.ts` into,
+  so a publish records the module's data and its schema and skips the file — and
+  that data is what history reads, so nothing is lost.
+
+  **A publish can now be refused by name, before it is attempted.** If a project
+  mirrors its commits into a repository but the running deployment was built
+  before that repository existed, it has no commit to write the mirror against.
+  Publishing anyway would save the content and silently leave the repository
+  behind. The Studio now disables Publish and shows why, and `/save` refuses with
+  a `no-base` code instead of failing partway.
+
+  **Also:** `ValCommit` and `HistoricalCommit` have nullable `parentCommitSha`
+  and `clientCommitSha`, and `/stat`'s `commitSha` is optional. A root commit has
+  no parent, and a publisher with no repository does not report where it was. If
+  you read these fields, handle `null`.
+
+### Patch Changes
+
+- Updated dependencies [[`2b9a51b`](https://github.com/valbuild/val/commit/2b9a51b7dbe2dff53b7686a4f3b7eb9bc5784fae), [`802412b`](https://github.com/valbuild/val/commit/802412b92c06bc1abbca78c86885e39c8710dd83)]:
+  - @valbuild/ui@0.133.0
+  - @valbuild/shared@0.133.0
+
+## 0.132.1
+
+### Patch Changes
+
+- [#695](https://github.com/valbuild/val/pull/695) [`c07b1ab`](https://github.com/valbuild/val/commit/c07b1abe30e226c80ef7ec4b4f0f5ccdae061c11) Thanks [@freekh](https://github.com/freekh)! - A publish result can now say which commit it was built on, and what tree it points at
+
+  `CommitResult` gains two optional fields, `parent` and `tree`, filled in from
+  the content service's commit response when it reports them.
+
+  Both matter to a host that keeps its own record of what each commit changed —
+  a build cache, or an incremental publisher that rebuilds from the last thing it
+  built rather than from scratch. Such a host can only tell whether its record is
+  COMPLETE by chaining the commits it holds back to the one it last built. With
+  just a sha per commit the record is a set of snapshots with no way to notice a
+  gap, so a commit somebody else made in between is silently absent instead of
+  detected — and the host rebuilds from a source tree that is missing a change it
+  never knew about. `parent` is what closes that.
+
+  `tree` identifies the CONTENT of a commit rather than the commit itself, so two
+  commits carrying the same tree are the same source. A host that has already
+  built one of them can recognise the other and skip the work.
+
+  Both are optional, and absent means NOT REPORTED rather than absent-in-git: a
+  content service that predates these fields sends neither, and a caller must not
+  read a missing `parent` as "this is a root commit". They are plain strings
+  rather than branded shas for the same reason — they are passed through as what
+  a separately versioned service said, not as something this end has checked.
+
+  Nothing changes for a host that does not look at them. The publish route's own
+  response is unchanged.
+
+- [#678](https://github.com/valbuild/val/pull/678) [`cbfa2b8`](https://github.com/valbuild/val/commit/cbfa2b884898f1603bde8e5aa5cd9da78778101f) Thanks [@freekh](https://github.com/freekh)! - Putting a whole module back works for `.jsonValues()` records
+
+  A `.jsonValues()` record's entries are not in the module's source: the `.val.ts`
+  holds `c.json(() => import("./entry.val.json"))` per entry and the content lives
+  in those files. Val already routed a patch that named an entry key into the
+  right file, but a patch that replaced the **whole record** named no key — so it
+  was applied as an ordinary source edit, writing over the imports that make the
+  entries load at all. "Put everything back" in the history pane left such a module
+  out for exactly that reason.
+
+  A whole-record write is now expanded into per-entry ops before anything acts on
+  it: an entry added, one removed, one changed, and nothing at all for an entry
+  that already holds what the write says — so putting a module back does not
+  rewrite every file in it. The same expansion produces the draft the Studio shows
+  and the files a publish writes, so a draft cannot show one thing and publish
+  another.
+
+  Nothing that writes a patch has to know a record is `.jsonValues()`: write the
+  module as if it were ordinary content, and it lands in the right files.
+
+  "Put everything back" and "Restore this whole module" now cover `.jsonValues()`
+  modules. They read each entry as it was at the commit and put the content back —
+  never the recorded source, which is markers rather than content, and is now
+  refused rather than written.
+
+- Updated dependencies [[`c9a5cd3`](https://github.com/valbuild/val/commit/c9a5cd3a4ab5908ecb9757b7a95db17a77e3b173), [`f413c5c`](https://github.com/valbuild/val/commit/f413c5cebca27ba82052825abc8c632b6177747e), [`1ddf245`](https://github.com/valbuild/val/commit/1ddf245ec73ad5af8099c3d18d4d33c6a1cc1254), [`a19997a`](https://github.com/valbuild/val/commit/a19997a542e65cc1375837b1bdb11c8af9e10160), [`76c5d41`](https://github.com/valbuild/val/commit/76c5d41c3afa7cc8180d156c9e19fb082af7fba4), [`cbfa2b8`](https://github.com/valbuild/val/commit/cbfa2b884898f1603bde8e5aa5cd9da78778101f), [`003419a`](https://github.com/valbuild/val/commit/003419ab72f3069d92e67dfea931d5accc63e730)]:
+  - @valbuild/ui@0.132.1
+
+## 0.132.0
+
+### Minor Changes
+
+- [#689](https://github.com/valbuild/val/pull/689) [`72cc676`](https://github.com/valbuild/val/commit/72cc6765e92a6e72b5c09ddd9eed8efa7ce899f2) Thanks [@freekh](https://github.com/freekh)! - `VAL_ENV=app` selects `http` mode.
+
+  A host knows WHERE it is running; which Val mode that implies is Val's to
+  derive. `VAL_ENV=app` says "this is the Val app" — a project built in a browser
+  and served from a Worker isolate — and Val reads that as http mode: there is no
+  disk, so `fs` is never the right fall-through, and the content is Val's own,
+  read over HTTP at a commit like any other deployed app.
+
+  Unlike `VAL_MODE=memory`, this **selects** the mode rather than only refusing a
+  fall-through, because everything http mode needs is an environment variable. The
+  point is what happens when one is missing: inference reads an absent
+  `VAL_API_KEY` as "not a proxy" and resolves `fs` mode, which in an isolate fails
+  on `.val/patches.lock` — a path, two layers below the actual mistake. Now each
+  of `VAL_API_KEY`, `VAL_SECRET`, `VAL_PROJECT`, `VAL_GIT_COMMIT` and
+  `VAL_GIT_BRANCH` is named when it is the one that is not set, and the message
+  says which variable put the app in http mode.
+
+  An explicit `VAL_MODE` still wins, including when it is a typo that has to be
+  refused, and `http` is still not a value `VAL_MODE` accepts. A host that passes
+  `sourceFiles` still gets memory mode: that is checked before the environment is
+  consulted at all, so a build published by an older platform keeps working.
+
+## 0.131.0
+
+### Minor Changes
+
+- [#686](https://github.com/valbuild/val/pull/686) [`0d5857b`](https://github.com/valbuild/val/commit/0d5857b731e11f7e6a011f79297df6485908c31f) Thanks [@freekh](https://github.com/freekh)! - Say `VAL_MODE=memory` where there is no disk, and get a sentence instead of an `EPERM`
+
+  Memory mode — the one for a host that holds the project's source itself — is
+  selected by passing `sourceFiles`, and it has to be: nothing in an environment
+  can supply a project's source, so a mode that an env var could switch on would
+  be a server with no content in it.
+
+  The cost was the failure when a host forgot. Val inferred `fs` mode, `fs` mode
+  went looking for a working tree, and in a Worker isolate the first thing to
+  touch the disk failed:
+
+  ```
+  patch-error /bundle/.val/patches.lock: EPERM
+  ```
+
+  That names a path two layers below the decision that caused it, and nobody
+  reading it would guess "your server was configured for the wrong mode".
+
+  So an environment can now DECLARE that it has no disk:
+
+  ```
+  VAL_MODE=memory
+  ```
+
+  It does not turn memory mode on. It says the host is supposed to be supplying
+  `sourceFiles`, so if none arrive, Val refuses at configuration time and says
+  where to pass them. `VAL_MODE=` counts as unset, the way a shell means it; any
+  other value is refused rather than ignored, since leaving you in `fs` mode is
+  the exact failure this is meant to catch.
+
+  **`initValContent` takes the same options, and this is the release that
+  noticed.** It builds a Val server of its own — these readers resolve content by
+  asking it, not by calling the API over HTTP — so configuring `initValServer`
+  alone left them inferring `fs` mode. On a host with no filesystem that is a
+  reader looking for a working tree that is not there; it went unnoticed because
+  published reads still worked.
+
+  ```ts
+  const patchStore = new InMemoryPatchStore(); // now exported from this package
+
+  const { valApiHandler, draftMode } = initValServer(valModules, config, {
+    sourceFiles: FILES,
+    patchStore,
+    unsafelyAllowUnauthenticated: true,
+  });
+
+  const { fetchValStega } = initValContent(config, valModules, {
+    draftMode,
+    // The same three. Two patch stores are two sets of pending edits, and a
+    // reader that checks a session the host never issues answers itself 401 and
+    // falls back to published content — a draft render showing the live site.
+    sourceFiles: FILES,
+    patchStore,
+    unsafelyAllowUnauthenticated: true,
+  });
+  ```
+
+  All three are optional. Left out, this reader gets its own store and its own
+  answer about authentication, which is right for published content.
+
+  `@valbuild/next` has no memory mode: its `initValServer` takes neither option,
+  so for a Next app `VAL_MODE=memory` names an environment Val cannot serve from,
+  and the error says so.
+
+  Nothing changes for an app that sets none of this: `http` when `VAL_API_KEY`
+  and `VAL_SECRET` are both present, `fs` otherwise, as before.
+
+## 0.130.0
+
+### Minor Changes
+
+- [#684](https://github.com/valbuild/val/pull/684) [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75) Thanks [@freekh](https://github.com/freekh)! - A third ValOps mode, for a host that already holds its own source
+
+  EXPERIMENTAL. `fs` mode assumes a working tree it can watch and write; `http`
+  mode assumes Val's content service owns the patch chain and that a commit is a
+  git commit. A host that builds and publishes its own output is neither: it holds
+  the source already, it has nowhere to watch, and its "commit" is a new build.
+
+  Forcing such a host into `fs` mode cost three things, all now fixed: `/stat`
+  long-polled against watchers that could never fire, burning CPU for the whole
+  hold to learn nothing;
+  `/api/val/enable` 500'd; and every read of a `.val.ts` went through a shimmed
+  filesystem when the host could simply hand the source over.
+
+  `ValOpsMemory` takes the source as `sourceFiles`, refuses the local binary
+  members by name — this configuration uses Val's remote files — and answers the
+  history members with the same closed `not-supported-in-fs-mode` error `ValOpsFS`
+  gives, so the History UI degrades the way it already knows how rather than
+  inventing a commit list.
+
+  `getStat` still long-polls -- the hold is what paces the client, and an earlier
+  version that answered immediately turned a 20-second poll into a request every
+  6ms -- but it parks on a SIGNAL rather than a timer. This mode owns its store,
+  so it is told when something changes: no timers while parked, and a patch
+  written by another tab is seen at once rather than up to 250ms later.
+
+  Two seams come with it. `commitPrepared` lets a host take what a save produced
+  instead of a git commit, and `publishOverride` lets a publish be something other
+  than a push. Both are opt-in; an app that sets neither behaves exactly as before.
+
+  The in-memory patch store is explicitly **not durable**. It is behind
+  `ValPatchStore`, so a durable implementation is a swap rather than a rewrite,
+  but as shipped a restart loses unpublished patches.
+
+  **Memory mode authenticates.** `ValOps` gained `requiresAuth` alongside
+  `patchesAreLocal`, because one flag was answering two questions: whether a store
+  auto-saves or publishes (behaviour, reported as `mode` and keyed off by the UI),
+  and whether an unauthenticated request may write (security). With two
+  implementations the answers coincided — `fs` is a developer's own machine where
+  no credential exists, `http` is remote — so `getAuth` was written against
+  `patchesAreLocal` and returned anonymous _success_ for a missing cookie, an
+  invalid JWT, an unparseable payload, or no configured secret.
+
+  Memory mode splits them: its store is local, and it runs deployed. It therefore
+  requires a verified session, like `http` mode. A host that authorises requests
+  before Val sees them can opt out with `unsafelyAllowUnauthenticated`, which is
+  spelled that way on purpose and warns at startup. `fs` mode is unchanged.
+
+  Val's own MCP endpoint refuses memory mode outright. It has the same absence fs
+  mode has — no credential, no backend, every permission check on the far side of
+  one — and unlike fs mode it is meant to run deployed, so the existing
+  "development only" and loopback guards refuse nothing. A host in this mode owns
+  its own trust boundary and can offer the tools through it.
+
+  Internally, the routes' `instanceof ValOpsFS` checks meant "is this a local
+  store" — correct with two implementations and silently wrong with three. They are
+  now `ValOps.patchesAreLocal` at all 17 policy sites.
+
+### Patch Changes
+
+- [#684](https://github.com/valbuild/val/pull/684) [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75) Thanks [@freekh](https://github.com/freekh)! - Stop telling people to run `val login` where a personal access token cannot be used
+
+  A PAT is read from a file in the _server's_ working directory, and only local
+  `fs` mode has one. `resolveRemoteFileAuth` knew that; two things upstream did not.
+
+  `RemoteFilesErrorDialog` was unconditional. Whatever went wrong with remote files,
+  it said "Personal access token file required" and told the reader to run a command
+  in their project root — for a server with no working directory, a directory that
+  does not exist, to produce a file it could not read. The reason was already on the
+  error object and simply never looked at. The dialog now shows only for the two
+  reasons a PAT can actually fix, and everything else gets its own message.
+
+  `resolveRemoteFileAuth` also answered `project-not-configured` for a non-fs mode
+  with no api key, which is wrong twice: the project may be configured perfectly
+  well, and it is the credential that is absent. It answers `api-key-missing` now,
+  already in the wire contract, and that message no longer says "production mode",
+  because every server that is not local dev gives it.
+
+- [#684](https://github.com/valbuild/val/pull/684) [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75) Thanks [@freekh](https://github.com/freekh)! - `createValApiRouter` no longer puts `fs` in every integration's module graph
+
+  `fs` and `path` were imported at module scope for `safeReadGit`, a local
+  development convenience that scans upwards for a `.git` to guess the commit and
+  branch, and whose only caller is the CLI. A static import put `fs` in the module
+  graph of everything reaching `createValApiRouter` — which is every server
+  integration, including ones that run where there is no filesystem at all.
+
+  Behaviour is unchanged where there is a filesystem.
+
+- Updated dependencies [[`be1e8be`](https://github.com/valbuild/val/commit/be1e8bee673207596b3eb3d9a9886b8ade9b332f), [`8425378`](https://github.com/valbuild/val/commit/8425378c315ea46b5d822f1130b633e0449ff1b0), [`7d13dbc`](https://github.com/valbuild/val/commit/7d13dbced9ea49d8243b6b6cf9854cd1a259501f), [`cab4098`](https://github.com/valbuild/val/commit/cab4098969585977b8d7574e86d66fcb01cb1d75), [`07db94c`](https://github.com/valbuild/val/commit/07db94c23b73c8c0b2b50a30a89926823c2da1d6), [`473a185`](https://github.com/valbuild/val/commit/473a185f70351b44388f3bc1852649e2c1dbe001), [`64f0de3`](https://github.com/valbuild/val/commit/64f0de339b8621cb5a6c422dfe55cae5b2bbe2a0)]:
+  - @valbuild/ui@0.130.0
+  - @valbuild/core@0.130.0
+  - @valbuild/shared@0.130.0
+
 ## 0.129.0
 
 ### Patch Changes

@@ -168,6 +168,7 @@ export {
   type LocalesSettingsSource,
   type AssistantAvailability,
   type ThemeSettingsSource,
+  type StudioSettingsSource,
   type ThemeRadius,
   ASSISTANT_SETTINGS_MAX_LENGTH,
   THEME_LOGO_DIRECTORY,

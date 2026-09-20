@@ -191,12 +191,32 @@ module.exports = {
             transform: "rotate(360deg)",
           },
         },
+        /**
+         * The halo behind the "Take a tour" button.
+         *
+         * A spreading ring rather than a change of colour or size: the button
+         * sits in a row of other buttons, and anything that moves or reflows
+         * would push its neighbours about once a second. A box shadow costs
+         * no layout, and fading it to transparent as it spreads is what makes
+         * it read as a glow rather than as a second border.
+         *
+         * Only ever applied behind `motion-safe:` — see `TourLauncher`.
+         */
+        "tour-glow": {
+          "0%, 100%": {
+            boxShadow: "0 0 0 0 var(--border-brand-secondary)",
+          },
+          "50%": {
+            boxShadow: "0 0 0 5px transparent",
+          },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "rotate-clock-hour-hand": "rotate-clock 12s linear infinite",
         "rotate-clock-minute-hand": "rotate-clock 1s linear infinite",
+        "tour-glow": "tour-glow 2.4s ease-in-out infinite",
       },
     },
   },

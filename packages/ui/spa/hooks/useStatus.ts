@@ -103,6 +103,15 @@ export const StatData = z.object({
   }),
   commitSha: z.string().optional(), // Only use-websocket has this (refactor this zod schema?)
   /**
+   * Why the server cannot publish this project at all.
+   *
+   * Absent when it can, which is the usual case -- so the Studio asks whether
+   * this is here, not whether it is null.
+   */
+  publishRefusal: z
+    .object({ code: z.literal("no-base"), message: z.string() })
+    .optional(),
+  /**
    * FS mode only: fingerprint of the `.jsonValues()` entry files on disk. No
    * other sha here can see an entry edit, because a jsonValues module's source is
    * markers and the content sits behind a thunk.

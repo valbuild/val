@@ -12,6 +12,7 @@ import {
   PreviewItem,
   ReifiedPreview,
   PreviewScope,
+  mergePreviewInto,
 } from "../preview";
 import { FieldRender } from "../render";
 import { SelectorSource } from "../selector";
@@ -93,10 +94,13 @@ export class ObjectSchema<
   /**
    * Describe this field.
    *
-   * The description is shown next to the field's label in the Val editor, so
-   * it is where you say what an editor needs to know but the field name cannot
-   * carry. It also travels in the serialized schema, which is what the AI
-   * assistant and the MCP tools read.
+   * The description is INPUT HELP: it is shown where this field's value is
+   * entered — beside its input in the Val editor, and for a record's key
+   * schema in every form that asks for a key — so it is where you say what an
+   * editor needs to know to fill it in RIGHT, which the field name cannot
+   * carry. It is not a name for the value: that is `.preview(...)`, and it is
+   * read somewhere else. The description also travels in the serialized
+   * schema, which is what the AI assistant and the MCP tools read.
    *
    * Pass `null` to clear a description set earlier.
    *
@@ -471,6 +475,7 @@ export class ObjectSchema<
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
     scope?: PreviewScope,
+    selfIsReifiedByParent?: boolean,
   ): ReifiedPreview {
     const res: ReifiedPreview = {};
     if (src === null) {
@@ -488,15 +493,17 @@ export class ObjectSchema<
       if (scope !== undefined && !scope.wantsUnder(subPath)) {
         continue;
       }
-      const itemResult = this.items[key]["executePreview"](
-        subPath,
-        itemSrc,
-        scope,
+      mergePreviewInto(
+        res,
+        this.items[key]["executePreview"](subPath, itemSrc, scope),
       );
-      for (const keyS in itemResult) {
-        const key = keyS as SourcePath | ModuleFilePath;
-        res[key] = itemResult[key];
-      }
+    }
+    // An object reifies no rows of its own, so the only thing it adds is what
+    // IT is called — which nothing else can supply for a field of an object.
+    // Its own items are NOT rows, so the flag stops here rather than travelling
+    // down with the recursion above.
+    if (!selfIsReifiedByParent) {
+      mergePreviewInto(res, this.executeSelfPreview(sourcePath, src, scope));
     }
     return res;
   }

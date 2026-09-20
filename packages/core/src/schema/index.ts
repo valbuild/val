@@ -423,17 +423,89 @@ export abstract class Schema<Src extends SelectorSource> {
   abstract hidden(isHidden?: boolean): Schema<Src>;
   protected abstract executeSerialize(): SerializedSchema;
   /**
+   * This value's preview, and every preview below it.
+   *
+   * The default is the whole of it for a LEAF: a leaf has nothing below it, so
+   * all it can contribute is {@link PreviewNode.self}. Containers override this
+   * and recurse; object and discriminated union add nothing of their own beyond
+   * the self they inherit here, and array and record add `rows`.
+   *
    * @param scope Which paths the caller needs a preview for. Absent means the
    * whole module, which is what every caller passed before scoping existed.
    * See {@link PreviewScope}: a container prunes recursion where nothing is
    * wanted, and previews a WINDOW when its own path is not wanted but some of
    * its items are — which is the single-visible-row case.
+   * @param selfIsReifiedByParent Set by an array or record on its DIRECT items,
+   * and by nothing else. Such an item's preview is the same closure the
+   * container is already running into {@link PreviewNode.rows}, so emitting a
+   * `self` for it as well would call the user's closure twice per row — which
+   * it did, and which the scoped-preview tests caught by counting. The flag
+   * does not travel further down: a grandchild is nobody's row.
    */
-  protected abstract executePreview(
+  protected executePreview(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
     scope?: PreviewScope,
-  ): ReifiedPreview;
+    selfIsReifiedByParent?: boolean,
+  ): ReifiedPreview {
+    if (selfIsReifiedByParent) {
+      return {};
+    }
+    return this.executeSelfPreview(sourcePath, src, scope);
+  }
+
+  /**
+   * THIS value as a preview, at its own path — `{ self }` and nothing else.
+   *
+   * Every schema can produce one, which is the point: before this existed a
+   * value's preview was reified only by its CONTAINER, so a value with no
+   * container had none. A module root is exactly that, and `.preview(...)` on
+   * a module's own schema was therefore dead code — the studio showed the file
+   * name and nothing a developer wrote could change it. So is any field of an
+   * object, which reifies no rows.
+   *
+   * Gated on {@link PreviewScope.wants} rather than `wantsUnder`: a caller
+   * asking about a CONTAINER wants its rows, and computing a self for every
+   * descendant on the way past would run each item's closure twice.
+   */
+  protected executeSelfPreview(
+    sourcePath: SourcePath | ModuleFilePath,
+    src: Src,
+    scope?: PreviewScope,
+  ): ReifiedPreview {
+    if (src === null || src === undefined) {
+      return {};
+    }
+    if (!this.declaresItemPreview()) {
+      return {};
+    }
+    if (scope !== undefined && !scope.wants(sourcePath)) {
+      return {};
+    }
+    try {
+      // NB NB: the closure is user code.
+      const item = this.executePreviewItem(src as NonNullable<Src>);
+      if (item === null) {
+        return {};
+      }
+      const { title, subtitle, image } = item;
+      // Assigned into an annotated local rather than returned as a literal: a
+      // computed key widens `status` to `string`.
+      const res: ReifiedPreview = {};
+      res[sourcePath] = {
+        status: "success",
+        data: { self: { title, subtitle, image } },
+      };
+      return res;
+    } catch (e) {
+      const res: ReifiedPreview = {};
+      res[sourcePath] = {
+        status: "error",
+        message: e instanceof Error ? e.message : "Unknown error",
+      };
+      return res;
+    }
+  }
   /**
    * This value AS A PREVIEW — what a container's row, a reference dropdown or
    * a search hit shows for it. Runs the schema's own `preview` closure;

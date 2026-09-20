@@ -1,15 +1,9 @@
-import { useCallback, useMemo, useSyncExternalStore } from "react";
-import {
-  assistantAvailability,
-  AssistantAvailability,
-  Json,
-} from "@valbuild/core";
+import { useMemo } from "react";
+import { assistantAvailability, AssistantAvailability } from "@valbuild/core";
 import { System } from "../stores/createSystem";
 import { useValSystem } from "../stores/react/SystemContext";
-import {
-  readAssistantSettings,
-  settingsModuleFilePath,
-} from "./assistantSettings";
+import { readAssistantSettings } from "./assistantSettings";
+import { useSettingsModuleSourceOf } from "./useSettingsModuleSource";
 
 /**
  * Whether this project has an assistant: `"on"`, `"off"` or `"unconfigured"`.
@@ -44,60 +38,21 @@ export function useAssistantAvailability(): AssistantAvailability {
  * `ValProvider` is the one: it builds the system in its own body and mounts the
  * provider that carries this answer ABOVE the one that puts the system in
  * context, so it cannot use the hook above. Reading the stores directly is not
- * a shortcut around them — the subscriptions below are what every other reader
- * gets from `useShallowSourceAtPath`.
+ * a shortcut around them — see `useSettingsModuleSourceOf`, which is what every
+ * reader of `s.settings()` shares.
  */
 export function useAssistantAvailabilityOf(
   system: System | null,
 ): AssistantAvailability {
-  const subscribeToSources = useCallback(
-    (onChange: () => void) => {
-      if (system === null) return () => {};
-      return system.sourceStore.events.on("source:change", onChange);
-    },
-    [system],
-  );
-  const sourcesVersion = useSyncExternalStore(
-    subscribeToSources,
-    useCallback(
-      () => (system === null ? 0 : system.sourceStore.sourcesVersion()),
-      [system],
-    ),
-    () => 0,
-  );
-  const subscribeToSchemas = useCallback(
-    (onChange: () => void) => {
-      if (system === null) return () => {};
-      return system.schemaStore.events.on("schema:init", onChange);
-    },
-    [system],
-  );
-  // The count of modules with a schema, for the same reason `useSchemasVersion`
-  // uses it: `SchemaStore` keeps versions per module and has no global one, and
-  // intake replaces the whole map at once.
-  const schemasVersion = useSyncExternalStore(
-    subscribeToSchemas,
-    useCallback(
-      () =>
-        system === null ? 0 : Object.keys(system.schemaStore.all()).length,
-      [system],
-    ),
-    () => 0,
-  );
+  const { moduleFilePath, source } = useSettingsModuleSourceOf(system);
   return useMemo((): AssistantAvailability => {
-    void sourcesVersion;
-    void schemasVersion;
-    if (system === null) {
-      return "on";
-    }
-    const moduleFilePath = settingsModuleFilePath(system.schemaStore.all());
+    // No settings module at all — including while the schemas load — is "on",
+    // for the reason in the doc comment above. A module that EXISTS but whose
+    // source has not arrived is not that case: it is read as it stands, which
+    // is "unconfigured", so the answer does not flip once it lands.
     if (moduleFilePath === null) {
       return "on";
     }
-    const source: Json | undefined =
-      system.sourceStore.moduleSource(moduleFilePath);
-    return assistantAvailability({
-      assistant: readAssistantSettings(source),
-    });
-  }, [system, sourcesVersion, schemasVersion]);
+    return assistantAvailability({ assistant: readAssistantSettings(source) });
+  }, [moduleFilePath, source]);
 }

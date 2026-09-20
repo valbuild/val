@@ -2,13 +2,17 @@ import { initVal, PatchId, type SerializedSchema } from "@valbuild/core";
 import {
   applyJsonValuesEntryPatches,
   classifyJsonValuesOp,
+  expandJsonValuesRootOp,
+  expandJsonValuesRootOpForKey,
   findNestedJsonValuesRecords,
   getNewJsonEntryPaths,
+  isJsonValuesRootOp,
   rebaseContentOp,
   resolveExistingJsonPath,
+  type CurrentJsonEntries,
 } from "./jsonValuesPatch";
 import { result } from "@valbuild/core/fp";
-import type { Patch } from "@valbuild/core/patch";
+import type { JSONValue, Operation, Patch } from "@valbuild/core/patch";
 
 const { s } = initVal();
 
@@ -68,6 +72,243 @@ describe("classifyJsonValuesOp", () => {
       })
       ["executeSerialize"]();
     expect(classifyJsonValuesOp(nested, ["title"])).toEqual({ kind: "normal" });
+  });
+});
+
+describe("a write of the whole record at a jsonValues module's root", () => {
+  const jsonValues: SerializedSchema = s
+    .record(s.object({ title: s.string() }))
+    .jsonValues()
+    ["executeSerialize"]();
+  const plain: SerializedSchema = s
+    .record(s.object({ title: s.string() }))
+    ["executeSerialize"]();
+
+  const entries = (
+    current: Record<string, JSONValue | undefined>,
+  ): CurrentJsonEntries => new Map(Object.entries(current));
+
+  const expand = (
+    value: JSONValue,
+    current: Record<string, JSONValue | undefined>,
+  ): Operation[] => {
+    const res = expandJsonValuesRootOp(
+      { op: "replace", path: [], value },
+      entries(current),
+    );
+    if (result.isErr(res)) {
+      throw new Error(`Expected ok, got: ${res.error.message}`);
+    }
+    return res.value;
+  };
+
+  describe("which ops are it", () => {
+    test("a root replace on a jsonValues record is", () => {
+      expect(
+        isJsonValuesRootOp(jsonValues, { op: "replace", path: [], value: {} }),
+      ).toBe(true);
+    });
+
+    test("so is a root add: at the root both mean 'the record is now this'", () => {
+      expect(
+        isJsonValuesRootOp(jsonValues, { op: "add", path: [], value: {} }),
+      ).toBe(true);
+    });
+
+    test("an op that names an entry key is NOT: it is already routable", () => {
+      expect(
+        isJsonValuesRootOp(jsonValues, {
+          op: "replace",
+          path: ["/a"],
+          value: {},
+        }),
+      ).toBe(false);
+    });
+
+    test("a root replace with null is not: emptying a nullable record is a source edit", () => {
+      /*
+       * A `.jsonValues()` record can be nullable, and `null` at the root says
+       * the module has no record at all - there are no entries to write, so it
+       * is the ordinary `.val.ts` write it always was. Expanding it would mean
+       * refusing a write that used to work.
+       */
+      expect(
+        isJsonValuesRootOp(jsonValues, {
+          op: "replace",
+          path: [],
+          value: null,
+        }),
+      ).toBe(false);
+    });
+
+    test("a root replace on an ordinary record is not, so it stays a source edit", () => {
+      // The conversion has to be invisible to every module that is not
+      // `.jsonValues()`: a plain record's root replace is an ordinary `.val.ts`
+      // write and must go on being one.
+      expect(
+        isJsonValuesRootOp(plain, { op: "replace", path: [], value: {} }),
+      ).toBe(false);
+    });
+  });
+
+  test("fans out into one op per entry key", () => {
+    expect(
+      expand(
+        {
+          "/a": { title: "A (was)" },
+          "/unchanged": { title: "Same" },
+          "/new": { title: "New" },
+        },
+        {
+          "/a": { title: "A" },
+          "/unchanged": { title: "Same" },
+          "/gone": { title: "Gone" },
+        },
+      ),
+    ).toEqual([
+      { op: "replace", path: ["/a"], value: { title: "A (was)" } },
+      { op: "add", path: ["/new"], value: { title: "New" } },
+      { op: "remove", path: ["/gone"] },
+    ]);
+  });
+
+  test("an entry that is already what the write says gets NO op", () => {
+    // Otherwise putting a module back rewrites every `*.val.json` in it with
+    // the bytes it already holds, and reads as a change to all of them.
+    expect(expand({ "/a": { title: "A" } }, { "/a": { title: "A" } })).toEqual(
+      [],
+    );
+  });
+
+  test("an entry whose content is unknown is replaced, not skipped", () => {
+    // The Studio's draft source holds markers, so it can only say WHICH entries
+    // exist. Unknown has to mean "write it": skipping would drop a real edit.
+    expect(expand({ "/a": { title: "A" } }, { "/a": undefined })).toEqual([
+      { op: "replace", path: ["/a"], value: { title: "A" } },
+    ]);
+  });
+
+  test("an empty record removes every entry", () => {
+    expect(expand({}, { "/a": { title: "A" }, "/b": { title: "B" } })).toEqual([
+      { op: "remove", path: ["/a"] },
+      { op: "remove", path: ["/b"] },
+    ]);
+  });
+
+  describe("what it says about ONE entry", () => {
+    /*
+     * The read path is about one entry, and expanding the whole record to find
+     * the op that names it costs an op per entry per entry read. It asks for
+     * that one key instead - through the same rule, which is what these
+     * assertions pin: the same answer as the full expansion, case for case.
+     */
+    const forKey = (
+      value: JSONValue,
+      entryKey: string,
+      current: Record<string, JSONValue | undefined>,
+    ): Operation | null => {
+      const res = expandJsonValuesRootOpForKey(
+        { op: "replace", path: [], value },
+        entryKey,
+        entries(current),
+      );
+      if (result.isErr(res)) {
+        throw new Error(`Expected ok, got: ${res.error.message}`);
+      }
+      return res.value;
+    };
+
+    test.each([
+      ["a key only the record has", "/new", { "/new": { title: "New" } }, {}],
+      [
+        "a key that changed",
+        "/a",
+        { "/a": { title: "A!" } },
+        { "/a": { title: "A" } },
+      ],
+      [
+        "a key the record leaves as it is",
+        "/a",
+        { "/a": { title: "A" } },
+        { "/a": { title: "A" } },
+      ],
+      ["a key the record does not name", "/gone", {}, { "/gone": {} }],
+      ["a key that is in neither", "/nope", {}, {}],
+    ])("%s", (_name, entryKey, value, current) => {
+      const whole = expandJsonValuesRootOp(
+        { op: "replace", path: [], value },
+        entries(current),
+      );
+      if (result.isErr(whole)) {
+        throw new Error(`Expected ok, got: ${whole.error.message}`);
+      }
+      const fromWhole =
+        whole.value.find((op) => op.path[0] === entryKey) ?? null;
+      expect(forKey(value, entryKey, current)).toEqual(fromWhole);
+    });
+
+    test("a marker under ANOTHER key is refused here too", () => {
+      // Otherwise the draft would show content for this entry from a patch that
+      // publishing refuses outright.
+      const res = expandJsonValuesRootOpForKey(
+        {
+          op: "replace",
+          path: [],
+          value: { "/a": { title: "A" }, "/b": { _type: "json" } },
+        },
+        "/a",
+        entries({ "/a": { title: "was" } }),
+      );
+      expect(result.isErr(res)).toBe(true);
+    });
+  });
+
+  describe("what it refuses", () => {
+    test('a `{_type:"json"}` marker as an entry\'s content', () => {
+      /*
+       * This is the original bug, caught at the one place that can catch it: a
+       * revert replaying a module's archived Source, which holds markers rather
+       * than content. Written through, the markers land in the entries' files
+       * and the content they stood for is gone.
+       */
+      const res = expandJsonValuesRootOp(
+        {
+          op: "replace",
+          path: [],
+          value: {
+            "/a": { _type: "json", patch_id: "p1" },
+            "/b": { _type: "json" },
+          },
+        },
+        entries({ "/a": { title: "A" }, "/b": { title: "B" } }),
+      );
+      expect(result.isErr(res)).toBe(true);
+      expect(result.isErr(res) && res.error.message).toContain("/a");
+    });
+
+    test("a value that is not a record of entries", () => {
+      for (const value of [null, 42, "a string", [{ title: "A" }]]) {
+        expect(
+          result.isErr(
+            expandJsonValuesRootOp(
+              { op: "replace", path: [], value },
+              entries({}),
+            ),
+          ),
+        ).toBe(true);
+      }
+    });
+
+    test("a root op that is not a whole-record write", () => {
+      expect(
+        result.isErr(
+          expandJsonValuesRootOp(
+            { op: "move", from: ["/a"], path: [] },
+            entries({ "/a": { title: "A" } }),
+          ),
+        ),
+      ).toBe(true);
+    });
   });
 });
 
@@ -432,6 +673,119 @@ describe("applyJsonValuesEntryPatches", () => {
           },
         ],
       });
+    });
+  });
+
+  describe("a write of the whole record, from the read side", () => {
+    /*
+     * The same expansion the commit flow runs, against the same view of the
+     * entry. It has to be the same function: a draft that shows one thing while
+     * publishing writes another is the failure nobody sees until it is
+     * published.
+     */
+    test("takes this entry's content out of the record", () => {
+      const res = applyJsonValuesEntryPatches({
+        serializedSchema: schema,
+        entryKey: "/a",
+        baseContent: { title: "A", order: 1 },
+        patches: [
+          patch([
+            {
+              op: "replace",
+              path: [],
+              value: {
+                "/a": { title: "A!", order: 1 },
+                "/b": { title: "B", order: 2 },
+              },
+            },
+          ]),
+        ],
+      });
+      expect(res).toEqual({
+        kind: "content",
+        content: { title: "A!", order: 1 },
+        appliedPatchIds: ["p1"],
+      });
+    });
+
+    test("an entry the record does not mention is deleted", () => {
+      const res = applyJsonValuesEntryPatches({
+        serializedSchema: schema,
+        entryKey: "/a",
+        baseContent: { title: "A", order: 1 },
+        patches: [
+          patch([
+            {
+              op: "replace",
+              path: [],
+              value: { "/b": { title: "B", order: 2 } },
+            },
+          ]),
+        ],
+      });
+      expect(res).toEqual({ kind: "deleted", appliedPatchIds: ["p1"] });
+    });
+
+    test("an entry only the record has is created", () => {
+      const res = applyJsonValuesEntryPatches({
+        serializedSchema: schema,
+        entryKey: "/new",
+        baseContent: undefined,
+        patches: [
+          patch([
+            {
+              op: "replace",
+              path: [],
+              value: { "/new": { title: "New", order: 3 } },
+            },
+          ]),
+        ],
+      });
+      expect(res).toEqual({
+        kind: "content",
+        content: { title: "New", order: 3 },
+        appliedPatchIds: ["p1"],
+      });
+    });
+
+    test("an entry the record leaves as it is is not touched by the patch", () => {
+      const res = applyJsonValuesEntryPatches({
+        serializedSchema: schema,
+        entryKey: "/a",
+        baseContent: { title: "A", order: 1 },
+        patches: [
+          patch([
+            {
+              op: "replace",
+              path: [],
+              value: { "/a": { title: "A", order: 1 } },
+            },
+          ]),
+        ],
+      });
+      expect(res).toEqual({
+        kind: "content",
+        content: { title: "A", order: 1 },
+        appliedPatchIds: [],
+      });
+    });
+
+    test("markers instead of content are refused here too", () => {
+      const res = applyJsonValuesEntryPatches({
+        serializedSchema: schema,
+        entryKey: "/a",
+        baseContent: { title: "A", order: 1 },
+        patches: [
+          patch([
+            {
+              op: "replace",
+              path: [],
+              value: { "/a": { _type: "json", patch_id: "p0" } },
+            },
+          ]),
+        ],
+      });
+      expect(res.kind).toBe("error");
     });
   });
 

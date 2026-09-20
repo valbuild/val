@@ -156,6 +156,13 @@ export type { ModulePathMap } from "./modulePathMap";
 // need to drive the same ops the app's api routes drive.
 export { ValOpsFS } from "./ValOpsFS";
 export { ValOpsHttp } from "./ValOpsHttp";
+export {
+  ValOpsMemory,
+  InMemoryPatchStore,
+  type ValPatchStore,
+  type StoredPatch,
+  type ValOpsMemoryOptions,
+} from "./ValOpsMemory";
 export { loadValModules, createValModuleFileInspector } from "./loadValModules";
 export type { ValModuleFileInspection } from "./loadValModules";
 export { formatPatchSourceError } from "./ValOps";
@@ -185,6 +192,7 @@ export type {
   Sources,
 } from "./ValOps";
 export type { ValServerConfig } from "./ValServer";
+export type { CommitContext, CommitResult } from "./ValServer";
 
 /**
  * The local-dev patch store, exported so the CLI's debug tooling can read a

@@ -7,6 +7,8 @@ import {
   Link2,
 } from "lucide-react";
 import { cn } from "../designSystem/cn";
+import { ShellDestination } from "./types";
+import { TourLauncher } from "./StudioTour";
 
 /** The content canvas is this wide at most, and never resizes. */
 export const CANVAS_MAX_WIDTH = 1048;
@@ -32,24 +34,111 @@ export function EditorCanvas({ children }: { children: ReactNode }) {
   );
 }
 
-/** Shown when nothing is selected — the shell's resting state. */
-export function EmptyEditorState() {
+/**
+ * Shown when nothing is selected — the shell's resting state, and the first
+ * thing a new editor sees.
+ *
+ * It used to say "No item selected", which is a true description of the state
+ * and no help at all to the person it is describing it to: it names the three
+ * destinations without saying what any of them is, which was exactly the
+ * complaint. The list below is the shortest honest definition of each, and the
+ * tour is offered here because this screen is where somebody who does not know
+ * where to start is standing.
+ */
+export function EmptyEditorState({
+  /**
+   * Which destinations this project has. All three when absent.
+   *
+   * Explaining Pages to a project with no router is worse than saying nothing:
+   * there is no icon to go and look for afterwards.
+   */
+  destinations,
+  onStartTour,
+  /**
+   * Whether the tour is still worth pressing for.
+   *
+   * This screen is the whole of the offer — the tour is not advertised anywhere
+   * else in the chrome — so when it is still new the button glows here. Once
+   * somebody has been through it the button stays and goes quiet: a control
+   * that vanishes is one nobody can find again on purpose.
+   */
+  tourPrompt,
+}: {
+  destinations?: readonly ShellDestination[];
+  onStartTour?: () => void;
+  tourPrompt?: boolean;
+} = {}) {
+  const offers = (destination: ShellDestination) =>
+    destinations === undefined || destinations.includes(destination);
+  /**
+   * Whether there is a glossary to write at all.
+   *
+   * A project of nothing but a settings module has none of these three, and the
+   * sentence introducing the list was rendered over an empty list: "under one
+   * of these:" followed by nothing. Settings is a destination too, but it is
+   * not somewhere content is edited, so it is not on this list — which makes
+   * "no terms" a real case rather than an impossible one.
+   */
+  const hasGlossary = offers("pages") || offers("media") || offers("data");
   return (
-    <div className="grid place-items-center min-h-[60svh] text-center">
-      <div className="max-w-xs">
+    <div className="grid place-items-center min-h-[60svh]">
+      <div className="max-w-sm">
         <FileText
           size={28}
-          className="mx-auto mb-4 text-fg-secondary-alt"
+          className="mb-4 text-fg-secondary-alt"
           strokeWidth={1.25}
         />
         <h2 className="text-[0.9375rem] font-medium tracking-tight">
-          No item selected
+          Pick something to edit
         </h2>
         <p className="mt-2 text-xs text-fg-secondary-alt leading-relaxed">
-          Pick a page, a media file or a data item from the navigation to start
-          editing.
+          {hasGlossary
+            ? "Everything in this project is in the navigation, under one of these:"
+            : "Pick something from the navigation to start editing."}
         </p>
+        <dl className="mt-3 space-y-2">
+          {offers("pages") && (
+            <EmptyStateTerm
+              term="Pages"
+              description="One row per page of your site, by URL."
+            />
+          )}
+          {offers("media") && (
+            <EmptyStateTerm
+              term="Media"
+              description="Images and files, uploaded once and used anywhere."
+            />
+          )}
+          {offers("data") && (
+            <EmptyStateTerm
+              term="Data"
+              description="Content that is not tied to one page — menus, footers, shared wording."
+            />
+          )}
+        </dl>
+        {onStartTour && (
+          <TourLauncher
+            onStart={onStartTour}
+            glow={tourPrompt}
+            className="mt-5"
+          />
+        )}
       </div>
+    </div>
+  );
+}
+
+function EmptyStateTerm({
+  term,
+  description,
+}: {
+  term: string;
+  description: string;
+}) {
+  return (
+    <div className="flex gap-2 text-xs leading-relaxed">
+      <dt className="w-14 shrink-0 font-medium text-fg-primary">{term}</dt>
+      <dd className="min-w-0 text-fg-secondary-alt">{description}</dd>
     </div>
   );
 }
