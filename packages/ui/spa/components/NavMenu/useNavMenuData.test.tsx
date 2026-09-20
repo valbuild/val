@@ -151,6 +151,28 @@ describe("useNavMenuData", () => {
     expect(hidden.data.settings).toBeUndefined();
   });
 
+  /**
+   * Hiding one of two settings modules does not pick the other.
+   *
+   * This is the whole reason the hook resolves BEFORE it drops hidden modules
+   * rather than resolving over a filtered set. Resolving over the filtered set
+   * would see one settings module and offer it — turning `hidden()` into a way
+   * to choose between two, silently, when what the project has is an error the
+   * module errors are already reporting.
+   *
+   * The core resolver has its own tests, and none of them run this hook, so the
+   * ordering is only pinned here.
+   */
+  test("two settings modules stay an error when one is hidden", () => {
+    const menu = mount({
+      "/val.settings.val.ts": hide(settings),
+      "/other.settings.val.ts": settings,
+    });
+    expect(menu.status).toBe("success");
+    if (menu.status !== "success") return;
+    expect(menu.data.settings).toBeUndefined();
+  });
+
   test("a hidden gallery is not a Media destination", () => {
     const menu = mount({
       "/content/photos.val.ts": hide(photos),
