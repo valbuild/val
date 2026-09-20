@@ -2,6 +2,7 @@ import {
   createBatchedProber,
   isRetryable,
   ProbeBatch,
+  ProbeUnavailableError,
 } from "./externalUrlProber";
 import { ExternalUrlProbeResult } from "./externalUrlReachability";
 
@@ -274,5 +275,44 @@ describe("isRetryable", () => {
 
   test("a URL that was never opened is not", () => {
     expect(isRetryable({ kind: "skipped", message: "not a URL" })).toBe(false);
+  });
+});
+
+describe("a check that cannot run", () => {
+  /**
+   * The failure that is the CHECKER's, not the link's.
+   *
+   * A session that has expired answers 401 to every batch. Retrying that three
+   * times and then reporting every URL as unreachable describes a project full
+   * of dead links, when nothing was checked at all.
+   */
+  test("is not retried, and is reported as not checked", async () => {
+    let calls = 0;
+    const prober = createBatchedProber(
+      async () => {
+        calls++;
+        throw new ProbeUnavailableError("the link check answered 401");
+      },
+      { batchSize: 2, attempts: 3, backoffMs: 0, sleep: async () => undefined },
+    );
+    const results = new Map<string, ExternalUrlProbeResult>();
+    await prober(
+      ["https://a.com", "https://b.com"],
+      (url, result) => results.set(url, result),
+      new AbortController().signal,
+    );
+
+    expect(calls).toBe(1);
+    expect(results.get("https://a.com")).toEqual({
+      kind: "skipped",
+      message: "Not checked: the link check answered 401.",
+    });
+    expect(results.get("https://b.com")?.kind).toBe("skipped");
+  });
+
+  test("an ordinary throw is still retried and still unreachable", () => {
+    // The distinction is the whole point, so it is pinned from both sides.
+    expect(isRetryable({ kind: "unreachable", message: "x" })).toBe(true);
+    expect(isRetryable({ kind: "skipped", message: "x" })).toBe(false);
   });
 });

@@ -8,7 +8,9 @@ import {
  *
  * Whatever it does not return a result for is treated as unreachable, and a
  * throw fails the whole batch - both retryable, both eventually reported, so a
- * prober can be written without thinking about either.
+ * prober can be written without thinking about either. Throw a
+ * {@link ProbeUnavailableError} for the other kind of failure: the one that is
+ * the CHECKER's and will answer the same way next time.
  */
 export type ProbeBatch = (
   urls: readonly string[],
@@ -29,6 +31,23 @@ export type BatchedProberOptions = {
   /** Injected so tests do not actually wait. */
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 };
+
+/**
+ * The link check itself could not run, and asking again will not help.
+ *
+ * A session that expired answers 401 to every batch, and the endpoint answers
+ * 400 to a request it will keep refusing. Treating those like a dropped
+ * connection retried each URL three times and then reported every one of them
+ * as unreachable - which reads as a site full of dead links, when what
+ * happened is that nothing was checked at all. So this is reported as SKIPPED,
+ * in the same shape a `mailto:` is: not attempted, and here is why.
+ */
+export class ProbeUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProbeUnavailableError";
+  }
+}
 
 export const DEFAULT_BATCH_SIZE = 10;
 export const DEFAULT_ATTEMPTS = 3;
@@ -129,7 +148,14 @@ export function createBatchedProber(
   };
 }
 
-/** A batch that throws is a batch where every URL failed, and retryably so. */
+/**
+ * A batch that throws is a batch where every URL failed.
+ *
+ * Retryably so, and reported as unreachable - unless the throw says the check
+ * itself is unavailable, which is neither the link's fault nor worth asking
+ * again. `skipped` is not retryable (see `isRetryable`), so that distinction
+ * is the whole of what stops the retries too.
+ */
 async function runBatch(
   probeBatch: ProbeBatch,
   urls: readonly string[],
@@ -139,12 +165,11 @@ async function runBatch(
     return await probeBatch(urls, signal);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return new Map(
-      urls.map((url) => [
-        url,
-        { kind: "unreachable", message } satisfies ExternalUrlProbeResult,
-      ]),
-    );
+    const result: ExternalUrlProbeResult =
+      error instanceof ProbeUnavailableError
+        ? { kind: "skipped", message: `Not checked: ${message}.` }
+        : { kind: "unreachable", message };
+    return new Map(urls.map((url) => [url, result]));
   }
 }
 

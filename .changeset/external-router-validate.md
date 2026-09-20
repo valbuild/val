@@ -1,5 +1,7 @@
 ---
 "@valbuild/core": patch
+"@valbuild/next": patch
+"@valbuild/tanstack": patch
 ---
 
 External page keys are now validated, and `mailto:` and `tel:` are allowed.
@@ -23,6 +25,9 @@ A project that wants to be stricter says so:
 ```ts
 s.record(item).router(externalPageRouter({ schemes: ["https", "mailto"] }));
 ```
+
+`initVal()` from `@valbuild/next` and `@valbuild/tanstack` hands you the
+callable form, so the narrowed version typechecks in an app.
 
 Val Studio applies the same rule while you type — it calls the same function —
 and shows a narrowed project's own list in the message.

@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { ExternalPagesDialog } from "./ExternalPagesDialog";
 import { ShellExternalPage } from "./types";
 import { SourcePath } from "@valbuild/core";
@@ -80,8 +80,11 @@ describe("an external page row", () => {
     const description = document.getElementById(
       row.getAttribute("aria-describedby") ?? "",
     );
+    // One mention of the validation error, not two: `toRows` folds it into the
+    // row's issues, so the description reads it from there like any other
+    // finding rather than also counting it separately.
     expect(description?.textContent).toBe(
-      "Nothing links to this, 1 validation error, Uses http://. Browsers warn on it, and most sites answer on https://.",
+      "Nothing links to this, Has 1 validation error., Uses http://. Browsers warn on it, and most sites answer on https://.",
     );
   });
 
@@ -92,5 +95,48 @@ describe("an external page row", () => {
       row.getAttribute("aria-describedby") ?? "",
     );
     expect(description?.textContent).toBe("Still counting where this is used");
+  });
+});
+
+/**
+ * A key the router refuses is never clickable from the Studio.
+ *
+ * Validation reports a `javascript:` key; it does not delete it, and the
+ * dialog's whole job is to show keys that are wrong. Rendering one in an
+ * `href` would make the Studio the place where it runs.
+ */
+describe("the detail pane's open-in-a-new-tab link", () => {
+  function openDetail(url: string) {
+    renderDialog([page(url)]);
+    // By title rather than by name: a row is LABELLED with what the group
+    // heading above it does not already say, and its title is the whole key.
+    fireEvent.click(screen.getByTitle(url));
+  }
+
+  test("is there for a key the router accepts", () => {
+    openDetail("https://example.com/a");
+    expect(
+      screen.getByRole("link", {
+        name: "Open https://example.com/a in a new tab",
+      }),
+    ).not.toBeNull();
+  });
+
+  test("is there for a mailto:, which is an ordinary external page", () => {
+    openDetail("mailto:post@example.com");
+    expect(
+      screen.getByRole("link", {
+        name: "Open mailto:post@example.com in a new tab",
+      }),
+    ).not.toBeNull();
+  });
+
+  test("is absent for a scheme that runs code", () => {
+    const url = "javascript:alert(1)";
+    openDetail(url);
+    expect(screen.queryAllByRole("link")).toEqual([]);
+    // The URL is still shown and still copyable: reading a bad key is why you
+    // opened the row.
+    expect(screen.getAllByText(url).length).toBeGreaterThan(0);
   });
 });

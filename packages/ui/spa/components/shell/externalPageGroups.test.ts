@@ -171,3 +171,64 @@ describe("countStatuses", () => {
     expect(countStatuses(rows)).toEqual({ ok: 1, warning: 1, error: 1 });
   });
 });
+
+describe("an entry that does not validate", () => {
+  /**
+   * The project's own schema and `.validate(...)`, folded into the same list
+   * as the URL checks.
+   *
+   * Everything that counts "what wants looking at" reads `status` - the row
+   * badge, the Flagged filter, the toolbar totals, the group warning and the
+   * Pages panel's own count. A URL whose entry cannot be published looking
+   * fine by all five of those is a publish that fails with nothing having said
+   * so.
+   */
+  const invalid = {
+    id: "https://a.example.com",
+    name: "a.example.com",
+    url: "https://a.example.com",
+    usages: [],
+    usagesComplete: true,
+    errorCount: 1,
+    errorMessages: ["Title is required"],
+  };
+
+  test("is an error, with the project's own wording", () => {
+    const [row] = toRows([invalid], new Map());
+    expect(row.status).toBe("error");
+    expect(row.issues).toEqual([
+      {
+        code: "entry-invalid",
+        severity: "error",
+        message: "Title is required",
+      },
+    ]);
+  });
+
+  test("is flagged even when only the count came through", () => {
+    // A shell that knows there are three errors and not what they say must
+    // still flag the row.
+    const [row] = toRows(
+      [{ ...invalid, errorCount: 3, errorMessages: undefined }],
+      new Map(),
+    );
+    expect(row.status).toBe("error");
+    expect(row.issues.map((issue) => issue.message)).toEqual([
+      "Has 3 validation errors.",
+    ]);
+  });
+
+  test("shows up in the Flagged filter", () => {
+    const rows = toRows([invalid], new Map());
+    expect(filterRows(rows, "", "issues")).toHaveLength(1);
+  });
+
+  test("an entry with no errors adds nothing", () => {
+    const [row] = toRows(
+      [{ ...invalid, errorCount: 0, errorMessages: [] }],
+      new Map(),
+    );
+    expect(row.issues).toEqual([]);
+    expect(row.status).toBe("ok");
+  });
+});

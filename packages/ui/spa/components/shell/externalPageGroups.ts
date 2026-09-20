@@ -51,6 +51,35 @@ export function rowUsageCount(page: ShellExternalPage): number | null {
   return page.usages.length;
 }
 
+/**
+ * What the project's own validation says about this entry.
+ *
+ * The messages where they came through, and a count where they did not: a
+ * shell that knows there are three errors and not what they say must still
+ * flag the row, or a URL that cannot be published looks fine in the list.
+ */
+function entryIssues(page: ShellExternalPage): ExternalUrlIssue[] {
+  const count = page.errorCount ?? 0;
+  if (count === 0) {
+    return [];
+  }
+  const messages = page.errorMessages ?? [];
+  if (messages.length === 0) {
+    return [
+      {
+        code: "entry-invalid",
+        severity: "error",
+        message: `Has ${count} validation error${count === 1 ? "" : "s"}.`,
+      },
+    ];
+  }
+  return messages.map((message) => ({
+    code: "entry-invalid",
+    severity: "error",
+    message,
+  }));
+}
+
 export function toRows(
   pages: readonly ShellExternalPage[],
   issuesByUrl: ReadonlyMap<string, ExternalUrlIssue[]>,
@@ -59,6 +88,13 @@ export function toRows(
   return pages.map((page) => {
     const probe = probes?.get(page.url);
     const issues = [
+      // First, because it is the one that stops a publish: the project's own
+      // schema and validators, reported against this entry. Folded into the
+      // same list as the URL checks so that everything counting "what wants
+      // looking at" - the row badge, the Flagged filter, the totals, the
+      // Pages panel's own count - counts it without each of them having to
+      // remember to.
+      ...entryIssues(page),
       ...(issuesByUrl.get(page.url) ?? []),
       ...(probe?.state === "done" ? probeIssues(page.url, probe.result) : []),
     ];

@@ -57,7 +57,7 @@ import {
   groupRows,
   toRows,
 } from "./externalPageGroups";
-import { ExternalUrlSchemePolicy } from "@valbuild/core";
+import { ExternalUrlSchemePolicy, rejectScheme } from "@valbuild/core";
 import { checkExternalUrls, ExternalUrlIssue } from "./externalUrlChecks";
 import { parseExternalUrl } from "./externalUrls";
 import {
@@ -932,9 +932,9 @@ function Row({
       : usageCount === 0
         ? "Nothing links to this"
         : `Linked from ${usageCount} place${usageCount === 1 ? "" : "s"}`,
-    page.errorCount !== undefined && page.errorCount > 0
-      ? `${page.errorCount} validation error${page.errorCount === 1 ? "" : "s"}`
-      : null,
+    // Not the validation count as well: `toRows` already folded those errors
+    // into `issues`, so naming them twice made a row announce itself as "1
+    // validation error, Has 1 validation error".
     ...issues.map((issue) => issue.message),
   ].filter((note): note is string => note !== null);
   return (
@@ -1095,27 +1095,6 @@ function EntryDetail({
   portalContainer?: HTMLElement | null;
 }) {
   const { page, issues, usageCount } = row;
-  // Everything wrong with this URL, in one list: what the project's own
-  // validation says about the entry, then what the checks say about the URL.
-  // Two lists under two headings said the same thing twice as loudly, and the
-  // messages are already about different things - a rule someone wrote reads
-  // as a rule someone wrote.
-  const problems: {
-    key: string;
-    severity: "error" | "warning";
-    text: string;
-  }[] = [
-    ...(page.errorMessages ?? []).map((message, index) => ({
-      key: `validation:${index}`,
-      severity: "error" as const,
-      text: message,
-    })),
-    ...issues.map((issue) => ({
-      key: `issue:${issue.code}`,
-      severity: issue.severity,
-      text: issue.message,
-    })),
-  ];
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-start gap-1.5">
@@ -1123,27 +1102,38 @@ function EntryDetail({
           {page.url}
         </p>
         <CopyButton value={page.url} />
-        <a
-          href={page.url}
-          target="_blank"
-          rel="noreferrer noopener"
-          title="Open in a new tab"
-          className="shrink-0 grid place-items-center w-6 h-6 rounded text-fg-secondary-alt hover:text-fg-primary hover:bg-bg-float-raised"
-        >
-          <ExternalLink size={12} aria-hidden />
-          <span className="sr-only">Open {page.url} in a new tab</span>
-        </a>
+        {/* Only for a key the router would accept. A record can HOLD a
+            `javascript:` key - validation reports it, it does not delete it -
+            and putting that in an `href` makes the Studio the place where it
+            runs. The same deny list decides both, so a key that is refused is
+            a key that is never clickable; Copy still works, because getting a
+            bad key out to look at is the point of opening the row. */}
+        {rejectScheme(page.url) === null && (
+          <a
+            href={page.url}
+            target="_blank"
+            rel="noreferrer noopener"
+            title="Open in a new tab"
+            className="shrink-0 grid place-items-center w-6 h-6 rounded text-fg-secondary-alt hover:text-fg-primary hover:bg-bg-float-raised"
+          >
+            <ExternalLink size={12} aria-hidden />
+            <span className="sr-only">Open {page.url} in a new tab</span>
+          </a>
+        )}
       </div>
 
       {/* No heading, and nothing at all when there is nothing wrong. A pane
           that announces "Checks" and then says "nothing wrong with this URL"
           spends four lines saying that nothing happened, on every URL, which
           is most of them. */}
-      {problems.length > 0 && (
+      {issues.length > 0 && (
         <ul className="space-y-1.5">
-          {problems.map((problem) => (
-            <li key={problem.key} className="flex items-start gap-1.5 text-xs">
-              {problem.severity === "error" ? (
+          {issues.map((issue, index) => (
+            <li
+              key={`${index}:${issue.code}`}
+              className="flex items-start gap-1.5 text-xs"
+            >
+              {issue.severity === "error" ? (
                 <CircleAlert
                   size={12}
                   aria-hidden
@@ -1156,7 +1146,7 @@ function EntryDetail({
                   className="mt-0.5 shrink-0 text-fg-warning-primary"
                 />
               )}
-              <span className="text-fg-secondary">{problem.text}</span>
+              <span className="text-fg-secondary">{issue.message}</span>
             </li>
           ))}
         </ul>

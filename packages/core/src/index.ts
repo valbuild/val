@@ -242,7 +242,11 @@ export {
   previewScope,
 } from "./preview";
 export { type InlineRender, type FieldRender, isInlineRender } from "./render";
-export type { ValRouter, RouteValidationError } from "./router";
+export type {
+  ValRouter,
+  ExternalPageRouter,
+  RouteValidationError,
+} from "./router";
 export {
   parseNextJsRoutePattern,
   parseTanStackRoutePattern,

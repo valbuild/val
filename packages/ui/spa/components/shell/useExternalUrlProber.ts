@@ -1,6 +1,10 @@
 import { useMemo } from "react";
 import { useClient } from "../ValProvider";
-import { createBatchedProber, ProbeBatch } from "./externalUrlProber";
+import {
+  createBatchedProber,
+  ProbeBatch,
+  ProbeUnavailableError,
+} from "./externalUrlProber";
 import {
   ExternalUrlProber,
   ExternalUrlProbeResult,
@@ -41,8 +45,17 @@ export function useExternalUrlProber(): ExternalUrlProber {
       }
       if (res.status !== 200) {
         // Thrown rather than returned empty, because `createBatchedProber`
-        // treats a throw as a retryable failure of the whole batch - which is
-        // what a 500 or a dropped connection is.
+        // treats a throw as a failure of the whole batch. WHICH throw decides
+        // whether it is retried and how it is reported: a dropped connection
+        // or a 5xx is the check having a bad moment, and a 401 from an expired
+        // session or a 400 it will keep refusing is the check not running at
+        // all - retrying that reports a project's every URL as unreachable,
+        // which reads as link rot rather than as a login that has lapsed.
+        if (res.status !== null && res.status < 500) {
+          throw new ProbeUnavailableError(
+            `the link check answered ${res.status}`,
+          );
+        }
         throw new Error(
           res.status === null
             ? "the link check could not be reached"

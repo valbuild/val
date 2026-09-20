@@ -10,7 +10,8 @@ import {
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { AIChatPanel } from "./AIChatPanel";
 import { DataPanel } from "./DataPanel";
-import { checkExternalUrls, statusOf } from "./externalUrlChecks";
+import { checkExternalUrls } from "./externalUrlChecks";
+import { toRows } from "./externalPageGroups";
 import { ShellPanelProvider } from "./shellPanelLink";
 import { EmptyEditorState, PageEditor } from "./EditorCanvas";
 import {
@@ -571,9 +572,13 @@ export function Shell({
    * when someone presses Check.
    */
   const externalIssueCount = useMemo(() => {
+    // Through `toRows`, so this counts exactly what the dialog's own badges,
+    // Flagged filter and totals count. Counting the URL checks alone here put
+    // a red badge on a row whose entry does not validate while the footer said
+    // there was nothing to look at.
     const issues = checkExternalUrls(data.externalPages.map((p) => p.url));
-    return data.externalPages.filter(
-      (p) => statusOf(issues.get(p.url) ?? []) !== "ok",
+    return toRows(data.externalPages, issues).filter(
+      (row) => row.status !== "ok",
     ).length;
   }, [data.externalPages]);
   const [isSearchOpen, setIsSearchOpen] = useState(initialSearchOpen);

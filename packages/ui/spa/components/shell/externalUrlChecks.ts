@@ -20,6 +20,17 @@ import { asHttps, canonicalExternalUrl } from "./externalUrls";
  * batch, which a row that quietly has no badge does not say.
  */
 export type ExternalUrlIssueCode =
+  /**
+   * The entry behind the URL does not validate.
+   *
+   * Not a finding of this module - it comes from the project's own schema and
+   * whatever `.validate(...)` it carries, and it is the one code here that
+   * blocks a publish. It is in this union so that a row has ONE list of things
+   * wrong with it: the badge, the Flagged filter, the toolbar totals and the
+   * group warning all read that list, and a URL whose entry is invalid wants
+   * looking at by every one of those measures.
+   */
+  | "entry-invalid"
   // Shape: decided from the string, and from the strings beside it.
   | "scheme-refused"
   | "unparseable"

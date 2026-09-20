@@ -12,6 +12,13 @@ import { s, c, externalPageRouter } from "../../val.config";
  *
  * The Studio treats them the same way either way — a Pages tree keyed by
  * address, with the key validated as a URL rather than typed free-hand.
+ *
+ * A link is not only a web page: `mailto:` and `tel:` are keys here too. The
+ * default policy is a deny list rather than an allow list — any scheme except
+ * the handful that are not links at all (`javascript:`, `data:`, `vbscript:`,
+ * `file:`, `blob:`), which an external page key must never be, because it ends
+ * up in an `href` in this app's own markup. A project that wants to be
+ * stricter calls the router: `externalPageRouter({ schemes: ["https"] })`.
  */
 export default c.define(
   "/src/content/links.val.ts",
@@ -36,6 +43,14 @@ export default c.define(
     "https://github.com/valbuild/val": {
       title: "Val on GitHub",
       blurb: null,
+    },
+    "mailto:hello@val.build": {
+      title: "Email us",
+      blurb: "A scheme with no host: grouped under val.build in the Studio",
+    },
+    "tel:+4712345678": {
+      title: "Call us",
+      blurb: "Nothing to open, so the link check reports it rather than trying",
     },
   },
 );
