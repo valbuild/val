@@ -22,8 +22,7 @@ function ops(): ValOpsHttp {
   return new ValOpsHttp(
     "https://content.val.build",
     PROJECT,
-    "commit-sha",
-    "main",
+    { commit: "commit-sha", branch: "main" },
     { apiKey: "key" },
     // The module side is irrelevant here: nothing on this path evaluates a
     // module or reads a schema.
@@ -173,8 +172,7 @@ function exposedOps(): ExposedValOpsHttp {
   return new ExposedValOpsHttp(
     "https://content.val.build",
     PROJECT,
-    "commit-sha",
-    "main",
+    { commit: "commit-sha", branch: "main" },
     { apiKey: "key" },
     { modules: [] } as never,
   );

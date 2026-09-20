@@ -1,7 +1,17 @@
 import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
 import { z } from "zod";
 
-const host = process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
+/**
+ * The fallback content host.
+ *
+ * Read at module scope, which is why {@link getSettings} takes an override: a
+ * host that bundles its dependencies SEPARATELY from its own code cannot set
+ * this. Such a build inlines env vars into the app and leaves dependency chunks
+ * alone, so `process.env.VAL_CONTENT_URL` here is whatever it was when the
+ * chunk was built -- usually nothing. A caller that knows the content url has
+ * to be able to say so.
+ */
+const defaultHost = process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
 
 const SettingsSchema = z.object({
   publicProjectId: z.string(),
@@ -12,6 +22,8 @@ type Settings = z.infer<typeof SettingsSchema>;
 export async function getSettings(
   projectName: string,
   auth: { pat: string } | { apiKey: string },
+  /** Overrides {@link defaultHost}. See the note there for why this exists. */
+  contentUrl?: string,
 ): Promise<
   | {
       success: true;
@@ -23,6 +35,7 @@ export async function getSettings(
     }
 > {
   try {
+    const host = contentUrl || defaultHost;
     const response = await fetch(`${host}/v1/${projectName}/settings`, {
       headers:
         "pat" in auth

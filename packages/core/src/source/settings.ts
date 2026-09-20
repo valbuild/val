@@ -26,6 +26,34 @@ export type SettingsSource = {
   assistant?: AssistantSettingsSource;
   theme?: ThemeSettingsSource;
   locales?: LocalesSettingsSource;
+  studio?: StudioSettingsSource;
+};
+
+/**
+ * How the Studio behaves for the people editing this project.
+ *
+ * Not how it looks — that is {@link ThemeSettingsSource} — and not one person's
+ * own preferences, which stay in their browser. This is the project's word on
+ * what its editors are offered, which is why it is content: a team that has
+ * decided something about the way they work should not need a developer and a
+ * deploy to say so.
+ */
+export type StudioSettingsSource = {
+  /**
+   * Whether editors are offered the guided tour of the Studio.
+   *
+   * Unset means yes, because the person this exists for is the one who has not
+   * answered any question yet. Setting it to `false` turns the offer off for
+   * everyone on the project, permanently and for good — which is the point:
+   * a team that finds it noisy can be rid of it once rather than each person
+   * dismissing it on each machine they use.
+   *
+   * It governs the OFFER, not the tour. Whoever wants it can still run it from
+   * Quick actions; what goes is the glowing button and the prompt on the empty
+   * editor. Whether a given person has already been through it is a fact about
+   * that browser and is not here.
+   */
+  tour?: boolean | null;
 };
 
 /**

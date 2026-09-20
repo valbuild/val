@@ -1,5 +1,5 @@
 import { AssertError, Schema, SchemaAssertResult, SerializedSchema } from ".";
-import { PreviewScope, ReifiedPreview } from "../preview";
+import { PreviewScope, ReifiedPreview, mergePreviewInto } from "../preview";
 import { FieldRender } from "../render";
 import { SelectorSource } from "../selector";
 import {
@@ -11,6 +11,7 @@ import {
   AssistantSettingsSource,
   LocalesSettingsSource,
   SettingsSource,
+  StudioSettingsSource,
   THEME_LOGO_DIRECTORY,
   ThemeSettingsSource,
 } from "../source/settings";
@@ -318,6 +319,7 @@ export class SettingsSchema<
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
     scope?: PreviewScope,
+    selfIsReifiedByParent?: boolean,
   ): ReifiedPreview {
     const res: ReifiedPreview = {};
     if (src === null) {
@@ -332,15 +334,17 @@ export class SettingsSchema<
       if (scope !== undefined && !scope.wantsUnder(subPath)) {
         continue;
       }
-      const itemResult = this.items[key]["executePreview"](
-        subPath,
-        itemSrc,
-        scope,
+      mergePreviewInto(
+        res,
+        this.items[key]["executePreview"](subPath, itemSrc, scope),
       );
-      for (const keyS in itemResult) {
-        const key = keyS as SourcePath | ModuleFilePath;
-        res[key] = itemResult[key];
-      }
+    }
+    // An object reifies no rows of its own, so the only thing it adds is what
+    // IT is called — which nothing else can supply for a field of an object.
+    // Its own items are NOT rows, so the flag stops here rather than travelling
+    // down with the recursion above.
+    if (!selfIsReifiedByParent) {
+      mergePreviewInto(res, this.executeSelfPreview(sourcePath, src, scope));
     }
     return res;
   }
@@ -438,6 +442,13 @@ export function settings(): SettingsSchema<SettingsSource> {
         .nullable()
         .describe(
           "The project's own mark, shown where Val's is in the Studio. A square-ish mark rather than a wordmark: the slot is 32px wide.",
+        ),
+    }),
+    studio: new SettingsSchema<StudioSettingsSource>({
+      tour: boolean()
+        .nullable()
+        .describe(
+          "Whether editors are offered the guided tour of the Studio. Unset means yes. Off hides the offer for everyone on this project — the tour stays in Quick actions for anyone who wants it.",
         ),
     }),
     locales: new SettingsSchema<LocalesSettingsSource>(

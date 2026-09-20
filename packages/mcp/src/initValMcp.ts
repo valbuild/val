@@ -277,7 +277,7 @@ export function initValMcp(
 }
 
 /**
- * The two ways this route is dangerous, both refused here.
+ * The three ways this route is dangerous, all refused here.
  *
  * 1. **Local filesystem mode outside development.** In fs mode there is no
  *    credential and no backend: the tools read and write the running process's
@@ -295,13 +295,29 @@ export function initValMcp(
  *    needs a credential in fs mode. So a cross-origin `Origin` is refused, and
  *    in fs mode the request must actually be addressed to a loopback host.
  *
+ * 3. **Memory mode, always.** A host that holds its own source has the same
+ *    absence fs mode has -- no credential, no backend, and every permission
+ *    check on the far side of one -- and unlike fs mode it is *meant* to run
+ *    deployed, so "only in development" refuses nothing. Neither does the
+ *    loopback check: there is no localhost to require. So this is refused
+ *    outright rather than narrowed. A host in this mode owns its own trust
+ *    boundary and can offer the tools through it; what it cannot do is let
+ *    Val's own endpoint write content for anyone who can reach the port.
+ *
  * MCP clients are not browsers and send no `Origin`, so the check costs them
  * nothing.
  */
 function refuseUnsafeRequest(
   request: Request,
-  mode: "fs" | "http",
+  mode: "fs" | "http" | "memory",
 ): Response | null {
+  if (mode === "memory") {
+    return jsonResponse(403, {
+      error:
+        "Val: the MCP endpoint is disabled. This project is running in memory mode, where the host holds the source and MCP calls would be unauthenticated writes to it. Serve the tools through the host's own authenticated surface instead.",
+    });
+  }
+
   if (mode === "fs" && process.env.NODE_ENV !== "development") {
     return jsonResponse(403, {
       error:

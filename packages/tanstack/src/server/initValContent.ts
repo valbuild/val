@@ -15,7 +15,11 @@ import {
   SourceObject,
 } from "@valbuild/core";
 import { VAL_SESSION_COOKIE } from "@valbuild/shared/internal";
-import { createValServer, ValServer } from "@valbuild/server";
+import {
+  createValServer,
+  ValServer,
+  type ValPatchStore,
+} from "@valbuild/server";
 import { VERSION } from "../version";
 import {
   getJsonEntryStegaRoot,
@@ -24,6 +28,7 @@ import {
   isJsonValuesRecordSchema,
 } from "../routeFromVal";
 import { valDraftMode, type ValDraftMode } from "./valDraftMode";
+import type { ValHttpMode } from "./initValServer";
 
 /*
  * NOTE: no `SET_RSC(true)` here, unlike the Next package.
@@ -577,6 +582,58 @@ export function initValContent(
      * the API turns preview on and these readers are what has to notice.
      */
     draftMode?: ValDraftMode;
+    /**
+     * The project's source, for a host that holds it rather than having it on
+     * a disk. Pass the SAME record `initValServer` got.
+     *
+     * These readers have a Val server of their own -- they resolve content by
+     * asking it, not by calling the API over HTTP -- so the mode question is
+     * put to them separately, and answering it only for `initValServer` left
+     * the readers inferring `fs` mode. On a host with no filesystem that is
+     * a reader looking for a working tree that is not there.
+     */
+    sourceFiles?: Record<string, string>;
+    /**
+     * Where pending patches live, with {@link sourceFiles}. Pass the SAME
+     * store `initValServer` got.
+     *
+     * Two stores are two sets of pending edits: the API would write a patch
+     * into one and a draft render would read the other and show none of it.
+     * Left out, this reader gets its own, which is correct for published
+     * content and empty for drafts.
+     */
+    patchStore?: ValPatchStore;
+    /**
+     * Serve memory mode without authenticating. Pass the SAME value
+     * `initValServer` got.
+     *
+     * This reader's server checks a session like the API's does, so a host
+     * that authenticates outside Val -- and therefore sends no Val session
+     * cookie -- gets 401 from its own reader and silently falls back to
+     * PUBLISHED content. A draft render that shows the live site is the
+     * hardest kind of wrong to notice.
+     */
+    unsafelyAllowUnauthenticated?: boolean;
+    /**
+     * Put these readers in `http` mode. Pass the SAME object `initValServer`
+     * got.
+     *
+     * Separate for the same reason {@link sourceFiles} is: these readers have
+     * a Val server of their own, so the mode question is put to them
+     * independently. Answering it only for `initValServer` leaves them
+     * inferring -- and on a host that hands Val its credentials in code rather
+     * than through the environment, there is nothing to infer FROM, since
+     * `process.env.VAL_API_KEY` is undefined in a bundle built separately from
+     * its dependencies.
+     *
+     * `git`, where the project has a repository, is what makes this more than
+     * bookkeeping: it decides which commit the `.val.ts` mirror is produced
+     * against, so these readers and the API have to be given the same one or a
+     * publish patches a different version of the file than the site is
+     * running. A project with no repository passes no `git` at all, and there
+     * is nothing here that can then disagree.
+     */
+    http?: ValHttpMode;
   },
 ): {
   fetchValStega: ReturnType<typeof initFetchValStega>;
@@ -605,6 +662,19 @@ export function initValContent(
         core: coreVersion,
       },
       ...config,
+      // Present only when the host supplied them: `sourceFiles` is what
+      // selects memory mode, so a key set to `undefined` would be a different
+      // thing from an absent one.
+      ...(opts?.sourceFiles !== undefined
+        ? { sourceFiles: opts.sourceFiles }
+        : {}),
+      ...(opts?.patchStore !== undefined
+        ? { patchStore: opts.patchStore }
+        : {}),
+      ...(opts?.unsafelyAllowUnauthenticated !== undefined
+        ? { unsafelyAllowUnauthenticated: opts.unsafelyAllowUnauthenticated }
+        : {}),
+      ...(opts?.http !== undefined ? opts.http : {}),
     },
     config,
     {

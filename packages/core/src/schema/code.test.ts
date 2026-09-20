@@ -3,6 +3,8 @@ import { code, CodeSchema } from "./code";
 import { deserializeSchema } from "./deserialize";
 import { RawString } from "./string";
 
+const path = "/test.val.ts" as SourcePath;
+
 // Stored code values are raw strings; brand them for executeValidate, which is
 // typed against the schema's branded source type.
 const raw = (value: string): RawString => value as RawString;
@@ -127,9 +129,9 @@ describe("CodeSchema", () => {
     }
   });
 
-  /** Code has no items, so it has nothing to preview of its own. */
-  test("preview: never previews", () => {
-    expect(code()["executePreview"]()).toEqual({});
+  /** Code has no items, so it reifies nothing for anything below it. */
+  test("preview: reifies nothing without `.preview()`", () => {
+    expect(code()["executePreview"](path, raw("{}"))).toEqual({});
   });
 
   test("preview: an item preview is declared and runs", () => {

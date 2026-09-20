@@ -1,4 +1,5 @@
-import { ImageSource, Internal } from "@valbuild/core";
+import { ImageSource } from "@valbuild/core";
+import { useMediaUrl } from "../utils/mediaUrl";
 import { ReactNode } from "react";
 import { cn } from "./designSystem/cn";
 
@@ -21,7 +22,7 @@ export function DropdownPreviewRow({
    */
   imageSize?: "sm" | "md";
 }) {
-  const imageUrl = resolveImageUrl(image);
+  const imageUrl = useDropdownImageUrl(image);
   return (
     <div className={cn("flex min-w-0 flex-1 items-center gap-2", className)}>
       <div className="flex min-w-0 flex-1 flex-col">
@@ -61,12 +62,12 @@ export function DropdownPreviewRow({
   );
 }
 
-function resolveImageUrl(image: DropdownPreviewImage): string | null {
-  if (image === null || image === undefined) {
-    return null;
-  }
-  if (typeof image === "string") {
-    return image;
-  }
-  return Internal.mediaUrl(image);
+/**
+ * A string here is an already-resolved URL — a caller that had one and nothing
+ * to look up — so it passes through. Anything else is a media value and goes
+ * through `useMediaUrl`, which adds the patch id a draft upload needs.
+ */
+function useDropdownImageUrl(image: DropdownPreviewImage): string | null {
+  const resolved = useMediaUrl(typeof image === "string" ? null : image);
+  return typeof image === "string" ? image : resolved;
 }

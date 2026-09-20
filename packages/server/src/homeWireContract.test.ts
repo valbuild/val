@@ -75,8 +75,7 @@ function opsAnswering(body: unknown, status = 200) {
   const ops = new ValOpsHttp(
     CONTENT_URL,
     PROJECT,
-    "commit-sha",
-    "main",
+    { commit: "commit-sha", branch: "main" },
     { apiKey: "key" },
     // The module side is irrelevant here: nothing on this path evaluates a
     // module or reads a schema.

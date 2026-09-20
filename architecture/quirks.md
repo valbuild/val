@@ -76,6 +76,19 @@ recursion. Harmless while a marker on the value could still be found; the moment
 detection needs the schema, it strips `url` from every image on every production
 page. `disabled` gates the steganography and nothing else.
 
+**`val list-unused-files` finds files through VALIDATION ERRORS, so a correct
+gallery reads as unused.** `listUnusedFiles` collects the paths it considers
+in use by walking what `service.get(..., { validate: true })` reports and
+picking the errors whose value looks like a file ref — a single `s.image()` /
+`s.file()` field always reports a `check-metadata` fix, so its file is found,
+while an `s.imageset()` / `s.fileset()` ENTRY reports nothing when it is
+correct and its file is not. `examples/next` hides this by accident: its
+gallery's one entry declares 800x600 for a 944x944 image, and that error is
+the only reason the file counts as used. `examples/tanstack`, whose content
+validates cleanly, lists every gallery file it has. So treat the output as a
+starting point, and never as a delete list — the function's own TODO says the
+same about the heuristic.
+
 **The server drops `patch_id` before writing a `.val.ts`.** It marks a media
 source whose bytes are not committed, and it is a sibling of `path` — so a
 whole-object write built from the client's optimistic view would print it into a
@@ -389,6 +402,21 @@ replayed against the entry's `*.val.json` instead — `classifyJsonValuesOp` +
 `import(...)` specifier in the `.val.ts`, not derived from the key: entries may be
 hand-placed, and deriving would write a file the module does not read.
 
+**A patch that replaces the WHOLE record is expanded, not applied.** `{op:
+"replace", path: [], value}` names no entry key, so `classifyJsonValuesOp` — which
+finds the key by walking the op path — reads it as an ordinary source edit and
+would write the value straight into the `.val.ts`, over the `c.json(() =>
+import(...))` calls. `expandJsonValuesRootOp` fans it out against the record's
+live keys into an `add`, `replace` or `remove` per entry (and nothing at all for
+an entry already holding that content, so putting a module back does not rewrite
+every file in it). The value must be CONTENT: a `{_type:"json"}` marker as an
+entry's value is refused, because a marker is what a module's Source holds where
+the content is not, and writing markers back is the bug this exists to stop.
+Both sides expand through that one function — `ValOps.prepare` writes the files,
+`applyJsonValuesEntryPatches` builds the draft the Studio reads — because two
+implementations of the rule would differ silently, and the difference only shows
+up once it is published.
+
 ## External records
 
 **Three type-level details keep `s.record().external()` navigable, and all three
@@ -604,6 +632,33 @@ cleanup cancels, which is the only pass that writes to the editor that survives.
 **After `pnpm run build`, run `pnpm preconstruct dev`** or downstream packages keep
 resolving `dist/`. Also delete `examples/next/.next` — a production build left
 there makes the dev server 500 with `MODULE_NOT_FOUND` on Studio routes.
+
+## Two file names differing only in case break macOS and Windows, silently
+
+`StudioTour.tsx` and `studioTour.ts` in one directory are two files on Linux and
+ONE on a case-insensitive filesystem, which is what the Studio is developed on.
+`import { TourLauncher } from "./StudioTour"` resolved to the wrong module
+there, and the Studio did not come up:
+
+```
+Uncaught SyntaxError: The requested module
+'/api/val/static/spa/components/shell/StudioTour.ts'
+does not provide an export named 'TourLauncher'
+```
+
+Note the `.ts` in a path nobody wrote — that is the tell.
+
+Nothing caught it before a developer hit it: CI is Linux, the Playwright suites
+run on Linux, and every unit test passed. The collision is invisible on the
+platform everything is verified on and fatal on the platform everything is
+written on, which is exactly the asymmetry a convention cannot fix.
+`packages/ui/spa/components/caseCollisions.test.ts` is the guard, and it
+compares module STEMS — whole names miss it, because `StudioTour.tsx` and
+`studioTour.ts` do differ, in the extension.
+
+A directory and a same-cased module beside it (`Search/` and `Search.tsx`, which
+the SPA has) is a different thing and is fine: the resolver decides that one, the
+same way everywhere.
 
 ## The Studio is not always a secure context
 

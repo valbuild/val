@@ -1,6 +1,8 @@
 import { EnumSchema, enumSchema } from "./enum";
 import { SourcePath } from "../val";
 
+const path = "/test.val.ts" as SourcePath;
+
 describe("EnumSchema", () => {
   test("assert: should return success for one of the values", () => {
     const schema = enumSchema("one", "two");
@@ -93,6 +95,6 @@ describe("EnumSchema", () => {
   });
 
   test("an enum is a leaf: previewing it reifies nothing", () => {
-    expect(enumSchema("one", "two")["executePreview"]()).toEqual({});
+    expect(enumSchema("one", "two")["executePreview"](path, "one")).toEqual({});
   });
 });

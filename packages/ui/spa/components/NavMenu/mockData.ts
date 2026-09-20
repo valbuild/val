@@ -52,6 +52,9 @@ export const mockSitemap: SitemapItem = {
         {
           name: "blog-1",
           urlPath: "/blogs/blog-1",
+          // A page whose schema declares a `.preview(...)`: the route still
+          // leads, the name rides beside it. See `SitemapItem.title`.
+          title: "Building a scalable front-end architecture",
           sourcePath:
             '/app/blogs/[blog]/page.val.ts?p="/blogs/blog-1"' as SourcePath,
           children: [],
@@ -59,6 +62,7 @@ export const mockSitemap: SitemapItem = {
         {
           name: "blog-2",
           urlPath: "/blogs/blog-2",
+          title: "What content-as-code actually buys you",
           sourcePath:
             '/app/blogs/[blog]/page.val.ts?p="/blogs/blog-2"' as SourcePath,
           errors: {

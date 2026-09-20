@@ -121,6 +121,10 @@ export function FloatingPanel({
         ref={panelRef}
         role="dialog"
         aria-label={title}
+        // The region the guided tour's card has to keep off. A step that opens
+        // a panel is a step ABOUT that panel, so a card covering it is covering
+        // the answer. See `measureAvoid` in `StudioTour`.
+        data-val-tour-surface=""
         style={
           isMobile
             ? mobileVariant === "sheet"

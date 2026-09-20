@@ -10,7 +10,8 @@
     "generate-routes": "tsr generate",
     "typecheck": "tsc --noEmit",
     "validate": "val validate",
-    "lint": "eslint"
+    "lint": "eslint",
+    "probe:host-publish": "tsx scripts/hostPublishProbe.ts"
   },
   "dependencies": {
     "@tanstack/react-router": "^1.170.33",

@@ -38,6 +38,16 @@ export type SitemapItem = {
   errors?: NavItemErrors;
   /** Description of the router key schema (shown in the add page form) */
   keyDescription?: string;
+  /**
+   * What a `.preview(...)` calls this page, when one does.
+   *
+   * Secondary to {@link urlPath} on purpose, and the one place in the studio
+   * where that is the right way round: this tree IS the site's routes — it has
+   * dynamic-segment pills and route patterns in it — so a row whose URL was
+   * replaced by a title would stop being part of a URL tree. The title rides
+   * beside it so a page can be recognised as well as located.
+   */
+  title?: string;
   /** Child pages/folders */
   children: SitemapItem[];
   /** Whether this item or any descendant has validation errors */

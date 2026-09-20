@@ -12,11 +12,14 @@ import {
   NoSettingsModule,
   SettingsLogoPlaceholder,
   SettingsPanel,
+  SettingsSectionDivider,
   SettingsTabs,
+  StudioSettingsFields,
+  StudioSettingsValue,
   ThemeSettingsFields,
   ThemeSettingsValue,
 } from "../SettingsPanel";
-import { Palette, Sparkles } from "lucide-react";
+import { AppWindow, Sparkles } from "lucide-react";
 import { ShellBreakpoint } from "../types";
 import { EnableAssistantPromptView } from "../../EnableAssistantPrompt";
 
@@ -120,6 +123,8 @@ function SettingsPanelHarness({
 }: HarnessProps) {
   const [value, setValue] = useState<AssistantSettingsValue>(initial);
   const [theme, setTheme] = useState<ThemeSettingsValue>(initialTheme);
+  // Unset, which is what an untouched project has: the tour is offered.
+  const [studio, setStudio] = useState<StudioSettingsValue>({ tour: null });
   /*
    * The theme is APPLIED here, not just edited, so a story shows what picking
    * an accent does rather than only what the control looks like. In the real
@@ -161,43 +166,57 @@ function SettingsPanelHarness({
       />
     ),
   };
-  const appearanceTab = {
-    id: "theme",
-    label: "Appearance",
-    icon: Palette,
+  /**
+   * Appearance and the tour in one tab, as two sections — what the app renders.
+   * See `ValSettingsSections`.
+   */
+  const studioTab = {
+    id: "studio",
+    label: "Studio",
+    icon: AppWindow,
     content: (
-      <ThemeSettingsFields
-        value={theme}
-        onChange={(field, next) =>
-          setTheme((current) => ({ ...current, [field]: next }))
-        }
-        errors={themeErrors}
-        logoField={
-          logoSlot === "placeholder" ? (
-            <SettingsLogoPlaceholder
-              onAdd={() => undefined}
-              disabled={readonly}
-            />
-          ) : logoSlot === "field" ? (
-            // A still of the real field: the point of the story is the row it
-            // sits in, not `ImageField`'s own states, which have stories of
-            // their own.
-            <div className="flex items-center gap-3">
-              <img
-                src={mockProjectLogo.square.url}
-                alt=""
-                className="w-16 h-16 rounded-md border border-border-primary object-contain"
+      <>
+        <ThemeSettingsFields
+          value={theme}
+          onChange={(field, next) =>
+            setTheme((current) => ({ ...current, [field]: next }))
+          }
+          errors={themeErrors}
+          logoField={
+            logoSlot === "placeholder" ? (
+              <SettingsLogoPlaceholder
+                onAdd={() => undefined}
+                disabled={readonly}
               />
-              <div className="text-[0.6875rem] text-fg-secondary-alt">
-                mark_a1b2c.svg
-                <br />
-                64 × 64 · image/svg+xml
+            ) : logoSlot === "field" ? (
+              // A still of the real field: the point of the story is the row it
+              // sits in, not `ImageField`'s own states, which have stories of
+              // their own.
+              <div className="flex items-center gap-3">
+                <img
+                  src={mockProjectLogo.square.url}
+                  alt=""
+                  className="w-16 h-16 rounded-md border border-border-primary object-contain"
+                />
+                <div className="text-[0.6875rem] text-fg-secondary-alt">
+                  mark_a1b2c.svg
+                  <br />
+                  64 × 64 · image/svg+xml
+                </div>
               </div>
-            </div>
-          ) : undefined
-        }
-        readonly={readonly}
-      />
+            ) : undefined
+          }
+          readonly={readonly}
+        />
+        <SettingsSectionDivider />
+        <StudioSettingsFields
+          value={studio}
+          onChange={(field, next) =>
+            setStudio((current) => ({ ...current, [field]: next }))
+          }
+          readonly={readonly}
+        />
+      </>
     ),
   };
   return (
@@ -213,9 +232,7 @@ function SettingsPanelHarness({
         ) : (
           <SettingsTabs
             tabs={
-              appearance
-                ? [appearanceTab, assistantTab]
-                : [assistantTab, appearanceTab]
+              appearance ? [studioTab, assistantTab] : [assistantTab, studioTab]
             }
           />
         )}

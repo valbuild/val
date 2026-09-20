@@ -42,6 +42,22 @@ export type PublishButtonState = {
 export type PublishButtonInput = {
   /** `fs` saves to disk; anything else pushes to a remote. */
   mode: "fs" | "http" | "unknown";
+  /**
+   * The server cannot publish this project AT ALL, and why.
+   *
+   * Not a state of this client's changes, which is what everything else here
+   * is -- it is a fact about the deployment, true before anything was edited
+   * and unchanged by discarding, staging or fixing. That is why it is checked
+   * first: every other reason below suggests something the reader could do
+   * about it, and offering "fix 3 validation errors" to someone whose
+   * deployment cannot publish at all would send them to do work that changes
+   * nothing.
+   *
+   * The server's own words, not a code looked up here: it knows which branch
+   * and which repository, and a message assembled on this side could only ever
+   * say the generic version. See `PublishRefusal` in `ApiRoutes`.
+   */
+  publishRefusal: string | null;
   validationErrorCount: number;
   /** Changes the server will refuse: they have to be discarded first. */
   conflictingChangeCount: number;
@@ -85,6 +101,7 @@ export function describePublishButton(
 ): PublishButtonState {
   const {
     mode,
+    publishRefusal,
     validationErrorCount,
     conflictingChangeCount,
     isPublishing,
@@ -96,6 +113,25 @@ export function describePublishButton(
     heldChangeCount,
   } = input;
   const saving = mode === "fs";
+
+  /*
+   * Before everything: can this server publish at all?
+   *
+   * `show-errors` would be wrong here and `publish` worse. There is nothing in
+   * the content to go and look at, and pressing must not start something that
+   * the server is going to refuse -- the whole point of carrying this on
+   * `/stat` is that the refusal arrives before the click rather than after a
+   * commit message has been typed.
+   */
+  if (publishRefusal !== null) {
+    return {
+      kind: "blocked",
+      label: saving ? "Save" : "Publish",
+      description: publishRefusal,
+      reason: publishRefusal,
+      action: "none",
+    };
+  }
 
   /*
    * Errors first, and pressable.

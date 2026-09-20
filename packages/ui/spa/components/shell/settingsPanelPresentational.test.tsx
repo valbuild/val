@@ -1,7 +1,13 @@
 /** @jest-environment jsdom */
 import { render, screen } from "@testing-library/react";
 import { ASSISTANT_SETTINGS_MAX_LENGTH } from "@valbuild/core";
-import { AssistantSettingsFields, ThemeSettingsFields } from "./SettingsPanel";
+import {
+  AssistantSettingsFields,
+  SettingsTabs,
+  StudioSettingsFields,
+  ThemeSettingsFields,
+} from "./SettingsPanel";
+import { AppWindow } from "lucide-react";
 
 /**
  * That the settings panel can be rendered on its own at all.
@@ -42,5 +48,72 @@ describe("the settings panel is renderable without any Val plumbing", () => {
     expect(screen.queryByLabelText("Val green")).not.toBeNull();
     // The colour input is the part that pulled the editor tree in.
     expect(screen.queryByLabelText("Color picker")).not.toBeNull();
+  });
+});
+
+/**
+ * The tab strip, which has to survive more tabs than fit.
+ *
+ * The panel is 360px and a tab is as wide as its label, so four of them
+ * overflowed — and an overflowing flex row does not wrap, it squashes: the last
+ * tab was clipped with nothing to reach it by. Two rules keep that from coming
+ * back, and neither is visible in a screenshot of a panel that currently fits.
+ */
+describe("the settings tabs", () => {
+  const tab = (id: string, label: string) => ({
+    id,
+    label,
+    icon: AppWindow,
+    content: <div>{label} content</div>,
+  });
+
+  test("the strip scrolls sideways rather than clipping", () => {
+    const { container } = render(
+      <SettingsTabs
+        tabs={[
+          tab("a", "Assistant"),
+          tab("b", "Studio"),
+          tab("c", "Locales"),
+          tab("d", "Permissions"),
+        ]}
+      />,
+    );
+    const strip = screen.getByRole("tablist");
+    expect(strip.parentElement?.className).toContain("overflow-x-auto");
+    // Every tab keeps its width: without this the flex row squashes them to fit
+    // and the scroller has nothing to scroll.
+    for (const button of container.querySelectorAll('[role="tab"]')) {
+      expect(button.className).toContain("shrink-0");
+    }
+  });
+
+  test("shows the selected tab's content and only that", () => {
+    render(<SettingsTabs tabs={[tab("a", "Assistant"), tab("b", "Studio")]} />);
+    expect(screen.queryByText("Assistant content")).not.toBeNull();
+    expect(screen.queryByText("Studio content")).toBeNull();
+  });
+});
+
+/**
+ * Appearance and the tour share the Studio tab, as two named sections. Two
+ * schema sections is not a reason to be two tabs — a tab is a place to look,
+ * and "how the Studio looks and behaves here" is one place.
+ */
+describe("the Studio tab's sections", () => {
+  test("each says which section it is", () => {
+    render(
+      <>
+        <ThemeSettingsFields
+          value={{ accent: null, radius: null, mode: null }}
+          onChange={() => undefined}
+        />
+        <StudioSettingsFields
+          value={{ tour: null }}
+          onChange={() => undefined}
+        />
+      </>,
+    );
+    expect(screen.queryByText("Appearance")).not.toBeNull();
+    expect(screen.queryByText("Tour")).not.toBeNull();
   });
 });
