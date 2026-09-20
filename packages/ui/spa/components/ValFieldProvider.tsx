@@ -1104,6 +1104,39 @@ export function useModuleSchema(
   );
 }
 
+/**
+ * One module's schema, with "not loaded yet" told apart from "no such module".
+ *
+ * {@link useModuleSchema} answers `undefined` to both, which is fine for a
+ * field reading a neighbour it already knows exists — a gallery-backed media
+ * field, say. It is not fine for a field whose whole job is to point at another
+ * module, because there "the project does not have this" is a state the editor
+ * has to be shown, and showing it before intake has finished says the module is
+ * missing when it is merely late.
+ *
+ * Schema-only, like the hook it wraps: no source is peeked or demanded, which
+ * is what keeps pointing AT a module from loading it.
+ */
+export function useModuleSchemaRemote(
+  moduleFilePath: ModuleFilePath | undefined,
+):
+  | { status: "loading" }
+  | { status: "not-found" }
+  | { status: "success"; data: SerializedSchema } {
+  const val = useValSystem();
+  const initializedAt = useInitialized(val);
+  const schema = useModuleSchema(moduleFilePath);
+  return useMemo(() => {
+    if (schema !== undefined) {
+      return { status: "success", data: schema };
+    }
+    if (val === null || initializedAt === null) {
+      return { status: "loading" };
+    }
+    return { status: "not-found" };
+  }, [val, initializedAt, schema]);
+}
+
 export function useAllSources(): Record<ModuleFilePath, Json> {
   const val = useValSystem();
   const version = useSourcesVersion(val);

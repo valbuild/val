@@ -1,4 +1,5 @@
 import { s, c } from "../../val.config";
+import rosterVal from "./roster.val";
 
 /**
  * `.readonly()` and `.hidden()`, which are easy to get half-right.
@@ -23,6 +24,21 @@ export default c.define(
       commit: s.string().readonly(),
       token: s.string().hidden(),
     }),
+    /**
+     * `s.view()`: a row that leads to ANOTHER module, and the other half of
+     * what `hidden()` means.
+     *
+     * `roster.val.ts` is `.hidden()`, so the Explorer does not list it. This row
+     * is the way in — and it is shown because a view's own `hidden` decides
+     * whether the ROW exists, never the target's. Without that pairing a hidden
+     * module would be unreachable rather than tidied away.
+     *
+     * The value is a POINTER and nothing else, so there is nothing to edit here
+     * and nothing for the app to render: it is an editor affordance. The row
+     * navigates rather than embedding the target, which is what stops an editor
+     * mistaking a shared module for a field of this one.
+     */
+    roster: s.view(rosterVal),
   }),
   {
     editable: "Type here",
@@ -32,5 +48,6 @@ export default c.define(
       commit: "0000000",
       token: "also not on screen",
     },
+    roster: { view: "/src/content/roster.val.ts" },
   },
 );

@@ -21,16 +21,19 @@ import {
  * if it inherited the target's `readonly` a shared module would silently
  * disable a row that only navigates.
  */
-const mockSchemaAt = jest.fn();
+const mockTargetSchema = jest.fn();
 const mockNavigate = jest.fn();
+const mockSourceAtPath = jest.fn();
+/** What `FieldSourceError` was handed as its `schema`, for the repair case. */
+let sourceErrorProps: unknown;
 
 jest.mock("../ValFieldProvider", () => ({
   __esModule: true,
-  useSchemaAtPath: (path: SourcePath) => mockSchemaAt(path),
-  useShallowSourceAtPath: () => ({
-    status: "success",
-    data: "/data/employees.val.ts",
-  }),
+  // Schema-only, by MODULE path: the row must not peek or demand the target's
+  // source, which is what `useSchemaAtPath` would have done.
+  useModuleSchemaRemote: (moduleFilePath: ModuleFilePath) =>
+    mockTargetSchema(moduleFilePath),
+  useShallowSourceAtPath: () => mockSourceAtPath(),
 }));
 jest.mock("../ValRouter", () => ({
   __esModule: true,
@@ -51,7 +54,10 @@ jest.mock("../FieldSchemaError", () => ({
 }));
 jest.mock("../FieldSourceError", () => ({
   __esModule: true,
-  FieldSourceError: () => <div data-testid="source-error" />,
+  FieldSourceError: ({ schema }: { schema?: unknown }) => {
+    sourceErrorProps = schema;
+    return <div data-testid="source-error" />;
+  },
 }));
 
 import { ViewField } from "./ViewField";
@@ -71,7 +77,7 @@ const viewSchema: SerializedValViewSchema = {
 
 /** Mount the row over a target module with the given schema. */
 function mount(targetSchema: SerializedSchema) {
-  mockSchemaAt.mockImplementation(() => ({
+  mockTargetSchema.mockImplementation(() => ({
     status: "success",
     data: targetSchema,
   }));
@@ -81,8 +87,15 @@ function mount(targetSchema: SerializedSchema) {
 const employees = s.record(s.object({ name: s.string() }));
 
 beforeEach(() => {
-  mockSchemaAt.mockReset();
+  mockTargetSchema.mockReset();
   mockNavigate.mockReset();
+  sourceErrorProps = undefined;
+  mockSourceAtPath.mockReset();
+  // The pointer, well-formed, unless a case says otherwise.
+  mockSourceAtPath.mockImplementation(() => ({
+    status: "success",
+    data: TARGET,
+  }));
 });
 
 describe("ViewField", () => {
@@ -115,8 +128,44 @@ describe("ViewField", () => {
   });
 
   test("a target the project does not have is reported, not navigated to", () => {
-    mockSchemaAt.mockImplementation(() => ({ status: "not-found" }));
+    mockTargetSchema.mockImplementation(() => ({ status: "not-found" }));
     render(<ViewField path={PATH} schema={viewSchema} />);
     expect(screen.getByTestId("not-found")).toBeTruthy();
+  });
+
+  /**
+   * The row asks for the target's SCHEMA, by module path, and never for a
+   * source path under it.
+   *
+   * `useSchemaAtPath` resolves a schema against a source path, which needs the
+   * module's source — so it peeks and demands it. For a `.jsonValues()` target
+   * that is every entry of a record this row does no more than link to. A view
+   * is a link; a link must not load what it points at.
+   */
+  test("the row asks only for the target's schema", () => {
+    mount(employees["executeSerialize"]());
+    expect(mockTargetSchema).toHaveBeenCalledWith(TARGET);
+  });
+
+  /**
+   * A malformed pointer offers a Fix, and the Fix is built from the schema this
+   * gets handed. The empty value of a VIEW is the pointer, which is the repair;
+   * the empty value of the TARGET is an object of the wrong shape entirely,
+   * which is what this used to write into the field.
+   */
+  test("a source error is repaired with the view's own schema", () => {
+    mockTargetSchema.mockImplementation(() => ({
+      status: "success",
+      data: employees["executeSerialize"](),
+    }));
+    mockSourceAtPath.mockImplementation(() => ({
+      status: "error",
+      error: "Expected a view pointer",
+    }));
+    render(<ViewField path={PATH} schema={viewSchema} />);
+    expect(sourceErrorProps).toEqual({
+      status: "success",
+      data: viewSchema,
+    });
   });
 });

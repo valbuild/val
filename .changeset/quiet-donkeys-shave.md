@@ -42,3 +42,10 @@ export default c.define("/data/employees.val.ts", s.record(...).hidden(), { ... 
 ```
 
 It now means the nav does not list the module — the Explorer for an ordinary module, Media for a gallery — and nothing more. Previously it also blanked the module's own page, so a module you had hidden was still in the nav and showed nothing when opened. A hidden module is now reached from an `s.view()` row, from search or from a validation error, and renders in full when you get there.
+
+One gap worth naming rather than leaving to be discovered: a view pointing at a
+module the project does not have is reported by the FIELD — the row says the
+target is missing — but not by `val validate`. The schema check compares the
+pointer against the schema, and the cycle check deliberately skips a target that
+is not a module of the project, so neither catches it. A project-level check
+belongs with them and is not here yet.
