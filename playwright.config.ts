@@ -341,8 +341,23 @@ export default defineConfig({
               VAL_API_KEY: MOCK_API_KEY,
               VAL_SECRET: MOCK_SECRET,
               VAL_PROJECT: MOCK_PROJECT,
-              VAL_GIT_COMMIT: MOCK_INITIAL_COMMIT,
-              VAL_GIT_BRANCH: "main",
+              /*
+               * A repository to mirror commits into -- unless the run says
+               * otherwise.
+               *
+               * `VAL_E2E_MANAGED=1` omits both, which is a project whose
+               * content service is the store of record: no repository, no
+               * commit baked into the build, http mode on credentials alone.
+               * That is the case this suite could not reach before, because
+               * these two were unconditional and their absence used to be a
+               * boot error.
+               */
+              ...(process.env.VAL_E2E_MANAGED
+                ? {}
+                : {
+                    VAL_GIT_COMMIT: MOCK_INITIAL_COMMIT,
+                    VAL_GIT_BRANCH: "main",
+                  }),
               VAL_CONTENT_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
               VAL_BUILD_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
             },
