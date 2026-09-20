@@ -64,6 +64,7 @@ import {
   ExternalUrlProbe,
   ExternalUrlProber,
   partitionProbeTargets,
+  probeIssues,
   probeSummary,
 } from "./externalUrlReachability";
 
@@ -1094,81 +1095,100 @@ function EntryDetail({
   portalContainer?: HTMLElement | null;
 }) {
   const { page, issues, usageCount } = row;
+  // Everything wrong with this URL, in one list: what the project's own
+  // validation says about the entry, then what the checks say about the URL.
+  // Two lists under two headings said the same thing twice as loudly, and the
+  // messages are already about different things - a rule someone wrote reads
+  // as a rule someone wrote.
+  const problems: {
+    key: string;
+    severity: "error" | "warning";
+    text: string;
+  }[] = [
+    ...(page.errorMessages ?? []).map((message, index) => ({
+      key: `validation:${index}`,
+      severity: "error" as const,
+      text: message,
+    })),
+    ...issues.map((issue) => ({
+      key: `issue:${issue.code}`,
+      severity: issue.severity,
+      text: issue.message,
+    })),
+  ];
   return (
-    <div className="p-4 space-y-5">
-      <div className="space-y-2">
-        <div className="flex items-start gap-1.5">
-          <p className="min-w-0 flex-1 font-mono text-[0.6875rem] leading-5 text-fg-primary break-all">
-            {page.url}
-          </p>
-          <CopyButton value={page.url} />
-          <a
-            href={page.url}
-            target="_blank"
-            rel="noreferrer noopener"
-            title="Open in a new tab"
-            className="shrink-0 grid place-items-center w-6 h-6 rounded text-fg-secondary-alt hover:text-fg-primary hover:bg-bg-float-raised"
-          >
-            <ExternalLink size={12} aria-hidden />
-            <span className="sr-only">Open {page.url} in a new tab</span>
-          </a>
-        </div>
+    <div className="p-4 space-y-4">
+      <div className="flex items-start gap-1.5">
+        <p className="min-w-0 flex-1 font-mono text-[0.6875rem] leading-5 text-fg-primary break-all">
+          {page.url}
+        </p>
+        <CopyButton value={page.url} />
+        <a
+          href={page.url}
+          target="_blank"
+          rel="noreferrer noopener"
+          title="Open in a new tab"
+          className="shrink-0 grid place-items-center w-6 h-6 rounded text-fg-secondary-alt hover:text-fg-primary hover:bg-bg-float-raised"
+        >
+          <ExternalLink size={12} aria-hidden />
+          <span className="sr-only">Open {page.url} in a new tab</span>
+        </a>
       </div>
 
-      <Section title="Checks">
-        <IssueList issues={issues} />
-        {row.probe?.state === "checking" && (
-          <p className="flex items-center gap-1.5 text-xs text-fg-secondary-alt">
-            <Loader2 size={12} aria-hidden className="animate-spin" />
-            Opening it…
-          </p>
-        )}
-        {row.probe?.state === "done" && (
-          <p className="text-[0.6875rem] text-fg-secondary-alt">
-            {probeSummary(row.probe.result)}
-          </p>
-        )}
-        {row.probe === undefined && (
-          <p className="text-[0.6875rem] text-fg-secondary-alt">
-            Not opened yet — these findings are from the URL itself. Press Check
-            to see what answers.
-          </p>
-        )}
-      </Section>
-
-      {page.errorMessages !== undefined && page.errorMessages.length > 0 && (
-        // Separate from Checks, and that separation is the point. Checks are
-        // this dialog's own reading of the URL; these are the project's rules
-        // about the entry - the item schema, and any `.validate(...)` on it -
-        // reported by the same validation that fails a publish. A row could
-        // pass every check here and still not be publishable.
-        <Section title="Validation">
-          <ul className="space-y-1.5">
-            {page.errorMessages.map((message, index) => (
-              <li
-                key={`${index}:${message}`}
-                className="flex items-start gap-1.5 text-xs"
-              >
+      {/* No heading, and nothing at all when there is nothing wrong. A pane
+          that announces "Checks" and then says "nothing wrong with this URL"
+          spends four lines saying that nothing happened, on every URL, which
+          is most of them. */}
+      {problems.length > 0 && (
+        <ul className="space-y-1.5">
+          {problems.map((problem) => (
+            <li key={problem.key} className="flex items-start gap-1.5 text-xs">
+              {problem.severity === "error" ? (
                 <CircleAlert
                   size={12}
                   aria-hidden
                   className="mt-0.5 shrink-0 text-fg-error-on-surface"
                 />
-                <span className="text-fg-secondary">{message}</span>
-              </li>
-            ))}
-          </ul>
-        </Section>
+              ) : (
+                <AlertTriangle
+                  size={12}
+                  aria-hidden
+                  className="mt-0.5 shrink-0 text-fg-warning-primary"
+                />
+              )}
+              <span className="text-fg-secondary">{problem.text}</span>
+            </li>
+          ))}
+        </ul>
       )}
 
-      <Section title="Value">
-        {page.fields === undefined ? (
-          <p className="text-xs text-fg-secondary-alt">Loading…</p>
-        ) : page.fields.length === 0 ? (
-          <p className="text-xs text-fg-secondary-alt">
-            This router stores nothing but the URL.
+      {row.probe?.state === "checking" ? (
+        <p className="flex items-center gap-1.5 text-[0.6875rem] text-fg-secondary-alt">
+          <Loader2 size={12} aria-hidden className="animate-spin" />
+          Opening it…
+        </p>
+      ) : (
+        // Only once it HAS been opened, and only when opening it found
+        // nothing: "Answered 403 in 120 ms" under "Answered 403. The page may
+        // be fine for a visitor" is the same sentence twice, and the second
+        // one adds a number nobody came here for. A clean probe is the case
+        // where this is the whole answer - it says the URL was opened, which
+        // no finding is going to say for it.
+        row.probe?.state === "done" &&
+        !probeFoundSomething(row) && (
+          <p className="text-[0.6875rem] text-fg-secondary-alt">
+            {probeSummary(row.probe.result)}
           </p>
-        ) : (
+        )
+      )}
+
+      {/* The fields label themselves, so the "Value" heading was a word above
+          a word. A router that stores nothing but the URL shows nothing here
+          rather than a sentence saying so on every one of its entries. */}
+      {page.fields === undefined ? (
+        <p className="text-xs text-fg-secondary-alt">Loading…</p>
+      ) : (
+        page.fields.length > 0 && (
           <dl className="space-y-1.5">
             {page.fields.map((field) => (
               <div
@@ -1188,8 +1208,8 @@ function EntryDetail({
               </div>
             ))}
           </dl>
-        )}
-      </Section>
+        )
+      )}
 
       <Section
         title={
@@ -1207,24 +1227,26 @@ function EntryDetail({
             Nothing links to this URL.
           </p>
         ) : (
-          <ul className="space-y-0.5">
+          <ul>
             {(page.usages ?? []).map((usage) => (
               <li key={usage.sourcePath}>
+                {/* One line. The module file path is on the title, because it
+                    is what you check when the label is ambiguous and never
+                    what you read - and printing it doubled the height of the
+                    one section that is genuinely worth the room. */}
                 <button
                   type="button"
                   disabled={onOpenUsage === undefined}
                   onClick={() => onOpenUsage?.(usage)}
+                  title={usage.moduleFilePath}
                   className={cn(
-                    "w-full text-left px-1.5 py-1 rounded text-xs",
+                    "block w-full truncate text-left px-1.5 py-1 rounded text-xs",
                     onOpenUsage
                       ? "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
                       : "text-fg-secondary",
                   )}
                 >
-                  <span className="block truncate">{usage.label}</span>
-                  <span className="block truncate text-[0.625rem] text-fg-secondary-alt font-mono">
-                    {usage.moduleFilePath}
-                  </span>
+                  {usage.label}
                 </button>
               </li>
             ))}
@@ -1257,39 +1279,6 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       </h3>
       {children}
     </section>
-  );
-}
-
-function IssueList({ issues }: { issues: readonly ExternalUrlIssue[] }) {
-  if (issues.length === 0) {
-    return (
-      <p className="flex items-center gap-1.5 text-xs text-fg-secondary">
-        <CircleCheck size={12} aria-hidden className="text-fg-brand-primary" />
-        Nothing wrong with this URL.
-      </p>
-    );
-  }
-  return (
-    <ul className="space-y-1.5">
-      {issues.map((issue) => (
-        <li key={issue.code} className="flex items-start gap-1.5 text-xs">
-          {issue.severity === "error" ? (
-            <CircleAlert
-              size={12}
-              aria-hidden
-              className="mt-0.5 shrink-0 text-fg-error-on-surface"
-            />
-          ) : (
-            <AlertTriangle
-              size={12}
-              aria-hidden
-              className="mt-0.5 shrink-0 text-fg-warning-primary"
-            />
-          )}
-          <span className="text-fg-secondary">{issue.message}</span>
-        </li>
-      ))}
-    </ul>
   );
 }
 
@@ -1416,6 +1405,14 @@ function CheckReport({
           .join(" · ")}
       </p>
     </div>
+  );
+}
+
+/** Whether opening the URL is what produced one of the row's findings. */
+function probeFoundSomething(row: ExternalPageRowData): boolean {
+  return (
+    row.probe?.state === "done" &&
+    probeIssues(row.page.url, row.probe.result).length > 0
   );
 }
 
