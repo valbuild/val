@@ -42,6 +42,18 @@ type MediaOptions = {
   encode?: ImageEncodeOption;
 };
 
+/**
+ * A router's scheme restriction, as a spreadable fragment.
+ *
+ * Spread rather than assigned so an unrestricted router adds no key at all:
+ * `routerSchemes: undefined` would serialize as an explicit `undefined` and
+ * show up in every schema diff for no reason.
+ */
+function routerSchemes(router: ValRouter | null): { routerSchemes?: string[] } {
+  const schemes = router?.getUrlSchemePolicy?.().schemes;
+  return schemes === undefined ? {} : { routerSchemes: [...schemes] };
+}
+
 export type SerializedRecordSchema = {
   type: "record";
   item: SerializedSchema;
@@ -56,6 +68,15 @@ export type SerializedRecordSchema = {
   /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
   render?: FieldRender;
   router?: string;
+  /**
+   * The URL schemes this router's keys may use, where it restricts them.
+   *
+   * Carried so the Studio can apply the router's OWN rule while someone types
+   * rather than accepting a key and reporting it afterwards. Absent both when
+   * the router has no scheme rule (every path router) and when it allows the
+   * wide default, which the Studio knows on its own.
+   */
+  routerSchemes?: string[];
   customValidate?: boolean;
   // Optional media collection marker for files/images that are backed by a record
   mediaType?: "files" | "images";
@@ -1148,6 +1169,7 @@ export class RecordSchema<
       opt: this.opt,
       preview: this.previewInput ? true : undefined,
       router: this.currentRouter?.getRouterId(),
+      ...routerSchemes(this.currentRouter),
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,

@@ -381,6 +381,23 @@ export const mockExternalPages: ShellExternalPage[] = [
       usage("/content/footer.val.ts", "links.4.href", "Footer / Links / 5"),
     ],
   }),
+  // A link is not only a web page. These are valid keys under the default
+  // policy, and they are here for the two things they do to the list: the
+  // mailto groups under `example.com` beside that domain's pages, because the
+  // heading is about the organisation rather than the protocol - and neither
+  // can be opened, so Check has to report them as having nothing to open
+  // rather than as broken.
+  externalPage("mailto:post@example.com", {
+    fields: [{ label: "title", value: "Email us" }],
+    usages: [
+      usage("/content/contact.val.ts", "email.href", "Contact / Email"),
+      usage("/content/footer.val.ts", "links.5.href", "Footer / Links / 6"),
+    ],
+  }),
+  externalPage("tel:+4712345678", {
+    fields: [{ label: "title", value: "Call us" }],
+    usages: [usage("/content/contact.val.ts", "phone.href", "Contact / Phone")],
+  }),
 ];
 
 /**

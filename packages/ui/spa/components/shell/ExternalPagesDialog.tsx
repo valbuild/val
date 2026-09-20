@@ -22,7 +22,6 @@ import {
   Loader2,
   Plus,
   ShieldCheck,
-  SquareCheck,
   Trash2,
 } from "lucide-react";
 import {
@@ -57,6 +56,7 @@ import {
   groupRows,
   toRows,
 } from "./externalPageGroups";
+import { ExternalUrlSchemePolicy } from "@valbuild/core";
 import { checkExternalUrls, ExternalUrlIssue } from "./externalUrlChecks";
 import {
   ExternalUrlProbe,
@@ -64,24 +64,6 @@ import {
   partitionProbeTargets,
   probeSummary,
 } from "./externalUrlReachability";
-
-/**
- * The four answers to "how do you pick which URLs to check".
- *
- * - `always` - a checkbox on every row, every group header and the list
- *   header. What this shipped with.
- * - `hover` - the same checkboxes, painted only under the pointer, under
- *   keyboard focus, or once anything is selected. The slot is always reserved,
- *   so nothing moves when one appears.
- * - `explicit` - no checkboxes until Select is pressed, then all of them.
- * - `none` - no selection at all. Check acts on whatever the filter shows,
- *   and the filter is how you scope it.
- */
-export type ExternalPagesSelectionMode =
-  | "always"
-  | "hover"
-  | "explicit"
-  | "none";
 
 export type ExternalPagesDialogProps = {
   open: boolean;
@@ -101,6 +83,17 @@ export type ExternalPagesDialogProps = {
    * is not absolute. Absent where the app cannot write.
    */
   onAddPage?: (url: string) => void;
+  /**
+   * The URL schemes the router allows, where the project narrowed them with
+   * `externalPageRouter({ schemes })`.
+   *
+   * Absent is the wide default, which is what nearly every project has: any
+   * scheme but the handful that are not links at all, so `mailto:` and `tel:`
+   * are ordinary keys. The dialog needs it for the same reason the add form
+   * does - to say "this will be refused" while the key is being typed rather
+   * than after it is saved.
+   */
+  schemes?: readonly string[];
   /** Remove a URL, and the entry with it. Absent where the app cannot write. */
   onRemovePage?: (page: ShellExternalPage) => void;
   isLoading?: boolean;
@@ -114,16 +107,6 @@ export type ExternalPagesDialogProps = {
    * answer, not a broken one.
    */
   onProbe?: ExternalUrlProber;
-  /**
-   * How much of the selection machinery is on screen.
-   *
-   * A design choice with a prop in front of it while it is being decided: a
-   * list of eighteen URLs in eight domains carries twenty-seven checkboxes in
-   * `always`, all of them empty, all of them competing with the thing the list
-   * is actually made of. Selection scopes exactly one action - Check - and the
-   * filter already expresses most of the subsets anyone wants.
-   */
-  selection?: ExternalPagesSelectionMode;
   /**
    * Where the dialog portals to - the Studio's node inside the shadow root.
    *
@@ -158,18 +141,23 @@ export function ExternalPagesDialog({
   onOpenEntry,
   onOpenUsage,
   onAddPage,
+  schemes,
   onRemovePage,
   isLoading,
   onProbe,
-  selection: selectionMode = "always",
   portalContainer,
 }: ExternalPagesDialogProps) {
+  // Rebuilt only when the list of schemes changes, because it is a dependency
+  // of the checks: an object literal in the memo's argument list would rerun
+  // every check on every render.
+  const policy = useMemo<ExternalUrlSchemePolicy>(
+    () => (schemes ? { schemes } : {}),
+    [schemes],
+  );
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ExternalPageFilter>("all");
   const [grouped, setGrouped] = useState(true);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  /** `explicit` only: whether Select has been pressed. */
-  const [selecting, setSelecting] = useState(false);
   const [openUrl, setOpenUrl] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   /**
@@ -196,8 +184,12 @@ export function ExternalPagesDialog({
   const [running, setRunning] = useState(false);
 
   const issuesByUrl = useMemo(
-    () => checkExternalUrls(pages.map((page) => page.url)),
-    [pages],
+    () =>
+      checkExternalUrls(
+        pages.map((page) => page.url),
+        policy,
+      ),
+    [pages, policy],
   );
   const allRows = useMemo(
     () => toRows(pages, issuesByUrl, probes),
@@ -345,13 +337,22 @@ export function ExternalPagesDialog({
   };
 
   /*
-   * Whether any checkbox is on screen at all, and whether a row's is painted
-   * before you point at it. `hover` keeps the slot - an empty 16px box of
-   * reserved space - so a row does not resize under the pointer.
+   * A row's checkbox is painted under the pointer, under keyboard focus, or
+   * once anything at all is selected.
+   *
+   * Eighteen URLs in eight domains carry twenty-seven checkboxes - one per
+   * row, one per domain header, one to select all - and they scope exactly
+   * one action, Check. Nothing else in this dialog acts on a set of rows.
+   * Empty and permanent, they were most of the left column in a list whose
+   * content is URLs that have to be read.
+   *
+   * Revealed rather than removed: the capability is worth keeping and costs
+   * nothing once it is out of the way. The slot stays reserved, so a row does
+   * not resize as the pointer crosses it, and the select-all in the list
+   * header stays painted - it is the one thing left that says selection
+   * exists at all.
    */
-  const canSelect =
-    selectionMode !== "none" && (selectionMode !== "explicit" || selecting);
-  const revealOnHover = selectionMode === "hover" && selected.size === 0;
+  const revealOnHover = selected.size === 0;
 
   const allVisibleSelected =
     visible.length > 0 && visible.every((row) => selected.has(row.page.url));
@@ -407,14 +408,8 @@ export function ExternalPagesDialog({
           grouped={grouped}
           onGroupedChange={setGrouped}
           totals={totals}
-          selectionMode={selectionMode}
-          selecting={selecting}
-          onSelectingChange={(next) => {
-            setSelecting(next);
-            if (!next) setSelected(new Set());
-          }}
-          selectedCount={selected.size}
           existingKeys={existingKeys}
+          schemes={schemes}
           portalContainer={portalContainer}
           checkCount={checkTargets.length}
           onCheck={runCheck}
@@ -439,24 +434,22 @@ export function ExternalPagesDialog({
               ) : (
                 <>
                   <div className="flex items-center gap-2 h-8 px-4 border-b border-border-float">
-                    {canSelect && (
-                      <RowCheckbox
-                        checked={
-                          allVisibleSelected
-                            ? true
-                            : someVisibleSelected
-                              ? "indeterminate"
-                              : false
-                        }
-                        onCheckedChange={(next) =>
-                          setManySelected(
-                            visible.map((row) => row.page.url),
-                            next === true,
-                          )
-                        }
-                        aria-label={`Select all ${visible.length} URLs`}
-                      />
-                    )}
+                    <RowCheckbox
+                      checked={
+                        allVisibleSelected
+                          ? true
+                          : someVisibleSelected
+                            ? "indeterminate"
+                            : false
+                      }
+                      onCheckedChange={(next) =>
+                        setManySelected(
+                          visible.map((row) => row.page.url),
+                          next === true,
+                        )
+                      }
+                      aria-label={`Select all ${visible.length} URLs`}
+                    />
                     <span className="text-[0.6875rem] uppercase tracking-wide text-fg-secondary-alt">
                       {selected.size > 0
                         ? `${selected.size} selected`
@@ -500,7 +493,6 @@ export function ExternalPagesDialog({
                           openUrl={openUrl}
                           onOpen={openDetail}
                           showHost={false}
-                          canSelect={canSelect}
                           revealOnHover={revealOnHover}
                         />
                       ))
@@ -513,7 +505,6 @@ export function ExternalPagesDialog({
                           isOpen={openUrl === row.page.url}
                           onOpen={() => openDetail(row.page.url)}
                           showHost
-                          canSelect={canSelect}
                           revealOnHover={revealOnHover}
                         />
                       ))}
@@ -615,11 +606,8 @@ function Toolbar({
   grouped,
   onGroupedChange,
   totals,
-  selectionMode,
-  selecting,
-  onSelectingChange,
-  selectedCount,
   existingKeys,
+  schemes,
   portalContainer,
   checkCount,
   onCheck,
@@ -635,12 +623,9 @@ function Toolbar({
   grouped: boolean;
   onGroupedChange: (value: boolean) => void;
   totals: { ok: number; warning: number; error: number };
-  selectionMode: ExternalPagesSelectionMode;
-  selecting: boolean;
-  onSelectingChange: (selecting: boolean) => void;
-  selectedCount: number;
   /** Every key already in the router, so the add form can refuse a duplicate. */
   existingKeys: string[];
+  schemes?: readonly string[];
   portalContainer?: HTMLElement | null;
   checkCount: number;
   onCheck: () => void;
@@ -682,24 +667,10 @@ function Toolbar({
         ]}
       />
       <div className="ml-auto flex items-center gap-2">
-        {selectionMode === "explicit" && (
-          <Button
-            size="sm"
-            variant={selecting ? "secondary" : "ghost"}
-            aria-pressed={selecting}
-            onClick={() => onSelectingChange(!selecting)}
-          >
-            <SquareCheck size={14} className="mr-1" aria-hidden />
-            {selecting
-              ? selectedCount > 0
-                ? `${selectedCount} selected`
-                : "Done"
-              : "Select"}
-          </Button>
-        )}
         {onAddPage && (
           <AddUrlButton
             existingKeys={existingKeys}
+            schemes={schemes}
             portalContainer={portalContainer}
             onSubmit={onAddPage}
           />
@@ -779,7 +750,6 @@ function Group({
   openUrl,
   onOpen,
   showHost,
-  canSelect,
   revealOnHover,
 }: {
   group: ExternalPageGroup;
@@ -791,7 +761,6 @@ function Group({
   openUrl: string | null;
   onOpen: (url: string) => void;
   showHost: boolean;
-  canSelect: boolean;
   revealOnHover: boolean;
 }) {
   const all = group.rows.every((row) => selected.has(row.page.url));
@@ -800,14 +769,12 @@ function Group({
   return (
     <section>
       <div className="group/row flex items-center gap-2 h-8 px-4 sticky top-0 bg-bg-float">
-        {canSelect && (
-          <RowCheckbox
-            checked={all ? true : some ? "indeterminate" : false}
-            onCheckedChange={(next) => onToggleGroup(next === true)}
-            reveal={revealOnHover}
-            aria-label={`Select the ${group.rows.length} URLs on ${group.domain}`}
-          />
-        )}
+        <RowCheckbox
+          checked={all ? true : some ? "indeterminate" : false}
+          onCheckedChange={(next) => onToggleGroup(next === true)}
+          reveal={revealOnHover}
+          aria-label={`Select the ${group.rows.length} URLs on ${group.domain}`}
+        />
         <button
           type="button"
           onClick={onToggleCollapsed}
@@ -842,7 +809,6 @@ function Group({
             isOpen={openUrl === row.page.url}
             onOpen={() => onOpen(row.page.url)}
             showHost={showHost}
-            canSelect={canSelect}
             revealOnHover={revealOnHover}
             indented
           />
@@ -869,7 +835,6 @@ function Row({
   onOpen,
   showHost,
   indented,
-  canSelect,
   revealOnHover,
 }: {
   row: ExternalPageRowData;
@@ -877,7 +842,6 @@ function Row({
   onToggle: () => void;
   isOpen: boolean;
   onOpen: () => void;
-  canSelect: boolean;
   revealOnHover: boolean;
   showHost: boolean;
   indented?: boolean;
@@ -904,14 +868,12 @@ function Row({
         indented ? "pl-9" : "pl-4",
       )}
     >
-      {canSelect && (
-        <RowCheckbox
-          checked={selected}
-          onCheckedChange={onToggle}
-          reveal={revealOnHover}
-          aria-label={`Select ${page.url}`}
-        />
-      )}
+      <RowCheckbox
+        checked={selected}
+        onCheckedChange={onToggle}
+        reveal={revealOnHover}
+        aria-label={`Select ${page.url}`}
+      />
       <button
         type="button"
         onClick={onOpen}
@@ -1331,16 +1293,18 @@ function CheckReport({
  *
  * The form is the same one the `s.route()` field's dropdown uses - one copy of
  * the rule, which is the one `externalPageRouter.validate` enforces on the
- * server. Checking it here means the editor sees "must start with https://"
- * while typing rather than as a validation error on a key that is already
- * saved.
+ * server, down to calling the same `rejectScheme`. Checking it here means the
+ * editor sees the refusal while typing rather than as a validation error on a
+ * key that is already saved.
  */
 function AddUrlButton({
   existingKeys,
+  schemes,
   portalContainer,
   onSubmit,
 }: {
   existingKeys: string[];
+  schemes?: readonly string[];
   portalContainer?: HTMLElement | null;
   onSubmit: (url: string) => void;
 }) {
@@ -1359,6 +1323,7 @@ function AddUrlButton({
         {open && (
           <NewExternalPageForm
             existingKeys={existingKeys}
+            schemes={schemes}
             onSubmit={(url) => {
               onSubmit(url);
               setOpen(false);

@@ -171,6 +171,12 @@ export function probeSummary(result: ExternalUrlProbeResult): string {
  * must refuse them regardless - it is the one being asked to make requests at
  * somebody else's say-so - but skipping first turns a security guard into an
  * explanation.
+ *
+ * `mailto:` and `tel:` are the case where "skipped" is not a shortfall at all:
+ * they are valid external pages that simply have no page, so the message says
+ * that rather than naming a limit of the checker. The report counts them apart
+ * from the ones that passed for the same reason - claiming a phone number is
+ * reachable would be a check nobody ran.
  */
 export function partitionProbeTargets(urls: readonly string[]): {
   probe: string[];
@@ -193,11 +199,23 @@ export function partitionProbeTargets(urls: readonly string[]): {
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       skipped.set(url, {
         kind: "skipped",
-        message: "Not opened: only http:// and https:// can be checked.",
+        message: notOpenedMessage(parsed.protocol.replace(/:$/, "")),
       });
       continue;
     }
     probe.push(url);
   }
   return { probe, skipped };
+}
+
+/** Why a scheme was not opened, said as a fact about the scheme. */
+function notOpenedMessage(scheme: string): string {
+  switch (scheme) {
+    case "mailto":
+      return "Nothing to open: an email address is not a page.";
+    case "tel":
+      return "Nothing to open: a phone number is not a page.";
+    default:
+      return `Nothing to open: "${scheme}:" is not a request a browser makes over the network.`;
+  }
 }

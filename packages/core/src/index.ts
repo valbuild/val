@@ -249,7 +249,32 @@ export {
   validateUrlAgainstPattern,
 } from "./router";
 export { getSourcePathFromRoute, isPageRouter } from "./getSourcePathFromRoute";
+/**
+ * Which URL schemes an external page key may carry.
+ *
+ * Exported from the package root rather than only through `Internal` because
+ * the Studio has to apply the same rule the router does, while the key is
+ * being typed - one implementation, two callers, no second copy to drift.
+ */
+export {
+  describeSchemeRejection,
+  isCheckableScheme,
+  rejectScheme,
+  schemeOf,
+  UNSAFE_URL_SCHEMES,
+} from "./externalUrlSchemes";
+export type {
+  ExternalUrlSchemePolicy,
+  SchemeRejection,
+} from "./externalUrlSchemes";
 import { nextAppRouter, tanstackRouter, externalPageRouter } from "./router";
+import {
+  describeSchemeRejection,
+  isCheckableScheme,
+  rejectScheme,
+  schemeOf,
+  UNSAFE_URL_SCHEMES,
+} from "./externalUrlSchemes";
 
 /**
  * This package's version, inlined at build time.
@@ -302,6 +327,11 @@ const Internal = {
   nextAppRouter,
   tanstackRouter,
   externalPageRouter,
+  describeSchemeRejection,
+  isCheckableScheme,
+  rejectScheme,
+  schemeOf,
+  UNSAFE_URL_SCHEMES,
   color: {
     parseColor,
     formatColor,

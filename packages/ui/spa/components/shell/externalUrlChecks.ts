@@ -1,3 +1,8 @@
+import {
+  describeSchemeRejection,
+  ExternalUrlSchemePolicy,
+  rejectScheme,
+} from "@valbuild/core";
 import { asHttps, canonicalExternalUrl } from "./externalUrls";
 
 /**
@@ -16,7 +21,7 @@ import { asHttps, canonicalExternalUrl } from "./externalUrls";
  */
 export type ExternalUrlIssueCode =
   // Shape: decided from the string, and from the strings beside it.
-  | "not-absolute"
+  | "scheme-refused"
   | "unparseable"
   | "whitespace"
   | "credentials"
@@ -101,6 +106,7 @@ function isLocalHost(host: string): boolean {
  */
 export function checkExternalUrls(
   urls: readonly string[],
+  policy: ExternalUrlSchemePolicy = {},
 ): Map<string, ExternalUrlIssue[]> {
   const canonicalCounts = new Map<string, string[]>();
   for (const url of urls) {
@@ -120,7 +126,7 @@ export function checkExternalUrls(
 
   const result = new Map<string, ExternalUrlIssue[]>();
   for (const url of urls) {
-    result.set(url, checkOne(url, canonicalCounts, secure));
+    result.set(url, checkOne(url, canonicalCounts, secure, policy));
   }
   return result;
 }
@@ -129,6 +135,7 @@ function checkOne(
   url: string,
   canonicalCounts: ReadonlyMap<string, string[]>,
   secure: ReadonlySet<string>,
+  policy: ExternalUrlSchemePolicy,
 ): ExternalUrlIssue[] {
   const issues: ExternalUrlIssue[] = [];
   const trimmed = url.trim();
@@ -141,16 +148,16 @@ function checkOne(
     });
   }
 
-  const lower = trimmed.toLowerCase();
-  const isHttp = lower.startsWith("http://");
-  const isHttps = lower.startsWith("https://");
-  if (!isHttp && !isHttps) {
-    // The rule `externalPageRouter.validate` enforces. Nothing below this can
-    // be decided for a key that is not a URL, so this returns early.
+  // The rule `externalPageRouter.validate` enforces, from the same function:
+  // any scheme but the handful that are not links, narrowed to a list where
+  // the project asked for one. Nothing below this can be decided about a key
+  // whose scheme the router will refuse, so this returns early.
+  const rejection = rejectScheme(trimmed, policy);
+  if (rejection !== null) {
     issues.push({
-      code: "not-absolute",
+      code: "scheme-refused",
       severity: "error",
-      message: "Must start with https:// or http://.",
+      message: describeSchemeRejection(rejection),
     });
     return issues;
   }
@@ -167,6 +174,26 @@ function checkOne(
     return issues;
   }
 
+  const canonical = canonicalExternalUrl(trimmed);
+  const samePage = canonicalCounts.get(canonical) ?? [];
+  const others = samePage.filter((other) => other !== url);
+  if (others.length > 0) {
+    issues.push({
+      code: "duplicate",
+      severity: "warning",
+      message: `Is the same page as ${others.map((other) => `"${other}"`).join(", ")}, which ${others.length === 1 ? "is" : "are"} also in the list.`,
+    });
+  }
+
+  // Everything from here reads an authority — credentials, a host, query
+  // parameters a server will see. `mailto:` and `tel:` have none of that, so
+  // the list check above is the last thing that can be said about them.
+  if (parsed.hostname === "") {
+    return issues;
+  }
+
+  const isHttp = parsed.protocol === "http:";
+
   if (parsed.username !== "" || parsed.password !== "") {
     issues.push({
       code: "credentials",
@@ -176,7 +203,6 @@ function checkOne(
     });
   }
 
-  const canonical = canonicalExternalUrl(trimmed);
   if (isHttp) {
     const twin = secure.has(asHttps(trimmed));
     issues.push({
@@ -185,16 +211,6 @@ function checkOne(
       message: twin
         ? "Uses http://, and the https:// version of the same page is already in the list."
         : "Uses http://. Browsers warn on it, and most sites answer on https://.",
-    });
-  }
-
-  const samePage = canonicalCounts.get(canonical) ?? [];
-  const others = samePage.filter((other) => other !== url);
-  if (others.length > 0) {
-    issues.push({
-      code: "duplicate",
-      severity: "warning",
-      message: `Is the same page as ${others.map((other) => `"${other}"`).join(", ")}, which ${others.length === 1 ? "is" : "are"} also in the list.`,
     });
   }
 

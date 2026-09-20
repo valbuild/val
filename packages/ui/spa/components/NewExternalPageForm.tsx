@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { describeSchemeRejection, rejectScheme } from "@valbuild/core";
 import { Button } from "./designSystem/button";
 import { cn } from "./designSystem/cn";
 
@@ -7,27 +8,35 @@ import { cn } from "./designSystem/cn";
  *
  * Its keys are absolute URLs rather than route patterns, so it gets a plain
  * input rather than the per-segment inputs `NewPageForm` builds. The rule is
- * the one `externalPageRouter.validate` enforces server-side - checked here so
- * the editor sees it while typing rather than as a validation error afterwards.
+ * the one `externalPageRouter.validate` enforces server-side - `rejectScheme`
+ * is literally the same function, called here so the editor sees the refusal
+ * while typing rather than as a validation error on a key already saved.
  */
 export function NewExternalPageForm({
   existingKeys,
+  schemes,
   onSubmit,
   onCancel,
 }: {
   existingKeys: string[];
+  /**
+   * The schemes this project's router allows, when it narrowed them.
+   *
+   * Absent is the default and the common case: anything but the handful that
+   * are not links at all, so `mailto:` and `tel:` are ordinary keys here.
+   */
+  schemes?: readonly string[];
   onSubmit: (url: string) => void;
   onCancel: () => void;
 }) {
   const [url, setUrl] = useState("");
   const trimmed = url.trim();
   const alreadyExists = existingKeys.includes(trimmed);
-  const hasScheme =
-    trimmed.startsWith("https://") || trimmed.startsWith("http://");
+  const rejection = rejectScheme(trimmed, schemes ? { schemes } : {});
   const error = !trimmed
     ? null
-    : !hasScheme
-      ? "Must start with https:// or http://"
+    : rejection !== null
+      ? describeSchemeRejection(rejection)
       : alreadyExists
         ? "This external page already exists"
         : null;
@@ -53,7 +62,7 @@ export function NewExternalPageForm({
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
             { "border-fg-error": error !== null },
           )}
-          placeholder="https://example.com"
+          placeholder={placeholderFor(schemes)}
           value={url}
           onChange={(e) => setUrl(e.target.value)}
         />
@@ -69,4 +78,25 @@ export function NewExternalPageForm({
       </div>
     </form>
   );
+}
+
+/**
+ * A placeholder that is an example of what this router takes.
+ *
+ * `https://example.com` where anything goes, and the first allowed scheme
+ * where a project narrowed the list — showing `https://` to a router that
+ * only takes `mailto:` would be an example of the one thing it refuses.
+ */
+function placeholderFor(schemes: readonly string[] | undefined): string {
+  const first = schemes?.[0]?.toLowerCase();
+  if (first === undefined || first === "https" || first === "http") {
+    return `${first ?? "https"}://example.com`;
+  }
+  if (first === "mailto") {
+    return "mailto:post@example.com";
+  }
+  if (first === "tel") {
+    return "tel:+4712345678";
+  }
+  return `${first}:`;
 }

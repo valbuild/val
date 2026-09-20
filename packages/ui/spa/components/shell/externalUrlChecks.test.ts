@@ -6,6 +6,7 @@ import {
 import {
   canonicalExternalUrl,
   parseExternalUrl,
+  PHONE_GROUP,
   registrableDomain,
 } from "./externalUrls";
 
@@ -111,6 +112,46 @@ describe("canonicalExternalUrl", () => {
   });
 });
 
+describe("parseExternalUrl of a scheme with no host", () => {
+  test("a mailto: groups under the domain it writes to", () => {
+    // The point of the heading is the organisation, and an address at
+    // example.com belongs with that organisation's pages.
+    expect(parseExternalUrl("mailto:post@example.com")).toEqual({
+      host: null,
+      group: "example.com",
+      label: "mailto:post@example.com",
+      scheme: "mailto",
+    });
+    expect(parseExternalUrl("mailto:a@status.example.co.uk").group).toBe(
+      "example.co.uk",
+    );
+  });
+
+  test("a mailto: with no address still lands somewhere", () => {
+    // A key mid-way through being typed. A heading is all that rides on it.
+    expect(parseExternalUrl("mailto:").group).toBe("mailto:");
+  });
+
+  test("a tel: gets a heading of its own", () => {
+    expect(parseExternalUrl("tel:+4712345678")).toEqual({
+      host: null,
+      group: PHONE_GROUP,
+      label: "tel:+4712345678",
+      scheme: "tel",
+    });
+  });
+
+  test("any other hostless scheme is grouped by the scheme", () => {
+    expect(parseExternalUrl("bitcoin:1abc").group).toBe("bitcoin:");
+  });
+
+  test("the whole key is the label, since no heading repeats any of it", () => {
+    expect(parseExternalUrl("mailto:post@example.com").label).toBe(
+      "mailto:post@example.com",
+    );
+  });
+});
+
 describe("checkExternalUrls", () => {
   test("a plain https URL has nothing wrong with it", () => {
     expect(codesOf(["https://example.com/x"], "https://example.com/x")).toEqual(
@@ -119,16 +160,69 @@ describe("checkExternalUrls", () => {
   });
 
   test("a key without a scheme is the error the router raises", () => {
-    expect(codesOf(["example.com"], "example.com")).toEqual(["not-absolute"]);
+    expect(codesOf(["example.com"], "example.com")).toEqual(["scheme-refused"]);
   });
 
   test("nothing else is reported for a key that is not a URL", () => {
-    // Everything below `not-absolute` needs a parsed URL, so reporting more
+    // Everything below `scheme-refused` needs a parsed URL, so reporting more
     // would mean guessing at what the author meant.
     expect(codesOf(["  example.com  "], "  example.com  ")).toEqual([
       "whitespace",
-      "not-absolute",
+      "scheme-refused",
     ]);
+  });
+
+  test("mailto: and tel: are ordinary external pages", () => {
+    expect(
+      codesOf(["mailto:post@example.com"], "mailto:post@example.com"),
+    ).toEqual([]);
+    expect(codesOf(["tel:+4712345678"], "tel:+4712345678")).toEqual([]);
+  });
+
+  test("a scheme that runs code is refused however wide the policy is", () => {
+    const url = "javascript:alert(1)";
+    expect(codesOf([url], url)).toEqual(["scheme-refused"]);
+    expect(
+      checkExternalUrls([url], { schemes: ["javascript"] }).get(url),
+    ).toHaveLength(1);
+  });
+
+  test("a narrowed policy refuses a scheme the wide default allows", () => {
+    const url = "mailto:post@example.com";
+    expect(checkExternalUrls([url], { schemes: ["https"] }).get(url)).toEqual([
+      {
+        code: "scheme-refused",
+        severity: "error",
+        message: expect.stringContaining("https"),
+      },
+    ]);
+  });
+
+  test("the same mailto: twice is a duplicate, like any other key", () => {
+    const urls = [
+      "mailto:post@example.com",
+      "mailto:post@example.com?subject=Hi",
+    ];
+    // Different keys, different addresses to open - not duplicates.
+    expect(codesOf(urls, urls[0])).toEqual([]);
+    expect(
+      codesOf(
+        ["mailto:post@example.com", " mailto:post@example.com"],
+        "mailto:post@example.com",
+      ),
+    ).toEqual(["duplicate"]);
+  });
+
+  test("a mailto: is not reported for anything a host would be", () => {
+    // No authority means no credentials, no port, no tracking parameters -
+    // reporting on them would be inventing a finding about a string that has
+    // none of those parts.
+    expect(
+      codesOf(
+        ["mailto:post@localhost?utm_source=x"],
+        "mailto:post@localhost?utm_source=x",
+      ),
+    ).toEqual([]);
   });
 
   test("credentials in a URL are an error", () => {
@@ -204,7 +298,7 @@ describe("statusOf", () => {
     expect(
       statusOf([
         { code: "insecure-scheme", severity: "warning", message: "" },
-        { code: "not-absolute", severity: "error", message: "" },
+        { code: "scheme-refused", severity: "error", message: "" },
       ]),
     ).toBe("error");
   });

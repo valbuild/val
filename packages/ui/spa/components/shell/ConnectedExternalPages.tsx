@@ -102,6 +102,7 @@ export function ConnectedExternalPages({
       onOpenUsage={(usage) => navigate(usage.sourcePath)}
       onProbe={onProbe}
       onAddPage={externalRouter === null ? undefined : onAddPage}
+      schemes={externalRouter?.schemes}
       onRemovePage={moduleFilePath === undefined ? undefined : onRemovePage}
     />
   );

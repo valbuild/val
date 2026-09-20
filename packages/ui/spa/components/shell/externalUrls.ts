@@ -10,11 +10,19 @@
 
 /** One external URL, taken apart for display. */
 export type ParsedExternalUrl = {
-  /** Lowercased host (`status.example.com`), or null when it did not parse. */
+  /**
+   * Lowercased host (`status.example.com`), or null when the URL has none —
+   * it did not parse, or its scheme addresses something that is not a host.
+   */
   host: string | null;
   /**
    * What the list groups by: the registrable domain, so a project's four
    * `*.example.com` links read as one cluster rather than four strangers.
+   *
+   * A `mailto:` groups under the domain it writes to, which puts
+   * `mailto:post@example.com` in the same cluster as `https://example.com` —
+   * the same organisation, which is what the heading is about. Schemes with
+   * no domain at all (`tel:`) get a heading of their own.
    */
   group: string;
   /**
@@ -24,12 +32,15 @@ export type ParsedExternalUrl = {
    * purpose.
    */
   label: string;
-  /** The scheme without the colon, lowercased: `https`, `http`, or null. */
+  /** The scheme without the colon, lowercased: `https`, `mailto`, or null. */
   scheme: string | null;
 };
 
 /** The group a URL that does not parse is filed under. */
 export const NOT_A_URL_GROUP = "Not a URL";
+
+/** The group `tel:` keys are filed under. */
+export const PHONE_GROUP = "Phone numbers";
 
 /**
  * Second-level domains that are really part of the suffix.
@@ -68,11 +79,22 @@ export function registrableDomain(host: string): string {
 }
 
 export function parseExternalUrl(url: string): ParsedExternalUrl {
+  const trimmed = url.trim();
   let parsed: URL;
   try {
-    parsed = new URL(url.trim());
+    parsed = new URL(trimmed);
   } catch {
     return { host: null, group: NOT_A_URL_GROUP, label: url, scheme: null };
+  }
+  const scheme = parsed.protocol.replace(/:$/, "").toLowerCase();
+  if (parsed.hostname === "") {
+    // No authority to group by: `mailto:` and `tel:` put everything after the
+    // colon in `pathname`. Grouping them by scheme alone would file every
+    // address a site has under one heading called "mailto", so a mail domain
+    // is read out of the address instead and shares the heading with the web
+    // pages of the same organisation.
+    const group = hostlessGroup(scheme, parsed.pathname);
+    return { host: null, group, label: trimmed, scheme };
   }
   const host = parsed.host.toLowerCase();
   // Grouped by the hostname, displayed with the port: `localhost:3000` and
@@ -81,9 +103,31 @@ export function parseExternalUrl(url: string): ParsedExternalUrl {
   return {
     host,
     group,
-    label: labelOf(url.trim(), group),
-    scheme: parsed.protocol.replace(/:$/, "").toLowerCase(),
+    label: labelOf(trimmed, group),
+    scheme,
   };
+}
+
+/**
+ * The heading for a URL whose scheme has no host: the mail domain where there
+ * is one, a name where there is not.
+ *
+ * Deliberately tolerant. `mailto:` takes a comma-separated list and a query
+ * string, and `mailto:` with nothing after it is a key someone is mid-way
+ * through typing — none of that should throw, and a heading is the only thing
+ * riding on the answer.
+ */
+function hostlessGroup(scheme: string, pathname: string): string {
+  if (scheme === "tel") {
+    return PHONE_GROUP;
+  }
+  if (scheme === "mailto") {
+    const first = pathname.split(",")[0];
+    const at = first.lastIndexOf("@");
+    const domain = at === -1 ? "" : first.slice(at + 1).toLowerCase();
+    return domain === "" ? "mailto:" : registrableDomain(domain);
+  }
+  return `${scheme}:`;
 }
 
 /**
@@ -136,6 +180,12 @@ export function canonicalExternalUrl(url: string): string {
     parsed = new URL(url.trim());
   } catch {
     return url.trim();
+  }
+  if (parsed.hostname === "") {
+    // `mailto:` and `tel:` have no authority, so there is no `//` and nothing
+    // to lowercase: an email local part is case-sensitive by the spec, and
+    // folding it here would call two different addresses one duplicate.
+    return `${parsed.protocol}${parsed.pathname}${parsed.search}`;
   }
   const path = parsed.pathname.replace(/\/+$/, "");
   return `${parsed.protocol}//${parsed.host.toLowerCase()}${path}${parsed.search}`;

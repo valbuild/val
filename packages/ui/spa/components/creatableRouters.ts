@@ -28,6 +28,14 @@ export type CreatableRouter = {
   existingKeys: string[];
   /** The router key schema's description, if it has one. */
   keyDescription?: string;
+  /**
+   * The URL schemes the router allows, where it narrowed them.
+   *
+   * Only the external router ever has this - `externalPageRouter({ schemes })`
+   * serializes to `routerSchemes` - and absent means the wide default, not
+   * "none allowed".
+   */
+  schemes?: string[];
 };
 
 function isRouterSchema(
@@ -116,6 +124,7 @@ export function collectCreatableRouters(
       patternString: patternStringOf(routePattern),
       existingKeys,
       keyDescription: schema.key?.description,
+      ...(schema.routerSchemes ? { schemes: schema.routerSchemes } : {}),
     };
     if (isExternalRouter(schema.router)) {
       // At most one external router per project, as elsewhere in the studio.

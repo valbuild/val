@@ -183,6 +183,7 @@ export function RouteSelector({
         {creating === "external" && externalRouter && (
           <NewExternalPageForm
             existingKeys={externalRouter.existingKeys}
+            schemes={externalRouter.schemes}
             onSubmit={(url) => {
               if (createRouteEntry(externalRouter, url) !== null) {
                 onChange(url);

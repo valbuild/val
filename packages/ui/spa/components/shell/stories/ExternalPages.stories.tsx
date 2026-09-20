@@ -65,13 +65,18 @@ const meta: Meta<typeof DialogHarness> = {
     },
     isLoading: { control: "boolean" },
     pageCount: {
-      control: { type: "range", min: 0, max: 18, step: 1 },
+      control: { type: "range", min: 0, max: 20, step: 1 },
       description: "How many of the mock URLs the project has.",
     },
     canProbe: {
       control: "boolean",
       description:
         "Whether the app can open the URLs. Off, Check reports the shape findings alone.",
+    },
+    httpsOnly: {
+      control: "boolean",
+      description:
+        'Whether the project narrowed its router to `externalPageRouter({ schemes: ["https"] })`. On, the mailto: and tel: keys become errors and Add refuses them.',
     },
   },
   args: {
@@ -80,6 +85,7 @@ const meta: Meta<typeof DialogHarness> = {
     isLoading: false,
     pageCount: mockExternalPages.length,
     canProbe: true,
+    httpsOnly: false,
   },
 };
 
@@ -91,7 +97,11 @@ type HarnessProps = {
   isLoading: boolean;
   pageCount: number;
   canProbe: boolean;
+  httpsOnly: boolean;
 };
+
+/** What `externalPageRouter({ schemes })` serializes to, for the harness. */
+const HTTPS_ONLY: readonly string[] = ["https"];
 
 const answered = (
   code: number,
@@ -172,6 +182,7 @@ function DialogHarness({
   isLoading,
   pageCount,
   canProbe,
+  httpsOnly,
 }: HarnessProps) {
   const portalContainer = useValPortal();
   const onProbe = useMockProber(canProbe);
@@ -213,6 +224,7 @@ function DialogHarness({
         pages={pages}
         portalContainer={portalContainer}
         onProbe={onProbe}
+        schemes={httpsOnly ? HTTPS_ONLY : undefined}
         isLoading={isLoading}
         onOpenEntry={fn()}
         onOpenUsage={fn()}
@@ -257,6 +269,32 @@ export const Loading: Story = { args: { isLoading: true } };
 export const WithoutLinkChecking: Story = { args: { canProbe: false } };
 
 /**
+ * A link is not only a web page.
+ *
+ * `mailto:` and `tel:` are ordinary keys under the default policy, which is a
+ * deny list rather than an allow list: anything with a scheme, except the
+ * handful that are not links at all (`javascript:`, `data:`). The list treats
+ * them as what they are - the mailto groups under `example.com` beside that
+ * domain's web pages, because the heading names the organisation, and the
+ * phone number gets a heading of its own.
+ *
+ * Press Check: neither can be opened, and the report says there is nothing to
+ * open rather than calling them unreachable. Scroll to `Phone numbers` and
+ * `example.com` to see both.
+ */
+export const OtherSchemes: Story = {};
+
+/**
+ * A project that narrowed its router: `externalPageRouter({ schemes: ["https"] })`.
+ *
+ * The same rule the server enforces, applied while the key is being typed. The
+ * `mailto:` and `tel:` rows are now errors with the router's own wording, and
+ * Add refuses the same keys in the same words - one `rejectScheme`, called
+ * from both sides.
+ */
+export const NarrowedToHttps: Story = { args: { httpsOnly: true } };
+
+/**
  * A mode that cannot write: no Add, no Remove.
  *
  * Everything else stays - reading which links exist, what is behind them and
@@ -293,6 +331,7 @@ export const InThePagesPanel: StoryObj<typeof PagesPanelHarness> = {
     isLoading: false,
     pageCount: mockExternalPages.length,
     canProbe: true,
+    httpsOnly: false,
   },
 };
 
