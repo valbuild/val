@@ -52,8 +52,7 @@ function httpTools(): ValTools {
     valContentUrl: "http://127.0.0.1:1/never",
     apiKey: "app-api-key-must-not-be-used",
     project: "test/project",
-    commit: "0".repeat(40),
-    branch: "main",
+    git: { commit: "0".repeat(40), branch: "main" },
     config,
   };
   return createValTools({ config, modules: [] }, options);

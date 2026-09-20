@@ -148,6 +148,37 @@ export type CommitResult =
       isNotFastForward?: boolean;
       updatedFiles: string[];
       commit: CommitSha;
+      /**
+       * The commit this one was built on.
+       *
+       * Optional because it is only as available as the content service is
+       * willing to say: a service that predates this field sends nothing, and
+       * `undefined` there means "not reported", never "this commit has no
+       * parent". A host that needs it has to handle its absence rather than
+       * treat it as a root commit.
+       *
+       * What it is FOR: a host that keeps its own record of what each commit
+       * changed -- a build cache, an incremental publisher -- can only tell
+       * whether its record is complete by chaining the commits it holds back to
+       * the one it last built. Without a parent the record is a set of
+       * snapshots with no way to notice a gap, and a commit made by somebody
+       * else in between is silently absent rather than detected.
+       *
+       * Not `CommitSha`-typed for the same reason it is optional: it is
+       * reported by a remote service and validated on arrival, and a branded
+       * type here would suggest this end had checked it.
+       */
+      parent?: string;
+      /**
+       * The git tree this commit points at.
+       *
+       * Optional for the same reason as {@link parent}. A tree hash identifies
+       * the CONTENT of a commit rather than the commit itself, so two commits
+       * with the same tree are the same source -- which is what lets a host
+       * recognise that a commit it is being asked to build is one it has built
+       * already, under a different sha, and skip the work.
+       */
+      tree?: string;
       branch: string;
       error?: undefined;
     }
@@ -164,8 +195,14 @@ export type ValServerConfig = ValServerOptions &
         mode: "http";
         apiKey: string;
         project: string;
-        commit: string;
-        branch: string;
+        /**
+         * The repository this project's commits are mirrored into, if any.
+         *
+         * Absent is a project whose content service is the store of record --
+         * which is every project that has not attached a repository, and the
+         * normal case. See `git` on {@link ValApiOptions}.
+         */
+        git?: { commit: string; branch: string };
         root?: string;
         config: ValConfig;
       }
@@ -241,7 +278,9 @@ export const ValServer = (
     return url.toString();
   };
   const commit =
-    options.mode === "http" ? (options.commit as CommitSha) : undefined;
+    options.mode === "http"
+      ? (options.git?.commit as CommitSha | undefined)
+      : undefined;
 
   const getAppErrorUrl = (error: string): string => {
     if (!options.project) {
@@ -907,12 +946,22 @@ export const ValServer = (
          * start against a server that was working.
          */
         const mode = serverOps.patchesAreLocal ? "fs" : "http";
+        /*
+         * Why publishing is unavailable, so the Studio can say so.
+         *
+         * Spread rather than set to null, so a server that can publish sends
+         * no such key at all: the Studio's "can I publish" is then the
+         * presence of the field, and there is no null to mistake for a reason
+         * it failed to compute.
+         */
+        const publishRefusal = serverOps.publishRefusal();
         return {
           status: 200,
           json: {
             ...currentStat,
             profileId: profileId ?? null,
             mode,
+            ...(publishRefusal ? { publishRefusal } : {}),
             // Not `options.config` verbatim: in proxy mode the branch the
             // server resolved is filled in where the file did not name one.
             // See `clientConfig`.
@@ -2136,6 +2185,29 @@ export const ValServer = (
           patchIds,
           excludePatchOps: false,
         });
+        /*
+         * Can this deployment publish this project AT ALL?
+         *
+         * After the fetch above, deliberately: that call is what tells the
+         * data layer what the project expects, and asking before it would be
+         * asking a question nothing has answered yet. It is still before
+         * anything is written, which is the part that matters.
+         *
+         * The Studio already knows -- `/stat` carries the same refusal, so the
+         * action is disabled with the reason shown. This is the second half of
+         * that: a stat can be stale by a poll, and nothing may reach `prepare`
+         * on a project it cannot mirror.
+         */
+        const refusal = serverOps.publishRefusal();
+        if (refusal) {
+          return {
+            status: 409,
+            json: {
+              message: refusal.message,
+              publishRefusal: refusal,
+            },
+          };
+        }
         /*
          * Exactly the patches this request consumes, and the ONLY ones it may
          * delete afterwards.

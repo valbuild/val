@@ -95,22 +95,31 @@ type ValServerOverrides = Partial<{
    */
   patchStore: ValPatchStore;
   /**
-   * Current git commit.
+   * The git commit this code was built from, and the branch a publish mirrors
+   * into -- for a project that HAS a repository.
    *
-   * Required if mode is "proxy".
+   * OPTIONAL, including in http mode, and absent is the normal case for a
+   * project whose content service is the store of record. It used to be
+   * required, which made a repository a precondition for editing anything: a
+   * deployment with no commit to name fell through to `fs` mode and reached
+   * for a working tree that was not there.
    *
-   * @example "e83c5163316f89bfbde7d9ab23ca2e25604af290"
+   * What it is FOR, where there is one: a publish turns pending patches into
+   * new `.val.ts` text, and to patch a file you must first read it. That read
+   * goes to the content service AT THIS COMMIT. Give it a commit the deployed
+   * code did not come from and the publish writes over a different version of
+   * the file than the one the site is running.
+   *
+   * It is NOT what a committed render reads -- that reads the source compiled
+   * into the build and asks the content service nothing.
+   *
+   * A normal deploy bakes this at build time, because the commit really is a
+   * property of those bytes. `VAL_GIT_COMMIT` / `VAL_GIT_BRANCH` supply it
+   * where a build system sets environment variables instead.
+   *
+   * @example { commit: "e83c5163316f89bfbde7d9ab23ca2e25604af290", branch: "main" }
    */
-  gitCommit: string;
-
-  /**
-   * Current git branch.
-   *
-   * Required if mode is "proxy".
-   *
-   * @example "main"
-   */
-  gitBranch: string;
+  git?: { commit: string; branch: string };
   /**
    * The base url of Val.
    *

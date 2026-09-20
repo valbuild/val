@@ -1,5 +1,39 @@
 # @valbuild/language-server
 
+## 0.133.0
+
+### Patch Changes
+
+- Updated dependencies [[`802412b`](https://github.com/valbuild/val/commit/802412b92c06bc1abbca78c86885e39c8710dd83)]:
+  - @valbuild/server@0.133.0
+  - @valbuild/shared@0.133.0
+
+## 0.132.1
+
+### Patch Changes
+
+- [#685](https://github.com/valbuild/val/pull/685) [`f2ac188`](https://github.com/valbuild/val/commit/f2ac1887c11397b597081eef7206063b52b21c5b) Thanks [@freekh](https://github.com/freekh)! - Editor clients: resolve the language server through `@valbuild/tanstack` too
+
+  `@valbuild/language-server` ships inside Val's framework bindings and its CLI —
+  `@valbuild/next`, `@valbuild/tanstack` and `@valbuild/cli` — but the resolution
+  recipes in this package's README, which exist to be copied into an editor
+  client, only ever anchored on `next` and `cli`.
+
+  Under pnpm's isolated `node_modules` a transitive dependency is reachable _only_
+  through a package the project declares, so a client built from those snippets
+  finds nothing at all in a TanStack Start project. The Neovim configuration in
+  here then tells the user to upgrade `@valbuild/next` — a package they do not
+  have and should not add.
+
+  The snippets now anchor on `@valbuild/tanstack` as well, and point at the better
+  version of the rule: read the project's own `@valbuild/*` dependencies out of its
+  `package.json` and try those first, so the framework binding after this one works
+  with no client release. Docs only — the server itself is unchanged, and the VS
+  Code extension already resolved this way.
+
+- Updated dependencies [[`c07b1ab`](https://github.com/valbuild/val/commit/c07b1abe30e226c80ef7ec4b4f0f5ccdae061c11), [`cbfa2b8`](https://github.com/valbuild/val/commit/cbfa2b884898f1603bde8e5aa5cd9da78778101f)]:
+  - @valbuild/server@0.132.1
+
 ## 0.132.0
 
 ### Patch Changes

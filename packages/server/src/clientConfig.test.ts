@@ -15,7 +15,7 @@ describe("clientConfig", () => {
   test("fills in the resolved branch when val.config names none", () => {
     const res = clientConfig({
       mode: "http",
-      branch: "main",
+      git: { branch: "main" },
       config: { project: "org/app" },
     });
 
@@ -27,11 +27,20 @@ describe("clientConfig", () => {
   test("val.config wins over the environment", () => {
     const res = clientConfig({
       mode: "http",
-      branch: "main",
+      git: { branch: "main" },
       config: { project: "org/app", gitBranch: "content" },
     });
 
     expect(res.gitBranch).toBe("content");
+  });
+
+  test("http with no git mirror is not given a branch either", () => {
+    // Git became optional in http mode: a project can run on credentials alone
+    // with no repository to mirror into. There is then no branch to fill in,
+    // and saying one would name a repository that does not exist.
+    const res = clientConfig({ mode: "http", config: { project: "org/app" } });
+
+    expect(res.gitBranch).toBeUndefined();
   });
 
   test("fs mode is not given a branch", () => {
@@ -48,7 +57,7 @@ describe("clientConfig", () => {
     // outlive the request that caused it.
     const config: ValConfig = { project: "org/app" };
 
-    clientConfig({ mode: "http", branch: "main", config });
+    clientConfig({ mode: "http", git: { branch: "main" }, config });
 
     expect(config.gitBranch).toBeUndefined();
   });

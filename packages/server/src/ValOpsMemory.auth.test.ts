@@ -85,8 +85,10 @@ describe("memory mode authentication", () => {
     const ops = new ValOpsHttp(
       "https://content.val.build",
       "org/project",
-      "0000000000000000000000000000000000000000",
-      "main",
+      {
+        commit: "0000000000000000000000000000000000000000",
+        branch: "main",
+      },
       { apiKey: "not-a-real-key" },
       valModules,
       { config },

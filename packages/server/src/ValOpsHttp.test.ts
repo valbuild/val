@@ -101,8 +101,7 @@ describe("ValOpsFS", () => {
     const ops = new ValOpsHttp(
       hostUrl,
       project,
-      commitSha,
-      branch,
+      { commit: commitSha, branch },
       { apiKey },
       {
         config,

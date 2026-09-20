@@ -1,5 +1,221 @@
 # @valbuild/ui
 
+## 0.133.0
+
+### Minor Changes
+
+- [#700](https://github.com/valbuild/val/pull/700) [`802412b`](https://github.com/valbuild/val/commit/802412b92c06bc1abbca78c86885e39c8710dd83) Thanks [@freekh](https://github.com/freekh)! - http mode no longer needs a git repository
+
+  A Val app can now run in http mode with no commit and no branch — its content
+  service is the store of record, and git is an optional mirror of the code. This
+  is what `fs` mode has always done: it has never had git, and it works.
+
+  Before this, `VAL_API_KEY` and `VAL_SECRET` were not enough. `VAL_GIT_COMMIT`
+  and `VAL_GIT_BRANCH` were required too, so a deployment with no commit to name
+  either threw at boot or fell through to `fs` mode and reached for a working
+  tree that was not there.
+
+  **Breaking, if you pass `http` options in code.** `gitCommit` and `gitBranch`
+  are replaced by one optional `git`:
+
+  ```diff
+   initValServer(valModules, config, {
+     http: {
+       apiKey,
+       valSecret,
+  -    gitCommit: process.env.VAL_GIT_COMMIT,
+  -    gitBranch: "main",
+  +    // Only for a project whose content is mirrored into a repository.
+  +    // Omit it entirely otherwise.
+  +    git: { commit: process.env.VAL_GIT_COMMIT, branch: "main" },
+     },
+   })
+  ```
+
+  `VAL_GIT_COMMIT` and `VAL_GIT_BRANCH` still work and are still read; they are
+  simply no longer required. Set both or neither — a commit without a branch, or
+  a branch without a commit, is refused at startup with a message naming the
+  missing half, rather than failing later at a publish.
+
+  **What a commit is for, where you have one.** Turning pending patches into new
+  `.val.ts` text means reading the current text first, and that read goes to the
+  content service at that commit. It is the publish path, not the serving path: a
+  committed render reads the source compiled into the build and asks the content
+  service nothing. With no repository there is nothing to write `.val.ts` into,
+  so a publish records the module's data and its schema and skips the file — and
+  that data is what history reads, so nothing is lost.
+
+  **A publish can now be refused by name, before it is attempted.** If a project
+  mirrors its commits into a repository but the running deployment was built
+  before that repository existed, it has no commit to write the mirror against.
+  Publishing anyway would save the content and silently leave the repository
+  behind. The Studio now disables Publish and shows why, and `/save` refuses with
+  a `no-base` code instead of failing partway.
+
+  **Also:** `ValCommit` and `HistoricalCommit` have nullable `parentCommitSha`
+  and `clientCommitSha`, and `/stat`'s `commitSha` is optional. A root commit has
+  no parent, and a publisher with no repository does not report where it was. If
+  you read these fields, handle `null`.
+
+### Patch Changes
+
+- [#674](https://github.com/valbuild/val/pull/674) [`2b9a51b`](https://github.com/valbuild/val/commit/2b9a51b7dbe2dff53b7686a4f3b7eb9bc5784fae) Thanks [@freekh](https://github.com/freekh)! - Checkboxes in Val Studio are now visible before you tick them.
+
+  Every checkbox — the auto-save toggle, boolean fields, the change selector in
+  the publish dialog — drew its border in a colour that never existed. It named
+  `--primary-foreground`, a leftover shadcn token declared only under `:root` and
+  `.dark`, and the Studio renders inside a shadow root where neither selector
+  matches. So the border fell back to whatever colour the text beside it happened
+  to be, and on a pale surface the box could not be found at all until it was
+  ticked.
+
+  Checked and indeterminate now fill, rather than differing from unchecked only
+  by a small tick, and a checkbox that starts checked without being controlled
+  (`defaultChecked`) draws its tick instead of rendering empty.
+
+## 0.132.1
+
+### Patch Changes
+
+- [#693](https://github.com/valbuild/val/pull/693) [`c9a5cd3`](https://github.com/valbuild/val/commit/c9a5cd3a4ab5908ecb9757b7a95db17a77e3b173) Thanks [@freekh](https://github.com/freekh)! - The canvas now shows the page at the width of the pane, from the top
+
+  The preview opened zoomed further out than it needed to be, with empty canvas
+  down both sides. It was fitting the WHOLE page into the pane, and a page is
+  given the height of a viewport — so the height was usually the side that ran
+  out first, and the width paid for it. A 24px margin on every edge came off the
+  top of that.
+
+  It now fits the width and pins the top: the page reaches both edges of the
+  pane and starts where the page starts. What does not fit is a scroll away, and
+  zooming out to see more of it at once is still the `-` button. A layout
+  narrower than the pane — a phone width, most obviously — is shown at 1:1 and
+  centred rather than blown up past life size.
+
+  The fit button (now "Fit page width") is the way back to that view from
+  anywhere, and it works after scrolling as well as after zooming. Holding the
+  fit as the pane is resized no longer scrolls the page back to the top, so
+  dragging the split divider while reading half way down a page keeps your place.
+
+- [#693](https://github.com/valbuild/val/pull/693) [`f413c5c`](https://github.com/valbuild/val/commit/f413c5cebca27ba82052825abc8c632b6177747e) Thanks [@freekh](https://github.com/freekh)! - Tighten the Studio's preview spacing: one gap under the phone's mode switch, one gap either side of the desktop divider
+
+  On a phone the three modes each started somewhere different under the strip of
+  switches, because the track cleared the strip and then every pane added a gap
+  of its own on top: the address bar sat 38px below the switches, the module
+  editor 26px. All three now start 12px below it — the same 12px the strip and
+  the panes are inset from the sides of the screen — which gives the page 26 more
+  rows of itself on the one screen size that has none to spare.
+
+  On a desktop the canvas sat 6px from the divider's line and 12px from the
+  right edge of the window, so the divider looked nudged towards the page. The
+  divider's own hit area is 12px wide with the line down the middle, so the
+  canvas now adds the 6px that makes both sides 12px.
+
+  Also: a field scrolled to in the phone's module editor no longer lands 96px
+  down the pane. That clearance exists for a column running up under the floating
+  top bar, and the phone's pane already starts below everything covering it.
+
+- [#693](https://github.com/valbuild/val/pull/693) [`1ddf245`](https://github.com/valbuild/val/commit/1ddf245ec73ad5af8099c3d18d4d33c6a1cc1254) Thanks [@freekh](https://github.com/freekh)! - The preview notice says one thing, and the setup instructions are always reachable
+
+  The bar over the canvas used to say "Preview is not ready yet" _next to_ the
+  button that makes it ready, which reads as two problems rather than one act —
+  and the sentence said less than the button did. Where there is a fix, the
+  button is now the whole of the message. The diagnosis ("Preview mode is off",
+  "No answer from the page") comes back beside it once the twenty-second wait is
+  up, because by then the button has been there without working and which way it
+  is failing is the useful part. Turning preview mode on said so twice, with two
+  spinners; it says so once.
+
+  The developer's setup checklist was behind Details, and only offered where the
+  page never answered — which withheld it from exactly the person who needs it:
+  press the button, land back on "preview mode is off", and that was the one
+  state with no route to the setup help. It is now offered in every state the
+  canvas is not working in, still folded away.
+
+  Details also stops keeping the pill's silence. The pill withholds a diagnosis
+  for the first stretch because it appears without being asked for, over a page
+  that is very often just compiling. The panel was opened on purpose, so it says
+  what is known straight away.
+
+  The On page view's empty card no longer explains preview mode a second time. It
+  says what it is ("Nothing reported yet") and points at the one place that has
+  both the reason and the button.
+
+- [#693](https://github.com/valbuild/val/pull/693) [`a19997a`](https://github.com/valbuild/val/commit/a19997a542e65cc1375837b1bdb11c8af9e10160) Thanks [@freekh](https://github.com/freekh)! - The preview's two views are now called "Structure" and "On page"
+
+  They were "Normal" and "Fields", and neither said what it held. "Normal" said
+  only that the other one was not; "Fields" is what both of them are made of. The
+  difference between them is scope — **Structure** is everything in the module
+  you are editing, laid out as the content is built, and **On page** is the
+  fields the running page reported having on it — and the labels were the one
+  place a reader could have learned that and did not.
+
+  On a phone the three modes now read Structure · On page · Preview. Nothing else
+  changes: the `canvas-view=normal|fields` parameter is unchanged, so links
+  already copied out of the Studio still open the view they were copied from.
+
+- [#693](https://github.com/valbuild/val/pull/693) [`76c5d41`](https://github.com/valbuild/val/commit/76c5d41c3afa7cc8180d156c9e19fb082af7fba4) Thanks [@freekh](https://github.com/freekh)! - The editor's heading is compact when the canvas is open
+
+  Beside the preview the editor is one of three panes that begin on the same
+  line, and the other two start using their space immediately: the address bar is
+  a control you type in, the On page header is a count and a filter. The module
+  heading spent 124px before the first field to say one short name — a 24px title
+  with 16px of padding over it and a 24px gap under it — which next to those does
+  not read as a heading with presence. It reads as a pane that has not loaded yet.
+
+  It is now 80px there: the same three lines (title, subtitle or route, scope),
+  the same fixed height whatever a developer wrote, the same square thumbnail —
+  scaled down, 24 + 16 instead of 32 + 20, with the padding above and the gap
+  below following. With the canvas closed the editor is alone on the screen and
+  nothing changes; the heading leads, as it should.
+
+- [#678](https://github.com/valbuild/val/pull/678) [`cbfa2b8`](https://github.com/valbuild/val/commit/cbfa2b884898f1603bde8e5aa5cd9da78778101f) Thanks [@freekh](https://github.com/freekh)! - Putting a whole module back works for `.jsonValues()` records
+
+  A `.jsonValues()` record's entries are not in the module's source: the `.val.ts`
+  holds `c.json(() => import("./entry.val.json"))` per entry and the content lives
+  in those files. Val already routed a patch that named an entry key into the
+  right file, but a patch that replaced the **whole record** named no key — so it
+  was applied as an ordinary source edit, writing over the imports that make the
+  entries load at all. "Put everything back" in the history pane left such a module
+  out for exactly that reason.
+
+  A whole-record write is now expanded into per-entry ops before anything acts on
+  it: an entry added, one removed, one changed, and nothing at all for an entry
+  that already holds what the write says — so putting a module back does not
+  rewrite every file in it. The same expansion produces the draft the Studio shows
+  and the files a publish writes, so a draft cannot show one thing and publish
+  another.
+
+  Nothing that writes a patch has to know a record is `.jsonValues()`: write the
+  module as if it were ordinary content, and it lands in the right files.
+
+  "Put everything back" and "Restore this whole module" now cover `.jsonValues()`
+  modules. They read each entry as it was at the commit and put the content back —
+  never the recorded source, which is markers rather than content, and is now
+  refused rather than written.
+
+- [#688](https://github.com/valbuild/val/pull/688) [`003419a`](https://github.com/valbuild/val/commit/003419ab72f3069d92e67dfea931d5accc63e730) Thanks [@freekh](https://github.com/freekh)! - Typing without pausing now updates the preview, instead of everything sitting still until you stop
+
+  Writing a sentence straight through left the rest of the Studio frozen. The page
+  in the canvas, the list row naming what you were editing and the heading above
+  it all kept showing the value from before you started, and then jumped to the
+  new one once you stopped typing.
+
+  It looked like the editor had lost its connection to the page, and the longer
+  the sentence the worse it looked — a paragraph typed in one go updated nothing
+  until the last word.
+
+  The cause was that a field waits for a pause before writing, and fluent typing
+  has no pauses in it. The gap between keystrokes at a normal writing speed is
+  shorter than the wait, so every character pushed the write further away and it
+  never happened at all.
+
+  Writes are now capped: whatever you have typed goes out at least every two
+  seconds, whether or not you have stopped. Typing that does have pauses in it is
+  unchanged — still one write per pause, so nothing about the editing you were
+  already doing gets noisier.
+
+  This affects text, code and rich text fields.
+
 ## 0.130.0
 
 ### Patch Changes
