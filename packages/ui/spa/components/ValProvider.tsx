@@ -2353,6 +2353,8 @@ type EnsureAllTypes<T extends Record<SerializedSchema["type"], unknown>> = T;
  * The general idea is to avoid re-rendering the entire source tree when a single value changes.
  */
 export type ShallowSource = EnsureAllTypes<{
+  /** The module file path a view points at. */
+  view: string;
   array: SourcePath[];
   object: Record<string, SourcePath>;
   /**
@@ -3224,6 +3226,26 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     return {
       status: "success",
       data: data as ShallowSource[SchemaType],
+    };
+  } else if (type === "view") {
+    if (typeof source !== "object" || source === null || isJsonArray(source)) {
+      return {
+        status: "error",
+        error: `Expected a view pointer, got ${JSON.stringify(source)}`,
+      };
+    }
+    const target = source["view"];
+    if (typeof target !== "string") {
+      return {
+        status: "error",
+        error: `Expected a view pointer, got ${JSON.stringify(source)}`,
+      };
+    }
+    // The module the view points at. A leaf, like `keyOf`: the row navigates
+    // there, and everything about the target is read at the target's own path.
+    return {
+      status: "success",
+      data: target as ShallowSource[SchemaType],
     };
   } else {
     const exhaustiveCheck: never = type;

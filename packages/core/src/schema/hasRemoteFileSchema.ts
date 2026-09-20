@@ -89,7 +89,8 @@ export function hasRemoteFileSchema(schema: SerializedSchema): boolean {
     schema.type === "code" ||
     schema.type === "keyOf" ||
     schema.type === "route" ||
-    schema.type === "locale"
+    schema.type === "locale" ||
+    schema.type === "view"
   ) {
     return false;
   } else {
@@ -166,7 +167,9 @@ export function hasMediaSchema(schema: SerializedSchema): boolean {
     schema.type === "locale" ||
     // A settings module holds the assistant's configuration, not content, and
     // nothing in it is media.
-    schema.type === "settings"
+    schema.type === "settings" ||
+    // A view shows another module; that module answers for its own media.
+    schema.type === "view"
   ) {
     return false;
   } else {

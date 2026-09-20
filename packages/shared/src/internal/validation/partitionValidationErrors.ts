@@ -75,6 +75,7 @@ function isSkippableFixCode(fix: ValidationFix): boolean {
     case "files:check-unique-folder":
     case "images:check-all-files":
     case "files:check-all-files":
+    case "view:check-module": // schema is code: nothing for an editor to do
       return true;
     case "keyof:check-keys":
     case "router:check-route":

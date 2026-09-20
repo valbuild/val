@@ -167,6 +167,11 @@ export function emptyOf(
     );
   } else if (schema.type === "code") {
     return ""; // An empty editor: no language has a sensible starting snippet
+  } else if (schema.type === "view") {
+    // The pointer IS the empty value: a view has exactly one valid source, and
+    // the schema knows it. A new page with a view field gets the same pointer
+    // every other page's has.
+    return { view: schema.moduleFilePath };
   }
   const _exhaustiveCheck: never = schema;
   throw Error("Unexpected schema type: " + JSON.stringify(_exhaustiveCheck));
