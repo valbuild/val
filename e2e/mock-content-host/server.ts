@@ -104,6 +104,15 @@ const PUBLIC_PROJECT_ID =
   process.env.MOCK_CONTENT_PUBLIC_PROJECT_ID ?? "mockproj";
 /** Where the repo is on disk, so `location: "repo"` reads can be served. */
 const REPO_ROOT = process.env.MOCK_CONTENT_REPO_ROOT ?? process.cwd();
+/**
+ * The project's own branch, as `home` keeps it: a column on the project.
+ *
+ * Here because the publisher stopped asserting one. Every route that used to
+ * require `branch` now falls back to this when the caller does not say, which
+ * is what the real service does with `val_projects.branch` -- and what lets a
+ * build with no repository, which bakes no branch, publish at all.
+ */
+const PROJECT_BRANCH = process.env.MOCK_CONTENT_BRANCH ?? "main";
 
 /**
  * The people who can be editing.
@@ -800,6 +809,16 @@ const getApplicablePatches: Handler = (req, res, url) => {
       (a, b) =>
         new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
     ),
+    /*
+     * What the project expects of whoever publishes it.
+     *
+     * `managed` here: this mock has no git repository behind it at all, which
+     * is exactly the shape the content service calls managed. Saying so is not
+     * decoration -- `ValOpsHttp` reads it to decide whether a deployment can
+     * publish, and a mock that stayed silent would leave that check untested
+     * in the one suite that exercises http mode end to end.
+     */
+    project: { sourceMode: "managed", branch: PROJECT_BRANCH },
   });
 };
 
@@ -915,7 +934,10 @@ const savePatch: Handler = async (req, res) => {
     const group =
       body.patchGroupId != null
         ? state.patchGroups.get(body.patchGroupId)
-        : getOrCreateOpenGroup(body.authorId ?? null, body.branch ?? "main");
+        : getOrCreateOpenGroup(
+            body.authorId ?? null,
+            body.branch ?? PROJECT_BRANCH,
+          );
     if (!group) {
       json(res, 404, { message: "Patch group not found" });
       return;
@@ -999,7 +1021,7 @@ const getPatchGroups: Handler = (req, res, url) => {
     json(res, 404, { message: "Patch groups are not enabled on this mock" });
     return;
   }
-  const branch = url.searchParams.get("branch");
+  const branch = url.searchParams.get("branch") ?? PROJECT_BRANCH;
   if (!branch) {
     json(res, 400, { message: "Missing branch" });
     return;
@@ -1365,7 +1387,16 @@ const commit: Handler = async (req, res) => {
     root: string;
     message: string;
     committer: string;
-    existingBranch: string;
+    /**
+     * NOT SENT any more, and the reason is worth keeping here.
+     *
+     * The branch a project publishes to is a column on the project in `home`,
+     * so the publisher no longer asserts one -- a build with no repository
+     * bakes no branch, and a build that did could only ever disagree with the
+     * project it is publishing to. `newBranch` survives because creating a
+     * branch is the one case where the publisher names a line of work that
+     * does not exist yet.
+     */
     newBranch?: string;
     baseSha?: string;
     /** The group this commit empties, if the client says it empties one. */
@@ -1571,7 +1602,7 @@ const commit: Handler = async (req, res) => {
     clientCommitSha: commitSha,
     parentCommitSha,
     commitMessage: body.message ?? null,
-    branch: body.newBranch || body.existingBranch,
+    branch: body.newBranch || PROJECT_BRANCH,
     creator: body.committer,
     createdAt: nowIso(),
   };

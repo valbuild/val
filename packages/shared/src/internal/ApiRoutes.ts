@@ -87,6 +87,27 @@ const notFoundResponse = z.object({
 const GenericError = z.object({ message: z.string() });
 
 /**
+ * Why a publish cannot happen, in a form the Studio can show.
+ *
+ * Carried on `/stat` so the action is disabled with the reason beside it, and
+ * on `/save`'s 409 so the same answer is given to a client that asked anyway --
+ * a stat can be a poll out of date, and nothing may reach the commit path on a
+ * project this deployment cannot publish.
+ *
+ * `no-base` is the only code so far: there is nowhere for this publish's
+ * commit to be based. Note which way round that is. A project whose content
+ * service is the store of record always HAS a base -- the service's own chain,
+ * which mints its own shas -- so this is not about a missing git repository.
+ * It is about a deployment that cannot do what its project requires: one built
+ * before the project attached a repository, now asked to mirror commits into
+ * one it knows no commit for.
+ */
+const PublishRefusal = z.object({
+  code: z.literal("no-base"),
+  message: z.string(),
+});
+
+/**
  * A patch group: the set of patches one user has chosen to publish.
  *
  * Not a patch *set* — a patch set is computed from the schema and says which
@@ -598,6 +619,7 @@ export const Api = {
               profileId: z.string().nullable(),
               mode: z.union([z.literal("http"), z.literal("fs")]),
               jsonEntriesSha: z.string().optional(),
+              publishRefusal: PublishRefusal.optional(),
             }),
             z.object({
               type: z.literal("use-websocket"),
@@ -606,7 +628,16 @@ export const Api = {
               baseSha: z.string(),
               schemaSha: z.string(),
               sourcesSha: z.string(),
-              commitSha: z.string(),
+              /**
+               * The commit this deployment was built from.
+               *
+               * Optional: a project whose content service is the store of
+               * record has no repository and no commit baked into its build.
+               * The Studio has always parsed this as optional -- see
+               * `useStatus` -- and shows a branch and a commit only when there
+               * is one.
+               */
+              commitSha: z.string().optional(),
               patches: z.array(PatchId),
               /**
                * Of `patches`, the ones that have already SHIPPED.
@@ -651,6 +682,7 @@ export const Api = {
               config: ValConfig,
               profileId: z.string().nullable(),
               mode: z.union([z.literal("http"), z.literal("fs")]),
+              publishRefusal: PublishRefusal.optional(),
             }),
           ]),
         }),
@@ -1251,6 +1283,18 @@ export const Api = {
         z.object({
           status: z.literal(409),
           json: z.union([
+            /*
+             * This deployment cannot publish this project at all.
+             *
+             * First in the union so it is read before the bare
+             * `{ message }` above it would swallow it. `/stat` carries the
+             * same refusal, so a Studio that is up to date never sends a save
+             * that lands here -- this is for the one that is a poll behind.
+             */
+            z.object({
+              message: z.string(),
+              publishRefusal: PublishRefusal,
+            }),
             /** A group that has already shipped. See the 403 above. */
             z.object({
               message: z.string(),

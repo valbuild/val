@@ -243,16 +243,36 @@ export async function initHandlerOptions(
           because,
       );
     }
-    const maybeGitCommit = opts.gitCommit || process.env.VAL_GIT_COMMIT;
-    if (!maybeGitCommit) {
+    /*
+     * A COMMIT IS NOT WHAT PUTS AN APP IN HTTP MODE. Credentials are.
+     *
+     * Both of these used to be required here, and the requirement was a
+     * repository disguised as a configuration check: a deployment with no
+     * commit to name -- one whose content service owns its content, which is
+     * now the normal case -- threw at boot, or, worse, never reached this
+     * branch at all and fell through to `fs` mode, looking for a working tree
+     * that was not there.
+     *
+     * Absent is a project with no repository to mirror commits into. The
+     * content service mints its own commit shas and is the store of record for
+     * content, so there is nothing missing: see `git` on {@link ValApiOptions}
+     * for what a commit is still FOR where there is one.
+     *
+     * Taken together or not at all. A commit without a branch names a point
+     * with no line of work to publish to, and a branch without a commit names
+     * a line with no position in it; either alone would be a half-configured
+     * repository that fails later, at a publish, rather than here.
+     */
+    const maybeGitCommit = opts.git?.commit || process.env.VAL_GIT_COMMIT;
+    const maybeGitBranch = opts.git?.branch || process.env.VAL_GIT_BRANCH;
+    if (!!maybeGitCommit !== !!maybeGitBranch) {
       throw new Error(
-        "VAL_GIT_COMMIT env var must be set in proxy mode" + because,
-      );
-    }
-    const maybeGitBranch = opts.gitBranch || process.env.VAL_GIT_BRANCH;
-    if (!maybeGitBranch) {
-      throw new Error(
-        "VAL_GIT_BRANCH env var must be set in proxy mode" + because,
+        `Val is configured with a git ${maybeGitCommit ? "commit" : "branch"} ` +
+          `but no ${maybeGitCommit ? "branch" : "commit"}. Set both (the ` +
+          "`git` option, or VAL_GIT_COMMIT and VAL_GIT_BRANCH) for a project " +
+          "whose content is mirrored into a repository, or neither for one " +
+          "whose content service is the store of record." +
+          because,
       );
     }
     if (!maybeValProject) {
@@ -275,8 +295,16 @@ export async function initHandlerOptions(
       route,
       apiKey: maybeApiKey,
       valSecret: maybeValSecret,
-      commit: maybeGitCommit,
-      branch: maybeGitBranch,
+      /*
+       * Spread, so a project with no repository has no `git` key at all rather
+       * than one holding undefined. `ValOpsHttp` asks `git === null` to decide
+       * whether to send a branch and a commit with every request, and a key
+       * that is present-but-undefined is one more thing for that check to get
+       * wrong.
+       */
+      ...(maybeGitCommit && maybeGitBranch
+        ? { git: { commit: maybeGitCommit, branch: maybeGitBranch } }
+        : {}),
       root: opts.root,
       project: maybeValProject,
       valEnableRedirectUrl,
@@ -346,8 +374,7 @@ export function createValOps(
     return new ValOpsHttp(
       options.valContentUrl,
       options.project,
-      options.commit,
-      options.branch,
+      options.git ?? null,
       { apiKey: options.apiKey },
       valModules,
       {

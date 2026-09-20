@@ -21,10 +21,17 @@ export type ValHttpMode = {
   apiKey: string;
   /** Signs the session cookie. Any sufficiently random string. */
   valSecret: string;
-  /** The commit the running code was built from. See the note at the use. */
-  gitCommit: string;
-  /** The branch a publish commits to. */
-  gitBranch: string;
+  /**
+   * The repository this project's content is mirrored into, if it has one.
+   *
+   * OPTIONAL, and absent is the normal case for a project whose content
+   * service is the store of record: it mints its own commit shas and knows the
+   * project's branch, so there is nothing to bake into the build.
+   *
+   * Where there is one: `commit` is the commit the running code was built
+   * from, and it is load bearing. See the note at the use.
+   */
+  git?: { commit: string; branch: string };
   /**
    * Val's content service, when it is not the real one.
    *
@@ -108,15 +115,16 @@ const initValApiHandler = (
           : {}),
         ...(apiKey !== undefined ? { apiKey } : {}),
         /*
-         * What puts the server in `http` mode: the patches live on Val's
-         * content service, and a publish is a commit on the project's
-         * repository.
+         * What puts the server in `http` mode: CREDENTIALS. The patches live
+         * on Val's content service, which is the store of record for them.
          *
-         * `gitCommit` is the commit the RUNNING code was built from, and it is
-         * load bearing rather than bookkeeping: every read of a `.val.ts` in
-         * this mode fetches that path from the content service AT THAT COMMIT.
-         * Give it a commit the deployed code did not come from and Val edits a
-         * different version of the file than the one the site is running.
+         * `git` is optional and says where, if anywhere, a publish also
+         * MIRRORS the content as `.val.ts`. Where there is one, its `commit`
+         * is the commit the RUNNING code was built from and is load bearing
+         * rather than bookkeeping: producing that mirror means reading the
+         * current text from the content service AT THAT COMMIT, so a commit
+         * the deployed code did not come from writes over a different version
+         * of the file than the one the site is running.
          */
         ...(http !== undefined ? http : {}),
         ...(valContentUrl !== undefined ? { valContentUrl } : {}),

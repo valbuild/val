@@ -199,12 +199,12 @@ describe("VAL_ENV", () => {
     });
   });
 
-  test("...and hands http mode what it reads content at", async () => {
-    // The commit is the whole difference between serving this build's content
-    // and serving somebody else's: `ValOpsHttp.getSourceFile` asks the content
-    // host for the file AT THIS SHA, so a config that resolved without it
-    // would be a build reading a repository at a revision it was not built
-    // from.
+  test("...and hands http mode the repository it mirrors into", async () => {
+    // The commit is the whole difference between mirroring this build's
+    // content and overwriting somebody else's: producing the `.val.ts` a
+    // publish commits starts by asking the content host for the file AT THIS
+    // SHA, so a config that dropped it would patch a repository at a revision
+    // the code was not built from.
     await withEnv(httpEnv, async () => {
       const resolved = await initHandlerOptions(
         "/api/val",
@@ -214,9 +214,56 @@ describe("VAL_ENV", () => {
       expect(resolved).toMatchObject({
         mode: "http",
         project: "org/project",
-        commit: "0000000000000000000000000000000000000000",
-        branch: "main",
+        git: {
+          commit: "0000000000000000000000000000000000000000",
+          branch: "main",
+        },
       });
+    });
+  });
+
+  test("HTTP MODE WITHOUT A REPOSITORY, which is now the normal case", async () => {
+    /*
+     * Credentials alone decide the mode.
+     *
+     * Both of these used to be required, which made a repository a
+     * precondition for editing anything: a project whose content service is
+     * the store of record -- it mints its own commit shas and knows the
+     * project's branch -- had no commit to name, and every one of them either
+     * threw at boot or fell through to `fs` mode and reached for a working
+     * tree that was not there.
+     */
+    await withEnv(
+      { ...httpEnv, VAL_GIT_COMMIT: undefined, VAL_GIT_BRANCH: undefined },
+      async () => {
+        const resolved = await initHandlerOptions(
+          "/api/val",
+          { versions },
+          config,
+        );
+        expect(resolved.mode).toBe("http");
+        expect("git" in resolved).toBe(false);
+      },
+    );
+  });
+
+  test("...but half a repository is refused", async () => {
+    /*
+     * A commit with no branch names a point with no line of work to publish
+     * to; a branch with no commit names a line with no position in it. Either
+     * alone is a half-configured repository, and left to resolve it would fail
+     * at a publish instead of here -- where the thing that is missing can
+     * still be named.
+     */
+    await withEnv({ ...httpEnv, VAL_GIT_BRANCH: undefined }, async () => {
+      await expect(
+        initHandlerOptions("/api/val", { versions }, config),
+      ).rejects.toThrow(/branch/);
+    });
+    await withEnv({ ...httpEnv, VAL_GIT_COMMIT: undefined }, async () => {
+      await expect(
+        initHandlerOptions("/api/val", { versions }, config),
+      ).rejects.toThrow(/commit/);
     });
   });
 

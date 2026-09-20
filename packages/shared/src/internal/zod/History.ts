@@ -44,8 +44,10 @@ export type HistoryError = z.infer<typeof HistoryError>;
 
 export const HistoricalCommit = z.object({
   commitSha: z.string(),
-  parentCommitSha: z.string(),
-  clientCommitSha: z.string(),
+  /** `null` for a root commit. See `ValCommit`. */
+  parentCommitSha: z.string().nullable(),
+  /** `null` when the publisher did not say where it was. See `ValCommit`. */
+  clientCommitSha: z.string().nullable(),
   branch: z.string(),
   createdBranch: z.string().nullable(),
   creator: z.string().nullable(),

@@ -645,11 +645,12 @@ export function initValContent(
      * `process.env.VAL_API_KEY` is undefined in a bundle built separately from
      * its dependencies.
      *
-     * `gitCommit` is what makes this more than bookkeeping here: every read
-     * fetches the module's path from the content service AT THAT COMMIT, so
-     * these readers and the API have to be given the same one or a draft
-     * render resolves a different version of the file than the site is
-     * running.
+     * `git`, where the project has a repository, is what makes this more than
+     * bookkeeping: it decides which commit the `.val.ts` mirror is produced
+     * against, so these readers and the API have to be given the same one or a
+     * publish patches a different version of the file than the site is
+     * running. A project with no repository passes no `git` at all, and there
+     * is nothing here that can then disagree.
      */
     http?: ValHttpMode;
   },

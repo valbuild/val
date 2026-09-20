@@ -26,6 +26,7 @@ import {
   OrderedPatchesMetadata,
   OrderedPatches,
   SourcesSha,
+  type PublishRefusal,
 } from "./ValOps";
 import { z } from "zod";
 import { fromError } from "zod-validation-error";
@@ -95,8 +96,14 @@ const GetApplicablePatches = z.object({
     .array(
       z.object({
         commitSha: z.string(),
-        clientCommitSha: z.string(),
-        parentCommitSha: z.string(),
+        /*
+         * Nullable since the content service mints its own commit shas: a
+         * root commit has no parent, and a publisher that did not say where
+         * it was has no client sha. Parsed rather than trusted, so a service
+         * that sends null gets null here instead of failing the whole poll.
+         */
+        clientCommitSha: z.string().nullable(),
+        parentCommitSha: z.string().nullable(),
         commitMessage: z.string().nullable(),
         branch: z.string(),
         creator: z.string(),
@@ -118,6 +125,22 @@ const GetApplicablePatches = z.object({
         commitMessage: z.string().nullable().optional(),
       }),
     )
+    .optional(),
+  /**
+   * What the project EXPECTS of whoever publishes it.
+   *
+   * Optional because a content service that predates it sends nothing, and
+   * absent means "not reported" -- never "managed". The difference decides
+   * whether a publish is refused, so guessing either way would be worse than
+   * not checking: guessing `managed` would let a deployment publish a
+   * connected project it cannot mirror, and guessing `connected` would refuse
+   * every publish against an older service.
+   */
+  project: z
+    .object({
+      sourceMode: z.union([z.literal("managed"), z.literal("connected")]),
+      branch: z.string(),
+    })
     .optional(),
 });
 const FilesResponse = z.object({
@@ -207,8 +230,10 @@ const CommitResponse = z.object({
 // commit changed nothing", which is indistinguishable from a real answer.
 const HistoricalCommitResponse = z.object({
   commitSha: z.string(),
-  parentCommitSha: z.string(),
-  clientCommitSha: z.string(),
+  /** `null` for a root commit; see the note on the applicable-patches schema. */
+  parentCommitSha: z.string().nullable(),
+  /** `null` when the publisher did not say where it was. */
+  clientCommitSha: z.string().nullable(),
   branch: z.string(),
   createdBranch: z.string().nullable(),
   creator: z.string().nullable(),
@@ -228,8 +253,8 @@ const CommitPatchesResponse = z.object({
   commitSha: z.string(),
   commit: z.object({
     commitSha: z.string(),
-    parentCommitSha: z.string(),
-    clientCommitSha: z.string(),
+    parentCommitSha: z.string().nullable(),
+    clientCommitSha: z.string().nullable(),
     branch: z.string(),
     createdBranch: z.string().nullable(),
     creator: z.string().nullable(),
@@ -362,12 +387,51 @@ export class ValOpsHttp extends ValOps {
   override readonly patchesAreLocal = false;
   /** See {@link ValOps.requiresAuth}. */
   override readonly requiresAuth = true;
+  /**
+   * A commit mirrors into `.val.ts` only when there is a repository.
+   *
+   * See {@link ValOps.mirrorsSourceFiles}. Set in the constructor rather than
+   * as an initialiser because it depends on `git`, and a class field
+   * initialiser runs before the constructor body has assigned it.
+   */
+  protected override readonly mirrorsSourceFiles: boolean;
+  /**
+   * What the content service last said this project expects of its publisher.
+   *
+   * `null` until something has asked it, which in practice is the first poll.
+   * It is remembered rather than asked for on demand because the answer is
+   * only wanted on the publish path, and that path already fetches the
+   * patches it is publishing -- so a dedicated request would be a second round
+   * trip for two fields that just arrived.
+   *
+   * It can be one poll out of date, and that is the right amount: the thing it
+   * changes is whether this deployment can mirror commits into a repository,
+   * which changes when a project CONNECTS one -- and a project that has just
+   * connected is one whose builds are about to be replaced anyway.
+   */
+  private projectExpectation: {
+    sourceMode: "managed" | "connected";
+    branch: string;
+  } | null = null;
 
   constructor(
     private readonly contentUrl: string,
     private readonly project: string,
-    private readonly commitSha: string, // TODO: CommitSha
-    private readonly branch: string,
+    /**
+     * The repository this project's commits are mirrored into, or `null`.
+     *
+     * `null` is a project whose content service is the store of record: it
+     * mints its own commit shas, and it knows this project's branch from the
+     * project itself. Every request below that would have carried a branch and
+     * a commit omits them instead, and the service answers from the project's
+     * own chain -- which is where those answers always came from.
+     *
+     * It is NOT a degraded mode. The one thing that genuinely needs a
+     * repository is producing the `.val.ts` text a commit mirrors, and a
+     * project with no repository has nothing to mirror into. See `git` on
+     * {@link ValApiOptions}.
+     */
+    private readonly git: { commit: string; branch: string } | null,
     /**
      * An api key (how the app itself authenticates) or a personal access token
      * (how the CLI authenticates after `val login`). Same two shapes as
@@ -390,7 +454,49 @@ export class ValOpsHttp extends ValOps {
         ? { "x-val-pat": auth.pat }
         : { Authorization: `Bearer ${auth.apiKey}` };
     this.root = options?.root ?? "";
+    this.mirrorsSourceFiles = git !== null;
   }
+  /**
+   * A deployment that cannot mirror a project which expects to be mirrored.
+   *
+   * This is the one shape of "no base" that exists, and it is not the one it
+   * sounds like. A project with no repository is fine: the content service is
+   * the store of record for it and mints its own commit shas, so there is
+   * always somewhere for the commit to go. What is refused is the mismatch --
+   * a project whose commits are mirrored into a repository, being published by
+   * a build that was made before it had one and so has no commit to produce
+   * that mirror against.
+   *
+   * It is a REAL state rather than a defensive check: it is exactly what a
+   * deployment looks like between a project connecting a repository and its
+   * next build going out. Left unchecked, such a publish writes the data and
+   * silently fails to mirror it, and the repository quietly falls behind the
+   * content nobody is told about.
+   *
+   * `null` when the service did not say (see `project` on the response
+   * schema): an older content service is not evidence of anything, and
+   * refusing every publish against one would be a worse failure than not
+   * checking.
+   */
+  override publishRefusal(): PublishRefusal | null {
+    if (this.git !== null) {
+      return null;
+    }
+    if (this.projectExpectation?.sourceMode !== "connected") {
+      return null;
+    }
+    return {
+      code: "no-base",
+      message:
+        `This project mirrors its content into a git repository (branch ` +
+        `'${this.projectExpectation.branch}'), but this deployment was not ` +
+        "built from one, so it does not know which commit to write that " +
+        "mirror against. Publishing would save the content and silently " +
+        "leave the repository behind. Deploy this project again from its " +
+        "repository, and publishing will work from that build on.",
+    };
+  }
+
   async onInit(): Promise<void> {
     // TODO: unused for now. Implement or remove
   }
@@ -518,7 +624,8 @@ export class ValOpsHttp extends ValOps {
         baseSha: BaseSha;
         schemaSha: SchemaSha;
         sourcesSha: SourcesSha;
-        commitSha: CommitSha;
+        /** Absent for a project with no repository. See `git` on ValApiOptions. */
+        commitSha?: CommitSha;
         commits: ValCommit[];
         deployments: ValDeployment[];
         patches: PatchId[];
@@ -623,7 +730,12 @@ export class ValOpsHttp extends ValOps {
        * decided against.
        */
       headCommitSha: newestCommitSha(allPatchData.commits) ?? undefined,
-      commitSha: this.commitSha as CommitSha,
+      /*
+       * Spread: a project with no repository has no such commit, and saying
+       * so by leaving the key out is different from sending an empty string
+       * the Studio would try to show.
+       */
+      ...(this.git ? { commitSha: this.git.commit as CommitSha } : {}),
     };
   }
 
@@ -637,9 +749,16 @@ export class ValOpsHttp extends ValOps {
     return fetch(`${this.contentUrl}/v1/${this.project}/websocket/nonces`, {
       method: "POST",
       body: JSON.stringify({
-        branch: this.branch,
         profileId,
-        commitSha: this.commitSha,
+        /*
+         * Omitted when there is no repository, like every other request here.
+         * The content service knows this project's branch -- it is a column on
+         * the project -- and a nonce is scoped to the project and the person,
+         * not to a position in a chain.
+         */
+        ...(this.git
+          ? { branch: this.git.branch, commitSha: this.git.commit }
+          : {}),
       }),
       headers: {
         ...this.authHeaders,
@@ -817,8 +936,20 @@ export class ValOpsHttp extends ValOps {
     ExcludePatchOps extends true ? OrderedPatchesMetadata : OrderedPatches
   > {
     const params: [string, string][] = [];
-    params.push(["branch", this.branch]);
-    params.push(["commit", this.commitSha]);
+    /*
+     * A position in the chain, WHEN THIS BUILD HAS ONE.
+     *
+     * `commit` tells the content service where this deployment sits, so it can
+     * answer with the commits at or after that point. A build with no
+     * repository has no such commit baked into it, and asking the service to
+     * resolve the position itself is strictly better than inventing one: it
+     * holds the chain, and for a project it is the only publisher of, the
+     * position IS the head.
+     */
+    if (this.git) {
+      params.push(["branch", this.git.branch]);
+      params.push(["commit", this.git.commit]);
+    }
     if (filters.patchIds) {
       for (const patchId of filters.patchIds) {
         params.push(["patch_id", patchId]);
@@ -856,6 +987,17 @@ export class ValOpsHttp extends ValOps {
             ? OrderedPatchesMetadata
             : OrderedPatches)["errors"] = [];
           const data = parsed.data;
+          /*
+           * What the project expects of its publisher, remembered.
+           *
+           * Recorded here rather than returned because every caller of this
+           * already has what it needs and only the publish path asks the
+           * question -- and that path calls this first. See
+           * {@link publishRefusal}.
+           */
+          if (data.project) {
+            this.projectExpectation = data.project;
+          }
           for (const patchesRes of data.patches) {
             patches.push({
               authorId: patchesRes.authorId as AuthorId,
@@ -876,8 +1018,8 @@ export class ValOpsHttp extends ValOps {
             for (const commit of data.commits) {
               commits.push({
                 commitSha: commit.commitSha as CommitSha,
-                clientCommitSha: commit.clientCommitSha as CommitSha,
-                parentCommitSha: commit.parentCommitSha as CommitSha,
+                clientCommitSha: commit.clientCommitSha as CommitSha | null,
+                parentCommitSha: commit.parentCommitSha as CommitSha | null,
                 branch: commit.branch,
                 creator: commit.creator as AuthorId,
                 createdAt: commit.createdAt,
@@ -1147,7 +1289,9 @@ export class ValOpsHttp extends ValOps {
        * `saveSourceFilePatch`): groups are per branch, so a request without one
        * is not merely under-specified, it is rejected.
        */
-      const params = new URLSearchParams([["branch", this.branch]]);
+      const params = new URLSearchParams(
+        this.git ? [["branch", this.git.branch]] : [],
+      );
       const res = await fetch(
         `${this.contentUrl}/v1/${this.project}/patch-groups?${params}`,
         { headers: this.authHeaders },
@@ -1319,8 +1463,9 @@ export class ValOpsHttp extends ValOps {
         patchId,
         parentPatchId: parentRef.type === "patch" ? parentRef.patchId : null,
         baseSha,
-        commit: this.commitSha,
-        branch: this.branch,
+        ...(this.git
+          ? { commit: this.git.commit, branch: this.git.branch }
+          : {}),
         coreVersion: Internal.VERSION.core,
         /*
          * Group membership in the SAME request as the patch.
@@ -1580,12 +1725,32 @@ export class ValOpsHttp extends ValOps {
   protected override async getSourceFile(
     path: string,
   ): Promise<WithGenericError<{ data: string }>> {
+    /*
+     * There is no file to read without a repository to read it from.
+     *
+     * Reachable only through the CLI's debug snapshot now: the publish path
+     * does not call this for such a project at all -- see
+     * {@link ValOps.mirrorsSourceFiles} -- because there is nothing for it to
+     * produce. It is an error rather than an empty string because an empty
+     * `.val.ts` would be patched successfully and committed as a module that
+     * had lost all its content.
+     */
+    if (!this.git) {
+      return {
+        error: {
+          message:
+            `Cannot read the source of ${path}: this project has no ` +
+            "repository, so there is no `.val.ts` to read. Its content lives " +
+            "in Val's content service, which is the store of record for it.",
+        },
+      };
+    }
     const filesRes = await this.getHttpFiles([
       {
         filePath: path,
         location: "repo",
         root: this.root,
-        commitSha: this.commitSha as CommitSha,
+        commitSha: this.git.commit as CommitSha,
       },
     ]);
     if (filesRes.error) {
@@ -1619,11 +1784,22 @@ export class ValOpsHttp extends ValOps {
         }
     )[] = [];
 
+    if (!this.git) {
+      /*
+       * A published binary lives in the repository, and there is none.
+       *
+       * `null` is this method's existing "not found", which is what a caller
+       * already handles: the Studio falls back to the patch's own copy, which
+       * is where a managed project's files stay. See the note on local files
+       * in the content service's commit handler.
+       */
+      return null;
+    }
     requestFiles.push({
       filePath: filePath,
       location: "repo",
       root: this.root,
-      commitSha: this.commitSha as CommitSha,
+      commitSha: this.git.commit as CommitSha,
     });
     const filesRes = await this.getHttpFiles(requestFiles);
     if (filesRes.error) {
@@ -1882,7 +2058,6 @@ export class ValOpsHttp extends ValOps {
       }
   > {
     try {
-      const existingBranch = this.branch;
       const res = await fetch(`${this.contentUrl}/v1/${this.project}/commit`, {
         method: "POST",
         headers: {
@@ -1926,13 +2101,27 @@ export class ValOpsHttp extends ValOps {
            * moved on.
            */
           modules: prepared.moduleVersions,
-          commit: this.commitSha,
+          /*
+           * WHERE THIS BUILD THOUGHT IT WAS -- and only for a project with a
+           * repository, which is the only thing that still reads it.
+           *
+           * The content service mints its own commit shas, so this is no
+           * longer the parent, and it never was the concurrency check: that is
+           * `expectedHeadCommitSha` against `newestCommitSha(patches.commits)`,
+           * which `/save` runs before it gets here. What is left is the git
+           * fast-forward check, which needs to know the commit this build read
+           * the branch at to tell whether the branch has moved under it.
+           *
+           * The branch goes with it. The project's branch is a column on the
+           * project, so a build asserting one could only ever disagree with
+           * the project it is publishing to.
+           */
+          ...(this.git ? { commit: this.git.commit } : {}),
           root: this.root,
           filesDirectory,
           baseSha: await this.getBaseSha(),
           committer,
           message,
-          existingBranch,
           newBranch,
           ...(patchGroupId !== undefined ? { patchGroupId } : {}),
         }),
