@@ -1478,7 +1478,7 @@ export const ImageMixedChanges: Story = {
 // #region staging stories
 
 /**
- * Stage / unstage, with nothing held back.
+ * Stage / unstage, with nothing unstaged.
  *
  * Every row reads "Staged", so Publish publishes all of them and the screen looks
  * like the old review screen. This is the shape you get when everything pending is

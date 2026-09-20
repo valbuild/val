@@ -317,7 +317,7 @@ export type EditableOp = {
   from?: readonly string[];
 };
 
-export type HeldPatchSet = {
+export type UnstagedPatchSet = {
   patchSet: string;
   /** Pending patches in this patch set that are NOT in the group. */
   unstaged: PatchId[];
@@ -326,30 +326,30 @@ export type HeldPatchSet = {
 /**
  * Patch sets in which this group has left something unstaged.
  *
- * A held patch set is one where the author's view and the published result will
+ * An unstaged patch set is one where the author's view and the published result will
  * disagree: they see `base`, everyone else sees `base + the unstaged patch`. That
  * is fine as long as they only *look*. It stops being fine the moment they edit
  * there — see `editWouldRestage`.
  */
-export function heldPatchSets(
+export function unstagedPatchSets(
   index: PatchSetIndex,
   group: PatchGroup,
-): HeldPatchSet[] {
-  const held: HeldPatchSet[] = [];
+): UnstagedPatchSet[] {
+  const out: UnstagedPatchSet[] = [];
   index.sets.forEach((set, ordinal) => {
     const unstaged = set.filter((patchId) => !group.has(patchId));
     if (unstaged.length > 0) {
-      held.push({ patchSet: index.labels[ordinal], unstaged });
+      out.push({ patchSet: index.labels[ordinal], unstaged });
     }
   });
-  return held;
+  return out;
 }
 
 /**
  * Which unstaged patches an edit by `op` would drag back into the group.
  *
  * **This is a guard, not a convenience.** The prefix invariant says a group must
- * be prefix-closed, so an edit into a held patch set re-stages everything before
+ * be prefix-closed, so an edit into an unstaged patch set re-stages everything before
  * it. But the author picked their path — an array index, say — while looking at a
  * view that did *not* include those patches. Re-staging them shifts the content
  * under the path they just chose, and their edit silently lands somewhere else.
@@ -377,7 +377,7 @@ export function heldPatchSets(
  *   over-approximating half, and it is the safe direction.
  *
  * Containment is checked in both directions: the edit is unsafe whether it lands
- * inside a held patch set or is broad enough to swallow one.
+ * inside an unstaged patch set or is broad enough to swallow one.
  *
  * A `move` or `copy` touches two places, and `PatchSets` inserts it under both, so
  * `from` is checked as well. Taking the whole op rather than a path is what makes
@@ -414,7 +414,7 @@ export function editWouldRestage(
     }
   }
   const restaged = new Set<PatchId>();
-  for (const { patchSet, unstaged } of heldPatchSets(index, group)) {
+  for (const { patchSet, unstaged } of unstagedPatchSets(index, group)) {
     const overlaps = candidates.some(
       (candidate) =>
         candidate === patchSet ||

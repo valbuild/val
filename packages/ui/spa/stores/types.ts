@@ -435,7 +435,7 @@ export type SystemEvent =
        * Deliberately NOT applied, because the reader's patch group excludes it.
        *
        * A third answer, and it has to be one. "Applied" and "failed" are the
-       * two ways a patch can be finished with, and a held patch is neither —
+       * two ways a patch can be finished with, and an unstaged patch is neither —
        * but it IS decided, and saying nothing about it is what breaks
        * `PatchStore.chainSettled`, which waits for every patch in the chain to
        * be accounted for. Silence there reads as "still working", so the editor
@@ -444,7 +444,7 @@ export type SystemEvent =
        * Not folded into `failed`: nothing went wrong, and a failure is
        * surfaced to the user as a patch that could not be applied.
        */
-      held: PatchId[];
+      unstaged: PatchId[];
       /**
        * Modules whose source actually changed.
        *

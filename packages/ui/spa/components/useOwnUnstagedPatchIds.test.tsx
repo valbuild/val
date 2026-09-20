@@ -21,8 +21,8 @@ jest.mock("../stores/react/createValSystem", () => ({
  * The first version of this mock built `new Set(mockHeld)` on every render, so
  * the hook under test saw a fresh reference each time and its memo recomputed
  * whether or not it was keyed correctly. That made the suite unable to fail for
- * the bug it was written next to: `PatchStore.heldPatchIds()` returns
- * `this.heldIds` itself, so a memo keyed on that reference never recomputes.
+ * the bug it was written next to: `PatchStore.unstagedPatchIds()` returns
+ * `this.unstagedIds` itself, so a memo keyed on that reference never recomputes.
  */
 const mockHeld = new Set<PatchId>();
 let mockAuthorId: string | null = "alice";
@@ -38,7 +38,7 @@ let mockGroupsVersion = 1;
 
 jest.mock("./ValProvider", () => ({
   __esModule: true,
-  useHeldPatchIds: () => mockHeld,
+  useUnstagedPatchIds: () => mockHeld,
   useCurrentAuthorId: () => mockAuthorId,
   useChainVersion: () => mockChainVersion,
   useGroupsVersion: () => mockGroupsVersion,
@@ -72,7 +72,7 @@ jest.mock("../stores/react/SystemContext", () => ({
   useValSystem: () => mockSystem,
 }));
 
-import { useOwnHeldPatchIds } from "./useOwnHeldPatchIds";
+import { useOwnUnstagedPatchIds } from "./useOwnUnstagedPatchIds";
 
 /**
  * Which held patches Publish may offer to stage.
@@ -80,7 +80,7 @@ import { useOwnHeldPatchIds } from "./useOwnHeldPatchIds";
  * Holding other people's pending work is the NORMAL state on a shared branch,
  * so the branch-wide held set is the wrong input for any message that offers an
  * action. Publish told a user whose own edits had netted out to nothing that "1
- * change is held back — stage it in Review to publish", naming a colleague's
+ * change is unstaged — stage it in Review to publish", naming a colleague's
  * change they could neither publish nor sensibly stage, and the accurate
  * message about their own reverted work never appeared.
  */
@@ -98,7 +98,7 @@ function ownHeld(options: {
   for (const patchId of options.held) mockHeld.add(patchId);
   mockRecords = options.records;
   mockAuthorId = options.authorId === undefined ? "alice" : options.authorId;
-  return [...renderHook(() => useOwnHeldPatchIds()).result.current];
+  return [...renderHook(() => useOwnUnstagedPatchIds()).result.current];
 }
 
 test("a colleague's held change is not this user's to stage", () => {
@@ -163,8 +163,8 @@ test("staging a held change updates the count on the NEXT render", () => {
   /*
    * The bug a fresh mount cannot show.
    *
-   * `PatchStore.heldPatchIds()` returns `this.heldIds` — one Set, mutated in
-   * place — and `useHeldPatchIds` memoises that reference, so it is identical
+   * `PatchStore.unstagedPatchIds()` returns `this.unstagedIds` — one Set, mutated in
+   * place — and `useUnstagedPatchIds` memoises that reference, so it is identical
    * across every change. A memo here keyed on that reference alone therefore
    * computes once and never again: Publish went on saying "1 change is held
    * back — stage it in Review" after the user had staged it, and in the other
@@ -178,7 +178,7 @@ test("staging a held change updates the count on the NEXT render", () => {
   mockRecords = [{ patchId: MINE, authorId: "alice" }];
   mockAuthorId = "alice";
 
-  const { result, rerender } = renderHook(() => useOwnHeldPatchIds());
+  const { result, rerender } = renderHook(() => useOwnUnstagedPatchIds());
   expect([...result.current]).toEqual([MINE]);
 
   // The user stages it: the store empties the Set it already handed out, and

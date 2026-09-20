@@ -15,7 +15,7 @@ import { result } from "@valbuild/core/fp";
 import { PatchSets } from "./PatchSets";
 import {
   editWouldRestage,
-  heldPatchSets,
+  unstagedPatchSets,
   inChainOrder,
   indexPatchSets,
   PatchGroup,
@@ -157,7 +157,7 @@ class Run {
    * The group cannot tell those apart — a patch is in it or it is not — and the
    * difference decides what happens when you edit there. Somebody else's work in
    * a set you are now editing was never your decision, so it is staged for you.
-   * A region you held back WAS your decision, and quietly re-staging it on your
+   * A region you unstaged WAS your decision, and quietly re-staging it on your
    * next keystroke would be exactly the "silently enlarging somebody's publish"
    * that this feature exists to prevent. So that one still refuses.
    */
@@ -267,7 +267,7 @@ class Run {
         blockers.add(id);
       }
     }
-    // Split the blockers: what this author deliberately held back, and what was
+    // Split the blockers: what this author deliberately unstaged, and what was
     // simply never theirs. Only the second is staged for them.
     const deliberate = this.heldBackOf(step.by);
     const refusing = inChainOrder(this.index, blockers).filter((id) =>
@@ -653,7 +653,7 @@ class Run {
   private showGroups() {
     for (const author of this.authors) {
       const group = this.group(author);
-      const held = heldPatchSets(this.index, group);
+      const held = unstagedPatchSets(this.index, group);
       this.out.line(
         `      ${pad(author, 6)} ${pad(
           `{${inChainOrder(this.index, group).join(", ")}}`,

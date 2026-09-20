@@ -86,12 +86,12 @@ export function ReviewView({
     [model.modules],
   );
   const stagedGroups = sectionOf(model.modules, "staged");
-  const heldGroups = sectionOf(model.modules, "held");
+  const unstagedGroups = sectionOf(model.modules, "unstaged");
   const stagedCount = stagedGroups.reduce(
     (total, group) => total + group.rows.length,
     0,
   );
-  const heldCount = rows.length - stagedCount;
+  const unstagedCount = rows.length - stagedCount;
   const picked = [...selected];
 
   const toggle = (rowId: string, next: boolean): void =>
@@ -118,9 +118,9 @@ export function ReviewView({
             Review changes
           </h1>
           <p className="truncate text-sm text-fg-tertiary">
-            {heldCount === 0
-              ? `${stagedCount} ${stagedCount === 1 ? "change" : "changes"} in this publish`
-              : `${stagedCount} in this publish · ${heldCount} held back`}
+            {unstagedCount === 0
+              ? `${stagedCount} ${stagedCount === 1 ? "change" : "changes"} staged`
+              : `${stagedCount} staged · ${unstagedCount} unstaged`}
           </p>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-3">
@@ -169,31 +169,42 @@ export function ReviewView({
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+        {/*
+         * "Staged" / "Unstaged", the same two words the compare dialog's
+         * sections use and the same two the buttons in the bar use. This page
+         * said "In this publish" and "Held back", which named the same two
+         * facts in a third vocabulary — so an editor who pressed Unstage had
+         * to work out for themselves that the row would turn up under "Held
+         * back". `detail` is where the consequence goes, because that is the
+         * part a label cannot carry.
+         */}
         <Section
-          title="In this publish"
+          title="Staged"
+          detail="Publish ships these."
           count={stagedCount}
           groups={stagedGroups}
           model={model}
           selected={selected}
           onToggle={toggle}
           onDiscard={(id) => onDiscard([id])}
-          emptyNote="Nothing is staged. This publish would do nothing."
+          emptyNote="Nothing is staged, so Publish has nothing to ship. Stage a change below to publish it."
         />
         {/*
-         * The held section exists even when it is empty, because its absence
+         * The unstaged section exists even when it is empty, because its absence
          * and its emptiness mean the same thing on screen and different things
          * in fact: "everything is going out" is worth reading, and a section
          * that vanishes leaves the reader to infer it from a count.
          */}
         <Section
-          title="Held back"
-          count={heldCount}
-          groups={heldGroups}
+          title="Unstaged"
+          detail="Not in this publish. These stay pending and can be staged again — or published by someone else."
+          count={unstagedCount}
+          groups={unstagedGroups}
           model={model}
           selected={selected}
           onToggle={toggle}
           onDiscard={(id) => onDiscard([id])}
-          emptyNote="Nothing is held back — every change is in this publish."
+          emptyNote="Nothing is unstaged — every change is staged."
           muted
         />
       </div>
@@ -203,7 +214,7 @@ export function ReviewView({
 
 function sectionOf(
   modules: ReviewModuleGroup[],
-  which: "staged" | "held",
+  which: "staged" | "unstaged",
 ): ReviewModuleGroup[] {
   return modules
     .map((group) => ({
@@ -211,7 +222,9 @@ function sectionOf(
       // `partial` is in flight towards staged, so it belongs with the staged
       // rows: a row halfway into the publish is in the publish.
       rows: group.rows.filter((row) =>
-        which === "held" ? row.staging === "held" : row.staging !== "held",
+        which === "unstaged"
+          ? row.staging === "unstaged"
+          : row.staging !== "unstaged",
       ),
     }))
     .filter((group) => group.rows.length > 0);
@@ -358,6 +371,7 @@ function EmptyReview() {
 
 function Section({
   title,
+  detail,
   count,
   groups,
   model,
@@ -368,6 +382,8 @@ function Section({
   muted = false,
 }: {
   title: string;
+  /** What being in this section MEANS, which the one-word title cannot say. */
+  detail: string;
   count: number;
   groups: ReviewModuleGroup[];
   model: ReviewModel;
@@ -392,16 +408,19 @@ function Section({
         muted && "border-t border-border-primary pt-8",
       )}
     >
-      <div className="mb-4 flex items-baseline gap-2">
-        <h2
-          className={cn(
-            "text-xs font-semibold uppercase tracking-wider",
-            muted ? "text-fg-tertiary" : "text-fg-secondary",
-          )}
-        >
-          {title}
-        </h2>
-        <span className="text-xs tabular-nums text-fg-tertiary">{count}</span>
+      <div className="mb-4">
+        <div className="flex items-baseline gap-2">
+          <h2
+            className={cn(
+              "text-xs font-semibold uppercase tracking-wider",
+              muted ? "text-fg-tertiary" : "text-fg-secondary",
+            )}
+          >
+            {title}
+          </h2>
+          <span className="text-xs tabular-nums text-fg-tertiary">{count}</span>
+        </div>
+        <p className="mt-0.5 text-xs text-fg-tertiary">{detail}</p>
       </div>
       {groups.length === 0 ? (
         <p className="text-sm text-fg-tertiary">{emptyNote}</p>

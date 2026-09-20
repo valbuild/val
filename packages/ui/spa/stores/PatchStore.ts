@@ -34,7 +34,7 @@ export type FetchPatches = (patchIds: PatchId[]) => Promise<{
    * that predates them, or a lookup that failed — and staging stays off, which
    * is what every project does today. An empty ARRAY would be a different
    * claim: groups exist and hold nothing, which would turn staging on with
-   * everything held. The two must not be folded together.
+   * everything unstaged. The two must not be folded together.
    *
    * Carried on the patch fetch rather than fetched separately because it is
    * read from the same response: `GET /patches` annotates the chain, and a
@@ -281,14 +281,14 @@ export class PatchStore {
     markApplied(patchIds: readonly PatchId[]): void;
   } | null = null;
   /**
-   * Patches the source store reported as HELD — outside the reader's patch
+   * Patches the source store reported as UNSTAGED — outside the reader's patch
    * group, so deliberately not applied.
    *
    * Separate from `appliedIds` because they answer different questions: applied
-   * is "the effect is in the value", held is "we are done deciding about it".
+   * is "the effect is in the value", unstaged is "we are done deciding about it".
    * {@link chainSettled} needs the second; every value reader needs the first.
    */
-  private heldIds = new Set<PatchId>();
+  private unstagedIds = new Set<PatchId>();
   private failedById = new Map<PatchId, string>();
   /** Ids announced by stat whose fetch is in flight, so we do not re-fetch. */
   private fetching = new Set<PatchId>();
@@ -491,7 +491,7 @@ export class PatchStore {
         this.appliedIds.delete(failure.patchId);
       }
       /*
-       * Held: decided, and deliberately not in source.
+       * Unstaged: decided, and deliberately not in source.
        *
        * Tracked so {@link chainSettled} can tell "we are still working on this"
        * from "we are finished with it and it is not in the view". Without it a
@@ -502,8 +502,8 @@ export class PatchStore {
        * It is NOT applied, so it does not join `appliedIds` — a reader asking
        * "is this patch's effect in the value" must still be told no.
        */
-      for (const patchId of event.held) {
-        this.heldIds.add(patchId);
+      for (const patchId of event.unstaged) {
+        this.unstagedIds.add(patchId);
         this.failedById.delete(patchId);
         this.appliedIds.delete(patchId);
       }
@@ -511,8 +511,8 @@ export class PatchStore {
         ...event.success,
         ...event.failed.map((f) => f.patchId),
       ]) {
-        // Re-staged, or now applying: it is no longer held.
-        this.heldIds.delete(patchId);
+        // Re-staged, or now applying: it is no longer unstaged.
+        this.unstagedIds.delete(patchId);
       }
       this.events.emit({ type: "patch:head", head: this.currentHead() });
     });
@@ -831,16 +831,16 @@ export class PatchStore {
           message: res.error,
         });
       }
-      const held = new Set<PatchId>();
+      const unstaged = new Set<PatchId>();
       for (const record of res.patches) {
-        held.add(record.patchId);
+        unstaged.add(record.patchId);
       }
       for (const patchId of Object.keys(res.errors ?? {})) {
-        held.add(patchId as PatchId);
+        unstaged.add(patchId as PatchId);
       }
       const gone = ask.filter(
         (patchId) =>
-          !held.has(patchId) &&
+          !unstaged.has(patchId) &&
           // Re-read after the await rather than trusted from before it: this
           // patch may have been dropped, or published and forgotten, while the
           // request was in flight.
@@ -1336,8 +1336,8 @@ export class PatchStore {
      * And the SOURCE store, which holds its own reference to each record.
      *
      * Marking it here alone would be invisible on screen: the chain entry still
-     * points at the record it was given, so a held patch that has now shipped
-     * would go on being held until the deploy moved the base.
+     * points at the record it was given, so an unstaged patch that has now shipped
+     * would go on being unstaged until the deploy moved the base.
      */
     this.appliedSource?.markApplied(marked);
   }
@@ -1410,7 +1410,7 @@ export class PatchStore {
       this.originById.delete(patchId);
       this.pendingIds.delete(patchId);
       this.appliedIds.delete(patchId);
-      // Pruned with the rest, and NOT an afterthought: `heldIds` was left out
+      // Pruned with the rest, and NOT an afterthought: `unstagedIds` was left out
       // of these loops once and went on naming patches that no longer existed.
       this.serverAppliedIds.delete(patchId);
       this.failedById.delete(patchId);
@@ -1419,11 +1419,11 @@ export class PatchStore {
       this.fetching.delete(patchId);
       this.notDeliveredOnce.delete(patchId);
       this.publishErrorById.delete(patchId);
-      // Held is a fact about a patch that EXISTS. Left behind, `heldPatchIds()`
+      // Unstaged is a fact about a patch that EXISTS. Left behind, `unstagedPatchIds()`
       // keeps naming an id nothing can find, and Publish tells the reader "1
-      // change is held back — stage it in Review" about a patch that is not
+      // change is unstaged — stage it in Review" about a patch that is not
       // there to stage.
-      this.heldIds.delete(patchId);
+      this.unstagedIds.delete(patchId);
       forgotten.push(patchId);
     }
     if (forgotten.length === 0) return;
@@ -1459,7 +1459,7 @@ export class PatchStore {
       this.originById.delete(patchId);
       this.pendingIds.delete(patchId);
       this.appliedIds.delete(patchId);
-      // Pruned with the rest, and NOT an afterthought: `heldIds` was left out
+      // Pruned with the rest, and NOT an afterthought: `unstagedIds` was left out
       // of these loops once and went on naming patches that no longer existed.
       this.serverAppliedIds.delete(patchId);
       this.failedById.delete(patchId);
@@ -1468,11 +1468,11 @@ export class PatchStore {
       this.fetching.delete(patchId);
       this.notDeliveredOnce.delete(patchId);
       this.publishErrorById.delete(patchId);
-      // Held is a fact about a patch that EXISTS. Left behind, `heldPatchIds()`
+      // Unstaged is a fact about a patch that EXISTS. Left behind, `unstagedPatchIds()`
       // keeps naming an id nothing can find, and Publish tells the reader "1
-      // change is held back — stage it in Review" about a patch that is not
+      // change is unstaged — stage it in Review" about a patch that is not
       // there to stage.
-      this.heldIds.delete(patchId);
+      this.unstagedIds.delete(patchId);
       this.publishedIds.delete(patchId);
       dropped.push(patchId);
     }
@@ -1572,7 +1572,7 @@ export class PatchStore {
    * has no groups and staging must stay off; an empty array means groups exist
    * and this branch's hold nothing. Reading the second as the first turns
    * staging off where it should be on; the reverse turns it on with everything
-   * held.
+   * unstaged.
    */
   groups(): PatchGroupT[] | undefined {
     return this.patchGroups;
@@ -1640,14 +1640,14 @@ export class PatchStore {
    * Patches the source store is deliberately NOT applying, because they are
    * outside this reader's group.
    *
-   * Reported because held is invisible in the value and yet is not absence. A
+   * Reported because unstaged is invisible in the value and yet is not absence. A
    * reader that only compares the displayed source against base sees a module
-   * whose one pending patch is held as IDENTICAL to one whose pending patch was
-   * undone — and calling a held change "reverted" tells its author their work
+   * whose one pending patch is unstaged as IDENTICAL to one whose pending patch was
+   * undone — and calling an unstaged change "reverted" tells its author their work
    * is gone and offers to discard it.
    */
-  heldPatchIds(): ReadonlySet<PatchId> {
-    return this.heldIds;
+  unstagedPatchIds(): ReadonlySet<PatchId> {
+    return this.unstagedIds;
   }
 
   /**
@@ -1808,8 +1808,8 @@ export class PatchStore {
       if (
         !this.appliedIds.has(patchId) &&
         !this.pendingIds.has(patchId) &&
-        // Held is an answer, not a wait. See `heldIds`.
-        !this.heldIds.has(patchId)
+        // Unstaged is an answer, not a wait. See `unstagedIds`.
+        !this.unstagedIds.has(patchId)
       ) {
         return false;
       }

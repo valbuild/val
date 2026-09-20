@@ -165,7 +165,7 @@ export const reviewModel: ReviewModel = {
      */
     group("/app/blogs/[blog]/page.val.ts", named("Blog posts", "Pages"), [
       /*
-       * Held back, and it pulls somebody else's work in if you stage it.
+       * Unstaged, and it pulls somebody else's work in if you stage it.
        *
        * Both states on one row on purpose: this is the case the page exists
        * to make legible, and it is the one a flat list of diffs cannot show
@@ -178,7 +178,7 @@ export const reviewModel: ReviewModel = {
         "Text changed",
         by("profile-ada", "replace", 20),
         {
-          staging: "held",
+          staging: "unstaged",
           alsoStages: ["Linus Pauling"],
         },
       ),
@@ -188,7 +188,7 @@ export const reviewModel: ReviewModel = {
         ["/blogs/history-and-restore"],
         "Page renamed",
         by("profile-linus", "move", 90),
-        { staging: "held" },
+        { staging: "unstaged" },
       ),
     ]),
     group("/content/media.val.ts", unnamed("media"), [

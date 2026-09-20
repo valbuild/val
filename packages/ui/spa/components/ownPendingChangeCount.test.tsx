@@ -87,7 +87,7 @@ test("scoped counts only what this client would publish", () => {
   ).toBe(2);
 });
 
-test("a change held back is not counted", () => {
+test("an unstaged change is not counted", () => {
   // Unstaged: still in the chain, still pending, and not this publish's.
   expect(count({ chain: [MINE, THEIRS], scope: [], committed: [] })).toBe(0);
 });

@@ -53,7 +53,7 @@ export default meta;
 type Story = StoryObj<typeof Harness>;
 
 /**
- * The whole page: four modules, nine patch sets, two of them held back.
+ * The whole page: four modules, nine patch sets, two of them unstaged.
  *
  * What to look at, in the order the decisions were made:
  *
@@ -102,7 +102,7 @@ export const Selecting: Story = {
  * and both sections.
  *
  * Both sections on purpose. A preset selects by WHO, not by where the row
- * already is, so pressing Stage here pulls her held-back blog change into the
+ * already is, so pressing Stage here pulls her unstaged blog change into the
  * publish and leaves Linus's alone — which is the sentence the preset exists
  * to make one gesture.
  */
@@ -135,7 +135,7 @@ export const Empty: Story = { args: { model: emptyReviewModel } };
  * `PatchStaging.enabled` already states, and the reason it exists: a control
  * that silently does nothing is worse than no control. The checkboxes stay,
  * because selecting rows to revert works without a group to put them in, and
- * so does the Held back section — empty, saying so.
+ * so does the Unstaged section — empty, saying so.
  */
 export const NoStaging: Story = { args: { model: noStagingReviewModel } };
 

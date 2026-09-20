@@ -295,7 +295,7 @@ export type System = HostRealm &
      * before their first write on a branch, and again after every publish,
      * because a publish closes the group and the next one is created by the
      * next write. The review screen is usable in both windows — unstaging
-     * somebody else's patch, or re-staging one held earlier — and every such
+     * somebody else's patch, or re-staging one unstaged earlier — and every such
      * change used to reach only the local scope and then be lost on reload.
      *
      * Held on the SYSTEM rather than in the review screen, because the screen
@@ -308,7 +308,7 @@ export type System = HostRealm &
       change: PatchGroupChangeRequest,
     ): void;
     /**
-     * Send everything {@link System.persistPatchGroupChange} held back.
+     * Send everything {@link System.persistPatchGroupChange} deferred.
      *
      * Called when a group id appears. In chain order of the user's clicks: the
      * server unions on stage and removes on unstage, so replaying the moves in
@@ -1070,10 +1070,10 @@ export function createSystem(options: SystemOptions): System {
       // edit is worse, and the prefix can still be restored by staging.
       return [];
     }
-    const held = new Set(patchGroupIds);
-    const next = stageClosure(index, held, patchIds);
+    const staged = new Set(patchGroupIds);
+    const next = stageClosure(index, staged, patchIds);
     return [...next].filter(
-      (patchId) => !held.has(patchId) && !patchIds.includes(patchId),
+      (patchId) => !staged.has(patchId) && !patchIds.includes(patchId),
     );
   }
 
@@ -1300,7 +1300,7 @@ export function createSystem(options: SystemOptions): System {
      * list, and a `StoreBus` calls its listeners in registration order, so
      * running first means the patch is already visible by the time
      * `applyEntries` decides whether to hold it. Registered after, the patch
-     * would be applied as held and then un-held by a full module rebuild —
+     * would be applied as unstaged and then re-staged by a full module rebuild —
      * correct, but a rebuild of the module's whole chain on every keystroke.
      */
     patchStore.events.on("patch:create", (event) => {

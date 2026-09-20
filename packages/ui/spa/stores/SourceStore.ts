@@ -468,7 +468,7 @@ export class SourceStore {
           type: "source:patch-apply",
           success: [],
           failed: [],
-          held: [],
+          unstaged: [],
           modules,
         });
       }
@@ -608,7 +608,7 @@ export class SourceStore {
       type: "source:patch-apply",
       success: [],
       failed: [],
-      held: [],
+      unstaged: [],
       modules: [moduleFilePath],
     });
   }
@@ -1435,7 +1435,7 @@ export class SourceStore {
    * this store had before groups existed. An empty Set means a group that holds
    * nothing, and then base is what you see.
    *
-   * Held patches stay in `chains`. They are not dropped, because they are not
+   * Unstaged patches stay in `chains`. They are not dropped, because they are not
    * gone: unstaging is reversible, another author is still working on them, and
    * re-staging has to be able to put them back without re-fetching. So the chain
    * remains the whole truth and this is a filter over it.
@@ -1461,7 +1461,7 @@ export class SourceStore {
      * content that no group holds — the publisher's own group was CLOSED by the
      * publish, and nobody else's ever held it. Filtering it out made the Studio
      * disagree with the server (`scopedPatches` applies it), count live content
-     * as held, and — after a reload — hide the author's own just-shipped change
+     * as unstaged, and — after a reload — hide the author's own just-shipped change
      * from them.
      *
      * `prefixViolations` in `createSystem` already treats applied as shipped;
@@ -1504,14 +1504,14 @@ export class SourceStore {
     if (patchIds.length === 0) return;
     const applied = new Set(patchIds);
     /*
-     * Which entries were HELD and are now visible, worked out BEFORE the
+     * Which entries were UNSTAGED and are now visible, worked out BEFORE the
      * records are touched.
      *
      * `setVisiblePatchIds` decides what to rebuild by comparing `isVisible`
      * against the entry it already holds — so updating the records first would
      * make it compare the new state with itself and rebuild nothing at all.
      */
-    const unheld: ModuleFilePath[] = [];
+    const nowVisible: ModuleFilePath[] = [];
     const touched: SourcePath[] = [];
     for (const [moduleFilePath, chain] of this.chains) {
       let differs = false;
@@ -1527,14 +1527,14 @@ export class SourceStore {
           appliedAt: { commitSha: APPLIED_ELSEWHERE_SHA },
         };
       }
-      if (differs) unheld.push(moduleFilePath);
+      if (differs) nowVisible.push(moduleFilePath);
     }
-    if (unheld.length === 0) {
+    if (nowVisible.length === 0) {
       // Every one of them was already on screen. The records are now honest
       // about why, which is all this had to change.
       return;
     }
-    this.rebuildModules(unheld, touched);
+    this.rebuildModules(nowVisible, touched);
   }
 
   setVisiblePatchIds(patchIds: readonly PatchId[] | null): void {
@@ -2117,7 +2117,7 @@ export class SourceStore {
     if (entries.length === 0) return;
     const success: PatchId[] = [];
     const failed: { patchId: PatchId; message: string }[] = [];
-    const held: PatchId[] = [];
+    const unstaged: PatchId[] = [];
     const touched: SourcePath[] = [];
     const changedModules = new Set<ModuleFilePath>();
 
@@ -2133,18 +2133,18 @@ export class SourceStore {
        * A patch outside the reader's group is in the chain but not in the view.
        *
        * Enforced HERE rather than only at the call sites that replay a chain,
-       * because a held patch reaches this method by several routes — a fresh
+       * because an unstaged patch reaches this method by several routes — a fresh
        * `receive`, a module loading late, a drop rebuilding its neighbours — and
        * every one of them would otherwise re-land it. It stays in `chains`: it
-       * is held, not gone, and re-staging has to be able to put it back.
+       * is unstaged, not gone, and re-staging has to be able to put it back.
        *
        * REPORTED, not silently skipped. `chainSettled` waits for every patch in
-       * the chain to be accounted for as applied or failed, so a held patch that
+       * the chain to be accounted for as applied or failed, so an unstaged patch that
        * says nothing reads as "still working" and the editor holds every field
        * inert for as long as the tab is open.
        */
       if (!this.isVisible(record)) {
-        held.push(record.patchId);
+        unstaged.push(record.patchId);
         continue;
       }
       const raw = this.sources[record.moduleFilePath];
@@ -2216,12 +2216,12 @@ export class SourceStore {
     // Reached whenever every record targeted a module that is not loaded —
     // which is a deferral rather than a loss.
     //
-    // `held` counts as something happening, and leaving it out of this guard is
+    // `unstaged` counts as something happening, and leaving it out of this guard is
     // what made the first version of this fix useless: a replay in which EVERY
-    // patch was held — the normal case for a reader scoped to a small group —
+    // patch was unstaged — the normal case for a reader scoped to a small group —
     // returned here, the event was never emitted, and `chainSettled` waited
     // forever on patches it was never told about.
-    if (success.length === 0 && failed.length === 0 && held.length === 0) {
+    if (success.length === 0 && failed.length === 0 && unstaged.length === 0) {
       return;
     }
 
@@ -2233,7 +2233,7 @@ export class SourceStore {
       type: "source:patch-apply",
       success,
       failed,
-      held,
+      unstaged,
       modules: [...changedModules],
     });
 
@@ -2380,10 +2380,10 @@ function samePeek(a: SourcePeek, b: SourcePeek): boolean {
  * (`/test.val.ts?"field"`), so each op path is converted and qualified with the
  * module. `move`/`copy` change two places, so both ends are reported.
  *
- * Exported for `useNoOpSourcePaths`, which needs to know WHICH paths a held
+ * Exported for `useNoOpSourcePaths`, which needs to know WHICH paths an unstaged
  * patch hides rather than only which module it is in — excluding the whole
  * module misclassifies a genuinely reverted field that happens to share a
- * module with somebody else's held change.
+ * module with somebody else's unstaged change.
  */
 export function touchedSourcePaths(record: PatchRecord): SourcePath[] {
   const paths: SourcePath[] = [];
