@@ -119,4 +119,31 @@ test.describe("an image field backed by a gallery", () => {
 
     await discardAll(page);
   });
+
+  /**
+   * It can be emptied again, which is the whole of `.nullable()`.
+   *
+   * This field is opened on its own — no `Field` wrapper, so no nullable tick
+   * box — and the picker only ever swaps one gallery entry for another. So
+   * until the field grew a Remove of its own, `fromGallery` could be given an
+   * image and then never given none, whatever the schema said.
+   */
+  test("can be emptied again", async ({ page }) => {
+    const studio = await uploadInto(page);
+    await studio.getByRole("button", { name: "Remove" }).click();
+
+    await expect
+      .poll(() =>
+        peekThroughStore(page, '/content/mediaFields.val.ts?p="fromGallery"'),
+      )
+      .toBe(null);
+    // And on screen: the field is back to the empty state it started in, so
+    // the Focal point section — which needs a file — is gone with it.
+    await expect(
+      studio.getByRole("button", { name: "Focal point" }),
+    ).toBeHidden();
+    await expect(studio.getByRole("button", { name: "Remove" })).toBeHidden();
+
+    await discardAll(page);
+  });
 });

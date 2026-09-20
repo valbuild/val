@@ -25,7 +25,7 @@ import {
   useRemoteFiles,
 } from "../ValRemoteProvider";
 import { PreviewLoading, PreviewNull } from "../Preview";
-import { File, SquareArrowOutUpRight, Upload } from "lucide-react";
+import { File, SquareArrowOutUpRight, Upload, X } from "lucide-react";
 import { readFile } from "../../utils/readFile";
 import { Button } from "../designSystem/button";
 import { useMemo, useRef, useState } from "react";
@@ -166,6 +166,12 @@ export function FileField({
         );
         setLoading(false);
       }
+    } else if (maybeSourceData === null) {
+      // The field was cleared. The URL is state rather than derived, so it
+      // survives the source going away unless it is cleared too — and a row
+      // still naming the file you just removed is indistinguishable from the
+      // removal not having worked.
+      setUrl(null);
     }
   }, [sourceAtPath, filePatchIds]);
   useEffect(() => {
@@ -427,6 +433,28 @@ export function FileField({
                   disabled={disabled}
                   portalContainer={portalContainer}
                 />
+              )}
+              {/*
+               * Clearing the field, for a schema that allows it. Same rule as
+               * `ImageField`: a file opened on its own has no `Field` wrapper
+               * and so no nullable checkbox, and `readonly` alone gates it
+               * because taking a file out needs none of what putting one in
+               * does.
+               */}
+              {schemaAtPath.data.opt && source && !readonly && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    addPatch(
+                      [{ op: "replace", path: patchPath, value: null }],
+                      type,
+                    );
+                  }}
+                >
+                  <X className="mr-1.5 h-3.5 w-3.5" />
+                  Remove
+                </Button>
               )}
             </>
           }
