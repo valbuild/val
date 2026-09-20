@@ -22,6 +22,7 @@ import {
   Loader2,
   Plus,
   ShieldCheck,
+  SquareCheck,
   Trash2,
 } from "lucide-react";
 import {
@@ -64,6 +65,24 @@ import {
   probeSummary,
 } from "./externalUrlReachability";
 
+/**
+ * The four answers to "how do you pick which URLs to check".
+ *
+ * - `always` - a checkbox on every row, every group header and the list
+ *   header. What this shipped with.
+ * - `hover` - the same checkboxes, painted only under the pointer, under
+ *   keyboard focus, or once anything is selected. The slot is always reserved,
+ *   so nothing moves when one appears.
+ * - `explicit` - no checkboxes until Select is pressed, then all of them.
+ * - `none` - no selection at all. Check acts on whatever the filter shows,
+ *   and the filter is how you scope it.
+ */
+export type ExternalPagesSelectionMode =
+  | "always"
+  | "hover"
+  | "explicit"
+  | "none";
+
 export type ExternalPagesDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -95,6 +114,16 @@ export type ExternalPagesDialogProps = {
    * answer, not a broken one.
    */
   onProbe?: ExternalUrlProber;
+  /**
+   * How much of the selection machinery is on screen.
+   *
+   * A design choice with a prop in front of it while it is being decided: a
+   * list of eighteen URLs in eight domains carries twenty-seven checkboxes in
+   * `always`, all of them empty, all of them competing with the thing the list
+   * is actually made of. Selection scopes exactly one action - Check - and the
+   * filter already expresses most of the subsets anyone wants.
+   */
+  selection?: ExternalPagesSelectionMode;
   /**
    * Where the dialog portals to - the Studio's node inside the shadow root.
    *
@@ -132,12 +161,15 @@ export function ExternalPagesDialog({
   onRemovePage,
   isLoading,
   onProbe,
+  selection: selectionMode = "always",
   portalContainer,
 }: ExternalPagesDialogProps) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ExternalPageFilter>("all");
   const [grouped, setGrouped] = useState(true);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  /** `explicit` only: whether Select has been pressed. */
+  const [selecting, setSelecting] = useState(false);
   const [openUrl, setOpenUrl] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   /**
@@ -312,6 +344,15 @@ export function ExternalPagesDialog({
     });
   };
 
+  /*
+   * Whether any checkbox is on screen at all, and whether a row's is painted
+   * before you point at it. `hover` keeps the slot - an empty 16px box of
+   * reserved space - so a row does not resize under the pointer.
+   */
+  const canSelect =
+    selectionMode !== "none" && (selectionMode !== "explicit" || selecting);
+  const revealOnHover = selectionMode === "hover" && selected.size === 0;
+
   const allVisibleSelected =
     visible.length > 0 && visible.every((row) => selected.has(row.page.url));
   const someVisibleSelected =
@@ -366,6 +407,13 @@ export function ExternalPagesDialog({
           grouped={grouped}
           onGroupedChange={setGrouped}
           totals={totals}
+          selectionMode={selectionMode}
+          selecting={selecting}
+          onSelectingChange={(next) => {
+            setSelecting(next);
+            if (!next) setSelected(new Set());
+          }}
+          selectedCount={selected.size}
           existingKeys={existingKeys}
           portalContainer={portalContainer}
           checkCount={checkTargets.length}
@@ -391,22 +439,24 @@ export function ExternalPagesDialog({
               ) : (
                 <>
                   <div className="flex items-center gap-2 h-8 px-4 border-b border-border-float">
-                    <RowCheckbox
-                      checked={
-                        allVisibleSelected
-                          ? true
-                          : someVisibleSelected
-                            ? "indeterminate"
-                            : false
-                      }
-                      onCheckedChange={(next) =>
-                        setManySelected(
-                          visible.map((row) => row.page.url),
-                          next === true,
-                        )
-                      }
-                      aria-label={`Select all ${visible.length} URLs`}
-                    />
+                    {canSelect && (
+                      <RowCheckbox
+                        checked={
+                          allVisibleSelected
+                            ? true
+                            : someVisibleSelected
+                              ? "indeterminate"
+                              : false
+                        }
+                        onCheckedChange={(next) =>
+                          setManySelected(
+                            visible.map((row) => row.page.url),
+                            next === true,
+                          )
+                        }
+                        aria-label={`Select all ${visible.length} URLs`}
+                      />
+                    )}
                     <span className="text-[0.6875rem] uppercase tracking-wide text-fg-secondary-alt">
                       {selected.size > 0
                         ? `${selected.size} selected`
@@ -450,6 +500,8 @@ export function ExternalPagesDialog({
                           openUrl={openUrl}
                           onOpen={openDetail}
                           showHost={false}
+                          canSelect={canSelect}
+                          revealOnHover={revealOnHover}
                         />
                       ))
                     : flat.map((row) => (
@@ -461,6 +513,8 @@ export function ExternalPagesDialog({
                           isOpen={openUrl === row.page.url}
                           onOpen={() => openDetail(row.page.url)}
                           showHost
+                          canSelect={canSelect}
+                          revealOnHover={revealOnHover}
                         />
                       ))}
                 </>
@@ -528,8 +582,29 @@ export function ExternalPagesDialog({
  * change all of them - but it is the same bug wherever it is drawn on a pale
  * background.
  */
-function RowCheckbox(props: ComponentProps<typeof Checkbox>) {
-  return <Checkbox {...props} className="border-border-primary" />;
+function RowCheckbox({
+  reveal,
+  ...props
+}: ComponentProps<typeof Checkbox> & {
+  /**
+   * Paint it only under the pointer or under keyboard focus.
+   *
+   * Opacity rather than mounting, so the space it occupies is the same either
+   * way and a row does not reflow as the pointer crosses it. It still takes
+   * focus while invisible, which is the point: tabbing to it makes it appear.
+   */
+  reveal?: boolean;
+}) {
+  return (
+    <Checkbox
+      {...props}
+      className={cn(
+        "border-border-primary",
+        reveal &&
+          "opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100 data-[state=checked]:opacity-100 data-[state=indeterminate]:opacity-100",
+      )}
+    />
+  );
 }
 
 function Toolbar({
@@ -540,6 +615,10 @@ function Toolbar({
   grouped,
   onGroupedChange,
   totals,
+  selectionMode,
+  selecting,
+  onSelectingChange,
+  selectedCount,
   existingKeys,
   portalContainer,
   checkCount,
@@ -556,6 +635,10 @@ function Toolbar({
   grouped: boolean;
   onGroupedChange: (value: boolean) => void;
   totals: { ok: number; warning: number; error: number };
+  selectionMode: ExternalPagesSelectionMode;
+  selecting: boolean;
+  onSelectingChange: (selecting: boolean) => void;
+  selectedCount: number;
   /** Every key already in the router, so the add form can refuse a duplicate. */
   existingKeys: string[];
   portalContainer?: HTMLElement | null;
@@ -599,6 +682,21 @@ function Toolbar({
         ]}
       />
       <div className="ml-auto flex items-center gap-2">
+        {selectionMode === "explicit" && (
+          <Button
+            size="sm"
+            variant={selecting ? "secondary" : "ghost"}
+            aria-pressed={selecting}
+            onClick={() => onSelectingChange(!selecting)}
+          >
+            <SquareCheck size={14} className="mr-1" aria-hidden />
+            {selecting
+              ? selectedCount > 0
+                ? `${selectedCount} selected`
+                : "Done"
+              : "Select"}
+          </Button>
+        )}
         {onAddPage && (
           <AddUrlButton
             existingKeys={existingKeys}
@@ -681,6 +779,8 @@ function Group({
   openUrl,
   onOpen,
   showHost,
+  canSelect,
+  revealOnHover,
 }: {
   group: ExternalPageGroup;
   collapsed: boolean;
@@ -691,18 +791,23 @@ function Group({
   openUrl: string | null;
   onOpen: (url: string) => void;
   showHost: boolean;
+  canSelect: boolean;
+  revealOnHover: boolean;
 }) {
   const all = group.rows.every((row) => selected.has(row.page.url));
   const some = !all && group.rows.some((row) => selected.has(row.page.url));
   const flagged = group.rows.filter((row) => row.status !== "ok").length;
   return (
     <section>
-      <div className="flex items-center gap-2 h-8 px-4 sticky top-0 bg-bg-float">
-        <RowCheckbox
-          checked={all ? true : some ? "indeterminate" : false}
-          onCheckedChange={(next) => onToggleGroup(next === true)}
-          aria-label={`Select the ${group.rows.length} URLs on ${group.domain}`}
-        />
+      <div className="group/row flex items-center gap-2 h-8 px-4 sticky top-0 bg-bg-float">
+        {canSelect && (
+          <RowCheckbox
+            checked={all ? true : some ? "indeterminate" : false}
+            onCheckedChange={(next) => onToggleGroup(next === true)}
+            reveal={revealOnHover}
+            aria-label={`Select the ${group.rows.length} URLs on ${group.domain}`}
+          />
+        )}
         <button
           type="button"
           onClick={onToggleCollapsed}
@@ -737,6 +842,8 @@ function Group({
             isOpen={openUrl === row.page.url}
             onOpen={() => onOpen(row.page.url)}
             showHost={showHost}
+            canSelect={canSelect}
+            revealOnHover={revealOnHover}
             indented
           />
         ))}
@@ -762,12 +869,16 @@ function Row({
   onOpen,
   showHost,
   indented,
+  canSelect,
+  revealOnHover,
 }: {
   row: ExternalPageRowData;
   selected: boolean;
   onToggle: () => void;
   isOpen: boolean;
   onOpen: () => void;
+  canSelect: boolean;
+  revealOnHover: boolean;
   showHost: boolean;
   indented?: boolean;
 }) {
@@ -787,13 +898,20 @@ function Row({
   ].filter((note): note is string => note !== null);
   return (
     <div
-      className={cn("flex items-center gap-2 pr-3", indented ? "pl-9" : "pl-4")}
+      className={cn(
+        // `group/row` is what the hover-revealed checkbox keys off.
+        "group/row flex items-center gap-2 pr-3",
+        indented ? "pl-9" : "pl-4",
+      )}
     >
-      <RowCheckbox
-        checked={selected}
-        onCheckedChange={onToggle}
-        aria-label={`Select ${page.url}`}
-      />
+      {canSelect && (
+        <RowCheckbox
+          checked={selected}
+          onCheckedChange={onToggle}
+          reveal={revealOnHover}
+          aria-label={`Select ${page.url}`}
+        />
+      )}
       <button
         type="button"
         onClick={onOpen}
