@@ -40,6 +40,7 @@ function SiteLayout() {
         <Link to="/docs/$" params={{ _splat: "getting-started" }}>
           Docs
         </Link>
+        <Link to="/showcase">Showcase</Link>
         <a href="/val">Val Studio</a>
       </nav>
       {/*
