@@ -589,6 +589,50 @@ Adopted only for a module whose source was also adopted: the source decides whic
 keys exist, so taking one without the other would leave the content and the key
 set describing different moments.
 
+**A bare "Internal Server Error" from a patch save is `home` THROWING, and the
+reason is in `details`.** `sendResult` answers a refusal with the refusal's own
+message and an exception with the constant `"Internal Server Error"` plus the
+exception's message in `details` — so the one error whose `message` says
+nothing is the one whose `details` say everything.
+`getErrorMessageFromUnknownJson` now appends a STRING `details` (capped, and
+only a string: a refusal puts a structured zod error there, already summarised
+in `message`). Before that, this was the entire diagnosis available anywhere:
+
+```json
+{ "type": "patch-error", "message": "Internal Server Error", "errors": { … } }
+```
+
+— with the same text in the app's own logs, because Val was relaying it.
+
+**The deployment that produced it had silently lost its repository, and
+nothing said so.** `gitCommit` / `gitBranch` in `val.config.ts` are how an app
+names one, and for a while they did not reach the resolution at all: the
+framework bindings hand `initHandlerOptions` `{ versions, ...config }`, it read
+a nested `git` object, and nothing mapped the flat keys onto it — so a project
+setting the documented `gitCommit: process.env.VERCEL_GIT_COMMIT_SHA` resolved
+to NO repository. (Fixed in #708.) That was survivable until 0.133.0 made a
+repository optional in http mode, at which point the same configuration stopped
+being a startup error and became a supported, wrong mode.
+
+Three things follow, and none of them mentions git:
+
+- published images 404 from `/api/val/files` while serving fine from
+  `/public` — `getBinaryFile` has no repository to read them out of;
+- a publish saves the content and mirrors no `.val.ts`, so the repository
+  quietly falls behind;
+- every patch goes up with no `commit` and no `branch`, which `home` stores as
+  a NULL `patch_commit_sha` — correctly, and for one release unreadably, so the
+  SECOND edit of a session failed and the first did not. (The first edit is
+  what becomes the second one's parent.) It read as "I can create the record
+  entry but I cannot upload its image".
+
+`publishRefusal` names the state for a project that HAS a repository attached;
+nothing names it for one that does not, which is why it can be true for a week.
+The general shape is worth keeping: an option that is SPREAD into an options
+type and then not read is a compile error nowhere and a behaviour change
+everywhere. `homeWireContract.test.ts` pins what a deployment with no
+repository puts on the wire.
+
 ## Testing
 
 **`packages/ui` has no jsdom by default**, and importing a field component pulls in

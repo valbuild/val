@@ -53,21 +53,47 @@ const HOME_UNSTAGE = {
 };
 
 /** Every request the ops made, so a test can assert on what went out. */
-type SentRequest = { url: string; headers: Record<string, string> };
+type SentRequest = {
+  url: string;
+  headers: Record<string, string>;
+  body?: unknown;
+};
 
-function opsAnswering(body: unknown, status = 200) {
+function opsAnswering(
+  body: unknown,
+  status = 200,
+  options?: {
+    /**
+     * The repository this deployment was built from, or `null` for one that was
+     * not built from any. See `git` on `ValApiOptions`.
+     */
+    git?: { commit: string; branch: string } | null;
+  },
+) {
   const originalFetch = global.fetch;
   const sent: SentRequest[] = [];
-  global.fetch = (async (url: string, init?: { headers?: HeadersInit }) => {
+  global.fetch = (async (
+    url: string,
+    init?: { headers?: HeadersInit; body?: string },
+  ) => {
     sent.push({
       url: String(url),
       headers: Object.fromEntries(
         Object.entries((init?.headers ?? {}) as Record<string, string>),
       ),
+      body: init?.body === undefined ? undefined : JSON.parse(init.body),
     });
     return {
       ok: status >= 200 && status < 300,
       status,
+      statusText: status === 500 ? "Internal Server Error" : "",
+      // `saveSourceFilePatch` reads this before it decides whether the body is
+      // worth unwrapping, so a stub without it takes the "not JSON" branch and
+      // the test would pass on a message this file is about.
+      headers: {
+        get: (name: string) =>
+          name.toLowerCase() === "content-type" ? "application/json" : null,
+      },
       json: async () => body,
       text: async () => JSON.stringify(body),
     };
@@ -75,7 +101,9 @@ function opsAnswering(body: unknown, status = 200) {
   const ops = new ValOpsHttp(
     CONTENT_URL,
     PROJECT,
-    { commit: "commit-sha", branch: "main" },
+    options?.git === undefined
+      ? { commit: "commit-sha", branch: "main" }
+      : options.git,
     { apiKey: "key" },
     // The module side is irrelevant here: nothing on this path evaluates a
     // module or reads a schema.
@@ -458,6 +486,139 @@ test("a fresh read really does bypass the cache, and a default read really does 
     // A decision, so it asks again.
     await ops.getPatchGroups({ fresh: true });
     expect(sent).toHaveLength(2);
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * `home` — `HttpError` as `sendResult`'s catch writes it, copied from
+ * `content/src/utils/sendResult.ts`.
+ *
+ * This is the answer to a handler that THREW, and it is shaped unlike every
+ * other refusal in the service: the `message` is the constant string
+ * "Internal Server Error", and the exception's own message — the only thing
+ * that says what went wrong — is in `details`.
+ *
+ * `getErrorMessageFromUnknownJson` read `message` and dropped the rest, so a
+ * patch save against a throwing content service put exactly
+ * `{"type":"patch-error","message":"Internal Server Error"}` in front of an
+ * editor, and the reason was never anywhere a person could reach: not in the
+ * app's logs, which record the same relayed message, and not in the browser,
+ * which only ever saw it.
+ *
+ * The `details` below is the real one from the incident that prompted this, and
+ * it is worth reading as an example of what is being thrown away: it names the
+ * column, the value and the query.
+ */
+const HOME_INTERNAL_ERROR = {
+  statusCode: 500,
+  message: "Internal Server Error",
+  details:
+    "Could not validate expected return columns. Validation error: Expected " +
+    'string, received null at "patch_commit_sha". Query: "SELECT author, ' +
+    'branch, patch_commit_sha, base_sha, seq_num, patch, patch_id ..."',
+};
+
+test("home's 500 reaches the editor with the reason it was carrying", async () => {
+  const { ops, restore } = opsAnswering(HOME_INTERNAL_ERROR, 500);
+  try {
+    const res = await ops.createPatch(
+      "/content/landing.val.ts" as ModuleFilePath,
+      [{ op: "replace", path: ["title"], value: "Hello" }],
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+      { type: "head", headBaseSha: "base" as never },
+      null,
+      PROFILE,
+    );
+
+    if (!result.isErr(res)) {
+      throw new Error("a 500 must not be reported as a saved patch");
+    }
+    if (res.error.errorType !== "other") {
+      throw new Error(`expected 'other', got '${res.error.errorType}'`);
+    }
+    // The constant is still there — it is what the service said — but it is no
+    // longer the whole message, which is the difference between an error a
+    // person can act on and one they can only report.
+    expect(res.error.error.message).toContain("Internal Server Error");
+    expect(res.error.error.message).toContain("patch_commit_sha");
+    expect(res.error.error.message).not.toBe("Internal Server Error");
+  } finally {
+    restore();
+  }
+});
+
+/**
+ * A deployment built from no repository, writing a patch.
+ *
+ * This is what `git: null` MEANS on the wire, and it is the half of the
+ * contract the incident above turned on: with no repository there is no commit
+ * to record, so `POST /patches` carries neither `commit` nor `branch` and
+ * `home` stores `val_patches.patch_commit_sha` as NULL and resolves the branch
+ * from the project row.
+ *
+ * Pinned from this side because the two repos have to agree about it and only
+ * one of them can be tested here. `home` made that column nullable for exactly
+ * this case; a read path there that still requires a value turns the SECOND
+ * edit in a row into a 500, because the first one is now somebody's parent.
+ *
+ * Omitted rather than sent as null, and the distinction is not cosmetic: a
+ * content API that predates optional git validates the fields it is given, so
+ * `branch: null` is a 400 on every write where an absent key is the older,
+ * working shape.
+ */
+test("a deployment with no repository sends no commit and no branch", async () => {
+  const { ops, sent, restore } = opsAnswering(
+    { patchId: "44444444-4444-4444-8444-444444444444" },
+    200,
+    { git: null },
+  );
+  try {
+    const res = await ops.createPatch(
+      "/content/landing.val.ts" as ModuleFilePath,
+      [{ op: "replace", path: ["title"], value: "Hello" }],
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+      { type: "head", headBaseSha: "base" as never },
+      null,
+      PROFILE,
+    );
+
+    if (result.isErr(res)) {
+      throw new Error(`did not save: ${JSON.stringify(res.error)}`);
+    }
+    const save = sent.find((request) => request.url.endsWith("/patches"));
+    expect(save).toBeDefined();
+    const body = save?.body as Record<string, unknown>;
+    expect(body).not.toHaveProperty("commit");
+    expect(body).not.toHaveProperty("branch");
+    // Everything else still goes, including the position within the chain,
+    // which is what orders patches when there is no commit to order them by.
+    expect(body).toHaveProperty("baseSha");
+    expect(body.authorId).toBe(PROFILE);
+  } finally {
+    restore();
+  }
+});
+
+test("a deployment built from a repository still sends both", async () => {
+  const { ops, sent, restore } = opsAnswering({
+    patchId: "44444444-4444-4444-8444-444444444444",
+  });
+  try {
+    await ops.createPatch(
+      "/content/landing.val.ts" as ModuleFilePath,
+      [{ op: "replace", path: ["title"], value: "Hello" }],
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+      { type: "head", headBaseSha: "base" as never },
+      null,
+      PROFILE,
+    );
+
+    const save = sent.find((request) => request.url.endsWith("/patches"));
+    const body = save?.body as Record<string, unknown>;
+    expect(body.commit).toBe("commit-sha");
+    expect(body.branch).toBe("main");
   } finally {
     restore();
   }
