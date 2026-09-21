@@ -1,5 +1,43 @@
 # @valbuild/next
 
+## 0.134.0
+
+### Minor Changes
+
+- [#690](https://github.com/valbuild/val/pull/690) [`16c49ea`](https://github.com/valbuild/val/commit/16c49ea6dd97c7a96bbfdf211af9bab5884579e2) Thanks [@freekh](https://github.com/freekh)! - Read a view with `useVal` / `fetchVal`.
+
+  A `s.view()` field reads as a pointer with no properties on it. It can now be handed to a reader, which resolves it to the module it names:
+
+  ```tsx
+  const page = useVal(pageVal);
+  const header = useVal(page.header); // the header module's content, typed
+  ```
+
+  The point is single source of truth rather than a new capability: the page declares which module it shows, and a component follows that declaration instead of importing the target a second time. Change `s.view(headerVal)` to `s.view(navVal)` and the reader follows; an import would have kept reading the header.
+
+  The readers that take a MODULE rather than a value follow the same rule — `useValKey`, `useValRoute`, `useValRouteUrl` and the `fetchVal*` counterparts, in both the Next and TanStack packages:
+
+  ```tsx
+  const page = useVal(pageVal);
+  const note = useValRoute(page.notes, params); // the router module the view names
+  ```
+
+  Works in draft mode, including when the page itself has a pending edit. Two things to know:
+
+  - **Resolve a handle in the component that read the module containing it.** A handle carries the module it points at, and that cannot survive serialization — so one passed from a server component to a client component as a prop arrives empty. It throws with an explanation rather than handing back the pointer. This is why it throws rather than returning nothing: every one of the route and key readers already uses `null` / `undefined` to mean "no such entry", so a quiet answer would be indistinguishable from a 404.
+  - **`ValView<Source>` is now a member of `SelectorSource`**, since a reader accepts one.
+
+### Patch Changes
+
+- Updated dependencies [[`be78a9b`](https://github.com/valbuild/val/commit/be78a9b51678439f7ecb1c7f3887f9e8e1261a13), [`1c31dcc`](https://github.com/valbuild/val/commit/1c31dcca7f1bb0199350567fd579de29f48bb26d), [`688b9e3`](https://github.com/valbuild/val/commit/688b9e36b821323cda6870cdff03dd36ec3e782f), [`16c49ea`](https://github.com/valbuild/val/commit/16c49ea6dd97c7a96bbfdf211af9bab5884579e2), [`eaa265e`](https://github.com/valbuild/val/commit/eaa265e78d9f6d2a1b685c38901612b8a3704eed)]:
+  - @valbuild/server@0.134.0
+  - @valbuild/ui@0.134.0
+  - @valbuild/core@0.134.0
+  - @valbuild/react@0.134.0
+  - @valbuild/shared@0.134.0
+  - @valbuild/language-server@0.134.0
+  - @valbuild/mcp@0.134.0
+
 ## 0.133.0
 
 ### Patch Changes
