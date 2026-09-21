@@ -50,6 +50,8 @@
   },
   "devDependencies": {
     "@jest/globals": "^30.5.0",
+    "@prettier/sync": "^0.6.1",
+    "prettier": "~3.8.5",
     "tsx": "^4.23.12"
   }
 }
