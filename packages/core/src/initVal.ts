@@ -205,7 +205,16 @@ InitVal => {
       external,
     },
     s,
-    config,
+    /*
+     * `{}` rather than the argument, which is optional.
+     *
+     * `InitVal` declares this `ValConfig`, so every consumer is entitled to
+     * dereference it -- and `initVal()` with no argument handed back
+     * `undefined` under that type. Nothing read a key off it until
+     * `initHandlerOptions` came to read `gitCommit`, which is a long time for
+     * a declared type to be untrue.
+     */
+    config: config ?? {},
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
 };

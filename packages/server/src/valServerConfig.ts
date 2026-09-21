@@ -262,14 +262,28 @@ export async function initHandlerOptions(
      * with no line of work to publish to, and a branch without a commit names
      * a line with no position in it; either alone would be a half-configured
      * repository that fails later, at a publish, rather than here.
+     *
+     * THREE SOURCES, most specific first: the host's own `git` option, then
+     * `gitCommit` / `gitBranch` from `val.config.ts`, then the environment.
+     * The middle one was missing, and its absence was silent in the worst
+     * way: `val.config.ts` has documented `gitCommit` and `gitBranch` keys,
+     * the framework bindings hand this function `{ versions, ...config }` as
+     * `opts`, and nothing anywhere mapped those flat keys onto `git`. So a
+     * project that set them -- which is what every Vercel deployment does,
+     * from `VERCEL_GIT_COMMIT_SHA` -- resolved to no `git` at all, and every
+     * patch it saved recorded no commit. Nothing failed; the commit was
+     * simply never sent.
      */
-    const maybeGitCommit = opts.git?.commit || process.env.VAL_GIT_COMMIT;
-    const maybeGitBranch = opts.git?.branch || process.env.VAL_GIT_BRANCH;
+    const maybeGitCommit =
+      opts.git?.commit || config.gitCommit || process.env.VAL_GIT_COMMIT;
+    const maybeGitBranch =
+      opts.git?.branch || config.gitBranch || process.env.VAL_GIT_BRANCH;
     if (!!maybeGitCommit !== !!maybeGitBranch) {
       throw new Error(
         `Val is configured with a git ${maybeGitCommit ? "commit" : "branch"} ` +
           `but no ${maybeGitCommit ? "branch" : "commit"}. Set both (the ` +
-          "`git` option, or VAL_GIT_COMMIT and VAL_GIT_BRANCH) for a project " +
+          "`git` option, `gitCommit` and `gitBranch` in val.config.ts, or " +
+          "VAL_GIT_COMMIT and VAL_GIT_BRANCH) for a project " +
           "whose content is mirrored into a repository, or neither for one " +
           "whose content service is the store of record." +
           because,

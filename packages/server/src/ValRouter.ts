@@ -114,8 +114,11 @@ type ValServerOverrides = Partial<{
    * into the build and asks the content service nothing.
    *
    * A normal deploy bakes this at build time, because the commit really is a
-   * property of those bytes. `VAL_GIT_COMMIT` / `VAL_GIT_BRANCH` supply it
-   * where a build system sets environment variables instead.
+   * property of those bytes. Two other places say the same thing, and this
+   * one wins over both: `gitCommit` / `gitBranch` in `val.config.ts`, which
+   * is where an app usually reads its platform's commit variables, and then
+   * `VAL_GIT_COMMIT` / `VAL_GIT_BRANCH` where a build system sets environment
+   * variables instead.
    *
    * @example { commit: "e83c5163316f89bfbde7d9ab23ca2e25604af290", branch: "main" }
    */
