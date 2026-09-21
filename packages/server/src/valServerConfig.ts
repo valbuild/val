@@ -263,29 +263,28 @@ export async function initHandlerOptions(
      * a line with no position in it; either alone would be a half-configured
      * repository that fails later, at a publish, rather than here.
      *
-     * THREE SOURCES, most specific first: the host's own `git` option, then
-     * `gitCommit` / `gitBranch` from `val.config.ts`, then the environment.
-     * The middle one was missing, and its absence was silent in the worst
-     * way: `val.config.ts` has documented `gitCommit` and `gitBranch` keys,
-     * the framework bindings hand this function `{ versions, ...config }` as
-     * `opts`, and nothing anywhere mapped those flat keys onto `git`. So a
-     * project that set them -- which is what every Vercel deployment does,
-     * from `VERCEL_GIT_COMMIT_SHA` -- resolved to no `git` at all, and every
-     * patch it saved recorded no commit. Nothing failed; the commit was
-     * simply never sent.
+     * ONE NAME, wherever it comes from. `opts` is the bindings'
+     * `{ versions, ...config }`, so `opts.gitCommit` IS `val.config.ts`'s
+     * `gitCommit` -- there is nothing to map and no second place to look.
+     *
+     * It used to be a nested `git: { commit, branch }` here and two flat keys
+     * in `ValConfig`, and the two never met: nothing mapped one onto the
+     * other, so a project that set the documented config keys -- which is
+     * what every Vercel deployment does, from `VERCEL_GIT_COMMIT_SHA` --
+     * resolved to no repository at all. Nothing failed and nothing was
+     * logged; the commit was simply never sent, and every patch it saved
+     * recorded none.
      */
-    const maybeGitCommit =
-      opts.git?.commit || config.gitCommit || process.env.VAL_GIT_COMMIT;
-    const maybeGitBranch =
-      opts.git?.branch || config.gitBranch || process.env.VAL_GIT_BRANCH;
+    const maybeGitCommit = opts.gitCommit || process.env.VAL_GIT_COMMIT;
+    const maybeGitBranch = opts.gitBranch || process.env.VAL_GIT_BRANCH;
     if (!!maybeGitCommit !== !!maybeGitBranch) {
       throw new Error(
         `Val is configured with a git ${maybeGitCommit ? "commit" : "branch"} ` +
-          `but no ${maybeGitCommit ? "branch" : "commit"}. Set both (the ` +
-          "`git` option, `gitCommit` and `gitBranch` in val.config.ts, or " +
-          "VAL_GIT_COMMIT and VAL_GIT_BRANCH) for a project " +
-          "whose content is mirrored into a repository, or neither for one " +
-          "whose content service is the store of record." +
+          `but no ${maybeGitCommit ? "branch" : "commit"}. Set both ` +
+          "(`gitCommit` and `gitBranch` in val.config.ts, or VAL_GIT_COMMIT " +
+          "and VAL_GIT_BRANCH) for a project whose content is mirrored into " +
+          "a repository, or neither for one whose content service is the " +
+          "store of record." +
           because,
       );
     }

@@ -114,15 +114,31 @@ type ValServerOverrides = Partial<{
    * into the build and asks the content service nothing.
    *
    * A normal deploy bakes this at build time, because the commit really is a
-   * property of those bytes. Two other places say the same thing, and this
-   * one wins over both: `gitCommit` / `gitBranch` in `val.config.ts`, which
-   * is where an app usually reads its platform's commit variables, and then
-   * `VAL_GIT_COMMIT` / `VAL_GIT_BRANCH` where a build system sets environment
-   * variables instead.
+   * property of those bytes. `VAL_GIT_COMMIT` / `VAL_GIT_BRANCH` supply it
+   * where a build system sets environment variables instead.
    *
-   * @example { commit: "e83c5163316f89bfbde7d9ab23ca2e25604af290", branch: "main" }
+   * FLAT, and the same two names `val.config.ts` uses, so that there is one
+   * way to say this rather than two. An app reads these off its platform --
+   * `process.env.VERCEL_GIT_COMMIT_SHA` and friends, which are typed
+   * `string | undefined` -- and a pair of optional strings takes that as it
+   * comes. A nested `{ commit, branch }` would make every caller write the
+   * ternary that turns two maybe-strings into one maybe-object. Sharing the
+   * names with `ValConfig` is what makes the bindings' `{ versions,
+   * ...config }` carry them here with nothing to map.
+   *
+   * Taken together or not at all: `initHandlerOptions` refuses one without
+   * the other rather than resolving half a repository.
+   *
+   * @example "e83c5163316f89bfbde7d9ab23ca2e25604af290"
    */
-  git?: { commit: string; branch: string };
+  gitCommit?: string;
+  /**
+   * The branch a publish mirrors into. See {@link ValApiOptions.gitCommit},
+   * which this is required with and meaningless without.
+   *
+   * @example "main"
+   */
+  gitBranch?: string;
   /**
    * The base url of Val.
    *

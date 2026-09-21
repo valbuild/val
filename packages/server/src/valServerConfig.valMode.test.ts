@@ -271,11 +271,15 @@ describe("VAL_ENV", () => {
     /*
      * The regression this is here for.
      *
-     * `val.config.ts` has `gitCommit` and `gitBranch`, the framework bindings
-     * pass `{ versions, ...config }` as `opts`, and nothing mapped those flat
-     * keys onto the nested `git` this function reads. So a project that set
-     * them -- the normal Vercel shape, from `VERCEL_GIT_COMMIT_SHA` -- got no
-     * `git` at all and saved every patch with no commit, silently.
+     * These two keys are documented on `ValConfig` and were read by nothing.
+     * This function wanted a nested `git: { commit, branch }`, the bindings
+     * hand it `{ versions, ...config }`, and no one mapped one onto the
+     * other -- so a project setting the documented keys, which is what every
+     * Vercel deployment does, resolved to no repository and saved every
+     * patch with no commit. Silently.
+     *
+     * The spread below is the bindings' own, because passing the config
+     * through as `opts` IS the shape of the bug.
      */
     const { config: configWithGit } = initVal({
       gitCommit: "1111111111111111111111111111111111111111",
@@ -286,10 +290,6 @@ describe("VAL_ENV", () => {
       async () => {
         const resolved = await initHandlerOptions(
           "/api/val",
-          // Spread exactly as `initValNextAppRouter` and its TanStack
-          // counterpart do it. Passing `configWithGit` as `opts` too is the
-          // whole shape of the bug: the flat keys land in `opts`, where
-          // nothing reads them.
           { versions, ...configWithGit },
           configWithGit,
         );
@@ -304,40 +304,9 @@ describe("VAL_ENV", () => {
     );
   });
 
-  test("...and the host's own `git` option still wins over them", async () => {
-    // Most specific first: a host that passed `git` explicitly has said
-    // something more particular than the project's config file did.
-    const { config: configWithGit } = initVal({
-      gitCommit: "1111111111111111111111111111111111111111",
-      gitBranch: "feature/x",
-    });
-    await withEnv(
-      { ...httpEnv, VAL_GIT_COMMIT: undefined, VAL_GIT_BRANCH: undefined },
-      async () => {
-        const resolved = await initHandlerOptions(
-          "/api/val",
-          {
-            versions,
-            git: {
-              commit: "2222222222222222222222222222222222222222",
-              branch: "main",
-            },
-          },
-          configWithGit,
-        );
-        expect(resolved).toMatchObject({
-          git: {
-            commit: "2222222222222222222222222222222222222222",
-            branch: "main",
-          },
-        });
-      },
-    );
-  });
-
   test("...and they win over the environment", async () => {
-    // The config file is the more specific of the two: an env var is what a
-    // build system sets where there is no config to read.
+    // Same precedence every other option here has: what the app passed beats
+    // what the environment happened to be holding.
     const { config: configWithGit } = initVal({
       gitCommit: "1111111111111111111111111111111111111111",
       gitBranch: "feature/x",
@@ -345,7 +314,7 @@ describe("VAL_ENV", () => {
     await withEnv(httpEnv, async () => {
       const resolved = await initHandlerOptions(
         "/api/val",
-        { versions },
+        { versions, ...configWithGit },
         configWithGit,
       );
       expect(resolved).toMatchObject({
@@ -359,8 +328,8 @@ describe("VAL_ENV", () => {
 
   test("...and half a repository in val.config.ts is refused too", async () => {
     // The pair rule is about the resolved values, not about where they came
-    // from -- so a config that sets one key and not the other fails here,
-    // with the missing half named, rather than at a publish.
+    // from -- so a config with one key and not the other fails here, with the
+    // missing half named, rather than at a publish.
     const { config: commitOnly } = initVal({
       gitCommit: "1111111111111111111111111111111111111111",
     });
@@ -368,7 +337,11 @@ describe("VAL_ENV", () => {
       { ...httpEnv, VAL_GIT_COMMIT: undefined, VAL_GIT_BRANCH: undefined },
       async () => {
         await expect(
-          initHandlerOptions("/api/val", { versions }, commitOnly),
+          initHandlerOptions(
+            "/api/val",
+            { versions, ...commitOnly },
+            commitOnly,
+          ),
         ).rejects.toThrow(/branch/);
       },
     );

@@ -28,10 +28,19 @@ export type ValHttpMode = {
    * service is the store of record: it mints its own commit shas and knows the
    * project's branch, so there is nothing to bake into the build.
    *
-   * Where there is one: `commit` is the commit the running code was built
+   * Where there is one: `gitCommit` is the commit the running code was built
    * from, and it is load bearing. See the note at the use.
+   *
+   * The same two names `val.config.ts` and `ValApiOptions` use, and flat for
+   * the same reason: a platform hands these over as
+   * `process.env.VERCEL_GIT_COMMIT_SHA` and friends, typed
+   * `string | undefined`, and two optional strings take that as it comes
+   * rather than making every caller write a ternary to build an object.
+   *
+   * Taken together or not at all -- one without the other is refused.
    */
-  git?: { commit: string; branch: string };
+  gitCommit?: string;
+  gitBranch?: string;
   /**
    * Val's content service, when it is not the real one.
    *
@@ -118,9 +127,10 @@ const initValApiHandler = (
          * What puts the server in `http` mode: CREDENTIALS. The patches live
          * on Val's content service, which is the store of record for them.
          *
-         * `git` is optional and says where, if anywhere, a publish also
-         * MIRRORS the content as `.val.ts`. Where there is one, its `commit`
-         * is the commit the RUNNING code was built from and is load bearing
+         * `gitCommit` / `gitBranch` are optional and say where, if anywhere,
+         * a publish also MIRRORS the content as `.val.ts`. Where there is
+         * one, the commit is the one the RUNNING code was built from and is
+         * load bearing
          * rather than bookkeeping: producing that mirror means reading the
          * current text from the content service AT THAT COMMIT, so a commit
          * the deployed code did not come from writes over a different version
