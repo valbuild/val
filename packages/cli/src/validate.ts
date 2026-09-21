@@ -3,7 +3,11 @@ import picocolors from "picocolors";
 import fs from "fs/promises";
 import { glob } from "fast-glob";
 import { DEFAULT_CONTENT_HOST, DEFAULT_VAL_REMOTE_HOST } from "@valbuild/core";
-import { getSettings, uploadRemoteFile } from "@valbuild/server";
+import {
+  createPrettierFormatter,
+  getSettings,
+  uploadRemoteFile,
+} from "@valbuild/server";
 import { findAndEvalValConfigFile } from "./utils/evalValConfigFile";
 import { createDefaultValFSHost, runValidation } from "./runValidation";
 import {
@@ -283,15 +287,45 @@ export async function validate({
       console.log("");
     };
 
-    // Run prettier on files that had fixes applied
+    // Run prettier on files that had fixes applied.
+    //
+    // Through `createPrettierFormatter`, which is the same function an app hands
+    // to `initValServer` / `initValMcp`, so a fix applied here and an edit saved
+    // from the Studio come out identically formatted. Calling
+    // `prettier.format(code, { filepath })` directly — which this did — reads no
+    // config at all: `filepath` picks the parser, and `.prettierrc` is only ever
+    // consulted by `resolveConfig`, `getFileInfo` and prettier's own CLI. A
+    // project whose style is not prettier's default got its whole file rewritten
+    // by a two-line content fix, and a red `format` job with it.
     if (prettier) {
+      // `resolveConfig` caches per directory for the life of the process, which
+      // is what makes the per-file call above cheap. In `--watch` that cache
+      // would outlive an edit to `.prettierrc`, so each pass starts clean.
+      await prettier.clearConfigCache();
+      const format = createPrettierFormatter(prettier, { projectRoot });
       for (const file of fixedFiles) {
         const filePath = path.join(projectRoot, file);
         const fileContent = await fs.readFile(filePath, "utf-8");
-        const formattedContent = await prettier.format(fileContent, {
-          filepath: filePath,
-        });
-        await fs.writeFile(filePath, formattedContent);
+        let formattedContent: string;
+        try {
+          formattedContent = await format(fileContent, file);
+        } catch (err) {
+          // The fix itself landed; only the formatting did not. Reporting it and
+          // moving on keeps the run's exit code about content errors, and leaves
+          // a file that is correct but unformatted rather than no file at all.
+          console.log(
+            picocolors.yellow("⚠"),
+            `Could not format ${relFile(file)}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+          continue;
+        }
+        // Writing an unchanged file is not free in `--watch`: it retriggers the
+        // watcher, which reruns the pass, which writes the file again.
+        if (formattedContent !== fileContent) {
+          await fs.writeFile(filePath, formattedContent);
+        }
       }
     }
 
