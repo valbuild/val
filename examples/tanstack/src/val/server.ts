@@ -1,4 +1,8 @@
-import { initValServer, initValContent } from "@valbuild/tanstack/server";
+import {
+  initValServer,
+  initValContent,
+  createPrettierFormatter,
+} from "@valbuild/tanstack/server";
 import prettier from "prettier";
 import { config } from "../../val.config";
 import valModules from "../../val.modules";
@@ -14,8 +18,17 @@ const { valApiHandler, draftMode } = initValServer(
   valModules,
   { ...config },
   {
-    formatter: (code, filePath) =>
-      prettier.format(code, { filepath: filePath }),
+    /**
+     * The project's own formatting, not prettier's defaults.
+     *
+     * `prettier.format(code, { filepath })` never reads `.prettierrc` —
+     * `filepath` only picks the parser. `createPrettierFormatter` resolves the
+     * config and `.prettierignore` per file, and is what `val validate --fix`
+     * runs too, so an edit saved here and a fix applied there come out the same.
+     */
+    formatter: createPrettierFormatter(prettier, {
+      projectRoot: process.cwd(),
+    }),
   },
 );
 

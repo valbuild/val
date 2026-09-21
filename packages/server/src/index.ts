@@ -110,6 +110,16 @@ export {
 // public API of this package.
 export { hasRemoteFileSchema } from "@valbuild/core";
 export { getFileExt } from "./getFileExt";
+// The one implementation of "format a written file the way this project does".
+// Exported for the CLI and re-exported by `@valbuild/next` / `@valbuild/tanstack`
+// so an app's `formatter` and `val validate --fix` run the same code: the CLI's
+// own `prettier.format(code, { filepath })` did not read `.prettierrc` at all.
+export { createPrettierFormatter } from "./createPrettierFormatter";
+export type {
+  PrettierLike,
+  PrettierLikeConfig,
+  ValFormatter,
+} from "./createPrettierFormatter";
 export {
   evalValConfigFile,
   findAndEvalValConfigFile,

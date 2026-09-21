@@ -1,5 +1,5 @@
 import "server-only";
-import { initValMcp } from "@valbuild/next/server";
+import { initValMcp, createPrettierFormatter } from "@valbuild/next/server";
 import { createValImageTools } from "@valbuild/mcp";
 import { sharpImageProcessor } from "@valbuild/mcp/sharp";
 import { config } from "../val.config";
@@ -29,11 +29,9 @@ const { valMcpAuthorize, valMcpTools, valMcpMetadata } = initValMcp(
      * it just cannot add an image.
      */
     extraTools: createValImageTools(sharpImageProcessor(sharp)),
-    formatter: (code, filePath) => {
-      return prettier.format(code, {
-        filepath: filePath,
-      });
-    },
+    formatter: createPrettierFormatter(prettier, {
+      projectRoot: process.cwd(),
+    }),
     /**
      * Where to authorize, when this app is configured for it.
      *

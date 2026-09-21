@@ -1,9 +1,9 @@
 import path from "path";
 import picocolors from "picocolors";
-import fs from "fs/promises";
 import { glob } from "fast-glob";
 import { DEFAULT_CONTENT_HOST, DEFAULT_VAL_REMOTE_HOST } from "@valbuild/core";
 import { getSettings, uploadRemoteFile } from "@valbuild/server";
+import { formatFixedFiles } from "./formatFixedFiles";
 import { findAndEvalValConfigFile } from "./utils/evalValConfigFile";
 import { createDefaultValFSHost, runValidation } from "./runValidation";
 import {
@@ -283,15 +283,24 @@ export async function validate({
       console.log("");
     };
 
-    // Run prettier on files that had fixes applied
+    // Format the files that had fixes applied, the way the project formats
+    // everything else. See `formatFixedFiles` for why this cannot simply be
+    // `prettier.format(code, { filepath })`.
+    //
+    // A file that could not be formatted is reported and skipped rather than
+    // thrown: the fix itself landed, and aborting here would leave the fix
+    // applied and the report below unwritten.
     if (prettier) {
-      for (const file of fixedFiles) {
-        const filePath = path.join(projectRoot, file);
-        const fileContent = await fs.readFile(filePath, "utf-8");
-        const formattedContent = await prettier.format(fileContent, {
-          filepath: filePath,
-        });
-        await fs.writeFile(filePath, formattedContent);
+      const { failures } = await formatFixedFiles(
+        prettier,
+        projectRoot,
+        fixedFiles,
+      );
+      for (const failure of failures) {
+        console.log(
+          picocolors.yellow("⚠"),
+          `Could not format ${relFile(failure.file)}: ${failure.message}`,
+        );
       }
     }
 
