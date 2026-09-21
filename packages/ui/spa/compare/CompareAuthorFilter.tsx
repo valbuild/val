@@ -150,6 +150,8 @@ export function CompareAuthorFilterMenu({
   onSelect,
   mode,
   portalContainer,
+  currentAuthorId = null,
+  className,
 }: {
   profiles: Record<string, Profile>;
   authorIds: string[];
@@ -157,17 +159,42 @@ export function CompareAuthorFilterMenu({
   onSelect: (authorId: string | null) => void;
   mode: "fs" | "http" | "unknown";
   portalContainer?: HTMLElement | null;
+  /**
+   * Who is looking, so they are first in the list and labelled.
+   *
+   * "Show me only my own changes" is the commonest reason anyone opens this
+   * menu, and hunting for your own name among five is a worse way to do it
+   * than reading it off the top. Null — no session, or a profile that has not
+   * loaded — just means nobody is marked, never an entry that selects nothing.
+   */
+  currentAuthorId?: string | null;
+  /** Width and placement, which differ between the nav and a toolbar. */
+  className?: string;
 }) {
   if (authorIds.length < 2) {
     return null;
   }
   const current = selected === null ? null : (profiles[selected] ?? null);
+  /*
+   * You first, then everyone else in the order they were given. Sorted here
+   * rather than by the callers because both of them want it and neither knows
+   * it needs to.
+   */
+  const ordered =
+    currentAuthorId !== null && authorIds.includes(currentAuthorId)
+      ? [currentAuthorId, ...authorIds.filter((id) => id !== currentAuthorId)]
+      : authorIds;
+  const nameOf = (authorId: string): string =>
+    authorId === currentAuthorId
+      ? `${profiles[authorId]?.fullName ?? authorId} (you)`
+      : (profiles[authorId]?.fullName ?? authorId);
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           className={cn(
-            "flex w-full min-w-0 items-center gap-1.5 rounded border px-2 py-1 text-xs",
+            "flex min-w-0 items-center gap-1.5 rounded border px-2 py-1 text-xs",
+            className ?? "w-full",
             selected === null
               ? "border-border-primary text-fg-secondary hover:bg-bg-secondary"
               : "border-border-brand-primary text-fg-brand-primary",
@@ -181,7 +208,9 @@ export function CompareAuthorFilterMenu({
           <span className="min-w-0 flex-1 truncate text-left">
             {selected === null
               ? `By anyone (${authorIds.length})`
-              : (current?.fullName ?? selected)}
+              : selected === currentAuthorId
+                ? `${current?.fullName ?? selected} (you)`
+                : (current?.fullName ?? selected)}
           </span>
           <ChevronDown size={12} className="shrink-0" aria-hidden />
         </button>
@@ -196,12 +225,12 @@ export function CompareAuthorFilterMenu({
           isSelected={selected === null}
           onSelect={() => onSelect(null)}
         />
-        {authorIds.map((authorId) => {
+        {ordered.map((authorId) => {
           const profile = profiles[authorId] ?? null;
           return (
             <FilterOption
               key={authorId}
-              label={profile?.fullName ?? authorId}
+              label={nameOf(authorId)}
               isSelected={selected === authorId}
               onSelect={() => onSelect(selected === authorId ? null : authorId)}
               avatar={<ProfileAvatar profile={profile} mode={mode} size="xs" />}

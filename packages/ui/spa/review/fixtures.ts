@@ -1,3 +1,4 @@
+import type { Profile } from "../components/ValProvider";
 import type { Description } from "../utils/describePath";
 import type { CompareAuthorship } from "../compare/types";
 import { prettyModuleLocation } from "../utils/prettyModulePath";
@@ -98,14 +99,37 @@ function group(
   };
 }
 
-export const PROFILES = {
-  "profile-ada": { fullName: "Ada Lovelace", avatar: null },
+/**
+ * A picture, inline, so the stories exercise the path that was broken.
+ *
+ * `Profile.avatar` is `{ url } | null`, and this page used to declare its own
+ * `avatar?: string | null` and bridge the two with an assertion — which meant
+ * `profile.avatar?.url` was `undefined` forever and no author here could ever
+ * have a face. A fixture with `avatar: null` would have gone on hiding that,
+ * because initials are also what a correct implementation draws for a profile
+ * with no picture.
+ *
+ * A data URI rather than a URL: a screenshot must not depend on a network, and
+ * the stories run offline.
+ */
+function portrait(background: string, initials: string): { url: string } {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="${background}"/><circle cx="32" cy="25" r="12" fill="rgba(255,255,255,.85)"/><ellipse cx="32" cy="58" rx="20" ry="16" fill="rgba(255,255,255,.85)"/><text x="32" y="30" font-family="sans-serif" font-size="13" font-weight="700" fill="${background}" text-anchor="middle">${initials}</text></svg>`;
+  return { url: `data:image/svg+xml;utf8,${encodeURIComponent(svg)}` };
+}
+
+export const PROFILES: Record<string, Profile> = {
+  "profile-ada": {
+    fullName: "Ada Lovelace",
+    avatar: portrait("#6d28d9", "AL"),
+  },
+  /* No picture, which is a real state: initials, from the same component. */
   "profile-linus": { fullName: "Linus Pauling", avatar: null },
 };
 
 export const reviewModel: ReviewModel = {
   stagingEnabled: true,
   profiles: PROFILES,
+  mode: "http",
   /* Ada is looking, so "Mine" is one of the presets. */
   currentAuthorId: "profile-ada",
   now: NOW,
@@ -224,6 +248,8 @@ export const emptyReviewModel: ReviewModel = {
 export const noStagingReviewModel: ReviewModel = {
   ...reviewModel,
   stagingEnabled: false,
+  /* fs mode, which is also what an author-less change is named by. */
+  mode: "fs",
   modules: reviewModel.modules.map((moduleGroup) => ({
     ...moduleGroup,
     rows: moduleGroup.rows.map((entry) => ({

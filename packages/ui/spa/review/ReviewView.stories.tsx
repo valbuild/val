@@ -64,9 +64,12 @@ type Story = StoryObj<typeof Harness>;
  *   section a row sits in; the tick is a SELECTION of rows to act on. One
  *   control cannot answer "is this going out" and "am I about to change that"
  *   without each answer being mistaken for the other.
- * - **The presets are the point of the checkboxes.** "Mine" before a publish
- *   is the commonest thing an editor wants — ship what I did, leave the rest —
- *   and it is one click rather than nine.
+ * - **Filter, then select, then act — in that order.** The author menu narrows
+ *   the LIST; the tick boxes pick from what is showing; the buttons act on the
+ *   ticks. It was one control before, a chip per author that ticked that
+ *   person's rows, and that selected rows which were not on screen.
+ * - **The menu is the compare dialog's own.** Same component, same avatars,
+ *   same "(you)", so the way you pick a person has one implementation.
  * - **A row is a patch set**, which is the unit staging moves and a revert
  *   removes. Finer would offer a control that cannot be honoured; coarser is
  *   the module, which routinely holds two unrelated edits by two people.
@@ -149,4 +152,22 @@ export const NoStaging: Story = { args: { model: noStagingReviewModel } };
  */
 export const PartiallyStaged: Story = {
   args: { model: partialStagingReviewModel },
+};
+
+/**
+ * One author's picture, the other's initials, from the one avatar component.
+ *
+ * Ada's profile has an `avatar.url` and Linus's does not, which is the pair
+ * worth having on screen: `ProfileAvatar` layers the picture over the initials
+ * rather than swapping it in, so a profile with no picture — or one whose
+ * picture 404s — shows initials instead of an empty circle.
+ *
+ * This page could draw neither until recently. It declared its own
+ * `{ fullName, avatar?: string | null }` and cast it to `Profile` at the one
+ * place it rendered, so `profile.avatar?.url` was `undefined` for everyone and
+ * every author was initials forever, while the same person had a face in the
+ * shell three inches away.
+ */
+export const Avatars: Story = {
+  args: { initialSelection: ["landing-heading"] },
 };

@@ -1,3 +1,4 @@
+import type { Profile } from "../components/ValProvider";
 import type { Description } from "../utils/describePath";
 import type { CompareAuthorship } from "../compare/types";
 import type { RowStagingState } from "../components/PatchStagingProvider";
@@ -30,7 +31,27 @@ export type ReviewModel = {
    * rendered in that state without a provider.
    */
   stagingEnabled: boolean;
-  profiles: Record<string, { fullName: string; avatar?: string | null }>;
+  /**
+   * `Profile`, not a shape of this page's own, so `ProfileAvatar` draws a
+   * person here exactly as it draws them everywhere else.
+   *
+   * This started as `{ fullName, avatar?: string | null }` and was bridged to
+   * `Profile` with an assertion at the one place it was rendered. It
+   * type-checked and it was wrong in a way nothing could catch: `Profile.avatar`
+   * is `{ url } | null`, so `profile.avatar?.url` on a string is `undefined`
+   * and the picture could never load — every author on this page was initials
+   * forever, while the same author had a face in the shell.
+   */
+  profiles: Record<string, Profile>;
+  /**
+   * Which server this is, for `ProfileAvatar`'s no-author fallback.
+   *
+   * Part of drawing a person correctly, not a detail of the page: in `fs` mode
+   * there are no profiles at all and an author-less change is "Local changes",
+   * while over http it is an author Val failed to look up. Same distinction the
+   * compare rows and the shell draw, from the same component.
+   */
+  mode: "fs" | "http" | "unknown";
   /**
    * Who is looking, so "Mine" can be one click.
    *

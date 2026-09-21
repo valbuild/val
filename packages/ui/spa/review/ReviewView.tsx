@@ -4,7 +4,7 @@ import { Button } from "../components/designSystem/button";
 import { Checkbox } from "../components/designSystem/checkbox";
 import { cn } from "../components/designSystem/cn";
 import { FieldPatchAuthorsPure } from "../components/FieldPatchAuthors";
-import type { Profile } from "../components/ValProvider";
+import { CompareAuthorFilterMenu } from "../compare/CompareAuthorFilter";
 import { undoWords } from "../compare/undoWords";
 import type { ReviewModel, ReviewModuleGroup, ReviewRow } from "./types";
 
@@ -81,12 +81,37 @@ export function ReviewView({
   const [selected, setSelected] = useState<ReadonlySet<string>>(
     () => new Set(initialSelection ?? []),
   );
-  const rows = useMemo(
+  /*
+   * Whose changes are on screen. Null is everyone's.
+   *
+   * A FILTER, not a selection: it decides what the page shows, and the
+   * checkboxes then decide what an action reaches. Those were one control —
+   * a row of per-author chips that ticked that person's rows — and it meant
+   * pressing "Linus Pauling" silently selected rows you could not see without
+   * scrolling past everyone else's. Narrowing first and selecting second is
+   * both the safer order and the one every other list in the Studio uses.
+   */
+  const [authorFilter, setAuthorFilter] = useState<string | null>(null);
+  const allRows = useMemo(
     () => model.modules.flatMap((group) => group.rows),
     [model.modules],
   );
-  const stagedGroups = sectionOf(model.modules, "staged");
-  const unstagedGroups = sectionOf(model.modules, "unstaged");
+  const authorIds = useMemo(() => {
+    const seen: string[] = [];
+    for (const row of allRows) {
+      for (const id of Object.keys(row.authors)) {
+        if (!seen.includes(id)) seen.push(id);
+      }
+    }
+    return seen;
+  }, [allRows]);
+  const modules = useMemo(
+    () => filterByAuthor(model.modules, authorFilter),
+    [model.modules, authorFilter],
+  );
+  const rows = useMemo(() => modules.flatMap((group) => group.rows), [modules]);
+  const stagedGroups = sectionOf(modules, "staged");
+  const unstagedGroups = sectionOf(modules, "unstaged");
   const stagedCount = stagedGroups.reduce(
     (total, group) => total + group.rows.length,
     0,
@@ -107,7 +132,7 @@ export function ReviewView({
     setSelected(new Set());
   };
 
-  if (rows.length === 0) {
+  if (allRows.length === 0) {
     return <EmptyReview />;
   }
   return (
@@ -117,10 +142,14 @@ export function ReviewView({
           <h1 className="truncate text-lg font-medium text-fg-primary">
             Review changes
           </h1>
+          {/*
+           * The whole publish, never the filtered view. A filter narrows what
+           * you are reading; it does not change what Publish would ship, and a
+           * heading that moved when you picked a colleague would say the
+           * opposite.
+           */}
           <p className="truncate text-sm text-fg-tertiary">
-            {unstagedCount === 0
-              ? `${stagedCount} ${stagedCount === 1 ? "change" : "changes"} staged`
-              : `${stagedCount} staged · ${unstagedCount} unstaged`}
+            {publishSummary(allRows)}
           </p>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-3">
@@ -161,6 +190,17 @@ export function ReviewView({
       <SelectionBar
         model={model}
         rows={rows}
+        authorIds={authorIds}
+        authorFilter={authorFilter}
+        onAuthorFilter={(next) => {
+          setAuthorFilter(next);
+          /*
+           * Narrowing clears the selection. A tick you can no longer see is a
+           * row an action would still reach, and "Revert" acting on something
+           * off screen is the one outcome this page must never produce.
+           */
+          setSelected(new Set());
+        }}
         selected={selected}
         onSelect={setSelected}
         onStage={() => act(onStage)}
@@ -170,46 +210,93 @@ export function ReviewView({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
         {/*
-         * "Staged" / "Unstaged", the same two words the compare dialog's
-         * sections use and the same two the buttons in the bar use. This page
-         * said "In this publish" and "Held back", which named the same two
-         * facts in a third vocabulary — so an editor who pressed Unstage had
-         * to work out for themselves that the row would turn up under "Held
-         * back". `detail` is where the consequence goes, because that is the
-         * part a label cannot carry.
+         * A filter that matched nothing is not an empty publish, and saying
+         * "changes show up here" to someone looking at a colleague's empty
+         * list would be answering a question they did not ask.
          */}
-        <Section
-          title="Staged"
-          detail="Publish ships these."
-          count={stagedCount}
-          groups={stagedGroups}
-          model={model}
-          selected={selected}
-          onToggle={toggle}
-          onDiscard={(id) => onDiscard([id])}
-          emptyNote="Nothing is staged, so Publish has nothing to ship. Stage a change below to publish it."
-        />
-        {/*
-         * The unstaged section exists even when it is empty, because its absence
-         * and its emptiness mean the same thing on screen and different things
-         * in fact: "everything is going out" is worth reading, and a section
-         * that vanishes leaves the reader to infer it from a count.
-         */}
-        <Section
-          title="Unstaged"
-          detail="Not in this publish. These stay pending and can be staged again — or published by someone else."
-          count={unstagedCount}
-          groups={unstagedGroups}
-          model={model}
-          selected={selected}
-          onToggle={toggle}
-          onDiscard={(id) => onDiscard([id])}
-          emptyNote="Nothing is unstaged — every change is staged."
-          muted
-        />
+        {rows.length === 0 ? (
+          <p className="text-sm text-fg-tertiary">
+            {`Nothing in this publish is ${
+              authorFilter === model.currentAuthorId
+                ? "yours"
+                : `by ${model.profiles[authorFilter ?? ""]?.fullName ?? "this person"}`
+            }.`}
+          </p>
+        ) : (
+          <>
+            {/*
+             * "Staged" / "Unstaged", the same two words the compare dialog's
+             * sections use and the same two the buttons in the bar use. This page
+             * said "In this publish" and "Held back", which named the same two
+             * facts in a third vocabulary — so an editor who pressed Unstage had
+             * to work out for themselves that the row would turn up under "Held
+             * back". `detail` is where the consequence goes, because that is the
+             * part a label cannot carry.
+             */}
+            <Section
+              title="Staged"
+              detail="Publish ships these."
+              count={stagedCount}
+              groups={stagedGroups}
+              model={model}
+              selected={selected}
+              onToggle={toggle}
+              onDiscard={(id) => onDiscard([id])}
+              emptyNote="Nothing is staged, so Publish has nothing to ship. Stage a change below to publish it."
+            />
+            {/*
+             * The unstaged section exists even when it is empty, because its absence
+             * and its emptiness mean the same thing on screen and different things
+             * in fact: "everything is going out" is worth reading, and a section
+             * that vanishes leaves the reader to infer it from a count.
+             */}
+            <Section
+              title="Unstaged"
+              detail="Not in this publish. These stay pending and can be staged again — or published by someone else."
+              count={unstagedCount}
+              groups={unstagedGroups}
+              model={model}
+              selected={selected}
+              onToggle={toggle}
+              onDiscard={(id) => onDiscard([id])}
+              emptyNote="Nothing is unstaged — every change is staged."
+              muted
+            />
+          </>
+        )}
       </div>
     </div>
   );
+}
+
+/**
+ * Only the rows this person touched, dropping modules left with none.
+ *
+ * A row with several authors survives a filter on any one of them: it IS
+ * partly theirs, and hiding a shared row from the person who half-wrote it is
+ * how somebody publishes a change they were never shown.
+ */
+function filterByAuthor(
+  modules: ReviewModuleGroup[],
+  authorId: string | null,
+): ReviewModuleGroup[] {
+  if (authorId === null) return modules;
+  return modules
+    .map((group) => ({
+      ...group,
+      rows: group.rows.filter((row) => authorId in row.authors),
+    }))
+    .filter((group) => group.rows.length > 0);
+}
+
+/** What this publish is, in one line — the whole of it, filter or no. */
+function publishSummary(rows: ReviewRow[]): string {
+  const staged = rows.filter((row) => row.staging !== "unstaged").length;
+  const unstaged = rows.length - staged;
+  if (unstaged === 0) {
+    return `${staged} ${staged === 1 ? "change" : "changes"} staged`;
+  }
+  return `${staged} staged · ${unstaged} unstaged`;
 }
 
 function sectionOf(
@@ -231,16 +318,24 @@ function sectionOf(
 }
 
 /**
- * Who to act on, and what to do to them.
+ * Who is on screen, who is picked, and what to do to them — in that order.
+ *
+ * The order is the design. The filter narrows the LIST; the tick boxes pick
+ * from what the list is showing; the buttons act on the ticks. Before this the
+ * first two were one control — a chip per author that ticked that person's
+ * rows — so pressing a name selected rows that were not on screen, and the
+ * count said "4 selected" over a list of nine you had to scroll to audit.
  *
  * Always on screen rather than appearing with the first tick: a bar that
  * arrives on selection moves every row under the cursor at the exact moment
- * someone is aiming at a checkbox. With nothing selected it is the presets
- * alone, which is also the row that teaches the page has bulk actions at all.
+ * someone is aiming at a checkbox.
  */
 function SelectionBar({
   model,
   rows,
+  authorIds,
+  authorFilter,
+  onAuthorFilter,
   selected,
   onSelect,
   onStage,
@@ -248,57 +343,57 @@ function SelectionBar({
   onDiscard,
 }: {
   model: ReviewModel;
+  /** The rows the filter is letting through — what "Select all" means. */
   rows: ReviewRow[];
+  /** Everyone in the publish, so the menu does not shrink as you use it. */
+  authorIds: string[];
+  authorFilter: string | null;
+  onAuthorFilter: (next: string | null) => void;
   selected: ReadonlySet<string>;
   onSelect: (next: ReadonlySet<string>) => void;
   onStage: () => void;
   onUnstage: () => void;
   onDiscard: () => void;
 }) {
-  const authorIds = useMemo(() => {
-    const seen: string[] = [];
-    for (const row of rows) {
-      for (const id of Object.keys(row.authors)) {
-        if (!seen.includes(id)) seen.push(id);
-      }
-    }
-    return seen;
-  }, [rows]);
-  const idsBy = (authorId: string): string[] =>
-    rows.filter((row) => authorId in row.authors).map((row) => row.id);
   const count = selected.size;
+  const allShown = rows.length > 0 && rows.every((row) => selected.has(row.id));
 
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border-primary px-6 py-3">
-      <span className="shrink-0 text-xs uppercase tracking-wider text-fg-tertiary">
-        Select
-      </span>
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        <Preset
-          label="All"
-          onSelect={() => onSelect(new Set(rows.map((row) => row.id)))}
-        />
-        <Preset label="None" onSelect={() => onSelect(new Set())} />
-        {/*
-         * "Mine" first among the people, because it is the one an editor wants
-         * before nearly every publish: ship what I did, leave the rest. Absent
-         * rather than empty when nobody is signed in.
-         */}
-        {model.currentAuthorId !== null && (
-          <Preset
-            label="Mine"
-            onSelect={() => onSelect(new Set(idsBy(model.currentAuthorId!)))}
-          />
-        )}
-        {authorIds
-          .filter((id) => id !== model.currentAuthorId)
-          .map((id) => (
-            <Preset
-              key={id}
-              label={model.profiles[id]?.fullName ?? id}
-              onSelect={() => onSelect(new Set(idsBy(id)))}
-            />
-          ))}
+      {/*
+       * The compare dialog's own filter, not one of this page's. Same menu,
+       * same avatars, same "(you)" — and one place to change when the way we
+       * pick a person changes. It hides itself when one person did everything.
+       */}
+      <CompareAuthorFilterMenu
+        profiles={model.profiles}
+        authorIds={authorIds}
+        selected={authorFilter}
+        onSelect={onAuthorFilter}
+        currentAuthorId={model.currentAuthorId}
+        mode={model.mode}
+        className="w-[200px]"
+      />
+      <div className="flex min-w-0 items-center gap-3">
+        <button
+          onClick={() =>
+            onSelect(allShown ? new Set() : new Set(rows.map((r) => r.id)))
+          }
+          className="text-xs text-fg-secondary underline underline-offset-2 hover:text-fg-primary"
+        >
+          {/*
+           * One control, because "select all" and "clear" are never both
+           * useful at once, and the label says which one you are about to get.
+           * "Showing" rather than "all" when a filter is on: it reaches what
+           * is on screen, and saying "all" over a narrowed list would be a
+           * lie about the one thing this bar must not lie about.
+           */}
+          {allShown
+            ? "Clear selection"
+            : authorFilter === null
+              ? "Select all"
+              : "Select all showing"}
+        </button>
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-2">
         <span
@@ -345,17 +440,6 @@ function SelectionBar({
         </Button>
       </div>
     </div>
-  );
-}
-
-function Preset({ label, onSelect }: { label: string; onSelect: () => void }) {
-  return (
-    <button
-      onClick={onSelect}
-      className="rounded-full border border-border-primary px-2.5 py-0.5 text-xs text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary"
-    >
-      {label}
-    </button>
   );
 }
 
@@ -591,10 +675,10 @@ function Row({
       <span className="shrink-0">
         <FieldPatchAuthorsPure
           patchesByAuthorIds={row.authors}
-          profilesByAuthorIds={model.profiles as Record<string, Profile>}
+          profilesByAuthorIds={model.profiles}
           now={model.now}
           portalContainer={null}
-          mode="http"
+          mode={model.mode}
         />
       </span>
       {/*
