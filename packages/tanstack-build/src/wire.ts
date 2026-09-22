@@ -112,7 +112,6 @@ const CONTROL_HOST = "platform.internal";
 const valServerSource = ({ project, git }: WireOptions) => `import {
   initValContent,
   initValServer,
-  type ValHttpMode,
 } from "@valbuild/tanstack/server";
 import { config } from "../../val.config";
 import valModules from "../../val.modules";
@@ -311,10 +310,10 @@ const valConfig = {
  * seeding and repository creation shared a template, and it was one more thing
  * in KV that could go stale.
  *
- * \`git\` is now optional and absent here for every build this platform makes.
- * The content service owns the commit chain and mints its own shas, so there
- * is nothing to bake and nothing to bind -- and one source per environment
- * means no precedence rule between a baked value and a bound one.
+ * The commit is optional NOW, and it is still sent where there is one -- see
+ * the note at the spread below. What is gone is the binding that supplied one
+ * from KV, so there is one source per environment and no precedence rule
+ * between a baked value and a bound one.
  */
 const http =
   apiKey !== undefined && valSecret !== undefined
@@ -322,28 +321,41 @@ const http =
         apiKey,
         valSecret,
         /*
-         * FLAT, and \`satisfies\` on this inner object rather than on \`http\`.
+         * BOTH SPELLINGS OF THE COMMIT, because the APP decides which one is
+         * read and this file cannot know which app it is being written into.
          *
-         * This read \`{ git: BUILT_FROM }\` until the wiring moved into the Val
-         * repository, and had done since \`ValHttpMode\` was flattened to
-         * \`gitCommit\`/\`gitBranch\`. An unknown key is ignored, so a build
-         * wired FROM A COMMIT ran as though it had none: content read and
-         * written at the branch head instead of at the commit the running code
-         * was built from, silently, which is the exact failure the commit is
-         * carried to prevent.
+         * \`ValHttpMode\` has been renamed in both directions. Up to 0.132 it
+         * took \`gitCommit\`/\`gitBranch\`; 0.133.0 replaced that pair with a
+         * nested \`git\`; the version this package ships beside flattens it
+         * back again. The generated file is compiled against whatever
+         * \`@valbuild/tanstack\` the PROJECT installed -- the starter pins
+         * 0.133.0 -- and a platform writing this file has no say in that. So
+         * this is not one rename behind or ahead: it is on both sides of one at
+         * once, and will be until every app it publishes has moved.
          *
-         * The guard has to sit HERE because a conditional spread defeats every
-         * other form of it -- an annotation on \`http\`, a \`satisfies\` on
-         * \`http\`, and passing it to a typed parameter all accept an extra key
-         * that arrives by spread. Only a fresh object literal checked against a
-         * type gets excess-property checking, so the literal is checked where
-         * it is written.
+         * Sending only the wrong one is SILENT, which is why this is belt and
+         * braces rather than a version check. An unknown key on the options
+         * object is ignored, so the commit is simply dropped and a build wired
+         * FROM A COMMIT runs as though it had none -- which means a publish
+         * produces no mirrored \`.val.ts\`, so a save commits and hands over
+         * nothing, and the site keeps serving its old content with the patches
+         * already consumed. Nothing reports it. valbuild/home's loop is the one
+         * thing that sees it, and it was bisected there: 25/25 with the key the
+         * installed version reads, 21/23 without, failing at exactly "the save
+         * left the file it rewrote pending".
+         *
+         * Whichever version is installed reads its own key and ignores the
+         * other two. Drop this to one spelling when every app this platform
+         * publishes is past the rename -- not before, and not on the say-so of
+         * a compiler in the Val repository, which is looking at a different
+         * version of \`@valbuild/tanstack\` than the app is.
          */
         ...(BUILT_FROM !== null
-          ? ({
+          ? {
+              git: BUILT_FROM,
               gitCommit: BUILT_FROM.commit,
               gitBranch: BUILT_FROM.branch,
-            } satisfies Pick<ValHttpMode, "gitCommit" | "gitBranch">)
+            }
           : {}),
         ...(valContentUrl !== undefined ? { valContentUrl } : {}),
       }

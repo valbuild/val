@@ -19,15 +19,14 @@ import { wiredValServer, type WireOptions } from "./wire";
  * for — a rename that left one branch referring to a name that no longer
  * existed — and it is blind to the signature on the other side of the import.
  *
- * What got through, and is the reason this file exists: `ValHttpMode` was
- * flattened from a nested `git` to `gitCommit`/`gitBranch`, and the template
- * kept passing `{ git: BUILT_FROM }`. An unknown key is ignored, so a build
- * wired FROM A COMMIT ran as though it had none — reading and writing content
- * at the branch head instead of at the commit the running code was built from,
- * which is the exact thing carrying the commit exists to prevent. It was
- * silent in every check either repository had.
- *
  * So: with resolution, against the real package.
+ *
+ * One thing it deliberately does NOT settle, and the test at the bottom of this
+ * file says why: this compiles the template against the `@valbuild/tanstack` in
+ * THIS repository, and the template is compiled and run against the one the
+ * PROJECT installed. Where the two disagree about a name, the compiler here is
+ * the wrong witness — it says so with authority and is talking about a version
+ * the app does not have.
  */
 
 /**
@@ -202,31 +201,34 @@ describe("the generated val.server.ts", () => {
     expect(errors).toEqual([]);
   });
 
-  test("the commit reaches ValHttpMode by the name it has", () => {
+  test("the commit is sent under every name ValHttpMode has had", () => {
     /*
-     * The compile above does NOT catch this one, and that is the point of
-     * having both.
+     * The compile above cannot decide this one, and that is why both exist.
      *
-     * A conditional spread defeats excess-property checking: an extra `git`
-     * key arriving that way is accepted by an annotation on the enclosing
-     * object, by a `satisfies` on it, and by passing it to a typed parameter.
-     * Only a fresh object literal checked against a type is checked, which is
-     * why the template carries `satisfies Pick<ValHttpMode, ...>` on the inner
-     * literal — that is what turns this drift into a compile error in the
-     * project the file is written into.
+     * It compiles against THIS repository's `@valbuild/tanstack`. The file it
+     * compiles is written into somebody else's project and compiled — and run —
+     * against the one that project installed, and `ValHttpMode` has been
+     * renamed in both directions: `gitCommit`/`gitBranch` up to 0.132, a nested
+     * `git` in 0.133.0, flat again in the version this package ships beside.
+     * The starter pins 0.133.0. So the compiler here is a witness to one
+     * version and the template has to satisfy several.
      *
-     * So this test guards the guard. Take the `satisfies` out and the compile
-     * test still passes; this one does not. Verified by putting the original
-     * bug back and watching exactly this test, and only this test, fail.
+     * All three keys, therefore. An unknown one is ignored, so the cost is a
+     * dead key and the alternative is silence: the commit is dropped, the
+     * publish produces no mirrored `.val.ts`, and a save commits and hands over
+     * nothing. valbuild/home's loop is the only check anywhere that sees it —
+     * 25/25 with the key the installed version reads, 21/23 without, failing at
+     * "the save left the file it rewrote pending". This test is the cheap one
+     * that stands in front of that.
      */
     const wired = wiredValServer(
       VARIANTS["a commit (a build from a repository)"]!,
     );
-    expect(wired).toContain("gitCommit: BUILT_FROM.commit");
-    expect(wired).toContain("gitBranch: BUILT_FROM.branch");
-    // Comments stripped: the note explaining this regression quotes the shape
-    // it is about, and a canary that its own explanation trips is worthless.
+    // Comments stripped: the note explaining this quotes the shapes it is
+    // about, and a canary its own explanation satisfies is worthless.
     const code = wired.replace(/\/\*[\s\S]*?\*\//g, "");
-    expect(code).not.toMatch(/\bgit:\s*BUILT_FROM\b/);
+    expect(code).toMatch(/\bgit:\s*BUILT_FROM\b/);
+    expect(code).toContain("gitCommit: BUILT_FROM.commit");
+    expect(code).toContain("gitBranch: BUILT_FROM.branch");
   });
 });

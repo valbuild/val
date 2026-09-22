@@ -35,13 +35,23 @@ found several things that had been invisible where it lived — that build strip
 types rather than checking them, and its one check of the generated server file
 runs `tsc --noResolve`, so it cannot see across an import at all.
 
-The one that mattered most: the generated `val.server.ts` passed the commit as
-`git`, a key `ValHttpMode` stopped having when it was flattened to
-`gitCommit`/`gitBranch`. An unknown key is ignored, so a build wired from a
-commit ran as though it had none — reading and writing content at the branch
-head rather than at the commit the running code was built from, which is the
-one thing carrying the commit prevents. There is now a test that compiles the
-generated file against the real package, with resolution.
+The one that mattered most is about a rename that has gone both ways.
+`ValHttpMode` took `gitCommit`/`gitBranch` up to 0.132, a nested `git` from
+0.133.0, and is flat again here — and the generated `val.server.ts` is compiled
+and run against whatever `@valbuild/tanstack` the PROJECT installed, which the
+platform writing the file has no say in. Sending only the name this release
+knows drops the commit for every app still on 0.133.x, silently: the publish
+then produces no mirrored `.val.ts`, so a save commits and hands over nothing,
+and the site keeps serving its old content with the patches already consumed.
+The template now sends all three keys, and each version reads its own and
+ignores the rest.
+
+There is also a test that compiles the generated file against the real package,
+with resolution — the platform's own check runs `tsc --noResolve`, so it cannot
+see across an import at all. It is the right tool for a name that no longer
+exists and the wrong one for this, and it says so: the compiler in this
+repository is looking at a different version of `@valbuild/tanstack` than the
+app is.
 
 Two more, both of which changed behaviour:
 
