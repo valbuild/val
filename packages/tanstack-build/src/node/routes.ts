@@ -87,6 +87,10 @@ export async function generateRouteTree(
   dir: string,
   files: Record<string, string>,
 ): Promise<Record<string, string>> {
+  // A bare specifier, so an ordinary `import()` and not `dynamicImport`: the
+  // CJS build turns this into `require("@tanstack/router-generator")`, which
+  // Node answers, and the helper would resolve the name against the process's
+  // working directory instead of against this module. See dynamicImport.ts.
   const { Generator } = await import("@tanstack/router-generator");
   const projectConfig = await projectRouterConfig(dir);
 

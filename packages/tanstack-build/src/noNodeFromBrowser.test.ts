@@ -48,11 +48,12 @@ const SRC = __dirname;
  * `'https://…'` appears here more often than a trailing comment containing an
  * import does.
  */
+function withoutComments(code: string): string {
+  return code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+}
+
 function scannable(code: string): string {
-  return code
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^[ \t]*\/\/.*$/gm, "")
-    .replace(/`(?:\\[\s\S]|[^\\`])*`/g, "``");
+  return withoutComments(code).replace(/`(?:\\[\s\S]|[^\\`])*`/g, "``");
 }
 
 /** Every `from "..."` and `import("...")` specifier in a file. */
@@ -169,5 +170,47 @@ describe("the /node entrypoint is the other half", () => {
     // they would be proving the root does not reach code that is not there.
     expect(files).toContain(path.join("node", "vendorLayer.ts"));
     expect(files).toContain(path.join("node", "routes.ts"));
+  });
+});
+
+/**
+ * A `file://` URL must never reach a bare `import()`.
+ *
+ * Rollup rewrites a dynamic `import(x)` in the CommonJS build to `require(x)`,
+ * and `require` does not take a `file://` URL. So `await import(pathToFileURL(…))`
+ * builds fine, ships fine, and fails at the moment a project first uses a
+ * Tailwind plugin or route splitting — with "Cannot find module", naming a file
+ * that is plainly there. It shipped exactly once, and only the end-to-end loop
+ * caught it. `dynamicImport` is the way to load one; see its own file.
+ *
+ * A bare specifier is deliberately NOT caught here: `require("@tanstack/router-
+ * generator")` and `require("node:fs")` are things Node answers, and routing
+ * those through the helper would resolve them against the process's working
+ * directory instead of against the module asking.
+ *
+ * Source-level rather than a check on the built output, because the failure is
+ * in code the build emits from these lines, and a test that had to build the
+ * package would not run here.
+ */
+describe("loading a module by path", () => {
+  test("no `file://` URL reaches a bare import()", () => {
+    const offenders: string[] = [];
+    for (const file of fs.readdirSync(path.join(SRC, "node"))) {
+      // The helper's whole job is to hold the one `import()` that takes a URL,
+      // and it holds it as a string the bundler cannot see.
+      if (!file.endsWith(".ts") || file === "dynamicImport.ts") continue;
+      const code = withoutComments(
+        fs.readFileSync(path.join(SRC, "node", file), "utf8"),
+      );
+      for (const match of code.matchAll(/\bimport\s*\(([^)]*\)?[^)]*)\)/g)) {
+        const argument = match[1] ?? "";
+        if (/pathToFileURL|file:\/\//.test(argument)) {
+          offenders.push(
+            `node/${file}: import(${argument.trim().slice(0, 60)})`,
+          );
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });

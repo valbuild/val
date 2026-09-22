@@ -12,6 +12,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { CssModuleLoader, LoadedCssModule } from "../build";
+import { dynamicImport } from "./dynamicImport";
 
 export function cssModuleLoader(dir: string): CssModuleLoader {
   // Absolute: the dir arrives however the caller spelled it, and createRequire
@@ -35,7 +36,7 @@ export function cssModuleLoader(dir: string): CssModuleLoader {
     // The assertion is where "what shape is this" stops being answerable here:
     // it is the project's own module, loaded by path at runtime. Tailwind
     // validates what it gets.
-    const loaded = (await import(pathToFileURL(resolved).href)) as {
+    const loaded = (await dynamicImport(pathToFileURL(resolved).href)) as {
       default?: LoadedCssModule;
     } & LoadedCssModule;
     // `path` was missing until this package moved somewhere that type-checks

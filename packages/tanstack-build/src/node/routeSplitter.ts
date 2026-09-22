@@ -14,6 +14,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { RouteSplitter } from "../build";
+import { dynamicImport } from "./dynamicImport";
 
 /**
  * What the compilers are given, which is only ever what `shared()` below builds.
@@ -77,11 +78,11 @@ async function loadCompilers(
   }
 
   try {
-    const compilers = (await import(
-      pathToFileURL(join(core, "code-splitter/compilers.js")).href
+    const compilers = (await dynamicImport(
+      pathToFileURL(join(core, "code-splitter/compilers.js")).href,
     )) as Compilers;
-    const constants = (await import(
-      pathToFileURL(join(core, "constants.js")).href
+    const constants = (await dynamicImport(
+      pathToFileURL(join(core, "constants.js")).href,
     )) as {
       defaultCodeSplitGroupings: unknown;
     };
@@ -97,15 +98,21 @@ async function loadCompilers(
 }
 
 /**
- * Returns a splitter, or null when the project has not installed the plugin.
+ * Returns a splitter, or null when `@tanstack/router-plugin` is not installed
+ * where `from` can see it.
  *
  * Null rather than throwing: not splitting is a valid outcome, and a project
  * that has not asked for it should not be made to install a build plugin.
+ *
+ * `from` is a DIRECTORY to resolve the plugin from, and it is the publisher's
+ * own -- see `loadCompilers`. A caller that wants the project's copy instead
+ * can pass the project directory, but that is a different decision from the
+ * one this was written for.
  */
 export async function routeSplitter(
-  dir: string,
+  from: string,
 ): Promise<RouteSplitter | null> {
-  const compilers = await loadCompilers(dir);
+  const compilers = await loadCompilers(from);
   if (!compilers) return null;
 
   const shared = (id: string, code: string) => ({

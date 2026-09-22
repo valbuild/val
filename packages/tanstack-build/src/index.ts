@@ -25,6 +25,15 @@
  * is what keeps that true.
  */
 export * from "./build";
+/*
+ * Named rather than `export *`, because these modules also export things whose
+ * names only make sense inside the build: `paths.ts` has a `resolve` and a
+ * `dirname` of its own, and `tailwind.ts` has a `compileTailwind` the build
+ * calls and nobody else should.
+ */
+export { aliasMap, type AliasMap } from "./tsconfigPaths";
+export { resolveInFiles } from "./paths";
+export { scanCandidates, usesTailwind } from "./tailwind";
 export * from "./contract";
 export * from "./gitTree";
 export * from "./wire";
