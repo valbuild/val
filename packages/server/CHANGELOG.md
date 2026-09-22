@@ -1,5 +1,65 @@
 # @valbuild/server
 
+## 0.135.0
+
+### Patch Changes
+
+- [#707](https://github.com/valbuild/val/pull/707) [`c9affec`](https://github.com/valbuild/val/commit/c9affece6ae6ba62bd6c1113ed1fdab6317fa112) Thanks [@freekh](https://github.com/freekh)! - `val validate --fix` now formats with your prettier config instead of prettier's defaults
+
+  `--fix` formatted the files it repaired by calling `prettier.format(code, { filepath })`, which never reads `.prettierrc`: `filepath` picks the parser and nothing else — only `resolveConfig`, `getFileInfo` and prettier's own CLI consult the config. On a project whose style is not prettier's default, a two-line content fix therefore arrived as a whole-file rewrite, and in a repo with a format check in CI it turned a content fix into a red build.
+
+  There is now one implementation of "format a written file the way this project does", `createPrettierFormatter`, exported from `@valbuild/server` and re-exported by `@valbuild/next/server` and `@valbuild/tanstack/server`. It resolves `.prettierrc` for each file (including any `overrides` that match it), leaves anything in `.prettierignore` untouched, and falls back to prettier's defaults when the project has no config. `val validate --fix` uses it, so the CLI and the Studio can no longer disagree about formatting.
+
+  Use it for your app's `formatter` too — this is the recommended setup, and it replaces reading `.prettierrc.json` by hand:
+
+  ```ts
+  import prettier from "prettier";
+  import {
+    initValServer,
+    createPrettierFormatter,
+  } from "@valbuild/next/server";
+
+  const { valNextAppRouter } = initValServer(
+    valModules,
+    { ...config },
+    {
+      draftMode,
+      formatter: createPrettierFormatter(prettier, {
+        projectRoot: process.cwd(),
+      }),
+    },
+  );
+  ```
+
+  Existing `formatter` callbacks keep working unchanged.
+
+- [#706](https://github.com/valbuild/val/pull/706) [`72a7ca7`](https://github.com/valbuild/val/commit/72a7ca78354fff00e37a51359b17fba9334dc5e6) Thanks [@freekh](https://github.com/freekh)! - An endpoint that throws now answers Val's own 500 instead of the framework's.
+
+  Nothing caught a throw from an endpoint implementation, so it left the Val
+  router entirely and became whatever the host does with an unhandled error. On
+  TanStack Start that is h3, which replaces the message with the literal string
+  `"HTTPError"` and drops the stack — the same five words for a missing project,
+  a bad cookie and a module that failed to link — and keeps the real cause on the
+  server console. Where that console cannot be read (a Cloudflare Worker, for
+  one), a Val server had no way to say what broke inside it.
+
+  Such a request now answers Val's usual error envelope, naming the route, the
+  method and the cause:
+
+  ```json
+  {
+    "message": "Val: GET /authorize failed: Project is not set",
+    "details": {
+      "route": "/authorize",
+      "method": "GET",
+      "error": "Project is not set"
+    }
+  }
+  ```
+
+  The stack is logged rather than returned: `/authorize` and `/enable` are
+  reachable without a session, and the message is the part a caller can act on.
+
 ## 0.134.1
 
 ### Patch Changes
