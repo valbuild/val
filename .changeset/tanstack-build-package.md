@@ -30,9 +30,30 @@ or a `node:` builtin would fail in the consuming app's build rather than here.
 optional peer dependencies for the same reason: they are things a project asks
 for.
 
-Type-checking this code for the first time found four things that had been
-invisible where it lived, because that build strips types rather than checking
-them:
+Type-checking this code for the first time, and reviewing it once it was here,
+found several things that had been invisible where it lived — that build strips
+types rather than checking them, and its one check of the generated server file
+runs `tsc --noResolve`, so it cannot see across an import at all.
+
+The one that mattered most: the generated `val.server.ts` passed the commit as
+`git`, a key `ValHttpMode` stopped having when it was flattened to
+`gitCommit`/`gitBranch`. An unknown key is ignored, so a build wired from a
+commit ran as though it had none — reading and writing content at the branch
+head rather than at the commit the running code was built from, which is the
+one thing carrying the commit prevents. There is now a test that compiles the
+generated file against the real package, with resolution.
+
+Two more, both of which changed behaviour:
+
+- A split route's deferred half skipped every source transform, so
+  `<ClientOnly>` and `createIsomorphicFn()` in a route component were rewritten
+  when no splitter was supplied and left alone when one was. Splitting is
+  allowed to cost bytes and not to change behaviour.
+- The project dependency-layer build re-audited chunks it had just dropped,
+  because its fast path and its retry shared an output directory that nothing
+  cleared — so the recovery failed for exactly the case it exists for.
+
+And the four the compiler found on its own:
 
 - Tailwind's `loadModule` contract was restated by hand and restated wrongly —
   Tailwind also wants a `path`, and the CLI's loader had never sent one. The
