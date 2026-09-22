@@ -7,7 +7,7 @@
     "url": "git+https://github.com/valbuild/val.git"
   },
   "license": "MIT",
-  "version": "0.0.1-alpha.0",
+  "version": "0.0.0",
   "sideEffects": false,
   "main": "dist/valbuild-tanstack-build.cjs.js",
   "module": "dist/valbuild-tanstack-build.esm.js",
@@ -31,9 +31,10 @@
     "exports": true
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "build:tailwind": "tsx scripts/tailwindSources.ts",
+    "prepublishOnly": "node scripts/checkBuilt.mjs",
     "test": "jest",
-    "build:tailwind": "tsx scripts/tailwindSources.ts"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@rolldown/browser": "^1.2.5",
