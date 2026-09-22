@@ -269,6 +269,10 @@ async function buildTargets(
     // empty bundle is both pointless and an error.
     if (forTarget.length === 0) continue;
     const dir = join(outRoot, target.name);
+    // Before the build rather than inside the plugin list: the factory asks
+    // Node what each builtin exports, which is async, and a plugin's own hooks
+    // have to stay synchronous.
+    const shims = await nodeShims(target.name === "worker");
     await build({
       input: Object.fromEntries(forTarget.map((name) => [name, input[name]!])),
       platform: target.platform,
@@ -280,7 +284,7 @@ async function buildTargets(
         // Worker only: a browser has no Node builtins to bridge to, and a
         // package reaching for one there is a real error rather than a missing
         // runtime.
-        nodeShims(target.name === "worker"),
+        shims,
       ],
       transform: {
         define: {

@@ -209,49 +209,72 @@ export const REEXPORT = [
   "zlib",
 ];
 
-for (const name of REEXPORT) {
-  const real: Record<string, unknown> = await import(`node:${name}`);
-  const names = Object.keys(real).filter(
-    (key) => key !== "default" && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key),
-  );
-  // `ns.default ?? ns`, because the isolate's builtins are not all shaped like
-  // Node's. workerd's `node:path` exposes its functions on the DEFAULT export
-  // and not as named ones, so `import * as ns from 'node:path'; ns.join` is
-  // undefined -- which surfaced as a minified `I.join is not a function` from
-  // inside Val, with nothing pointing at the shim.
-  // Three sources, in order: the CJS default, the namespace, and -- for crypto
-  // -- the WEB global. This is the third time a re-export has been wrong about
-  // a builtin's shape: `path.join` was undefined (fixed by bundling path
-  // outright), then `crypto.randomUUID` was, because a Worker puts Web Crypto
-  // on `globalThis.crypto` and does not necessarily mirror every name onto
-  // `node:crypto`. Each failure surfaces as `X is not a function` from inside
-  // minified dependency code, naming nothing.
-  //
-  // `pick` binds only what it takes from the web global, and only when it is a
-  // function: `globalThis.crypto.subtle` is an object, and calling `.bind` on
-  // it is a startup crash of its own.
-  const isCrypto = name === "crypto";
-  NODE_SHIMS[name] =
-    [
-      `import * as ns from 'node:${name}'`,
-      `const mod = ns.default ?? ns`,
-      isCrypto
-        ? `const web = globalThis.crypto
+/**
+ * The re-export shims, built by asking Node what each builtin exports.
+ *
+ * Built on demand rather than at module scope, which it used to be. A top-level
+ * `await import('node:fs')` cannot be compiled to CommonJS at all -- the build
+ * of this package stops with INVALID_TLA_FORMAT -- and it was fine only for as
+ * long as this file was loaded as source by a runner that strips types.
+ *
+ * Memoised, so the twenty-odd dynamic imports happen once per process however
+ * many targets a layer build has.
+ */
+let shims: Promise<Record<string, string>> | null = null;
+
+async function buildShims(): Promise<Record<string, string>> {
+  const all: Record<string, string> = { ...NODE_SHIMS };
+  for (const name of REEXPORT) {
+    const real: Record<string, unknown> = await import(`node:${name}`);
+    const names = Object.keys(real).filter(
+      (key) => key !== "default" && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key),
+    );
+    // `ns.default ?? ns`, because the isolate's builtins are not all shaped like
+    // Node's. workerd's `node:path` exposes its functions on the DEFAULT export
+    // and not as named ones, so `import * as ns from 'node:path'; ns.join` is
+    // undefined -- which surfaced as a minified `I.join is not a function` from
+    // inside Val, with nothing pointing at the shim.
+    // Three sources, in order: the CJS default, the namespace, and -- for crypto
+    // -- the WEB global. This is the third time a re-export has been wrong about
+    // a builtin's shape: `path.join` was undefined (fixed by bundling path
+    // outright), then `crypto.randomUUID` was, because a Worker puts Web Crypto
+    // on `globalThis.crypto` and does not necessarily mirror every name onto
+    // `node:crypto`. Each failure surfaces as `X is not a function` from inside
+    // minified dependency code, naming nothing.
+    //
+    // `pick` binds only what it takes from the web global, and only when it is a
+    // function: `globalThis.crypto.subtle` is an object, and calling `.bind` on
+    // it is a startup crash of its own.
+    const isCrypto = name === "crypto";
+    all[name] =
+      [
+        `import * as ns from 'node:${name}'`,
+        `const mod = ns.default ?? ns`,
+        isCrypto
+          ? `const web = globalThis.crypto
 const pick = (key) => {
   const own = mod[key] ?? ns[key]
   if (own !== undefined) return own
   const fromWeb = web?.[key]
   return typeof fromWeb === 'function' ? fromWeb.bind(web) : fromWeb
 }`
-        : `const pick = (key) => mod[key] ?? ns[key]`,
-      isCrypto
-        ? `export default new Proxy(mod, { get: (t, p) => t[p] ?? pick(p) })`
-        : `export default mod`,
-      ...names.map(
-        (exported) =>
-          `export const ${exported} = pick(${JSON.stringify(exported)})`,
-      ),
-    ].join("\n") + "\n";
+          : `const pick = (key) => mod[key] ?? ns[key]`,
+        isCrypto
+          ? `export default new Proxy(mod, { get: (t, p) => t[p] ?? pick(p) })`
+          : `export default mod`,
+        ...names.map(
+          (exported) =>
+            `export const ${exported} = pick(${JSON.stringify(exported)})`,
+        ),
+      ].join("\n") + "\n";
+  }
+  return all;
+}
+
+/** Every shim, hand-written and generated, by builtin name. */
+export function nodeShimSources(): Promise<Record<string, string>> {
+  if (!shims) shims = buildShims();
+  return shims;
 }
 
 /**
@@ -269,7 +292,11 @@ const PREFIX = SHIM_PREFIX;
  * `__require`, which an isolate with no `require` cannot answer. A bundled
  * module turns it into an ESM import the isolate can.
  */
-export function nodeShims(enabled: boolean) {
+export async function nodeShims(enabled: boolean) {
+  // Awaited HERE rather than inside the hooks below, so `resolveId` and `load`
+  // stay synchronous: they are called once per module of every dependency in
+  // the layer, and the answer is the same every time.
+  const sources = await nodeShimSources();
   return {
     name: "platform:node-shims",
     resolveId(source: string, importer: string | undefined) {
@@ -307,11 +334,11 @@ export function nodeShims(enabled: boolean) {
         return { id: source, external: true };
       }
       const name = source.replace(/^node:/, "");
-      return name in NODE_SHIMS ? `${PREFIX}${name}` : null;
+      return name in sources ? `${PREFIX}${name}` : null;
     },
     load(id: string) {
       if (!id.startsWith(PREFIX)) return null;
-      return NODE_SHIMS[id.slice(PREFIX.length)]!;
+      return sources[id.slice(PREFIX.length)]!;
     },
   };
 }

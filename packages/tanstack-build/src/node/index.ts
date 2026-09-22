@@ -24,7 +24,13 @@ export {
   type VendorLayer,
   type VendorPlatform,
 } from "./vendorLayer";
-export { nodeShims } from "./nodeShims";
+export {
+  nodeShims,
+  nodeShimSources,
+  NODE_SHIMS,
+  REEXPORT,
+  SHIM_PREFIX,
+} from "./nodeShims";
 export { cssModuleLoader } from "./cssModules";
 export { routeSplitter } from "./routeSplitter";
 export { generateRouteTree, isFileBased } from "./routes";
