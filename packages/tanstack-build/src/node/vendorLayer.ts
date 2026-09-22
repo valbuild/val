@@ -269,6 +269,23 @@ async function buildTargets(
     // empty bundle is both pointless and an error.
     if (forTarget.length === 0) continue;
     const dir = join(outRoot, target.name);
+    /*
+     * Cleared first, because this function EMITS WHATEVER IT FINDS HERE.
+     *
+     * `buildVendorLayer` calls it twice against the same directory: once with
+     * every dependency, and again with the survivors when that fails and the
+     * per-dependency probe has worked out which to drop. rolldown writes
+     * before the import audit runs, so a first pass that fails IN THE AUDIT
+     * has already left chunks on disk -- including the chunk for the
+     * dependency about to be dropped.
+     *
+     * Left in place, the `readdir` below picks that chunk up again, so the
+     * retry re-audits the very thing it exists to exclude and fails the same
+     * way; and where the first pass failed for some other reason, the dropped
+     * dependency's code is shipped and folded into `rev`. rolldown has no
+     * `emptyOutDir`, so nothing else clears it.
+     */
+    await rm(dir, { recursive: true, force: true });
     // Before the build rather than inside the plugin list: the factory asks
     // Node what each builtin exports, which is async, and a plugin's own hooks
     // have to stay synchronous.

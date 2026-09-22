@@ -171,6 +171,27 @@ const DEPENDENCY_CSS_ID = "\0platform:dependency-css";
 const SPLIT_PREFIX = "\0platform:tsr-split:";
 
 /**
+ * The route and the halves a split id names, or null if it is not one.
+ *
+ * One parse, because two hooks read these ids: `load` builds the deferred half
+ * from the route's source, and `transform` runs the env markers over what
+ * `load` produced. They disagreeing about where the path starts would not fail
+ * — it would quietly hand the markers pass a truncated filename, which only
+ * decides whether it parses as TSX.
+ */
+function splitIdOf(
+  id: string,
+): { targets: Array<string>; path: string } | null {
+  if (!id.startsWith(SPLIT_PREFIX)) return null;
+  const rest = id.slice(SPLIT_PREFIX.length);
+  const at = rest.indexOf(":");
+  return {
+    targets: rest.slice(0, at).split("---").filter(Boolean),
+    path: rest.slice(at + 1),
+  };
+}
+
+/**
  * The project file a module id came from.
  *
  * A split module's id is virtual, but its *contents* came out of a route file
@@ -595,12 +616,10 @@ function projectPlugin(
       if (id === RSC_ENTRY_ID) return rscEntrySource(files);
       if (id === RSC_RUNTIME_STUB_ID) return RSC_RUNTIME_STUB;
       if (id === DEPENDENCY_CSS_ID) return "export {}\n";
-      if (id.startsWith(SPLIT_PREFIX)) {
-        const rest = id.slice(SPLIT_PREFIX.length);
-        const at = rest.indexOf(":");
-        const targets = rest.slice(0, at).split("---").filter(Boolean);
-        const path = rest.slice(at + 1);
-        return splitter!.virtual(path, files[path]!, targets).code;
+      const split = splitIdOf(id);
+      if (split) {
+        return splitter!.virtual(split.path, files[split.path]!, split.targets)
+          .code;
       }
       if (id.startsWith(CSS_MODULE_PREFIX)) {
         const path =
@@ -639,6 +658,30 @@ function projectPlugin(
      * parsed.
      */
     async transform(code: string, id: string) {
+      /*
+       * A split route's DEFERRED half, which would otherwise be skipped whole.
+       *
+       * `load` builds it from `files[path]` -- the original source, before any
+       * of the passes below -- and gives it an id of its own, which is not in
+       * `files`, so the guard after this one returned `null` for it. The
+       * markers live in the component, and the component is exactly what the
+       * splitter moves here: a route using `<ClientOnly>` or
+       * `createIsomorphicFn()` therefore kept TanStack's shipped fallback when
+       * a splitter was supplied and was rewritten when one was not. Splitting
+       * is allowed to cost bytes and is NOT allowed to change behaviour, which
+       * is the whole reason a browser build may skip it.
+       *
+       * The env markers ALONE, and the other two passes are deliberately not
+       * run here: the reference half keeps the route options
+       * (`transformRouteNodes`) and any `createServerFn` (`transformServerFns`),
+       * and re-running the latter would mint a second id for a function that
+       * already has one.
+       */
+      const half = splitIdOf(id);
+      if (half) {
+        const envMarkers = await transformEnvMarkers(half.path, code, target);
+        return envMarkers ? { code: envMarkers.code, map: null } : null;
+      }
       if (!(id in files) || isCss(id)) return null;
 
       // Two passes rather than one shared parse: each bails out on a substring

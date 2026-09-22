@@ -112,6 +112,7 @@ const CONTROL_HOST = "platform.internal";
 const valServerSource = ({ project, git }: WireOptions) => `import {
   initValContent,
   initValServer,
+  type ValHttpMode,
 } from "@valbuild/tanstack/server";
 import { config } from "../../val.config";
 import valModules from "../../val.modules";
@@ -320,7 +321,30 @@ const http =
     ? {
         apiKey,
         valSecret,
-        ...(BUILT_FROM !== null ? { git: BUILT_FROM } : {}),
+        /*
+         * FLAT, and \`satisfies\` on this inner object rather than on \`http\`.
+         *
+         * This read \`{ git: BUILT_FROM }\` until the wiring moved into the Val
+         * repository, and had done since \`ValHttpMode\` was flattened to
+         * \`gitCommit\`/\`gitBranch\`. An unknown key is ignored, so a build
+         * wired FROM A COMMIT ran as though it had none: content read and
+         * written at the branch head instead of at the commit the running code
+         * was built from, silently, which is the exact failure the commit is
+         * carried to prevent.
+         *
+         * The guard has to sit HERE because a conditional spread defeats every
+         * other form of it -- an annotation on \`http\`, a \`satisfies\` on
+         * \`http\`, and passing it to a typed parameter all accept an extra key
+         * that arrives by spread. Only a fresh object literal checked against a
+         * type gets excess-property checking, so the literal is checked where
+         * it is written.
+         */
+        ...(BUILT_FROM !== null
+          ? ({
+              gitCommit: BUILT_FROM.commit,
+              gitBranch: BUILT_FROM.branch,
+            } satisfies Pick<ValHttpMode, "gitCommit" | "gitBranch">)
+          : {}),
         ...(valContentUrl !== undefined ? { valContentUrl } : {}),
       }
     : undefined;

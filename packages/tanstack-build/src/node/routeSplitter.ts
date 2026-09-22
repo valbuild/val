@@ -46,29 +46,35 @@ type Compilers = {
  *
  * By file path, not by specifier: these are internals and the package's
  * `exports` does not list them, so a subpath import is refused. That is also
- * why `packages/upstream` pins the file -- if it moves, this breaks, and the
- * drift check is what says so first.
+ * why valbuild/home's `packages/upstream` pins the file -- if it moves, this
+ * breaks, and that drift check is what says so first. It stays there rather
+ * than moving with this code: it compares a pin against an INSTALLED tree, and
+ * the platform is where both the pin and the installed TanStack live.
  *
  * "Not installed" and "installed but moved" are different outcomes on purpose.
  * The first is fine, and means no splitting. The second is the thing worth
  * hearing about, and a bare catch around both would have hidden it -- as it
  * did, the first time this was written.
  *
- * Resolved from the PROJECT, not from here, and that changed with the move to
- * npm. `autoCodeSplitting` is something a project asks for by installing the
- * plugin, so the plugin is the project's dependency and its version is
- * whatever the project's lockfile pinned -- exactly like a Tailwind plugin and
- * exactly like the vendor layer. Resolving from this module would ask which
- * copy the *publisher* happens to have hoisted, which is nobody's decision.
+ * `from` is where to resolve the plugin, and it belongs to the PUBLISHER
+ * rather than to the project. Splitting is a property of what is doing the
+ * building -- this same code in a browser tab does not split at all, because
+ * the plugin is built on Babel -- so a project must not have to install a build
+ * plugin to get it. A publisher that carries the plugin passes its own
+ * location; one that does not passes anything and gets null.
+ *
+ * It is a parameter at all because `import.meta.url` is not available here:
+ * this package is built to CommonJS as well as ESM, and `import.meta` is a
+ * syntax error there.
  */
 async function loadCompilers(
-  dir: string,
+  from: string,
 ): Promise<(Compilers & { groupings: unknown }) | null> {
   let core: string;
   try {
-    // Absolute: `createRequire` rejects a relative path, and the dir arrives
+    // Absolute: `createRequire` rejects a relative path, and the path arrives
     // however the caller spelled it.
-    const require = createRequire(join(resolve(dir), "package.json"));
+    const require = createRequire(join(resolve(from), "package.json"));
     core = join(
       dirname(require.resolve("@tanstack/router-plugin/package.json")),
       "dist/esm/core",
