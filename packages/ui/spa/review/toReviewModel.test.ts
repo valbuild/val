@@ -69,6 +69,7 @@ function input(over: Partial<ReviewModelInput> = {}): ReviewModelInput {
     stateOf: () => "staged",
     stagePreview: () => [],
     authorOf: () => null,
+    isPageModule: () => false,
     describe: fallback,
     now: new Date("2026-09-20T12:00:00.000Z"),
     ...over,
@@ -125,6 +126,84 @@ describe("grouping", () => {
       }),
     );
     expect(model.modules[0].location).toBe("App / Blogs / Blog");
+  });
+});
+
+/**
+ * A router module is ONE module holding MANY pages.
+ *
+ * Grouping by module put three unrelated edits under three headings all called
+ * `Pages`, told apart only by `App / Blogs / Blog` underneath — which is the
+ * file, not the thing that changed. The thing that changed is the page.
+ */
+describe("a page router", () => {
+  const blogs = "/app/blogs/[blog]/page.val.ts";
+  const twoPages = [
+    patchSet(
+      blogs,
+      ["/blogs/blog2", "title"],
+      [{ patchId: "p1", author: "ada", opType: "replace" }],
+    ),
+    patchSet(
+      blogs,
+      ["/blogs/blog2", "content"],
+      [{ patchId: "p2", author: "ada", opType: "replace" }],
+    ),
+    patchSet(
+      blogs,
+      ["/blogs/other", "title"],
+      [{ patchId: "p3", author: "linus", opType: "replace" }],
+    ),
+  ];
+
+  test("groups by page, not by the module the pages live in", () => {
+    const model = toReviewModel(
+      input({ patchSets: twoPages, isPageModule: () => true }),
+    );
+    expect(model.modules.map((group) => group.location)).toEqual([
+      "/blogs/blog2",
+      "/blogs/other",
+    ]);
+    expect(model.modules[0].rows).toHaveLength(2);
+    expect(model.modules[1].rows).toHaveLength(1);
+  });
+
+  /*
+   * The URL is the page's location AND its identity, so it is what the heading
+   * says. `App / Blogs / Blog` describes the file, which an editor has no
+   * checkout of.
+   */
+  test("locates a page by its URL, never by its folders", () => {
+    const model = toReviewModel(
+      input({ patchSets: twoPages, isPageModule: () => true }),
+    );
+    for (const group of model.modules) {
+      expect(group.location).toMatch(/^\/blogs\//);
+    }
+  });
+
+  /*
+   * The heading already said the route, so the row says what changed INSIDE
+   * the page. Repeating it spends the width that says WHICH field on saying
+   * the same URL twice.
+   */
+  test("a row says what changed inside the page, not the route again", () => {
+    const model = toReviewModel(
+      input({ patchSets: twoPages, isPageModule: () => true }),
+    );
+    expect(model.modules[0].rows.map((row) => row.trail)).toEqual([
+      ["title"],
+      ["content"],
+    ]);
+  });
+
+  /* Without a router the same paths are one module group, trail intact. */
+  test("a plain record with the same keys is still one group", () => {
+    const model = toReviewModel(
+      input({ patchSets: twoPages, isPageModule: () => false }),
+    );
+    expect(model.modules).toHaveLength(1);
+    expect(model.modules[0].rows[0].trail).toEqual(["/blogs/blog2", "title"]);
   });
 });
 

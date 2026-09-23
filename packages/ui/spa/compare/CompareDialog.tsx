@@ -297,9 +297,14 @@ export function CompareDialog({
                  */}
                 <DialogDescription className="truncate text-xs text-fg-tertiary">
                   {authorFilter === null
-                    ? `${model.changeCount} ${
+                    ? /*
+                       * An fs project SAVES: there is nothing outside the
+                       * editor's own machine to publish to, and the button
+                       * that finishes the job says "Save".
+                       */
+                      `${model.changeCount} ${
                         model.changeCount === 1 ? "change" : "changes"
-                      } in this publish`
+                      } in this ${mode === "fs" ? "save" : "publish"}`
                     : `Showing changes by ${
                         model.profiles[authorFilter]?.fullName ?? authorFilter
                       }`}
@@ -604,8 +609,21 @@ function PaneHeading({ pane }: { pane: ComparePane }) {
   const { description } = pane;
   const showUrl =
     description.url !== null && description.origin.title === "preview";
-  const below = [showUrl ? description.url : null, pane.path, pane.note]
-    .filter((part): part is string => part !== null && part !== undefined)
+  /*
+   * The location, unless it would only repeat the name.
+   *
+   * A page nobody previewed is CALLED its route, and `path` is that same
+   * route — so printing both gave `/blogs/blog1` twice on two lines, which
+   * spends the line on nothing and reads as though the two were different
+   * things. Named pages and every data module still show it, because there
+   * the name and the place are genuinely different answers.
+   */
+  const location = pane.path === description.title ? null : pane.path;
+  const below = [showUrl ? description.url : null, location, pane.note]
+    .filter(
+      (part): part is string =>
+        part !== null && part !== undefined && part !== "",
+    )
     .join(" — ");
   return (
     <div className="mb-2 min-w-0">

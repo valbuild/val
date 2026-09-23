@@ -4,6 +4,8 @@ import {
   useCommittedPatches,
   useProfilesByAuthorId,
 } from "../components/ValProvider";
+import { useSchemas } from "../components/ValFieldProvider";
+import { isPageModule } from "../utils/pageRoutes";
 import { computeChangedSourcePaths } from "../utils/computeChangedSourcePaths";
 import type { SerializedPatchSet } from "../utils/PatchSets";
 import { useDescriptions } from "../components/useDescriptions";
@@ -24,21 +26,30 @@ import type { CompareModel, ComparePane } from "./types";
  */
 export function useCompareModel({
   patchSets,
+  mode,
   renderValue,
 }: {
   patchSets: SerializedPatchSet;
+  /** Decides the words: an fs project SAVES, it does not publish. */
+  mode: "fs" | "http" | "unknown";
   renderValue: (path: SourcePath, side: "before" | "after") => React.ReactNode;
 }): CompareModel {
   const profiles = useProfilesByAuthorId();
   const committedPatchIds = useCommittedPatches();
+  const schemas = useSchemas();
 
-  const structure = useMemo(
-    () =>
-      toCompareStructure(
-        computeChangedSourcePaths(patchSets, committedPatchIds).trees,
-      ),
-    [patchSets, committedPatchIds],
-  );
+  const structure = useMemo(() => {
+    const all = schemas.status === "success" ? schemas.data : {};
+    return toCompareStructure({
+      trees: computeChangedSourcePaths(patchSets, committedPatchIds).trees,
+      /*
+       * Whether a module's keys are URLs, which decides whether its changes
+       * are listed as pages or as one module. Read here because it is a
+       * question about the SCHEMA and `toCompareStructure` is pure.
+       */
+      isPageModule: (moduleFilePath) => isPageModule(all[moduleFilePath]),
+    });
+  }, [patchSets, committedPatchIds, schemas]);
 
   /*
    * Every path the dialog names — the module headings and every row under
@@ -48,7 +59,7 @@ export function useCompareModel({
   const paths = useMemo<SourcePath[]>(() => {
     const seen: SourcePath[] = [];
     for (const pane of Object.values(structure.panes)) {
-      seen.push(pane.moduleFilePath as unknown as SourcePath);
+      seen.push(pane.sourcePath);
       for (const row of pane.rows) seen.push(row.sourcePath);
     }
     return seen;
@@ -59,10 +70,13 @@ export function useCompareModel({
     const panes: Record<string, ComparePane> = {};
     for (const [nodeId, pane] of Object.entries(structure.panes)) {
       panes[nodeId] = {
-        description: descriptions.describe(
-          pane.moduleFilePath as unknown as SourcePath,
-        ),
-        path: pane.moduleFilePath,
+        description: descriptions.describe(pane.sourcePath),
+        /*
+         * WHERE it is, never a file path — a page's URL, or a data module's
+         * folders as the left nav spells them. An editor has no checkout, so
+         * `/app/blogs/[blog]/page.val.ts` names a file they cannot open.
+         */
+        path: pane.location ?? "",
         ...(pane.change ? { change: pane.change } : {}),
         groups: [
           {
@@ -101,9 +115,19 @@ export function useCompareModel({
       panes,
       changeCount: structure.changeCount,
       profiles,
-      left: { label: "Published", caption: "What is live now" },
+      /*
+       * An fs project SAVES: there is nothing outside the editor's own machine
+       * to publish to, and the button that finishes the job says "Save". A
+       * column headed "After publish" there names an act the Studio does not
+       * offer, which is how a screen teaches people that its words are
+       * approximate.
+       */
+      left: {
+        label: mode === "fs" ? "On disk" : "Published",
+        caption: mode === "fs" ? "What is saved now" : "What is live now",
+      },
       right: {
-        label: "After publish",
+        label: mode === "fs" ? "After save" : "After publish",
         caption: `${structure.changeCount} ${
           structure.changeCount === 1 ? "change" : "changes"
         }`,
@@ -125,11 +149,15 @@ export function useCompareModel({
        */
       selectedBasisId: "published",
       basisOptions: [
-        { id: "published", label: "Published", caption: "What is live now" },
+        {
+          id: "published",
+          label: mode === "fs" ? "On disk" : "Published",
+          caption: mode === "fs" ? "What is saved now" : "What is live now",
+        },
       ],
       undo: { kind: "discard" },
     };
-  }, [structure, descriptions, profiles, renderValue]);
+  }, [structure, descriptions, profiles, renderValue, mode]);
 }
 
 /** The pane a nav node opens, for a caller that has a module path. */

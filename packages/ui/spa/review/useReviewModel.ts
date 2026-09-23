@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { SourcePath } from "@valbuild/core";
+import type { ModuleFilePath, SourcePath } from "@valbuild/core";
 import {
   useCurrentAuthorId,
   useProfilesByAuthorId,
@@ -8,6 +8,8 @@ import { useValMode } from "../components/ValProvider";
 import { usePatchStaging } from "../components/PatchStagingProvider";
 import type { SerializedPatchSet } from "../utils/PatchSets";
 import { useDescriptions } from "../components/useDescriptions";
+import { useSchemas } from "../components/ValFieldProvider";
+import { isPageModule } from "../utils/pageRoutes";
 import { reviewSourcePath, toReviewModel } from "./toReviewModel";
 import type { ReviewModel } from "./types";
 
@@ -27,6 +29,17 @@ export function useReviewModel(patchSets: SerializedPatchSet): ReviewModel {
   const currentAuthorId = useCurrentAuthorId();
   const mode = useValMode();
   const staging = usePatchStaging();
+  const schemas = useSchemas();
+  /*
+   * Whether a module's keys are URLs, which decides whether its changes are
+   * grouped as pages or as one module. Read here because it is a question
+   * about the SCHEMA and `toReviewModel` is pure.
+   */
+  const isPage = useMemo(() => {
+    const all = schemas.status === "success" ? schemas.data : {};
+    return (moduleFilePath: ModuleFilePath) =>
+      isPageModule(all[moduleFilePath]);
+  }, [schemas]);
 
   /*
    * Every path this page names, in one list, so the descriptions can be
@@ -64,9 +77,19 @@ export function useReviewModel(patchSets: SerializedPatchSet): ReviewModel {
         stateOf: staging.stateOf,
         stagePreview: staging.stagePreview,
         authorOf: staging.authorOf,
+        isPageModule: isPage,
         describe: descriptions.describe,
         now,
       }),
-    [patchSets, profiles, mode, currentAuthorId, staging, descriptions, now],
+    [
+      patchSets,
+      profiles,
+      mode,
+      currentAuthorId,
+      staging,
+      descriptions,
+      isPage,
+      now,
+    ],
   );
 }

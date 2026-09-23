@@ -5,6 +5,7 @@ import type { RowStagingState } from "../components/PatchStagingProvider";
 import type { SerializedPatchSet, PatchSetMetadata } from "../utils/PatchSets";
 import type { CompareAuthorship } from "../compare/types";
 import type { Description } from "../utils/describePath";
+import { pagePathOf, pageRouteOf } from "../utils/pageRoutes";
 import { prettyModuleLocation } from "../utils/prettyModulePath";
 import type { ReviewModel, ReviewModuleGroup, ReviewRow } from "./types";
 
@@ -33,23 +34,54 @@ export type ReviewModelInput = {
   /** What staging these would additionally pull in — the prefix invariant. */
   stagePreview: (patchIds: readonly PatchId[]) => PatchId[];
   authorOf: (patchId: PatchId) => string | null;
+  /**
+   * Whether this module's keys are URLs of the site.
+   *
+   * Passed in because the answer is in the SCHEMA and this is pure.
+   * `isPageModule` is the one implementation.
+   */
+  isPageModule: (moduleFilePath: ModuleFilePath) => boolean;
   /** What a path is CALLED. See `describePath`. */
   describe: (path: SourcePath) => Description;
   now: Date;
 };
 
+/**
+ * Patch sets, grouped by the thing that changed.
+ *
+ * A PAGE for a router module, a module for everything else — and that is the
+ * whole difference between a list that reads and one that does not. A router
+ * module is one module holding many pages, so grouping by module put three
+ * unrelated edits under three headings all called `Pages`, told apart only by
+ * `App / Blogs / Blog` underneath. The thing that changed is the page, and a
+ * page is named by its URL.
+ */
 export function toReviewModel(input: ReviewModelInput): ReviewModel {
-  const groups = new Map<ModuleFilePath, ReviewModuleGroup>();
+  const groups = new Map<string, ReviewModuleGroup>();
   for (const patchSet of input.patchSets) {
-    const group = groups.get(patchSet.moduleFilePath);
-    const row = toRow(patchSet, input);
+    const isPage = input.isPageModule(patchSet.moduleFilePath);
+    const route = isPage ? pageRouteOf(reviewSourcePath(patchSet), true) : null;
+    /*
+     * The group's own path: the page, or the module. Also its key, so two
+     * pages in one router module are two groups and two modules with the same
+     * name are still two.
+     */
+    const groupPath =
+      route === null
+        ? (patchSet.moduleFilePath as unknown as SourcePath)
+        : pagePathOf(reviewSourcePath(patchSet), route);
+    const row = toRow(patchSet, input, route === null ? 0 : 1);
+    const group = groups.get(groupPath);
     if (group === undefined) {
-      groups.set(patchSet.moduleFilePath, {
+      groups.set(groupPath, {
         moduleFilePath: patchSet.moduleFilePath,
-        description: input.describe(
-          patchSet.moduleFilePath as unknown as SourcePath,
-        ),
-        location: prettyModuleLocation(patchSet.moduleFilePath),
+        description: input.describe(groupPath),
+        /*
+         * A page's URL is its location AND its identity; a module's is its
+         * folders, spelled the way the left nav spells them. Never the file
+         * path — an editor has no checkout to open it in.
+         */
+        location: route ?? prettyModuleLocation(patchSet.moduleFilePath),
         rows: [row],
       });
     } else {
@@ -81,13 +113,18 @@ export function reviewRowId(patchSet: {
   return `${patchSet.moduleFilePath}?${patchSet.patchPath.join("/")}`;
 }
 
-function toRow(patchSet: PatchSetMetadata, input: ReviewModelInput): ReviewRow {
+function toRow(
+  patchSet: PatchSetMetadata,
+  input: ReviewModelInput,
+  /** Leading segments the group heading already says. See `trailOf`. */
+  skip: number,
+): ReviewRow {
   const patchIds = patchSet.patches.map((patch) => patch.patchId);
   const staging = input.stagingEnabled ? input.stateOf(patchIds) : "staged";
   return {
     id: reviewRowId(patchSet),
     description: input.describe(reviewSourcePath(patchSet)),
-    trail: trailOf(patchSet),
+    trail: trailOf(patchSet, skip),
     summary: summaryOf(patchSet),
     authors: authorshipOf(patchSet),
     lastUpdated: patchSet.lastUpdated,
@@ -131,11 +168,20 @@ export function reviewSourcePath(patchSet: {
  * two drafts called "Launch" apart. The two are told apart by where the bytes
  * live, which is the one thing that is true of every media path and no route.
  */
-function trailOf(patchSet: PatchSetMetadata): string[] {
-  return patchSet.patchPath.map((segment) =>
-    segment.startsWith("/public/")
-      ? (segment.split("/").pop() ?? segment)
-      : segment,
+function trailOf(patchSet: PatchSetMetadata, skip: number): string[] {
+  return (
+    patchSet.patchPath
+      /*
+       * Drop what the heading already said. A page's group is titled with its
+       * route, so repeating `/blogs/blog2` on every row under it spends the
+       * width that says WHICH field changed on saying the same URL twice.
+       */
+      .slice(skip)
+      .map((segment) =>
+        segment.startsWith("/public/")
+          ? (segment.split("/").pop() ?? segment)
+          : segment,
+      )
   );
 }
 

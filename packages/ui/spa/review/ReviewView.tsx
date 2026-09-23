@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { GitCompareArrows, History, Undo2 } from "lucide-react";
+import { GitCompareArrows, History, Info, Undo2 } from "lucide-react";
 import { Button } from "../components/designSystem/button";
 import {
   Popover,
@@ -7,6 +7,11 @@ import {
   PopoverTrigger,
 } from "../components/designSystem/popover";
 import { Checkbox } from "../components/designSystem/checkbox";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/designSystem/tooltip";
 import { cn } from "../components/designSystem/cn";
 import { FieldPatchAuthorsPure } from "../components/FieldPatchAuthors";
 import { CompareAuthorFilterMenu } from "../compare/CompareAuthorFilter";
@@ -269,19 +274,33 @@ export function ReviewView({
              * said "In this publish" and "Held back", which named the same two
              * facts in a third vocabulary — so an editor who pressed Unstage had
              * to work out for themselves that the row would turn up under "Held
-             * back". `detail` is where the consequence goes, because that is the
-             * part a label cannot carry.
+             * back". What the two MEAN is behind the info icon — see `Section`.
              */}
             <Section
               title="Staged"
-              detail="Publish ships these."
+              /*
+               * An fs project SAVES. There is nothing outside the editor's own
+               * machine to publish to, and the button that finishes the job
+               * says "Save" — so "Publish ships these" there names an act the
+               * Studio does not offer.
+               */
+              explanation={
+                model.mode === "fs"
+                  ? "Save writes these to the files on disk. Everything you edit is staged unless you take it out, and nothing else is written."
+                  : "Publish ships these, and only these. A change is staged by default; take one out and it stays pending until somebody stages it again."
+              }
               count={stagedCount}
               groups={stagedGroups}
               model={model}
               selected={selected}
               onToggle={toggle}
               onDiscard={(id) => onDiscard([id])}
-              emptyNote="Nothing is staged, so Publish has nothing to ship. Stage a change below to publish it."
+              emptyNote={
+                model.mode === "fs"
+                  ? "Nothing to save."
+                  : "Nothing staged — Publish has nothing to ship."
+              }
+              portalContainer={portalContainer}
             />
             {/*
              * The unstaged section exists even when it is empty, because its absence
@@ -291,14 +310,19 @@ export function ReviewView({
              */}
             <Section
               title="Unstaged"
-              detail="Not in this publish. These stay pending and can be staged again — or published by someone else."
+              explanation={
+                model.mode === "fs"
+                  ? "Held out of the next save. They stay pending, and stay yours — nothing writes them until you stage them again."
+                  : "Held out of the next publish. They stay pending and can be staged again — by you, or by whoever publishes next, so this is not a way to keep work private."
+              }
               count={unstagedCount}
               groups={unstagedGroups}
               model={model}
               selected={selected}
               onToggle={toggle}
               onDiscard={(id) => onDiscard([id])}
-              emptyNote="Nothing is unstaged — every change is staged."
+              emptyNote="Nothing held back."
+              portalContainer={portalContainer}
               muted
             />
           </>
@@ -557,7 +581,7 @@ function EmptyReview() {
 
 function Section({
   title,
-  detail,
+  explanation,
   count,
   groups,
   model,
@@ -566,10 +590,20 @@ function Section({
   onDiscard,
   emptyNote,
   muted = false,
+  portalContainer,
 }: {
   title: string;
-  /** What being in this section MEANS, which the one-word title cannot say. */
-  detail: string;
+  /**
+   * What being in this section MEANS, behind the info icon.
+   *
+   * On demand rather than under the heading, and the swap is what makes the
+   * text worth reading: as a permanent subtitle it had to be short enough not
+   * to cost two lines above every list — "Not in this publish." — which is a
+   * restatement of the heading rather than an explanation of it. Asked for, it
+   * has room to say the thing an editor actually needs: that unstaged work
+   * stays pending, and that somebody else publishing will take it.
+   */
+  explanation: string;
   count: number;
   groups: ReviewModuleGroup[];
   model: ReviewModel;
@@ -578,6 +612,8 @@ function Section({
   onDiscard: (rowId: string) => void;
   emptyNote: string;
   muted?: boolean;
+  /** Where the tooltip portals to, inside the shadow root. */
+  portalContainer: HTMLElement | null;
 }) {
   return (
     <section
@@ -594,19 +630,29 @@ function Section({
         muted && "border-t border-border-primary pt-8",
       )}
     >
-      <div className="mb-4">
-        <div className="flex items-baseline gap-2">
-          <h2
-            className={cn(
-              "text-xs font-semibold uppercase tracking-wider",
-              muted ? "text-fg-tertiary" : "text-fg-secondary",
-            )}
-          >
-            {title}
-          </h2>
-          <span className="text-xs tabular-nums text-fg-tertiary">{count}</span>
-        </div>
-        <p className="mt-0.5 text-xs text-fg-tertiary">{detail}</p>
+      <div className="mb-4 flex items-center gap-1.5">
+        <h2
+          className={cn(
+            "text-xs font-semibold uppercase tracking-wider",
+            muted ? "text-fg-tertiary" : "text-fg-secondary",
+          )}
+        >
+          {title}
+        </h2>
+        <span className="text-xs tabular-nums text-fg-tertiary">{count}</span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              aria-label={`What ${title.toLowerCase()} means`}
+              className="rounded text-fg-tertiary hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+            >
+              <Info size={12} aria-hidden />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent container={portalContainer} className="max-w-72">
+            <p className="text-xs">{explanation}</p>
+          </TooltipContent>
+        </Tooltip>
       </div>
       {groups.length === 0 ? (
         <p className="text-sm text-fg-tertiary">{emptyNote}</p>
@@ -661,12 +707,18 @@ function ModuleGroup({
          * be `/app/blogs/[blog]/page.val.ts` in a monospace font, which names
          * a file an editor has no checkout of and cannot open. The folders say
          * the same thing in words they can read: `App / Blogs / Blog`.
+         *
+         * Dropped when it would only repeat the name. A page nobody previewed
+         * is CALLED its route, and its location is that same route — printing
+         * both gave `/blogs/blog1  /blogs/blog1`, which spends the line on
+         * nothing and reads as though the two were different.
          */}
-        {group.location !== null && (
-          <span className="truncate text-xs text-fg-tertiary">
-            {group.location}
-          </span>
-        )}
+        {group.location !== null &&
+          group.location !== group.description.title && (
+            <span className="truncate text-xs text-fg-tertiary">
+              {group.location}
+            </span>
+          )}
       </div>
       <div className="rounded-lg border border-border-secondary">
         {group.rows.map((row) => (

@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 import { render, screen } from "@testing-library/react";
 import { ReviewView } from "./ReviewView";
+import { TooltipProvider } from "../components/designSystem/tooltip";
 import { reviewModel } from "./fixtures";
 
 /*
@@ -30,9 +31,14 @@ jest.mock("../components/FieldPatchAuthors", () => ({
  * one is an `<input>`. Both answer to `role="checkbox"`, so a refactor back to
  * the native element would keep every other query in this file passing.
  */
-describe("the row selection checkbox", () => {
-  test("is not a native input, so the theme paints it", () => {
-    render(
+/*
+ * `ValProvider` mounts a `TooltipProvider` in the Studio; a test mounts no
+ * provider at all, and Radix throws rather than degrading — which is how the
+ * section headings' info tooltips broke this file the moment they were added.
+ */
+function review() {
+  return (
+    <TooltipProvider>
       <ReviewView
         model={reviewModel}
         onCompare={() => undefined}
@@ -41,8 +47,14 @@ describe("the row selection checkbox", () => {
         onUnstage={() => undefined}
         onDiscard={() => undefined}
         onDiscardAll={() => undefined}
-      />,
-    );
+      />
+    </TooltipProvider>
+  );
+}
+
+describe("the row selection checkbox", () => {
+  test("is not a native input, so the theme paints it", () => {
+    render(review());
     const boxes = screen.getAllByRole("checkbox");
     expect(boxes.length).toBe(9);
     for (const box of boxes) {
@@ -56,17 +68,7 @@ describe("the row selection checkbox", () => {
    * column of nine indistinguishable toggles.
    */
   test("names the row it selects", () => {
-    render(
-      <ReviewView
-        model={reviewModel}
-        onCompare={() => undefined}
-        onRestore={() => undefined}
-        onStage={() => undefined}
-        onUnstage={() => undefined}
-        onDiscard={() => undefined}
-        onDiscardAll={() => undefined}
-      />,
-    );
+    render(review());
     expect(
       screen.getByRole("checkbox", { name: "Select Kim Midtlid" }),
     ).not.toBeNull();

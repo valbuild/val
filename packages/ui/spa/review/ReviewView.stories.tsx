@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { ReviewView } from "./ReviewView";
+import { TooltipProvider } from "../components/designSystem/tooltip";
 import {
   emptyReviewModel,
   noStagingReviewModel,
@@ -28,23 +29,30 @@ function Harness({
   initialSelection?: string[];
 }) {
   return (
-    <div className="h-screen w-full bg-bg-primary">
-      <ReviewView
-        model={model}
-        initialSelection={initialSelection}
-        onCompare={() => undefined}
-        /*
-         * Absent in fs mode, which is what the NoStaging story is: there is no
-         * published history there, so the button would lead to a page whose
-         * only content is an apology.
-         */
-        onRestore={model.mode === "fs" ? undefined : () => undefined}
-        onStage={() => undefined}
-        onUnstage={() => undefined}
-        onDiscard={() => undefined}
-        onDiscardAll={() => undefined}
-      />
-    </div>
+    /*
+     * `ValProvider` mounts one in the Studio; a story mounts no provider at
+     * all, so the section headings' info tooltips need one here or Radix has
+     * nothing to attach them to.
+     */
+    <TooltipProvider>
+      <div className="h-screen w-full bg-bg-primary">
+        <ReviewView
+          model={model}
+          initialSelection={initialSelection}
+          onCompare={() => undefined}
+          /*
+           * Absent in fs mode, which is what the NoStaging story is: there is no
+           * published history there, so the button would lead to a page whose
+           * only content is an apology.
+           */
+          onRestore={model.mode === "fs" ? undefined : () => undefined}
+          onStage={() => undefined}
+          onUnstage={() => undefined}
+          onDiscard={() => undefined}
+          onDiscardAll={() => undefined}
+        />
+      </div>
+    </TooltipProvider>
   );
 }
 

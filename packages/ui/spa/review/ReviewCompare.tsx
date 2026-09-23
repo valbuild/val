@@ -69,7 +69,7 @@ function MountedCompare({
     ),
     [],
   );
-  const model = useCompareModel({ patchSets, renderValue });
+  const model = useCompareModel({ patchSets, mode, renderValue });
   return (
     <CompareDialog
       open
