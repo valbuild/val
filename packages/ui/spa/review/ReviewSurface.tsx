@@ -1,10 +1,16 @@
 import { useCallback } from "react";
-import { useDeletePatches, usePatchSets } from "../components/ValProvider";
+import {
+  useCurrentAuthorId,
+  useDeletePatches,
+  usePatchSets,
+  useValMode,
+} from "../components/ValProvider";
 import { usePatchStaging } from "../components/PatchStagingProvider";
 import type { SerializedPatchSet } from "../utils/PatchSets";
 import { ReviewView } from "./ReviewView";
 import { useReviewModel } from "./useReviewModel";
-import { reviewRowId } from "./toReviewModel";
+import { reviewRowId, reviewSourcePath } from "./toReviewModel";
+import { ReviewCompare, useCompareDialog } from "./ReviewCompare";
 
 /**
  * `/val/review`, wired up.
@@ -28,14 +34,12 @@ import { reviewRowId } from "./toReviewModel";
  */
 export function ReviewSurface({
   patchSets,
-  onCompare,
   onRestore,
   onDiscardAll,
   discardAllDescription,
   portalContainer,
 }: {
   patchSets: SerializedPatchSet;
-  onCompare: () => void;
   /** Absent where there is no published history to restore from. */
   onRestore?: () => void;
   onDiscardAll: () => void;
@@ -44,7 +48,15 @@ export function ReviewSurface({
 }) {
   const model = useReviewModel(patchSets);
   const staging = usePatchStaging();
+  const mode = useValMode();
+  const currentAuthorId = useCurrentAuthorId();
   const { deletePatches } = useDeletePatches();
+  /*
+   * The diff opens OVER this page rather than navigating to one. It is a
+   * detail you read and close — you come back to the list you were deciding
+   * over — and a route would take the list off screen to show you part of it.
+   */
+  const compare = useCompareDialog();
 
   const patchIdsOf = useCallback(
     (rowIds: string[]) => {
@@ -55,25 +67,56 @@ export function ReviewSurface({
     },
     [patchSets],
   );
+  /*
+   * The dialog's row ids are SOURCE paths, not patch-set ids — its rows are
+   * finer than this page's. A patch set is dropped when the path it changed is
+   * among them, which is the same unit a discard can honour: the prefix
+   * invariant means a patch out of the middle of a set cannot go alone.
+   */
+  const patchIdsOfPaths = useCallback(
+    (paths: string[]) => {
+      const wanted = new Set(paths);
+      return patchSets
+        .filter((patchSet) => wanted.has(reviewSourcePath(patchSet)))
+        .flatMap((patchSet) => patchSet.patches.map((patch) => patch.patchId));
+    },
+    [patchSets],
+  );
 
   return (
-    <ReviewView
-      model={model}
-      onCompare={onCompare}
-      onRestore={onRestore}
-      onStage={(rowIds) => staging.stage(patchIdsOf(rowIds))}
-      onUnstage={(rowIds) => staging.unstage(patchIdsOf(rowIds))}
-      /*
-       * Reverting a staged change deletes the patch. That is what `discard`
-       * MEANS at this layer — see `undoWords` for why the button says "Revert"
-       * — and it is the one action here that destroys something, which is why
-       * it is the only red control on the page.
-       */
-      onDiscard={(rowIds) => deletePatches(patchIdsOf(rowIds))}
-      onDiscardAll={onDiscardAll}
-      discardAllDescription={discardAllDescription}
-      portalContainer={portalContainer}
-    />
+    <>
+      <ReviewView
+        model={model}
+        onCompare={compare.show}
+        onRestore={onRestore}
+        onStage={(rowIds) => staging.stage(patchIdsOf(rowIds))}
+        onUnstage={(rowIds) => staging.unstage(patchIdsOf(rowIds))}
+        /*
+         * Reverting a staged change deletes the patch. That is what `discard`
+         * MEANS at this layer — see `undoWords` for why the button says
+         * "Revert" — and it is the one action here that destroys something,
+         * which is why it is the only red control on the page.
+         */
+        onDiscard={(rowIds) => deletePatches(patchIdsOf(rowIds))}
+        onDiscardAll={onDiscardAll}
+        discardAllDescription={discardAllDescription}
+        portalContainer={portalContainer}
+      />
+      <ReviewCompare
+        patchSets={patchSets}
+        mode={mode}
+        open={compare.open}
+        onOpenChange={compare.onOpenChange}
+        currentAuthorId={currentAuthorId}
+        /*
+         * The dialog's rows are source paths; the patches behind them are what
+         * a discard drops. Same mapping the page's own Revert does, one level
+         * down: the dialog is finer-grained, so it names paths rather than
+         * patch sets.
+         */
+        onUndo={(rowIds) => deletePatches(patchIdsOfPaths(rowIds))}
+      />
+    </>
   );
 }
 

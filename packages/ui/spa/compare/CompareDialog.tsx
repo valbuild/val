@@ -244,6 +244,19 @@ export function CompareDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
           /*
+           * Into the shadow root, not `document.body`.
+           *
+           * Radix portals to the body by default, which is OUTSIDE the shadow
+           * root the Studio lives in — and `index.css` is linked into that
+           * root, so the dialog came out with no styles at all: no size, no
+           * centring, laid out below the fold. Storybook never showed it,
+           * because there the stylesheet is on the document and the body IS
+           * the styled tree; the first time this dialog was mounted in the
+           * Studio it was the first time the default was wrong. The same
+           * defect, and the same fix, as the discard confirm in `UtilityPanel`.
+           */
+          container={portalContainer}
+          /*
            * Do not hand focus to the first control in the header.
            *
            * Radix focuses the first focusable child on open. That used to be
@@ -458,6 +471,21 @@ function BasisPicker({
   model: CompareModel;
   onSelectBasis?: (basisId: string) => void;
 }) {
+  /*
+   * Gone entirely when there is one thing to compare against.
+   *
+   * That is the whole of fs mode: the content host is a directory, `ValOpsFS`
+   * answers `not-supported-in-fs-mode` for history, so there are no commits —
+   * the only comparison that exists is pending work against what is on disk.
+   * A picker offering that alone is a control that cannot narrow anything, and
+   * a control that does nothing teaches people to distrust the ones that do.
+   * `CompareAuthorFilter` hides itself on the same rule.
+   *
+   * What it is comparing is still said: `CompareColumns` labels both sides.
+   */
+  if (model.basisOptions.length < 2) {
+    return null;
+  }
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
       {/*

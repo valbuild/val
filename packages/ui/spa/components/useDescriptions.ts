@@ -10,16 +10,17 @@ import {
 } from "@valbuild/core";
 import { useMemo, useSyncExternalStore } from "react";
 import { useValSystem } from "../stores/react/SystemContext";
-import { usePreviewDemand } from "../components/usePreviewDemand";
-import { resolveRefPreview } from "../components/useRefPreview";
+import { usePreviewDemand } from "./usePreviewDemand";
+import { resolveRefPreview } from "./useRefPreview";
 import { describePath, type Description } from "../utils/describePath";
 
 /**
- * What every row on this page is CALLED, in one pass.
+ * What a LIST of paths is called, in one pass.
  *
  * `useDescription` is the per-path hook and stays the right call for a field.
- * It cannot be the right call here: this page renders one row per patch set,
- * the count changes as edits land, and a hook per row is a hook in a loop.
+ * It cannot be the right call for a list: the review page renders one row per
+ * patch set and the compare dialog one per changed path, the count changes as
+ * edits land, and a hook per row is a hook in a loop.
  *
  * The shape is the one `usePreviewDemand` documents. Demand is registered per
  * MODULE — one listener each, never one per row — because a preview is computed
@@ -32,9 +33,16 @@ import { describePath, type Description } from "../utils/describePath";
  * appear only for whichever module the editor happens to have open, so a list
  * where three rows are named and six are keys reads as data missing.
  */
-export function useReviewDescriptions(
-  paths: readonly SourcePath[],
-): Map<SourcePath, Description> {
+export type Descriptions = {
+  /**
+   * Never fails. A path that was not in the list still gets a name — its own
+   * last segment — because a `Description` is not optional and a row with no
+   * name cannot render. `origin.title` says it is a fallback either way.
+   */
+  describe: (path: SourcePath) => Description;
+};
+
+export function useDescriptions(paths: readonly SourcePath[]): Descriptions {
   const val = useValSystem();
   const modules = useMemo(() => modulesOf(paths), [paths]);
   usePreviewDemand(modules);
@@ -61,7 +69,7 @@ export function useReviewDescriptions(
     () => null,
   );
 
-  return useMemo(() => {
+  return useMemo<Descriptions>(() => {
     const out = new Map<SourcePath, Description>();
     if (val === null) {
       /*
@@ -71,13 +79,15 @@ export function useReviewDescriptions(
        * mistake `hero_2` for a name somebody chose.
        */
       for (const path of paths) out.set(path, describePath({ path }));
-      return out;
+      return { describe: (path) => out.get(path) ?? describePath({ path }) };
     }
     void version;
     for (const path of paths) {
       out.set(path, describeOne(val.system, path));
     }
-    return out;
+    return {
+      describe: (path) => out.get(path) ?? describeOne(val.system, path),
+    };
   }, [val, paths, version]);
 }
 

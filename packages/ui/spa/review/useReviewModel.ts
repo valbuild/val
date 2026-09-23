@@ -7,7 +7,7 @@ import {
 import { useValMode } from "../components/ValProvider";
 import { usePatchStaging } from "../components/PatchStagingProvider";
 import type { SerializedPatchSet } from "../utils/PatchSets";
-import { useReviewDescriptions } from "./useReviewDescriptions";
+import { useDescriptions } from "../components/useDescriptions";
 import { reviewSourcePath, toReviewModel } from "./toReviewModel";
 import type { ReviewModel } from "./types";
 
@@ -44,7 +44,7 @@ export function useReviewModel(patchSets: SerializedPatchSet): ReviewModel {
     }
     return seen;
   }, [patchSets]);
-  const descriptions = useReviewDescriptions(paths);
+  const descriptions = useDescriptions(paths);
 
   /*
    * `now` is captured per model rather than per render: the rows show relative
@@ -64,32 +64,9 @@ export function useReviewModel(patchSets: SerializedPatchSet): ReviewModel {
         stateOf: staging.stateOf,
         stagePreview: staging.stagePreview,
         authorOf: staging.authorOf,
-        describe: (path) => descriptions.get(path) ?? fallbackDescription(path),
+        describe: descriptions.describe,
         now,
       }),
     [patchSets, profiles, mode, currentAuthorId, staging, descriptions, now],
   );
-}
-
-/**
- * Never reached in practice — every path this page names was in the list above
- * — but a `Description` is not optional and a row with no name cannot render.
- * The path's last segment is the name of last resort, which is what
- * `describePath` answers with when it has nothing else.
- */
-function fallbackDescription(path: SourcePath) {
-  const segments = path.split("?")[0].split("/");
-  const label = segments[segments.length - 1] || path;
-  return {
-    title: label,
-    subtitle: null,
-    image: null,
-    pathLabel: label,
-    url: null,
-    origin: {
-      title: "fallback" as const,
-      subtitle: "fallback" as const,
-      image: "fallback" as const,
-    },
-  };
 }

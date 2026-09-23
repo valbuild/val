@@ -43,7 +43,6 @@ import { PatchGroupWidenedToasts } from "../PatchGroupWidenedToasts";
 import { Toaster } from "../designSystem/sonner";
 import { useTheme } from "../ValThemeProvider";
 import {
-  VAL_COMPARE_ROUTE,
   VAL_ERRORS_ROUTE,
   VAL_HISTORY_ROUTE,
   VAL_REVIEW_ROUTE,
@@ -1521,7 +1520,6 @@ function ReviewRoute() {
         <StagingScope patchSets={patchSets}>
           <ReviewSurface
             patchSets={patchSets}
-            onCompare={() => navigation.navigate(VAL_COMPARE_ROUTE)}
             /*
              * Only where there IS a published history: `ValOpsFS` answers
              * `not-supported-in-fs-mode`, and the top bar hides its own
