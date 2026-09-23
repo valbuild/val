@@ -17,7 +17,7 @@
     "test:smoke": "playwright test e2e/smoke.spec.ts",
     "typecheck:e2e": "tsc --noEmit -p e2e/tsconfig.json",
     "version-packages": "changeset version && pnpm install --no-frozen-lockfile",
-    "release": "pnpm run build && changeset publish",
+    "release": "pnpm run build && pnpm --filter @valbuild/ui run rolldown:upload && changeset publish",
     "dev:example-next": "concurrently -k \"cd  packages/ui; pnpm run dev\" \"cd examples/next; pnpm run dev\"",
     "dev:example-tanstack": "concurrently -k \"cd  packages/ui; pnpm run dev\" \"cd examples/tanstack; pnpm run dev\"",
     "dev:storybook": "pnpm --filter @valbuild/ui run storybook",

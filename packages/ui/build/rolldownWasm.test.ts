@@ -51,14 +51,14 @@ describe("the runtime override", () => {
 
 describe("addressing", () => {
   test("puts the digest in the path", () => {
-    expect(wasmUrl("https://static.val.build", "abc123")).toBe(
-      `https://static.val.build/rolldown/abc123/${WASM_FILENAME}`,
+    expect(wasmUrl("https://content.val.build/v1/static", "abc123")).toBe(
+      `https://content.val.build/v1/static/rolldown/abc123/${WASM_FILENAME}`,
     );
   });
 
   test("a trailing slash on the host does not double up", () => {
-    expect(wasmUrl("https://static.val.build/", "abc123")).toBe(
-      `https://static.val.build/rolldown/abc123/${WASM_FILENAME}`,
+    expect(wasmUrl("https://content.val.build/v1/static/", "abc123")).toBe(
+      `https://content.val.build/v1/static/rolldown/abc123/${WASM_FILENAME}`,
     );
   });
 });

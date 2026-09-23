@@ -73,6 +73,8 @@ import {
   useProfilesByAuthorId,
   usePublishCount,
   usePublishSummary,
+  useStudioDeployState,
+  useStudioIsDeployer,
   useHasNetChanges,
   useOwnPendingChangeCount,
   useInitialPatchesApplied,
@@ -221,6 +223,15 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     canvasTransform: urlState.initial.canvasTransform,
   }));
   const { isPublishing } = usePublishSummary();
+  /*
+   * The way out of `Saved, not yet live`, wired here because this is the layer
+   * that may touch the provider: `Deployments.tsx` is rendered by tests that
+   * mount rows on their own, so it takes an action rather than reaching for
+   * one. Same deploy the publish button drives -- a publish whose build failed
+   * and a retry of that build are one operation seen at two moments.
+   */
+  const { state: deployState, deploy } = useStudioDeployState();
+  const studioIsDeployer = useStudioIsDeployer();
   /**
    * Whether the fields can be trusted yet.
    *
@@ -1057,6 +1068,10 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         editorOverride={overrideEditor}
         publishSlot={<PublishButton />}
         publishState={publishState}
+        onFinishPublishing={
+          studioIsDeployer ? (commitSha) => void deploy(commitSha) : undefined
+        }
+        finishingPublish={deployState.status === "running"}
         saveState={saveState}
         autoSave={autoPublish}
         onAutoSaveChange={setAutoPublish}

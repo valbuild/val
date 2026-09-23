@@ -39,6 +39,7 @@ import {
 import { clientConfig } from "./clientConfig";
 import { z } from "zod";
 import { ValOpsFS } from "./ValOpsFS";
+import { readCommittedBinaryFiles } from "./readCommittedBinaryFiles";
 import { computePatchesToDrop, DroppedPatch } from "./computePatchesToDrop";
 import {
   AuthorId,
@@ -486,6 +487,40 @@ export const ValServer = (
     }
     remoteFileAuth = resolved.auth;
     return { status: 200, json: { remoteFileAuth } };
+  };
+
+  /**
+   * Hand one publish-API call to content and carry the answer back.
+   *
+   * `JSON.parse` and nothing more. That is not validation -- there is no schema
+   * here and no knowledge of content's shapes -- it is the round trip a JSON
+   * body has to make to travel as `json` rather than as a string. A body that
+   * does not parse is a gateway's error page rather than content answering, so
+   * it comes back as a message with the original status instead of throwing:
+   * a publish that failed is something the editor has to be told in words.
+   */
+  const proxyPublishApi = async (
+    path: string | undefined,
+    method: "GET" | "POST",
+    body?: string,
+  ): Promise<{ status: number; json: unknown }> => {
+    const answer = await serverOps.publishApi(path ?? "", {
+      method,
+      ...(body === undefined ? {} : { body }),
+    });
+    try {
+      return { status: answer.status, json: JSON.parse(answer.body) };
+    } catch {
+      return {
+        status: answer.status,
+        json: {
+          message:
+            answer.body.trim() === ""
+              ? `The publish API answered ${answer.status} with no body.`
+              : `The publish API answered ${answer.status}: ${answer.body.slice(0, 300)}`,
+        },
+      };
+    }
   };
 
   return {
@@ -979,6 +1014,41 @@ export const ValServer = (
             config: clientConfig(options),
           },
         };
+      },
+    },
+    /**
+     * The content service's publish API, reached through this deployment.
+     *
+     * The Studio builds a managed project in its own tab and then publishes
+     * what it built. It cannot talk to content directly -- it holds a session
+     * cookie for this origin and no credential content would accept -- so the
+     * whole conversation comes through here.
+     *
+     * Three things happen, and nothing else: the session is checked, the
+     * credential is swapped for a publish-scoped one (see
+     * `ValOpsHttp.publishApi`), and content's answer is carried back with its
+     * status intact. The Studio parses that answer with the same module
+     * `val publish` uses, so there is no copy of content's shapes here to
+     * fall out of step.
+     */
+    "/publish-api": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        return proxyPublishApi(req.path, "GET");
+      },
+      POST: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        return proxyPublishApi(
+          req.path,
+          "POST",
+          req.body === undefined ? undefined : JSON.stringify(req.body),
+        );
       },
     },
     "/upload/patches": {
@@ -2563,6 +2633,21 @@ export const ValServer = (
               "Val CMS update (" +
                 Object.keys(analysis.patchesByModule).length +
                 " files changed)";
+            /*
+             * Before the commit, because after it the files are no longer the
+             * patch's to read. See `binaryFiles` on the route.
+             */
+            const managedBranch =
+              serverOps.sourceMode() === "managed"
+                ? serverOps.projectBranch()
+                : null;
+            const committedBinaries =
+              serverOps.sourceMode() === "managed"
+                ? await readCommittedBinaryFiles(
+                    serverOps,
+                    preparedCommit.patchedBinaryFilesDescriptors,
+                  )
+                : null;
             const commitToGit = () =>
               serverOps.commit(
                 preparedCommit,
@@ -2630,7 +2715,26 @@ export const ValServer = (
              */
             return {
               status: 200,
-              json: { commitSha: commitRes.commit },
+              json: {
+                commitSha: commitRes.commit,
+                /*
+                 * For the Studio to BUILD, when it is the deployer. See
+                 * `sourceFiles` on the route: the build must contain the text
+                 * this commit wrote, and only this handler has it.
+                 */
+                ...(serverOps.sourceMode() === "managed"
+                  ? { sourceFiles: preparedCommit.patchedSourceFiles }
+                  : {}),
+                ...(managedBranch !== null ? { branch: managedBranch } : {}),
+                ...(committedBinaries !== null
+                  ? {
+                      binaryFiles: committedBinaries.files,
+                      ...(committedBinaries.unread.length > 0
+                        ? { binaryFilesUnread: committedBinaries.unread }
+                        : {}),
+                    }
+                  : {}),
+              },
             };
           }
           return {

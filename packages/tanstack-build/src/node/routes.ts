@@ -57,14 +57,12 @@ export async function isFileBased(dir: string) {
 }
 
 /**
- * The one line the platform needs from a file-based project.
- *
- * `src/app.tsx` is the entry the builder looks for, and for a routes-as-data
- * project the user writes it. A file-based project has no such file -- its
- * entry *is* the generated tree -- so this bridges the two contracts. A real
- * integration would emit it rather than ask for it, which is what this is.
+ * The one line the platform needs from a file-based project. Declared beside
+ * the other contract paths, so the browser's route generator adds exactly the
+ * same one; re-exported here because this is where it has always been read.
  */
-export const ENTRY_SHIM = `export { routeTree } from './routeTree.gen'\n`;
+import { ENTRY_SHIM } from "../projectPaths";
+export { ENTRY_SHIM };
 
 /**
  * Generates `routeTree.gen.ts` and returns the file map with it (and the entry

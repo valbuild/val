@@ -1,5 +1,57 @@
 # @valbuild/next
 
+## 0.136.2
+
+### Patch Changes
+
+- Updated dependencies [[`f76cd56`](https://github.com/valbuild/val/commit/f76cd56b9f1c1bcc0a608a7a4de24b1e776adccb)]:
+  - @valbuild/ui@0.136.2
+  - @valbuild/server@0.136.2
+  - @valbuild/shared@0.136.2
+  - @valbuild/react@0.136.2
+  - @valbuild/language-server@0.136.2
+  - @valbuild/mcp@0.136.2
+
+## 0.136.1
+
+### Patch Changes
+
+- [#697](https://github.com/valbuild/val/pull/697) [`5c82928`](https://github.com/valbuild/val/commit/5c82928992d29f133f81cf0704a273c0449b18f1) Thanks [@freekh](https://github.com/freekh)! - Read draft content once per request instead of once per `fetchVal`
+
+  In draft mode, `fetchVal` resolves its selector by asking the Val server for the
+  whole module tree. It did that on every call, so a page with three reads made
+  three requests for three identical answers — and `fetchValRouteUrl` added a
+  fourth by calling `fetchVal` again on top of the caller's own. The answer cannot
+  differ between reads in one request, so it is now read once and shared. On a
+  60-module project a three-read draft render goes from ~187ms to ~70ms.
+
+  The memo is scoped to the request and nothing wider, because the response it
+  holds contains the caller's own unpublished patches: React's `cache()` in a
+  Next RSC, a `WeakMap` keyed on the `Request` in TanStack Start, and no caching
+  at all where neither is available.
+
+  What this does **not** change:
+
+  - **Production is untouched.** With Val disabled the reader never calls the
+    server; it resolves against the statically imported module, as before.
+  - **What a draft shows is unchanged.** Same query, same patch scoping — a draft
+    still shows the caller's own staged work and nobody else's.
+  - **The client readers are untouched.** `useVal` already subscribed to exactly
+    the modules its selector names.
+  - **The server still evaluates every module per request.** Narrowing the
+    request's path was measured and does not help: `/sources/~` evaluates,
+    previews and validates everything and only then filters the response, so a
+    narrow path returns less for the same milliseconds. That remains open.
+
+- Updated dependencies [[`cf89e74`](https://github.com/valbuild/val/commit/cf89e7429a79c4304ecbedd4f8b571a0de0f145f), [`c219574`](https://github.com/valbuild/val/commit/c21957498f3c7f4f47cef197c5dc0d591aa744ca), [`e673b43`](https://github.com/valbuild/val/commit/e673b43feaf48b7f30881d6786c858a0cb6a44a2), [`5c82928`](https://github.com/valbuild/val/commit/5c82928992d29f133f81cf0704a273c0449b18f1), [`4450be5`](https://github.com/valbuild/val/commit/4450be570ec3a66d7d98ba273c333ca2d2f163d9), [`d2f385a`](https://github.com/valbuild/val/commit/d2f385a04978992a5036379235e447ba7775faef)]:
+  - @valbuild/ui@0.136.1
+  - @valbuild/shared@0.136.1
+  - @valbuild/server@0.136.1
+  - @valbuild/core@0.136.1
+  - @valbuild/react@0.136.1
+  - @valbuild/language-server@0.136.1
+  - @valbuild/mcp@0.136.1
+
 ## 0.136.0
 
 ### Patch Changes

@@ -142,6 +142,113 @@ export function builderRefusal(
   );
 }
 
+/**
+ * Generates `src/routeTree.gen.ts`, where a deployment can supply one.
+ *
+ * A capability rather than something this package contains, for the same
+ * reason `routeSplitter` and `loadCssModule` are on `BuildInput`: it is
+ * TanStack's generator over babel, it needs a browser build of 2.6 MB, and it
+ * is not published. Whoever mounts the Studio is the only party that can have
+ * one.
+ *
+ * `null` is the normal state and is not an error until a FILE-BASED project is
+ * published -- a project whose pages are data never needs one. See
+ * `runStudioDeploy`, which refuses that case by name rather than letting
+ * rolldown report a missing entry point.
+ *
+ * ## How a deployment supplies one: a global
+ *
+ * Not an import and not a prop, because there is no seam for either. The
+ * Studio is its own bundle, served from `/api/val/static` and booted by a
+ * script tag; the app that mounts it never gets a module reference into it, so
+ * it cannot pass a function in. {@link RUNTIME_GLOBAL} is therefore the
+ * contract, and it is the same shape the wasm URL already uses -- a deployment
+ * writes one global on the Studio's document before the bundle runs.
+ *
+ * That is within reach of the party that needs it: a platform serving the
+ * Studio is already rewriting that HTML, so a script tag that loads its own
+ * generator and assigns this is one more append.
+ */
+export type RouteTreeGenerator = (
+  files: Record<string, string>,
+) => Promise<Record<string, string>>;
+
+/** Where a deployment writes its generator. See the note above. */
+export const RUNTIME_GLOBAL = "__VAL_ROUTE_TREE_GENERATOR__";
+
+let routeTree: RouteTreeGenerator | null = null;
+
+/**
+ * Set one directly, for a test.
+ *
+ * Returns the previous one so a test can put it back; a test that forgets
+ * would otherwise leak a fake into every test after it in the same file.
+ */
+export function setRouteTreeGenerator(
+  next: RouteTreeGenerator | null,
+): RouteTreeGenerator | null {
+  const previous = routeTree;
+  routeTree = next;
+  return previous;
+}
+
+/**
+ * The generator this page has, or `null`.
+ *
+ * Read on every call rather than captured at module load: the script that
+ * assigns the global is the deployment's, and nothing here gets to say whether
+ * it runs before or after this module is evaluated.
+ *
+ * A global that is present but not a function is treated as absent. That is a
+ * deployment with a broken injection, and the refusal in `runStudioDeploy`
+ * names what to do about it -- where calling it would throw a TypeError from
+ * inside the build instead.
+ *
+ * What it ANSWERS is checked too, and for the same reason one layer down: this
+ * value crosses into the build as the project's whole file tree, so a
+ * generator that answers a promise of the wrong thing would otherwise surface
+ * as rolldown failing to resolve a module.
+ */
+export function routeTreeGenerator(
+  scope: Record<string, unknown> = globalThis,
+): RouteTreeGenerator | null {
+  if (routeTree !== null) {
+    return routeTree;
+  }
+  const supplied: unknown = scope[RUNTIME_GLOBAL];
+  if (!isCallable(supplied)) {
+    return null;
+  }
+  return async (files) => {
+    const answered: unknown = await supplied(files);
+    if (!isFileRecord(answered)) {
+      throw new Error(
+        `The route generator this page was given (globalThis.${RUNTIME_GLOBAL}) ` +
+          "did not answer with a file tree.",
+      );
+    }
+    return answered;
+  };
+}
+
+/**
+ * Narrows the global to something that can be called with a file tree.
+ *
+ * A guard rather than a cast, because `typeof x === "function"` is all anyone
+ * can know about a value another party wrote onto `globalThis` -- what it
+ * ANSWERS is checked above, where checking it is worth something.
+ */
+const isCallable = (
+  value: unknown,
+): value is (files: Record<string, string>) => unknown =>
+  typeof value === "function";
+
+const isFileRecord = (value: unknown): value is Record<string, string> =>
+  typeof value === "object" &&
+  value !== null &&
+  !Array.isArray(value) &&
+  Object.values(value).every((entry) => typeof entry === "string");
+
 export function loadBuilder(): Promise<StudioBuilder> {
   if (pending === null) {
     const refusal = builderRefusal();

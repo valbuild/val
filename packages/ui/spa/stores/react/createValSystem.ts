@@ -390,6 +390,16 @@ export function createValSystem(
         return {
           status: "published",
           commitSha: res.json.commitSha,
+          ...(res.json.sourceFiles !== undefined
+            ? { sourceFiles: res.json.sourceFiles }
+            : {}),
+          ...(res.json.binaryFiles !== undefined
+            ? { binaryFiles: res.json.binaryFiles }
+            : {}),
+          ...(res.json.binaryFilesUnread !== undefined
+            ? { binaryFilesUnread: res.json.binaryFilesUnread }
+            : {}),
+          ...(res.json.branch !== undefined ? { branch: res.json.branch } : {}),
           removed: res.json.removed,
         };
       }

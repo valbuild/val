@@ -23,6 +23,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ENTRIES = [
   "dist/valbuild-tanstack-build.cjs.js",
   "node/dist/valbuild-tanstack-build-node.cjs.js",
+  "constants/dist/valbuild-tanstack-build-constants.cjs.js",
 ];
 
 let bad = false;

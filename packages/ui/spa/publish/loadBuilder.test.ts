@@ -1,10 +1,13 @@
 import {
+  RUNTIME_GLOBAL,
   StudioBuilder,
   builderLoadStarted,
   builderRefusal,
   loadBuilder,
   preloadBuilder,
+  routeTreeGenerator,
   setBuilderLoader,
+  setRouteTreeGenerator,
 } from "./loadBuilder";
 
 /**
@@ -158,5 +161,63 @@ describe("a page that is not cross-origin isolated", () => {
 
   test("and an isolated one is not refused", () => {
     expect(builderRefusal({ crossOriginIsolated: true })).toBeNull();
+  });
+});
+
+describe("the route tree generator a deployment supplies", () => {
+  afterEach(() => {
+    setRouteTreeGenerator(null);
+  });
+
+  test("absent, by default", () => {
+    expect(routeTreeGenerator({})).toBeNull();
+  });
+
+  test("read from the global, because there is no other seam", async () => {
+    // The Studio is its own bundle booted by a script tag; the app that mounts
+    // it never gets a module reference in, so it cannot pass a function.
+    const scope = {
+      [RUNTIME_GLOBAL]: (files: Record<string, string>) => ({
+        ...files,
+        "src/routeTree.gen.ts": "generated",
+      }),
+    };
+    const generator = routeTreeGenerator(scope);
+    expect(generator).not.toBeNull();
+    await expect(generator?.({ "a.ts": "x" })).resolves.toEqual({
+      "a.ts": "x",
+      "src/routeTree.gen.ts": "generated",
+    });
+  });
+
+  test("read on every call, not captured at module load", () => {
+    // Whether the deployment's script runs before or after this module is
+    // evaluated is not this module's to decide.
+    const scope: Record<string, unknown> = {};
+    expect(routeTreeGenerator(scope)).toBeNull();
+    scope[RUNTIME_GLOBAL] = (files: Record<string, string>) => files;
+    expect(routeTreeGenerator(scope)).not.toBeNull();
+  });
+
+  test("something that is not a function is absent, not a crash", () => {
+    // A deployment with a broken injection. `runStudioDeploy` then refuses by
+    // name; calling it would be a TypeError from inside the build.
+    expect(routeTreeGenerator({ [RUNTIME_GLOBAL]: "yes please" })).toBeNull();
+  });
+
+  test("an answer that is not a file tree is refused by name", async () => {
+    const generator = routeTreeGenerator({
+      [RUNTIME_GLOBAL]: () => ({ "a.ts": 42 }),
+    });
+    await expect(generator?.({})).rejects.toThrow(/did not answer/i);
+  });
+
+  test("one set directly wins, so a test can replace it", () => {
+    const scope = {
+      [RUNTIME_GLOBAL]: (files: Record<string, string>) => files,
+    };
+    const mine = async (files: Record<string, string>) => files;
+    setRouteTreeGenerator(mine);
+    expect(routeTreeGenerator(scope)).toBe(mine);
   });
 });

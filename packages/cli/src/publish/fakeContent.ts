@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import http from "http";
-import { PublishProblem } from "./contentApi";
+import { PublishProblem } from "@valbuild/shared/internal";
 
 /**
  * A local stand-in for the publish API on content.val.build.

@@ -90,7 +90,66 @@ async function main() {
     "the index page did not reference /api/val/static/assets/index-*",
   );
 
+  await checkChunkImports(handler, app.body);
+
   await checkRolldownWasm();
+}
+
+/**
+ * Every chunk the Studio's main bundle imports, fetched the way a browser
+ * would fetch it: relative to `/{VERSION}/app`, which is where the main chunk
+ * is SERVED, not `/assets/`, which is where it was emitted.
+ *
+ * `@valbuild/ui@0.136.0` shipped with its main chunk statically importing
+ * `./__vite-browser-external-….js`. That resolved to `/{VERSION}/…`, which the
+ * handler did not know, so it answered the SPA's HTML fallback -- and a
+ * browser refuses an HTML module script, so the Studio did not boot at all.
+ * Every check above passed, because every one of them asks for a path by its
+ * own name. This asks for the paths the bundle itself asks for, and follows
+ * them: the builder chunk is a dynamic import that has imports of its own.
+ */
+async function checkChunkImports(handler, mainBody) {
+  const base = `http://localhost/api/val/static/${VERSION}/app`;
+  const seen = new Set();
+  const pending = [{ from: `${APP_PATH}`, url: base, body: mainBody }];
+  /*
+   * Backticks too: Vite 8 prints `import(\`./chunk.js\`)`, and a check that
+   * only knew quotes followed the static import and never reached the builder.
+   *
+   * Only names shaped like an EMITTED chunk, `[name]-[hash].js`. The builder
+   * chunk carries rolldown's runtime as source text, and that text has a JSDoc
+   * `@import … from './runtime-extra-dev-common.js'` in it -- a string, not an
+   * import, and reading it as one fails the build over nothing.
+   */
+  const relative =
+    /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)["'`](\.\.?\/[^"'`/]+-[A-Za-z0-9_-]{8}\.js)["'`]/g;
+  while (pending.length > 0) {
+    const { from, url, body } = pending.pop();
+    for (const match of body.matchAll(relative)) {
+      const resolved = new URL(match[1], url);
+      const path = resolved.pathname.replace(/^\/api\/val\/static/, "");
+      if (seen.has(path)) continue;
+      seen.add(path);
+      const res = await handler(path, resolved.href);
+      check(
+        `${from} can import ${match[1]}`,
+        res.status === 200 &&
+          res.headers?.["Content-Type"] === "application/javascript" &&
+          typeof res.body === "string" &&
+          res.body.length > 0,
+        `${resolved.pathname} answered ${res.status} with Content-Type ` +
+          `${JSON.stringify(res.headers?.["Content-Type"])}; a browser refuses ` +
+          `that as a module script, and the Studio does not start`,
+      );
+      pending.push({ from: path, url: resolved.href, body: res.body });
+    }
+  }
+  check(
+    "the main bundle's imports were followed",
+    seen.size > 0,
+    "no relative import was found in the main bundle, so this check tested " +
+      "nothing -- if the Studio really is one chunk again, remove it",
+  );
 }
 
 /**
@@ -121,6 +180,28 @@ async function checkRolldownWasm() {
       typeof manifest.url === "string" &&
       manifest.url.includes(manifest.sha256),
     `sha256 was ${JSON.stringify(manifest.sha256)} and url ${JSON.stringify(manifest.url)}`,
+  );
+
+  /*
+   * ...and that URL is under the host this build was meant to point at.
+   *
+   * `@valbuild/core` is the source of truth; `build/rolldownWasm.ts` has to
+   * keep a copy of the literal (Vite cannot import core's CommonJS entry into
+   * a config), and this is where a copy that drifted would show up as what it
+   * is -- a Studio asking a host that does not serve the binary.
+   */
+  const { DEFAULT_STATIC_HOST } = require("@valbuild/core");
+  const host = (process.env.VAL_STATIC_HOST || DEFAULT_STATIC_HOST).replace(
+    /\/+$/,
+    "",
+  );
+  const expectedUrl = `${host}/rolldown/${manifest.sha256}/${manifest.filename}`;
+  check(
+    "the binary is addressed under the static host @valbuild/core declares",
+    manifest.url === expectedUrl,
+    `the manifest says ${JSON.stringify(manifest.url)}, and ${
+      process.env.VAL_STATIC_HOST ? "VAL_STATIC_HOST" : "DEFAULT_STATIC_HOST"
+    } makes it ${JSON.stringify(expectedUrl)}`,
   );
 
   // What `fix-server-hack.js` base64s into the server bundle. Checked here

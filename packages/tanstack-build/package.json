@@ -7,7 +7,7 @@
     "url": "git+https://github.com/valbuild/val.git"
   },
   "license": "MIT",
-  "version": "0.135.0",
+  "version": "0.136.1",
   "sideEffects": false,
   "main": "dist/valbuild-tanstack-build.cjs.js",
   "module": "dist/valbuild-tanstack-build.esm.js",
@@ -21,12 +21,17 @@
       "module": "./node/dist/valbuild-tanstack-build-node.esm.js",
       "default": "./node/dist/valbuild-tanstack-build-node.cjs.js"
     },
+    "./constants": {
+      "module": "./constants/dist/valbuild-tanstack-build-constants.esm.js",
+      "default": "./constants/dist/valbuild-tanstack-build-constants.cjs.js"
+    },
     "./package.json": "./package.json"
   },
   "preconstruct": {
     "entrypoints": [
       "./index.ts",
-      "./node/index.ts"
+      "./node/index.ts",
+      "./constants/index.ts"
     ],
     "exports": true
   },
@@ -84,6 +89,8 @@
     "CHANGELOG.md",
     "dist",
     "node/dist",
-    "node/package.json"
+    "node/package.json",
+    "constants/dist",
+    "constants/package.json"
   ]
 }

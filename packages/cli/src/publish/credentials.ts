@@ -4,7 +4,10 @@ import {
   parsePersonalAccessTokenFile,
 } from "@valbuild/server";
 import { ContentHostError, getContentHost, postJson } from "./contentHost";
-import { PublishProtocolError, parsePublishToken } from "./protocol";
+import {
+  PublishProtocolError,
+  parsePublishToken,
+} from "@valbuild/shared/internal";
 
 /**
  * The credential `val publish` presents to content, and where it came from.

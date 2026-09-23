@@ -75,7 +75,19 @@ export type RemovedPatch = {
 };
 
 export type PublishOutcome =
-  | { status: "published"; commitSha?: string; removed?: RemovedPatch[] }
+  | {
+      status: "published";
+      commitSha?: string;
+      /** See `sourceFiles` on the `/save` route. */
+      sourceFiles?: Record<string, string | null>;
+      /** See `binaryFiles` on the `/save` route. */
+      binaryFiles?: Record<string, string>;
+      /** See `binaryFilesUnread` on the `/save` route. */
+      binaryFilesUnread?: string[];
+      /** See `branch` on the `/save` route. */
+      branch?: string;
+      removed?: RemovedPatch[];
+    }
   | { status: "not-fast-forward"; message: string }
   /**
    * Somebody else published between this being decided and Save being clicked.
@@ -139,6 +151,16 @@ export type PublishResult =
       status: "published";
       patchIds: PatchId[];
       commitSha?: string;
+      /**
+       * What the commit wrote, for a managed project's in-tab build. See
+       * `sourceFiles` on the `/save` route.
+       */
+      sourceFiles?: Record<string, string | null>;
+      /** The binary half; see `binaryFiles` on the `/save` route. */
+      binaryFiles?: Record<string, string>;
+      binaryFilesUnread?: string[];
+      /** The branch the commit is on; see `branch` on the `/save` route. */
+      branch?: string;
       removed?: RemovedPatch[];
     }
   | { status: "nothing-to-publish" }

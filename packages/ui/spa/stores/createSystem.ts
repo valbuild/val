@@ -2370,9 +2370,30 @@ export function createSystem(options: SystemOptions): System {
         // the next fetch, and promoting the base would then double-apply.
         // The ids that were actually published, which is what the caller has to
         // forget — it asked with a list taken before the flush.
+        /*
+         * The commit and what it wrote, carried through to the caller.
+         *
+         * `commitSha` was on this result's type and never set, so a managed
+         * project's in-tab build always ran as though the save had made no
+         * commit -- and published a build wired at none. `sourceFiles` is the
+         * text the build has to contain; see the `/save` route.
+         */
         return {
           status: "published",
           patchIds: toPublish,
+          ...(outcome.commitSha !== undefined
+            ? { commitSha: outcome.commitSha }
+            : {}),
+          ...(outcome.sourceFiles !== undefined
+            ? { sourceFiles: outcome.sourceFiles }
+            : {}),
+          ...(outcome.binaryFiles !== undefined
+            ? { binaryFiles: outcome.binaryFiles }
+            : {}),
+          ...(outcome.binaryFilesUnread !== undefined
+            ? { binaryFilesUnread: outcome.binaryFilesUnread }
+            : {}),
+          ...(outcome.branch !== undefined ? { branch: outcome.branch } : {}),
           ...(removed.length > 0 ? { removed } : {}),
         };
       } finally {

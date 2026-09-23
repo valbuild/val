@@ -515,6 +515,210 @@ export class ValOpsHttp extends ValOps {
     return this.projectExpectation?.sourceMode ?? null;
   }
 
+  /** Remembered with {@link sourceMode}, from the same response. */
+  override projectBranch(): string | null {
+    return this.projectExpectation?.branch ?? null;
+  }
+
+  /**
+   * The short-lived publish token, and when it stops being usable.
+   *
+   * `null` until something publishes, which for most deployments is never.
+   */
+  private publishToken: { token: string; expiresAt: number } | null = null;
+
+  /**
+   * Trade this deployment's credential for one that can do one thing.
+   *
+   * Content's publish API takes a PROJECT TOKEN and nothing else --
+   * `authenticateProjectToken` refuses anything that is not one, deliberately,
+   * because a personal access token is a person's credential and does not name
+   * a project. What this deployment holds is the project's api key, which is
+   * neither.
+   *
+   * `POST /v1/{org}/{project}/publish-token` is the exchange, and it was built
+   * for exactly this: its own docblock names the case where "the caller was the
+   * project's api key ... a machine exchanging one machine credential for a
+   * narrower one". What comes back can publish one project for ten minutes.
+   *
+   * So the api key never leaves this process and the browser never sees any
+   * credential at all. That is the point of routing the publish through here
+   * rather than letting the tab talk to content.
+   */
+  private async mintPublishToken(): Promise<
+    { token: string; expiresAt: number } | { error: string; status: number }
+  > {
+    const res = await fetch(
+      `${this.contentUrl}/v1/${this.project}/publish-token`,
+      { method: "POST", headers: this.authHeaders },
+    );
+    const text = await res.text();
+    if (!res.ok) {
+      return {
+        status: res.status,
+        error:
+          `Could not get a publish token for '${this.project}': ` +
+          `${res.status} ${text.slice(0, 300)}`,
+      };
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return {
+        status: 502,
+        error: "The publish token exchange did not answer with JSON.",
+      };
+    }
+    const token =
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "token" in parsed &&
+      typeof parsed.token === "string"
+        ? parsed.token
+        : null;
+    if (token === null) {
+      return {
+        status: 502,
+        error: "The publish token exchange sent no token.",
+      };
+    }
+    const expiresAtRaw =
+      typeof parsed === "object" && parsed !== null && "expiresAt" in parsed
+        ? parsed.expiresAt
+        : null;
+    const expiresAt =
+      typeof expiresAtRaw === "string" ? Date.parse(expiresAtRaw) : NaN;
+    return {
+      token,
+      /*
+       * A token with no expiry, or one we cannot read, is treated as expiring
+       * NOW -- so it is used for this call and minted again for the next.
+       * Caching one we cannot reason about is how a publish starts failing
+       * halfway through, days later, for no reason anyone can see.
+       */
+      expiresAt: Number.isFinite(expiresAt) ? expiresAt : 0,
+    };
+  }
+
+  /**
+   * A usable publish token, minting one when what we have will not last.
+   *
+   * The margin is what stops a token that is valid when the publish starts from
+   * expiring in the middle of it: a publish is five calls and an upload of
+   * every artifact, and the upload is the slow one.
+   */
+  private async currentPublishToken(): Promise<
+    { token: string } | { error: string; status: number }
+  > {
+    const margin = 60_000;
+    if (
+      this.publishToken !== null &&
+      this.publishToken.expiresAt - margin > Date.now()
+    ) {
+      return { token: this.publishToken.token };
+    }
+    const minted = await this.mintPublishToken();
+    if ("error" in minted) {
+      this.publishToken = null;
+      return minted;
+    }
+    this.publishToken = minted;
+    return { token: minted.token };
+  }
+
+  /**
+   * The content paths this may reach, and nothing else.
+   *
+   * An allow list rather than a prefix check, because this method holds a
+   * credential and the browser chooses the path. `/publish/{id}` and its three
+   * steps are the publish conversation; `/build-target` is what a build needs
+   * to know before it starts; `/project-source` is what it builds.
+   *
+   * `/project-source` is here rather than on a route of its own because it is
+   * one of the three things a publish asks for and none of them are useful
+   * apart -- and because the credential is the same one. The Studio cannot get
+   * the project's files any other way: it runs inside the deployment, which
+   * holds a session for its own origin and an api key for content, and content
+   * is the only thing it is allowed to talk to at all.
+   *
+   * A publish id is opaque and content-generated, so it is matched rather than
+   * parsed -- what matters is that nothing with a `..`, a query or another
+   * segment gets through.
+   */
+  private static publishApiPathAllowed(path: string): boolean {
+    if (
+      path === "/build-target" ||
+      path === "/project-source" ||
+      path === "/publish"
+    ) {
+      return true;
+    }
+    return /^\/publish\/[A-Za-z0-9_-]+(\/(artifacts|verify|promote))?$/.test(
+      path,
+    );
+  }
+
+  override async publishApi(
+    path: string,
+    init: { method: string; body?: string },
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    const json = "application/json";
+    if (!ValOpsHttp.publishApiPathAllowed(path)) {
+      return {
+        status: 403,
+        contentType: json,
+        body: JSON.stringify({
+          message: `'${path}' is not part of the publish API.`,
+        }),
+      };
+    }
+
+    const send = async (token: string) =>
+      fetch(`${this.contentUrl}/v1${path}`, {
+        method: init.method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(init.body === undefined ? {} : { "Content-Type": json }),
+        },
+        ...(init.body === undefined ? {} : { body: init.body }),
+      });
+
+    const credential = await this.currentPublishToken();
+    if ("error" in credential) {
+      return {
+        status: credential.status,
+        contentType: json,
+        body: JSON.stringify({ message: credential.error }),
+      };
+    }
+
+    let res = await send(credential.token);
+    if (res.status === 401) {
+      /*
+       * Revoked, or expired sooner than it said. One retry with a fresh token,
+       * because the alternative is a publish that fails for a reason the editor
+       * cannot act on and a retry that fails the same way.
+       */
+      this.publishToken = null;
+      const second = await this.currentPublishToken();
+      if ("error" in second) {
+        return {
+          status: second.status,
+          contentType: json,
+          body: JSON.stringify({ message: second.error }),
+        };
+      }
+      res = await send(second.token);
+    }
+
+    return {
+      status: res.status,
+      contentType: res.headers.get("content-type") ?? json,
+      body: await res.text(),
+    };
+  }
+
   async onInit(): Promise<void> {
     // TODO: unused for now. Implement or remove
   }

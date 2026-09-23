@@ -6,6 +6,7 @@ import { getServerMimeType } from "../spa/serverMimeType";
 import { VAL_APP_PATH, VAL_CSS_PATH } from "./constants";
 import { VERSION } from "./vite-index";
 import { getMainJsAppFile } from "./getMainJsAppFile";
+import { siblingOfApp } from "./siblingOfApp";
 
 const files: Record<string, string> = JSON.parse(
   `$$BUILD_$$REPLACE_WITH_RECORD$$`,
@@ -94,6 +95,21 @@ export function createUIRequestHandler(): ValUIRequestHandler {
         body: decodedFiles[MAIN_CSS_FILE],
       };
     } else {
+      /*
+       * A relative import from the main chunk, which is served at
+       * `/{VERSION}/app` rather than from `/assets/`. See `siblingOfApp`.
+       */
+      const sibling = siblingOfApp(path, VERSION, (key) => key in files);
+      if (sibling !== null) {
+        return {
+          status: 200,
+          headers: {
+            "Content-Type": getServerMimeType(sibling) || "",
+            "Cache-Control": "public, max-age=31536000, immutable",
+          },
+          body: decodedFiles[sibling],
+        };
+      }
       if (files[path]) {
         return {
           status: 200,

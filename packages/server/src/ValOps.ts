@@ -2494,6 +2494,54 @@ export abstract class ValOps {
   }
 
   /**
+   * The branch the content service keeps this project's commits on, or `null`
+   * where there is no such service, or it has not said yet.
+   *
+   * For the Studio's in-tab build of a managed project, which has to name the
+   * branch its build was made at. Its other source is the `val.server.ts` the
+   * last build was wired with -- and a project cloned from a template seed has
+   * one wired at NO commit and no branch, so its first publish went out
+   * branchless and the loader refused it for a project whose pointer follows a
+   * branch. This is the project's own word for it.
+   */
+  projectBranch(): string | null {
+    return null;
+  }
+
+  /**
+   * Forward one call to the content service's publish API, as this project.
+   *
+   * The Studio builds a managed project in the tab and then has to publish what
+   * it built -- but a browser cannot talk to content directly. It holds a
+   * session cookie for THIS origin and no credential content would accept, so
+   * the conversation goes through here, exactly as patches already do.
+   *
+   * Refused by default, and that is the honest answer rather than a gap: `fs`
+   * and memory mode have no content service to forward to, and publishing there
+   * is writing to disk.
+   *
+   * The path is content's, minus the `/v1` prefix -- `/publish`,
+   * `/publish/{id}/artifacts`, `/build-target`. The ALLOW LIST lives in the
+   * implementation rather than here, because it is what keeps this from being
+   * a way to reach the rest of content with the project's credential.
+   */
+  async publishApi(
+    _path: string,
+    _init: { method: string; body?: string },
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    return {
+      status: 501,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message:
+          "This Val server has no content service to publish through. " +
+          "Publishing from the browser is for a project whose content is " +
+          "served over HTTP.",
+      }),
+    };
+  }
+
+  /**
    * Whether a commit here produces `.val.ts` TEXT as well as data.
    *
    * True everywhere there is somewhere to put it: a working tree in `fs` mode,

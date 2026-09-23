@@ -1,5 +1,47 @@
 # @valbuild/ui
 
+## 0.136.2
+
+### Patch Changes
+
+- [#720](https://github.com/valbuild/val/pull/720) [`f76cd56`](https://github.com/valbuild/val/commit/f76cd56b9f1c1bcc0a608a7a4de24b1e776adccb) Thanks [@freekh](https://github.com/freekh)! - A managed project published from the Studio keeps its images, and a project created from a template can publish from the Studio at all.
+
+  - A publish from the Studio carries over every file under `public/` that the site already serves, so the favicon and images no longer disappear after the first Studio publish. When content published the live build, it already holds those files and nothing is uploaded again. When it didn't (a project cloned from a template), the Studio reads them from the site it runs on and builds with them.
+  - An image uploaded in the Studio is now part of the build that publishes it. For a managed project, `/save` returns the files the commit wrote (`binaryFiles`), the same way it already returns the `.val.ts` text.
+  - `/save` also returns the project's branch for a managed project, and the Studio's build uses it. A project cloned from a template was wired at no commit and no branch, so its first Studio publish went out branchless and the platform refused it.
+  - When neither content nor the platform can say which public files the live site serves, the Studio refuses to publish and says so, rather than publishing a site without them.
+
+## 0.136.1
+
+### Patch Changes
+
+- [#716](https://github.com/valbuild/val/pull/716) [`cf89e74`](https://github.com/valbuild/val/commit/cf89e7429a79c4304ecbedd4f8b571a0de0f145f) Thanks [@freekh](https://github.com/freekh)! - A publish from a managed project now builds and ships the site, instead of stopping at the commit.
+
+  There is no repository and no host watching one, so nothing outside the browser would have turned that commit into a running site. The publish button stays busy until the build is live, and a build that fails says the changes are saved and the site has not been rebuilt — which is the truth, and the state `Finish publishing` exists to resolve.
+
+  A project whose pages are files under `src/routes` needs a route tree generator, which is TanStack's over babel and is not something this package can carry. A deployment supplies one on `globalThis.__VAL_ROUTE_TREE_GENERATOR__`; without it such a project is refused by name.
+
+- [#716](https://github.com/valbuild/val/pull/716) [`c219574`](https://github.com/valbuild/val/commit/c21957498f3c7f4f47cef197c5dc0d591aa744ca) Thanks [@freekh](https://github.com/freekh)! - `Finish publishing` — a way out of `Saved, not yet live`, on the row that names the commit that is stuck.
+
+  A managed project has nobody else to build it, so a commit whose build never ran stays that way forever: a browser closed mid-publish, a failed build, a builder that could not load. The action is the same pipeline as a publish with the gate and the commit skipped.
+
+  It is offered per row rather than as one button, because a project can be stuck at more than one commit and a single button could only ever mean one of them.
+
+- [#716](https://github.com/valbuild/val/pull/716) [`e673b43`](https://github.com/valbuild/val/commit/e673b43feaf48b7f30881d6786c858a0cb6a44a2) Thanks [@freekh](https://github.com/freekh)! - The Studio can run a whole publish: read what to build and what to build it from, build it, and hand the result to the content service.
+
+  The two reads go through the same proxy and the same credential as the publish conversation, and both are validated rather than cast — an error page from a gateway in between would otherwise fail several layers down inside the bundler with a message about a module specifier.
+
+  Generating a route tree for a file-based project is a capability the deployment supplies, like `routeSplitter` and `loadCssModule` already are. Without one, such a project is refused by name rather than failing with `UNRESOLVED_ENTRY`.
+
+- [#716](https://github.com/valbuild/val/pull/716) [`d2f385a`](https://github.com/valbuild/val/commit/d2f385a04978992a5036379235e447ba7775faef) Thanks [@freekh](https://github.com/freekh)! - The Studio works again when served from the published package, and a managed project's publish now puts the saved edit on the site.
+
+  - **The Studio did not start in 0.136.0.** Its main bundle imports sibling chunks by relative path, and the Studio is served at `/api/val/static/<version>/app`, so those imports resolved to paths the handler did not know and came back as the HTML fallback — which a browser refuses as a module script. Preview was gone with it. The handler now serves those chunks, and the package build follows every import the bundle makes before it lets a release through.
+  - **The in-browser builder could not load.** The Studio's bundle carried rolldown's Node WASI binding, which throws `process is not defined` in a tab. It now uses the browser binding, and the build refuses a bundle that contains the Node one.
+  - **A managed publish builds what was just saved.** `/save` returns the source files the commit wrote, the Studio builds with them laid over the project's stored source, and publishes that source back with the build — so the next edit starts from this one rather than undoing it. The save's commit is also passed through to the build, which previously ran as though no commit had been made.
+  - **The bundler's WebAssembly is served from `content.val.build/v1/static`** (`DEFAULT_STATIC_HOST`), still addressed by its SHA-256. `globalThis.__VAL_ROLLDOWN_WASM_URL__` still overrides it.
+  - The `val.server.ts` that `@valbuild/tanstack-build` generates no longer hands a save's files to the platform (`platform.internal/__api/source`). A managed project's Studio builds in its own tab, and the platform has closed that door. `isWired` recognises files wired either way.
+  - `@valbuild/tanstack-build/constants` exports the contract paths and the artifact key namespace from an entrypoint that imports nothing else, for callers that must not load the bundler. The namespace gains a `source` key.
+
 ## 0.136.0
 
 ### Minor Changes
