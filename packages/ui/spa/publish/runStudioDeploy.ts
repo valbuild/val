@@ -72,15 +72,21 @@ export type StudioDeployResult =
 export interface StudioDeployOptions {
   client: StudioPublishClient;
   /**
-   * The commit `/save` just made, and the branch it is on.
+   * The commit `/save` just made, or `null` for a publish from no commit.
    *
-   * Baked into the generated `val.server.ts` before the build, which is not
-   * bookkeeping: Val reads content from the content service AT A COMMIT, so a
-   * build wired at the previous one renders and edits a different version of
-   * its files than the code it is running. `null` for a project that publishes
-   * from no commit at all.
+   * The BRANCH is deliberately not here, because the caller has no honest
+   * source for one: `/stat` does not carry it and neither does `/save`, and a
+   * branch the browser invented is a branch content would be asked to record a
+   * build against on the browser's say-so. It is read out of the project's own
+   * `val.server.ts` instead — see {@link branchOf} — which is where the last
+   * build put it and which does not change between publishes.
+   *
+   * The commit is baked in before the build, and that is not bookkeeping: Val
+   * reads content from the content service AT A COMMIT, so a build wired at
+   * the previous one renders and edits a different version of its files than
+   * the code it is running.
    */
-  git: { commit: string; branch: string } | null;
+  commit: string | null;
   loadBuilder: () => Promise<StudioBuilder>;
   /**
    * Generates `src/routeTree.gen.ts` for a file-based project.
@@ -156,14 +162,27 @@ export async function runStudioDeploy(
   }
 
   let build: BuildOutput;
+  let git: { commit: string; branch: string } | null;
   try {
     onPhase({ kind: "building" });
     /*
-     * The commit goes in BEFORE the build, and into the record that is
-     * published back as source -- so the next publish reads it back and the
-     * two never disagree about which commit this build is wired at.
+     * The branch the last build was wired at, which is the only place one can
+     * be read from here -- `/stat` does not carry one and neither does
+     * `/save`. `null` when the record names none, which is a project that has
+     * only ever published commitlessly; content then answers from the
+     * project's own chain, where the answer always came from for a project
+     * whose content service is its store of record.
+     *
+     * The pair goes in BEFORE the build, and into the record published back as
+     * source, so the next publish reads it back and the two never disagree
+     * about which commit this build is wired at.
      */
-    const wired = builder.rebakeGit(source, options.git);
+    const branch = builder.bakedGit(source)?.branch ?? null;
+    git =
+      options.commit === null || branch === null
+        ? null
+        : { commit: options.commit, branch };
+    const wired = builder.rebakeGit(source, git);
     const fileBased = Object.keys(wired).some((path) =>
       path.startsWith(ROUTES_PREFIX),
     );
@@ -210,8 +229,13 @@ export async function runStudioDeploy(
     artifacts,
     declare: {
       buildHash: build.hash,
-      commit: options.git?.commit ?? null,
-      branch: options.git?.branch ?? null,
+      /*
+       * What went into the build, not what the caller asked for. A declare
+       * naming a commit the bundle was not wired at labels a build as
+       * something it is not.
+       */
+      commit: git?.commit ?? null,
+      branch: git?.branch ?? null,
       layerRev: target.project.rev,
       linksOwnCss: build.linksOwnCss,
       artifacts: artifacts.map(({ key, sha256, bytes }) => ({

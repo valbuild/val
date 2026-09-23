@@ -74,6 +74,7 @@ const fileRoutes = {
 
 function builder(calls: string[] = [], overrides: Partial<StudioBuilder> = {}) {
   const fake = {
+    bakedGit: () => ({ commit: "old", branch: "main" }),
     rebakeGit: (files: Record<string, string>) => {
       calls.push("rebakeGit");
       return { ...files, baked: "yes" };
@@ -135,7 +136,7 @@ const deploy = (
 ) =>
   runStudioDeploy({
     client: client(),
-    git: { commit: "c".repeat(40), branch: "main" },
+    commit: "c".repeat(40),
     loadBuilder: async () => builder(),
     onPhase: (phase) => phases.push(phase),
     ...overrides,
@@ -246,6 +247,73 @@ describe("a publish from the Studio", () => {
       linksOwnCss: false,
       artifacts: [{ key: "server", sha256: "sha", bytes: 1 }],
     });
+  });
+});
+
+describe("the branch comes out of the record", () => {
+  /*
+   * Not out of the caller, because there is nowhere honest for a caller to
+   * get one: neither `/stat` nor `/save` carries a branch, and a branch the
+   * browser invented is a branch content would be asked to record a build
+   * against on the browser's say-so. The project's own `val.server.ts` is
+   * where the last build put it, and it does not move between publishes.
+   */
+  const declaredBy = async (
+    overrides: Partial<Parameters<typeof runStudioDeploy>[0]>,
+  ) => {
+    let declared: { commit: string | null; branch: string | null } | null =
+      null;
+    await deploy({
+      client: client({
+        declare: async (body) => {
+          declared = { commit: body.commit, branch: body.branch };
+          return {
+            publishId: "pub_1",
+            state: "awaiting-artifacts",
+            project: { publicProjectId: "p", siteUrl: null },
+            uploads: [],
+            have: [],
+          };
+        },
+      }),
+      ...overrides,
+    });
+    return declared;
+  };
+
+  test("the one the last build was wired at", async () => {
+    expect(await declaredBy({})).toEqual({
+      commit: "c".repeat(40),
+      branch: "main",
+    });
+  });
+
+  test("a record naming no branch declares neither", async () => {
+    // A project that has only ever published commitlessly. Content answers
+    // from its own chain, which for a project whose content service is the
+    // store of record is where the answer always came from -- so sending a
+    // commit with no branch to go with it would be worse than sending neither.
+    expect(
+      await declaredBy({
+        loadBuilder: async () => builder([], { bakedGit: () => undefined }),
+      }),
+    ).toEqual({ commit: null, branch: null });
+  });
+
+  test("and bakes exactly what it declares", async () => {
+    const baked: Array<unknown> = [];
+    await deploy({
+      loadBuilder: async () =>
+        builder([], {
+          rebakeGit: (files, git) => {
+            baked.push(git);
+            return files;
+          },
+        }),
+    });
+    // The bundle and the label have to agree: a declare naming a commit the
+    // bundle was not wired at describes a build as something it is not.
+    expect(baked).toEqual([{ commit: "c".repeat(40), branch: "main" }]);
   });
 });
 
