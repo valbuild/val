@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Internal, SourcePath } from "@valbuild/core";
 import { Search } from "lucide-react";
 import { useValSystem } from "../../../stores/react/SystemContext";
 import { useChainVersion } from "../../ValProvider";
-import { changedPathsAmong } from "./changedFields";
+import { changedFieldsAmong, indexFields } from "./changedFields";
 import { cn } from "../../designSystem/cn";
 import { prettifyFilename } from "../../../utils/prettifyFilename";
 import { AnyField } from "../../AnyField";
@@ -304,14 +304,20 @@ function useChangedPaths(
   paths: readonly SourcePath[],
 ): ReadonlySet<SourcePath> {
   const val = useValSystem();
-  const chainVersion = useChainVersion();
+  /*
+   * Deferred, so the match never holds up the keystroke that moved the chain:
+   * the field being typed in renders first, and the dots and the filter catch
+   * up in a render React is free to interrupt.
+   */
+  const chainVersion = useDeferredValue(useChainVersion());
+  const fields = useMemo(() => indexFields(paths), [paths]);
   const previous = useRef<ReadonlySet<SourcePath>>(new Set());
   return useMemo(() => {
     void chainVersion;
     if (val === null) return previous.current;
     const store = val.system.patchStore;
-    const next = changedPathsAmong(
-      paths,
+    const next = changedFieldsAmong(
+      fields,
       store.allRecords(),
       store.publishedPatchIds(),
     );
@@ -324,7 +330,7 @@ function useChangedPaths(
     }
     previous.current = next;
     return next;
-  }, [val, chainVersion, paths]);
+  }, [val, chainVersion, fields]);
 }
 
 /**

@@ -24,44 +24,101 @@ export function changedPathsAmong(
   records: readonly PatchRecord[],
   publishedPatchIds: ReadonlySet<PatchId>,
 ): Set<SourcePath> {
-  const touchedByModule = new Map<string, string[][]>();
-  for (const record of records) {
-    if (record.appliedAt || publishedPatchIds.has(record.patchId)) continue;
-    let touched = touchedByModule.get(record.moduleFilePath);
-    if (touched === undefined) {
-      touched = [];
-      touchedByModule.set(record.moduleFilePath, touched);
+  return changedFieldsAmong(indexFields(paths), records, publishedPatchIds);
+}
+
+/**
+ * The fields of a page, parsed once.
+ *
+ * Separate from the match because the two change at different rates: the
+ * fields when the page reports a new set, the chain on every edit. Parsing a
+ * source path is most of the cost of a match, so it is not paid per edit.
+ */
+export type IndexedFields = {
+  fields: readonly {
+    path: SourcePath;
+    /** The key of each prefix of the path, the module alone first. */
+    keys: readonly string[];
+  }[];
+  moduleFilePaths: ReadonlySet<string>;
+};
+
+export function indexFields(paths: readonly SourcePath[]): IndexedFields {
+  const moduleFilePaths = new Set<string>();
+  const fields = paths.map((path) => {
+    const [moduleFilePath, modulePath] =
+      Internal.splitModuleFilePathAndModulePath(path);
+    moduleFilePaths.add(moduleFilePath);
+    const keys: string[] = [moduleFilePath];
+    let key: string = moduleFilePath;
+    for (const segment of modulePath
+      ? Internal.splitModulePath(modulePath)
+      : []) {
+      key += SEPARATOR + segment;
+      keys.push(key);
     }
+    return { path, keys };
+  });
+  return { fields, moduleFilePaths };
+}
+
+export function changedFieldsAmong(
+  { fields, moduleFilePaths }: IndexedFields,
+  records: readonly PatchRecord[],
+  publishedPatchIds: ReadonlySet<PatchId>,
+): Set<SourcePath> {
+  /*
+   * Two sets of keys rather than a comparison of every path with every op,
+   * because this runs on every movement of the chain — every edit — and the
+   * pairwise version was 33ms at 300 fields and 1000 patches.
+   *
+   * `opPaths` holds each op's own path; `opPathsAndAbove` holds that path and
+   * every prefix of it. A field is changed when its own key is in
+   * `opPathsAndAbove` (an op on it or below it) or one of its prefixes is in
+   * `opPaths` (an op above it). Linear in ops and in fields, times depth.
+   */
+  const opPaths = new Set<string>();
+  const opPathsAndAbove = new Set<string>();
+  const touch = (moduleFilePath: string, opPath: readonly string[]) => {
+    let key = moduleFilePath;
+    opPathsAndAbove.add(key);
+    for (const segment of opPath) {
+      key += SEPARATOR + segment;
+      opPathsAndAbove.add(key);
+    }
+    opPaths.add(key);
+  };
+  for (const record of records) {
+    // The chain holds the whole site's edits; only this page's modules matter.
+    if (!moduleFilePaths.has(record.moduleFilePath)) continue;
+    if (record.appliedAt || publishedPatchIds.has(record.patchId)) continue;
     for (const op of record.patch) {
       // A file op rides beside the `replace` that names the field, and its
       // `path` is the same one, so it adds nothing but a duplicate.
       if (op.op === "file" || op.op === "test") continue;
-      touched.push(op.path);
+      touch(record.moduleFilePath, op.path);
       // A move changes where it came from as much as where it went.
-      if (op.op === "move") touched.push(op.from);
+      if (op.op === "move") touch(record.moduleFilePath, op.from);
     }
   }
 
   const changed = new Set<SourcePath>();
-  if (touchedByModule.size === 0) return changed;
-  for (const path of paths) {
-    const [moduleFilePath, modulePath] =
-      Internal.splitModuleFilePathAndModulePath(path);
-    const touched = touchedByModule.get(moduleFilePath);
-    if (touched === undefined) continue;
-    const segments = modulePath ? Internal.splitModulePath(modulePath) : [];
-    if (touched.some((opPath) => overlaps(segments, opPath))) {
+  if (opPaths.size === 0) return changed;
+  for (const { path, keys } of fields) {
+    // Most fields on a page share a module with no patches at all.
+    if (!opPathsAndAbove.has(keys[0])) continue;
+    if (
+      opPathsAndAbove.has(keys[keys.length - 1]) ||
+      keys.some((key) => opPaths.has(key))
+    ) {
       changed.add(path);
     }
   }
   return changed;
 }
 
-/** Is one of the two a prefix of the other (or are they the same path)? */
-function overlaps(a: readonly string[], b: readonly string[]): boolean {
-  const length = Math.min(a.length, b.length);
-  for (let i = 0; i < length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
+/**
+ * Joins segments into a key. A NUL cannot appear in a module file path, and a
+ * segment containing one would have to be a record key nobody could type.
+ */
+const SEPARATOR = "\u0000";
