@@ -25,6 +25,11 @@ export const blogSchema = s.object({ title: s.string() });
     expect(parse(`type T = string;\nexport { type T as default };\n`)).toBe(
       undefined,
     );
+    // The spelling that looks like `export default class`: a declaration
+    // carrying a `default` modifier, which emits nothing at all.
+    expect(parse(`export default interface T { title: string }\n`)).toBe(
+      undefined,
+    );
   });
 
   test("finds nothing in a star re-export", () => {

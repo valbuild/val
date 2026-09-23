@@ -26,5 +26,11 @@ diagnostic now asks about:
 The rule is `findDefaultExport` in `@valbuild/server`, which `val validate`
 already used to decide the same question — so the editor and the CLI now agree
 about which files are modules, including the cases that are easy to get wrong
-(`export * from …` carries no default; `export type { T as default }` is gone
-after transpilation).
+(`export * from …` carries no default; `export type { T as default }` and
+`export default interface T {}` are both gone after transpilation).
+
+Because the diagnostic now replaces a module's own findings rather than adding
+to them, the editor also stops guessing about registration it cannot read: a
+`val.modules` that registers modules through a tsconfig path alias
+(`import("_/content/page.val")`), or that builds its list in another file, is no
+longer taken to register nothing.

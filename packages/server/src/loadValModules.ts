@@ -365,8 +365,11 @@ export function createValModuleFileInspector(
  * off to be evaluated and reported:
  *
  *  - `export * from "./x"`, since a star re-export never carries the default;
- *  - a type-only export, in either of its spellings
- *    (`export type { T as default }` and `export { type T as default }`).
+ *  - a type-only export, in any of its three spellings
+ *    (`export type { T as default }`, `export { type T as default }` and
+ *    `export default interface T {}` — the last one parses as a declaration
+ *    carrying a `default` modifier, exactly like `export default class`, and is
+ *    the one that looks like a runtime export and is not).
  */
 export function findDefaultExport(
   sourceFile: ts.SourceFile,
@@ -389,7 +392,10 @@ export function findDefaultExport(
     }
     // `export default function f() {}` / `export default class C {}`, which are
     // declarations carrying a `default` modifier rather than export assignments.
+    // `export default interface T {}` is spelled the same way and is a type, so
+    // it is excluded here rather than by the `isTypeOnly` checks above.
     return (
+      !ts.isInterfaceDeclaration(statement) &&
       ts.canHaveModifiers(statement) &&
       (ts.getModifiers(statement) ?? []).some(
         (modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword,

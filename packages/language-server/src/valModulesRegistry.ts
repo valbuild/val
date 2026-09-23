@@ -43,6 +43,18 @@ export function findRegisteredModuleSpecifiers(
 /**
  * Whether `moduleFilePath` is registered by the given `val.modules` file.
  *
+ * Answers `true` whenever it cannot tell, which is the same safe direction
+ * {@link findRegisteredModuleSpecifiers} takes and matters more here than it
+ * looks: the caller publishes the missing-module diagnostic *instead of* the
+ * module's own diagnostics, so a false "unregistered" does not just add noise,
+ * it hides every real finding in the file. Two things it cannot tell:
+ *
+ *  - a `val.modules` with no dynamic imports at all, which is what a registry
+ *    that builds its list somewhere else looks like from here;
+ *  - a non-relative specifier naming a `.val` module (`_/content/page.val`),
+ *    which is a tsconfig path alias — a shape `loadValModules` resolves and
+ *    this file, having no compiler options, cannot.
+ *
  * @param valModulesDir directory containing the val.modules file, relative to
  *   the Val root (`""` when it sits at the root).
  * @param moduleFilePath the module's path, Val-style: root-relative, leading
@@ -58,19 +70,26 @@ export function isModuleRegistered({
   moduleFilePath: ModuleFilePath;
 }): boolean {
   const target = stripValModuleExtension(moduleFilePath);
-  return findRegisteredModuleSpecifiers(sourceFile).some((specifier) => {
+  const specifiers = findRegisteredModuleSpecifiers(sourceFile);
+  if (specifiers.length === 0) {
+    return true;
+  }
+  return specifiers.some((specifier) => {
+    const stripped = stripValModuleExtension(specifier);
     // Specifiers are written relative to the val.modules file and normally omit
     // the extension ("./content/page.val").
-    const resolved = specifier.startsWith(".")
-      ? path.posix.normalize(
-          path.posix.join(
-            "/",
-            valModulesDir,
-            stripValModuleExtension(specifier),
-          ),
-        )
-      : stripValModuleExtension(specifier);
-    return resolved === target;
+    if (specifier.startsWith(".")) {
+      return (
+        path.posix.normalize(path.posix.join("/", valModulesDir, stripped)) ===
+        target
+      );
+    }
+    if (specifier.startsWith("/")) {
+      return stripped === target;
+    }
+    // A path alias, which needs the project's tsconfig to resolve. A bare
+    // package import is not one of these, so it stays a plain non-match.
+    return stripped.endsWith(".val");
   });
 }
 
