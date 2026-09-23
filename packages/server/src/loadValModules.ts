@@ -350,18 +350,31 @@ export function createValModuleFileInspector(
 }
 
 /**
- * Whether the file exports a RUNTIME value as `default`, without evaluating it.
+ * The statement that exports a RUNTIME value as `default`, without evaluating
+ * it — or `undefined` when the file has no such export.
+ *
+ * This is the one rule that separates a Val module from a `*.val.ts` that
+ * merely wears the naming convention: a shared schema or helper is exported by
+ * name, a module is exported by default. Every caller that needs to tell those
+ * apart goes through this — `val validate` to decide whether an unregistered
+ * file is worth reporting, and the language server to decide the same thing and
+ * to put its diagnostic on the export rather than on line 1.
  *
  * Two things deliberately do not count, because neither exists once the file is
  * transpiled — and treating either as a default export would send a pure helper
  * off to be evaluated and reported:
  *
  *  - `export * from "./x"`, since a star re-export never carries the default;
- *  - a type-only export, in either of its spellings
- *    (`export type { T as default }` and `export { type T as default }`).
+ *  - a type-only export, in any of its three spellings
+ *    (`export type { T as default }`, `export { type T as default }` and
+ *    `export default interface T {}` — the last one parses as a declaration
+ *    carrying a `default` modifier, exactly like `export default class`, and is
+ *    the one that looks like a runtime export and is not).
  */
-function hasDefaultExport(sourceFile: ts.SourceFile): boolean {
-  return sourceFile.statements.some((statement) => {
+export function findDefaultExport(
+  sourceFile: ts.SourceFile,
+): ts.Statement | undefined {
+  return sourceFile.statements.find((statement) => {
     // `export default <expr>` — but not `export = x`, which shares this node.
     if (ts.isExportAssignment(statement)) {
       return !statement.isExportEquals;
@@ -379,13 +392,21 @@ function hasDefaultExport(sourceFile: ts.SourceFile): boolean {
     }
     // `export default function f() {}` / `export default class C {}`, which are
     // declarations carrying a `default` modifier rather than export assignments.
+    // `export default interface T {}` is spelled the same way and is a type, so
+    // it is excluded here rather than by the `isTypeOnly` checks above.
     return (
+      !ts.isInterfaceDeclaration(statement) &&
       ts.canHaveModifiers(statement) &&
       (ts.getModifiers(statement) ?? []).some(
         (modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword,
       )
     );
   });
+}
+
+/** Whether the file exports a runtime value as `default`. */
+function hasDefaultExport(sourceFile: ts.SourceFile): boolean {
+  return findDefaultExport(sourceFile) !== undefined;
 }
 
 /** A short, human-readable "what you exported instead" for the error message. */
