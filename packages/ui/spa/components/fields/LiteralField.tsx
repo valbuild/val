@@ -1,9 +1,10 @@
 import { SourcePath } from "@valbuild/core";
 import { Input } from "../designSystem/input";
-import { PreviewLoading, PreviewNull } from "../../components/Preview";
+import { PreviewNull } from "../../components/Preview";
 import { useShallowSourceAtPath } from "../ValFieldProvider";
+import { FieldLoading } from "../../components/FieldLoading";
+import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSourceError } from "../../components/FieldSourceError";
-import { LiteralPreview } from "./LiteralPreview";
 import { ReadonlyGuard } from "./ReadonlyGuard";
 
 /**
@@ -26,18 +27,29 @@ export function LiteralField({
   compact?: boolean;
 }) {
   const sourceAtPath = useShallowSourceAtPath(path, "literal");
-  if (compact) {
-    // The dense read-only presentation is text, like `StringField`'s.
-    return <LiteralPreview path={path} />;
-  }
   if (sourceAtPath.status === "error") {
     return <FieldSourceError path={path} error={sourceAtPath.error} />;
   }
+  if (sourceAtPath.status === "not-found") {
+    return <FieldNotFound path={path} type="literal" />;
+  }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
-    return <PreviewLoading path={path} />;
+    return <FieldLoading path={path} type="literal" />;
   }
   if (sourceAtPath.data === null) {
     return <PreviewNull path={path} />;
+  }
+  if (compact) {
+    // The dense read-only presentation is text, like `StringField`'s: it
+    // wraps rather than truncates, so the whole value is on screen.
+    return (
+      <div
+        id={path}
+        className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere] opacity-70"
+      >
+        {sourceAtPath.data}
+      </div>
+    );
   }
   return (
     <ReadonlyGuard>

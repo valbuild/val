@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 // FIRST, and it must stay first: see the note in `testPolyfills`.
 import "../../stores/react/testPolyfills";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { SourcePath } from "@valbuild/core";
 
 /**
@@ -39,6 +39,19 @@ describe("LiteralField", () => {
     const input = screen.getByDisplayValue("bento-box");
     expect(input).toHaveProperty("readOnly", true);
     expect(screen.queryByText(/not editable/i)).toBeNull();
+  });
+
+  test("a missing literal is not found rather than loading forever", () => {
+    jest.useFakeTimers();
+    mockSource.mockReturnValue({ status: "not-found" });
+    render(<LiteralField path={PATH} />);
+    // `FieldNotFound` waits out a grace period before it says so.
+    act(() => {
+      jest.advanceTimersByTime(2500);
+    });
+    expect(screen.queryByDisplayValue("bento-box")).toBeNull();
+    expect(screen.getByText(/not found/i)).toBeTruthy();
+    jest.useRealTimers();
   });
 
   test("compact shows the value as text", () => {
