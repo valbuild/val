@@ -1025,6 +1025,21 @@ Two things to know before running `changeset version` by hand:
 - Normal releases do not need it run by hand at all. The Release workflow runs
   `pnpm run version-packages` and puts the result in the "Version Packages" PR.
 
+### The release uploads the bundler's wasm first
+
+`pnpm run release` is `build`, then `rolldown:upload`, then `changeset
+publish`. The Studio fetches rolldown's WebAssembly from
+`content.val.build/v1/static/rolldown/<sha256>/<file>` (`DEFAULT_STATIC_HOST`
+in core, `build/rolldownWasm.ts` in ui), and the npm tarball does not carry it,
+so a release whose wasm is not on that host is a Studio that cannot publish.
+
+The upload goes first so that failing it stops the release rather than
+following it. It is content-addressed: an unchanged wasm is found and nothing is
+sent, so most releases need no credential. A new one (a rolldown bump) needs
+`VAL_STATIC_UPLOAD_TOKEN` -- a secret shared with valbuild/home's content
+server, not a Hetzner key -- and without it the release stops, naming it.
+`rolldown:check` asks the same question without uploading.
+
 **After a release, ask whether to update the starter template** — and default to
 yes. The template repository ([`valbuild/template-nextjs-starter`](https://github.com/valbuild/template-nextjs-starter))
 pins `@valbuild/*` versions in its `package.json`, so it keeps serving the old
