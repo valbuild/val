@@ -1375,6 +1375,34 @@ export const Api = {
              */
             sourceFiles: z.record(z.string(), z.string().nullable()).optional(),
             /**
+             * The binary files this commit wrote -- an image uploaded in the
+             * Studio -- base64, by path, for a MANAGED project.
+             *
+             * The same reason as `sourceFiles`: the in-tab build publishes the
+             * site, and a file this commit added is in no earlier build. Local
+             * files only; a remote one is served from its own URL and was never
+             * part of a build. A deleted file is a `null` in `sourceFiles`, as
+             * it always was.
+             */
+            binaryFiles: z.record(z.string(), z.string()).optional(),
+            /**
+             * The branch this commit is on, for a MANAGED project -- the
+             * content service's word for it.
+             *
+             * The in-tab build has to name the branch it was made at, and its
+             * only other source is the `val.server.ts` the last build was
+             * wired with: a project cloned from a template seed has one wired
+             * at no commit, so without this its first publish is branchless
+             * and the loader refuses it.
+             */
+            branch: z.string().optional(),
+            /**
+             * Binary files this commit wrote whose bytes the server could not
+             * read back before committing. Named so the Studio refuses to build
+             * a site that would 404 them, rather than publishing it.
+             */
+            binaryFilesUnread: z.array(z.string()).optional(),
+            /**
              * Unpublished changes the save threw away because they could not be
              * applied.
              *

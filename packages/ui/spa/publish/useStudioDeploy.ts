@@ -24,8 +24,10 @@
 
 import { useCallback, useRef, useState } from "react";
 import { createStudioPublishClient } from "./publishClient";
+import { fetchPublicFile } from "./fetchPublicFile";
 import { loadBuilder, routeTreeGenerator } from "./loadBuilder";
 import {
+  CommittedBinaryFiles,
   DeployPhase,
   StudioDeployResult,
   runStudioDeploy,
@@ -50,6 +52,11 @@ export interface UseStudioDeploy {
     commit: string | null,
     /** What that commit wrote; see `committedFiles` on `runStudioDeploy`. */
     committedFiles?: Record<string, string | null> | null,
+    /** Its binary files and branch; see `runStudioDeploy`. */
+    details?: {
+      binaryFiles: CommittedBinaryFiles | null;
+      branch: string | null;
+    } | null,
   ) => Promise<StudioDeployResult>;
 }
 
@@ -72,7 +79,7 @@ export function useStudioDeploy(options?: {
   const api = options?.api ?? "/api/val";
 
   const deploy = useCallback<UseStudioDeploy["deploy"]>(
-    async (commit, committedFiles) => {
+    async (commit, committedFiles, details) => {
       if (running.current) {
         return ALREADY_RUNNING;
       }
@@ -89,6 +96,9 @@ export function useStudioDeploy(options?: {
           client: createStudioPublishClient({ api }),
           commit,
           committedFiles: committedFiles ?? null,
+          committedBinaryFiles: details?.binaryFiles ?? null,
+          branch: details?.branch ?? null,
+          fetchPublicFile: (path) => fetchPublicFile(path),
           loadBuilder,
           ...(generateRouteTree !== null ? { generateRouteTree } : {}),
           onPhase: (phase) => setState({ status: "running", phase }),

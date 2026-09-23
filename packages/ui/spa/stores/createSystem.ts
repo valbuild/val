@@ -2387,6 +2387,13 @@ export function createSystem(options: SystemOptions): System {
           ...(outcome.sourceFiles !== undefined
             ? { sourceFiles: outcome.sourceFiles }
             : {}),
+          ...(outcome.binaryFiles !== undefined
+            ? { binaryFiles: outcome.binaryFiles }
+            : {}),
+          ...(outcome.binaryFilesUnread !== undefined
+            ? { binaryFilesUnread: outcome.binaryFilesUnread }
+            : {}),
+          ...(outcome.branch !== undefined ? { branch: outcome.branch } : {}),
           ...(removed.length > 0 ? { removed } : {}),
         };
       } finally {

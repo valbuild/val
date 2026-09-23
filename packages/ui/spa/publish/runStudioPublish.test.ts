@@ -45,6 +45,9 @@ function client(overrides: Partial<StudioPublishClient>): StudioPublishClient {
     projectSource: async () => {
       throw new Error("a publish does not read the project's source");
     },
+    publicFiles: async () => {
+      throw new Error("a publish does not read the live build's files");
+    },
     declare: async () => ({
       publishId: "pub_1",
       state: "awaiting-artifacts",
