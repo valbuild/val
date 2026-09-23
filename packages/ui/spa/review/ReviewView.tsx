@@ -1,6 +1,11 @@
 import { useMemo, useState } from "react";
 import { GitCompareArrows, History, Undo2 } from "lucide-react";
 import { Button } from "../components/designSystem/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/designSystem/popover";
 import { Checkbox } from "../components/designSystem/checkbox";
 import { cn } from "../components/designSystem/cn";
 import { FieldPatchAuthorsPure } from "../components/FieldPatchAuthors";
@@ -65,6 +70,8 @@ export function ReviewView({
   onUnstage,
   onDiscard,
   onDiscardAll,
+  discardAllDescription,
+  portalContainer = null,
 }: {
   model: ReviewModel;
   /** Rows selected on arrival. For stories, and for a future "mine" default. */
@@ -77,6 +84,16 @@ export function ReviewView({
   onUnstage: (rowIds: string[]) => void;
   onDiscard: (rowIds: string[]) => void;
   onDiscardAll: () => void;
+  /**
+   * What reverting everything would lose, phrased by `discardAllDescription`.
+   *
+   * Absent means no confirm — which is the right shape for a story and the
+   * wrong one for a project, so the caller that has the numbers is the caller
+   * that turns it on.
+   */
+  discardAllDescription?: string;
+  /** Where popups portal to, inside the shadow root. See `ValPortalProvider`. */
+  portalContainer?: HTMLElement | null;
 }) {
   const [selected, setSelected] = useState<ReadonlySet<string>>(
     () => new Set(initialSelection ?? []),
@@ -153,12 +170,12 @@ export function ReviewView({
           </p>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-3">
-          <button
-            onClick={onDiscardAll}
-            className="text-sm text-fg-secondary underline underline-offset-2 hover:text-fg-primary"
-          >
-            {STAGED.all}
-          </button>
+          <RevertAll
+            count={allRows.length}
+            description={discardAllDescription}
+            onConfirm={onDiscardAll}
+            portalContainer={portalContainer}
+          />
           {/*
            * Restore is here because this is the page you are on when you find
            * out something is wrong, and the fix is as often "put back what was
@@ -440,6 +457,69 @@ function SelectionBar({
         </Button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Reverting everything, behind a confirm.
+ *
+ * The one control on this page that can undo an afternoon in a click, and the
+ * only one whose consequence cannot be read off the row it is on — so it says
+ * what goes, including whose work is in it, BEFORE the click rather than in a
+ * toast after it. Same popover the utility panel's version uses, for the same
+ * reason: a dialog for this would take the list off screen at the moment
+ * someone is deciding about it.
+ */
+function RevertAll({
+  count,
+  description,
+  onConfirm,
+  portalContainer,
+}: {
+  count: number;
+  description?: string;
+  onConfirm: () => void;
+  portalContainer: HTMLElement | null;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button className="text-sm text-fg-secondary underline underline-offset-2 hover:text-fg-primary">
+          {STAGED.all}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        container={portalContainer}
+        align="end"
+        className="z-[9001] flex w-64 flex-col gap-3"
+      >
+        <div>
+          <p className="text-xs font-semibold text-fg-primary">
+            {`${STAGED.all}?`}
+          </p>
+          <p className="mt-1 text-xs text-fg-secondary">
+            {description ??
+              `${count} ${count === 1 ? "change goes" : "changes go"} away. This cannot be undone.`}
+          </p>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => {
+              setOpen(false);
+              onConfirm();
+            }}
+          >
+            {STAGED.all}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

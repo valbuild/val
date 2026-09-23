@@ -33,12 +33,24 @@ export const VAL_ERRORS_ROUTE = "/val/errors";
  * be ON, with nothing selected yet.
  */
 export const VAL_HISTORY_ROUTE = "/val/history";
+/**
+ * What is about to be published, as a page.
+ *
+ * Deliberately a route of its own rather than a mode of `/val/compare`: the two
+ * answer different questions — "what is going out" and "what changed" — and a
+ * publish decision is made over the whole list, which is the shape this one has
+ * and that one deliberately does not. A link matters for the same reason it
+ * does in history: "this is what we are about to ship" is a thing you send
+ * somebody before you ship it.
+ */
+export const VAL_REVIEW_ROUTE = "/val/review";
 
 /** The routes that are a whole view rather than a module being opened. */
 type ValStandaloneRoute =
   | typeof VAL_COMPARE_ROUTE
   | typeof VAL_ERRORS_ROUTE
-  | typeof VAL_HISTORY_ROUTE;
+  | typeof VAL_HISTORY_ROUTE
+  | typeof VAL_REVIEW_ROUTE;
 
 type ValRouterContextValue = {
   hardLink: boolean;
@@ -84,6 +96,7 @@ type ValRouterContextValue = {
   isCompareView: boolean;
   isErrorsView: boolean;
   isHistoryView: boolean;
+  isReviewView: boolean;
   errorFields: SourcePath[];
   /**
    * The history view's state, parsed from the query.
@@ -229,6 +242,7 @@ export function ValRouter({
   const [isCompareView, setIsCompareView] = useState(false);
   const [isErrorsView, setIsErrorsView] = useState(false);
   const [isHistoryView, setIsHistoryView] = useState(false);
+  const [isReviewView, setIsReviewView] = useState(false);
   const [errorFields, setErrorFields] = useState<SourcePath[]>([]);
   // Read `?session=` synchronously on the first render: consumers capture this
   // value once on mount (see initialSessionIdRef in AIChatSurface), so populating
@@ -259,6 +273,7 @@ export function ValRouter({
         setIsCompareView(true);
         setIsErrorsView(false);
         setIsHistoryView(false);
+        setIsReviewView(false);
         setErrorFields([]);
         setSourcePath("" as SourcePath);
         setReady(true);
@@ -271,6 +286,7 @@ export function ValRouter({
         setIsErrorsView(true);
         setIsCompareView(false);
         setIsHistoryView(false);
+        setIsReviewView(false);
         setErrorFields(
           new URLSearchParams(location.search).getAll(
             "error-field",
@@ -287,6 +303,20 @@ export function ValRouter({
         setIsHistoryView(true);
         setIsCompareView(false);
         setIsErrorsView(false);
+        setIsReviewView(false);
+        setErrorFields([]);
+        setSourcePath("" as SourcePath);
+        setReady(true);
+        return;
+      }
+      if (
+        location.pathname === VAL_REVIEW_ROUTE ||
+        location.pathname === VAL_REVIEW_ROUTE + "/"
+      ) {
+        setIsReviewView(true);
+        setIsCompareView(false);
+        setIsErrorsView(false);
+        setIsHistoryView(false);
         setErrorFields([]);
         setSourcePath("" as SourcePath);
         setReady(true);
@@ -295,6 +325,7 @@ export function ValRouter({
       setIsCompareView(false);
       setIsErrorsView(false);
       setIsHistoryView(false);
+      setIsReviewView(false);
       setErrorFields([]);
       const valPathIndex = location.pathname.indexOf(VAL_CONTENT_VIEW_ROUTE);
       if (valPathIndex > -1) {
@@ -368,8 +399,9 @@ export function ValRouter({
       const isCompare = path === VAL_COMPARE_ROUTE;
       const isErrors = path === VAL_ERRORS_ROUTE;
       const isHistory = path === VAL_HISTORY_ROUTE;
+      const isReview = path === VAL_REVIEW_ROUTE;
       /** A whole view, so there is no module path to append. */
-      const isStandalone = isCompare || isErrors || isHistory;
+      const isStandalone = isCompare || isErrors || isHistory || isReview;
       const errorFieldsQuery =
         isErrors && params?.errorFields && params.errorFields.length > 0
           ? "?" +
@@ -383,7 +415,9 @@ export function ValRouter({
           ? VAL_ERRORS_ROUTE + errorFieldsQuery
           : isHistory
             ? VAL_HISTORY_ROUTE
-            : `${VAL_CONTENT_VIEW_ROUTE}${path}`;
+            : isReview
+              ? VAL_REVIEW_ROUTE
+              : `${VAL_CONTENT_VIEW_ROUTE}${path}`;
       /**
        * Carry the studio's own state across the navigation.
        *
@@ -457,7 +491,8 @@ export function ValRouter({
       const isCompare = path === VAL_COMPARE_ROUTE;
       const isErrors = path === VAL_ERRORS_ROUTE;
       const isHistory = path === VAL_HISTORY_ROUTE;
-      const isStandalone = isCompare || isErrors || isHistory;
+      const isReview = path === VAL_REVIEW_ROUTE;
+      const isStandalone = isCompare || isErrors || isHistory || isReview;
       const finalTo = hrefOf(path, params);
       const focused =
         !isStandalone && params?.scrollToPath !== path
@@ -466,6 +501,7 @@ export function ValRouter({
       setIsCompareView(isCompare);
       setIsErrorsView(isErrors);
       setIsHistoryView(isHistory);
+      setIsReviewView(isReview);
       setErrorFields(isErrors ? (params?.errorFields ?? []) : []);
       setSourcePath(isStandalone ? ("" as SourcePath) : (path as SourcePath));
       setFocusedSourcePath(focused as SourcePath | null);
@@ -557,6 +593,7 @@ export function ValRouter({
         isCompareView,
         isErrorsView,
         isHistoryView,
+        isReviewView,
         errorFields,
         history,
         setHistory,
@@ -579,6 +616,7 @@ export function useNavigation() {
     isCompareView,
     isErrorsView,
     isHistoryView,
+    isReviewView,
     errorFields,
   } = useContext(ValRouterContext);
   return {
@@ -590,6 +628,7 @@ export function useNavigation() {
     isCompareView,
     isErrorsView,
     isHistoryView,
+    isReviewView,
     errorFields,
   };
 }

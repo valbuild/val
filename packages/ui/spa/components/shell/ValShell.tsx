@@ -10,7 +10,6 @@ import { PublishState } from "./TopBar";
 import { ShellData, ShellMediaGallery, ShellValidationError } from "./types";
 import { useShellData } from "./useShellData";
 import { ValSettingsSections } from "./ValSettingsSections";
-import { discardAllDescription } from "../discardAllDescription";
 import { useValPortal } from "../ValPortalProvider";
 import { useContentSearch } from "./useContentSearch";
 import {
@@ -47,11 +46,14 @@ import {
   VAL_COMPARE_ROUTE,
   VAL_ERRORS_ROUTE,
   VAL_HISTORY_ROUTE,
+  VAL_REVIEW_ROUTE,
   scrollToStudioPath,
   useNavigation,
   useHistoryParams,
 } from "../ValRouter";
 import { HistoryPane } from "../../history/HistoryPane";
+import { ReviewLoader, ReviewSurface } from "../../review/ReviewSurface";
+import { useDiscardAll } from "../useDiscardAll";
 import { CommitList } from "../../history/CommitList";
 import { PanelEmptyState } from "./FloatingPanel";
 import { useCommitList } from "../../history/useCommitList";
@@ -72,10 +74,6 @@ import {
   useProfilesByAuthorId,
   usePublishCount,
   usePublishSummary,
-  useCommittedPatches,
-  useCurrentAuthorId,
-  useCurrentPatchIds,
-  useDeletePatches,
   useHasNetChanges,
   useOwnPendingChangeCount,
   useInitialPatchesApplied,
@@ -234,61 +232,12 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    */
   const pendingChangesLoaded = useInitialPatchesApplied();
   const hasNetChanges = useHasNetChanges();
-  const { deletePatches } = useDeletePatches();
-  const currentPatchIds = useCurrentPatchIds();
-  const committedPatchIds = useCommittedPatches();
-  const patchSets = usePatchSets();
   const ownPendingChanges = useOwnPendingChangeCount();
   usePatchGroupWrites();
   usePatchGroupScope();
   usePatchGroupFlush();
-  const profilesByAuthorIds = useProfilesByAuthorId();
-  const currentAuthorId = useCurrentAuthorId();
   const portalContainer = useValPortal();
-  /*
-   * Everything discardable: the chain minus what has already shipped.
-   *
-   * A committed patch cannot be taken back from here — it is in a commit —
-   * and including one would make the count promise more than it can do. Same
-   * subtraction `useShellData` does for `pendingChanges`, so the number in the
-   * confirm matches the number on the row that opened it.
-   */
-  const discardablePatchIds = useMemo(
-    () => currentPatchIds.filter((patchId) => !committedPatchIds.has(patchId)),
-    [currentPatchIds, committedPatchIds],
-  );
-  /*
-   * Whose work Discard all would take, named — yours excluded.
-   *
-   * The confirm in the review view names them, and this one has to name the
-   * same people: a destructive action that warns you in one place and not the
-   * other is worse than one that never warns at all. Read off the patch sets
-   * rather than the activity feed, which is capped for display.
-   *
-   * `currentAuthorId` comes out because the sentence is about work that is not
-   * yours. Your own name in it is noise at best, and at worst it is what makes
-   * a project where you are the only editor read as if someone else had a stake
-   * in the changes.
-   */
-  const discardAuthorNames = useMemo(() => {
-    if (patchSets.status !== "success") return [];
-    const discardable = new Set<string>(discardablePatchIds);
-    const authorIds = new Set<string>();
-    for (const set of patchSets.data) {
-      for (const patch of set.patches) {
-        if (
-          patch.author !== null &&
-          patch.author !== currentAuthorId &&
-          discardable.has(patch.patchId)
-        ) {
-          authorIds.add(patch.author);
-        }
-      }
-    }
-    return [...authorIds]
-      .map((id) => profilesByAuthorIds?.[id]?.fullName)
-      .filter((name): name is string => !!name);
-  }, [patchSets, discardablePatchIds, profilesByAuthorIds, currentAuthorId]);
+  const discardAll = useDiscardAll();
   // Only read when the wait has already gone on too long — see
   // `PendingChangesGate`.
   const pendingChangesProgress = usePendingChangesProgress();
@@ -904,8 +853,16 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     [navigation, allValidationErrorPaths],
   );
 
-  const showCompare = useCallback(() => {
-    navigation.navigate(VAL_COMPARE_ROUTE);
+  /*
+   * The Review button goes to the review page, not the compare dialog.
+   *
+   * Its badge counts this user's pending changes and it sits beside Publish, so
+   * it is read as "what am I about to ship" — which is the question the review
+   * page answers and the compare view deliberately does not. Compare is one
+   * button further in, from the page itself.
+   */
+  const showReview = useCallback(() => {
+    navigation.navigate(VAL_REVIEW_ROUTE);
   }, [navigation]);
 
   /**
@@ -979,12 +936,22 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     !navigation.isCompareView &&
     !navigation.isErrorsView &&
     !navigation.isHistoryView &&
+    !navigation.isReviewView &&
     selectionId === null &&
     navigation.currentSourcePath
       ? (navigation.currentSourcePath as SourcePath)
       : null;
   const overrideEditor = navigation.isCompareView ? (
     <CompareView />
+  ) : navigation.isReviewView ? (
+    /*
+     * What is going out, as the whole editor column.
+     *
+     * Beside `/val/compare` rather than replacing it, for now: the two answer
+     * different questions ("what is going out" and "what changed"), and this
+     * one leads to that one by its Compare button.
+     */
+    <ReviewRoute />
   ) : navigation.isErrorsView ? (
     <ValidationErrorsView />
   ) : navigation.isHistoryView ? (
@@ -1121,15 +1088,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
          * work having promised, and shown, nothing about it. A row that appears
          * a moment late is the cheaper mistake.
          */
-        onDiscardAll={
-          discardablePatchIds.length > 0 && patchSets.status === "success"
-            ? () => deletePatches(discardablePatchIds)
-            : undefined
-        }
-        discardAllDescription={discardAllDescription(
-          discardablePatchIds.length,
-          discardAuthorNames,
-        )}
+        onDiscardAll={discardAll.enabled ? discardAll.discardAll : undefined}
+        discardAllDescription={discardAll.description}
         portalContainer={portalContainer}
         isLoading={state.status === "loading"}
         loadError={state.status === "error" ? state.error : undefined}
@@ -1158,7 +1118,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         // enables preview and redirects, so it is worth sending to someone.
         previewHref={previewHref}
         onSelectValidationError={onSelectValidationError}
-        onCompare={showCompare}
+        onCompare={showReview}
         // Recent activity rows did nothing: the panel listed them and no handler
         // was passed. They carry a real source path, so opening one is the same
         // act as opening a search hit.
@@ -1524,6 +1484,70 @@ function StagedCompare({
   mode: "fs" | "http" | "unknown";
   publishCount: number;
 }) {
+  return (
+    <StagingScope patchSets={patchSets}>
+      <ComparePatchSets
+        patchSets={patchSets}
+        profilesByAuthorIds={profilesByAuthorIds}
+        mode={mode}
+        canDiscard
+        reloadKey={publishCount}
+      />
+    </StagingScope>
+  );
+}
+
+/**
+ * `/val/review`, wired to the same patch sets the compare view diffs.
+ *
+ * The flush is the same one `CompareView` does and for the same reason: a
+ * field writes on a pause in typing, so arriving here a moment after editing
+ * could list a chain that is missing the last word — and this page's whole job
+ * is to be the truth about what is going out.
+ */
+function ReviewRoute() {
+  const val = useValSystem();
+  useEffect(() => {
+    if (val === null) return;
+    void val.system.patchSync.flush();
+  }, [val]);
+  const navigation = useNavigation();
+  const portalContainer = useValPortal();
+  const discardAll = useDiscardAll();
+  return (
+    <ReviewLoader>
+      {(patchSets) => (
+        <StagingScope patchSets={patchSets}>
+          <ReviewSurface
+            patchSets={patchSets}
+            onCompare={() => navigation.navigate(VAL_COMPARE_ROUTE)}
+            onRestore={() => navigation.navigate(VAL_HISTORY_ROUTE)}
+            onDiscardAll={discardAll.discardAll}
+            discardAllDescription={discardAll.description}
+            portalContainer={portalContainer}
+          />
+        </StagingScope>
+      )}
+    </ReviewLoader>
+  );
+}
+
+/**
+ * The staging provider, around whatever is reading it.
+ *
+ * Shared by `/val/compare` and `/val/review` because both of them ARE the
+ * staging UI — one shows it per diff row, the other per patch set — and the
+ * scope logic below is not a thing to have two copies of. Without this wrapper
+ * `PatchStaging.enabled` is false, every row answers "staged", and the review
+ * page's two sections collapse into one with no way to tell.
+ */
+function StagingScope({
+  patchSets,
+  children,
+}: {
+  patchSets: SerializedPatchSet;
+  children: React.ReactNode;
+}) {
   const val = useValSystem();
   const group = useCurrentPatchGroup();
   const chainOrder = useChainOrder();
@@ -1559,13 +1583,7 @@ function StagedCompare({
       group={members}
       onChange={onChange}
     >
-      <ComparePatchSets
-        patchSets={patchSets}
-        profilesByAuthorIds={profilesByAuthorIds}
-        mode={mode}
-        canDiscard
-        reloadKey={publishCount}
-      />
+      {children}
     </PatchStagingProvider>
   );
 }
