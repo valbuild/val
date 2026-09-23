@@ -321,7 +321,6 @@ export function ReviewView({
               selected={selected}
               onToggle={toggle}
               onDiscard={(id) => onDiscard([id])}
-              emptyNote="Nothing held back."
               portalContainer={portalContainer}
               muted
             />
@@ -610,7 +609,15 @@ function Section({
   selected: ReadonlySet<string>;
   onToggle: (rowId: string, next: boolean) => void;
   onDiscard: (rowId: string) => void;
-  emptyNote: string;
+  /**
+   * What an empty section means, when that is worth a line.
+   *
+   * Optional, and Unstaged passes none: the count beside the heading already
+   * reads `UNSTAGED 0`, so "Nothing held back." underneath is the same fact in
+   * a second sentence. Staged keeps one because an empty Staged is a PROBLEM —
+   * Publish would do nothing — and a zero alone does not say that.
+   */
+  emptyNote?: string;
   muted?: boolean;
   /** Where the tooltip portals to, inside the shadow root. */
   portalContainer: HTMLElement | null;
@@ -654,21 +661,21 @@ function Section({
           </TooltipContent>
         </Tooltip>
       </div>
-      {groups.length === 0 ? (
-        <p className="text-sm text-fg-tertiary">{emptyNote}</p>
-      ) : (
-        groups.map((group) => (
-          <ModuleGroup
-            key={group.moduleFilePath}
-            group={group}
-            model={model}
-            selected={selected}
-            onToggle={onToggle}
-            onDiscard={onDiscard}
-            muted={muted}
-          />
-        ))
-      )}
+      {groups.length === 0
+        ? emptyNote !== undefined && (
+            <p className="text-sm text-fg-tertiary">{emptyNote}</p>
+          )
+        : groups.map((group) => (
+            <ModuleGroup
+              key={group.moduleFilePath}
+              group={group}
+              model={model}
+              selected={selected}
+              onToggle={onToggle}
+              onDiscard={onDiscard}
+              muted={muted}
+            />
+          ))}
     </section>
   );
 }
