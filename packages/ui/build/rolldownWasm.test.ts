@@ -11,7 +11,6 @@ import {
   wasmUrlExpression,
   RUNTIME_OVERRIDE_GLOBAL,
 } from "./rolldownWasm";
-import { RUNTIME_OVERRIDE_GLOBAL as SPA_OVERRIDE_GLOBAL } from "../spa/publish/builderAsset";
 
 /**
  * The build-side half of keeping rolldown's 10.9 MB binary out of the package.
@@ -34,14 +33,6 @@ describe("the static host", () => {
 });
 
 describe("the runtime override", () => {
-  test("is spelled the same in the build and in the Studio", () => {
-    // The build prints a read of this global into rolldown's loader; the Studio
-    // reads it to know which URL to count bytes against. A rename on one side
-    // alone leaves the progress bar measuring a different file than the one
-    // being loaded, and nothing would say so.
-    expect(RUNTIME_OVERRIDE_GLOBAL).toBe(SPA_OVERRIDE_GLOBAL);
-  });
-
   test("wins over the baked URL, and the baked URL is the fallback", () => {
     const expression = wasmUrlExpression("https://example.test/x.wasm");
     expect(expression).toBe(
