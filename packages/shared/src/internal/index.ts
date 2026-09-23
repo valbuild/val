@@ -1,5 +1,11 @@
 export * from "./richtext/conversion";
 export * from "./server/types";
+// One `/sources/~` read per request, shared by every `fetchVal` in it. Lives
+// here rather than in @valbuild/next and @valbuild/tanstack separately
+// because the rule it encodes is a leak rule -- the memoised response carries
+// the caller's OWN unpublished patches -- and the two framework packages are
+// near-copies that would drift on exactly the comment that says so.
+export * from "./server/requestScopedMemo";
 export * from "./ValClient";
 export * from "./ValUrls";
 export * from "./ApiRoutes";

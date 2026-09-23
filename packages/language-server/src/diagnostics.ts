@@ -425,15 +425,30 @@ export function createProjectErrorDiagnostic({
  *
  * Val only serves modules listed there, so an unregistered module silently does
  * nothing — worth surfacing even though it is not a validation error.
+ *
+ * Reported on the `export default`, which is also why a file that has none gets
+ * no diagnostic at all (see `findValModuleDefinition`): the default export is
+ * the thing that makes a `*.val.ts` a module, so it is the thing being asked
+ * about, and pointing at line 1 of a file full of shared schemas asked its
+ * author to register something that does not exist.
+ *
+ * The message carries both remedies for the same reason. Only one of them is
+ * "add it to val.modules"; the other is to stop default-exporting, which is how
+ * a helper that landed in the module slot is fixed. Never "wrap it in
+ * `c.define`" — that turns it into an unregistered module, i.e. straight back
+ * to here.
  */
 export function createMissingModuleDiagnostic({
   moduleFilePath,
+  range,
 }: {
   moduleFilePath: ModuleFilePath;
+  /** The module's `export default`, from `findValModuleDefinition`. */
+  range: Range;
 }): Diagnostic {
   return build(
-    FALLBACK_RANGE,
-    `${moduleFilePath} is not registered in val.modules, so Val will not serve it.`,
+    range,
+    `${moduleFilePath} is not registered in val.modules, so Val will not serve it. Add it there — or, if this file is not meant to be a Val module, export what it holds by name instead: a default export is what makes a *.val.ts a module.`,
     { code: "val/missing-module", sourcePath: moduleFilePath },
   );
 }
