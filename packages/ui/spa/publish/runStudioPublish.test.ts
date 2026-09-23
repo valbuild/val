@@ -39,6 +39,12 @@ const declareBody: DeclareBody = {
 
 function client(overrides: Partial<StudioPublishClient>): StudioPublishClient {
   return {
+    buildTarget: async () => {
+      throw new Error("a publish does not read the build target");
+    },
+    projectSource: async () => {
+      throw new Error("a publish does not read the project's source");
+    },
     declare: async () => ({
       publishId: "pub_1",
       state: "awaiting-artifacts",
@@ -67,11 +73,13 @@ function client(overrides: Partial<StudioPublishClient>): StudioPublishClient {
     status: async () => ({
       publishId: "pub_1",
       state: "live",
+      buildHash: "hash",
+      missing: [],
       problems: [],
     }),
     upload: async () => undefined,
     ...overrides,
-  } as StudioPublishClient;
+  };
 }
 
 const run = (c: StudioPublishClient, artifacts: PublishArtifact[] = []) => {

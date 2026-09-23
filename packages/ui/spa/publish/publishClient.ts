@@ -25,6 +25,7 @@
 
 import {
   ArtifactsResponse,
+  BuildTargetResponse,
   DeclareBody,
   DeclareResponse,
   PromoteResponse,
@@ -32,7 +33,9 @@ import {
   UploadSlot,
   VerifyResponse,
   parseArtifacts,
+  parseBuildTarget,
   parseDeclare,
+  parseProjectSource,
   parsePromote,
   parseStatus,
   parseVerify,
@@ -63,6 +66,17 @@ export class StudioPublishError extends Error {
 }
 
 export type StudioPublishClient = {
+  /**
+   * What to build against, and what to build -- the two reads a publish makes
+   * before it has anything to declare.
+   *
+   * On this type rather than beside it because they go through the same proxy
+   * with the same credential, and because a caller holding one of them and not
+   * the other can do nothing at all.
+   */
+  buildTarget(): Promise<BuildTargetResponse>;
+  /** `null` when the project has never published. */
+  projectSource(): Promise<Record<string, string> | null>;
   declare(body: DeclareBody): Promise<DeclareResponse>;
   confirmArtifacts(publishId: string): Promise<ArtifactsResponse>;
   verify(publishId: string): Promise<VerifyResponse>;
@@ -133,6 +147,10 @@ export function createStudioPublishClient(options: {
   };
 
   return {
+    buildTarget: async () =>
+      parseBuildTarget(await call("/build-target", "GET")),
+    projectSource: async () =>
+      parseProjectSource(await call("/project-source", "GET")).files,
     declare: async (body) => parseDeclare(await call("/publish", "POST", body)),
     confirmArtifacts: async (publishId) =>
       parseArtifacts(await call(publishStep(publishId, "artifacts"), "POST")),
