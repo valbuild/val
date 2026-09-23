@@ -13,7 +13,7 @@ import {
   parsePromote,
   parseStatus,
   parseVerify,
-} from "./protocol";
+} from "@valbuild/shared/internal";
 
 export type PublishClient = {
   declare(body: DeclareBody): Promise<DeclareResponse>;

@@ -53,3 +53,15 @@ export * from "./search/sourcePath";
 // `BRAND_CONTRAST_PAIRS` is run both over generated ramps here and over the
 // ramp resolved out of the real index.css by the UI's own contrast test.
 export * from "./theme/accentRamp";
+/*
+ * The content service's publish API, and the parsers for its answers.
+ *
+ * Shared because two publishers speak it and must agree about what content
+ * said: `val publish`, from a checkout with a project token, and the STUDIO,
+ * which builds a managed project in its own tab and publishes through the
+ * deployment. One copy of the shapes and one set of parsers, so a wire change
+ * cannot be noticed by one of them and missed by the other -- which is how
+ * `home` and `@valbuild/server` have already diverged three times.
+ */
+export * from "./publish/contentApi";
+export * from "./publish/protocol";

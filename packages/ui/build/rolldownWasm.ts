@@ -21,12 +21,14 @@
  *   `@valbuild/ui` as a project dependency precisely so it lands in that
  *   project's vendor layer, so every project's layer would grow by that much.
  *
- * So the binary is served from `DEFAULT_STATIC_HOST` instead, and this module
- * is what makes the built bundle ask for it there.
+ * So the binary is served from `DEFAULT_STATIC_HOST` instead -- the content
+ * service's `/v1/static`, which answers with a redirect to a public bucket --
+ * and this module is what makes the built bundle ask for it there.
  *
  * ## Addressed by content, not by version
  *
- * The URL is `<host>/rolldown/<sha256 of the bytes>/<filename>`. A version
+ * The URL is `<host>/rolldown/<sha256 of the bytes>/<filename>`, where the
+ * "host" is a base URL with a path (`https://content.val.build/v1/static`). A version
  * number would have to be kept in step with the release by hand; a hash cannot
  * be got wrong, because the URL the bundle points at IS the digest of the bytes
  * that bundle needs. Uploading is therefore "put it if it is absent", and a
@@ -60,7 +62,7 @@ export const WASM_FILENAME = "rolldown-binding.wasm32-wasi.wasm";
  * import fails at config load with "Named export not found". Kept honest by
  * `build/rolldownWasm.test.ts`, which asserts the two are the same string.
  */
-export const DEFAULT_STATIC_HOST = "https://static.val.build";
+export const DEFAULT_STATIC_HOST = "https://content.val.build/v1/static";
 
 /** Where the manifest the release uploader reads is written. */
 export const MANIFEST_FILE = "rolldown-wasm.json";
@@ -98,6 +100,72 @@ export function findRolldownWasm(fromDir: string): string {
     );
   }
   return file;
+}
+
+/**
+ * Rolldown's BROWSER WASI binding, beside the binary.
+ *
+ * `@rolldown/browser` ships two: `rolldown-binding.wasi.cjs` for Node, which
+ * reads `process.cwd()` and imports `node:wasi` and `node:worker_threads` at
+ * module scope, and `rolldown-binding.wasi-browser.js` for a tab.
+ * `index.browser.mjs` picks the right one, but a shared chunk of the package
+ * `require`s `../rolldown-binding.wasi.cjs` directly -- and `./parseAst` has no
+ * `browser` condition at all -- so a browser build reaches the Node binding
+ * whatever its target.
+ */
+export function findRolldownBrowserBinding(fromDir: string): string {
+  const file = path.join(
+    path.dirname(findRolldownWasm(fromDir)),
+    "rolldown-binding.wasi-browser.js",
+  );
+  if (!fs.existsSync(file)) {
+    throw new Error(
+      `@rolldown/browser does not have dist/rolldown-binding.wasi-browser.js ` +
+        `(looked in ${file}); see packages/ui/build/rolldownWasm.ts.`,
+    );
+  }
+  return file;
+}
+
+/**
+ * A string only the NODE binding contains, so a built chunk that has it is a
+ * Studio whose builder cannot load. See {@link rolldownBrowserBindingPlugin}.
+ */
+export const NODE_BINDING_FINGERPRINT = "ERR_WORKER_INVALID_EXEC_ARGV";
+
+/**
+ * Point every import of rolldown's Node WASI binding at the browser one.
+ *
+ * Without it the Studio's builder chunk carries `rolldown-binding.wasi.cjs`,
+ * and importing the builder REJECTS with `ReferenceError: process is not
+ * defined` at `process.cwd()` -- before a single request, so a managed
+ * project's publish committed and then never built, and the preload at mount
+ * failed silently exactly as it is designed to. Shipped that way in
+ * `@valbuild/ui@0.136.0`.
+ *
+ * The platform's builder tab found and fixed the same thing
+ * (`browserWasiBinding` in valbuild/home's `app/vite.config.ts`), before the
+ * builder moved into the Studio; this is that fix, where the Studio is built.
+ *
+ * A `resolveId` rather than an alias, because the import is RELATIVE
+ * (`../rolldown-binding.wasi.cjs`, from inside a shared chunk) and an alias
+ * replaces only the matched portion of a specifier.
+ */
+export function rolldownBrowserBindingPlugin({
+  root,
+}: {
+  root: string;
+}): Plugin {
+  const browserBinding = findRolldownBrowserBinding(root);
+  return {
+    name: "val:rolldown-browser-binding",
+    enforce: "pre",
+    resolveId(source: string) {
+      return source.endsWith("rolldown-binding.wasi.cjs")
+        ? browserBinding
+        : null;
+    },
+  };
 }
 
 /** The SHA-256 of a file, hex, which is how the static host addresses it. */
@@ -255,12 +323,29 @@ export function rolldownWasmPlugin({
           );
         }
       }
+      /*
+       * ...and no chunk carries rolldown's NODE binding, which would make the
+       * builder import reject in every tab. See rolldownBrowserBindingPlugin.
+       */
+      const withNodeBinding = chunks.filter((chunk) =>
+        chunk.code.includes(NODE_BINDING_FINGERPRINT),
+      );
+      if (withNodeBinding.length > 0) {
+        throw new Error(
+          `The Studio's bundle carries rolldown's Node WASI binding ` +
+            `(rolldown-binding.wasi.cjs) in ` +
+            `${withNodeBinding.map((chunk) => chunk.name).join(", ")}. In a ` +
+            `browser it throws "process is not defined" the moment the builder ` +
+            `is imported, so no managed project could publish. Is ` +
+            `rolldownBrowserBindingPlugin still in spa.vite.config.mts?`,
+        );
+      }
       for (const name of emitted) {
         fs.rmSync(path.join(assetsDir, name));
       }
       fs.writeFileSync(
         path.join(outDir, "..", MANIFEST_FILE),
-        `${JSON.stringify({ filename: WASM_FILENAME, sha256, bytes, url }, null, 2)}\n`,
+        `${JSON.stringify({ filename: WASM_FILENAME, sha256, bytes, host, url }, null, 2)}\n`,
       );
     },
   };

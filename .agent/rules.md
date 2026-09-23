@@ -1156,6 +1156,53 @@ A newly added package is the usual trigger: its trusted publisher gets created
 long after everyone else's, with the newer default. Tick the `npm publish` box
 when you set it up, and expect this failure on the first release if you forget.
 
+**The E401 is what identifies this one.** Without it you are looking at the
+next section, and ticking a box that is already ticked will not help.
+
+### A green Release job, and the version is not on npm
+
+Symptom: `changeset publish` prints the package under **Successfully
+published**, the job goes green — and the version cannot be installed. Re-run
+the job and it fails:
+
+```
+└ E409: 409 Conflict - PUT https://registry.npmjs.org/@valbuild%2fui - Cannot publish over previously staged version "0.136.0".
+```
+
+This is [npm/cli#9889](https://github.com/npm/cli/issues/9889): the registry
+STAGES a publish that asked to publish directly, and answers the client as
+though it had published. Nothing in the run says otherwise. It is not the
+section above — there is no E401, and it happens with `npm publish` ticked
+under Allowed actions.
+
+`@valbuild/ui@0.136.0` is the case this was written from: attempt 1 reported
+it published and the job succeeded; the version was not readable; a re-run
+answered E409; the staged version was approved ten minutes later and went live
+WITH its provenance attestation.
+
+**So a green Release job is not evidence a version shipped.** The registry is:
+
+```bash
+npm view @valbuild/ui@0.136.0 version        # E404 => it did not ship
+cd $(mktemp -d) && npm init -y >/dev/null && npm i @valbuild/ui@0.136.0
+```
+
+**Before re-running anything, look at Staged Packages**, because there are two
+outcomes and a re-run only makes one of them harder to read:
+
+- **The stage is there.** Approve it (2FA). The version is preserved and so is
+  the provenance from the original run — nothing is rebuilt, and this is what
+  happened for `@valbuild/ui@0.136.0`. Rejecting instead frees the number.
+- **The stage is not there**, and `npm stage list` is empty even unfiltered
+  from a maintainer account. This is the phantom in the issue: there is no
+  stage-id to approve or reject, and the version number is burned with no way
+  to release it. The only way out is a version bump and another release. Do
+  not hand-publish over it — the number is unusable, not free.
+
+Re-running the job is not the fix in either case and costs something in both:
+against a real stage it turns a recoverable state into an E409 that reads like
+the first section, and against a phantom it just fails again.
+
 ## Adding a `ValidationFix` code
 
 A fix code is declared in one place and DISPATCHED ON in seven, spread over five

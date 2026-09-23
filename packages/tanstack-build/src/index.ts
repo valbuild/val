@@ -35,5 +35,6 @@ export { aliasMap, type AliasMap } from "./tsconfigPaths";
 export { resolveInFiles } from "./paths";
 export { scanCandidates, usesTailwind } from "./tailwind";
 export * from "./contract";
+export * from "./artifacts";
 export * from "./gitTree";
 export * from "./wire";

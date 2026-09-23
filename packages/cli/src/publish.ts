@@ -1,6 +1,6 @@
 import pc from "picocolors";
 import { error } from "./logger";
-import { PublishProblem } from "./publish/protocol";
+import { PublishProblem } from "@valbuild/shared/internal";
 import { formatBytes, runPublish } from "./publish/runPublish";
 
 /**

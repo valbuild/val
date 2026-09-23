@@ -293,7 +293,8 @@ export type FatalErrorType = (typeof FATAL_ERROR_TYPES)[number];
 export const DEFAULT_CONTENT_HOST = "https://content.val.build";
 export const DEFAULT_APP_HOST = "https://admin.val.build";
 /**
- * Where Val's own immutable build artifacts are served from.
+ * Where Val's own immutable build artifacts are served from: the content
+ * service's `/v1/static`.
  *
  * Only one kind of thing lives here so far: the WebAssembly binary of the
  * bundler the Studio builds a site with. It cannot travel with the Studio's
@@ -301,11 +302,23 @@ export const DEFAULT_APP_HOST = "https://admin.val.build";
  * TEXT inside the server bundle, which both corrupts it and would carry it
  * into every project that installs `@valbuild/ui`.
  *
- * Everything under this host is addressed by the SHA-256 of its own bytes, so
+ * Everything under this path is addressed by the SHA-256 of its own bytes, so
  * an upload is idempotent, a URL is immutable, and the artifact a build asks
  * for cannot be a different one than the build was made against.
+ *
+ * On content rather than a host of its own because a publish cannot happen
+ * without content anyway -- declare, upload, verify, promote, `/build-target`
+ * and `/project-source` all go through it -- so a separate host would add no
+ * availability and one more domain to every customer's egress allowlist.
+ *
+ * A FIXED LITERAL, and deliberately not derived from a project's configured
+ * content host (`VAL_CONTENT_URL`). Deriving it would make serving this binary
+ * an obligation of every content service anybody points Val at, self-hosted
+ * ones included. A deployment that must fetch it from somewhere else sets
+ * `globalThis.__VAL_ROLLDOWN_WASM_URL__` instead (see
+ * `packages/ui/build/rolldownWasm.ts`).
  */
-export const DEFAULT_STATIC_HOST = "https://static.val.build";
+export const DEFAULT_STATIC_HOST = "https://content.val.build/v1/static";
 
 const Internal = {
   VERSION: {

@@ -6,7 +6,7 @@ import {
   parsePublishToken,
   parseStatus,
   parseVerify,
-} from "./protocol";
+} from "@valbuild/shared/internal";
 
 /**
  * What content actually answers, run through the parsers that read it.

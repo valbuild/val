@@ -75,7 +75,13 @@ export type RemovedPatch = {
 };
 
 export type PublishOutcome =
-  | { status: "published"; commitSha?: string; removed?: RemovedPatch[] }
+  | {
+      status: "published";
+      commitSha?: string;
+      /** See `sourceFiles` on the `/save` route. */
+      sourceFiles?: Record<string, string | null>;
+      removed?: RemovedPatch[];
+    }
   | { status: "not-fast-forward"; message: string }
   /**
    * Somebody else published between this being decided and Save being clicked.
@@ -139,6 +145,11 @@ export type PublishResult =
       status: "published";
       patchIds: PatchId[];
       commitSha?: string;
+      /**
+       * What the commit wrote, for a managed project's in-tab build. See
+       * `sourceFiles` on the `/save` route.
+       */
+      sourceFiles?: Record<string, string | null>;
       removed?: RemovedPatch[];
     }
   | { status: "nothing-to-publish" }

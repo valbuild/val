@@ -2,7 +2,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import zlib from "zlib";
-import { DeclaredArtifact } from "./protocol";
+import { DeclaredArtifact } from "@valbuild/shared/internal";
 
 /**
  * Where an artifact's bytes are, and what it is called on the wire.
