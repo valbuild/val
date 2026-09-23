@@ -39,6 +39,8 @@ export function CanvasFields({
   paths,
   changedOnly,
   onChangedOnlyChange,
+  pickToReveal,
+  onPickRevealed,
   selectedPath,
   onSelect,
 }: {
@@ -46,12 +48,35 @@ export function CanvasFields({
   /** List only the fields with an unpublished change. */
   changedOnly: boolean;
   onChangedOnlyChange: (changedOnly: boolean) => void;
+  /**
+   * A field picked on the page while `changedOnly` was on. If it has not
+   * changed the filter is turned off, so the field that was pointed at is in
+   * the column; either way `onPickRevealed` is called once it is checked.
+   */
+  pickToReveal?: SourcePath | null;
+  onPickRevealed?: () => void;
   /** The field the editor is on, highlighted here to match. */
   selectedPath?: SourcePath | null;
   onSelect?: (path: SourcePath) => void;
 }) {
   const [query, setQuery] = useState("");
   const changedPaths = useChangedPaths(paths);
+
+  /*
+   * Only a pick, never the answer changing under a selection: reverting the
+   * field you are on while the filter is on is not a request to see the rest.
+   * So the rest is read through a ref, and the pick is the only dependency.
+   */
+  const latest = useRef({ changedOnly, changedPaths, onChangedOnlyChange });
+  latest.current = { changedOnly, changedPaths, onChangedOnlyChange };
+  useEffect(() => {
+    if (!pickToReveal) return;
+    const { changedOnly, changedPaths, onChangedOnlyChange } = latest.current;
+    if (changedOnly && !changedPaths.has(pickToReveal)) {
+      onChangedOnlyChange(false);
+    }
+    onPickRevealed?.();
+  }, [pickToReveal, onPickRevealed]);
 
   /**
    * Bring the selected field into view.
