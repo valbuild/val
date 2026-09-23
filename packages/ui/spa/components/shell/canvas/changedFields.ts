@@ -16,6 +16,13 @@ import { PatchRecord } from "../../../stores/types";
  * right question for "who wrote this op" and the wrong one for "has this field
  * moved since it was published".
  *
+ * This is a CANDIDATE list, not the answer. Patches say what was touched, not
+ * what is different: an edit typed back to the original is still a patch, and
+ * an array insert shifts every index after it. The caller compares each
+ * candidate's value with the published one (`useNoOpSourcePaths`) and keeps
+ * the ones that differ; this pass exists so that comparison only runs on
+ * fields some unpublished patch could have changed.
+ *
  * Published patches do not count. In `http` mode they stay in the chain, and a
  * field whose change has shipped is not something left to review.
  */
@@ -96,9 +103,15 @@ export function changedFieldsAmong(
       // A file op rides beside the `replace` that names the field, and its
       // `path` is the same one, so it adds nothing but a duplicate.
       if (op.op === "file" || op.op === "test") continue;
-      touch(record.moduleFilePath, op.path);
+      if (op.op === "replace") {
+        touch(record.moduleFilePath, op.path);
+        continue;
+      }
+      touch(record.moduleFilePath, structuralTarget(op.path));
       // A move changes where it came from as much as where it went.
-      if (op.op === "move") touch(record.moduleFilePath, op.from);
+      if (op.op === "move") {
+        touch(record.moduleFilePath, structuralTarget(op.from));
+      }
     }
   }
 
@@ -115,6 +128,28 @@ export function changedFieldsAmong(
     }
   }
   return changed;
+}
+
+/**
+ * Where an `add`, `remove`, `move` or `copy` really lands.
+ *
+ * Into an array, it lands on the whole array: every item after the index
+ * shifts, so every op in the chain that named an item of it by index before
+ * this one now names a different item. Widening to the array is the only
+ * answer that does not depend on replaying the chain — the same rule
+ * `PatchSets` follows — and the comparison with the published value that
+ * follows this match is what narrows it back down to the items that differ.
+ *
+ * A record's keys are not positions, so an op on one lands where it says. A
+ * numeric record key is widened too; that over-reports, and the comparison
+ * narrows it the same way.
+ */
+function structuralTarget(path: readonly string[]): readonly string[] {
+  const last = path[path.length - 1];
+  if (last === "-" || (last !== undefined && Number.isInteger(Number(last)))) {
+    return path.slice(0, -1);
+  }
+  return path;
 }
 
 /**

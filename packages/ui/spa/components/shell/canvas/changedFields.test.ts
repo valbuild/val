@@ -64,6 +64,44 @@ describe("changedPathsAmong", () => {
     ).toEqual([FIRST_SECTION_TEXT]);
   });
 
+  test("an insert into an array makes every item of it a candidate", () => {
+    // Inserting at 0 shifts every index, so an earlier edit that named
+    // `sections.3` now names a different item. Only the whole array is safe;
+    // the comparison with the published value narrows it afterwards.
+    expect(
+      changed([
+        record([
+          { op: "add", path: ["/", "sections", "0"], value: { text: "new" } },
+        ]),
+      ]),
+    ).toEqual([FIRST_SECTION_TEXT]);
+    expect(
+      changed([record([{ op: "remove", path: ["/", "sections", "7"] }])]),
+    ).toEqual([FIRST_SECTION_TEXT]);
+  });
+
+  test("a move within an array makes every item of it a candidate", () => {
+    expect(
+      changed([
+        record([
+          {
+            op: "move",
+            from: ["/", "sections", "4"],
+            path: ["/", "sections", "2"],
+          },
+        ]),
+      ]),
+    ).toEqual([FIRST_SECTION_TEXT]);
+  });
+
+  test("an add to a record lands only on its own key", () => {
+    expect(
+      changed([
+        record([{ op: "add", path: ["/", "hero", "badge"], value: "x" }]),
+      ]),
+    ).toEqual([]);
+  });
+
   test("only within the patch's own module", () => {
     expect(
       changed([

@@ -2,7 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Internal, SourcePath } from "@valbuild/core";
 import { Search } from "lucide-react";
 import { useValSystem } from "../../../stores/react/SystemContext";
-import { useChainVersion } from "../../ValProvider";
+import { useChainVersion, useNoOpSourcePaths } from "../../ValProvider";
 import { changedFieldsAmong, indexFields } from "./changedFields";
 import { cn } from "../../designSystem/cn";
 import { prettifyFilename } from "../../../utils/prettifyFilename";
@@ -294,13 +294,38 @@ function CanvasFieldRow({
 }
 
 /**
- * The paths among `paths` that an unpublished patch has touched.
+ * The paths among `paths` whose value differs from what is published.
+ *
+ * Two passes, cheapest first. The patch chain says which fields an unpublished
+ * patch could have changed; the source store then compares each of those with
+ * its published value, which is what drops an edit that was typed back to the
+ * original and sorts out which items of a list actually moved. The same
+ * comparison the review screen makes, through the same hook.
  *
  * Re-read when the chain moves, which is every edit, save and publish. Kept
  * reference-stable while the answer is the same, so a keystroke in a field that
  * was already changed does not re-filter the column.
  */
 function useChangedPaths(
+  paths: readonly SourcePath[],
+): ReadonlySet<SourcePath> {
+  const candidates = useTouchedPaths(paths);
+  const candidateList = useMemo(() => Array.from(candidates), [candidates]);
+  const unchanged = useNoOpSourcePaths(candidateList);
+  const previous = useRef<ReadonlySet<SourcePath>>(new Set());
+  return useMemo(() => {
+    const next = new Set<SourcePath>();
+    for (const path of candidateList) {
+      if (!unchanged.has(path)) next.add(path);
+    }
+    if (sameSet(previous.current, next)) return previous.current;
+    previous.current = next;
+    return next;
+  }, [candidateList, unchanged]);
+}
+
+/** The first pass of {@link useChangedPaths}: what a patch could have changed. */
+function useTouchedPaths(
   paths: readonly SourcePath[],
 ): ReadonlySet<SourcePath> {
   const val = useValSystem();
@@ -321,16 +346,16 @@ function useChangedPaths(
       store.allRecords(),
       store.publishedPatchIds(),
     );
-    const current = previous.current;
-    if (
-      current.size === next.size &&
-      Array.from(next).every((path) => current.has(path))
-    ) {
-      return current;
-    }
+    if (sameSet(previous.current, next)) return previous.current;
     previous.current = next;
     return next;
   }, [val, chainVersion, fields]);
+}
+
+function sameSet<T>(a: ReadonlySet<T>, b: ReadonlySet<T>): boolean {
+  if (a.size !== b.size) return false;
+  for (const item of b) if (!a.has(item)) return false;
+  return true;
 }
 
 /**
