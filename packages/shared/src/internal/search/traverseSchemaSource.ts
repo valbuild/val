@@ -226,6 +226,13 @@ export function traverseSchemaSource(
     return;
   }
 
+  if (schema.type === "view") {
+    // The source here is a pointer — a module file path, not content. Indexing
+    // it would make every view a hit for its target's filename, and the target
+    // is already indexed under its own path.
+    return;
+  }
+
   // Exhaustive check
   const exhaustiveCheck: never = schema;
   throw new Error(

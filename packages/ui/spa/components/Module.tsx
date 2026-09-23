@@ -285,7 +285,12 @@ export function Module({
               readonly={schema.readonly}
             />
           ) : (
-            <AnyField key={path} path={path} schema={schema} />
+            // `ignoreHidden`: this IS the thing being looked at, so a hidden
+            // schema here would blank the page rather than hide a row. A
+            // module hidden from the nav is still reached — from an `s.view()`
+            // row, from search, from a validation error — and renders in full
+            // once reached.
+            <AnyField key={path} path={path} schema={schema} ignoreHidden />
           )}
         </div>
       </div>

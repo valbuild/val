@@ -568,6 +568,46 @@ export async function createFixPatch(
           fixes: undefined,
         });
       }
+    } else if (fix === "view:check-module") {
+      // The schema is the authority: it names the module, and there is exactly
+      // one valid pointer. So this is written rather than reported — nobody has
+      // a decision to make here.
+      const [, modulePath] =
+        Internal.splitModuleFilePathAndModulePath(sourcePath);
+      if (moduleSource === undefined || moduleSchema === undefined) {
+        remainingErrors.push({
+          ...validationError,
+          message:
+            "Unexpected error while checking a view (no module source or schema)",
+          fixes: undefined,
+        });
+        continue;
+      }
+      const { schema: schemaAtPath } = Internal.resolvePath(
+        modulePath,
+        moduleSource,
+        moduleSchema,
+      );
+      if (schemaAtPath.type !== "view") {
+        remainingErrors.push({
+          ...validationError,
+          message: `Could not fix view: schema at ${sourcePath} is '${schemaAtPath.type}', not a view`,
+          fixes: undefined,
+        });
+        continue;
+      }
+      if (apply) {
+        patch.push({
+          op: "replace",
+          path: Internal.createPatchPath(modulePath),
+          value: { view: schemaAtPath.moduleFilePath },
+        });
+      } else {
+        remainingErrors.push({
+          ...validationError,
+          message: `This view points at the wrong module. Expected '${schemaAtPath.moduleFilePath}'.`,
+        });
+      }
     }
   }
   if (!validationError.fixes || validationError.fixes.length === 0) {

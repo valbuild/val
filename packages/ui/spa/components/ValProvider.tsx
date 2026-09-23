@@ -138,6 +138,15 @@ type ValContextValue = {
    * client whose stat is a poll out of date.
    */
   publishRefusal: string | null;
+  /**
+   * How this project's source is kept, or `null` when nothing said.
+   *
+   * `"managed"` means the Studio is the deployer -- see `ValSourceMode` and
+   * `summarizeDeployments`. `null` is treated as `"connected"` everywhere it is
+   * read, because that is the story the Studio has always told and an older
+   * server saying nothing is not evidence that a project has no repository.
+   */
+  sourceMode: "managed" | "connected" | null;
   profileId: string | null;
   profileAuthError: string | null;
   /**
@@ -808,6 +817,8 @@ export function ValProvider({
           "data" in stat && stat.data
             ? (stat.data.publishRefusal?.message ?? null)
             : null,
+        sourceMode:
+          "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null,
         profileAuthError:
           profilesData.status === "auth-error" ? profilesData.error : null,
         profilesError:
@@ -2065,6 +2076,25 @@ export function useValMode(): "http" | "fs" | "unknown" {
   return mode;
 }
 
+/** See {@link ValContextValue.sourceMode}. */
+export function useSourceMode(): "managed" | "connected" | null {
+  const { sourceMode } = useContext(ValContext);
+  return sourceMode;
+}
+
+/**
+ * Whether the Studio itself is what makes a publish live.
+ *
+ * True for a managed project and false for everything else, `null` included:
+ * see {@link ValContextValue.sourceMode} for why absence reads as connected.
+ * One function rather than the comparison at each call site, because getting
+ * the `null` side wrong is invisible until a project runs against an older
+ * server.
+ */
+export function useStudioIsDeployer(): boolean {
+  return useSourceMode() === "managed";
+}
+
 /** See {@link ValContextValue.publishRefusal}. */
 export function usePublishRefusal(): string | null {
   const { publishRefusal } = useContext(ValContext);
@@ -2353,6 +2383,8 @@ type EnsureAllTypes<T extends Record<SerializedSchema["type"], unknown>> = T;
  * The general idea is to avoid re-rendering the entire source tree when a single value changes.
  */
 export type ShallowSource = EnsureAllTypes<{
+  /** The module file path a view points at. */
+  view: string;
   array: SourcePath[];
   object: Record<string, SourcePath>;
   /**
@@ -3224,6 +3256,26 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     return {
       status: "success",
       data: data as ShallowSource[SchemaType],
+    };
+  } else if (type === "view") {
+    if (typeof source !== "object" || source === null || isJsonArray(source)) {
+      return {
+        status: "error",
+        error: `Expected a view pointer, got ${JSON.stringify(source)}`,
+      };
+    }
+    const target = source["view"];
+    if (typeof target !== "string") {
+      return {
+        status: "error",
+        error: `Expected a view pointer, got ${JSON.stringify(source)}`,
+      };
+    }
+    // The module the view points at. A leaf, like `keyOf`: the row navigates
+    // there, and everything about the target is read at the target's own path.
+    return {
+      status: "success",
+      data: target as ShallowSource[SchemaType],
     };
   } else {
     const exhaustiveCheck: never = type;

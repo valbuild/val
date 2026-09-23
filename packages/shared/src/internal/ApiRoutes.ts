@@ -64,6 +64,7 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("images:check-all-files"),
   z.literal("files:check-all-files"),
   z.literal("jsonValues:extract-entry"),
+  z.literal("view:check-module"),
 ]);
 const ValidationError = z.object({
   message: z.string(),
@@ -619,6 +620,29 @@ export const Api = {
               profileId: z.string().nullable(),
               mode: z.union([z.literal("http"), z.literal("fs")]),
               jsonEntriesSha: z.string().optional(),
+              /**
+               * How this project's SOURCE is kept, when the server knows.
+               *
+               * `"managed"` -- the content service is the store of record,
+               * there is no repository, and the Studio is the deployer: the
+               * build that makes a publish live happens in the tab that started
+               * it. `"connected"` -- commits are mirrored into a repository a
+               * host watches, so something outside the browser finishes the
+               * job.
+               *
+               * The Studio narrates a publish differently for each, because a
+               * `building` state in managed mode is a spinner with no event
+               * that can ever end it -- not on a reload, not on a retry, not
+               * tomorrow.
+               *
+               * Optional, and absent means "not reported", never "managed":
+               * `fs` mode has no project to have a mode, and so does an `http`
+               * server that predates the field. Both keep the connected story,
+               * which is the one the Studio has always told.
+               */
+              sourceMode: z
+                .union([z.literal("managed"), z.literal("connected")])
+                .optional(),
               publishRefusal: PublishRefusal.optional(),
             }),
             z.object({
@@ -682,6 +706,29 @@ export const Api = {
               config: ValConfig,
               profileId: z.string().nullable(),
               mode: z.union([z.literal("http"), z.literal("fs")]),
+              /**
+               * How this project's SOURCE is kept, when the server knows.
+               *
+               * `"managed"` -- the content service is the store of record,
+               * there is no repository, and the Studio is the deployer: the
+               * build that makes a publish live happens in the tab that started
+               * it. `"connected"` -- commits are mirrored into a repository a
+               * host watches, so something outside the browser finishes the
+               * job.
+               *
+               * The Studio narrates a publish differently for each, because a
+               * `building` state in managed mode is a spinner with no event
+               * that can ever end it -- not on a reload, not on a retry, not
+               * tomorrow.
+               *
+               * Optional, and absent means "not reported", never "managed":
+               * `fs` mode has no project to have a mode, and so does an `http`
+               * server that predates the field. Both keep the connected story,
+               * which is the one the Studio has always told.
+               */
+              sourceMode: z
+                .union([z.literal("managed"), z.literal("connected")])
+                .optional(),
               publishRefusal: PublishRefusal.optional(),
             }),
           ]),

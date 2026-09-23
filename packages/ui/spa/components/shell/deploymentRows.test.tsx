@@ -51,3 +51,33 @@ describe("the deploy feed's rows", () => {
     expect(screen.queryByText(/Nothing published yet/)).not.toBeNull();
   });
 });
+
+/**
+ * A managed project's row, rendered.
+ *
+ * The state is derived in `Deployments.tsx` and tested there; what this adds is
+ * that the derivation reaches the DOM — the row is one of three places the same
+ * publish is narrated, and the prop has to be threaded to each of them.
+ */
+describe("a managed project's row", () => {
+  test("says Saved, not yet live where a connected one says Building", () => {
+    // `isLive: false` explicitly: this file's fixture is live by default, and
+    // `isLive` outranks `state` -- Val having seen the site answer with a
+    // commit is the one answer it can get for itself. A live row is neither
+    // building nor saved-not-live, whichever project it belongs to.
+    const unfinished = deployment({
+      commitSha: "abc",
+      state: "pending",
+      isLive: false,
+    });
+    const { unmount } = render(
+      <DeploymentRows deployments={[unfinished]} studioIsDeployer />,
+    );
+    expect(screen.getByText(/Saved, not yet live/)).toBeTruthy();
+    expect(screen.queryByText(/Building/)).toBeNull();
+    unmount();
+
+    render(<DeploymentRows deployments={[unfinished]} />);
+    expect(screen.getByText(/Building/)).toBeTruthy();
+  });
+});

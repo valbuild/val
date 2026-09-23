@@ -1,5 +1,231 @@
 # @valbuild/server
 
+## 0.136.0
+
+### Minor Changes
+
+- [#713](https://github.com/valbuild/val/pull/713) [`f3a4bb7`](https://github.com/valbuild/val/commit/f3a4bb7aea604943b92545c122243798c759715c) Thanks [@freekh](https://github.com/freekh)! - The Studio can load a bundler, and it stops telling a managed project that its
+  publish is on its way out.
+
+  **A managed project is one with no repository and no host watching one.** There
+  is nothing outside the browser to pick a commit up, so the Studio has been
+  showing it a story that belongs to a project with a repository: a `Building`
+  spinner, waiting for an event that can never arrive. It does not resolve on a
+  reload, on a retry, or tomorrow, and there is no way to tell it from a deploy
+  that is merely slow.
+
+  The content service now reports which kind of project this is, as `sourceMode`
+  on `/stat`, and the Studio narrates accordingly:
+
+  - a **connected** project keeps the deploy feed and keeps `Building`, because
+    there a host genuinely does pick the commit up;
+  - a **managed** one says `Saved, not yet live` instead — a durable condition,
+    not a phase, because nothing else will ever resolve it.
+
+  A server that reports no source mode keeps the behaviour it has today. Absence
+  means "not reported", never "managed": `fs` mode has no project to have a mode,
+  and neither does a content service that predates the field.
+
+  **The Studio also loads `@valbuild/tanstack-build` in the tab**, at mount and at
+  idle, for the managed projects that will need it — a browser that is the
+  deployer needs a bundler. This is the groundwork for browser-side publishing;
+  the publish path itself is unchanged in this release.
+
+  That bundler is `@rolldown/browser`, whose WebAssembly binary is 10.9 MB and is
+  **not** in the npm package. It is served from `static.val.build`, addressed by
+  the SHA-256 of its own bytes, so the build and the binary it needs cannot drift
+  apart. A deployment that must not reach that host — an air-gapped install, a
+  mirror — sets `globalThis.__VAL_ROLLDOWN_WASM_URL__` before the Studio loads and
+  needs no rebuild.
+
+  **Building in the browser requires a cross-origin isolated page.** Rolldown runs
+  WebAssembly on worker threads that share memory, and a browser will not hand a
+  `SharedArrayBuffer` to a worker otherwise. Without
+  `Cross-Origin-Opener-Policy: same-origin` and
+  `Cross-Origin-Embedder-Policy: require-corp` on the document Val is mounted in,
+  loading the bundler now fails with a message that says exactly that, instead of
+  a `DataCloneError` thrown from inside a worker. Nothing else in this release is
+  affected: a Studio that never builds in the browser never asks.
+
+### Patch Changes
+
+- [#699](https://github.com/valbuild/val/pull/699) [`1d72d00`](https://github.com/valbuild/val/commit/1d72d00a1b036959ae0f1540121701cbb2694dcb) Thanks [@freekh](https://github.com/freekh)! - A `*.val.ts` with no default export is no longer reported as a missing module
+
+  `*.val.ts` is a naming convention, not a promise: plenty of files under it hold
+  only the schemas and helpers the modules beside them import. Every one of those
+  was getting two errors in the editor — `Module '…' was not found in
+val.modules` and `… is not registered in val.modules, so Val will not serve it`
+  — both on line 1, telling their author to register a file that has nothing to
+  register. `val validate` has never reported them; only the editor did.
+
+  The default export is what makes a `*.val.ts` a module, so that is what the
+  diagnostic now asks about:
+
+  - **No default export → nothing is reported.** The file is not a module, so it
+    is not a module Val is failing to serve.
+  - **A default export → one diagnostic, on the `export default` itself** rather
+    than on line 1, so it is next to the thing that has to change, and the
+    duplicate fatal beside it is gone. The message now gives both remedies: add
+    the file to `val.modules`, or export what it holds by name instead. The "Val:
+    register … in val.modules" quick fix is offered there.
+
+  The rule is `findDefaultExport` in `@valbuild/server`, which `val validate`
+  already used to decide the same question — so the editor and the CLI now agree
+  about which files are modules, including the cases that are easy to get wrong
+  (`export * from …` carries no default; `export type { T as default }` and
+  `export default interface T {}` are both gone after transpilation).
+
+  Because the diagnostic now replaces a module's own findings rather than adding
+  to them, the editor also stops guessing about registration it cannot read: a
+  `val.modules` that registers modules through a tsconfig path alias
+  (`import("_/content/page.val")`), or that builds its list in another file, is no
+  longer taken to register nothing.
+
+- Updated dependencies [[`f3a4bb7`](https://github.com/valbuild/val/commit/f3a4bb7aea604943b92545c122243798c759715c)]:
+  - @valbuild/ui@0.136.0
+  - @valbuild/core@0.136.0
+  - @valbuild/shared@0.136.0
+
+## 0.135.0
+
+### Patch Changes
+
+- [#707](https://github.com/valbuild/val/pull/707) [`c9affec`](https://github.com/valbuild/val/commit/c9affece6ae6ba62bd6c1113ed1fdab6317fa112) Thanks [@freekh](https://github.com/freekh)! - `val validate --fix` now formats with your prettier config instead of prettier's defaults
+
+  `--fix` formatted the files it repaired by calling `prettier.format(code, { filepath })`, which never reads `.prettierrc`: `filepath` picks the parser and nothing else — only `resolveConfig`, `getFileInfo` and prettier's own CLI consult the config. On a project whose style is not prettier's default, a two-line content fix therefore arrived as a whole-file rewrite, and in a repo with a format check in CI it turned a content fix into a red build.
+
+  There is now one implementation of "format a written file the way this project does", `createPrettierFormatter`, exported from `@valbuild/server` and re-exported by `@valbuild/next/server` and `@valbuild/tanstack/server`. It resolves `.prettierrc` for each file (including any `overrides` that match it), leaves anything in `.prettierignore` untouched, and falls back to prettier's defaults when the project has no config. `val validate --fix` uses it, so the CLI and the Studio can no longer disagree about formatting.
+
+  Use it for your app's `formatter` too — this is the recommended setup, and it replaces reading `.prettierrc.json` by hand:
+
+  ```ts
+  import prettier from "prettier";
+  import {
+    initValServer,
+    createPrettierFormatter,
+  } from "@valbuild/next/server";
+
+  const { valNextAppRouter } = initValServer(
+    valModules,
+    { ...config },
+    {
+      draftMode,
+      formatter: createPrettierFormatter(prettier, {
+        projectRoot: process.cwd(),
+      }),
+    },
+  );
+  ```
+
+  Existing `formatter` callbacks keep working unchanged.
+
+- [#706](https://github.com/valbuild/val/pull/706) [`72a7ca7`](https://github.com/valbuild/val/commit/72a7ca78354fff00e37a51359b17fba9334dc5e6) Thanks [@freekh](https://github.com/freekh)! - An endpoint that throws now answers Val's own 500 instead of the framework's.
+
+  Nothing caught a throw from an endpoint implementation, so it left the Val
+  router entirely and became whatever the host does with an unhandled error. On
+  TanStack Start that is h3, which replaces the message with the literal string
+  `"HTTPError"` and drops the stack — the same five words for a missing project,
+  a bad cookie and a module that failed to link — and keeps the real cause on the
+  server console. Where that console cannot be read (a Cloudflare Worker, for
+  one), a Val server had no way to say what broke inside it.
+
+  Such a request now answers Val's usual error envelope, naming the route, the
+  method and the cause:
+
+  ```json
+  {
+    "message": "Val: GET /authorize failed: Project is not set",
+    "details": {
+      "route": "/authorize",
+      "method": "GET",
+      "error": "Project is not set"
+    }
+  }
+  ```
+
+  The stack is logged rather than returned: `/authorize` and `/enable` are
+  reachable without a session, and the message is the part a caller can act on.
+
+## 0.134.1
+
+### Patch Changes
+
+- Updated dependencies [[`821e789`](https://github.com/valbuild/val/commit/821e789c1af47510af5d23eb96384ff78ddd7646)]:
+  - @valbuild/shared@0.134.1
+  - @valbuild/ui@0.134.0
+
+## 0.134.0
+
+### Patch Changes
+
+- [#708](https://github.com/valbuild/val/pull/708) [`be78a9b`](https://github.com/valbuild/val/commit/be78a9b51678439f7ecb1c7f3887f9e8e1261a13) Thanks [@freekh](https://github.com/freekh)! - Fix `gitCommit` and `gitBranch` in `val.config.ts` never reaching the server,
+  and make them the one way to say it.
+
+  `val.config.ts` has had `gitCommit` and `gitBranch` for as long as it has had
+  anything, and a deployed app that set them resolved to no repository at all.
+  Nothing failed and nothing was logged: the commit was simply never sent, and
+  every patch the project saved recorded none.
+
+  ```ts
+  // val.config.ts — the normal Vercel shape, and it did nothing
+  initVal({
+    project: "org/project",
+    gitCommit: process.env.VERCEL_GIT_COMMIT_SHA,
+    gitBranch: process.env.VERCEL_GIT_COMMIT_REF,
+  });
+  ```
+
+  The two halves never met. The server wanted a nested
+  `git: { commit, branch }`, `val.config.ts` offered two flat keys, and nothing
+  mapped one onto the other — so the only thing that worked was
+  `VAL_GIT_COMMIT` / `VAL_GIT_BRANCH` in the environment.
+
+  Rather than teach the server to read both, the nested option is gone:
+  `ValApiOptions` and TanStack's `ValHttpMode` now take `gitCommit` and
+  `gitBranch`, the same two names `ValConfig` uses. There is one name for this
+  now, wherever it is set. The framework bindings already hand the server
+  `{ versions, ...config }`, so a project's config keys arrive with nothing to
+  map, and a host passing them directly is saying the same thing in the same
+  words.
+
+  Flat because of where these values come from. A platform supplies them as
+  `process.env.VERCEL_GIT_COMMIT_SHA` and friends, typed `string | undefined`,
+  and two optional strings take that as it comes — a nested object makes every
+  caller write the ternary that turns two maybe-strings into one maybe-object.
+
+  **Breaking for a host that passed `git` itself**, which is the nested option on
+  `ValApiOptions` and on TanStack's `http` mode. An app that only configures
+  `val.config.ts` or the environment is unaffected.
+
+  ```ts
+  // before
+  initValServer(valModules, config, {
+    http: { apiKey, valSecret, git: { commit, branch } },
+  });
+
+  // after
+  initValServer(valModules, config, {
+    http: { apiKey, valSecret, gitCommit: commit, gitBranch: branch },
+  });
+  ```
+
+  **What a commit is for**, and why its absence is worth a release rather than a
+  shrug: publishing turns pending patches into new `.val.ts` text, and to patch a
+  file you must first read it — at a commit. A project with none is a project
+  whose publishes read whatever the content service last had, rather than the
+  revision the deployed code was built from.
+
+  **One more behaviour change.** A commit and a branch have always been taken
+  together or not at all, and that check now sees config-supplied values too. A
+  project that sets exactly one of `gitCommit` and `gitBranch` used to have both
+  quietly ignored and will now be refused at startup, naming the missing half.
+  That is the configuration that would otherwise fail later, at a publish.
+
+- Updated dependencies [[`1c31dcc`](https://github.com/valbuild/val/commit/1c31dcca7f1bb0199350567fd579de29f48bb26d), [`688b9e3`](https://github.com/valbuild/val/commit/688b9e36b821323cda6870cdff03dd36ec3e782f), [`16c49ea`](https://github.com/valbuild/val/commit/16c49ea6dd97c7a96bbfdf211af9bab5884579e2), [`eaa265e`](https://github.com/valbuild/val/commit/eaa265e78d9f6d2a1b685c38901612b8a3704eed)]:
+  - @valbuild/ui@0.134.0
+  - @valbuild/core@0.134.0
+  - @valbuild/shared@0.134.0
+
 ## 0.133.0
 
 ### Minor Changes

@@ -1,5 +1,131 @@
 # @valbuild/shared
 
+## 0.136.0
+
+### Minor Changes
+
+- [#713](https://github.com/valbuild/val/pull/713) [`f3a4bb7`](https://github.com/valbuild/val/commit/f3a4bb7aea604943b92545c122243798c759715c) Thanks [@freekh](https://github.com/freekh)! - The Studio can load a bundler, and it stops telling a managed project that its
+  publish is on its way out.
+
+  **A managed project is one with no repository and no host watching one.** There
+  is nothing outside the browser to pick a commit up, so the Studio has been
+  showing it a story that belongs to a project with a repository: a `Building`
+  spinner, waiting for an event that can never arrive. It does not resolve on a
+  reload, on a retry, or tomorrow, and there is no way to tell it from a deploy
+  that is merely slow.
+
+  The content service now reports which kind of project this is, as `sourceMode`
+  on `/stat`, and the Studio narrates accordingly:
+
+  - a **connected** project keeps the deploy feed and keeps `Building`, because
+    there a host genuinely does pick the commit up;
+  - a **managed** one says `Saved, not yet live` instead — a durable condition,
+    not a phase, because nothing else will ever resolve it.
+
+  A server that reports no source mode keeps the behaviour it has today. Absence
+  means "not reported", never "managed": `fs` mode has no project to have a mode,
+  and neither does a content service that predates the field.
+
+  **The Studio also loads `@valbuild/tanstack-build` in the tab**, at mount and at
+  idle, for the managed projects that will need it — a browser that is the
+  deployer needs a bundler. This is the groundwork for browser-side publishing;
+  the publish path itself is unchanged in this release.
+
+  That bundler is `@rolldown/browser`, whose WebAssembly binary is 10.9 MB and is
+  **not** in the npm package. It is served from `static.val.build`, addressed by
+  the SHA-256 of its own bytes, so the build and the binary it needs cannot drift
+  apart. A deployment that must not reach that host — an air-gapped install, a
+  mirror — sets `globalThis.__VAL_ROLLDOWN_WASM_URL__` before the Studio loads and
+  needs no rebuild.
+
+  **Building in the browser requires a cross-origin isolated page.** Rolldown runs
+  WebAssembly on worker threads that share memory, and a browser will not hand a
+  `SharedArrayBuffer` to a worker otherwise. Without
+  `Cross-Origin-Opener-Policy: same-origin` and
+  `Cross-Origin-Embedder-Policy: require-corp` on the document Val is mounted in,
+  loading the bundler now fails with a message that says exactly that, instead of
+  a `DataCloneError` thrown from inside a worker. Nothing else in this release is
+  affected: a Studio that never builds in the browser never asks.
+
+### Patch Changes
+
+- Updated dependencies [[`f3a4bb7`](https://github.com/valbuild/val/commit/f3a4bb7aea604943b92545c122243798c759715c)]:
+  - @valbuild/core@0.136.0
+
+## 0.134.1
+
+### Patch Changes
+
+- [#709](https://github.com/valbuild/val/pull/709) [`821e789`](https://github.com/valbuild/val/commit/821e789c1af47510af5d23eb96384ff78ddd7646) Thanks [@freekh](https://github.com/freekh)! - Show the reason behind a content-service error instead of just "Internal Server
+  Error".
+
+  `content.val.build` answers a handler that threw with `{ message: "Internal
+Server Error", details: "<the actual cause>" }`. Val was reading `message` and
+  dropping `details`, so a failed save put exactly this in front of an editor —
+  and the same text in the app's own logs, because Val was relaying it:
+
+  ```json
+  { "type": "patch-error", "message": "Internal Server Error", "errors": { … } }
+  ```
+
+  A string `details` is now appended to the message (capped at 500 characters).
+  A structured one is not: that is what a _refusal_ carries, and its summary is
+  already the message.
+
+## 0.134.0
+
+### Minor Changes
+
+- [#680](https://github.com/valbuild/val/pull/680) [`eaa265e`](https://github.com/valbuild/val/commit/eaa265e78d9f6d2a1b685c38901612b8a3704eed) Thanks [@freekh](https://github.com/freekh)! - Add `s.view()`: point at another module, so editors can reach it from the page it belongs to.
+
+  Content that has to live in its own module — a `keyOf` target, shared settings, a route-keyed record — is invisible from the page an editor thinks of it as part of. A view field puts a row on that page's screen that leads to it:
+
+  ```ts
+  import employeesVal from "../data/employees.val";
+
+  const schema = s.object({
+    title: s.string(),
+    employees: s.view(employeesVal),
+  });
+
+  export default c.define("/app/menneskene/page.val.ts", schema, {
+    title: "Våre folk",
+    employees: { view: "/data/employees.val.ts" },
+  });
+  ```
+
+  The source is a pointer and nothing else. The module it names keeps its own source, patches, validation and address, and an editor who follows the row lands on that module's own screen — so it is clear they are changing something other pages use too.
+
+  A few things worth knowing:
+
+  - **The path autocompletes, and a wrong one does not compile.** A module now carries its own id in its type, so the source type of the field above is the literal `{ view: "/data/employees.val.ts" }`.
+  - **It is not readable in code.** `useVal(pageVal).employees` is a `ValView<…>` — an opaque pointer with no fields on it. Read the module it names directly, as before.
+  - **`view` is now a reserved object key**, like `_type` and `patch_id`: `s.object({ view: ... })` no longer compiles. A single `view: string` key is what a view pointer looks like, and an ordinary object with that shape would be indistinguishable from one.
+  - **Views may not form a cycle.** `A → B → A`, and a module viewing itself, are reported as module errors by `val validate` and in the Studio.
+  - **A pointer that disagrees with its schema is repaired automatically.** It can only happen in hand-written JSON, and the schema is the authority, so `val validate --fix` and saving in the Studio both write the module the schema names.
+  - **A view's `hidden` and `readonly` are its own, never the module's it points at.** A view whose target is hidden is still shown, and still leads there.
+
+  That last one comes with a change to what `hidden()` means on a **module's own schema**, which is the other half of making a shared module usable:
+
+  ```ts
+  // Not in the nav, and on exactly one page.
+  export default c.define("/data/employees.val.ts", s.record(...).hidden(), { ... });
+  ```
+
+  It now means the nav does not list the module — the Explorer for an ordinary module, Media for a gallery — and nothing more. Previously it also blanked the module's own page, so a module you had hidden was still in the nav and showed nothing when opened. A hidden module is now reached from an `s.view()` row, from search or from a validation error, and renders in full when you get there.
+
+  One gap worth naming rather than leaving to be discovered: a view pointing at a
+  module the project does not have is reported by the FIELD — the row says the
+  target is missing — but not by `val validate`. The schema check compares the
+  pointer against the schema, and the cycle check deliberately skips a target that
+  is not a module of the project, so neither catches it. A project-level check
+  belongs with them and is not here yet.
+
+### Patch Changes
+
+- Updated dependencies [[`16c49ea`](https://github.com/valbuild/val/commit/16c49ea6dd97c7a96bbfdf211af9bab5884579e2), [`eaa265e`](https://github.com/valbuild/val/commit/eaa265e78d9f6d2a1b685c38901612b8a3704eed)]:
+  - @valbuild/core@0.134.0
+
 ## 0.133.0
 
 ### Minor Changes

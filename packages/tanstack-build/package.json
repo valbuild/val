@@ -1,0 +1,89 @@
+{
+  "name": "@valbuild/tanstack-build",
+  "private": false,
+  "description": "Val - builds a TanStack Start app in the browser or in Node",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/valbuild/val.git"
+  },
+  "license": "MIT",
+  "version": "0.135.0",
+  "sideEffects": false,
+  "main": "dist/valbuild-tanstack-build.cjs.js",
+  "module": "dist/valbuild-tanstack-build.esm.js",
+  "types": "dist/valbuild-tanstack-build.cjs.d.ts",
+  "exports": {
+    ".": {
+      "module": "./dist/valbuild-tanstack-build.esm.js",
+      "default": "./dist/valbuild-tanstack-build.cjs.js"
+    },
+    "./node": {
+      "module": "./node/dist/valbuild-tanstack-build-node.esm.js",
+      "default": "./node/dist/valbuild-tanstack-build-node.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "preconstruct": {
+    "entrypoints": [
+      "./index.ts",
+      "./node/index.ts"
+    ],
+    "exports": true
+  },
+  "scripts": {
+    "build:tailwind": "tsx scripts/tailwindSources.ts",
+    "prepublishOnly": "node scripts/checkBuilt.mjs",
+    "test": "jest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@rolldown/browser": "^1.2.5",
+    "tailwindcss": "^4.3.3"
+  },
+  "peerDependencies": {
+    "@tanstack/router-generator": ">=1.167.0",
+    "@tanstack/router-plugin": ">=1.168.0",
+    "react": ">=19.0.0",
+    "rolldown": ">=1.2.5"
+  },
+  "peerDependenciesMeta": {
+    "@tanstack/router-generator": {
+      "optional": true
+    },
+    "@tanstack/router-plugin": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "rolldown": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@tanstack/router-generator": "1.167.32",
+    "@tanstack/router-plugin": "1.168.34",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.4.0",
+    "@types/react": "^19.2.18",
+    "rolldown": "^1.2.5",
+    "tsx": "^4.23.12",
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22"
+  },
+  "keywords": [
+    "CMS",
+    "tanstack",
+    "tanstack-start",
+    "val",
+    "valbuild"
+  ],
+  "files": [
+    "CHANGELOG.md",
+    "dist",
+    "node/dist",
+    "node/package.json"
+  ]
+}

@@ -134,6 +134,21 @@ const SESSION_SECRET = process.env.MOCK_CONTENT_SESSION_SECRET ?? null;
 const APP_URL = process.env.MOCK_CONTENT_APP_URL ?? null;
 
 /**
+ * Whether this project's commits are mirrored into a repository.
+ *
+ * Set by `playwright.config.ts` from the same `VAL_E2E_MANAGED` switch that
+ * decides whether the app is given a `VAL_GIT_COMMIT`, so the two halves cannot
+ * describe different projects. `connected` by default because that is what the
+ * default run builds: an app with a commit baked in.
+ *
+ * Read once rather than per request -- it is a property of the project, and a
+ * mock that could change it mid-run would be modelling something the real
+ * service cannot do without a deploy.
+ */
+const SOURCE_MODE: "managed" | "connected" =
+  process.env.MOCK_CONTENT_SOURCE_MODE === "managed" ? "managed" : "connected";
+
+/**
  * The people who can be editing.
  *
  * Fixed rather than generated: a test asserts on the name shown next to a
@@ -831,13 +846,20 @@ const getApplicablePatches: Handler = (req, res, url) => {
     /*
      * What the project expects of whoever publishes it.
      *
-     * `managed` here: this mock has no git repository behind it at all, which
-     * is exactly the shape the content service calls managed. Saying so is not
-     * decoration -- `ValOpsHttp` reads it to decide whether a deployment can
-     * publish, and a mock that stayed silent would leave that check untested
-     * in the one suite that exercises http mode end to end.
+     * Saying it is not decoration: `ValOpsHttp` reads it to decide whether a
+     * deployment can publish, and the Studio reads it to decide whether a
+     * publish is something a host will finish or something the browser already
+     * has -- so a mock that stayed silent would leave both untested in the one
+     * suite that exercises http mode end to end.
+     *
+     * It follows the RUN rather than being fixed, because it has to agree with
+     * the app: `playwright.config.ts` gives the app a `VAL_GIT_COMMIT` unless
+     * `VAL_E2E_MANAGED` is set, and a project the content service calls managed
+     * cannot have a deployment built from a commit. This said `managed`
+     * unconditionally while the default run said otherwise, which went
+     * unnoticed while the only reader asked about the pair.
      */
-    project: { sourceMode: "managed", branch: PROJECT_BRANCH },
+    project: { sourceMode: SOURCE_MODE, branch: PROJECT_BRANCH },
   });
 };
 

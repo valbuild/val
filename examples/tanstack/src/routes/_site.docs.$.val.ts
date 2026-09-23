@@ -11,10 +11,13 @@ export default c.define(
   "/src/routes/_site.docs.$.val.ts",
   s.router(
     tanstackRouter,
-    s.object({
-      title: s.string(),
-      text: s.string(),
-    }),
+    s.string().describe("The path under /docs, however deep"),
+    s
+      .object({
+        title: s.string(),
+        text: s.string().multiline(),
+      })
+      .preview(({ val }) => ({ title: val.title, subtitle: val.text })),
   ),
   {
     "/docs/getting-started": {

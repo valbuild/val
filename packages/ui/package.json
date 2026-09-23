@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/ui",
-  "version": "0.133.0",
+  "version": "0.136.0",
   "sideEffects": false,
   "repository": {
     "type": "git",
@@ -13,7 +13,9 @@
     "build-storybook": "storybook build",
     "dev": "vite",
     "device-lab": "node scripts/device-lab.mjs",
-    "storybook:host": "storybook dev -p 6006 --host 0.0.0.0 --no-open"
+    "storybook:host": "storybook dev -p 6006 --host 0.0.0.0 --no-open",
+    "rolldown:upload": "node scripts/uploadRolldownWasm.mjs",
+    "rolldown:check": "node scripts/uploadRolldownWasm.mjs --check"
   },
   "devDependencies": {
     "@codemirror/lang-angular": "^0.1.4",
@@ -101,6 +103,7 @@
     "@uiw/react-codemirror": "^4.25.11",
     "@valbuild/core": "workspace:*",
     "@valbuild/shared": "workspace:*",
+    "@valbuild/tanstack-build": "workspace:*",
     "aria-hidden": "^1.2.6",
     "autoprefixer": "^10.5.4",
     "class-variance-authority": "^0.7.1",

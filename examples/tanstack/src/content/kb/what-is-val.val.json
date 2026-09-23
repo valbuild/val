@@ -1,0 +1,7 @@
+{
+  "title": "What is Val?",
+  "body": "Val keeps content in your repository, as typed modules beside the code that renders them.",
+  "order": 0,
+  "author": "freekh",
+  "related": "/docs/getting-started"
+}

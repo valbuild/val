@@ -50,7 +50,9 @@ export function schemaTypesOfPath(
       current.type === "keyOf" ||
       current.type === "route" ||
       current.type === "locale" ||
-      current.type === "literal"
+      current.type === "literal" ||
+      // Nothing is patchable at a view path: the target module owns its source.
+      current.type === "view"
     ) {
       if (current.type === "image" || current.type === "file") {
         // allow changes to metadata

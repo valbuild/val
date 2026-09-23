@@ -8,7 +8,6 @@ import {
   DidChangeWatchedFilesNotification,
   type CodeAction,
   type CompletionItem,
-  type Diagnostic,
 } from "vscode-languageserver";
 import {
   createConnection,
@@ -48,6 +47,7 @@ import {
   canCreateFiles as clientCanCreateFiles,
 } from "./codeActions";
 import { createValCompletions, resolveValCompletion } from "./completions";
+import { findValModuleDefinition, parseValModule } from "./valModuleDefinition";
 import { createValCommands, valCommandNames } from "./commands";
 import {
   canRenameFiles as clientCanRenameFiles,
@@ -206,19 +206,18 @@ export function applyEnvOverrides(options: ValInitializationOptions): void {
 const PROJECT_WIDE_FILE_RE = /[/\\]val\.(modules|config)\.(ts|js)$/;
 
 /**
- * Report a Val module that `val.modules` does not register.
+ * Whether `val.modules` leaves this module out.
  *
  * Reads `val.modules.{ts,js}` on demand, through the editor's buffer when it is
  * open: adding a module to the registry must clear the diagnostic straight away,
- * not only once the user saves. Returns `undefined` when no such file exists —
- * that is a project-level problem, not something to blame on an individual
- * module.
+ * not only once the user saves. Answers `false` when no such file exists — that
+ * is a project-level problem, not something to blame on an individual module.
  */
-function findMissingModuleDiagnostic(
+function isModuleUnregistered(
   valRoot: string,
   moduleFilePath: ModuleFilePath,
   read: (fsPath: string) => string | undefined,
-): Diagnostic | undefined {
+): boolean {
   for (const candidate of ["val.modules.ts", "val.modules.js"]) {
     const file = path.join(valRoot, candidate);
     let text: string | undefined = read(file);
@@ -229,16 +228,13 @@ function findMissingModuleDiagnostic(
         continue;
       }
     }
-    const registered = isModuleRegistered({
+    return !isModuleRegistered({
       sourceFile: ts.createSourceFile(file, text, ts.ScriptTarget.ES2020),
       valModulesDir: "",
       moduleFilePath,
     });
-    return registered
-      ? undefined
-      : createMissingModuleDiagnostic({ moduleFilePath });
   }
-  return undefined;
+  return false;
 }
 
 /**
@@ -312,6 +308,37 @@ export function createValLanguageServer(connection: Connection): {
       return;
     }
     try {
+      // An unregistered file is answered from its own text alone, before the
+      // project is consulted at all. Val cannot have evaluated it -- it is not
+      // in the graph `val.modules` describes -- so everything downstream has
+      // only the one thing to say about it, and said it twice: `Service.get`
+      // reports `Module '...' was not found in val.modules` as a fatal on line
+      // 1, beside this diagnostic saying the same. And when the file has no
+      // `export default` neither of them is a finding at all: it is a
+      // `*.val.ts` holding the schemas the modules beside it import, which Val
+      // never serves and there is nothing to register.
+      const unregistered = isModuleUnregistered(
+        project.valRoot,
+        moduleFilePath,
+        readOpenDocument,
+      );
+      if (unregistered) {
+        const definition = findValModuleDefinition(
+          parseValModule(moduleFilePath, document.getText()),
+        );
+        connection.sendDiagnostics({
+          uri,
+          diagnostics: definition
+            ? [
+                createMissingModuleDiagnostic({
+                  moduleFilePath,
+                  range: definition,
+                }),
+              ]
+            : [],
+        });
+        return;
+      }
       // The module's own content changed, so any cached result is stale.
       project.invalidate(moduleFilePath);
       const result = await project.getModule(moduleFilePath);
@@ -382,14 +409,6 @@ export function createValLanguageServer(connection: Connection): {
         ...(galleryChecks ? { galleryChecks } : {}),
         ...(mediaChecks ? { mediaChecks } : {}),
       });
-      const unregistered = findMissingModuleDiagnostic(
-        project.valRoot,
-        moduleFilePath,
-        readOpenDocument,
-      );
-      if (unregistered) {
-        diagnostics.push(unregistered);
-      }
       connection.sendDiagnostics({ uri, diagnostics });
     } catch (e) {
       // Never let a single bad module take the server down.

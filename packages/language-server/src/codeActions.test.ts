@@ -85,6 +85,17 @@ describe("isLocalFix", () => {
     expect(isLocalFix("file:add-metadata")).toBe(true);
   });
 
+  /**
+   * The fix writes a value the schema already names — nothing read, nothing
+   * fetched — so it belongs with the metadata fixes rather than the deferred or
+   * remote ones. Pinned because the list is a copy of a decision made in
+   * `createFixPatch`, and a fix missing from it is offered nowhere while looking
+   * like it works everywhere else.
+   */
+  test("accepts a view pointing at the wrong module", () => {
+    expect(isLocalFix("view:check-module")).toBe(true);
+  });
+
   test("rejects fixes that need network or credentials", () => {
     // Offering these as plain quick fixes would produce actions that fail
     // without a logged-in session.
@@ -395,6 +406,40 @@ describe("code actions over LSP", () => {
       return; // Not present in this fixture; nothing to assert.
     }
     expect(await session.requestCodeActions(uri, uniqueFolder)).toEqual([]);
+  });
+
+  test("offers a quick fix that registers an unregistered module", async () => {
+    // The diagnostic now sits on the `export default`, so this is also what
+    // checks the pairing: an editor asks for actions at the cursor, and a fix
+    // anchored to a range nobody puts a cursor in is a fix nobody is offered.
+    const uri = `file://${path.join(EXAMPLE_APP, "content", "unregistered.val.ts")}`;
+    session.openDocument(
+      uri,
+      `import { s, c } from "../val.config";
+
+export default c.define("/content/unregistered.val.ts", s.string(), "hi");
+`,
+    );
+
+    const published = await session.nextDiagnostics(uri);
+    const missing = published.diagnostics.filter(
+      (d) => d.data?.code === "val/missing-module",
+    );
+    expect(missing).toHaveLength(1);
+    expect(missing[0].range.start.line).toBe(2);
+
+    const actions = await session.requestCodeActions(uri, missing);
+    const register = actions.find((action) =>
+      action.title.includes("val.modules"),
+    );
+    expect(register).toBeDefined();
+    const changes = register!.edit?.changes ?? {};
+    const [target] = Object.keys(changes);
+    // The edit lands in val.modules, never in the module being reported on.
+    expect(target).toMatch(/val\.modules\.ts$/);
+    expect(changes[target].map((edit) => edit.newText).join("")).toContain(
+      'import("./content/unregistered.val")',
+    );
   });
 });
 

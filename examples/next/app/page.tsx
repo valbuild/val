@@ -2,7 +2,6 @@ import { notFound } from "next/navigation";
 import { fetchVal, fetchValRoute } from "../val/rsc";
 import pageVal from "./page.val";
 import { ValImage, ValRichText } from "@valbuild/next";
-import authorsVal from "../content/authors.val";
 import themeVal from "../content/theme.val";
 import Link from "next/link";
 import { val } from "../val.config";
@@ -16,7 +15,16 @@ export default async function Home({
   if (page === null) {
     notFound();
   }
-  const authors = await fetchVal(authorsVal);
+  /*
+   * The authors module, read through the page's own `s.view()` field.
+   *
+   * `page.authors` is a pointer — `{ view: "/content/authors.val.ts" }` — so
+   * this is the same content `fetchVal(authorsVal)` would give. What it buys is
+   * that the page DECLARES which module it shows and this component follows
+   * that declaration: point the schema's `s.view()` somewhere else and the read
+   * follows, where the import it replaces would have gone on reading authors.
+   */
+  const authors = await fetchVal(page.authors);
   const theme = await fetchVal(themeVal);
   const author = authors[page.author];
   return (
@@ -31,6 +39,16 @@ export default async function Home({
           }}
         />
         {author?.name && <aside>Author: {author.name}</aside>}
+        {/*
+         * Everyone in the viewed module, not just the one `s.keyOf` picked —
+         * which is the point of reading the whole thing rather than a key.
+         */}
+        <aside style={{ fontSize: "0.875rem" }}>
+          Authors:{" "}
+          {Object.values(authors)
+            .map((a) => a.name)
+            .join(", ")}
+        </aside>
         <div>{page.tags.join(", ")}</div>
         <div>
           <Link {...val.attrs(page.hero.link)} href={page.hero.link.href}>

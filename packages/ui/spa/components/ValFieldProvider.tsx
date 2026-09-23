@@ -1104,6 +1104,39 @@ export function useModuleSchema(
   );
 }
 
+/**
+ * One module's schema, with "not loaded yet" told apart from "no such module".
+ *
+ * {@link useModuleSchema} answers `undefined` to both, which is fine for a
+ * field reading a neighbour it already knows exists — a gallery-backed media
+ * field, say. It is not fine for a field whose whole job is to point at another
+ * module, because there "the project does not have this" is a state the editor
+ * has to be shown, and showing it before intake has finished says the module is
+ * missing when it is merely late.
+ *
+ * Schema-only, like the hook it wraps: no source is peeked or demanded, which
+ * is what keeps pointing AT a module from loading it.
+ */
+export function useModuleSchemaRemote(
+  moduleFilePath: ModuleFilePath | undefined,
+):
+  | { status: "loading" }
+  | { status: "not-found" }
+  | { status: "success"; data: SerializedSchema } {
+  const val = useValSystem();
+  const initializedAt = useInitialized(val);
+  const schema = useModuleSchema(moduleFilePath);
+  return useMemo(() => {
+    if (schema !== undefined) {
+      return { status: "success", data: schema };
+    }
+    if (val === null || initializedAt === null) {
+      return { status: "loading" };
+    }
+    return { status: "not-found" };
+  }, [val, initializedAt, schema]);
+}
+
 export function useAllSources(): Record<ModuleFilePath, Json> {
   const val = useValSystem();
   const version = useSourcesVersion(val);
@@ -1347,6 +1380,8 @@ type ShallowSourceOf<SchemaType extends SerializedSchema["type"]> =
     };
 
 type ShallowSource = {
+  /** The module file path a view points at. */
+  view: string;
   array: SourcePath[];
   object: Record<string, SourcePath>;
   /** The sections a settings module HAS: every settings key is optional. */
@@ -1568,6 +1603,26 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     return {
       status: "success",
       data: data as ShallowSource[SchemaType],
+    };
+  } else if (type === "view") {
+    if (typeof source !== "object" || source === null || isJsonArray(source)) {
+      return {
+        status: "error",
+        error: `Expected a view pointer, got ${JSON.stringify(source)}`,
+      };
+    }
+    const target = source["view"];
+    if (typeof target !== "string") {
+      return {
+        status: "error",
+        error: `Expected a view pointer, got ${JSON.stringify(source)}`,
+      };
+    }
+    // The module the view points at. A leaf, like `keyOf`: the row navigates
+    // there, and everything about the target is read at the target's own path.
+    return {
+      status: "success",
+      data: target as ShallowSource[SchemaType],
     };
   } else {
     const exhaustiveCheck: never = type;

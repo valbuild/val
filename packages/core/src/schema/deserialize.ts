@@ -12,6 +12,7 @@ import { DateTimeSchema } from "./datetime";
 import { FileSchema } from "./file";
 import { ImageSchema } from "./image";
 import { KeyOfSchema } from "./keyOf";
+import { ValViewSchema } from "./view";
 import { LiteralSchema } from "./literal";
 import { NumberSchema } from "./number";
 import { ObjectSchema } from "./object";
@@ -330,6 +331,17 @@ function deserializeSchemaImpl(
         [],
         false,
         false,
+        serialized.description,
+        serialized.render ?? null,
+      );
+    case "view":
+      return new ValViewSchema(
+        serialized.moduleFilePath,
+        // No module: this schema came off the wire. The Studio navigates to a
+        // view rather than resolving one, so nothing here needs it.
+        undefined,
+        serialized.readonly ?? false,
+        serialized.hidden ?? false,
         serialized.description,
         serialized.render ?? null,
       );

@@ -13,6 +13,8 @@ import { AllRichTextOptions, RichTextSource } from "../source/richtext";
 import { RichTextSelector } from "./richtext";
 import { JsonSource } from "../source/json";
 import { ExternalRecordSrc } from "../source/external";
+import { ValViewSource } from "../source/view";
+import { ValView } from "./view";
 import { SettingsSource } from "../source/settings";
 
 export type Selector<T extends Source> = Source extends T
@@ -38,33 +40,41 @@ export type Selector<T extends Source> = Source extends T
         // an adapter unable to be typed from the schema it is bound to.
         T extends ExternalRecordSrc
         ? GenericSelector<T>
-        : T extends RichTextSource<infer O>
-          ? RichTextSelector<O>
-          : T extends SourceObject
-            ? ObjectSelector<T>
-            : T extends SourceArray
-              ? ArraySelector<T>
-              : // Settings, like media, is an object whose keys are OPTIONAL, so
-                // it never matched `SourceObject` and fell through to `never`.
-                //
-                // The arm has to sit BELOW `SourceObject`: every object type that
-                // does not conflict on `assistant` structurally satisfies
-                // `SettingsSource`,
-                // so an arm above would swallow ordinary objects. A
-                // `GenericSelector` rather than an `ObjectSelector` because a
-                // settings module is read by the Studio and the assistant, not
-                // traversed with selectors.
-                T extends SettingsSource
-                ? GenericSelector<T>
-                : T extends string
-                  ? StringSelector<T>
-                  : T extends number
-                    ? NumberSelector<T>
-                    : T extends boolean
-                      ? BooleanSelector<T>
-                      : T extends null
-                        ? PrimitiveSelector<null>
-                        : never;
+        : // A view is a POINTER at another module, so it has no selector of its
+          // own to traverse: `ValView<Target>` names what is behind it and exposes
+          // nothing. Above `SourceObject` for the same reason as the arm above —
+          // the marker is structurally an object — and safe to put there only
+          // because `view` is a reserved object key (`ObjectSchemaProps`), so no
+          // ordinary object source can take this shape.
+          T extends ValViewSource<string, infer Target>
+          ? ValView<Target>
+          : T extends RichTextSource<infer O>
+            ? RichTextSelector<O>
+            : T extends SourceObject
+              ? ObjectSelector<T>
+              : T extends SourceArray
+                ? ArraySelector<T>
+                : // Settings, like media, is an object whose keys are OPTIONAL, so
+                  // it never matched `SourceObject` and fell through to `never`.
+                  //
+                  // The arm has to sit BELOW `SourceObject`: every object type that
+                  // does not conflict on `assistant` structurally satisfies
+                  // `SettingsSource`,
+                  // so an arm above would swallow ordinary objects. A
+                  // `GenericSelector` rather than an `ObjectSelector` because a
+                  // settings module is read by the Studio and the assistant, not
+                  // traversed with selectors.
+                  T extends SettingsSource
+                  ? GenericSelector<T>
+                  : T extends string
+                    ? StringSelector<T>
+                    : T extends number
+                      ? NumberSelector<T>
+                      : T extends boolean
+                        ? BooleanSelector<T>
+                        : T extends null
+                          ? PrimitiveSelector<null>
+                          : never;
 
 export type SelectorSource =
   | SourcePrimitive
@@ -76,6 +86,13 @@ export type SelectorSource =
   | MediaSource
   | JsonSource
   | ExternalRecordSrc
+  | ValViewSource
+  // The handle a `s.view()` field reads as. In the union because a reader
+  // ACCEPTS one — `useVal(page.header)` resolves it — and because keeping the
+  // readers' single type parameter bounded by `SelectorSource` is what stops
+  // `ResolvedVal` needing an extra conditional arm, which is one level more
+  // than the checker has left on the async readers.
+  | ValView<Source>
   | SettingsSource
   | RichTextSource<AllRichTextOptions>
   | GenericSelector<Source>;

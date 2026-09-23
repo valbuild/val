@@ -26,14 +26,35 @@ import { SerializedSettingsSchema, SettingsSchema } from "./schema/settings";
 import { RawString } from "./schema/string";
 import { ImageSource } from "./source/media";
 import { ModuleFilePathSep } from ".";
+import { ValViewSchema } from "./schema/view";
 
 const brand = Symbol("ValModule");
-export type ValModule<T extends SelectorSource> = SelectorOf<T> &
-  ValModuleBrand;
+const idBrand = Symbol("ValModuleId");
+export type ValModule<
+  T extends SelectorSource,
+  Id extends string = string,
+> = SelectorOf<T> & ValModuleBrand<Id>;
 
-export type ValModuleBrand = {
+/**
+ * The brand that says "this is a module", carrying the module's own id.
+ *
+ * `Id` is inferred from {@link define}'s first argument, so a module's PATH is
+ * in its type. That is what lets `s.view(fooVal)` produce a schema whose source
+ * type is the literal `{ view: "/foo.val.ts" }` — the path autocompletes at the
+ * call site, and a source that names a different module than the schema does is
+ * a type error rather than something validation has to catch later.
+ *
+ * Defaulted to `string` so every `ValModule<T>` written without it keeps
+ * meaning what it did. The property is covariant, so a module with a known id
+ * is still assignable everywhere `ValModule<T>` is expected.
+ */
+export type ValModuleBrand<Id extends string = string> = {
   [brand]: "ValModule";
+  [idBrand]: Id;
 };
+
+/** A module's own path, read back off its type. */
+export type ModuleIdOf<M> = M extends ValModuleBrand<infer Id> ? Id : string;
 
 export type InferValModuleType<T extends ValModule<SelectorSource>> =
   T extends GenericSelector<infer S> ? S : never;
@@ -71,18 +92,33 @@ type InlineEntriesFor<S> =
     ? Record<string, Item>
     : never;
 
-export function define<T extends Schema<SelectorSource>>(
-  id: string, // TODO: `/${string}`
+export function define<T extends Schema<SelectorSource>, Id extends string>(
+  id: Id, // TODO: `/${string}`
   schema: T,
   source:
     | ReplaceRawStringWithString<SelectorOfSchema<T>>
     | InlineEntriesFor<SelectorOfSchema<T>>,
-): ValModule<SelectorOfSchema<T>> {
+): ValModule<SelectorOfSchema<T>, Id> {
+  // A module cannot BE a view of another module. `s.view()` stores nothing, so
+  // the module's whole source would be `undefined` — which type-checks, because
+  // `undefined` is a `SelectorSource`, and then fails everywhere downstream that
+  // expects a module to have source. A view is a field of a module, never the
+  // module. Thrown rather than typed: making the `schema` parameter conditional
+  // on T would put it in a non-inferable position and break inference for every
+  // other schema. `extractValModules` reports what this throws as a module
+  // error, which is where a developer will look.
+  if (schema instanceof ValViewSchema) {
+    throw Error(
+      `Cannot define '${id}' as a view: s.view() shows another module and stores nothing, so it cannot be a module's own schema. Put it in an s.object({ ... }) field instead.`,
+    );
+  }
   return {
     [GetSource]: source,
     [GetSchema]: schema,
-    [Path]: id as SourcePath,
-  } as unknown as ValModule<SelectorOfSchema<T>>;
+    // No `as SourcePath` here: the whole object goes through `as unknown`
+    // below, and a type parameter does not overlap a branded string.
+    [Path]: id,
+  } as unknown as ValModule<SelectorOfSchema<T>, Id>;
 }
 
 export function getSource<T extends Source>(valModule: ValModule<T>): T {

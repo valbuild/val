@@ -76,6 +76,19 @@ recursion. Harmless while a marker on the value could still be found; the moment
 detection needs the schema, it strips `url` from every image on every production
 page. `disabled` gates the steganography and nothing else.
 
+**`val list-unused-files` finds files through VALIDATION ERRORS, so a correct
+gallery reads as unused.** `listUnusedFiles` collects the paths it considers
+in use by walking what `service.get(..., { validate: true })` reports and
+picking the errors whose value looks like a file ref — a single `s.image()` /
+`s.file()` field always reports a `check-metadata` fix, so its file is found,
+while an `s.imageset()` / `s.fileset()` ENTRY reports nothing when it is
+correct and its file is not. `examples/next` hides this by accident: its
+gallery's one entry declares 800x600 for a 944x944 image, and that error is
+the only reason the file counts as used. `examples/tanstack`, whose content
+validates cleanly, lists every gallery file it has. So treat the output as a
+starting point, and never as a delete list — the function's own TODO says the
+same about the heuristic.
+
 **The server drops `patch_id` before writing a `.val.ts`.** It marks a media
 source whose bytes are not committed, and it is a sibling of `path` — so a
 whole-object write built from the client's optimistic view would print it into a
@@ -327,6 +340,30 @@ appends socket messages. Both feed the same fold, which keeps the last entry per
 commit sha — so anything reading that list has to sort before folding, or a
 finished build gets overwritten by the pending one it replaced.
 
+## `fetchVal` in draft mode loads EVERY module, once per call
+
+`initFetchValStega` (next `rsc`, and the same code in tanstack `server`) asks
+`/sources/~` with `path: "/"` — the whole tree — and then hands `stegaEncode` a
+`getModule` that reads one entry out of the result. So a draft render that calls
+`fetchVal` three times fetches and validates every module in the project three
+times, no matter how small the three selectors are.
+
+Two things keep it from being a production problem, and neither makes it a
+non-problem:
+
+- It is **draft mode only**. With Val disabled the reader never touches the
+  server: `stegaEncode(selector, { disabled: true })` runs against the statically
+  imported module and nothing else.
+- The client readers do NOT do this. `useVal` subscribes to exactly
+  `getModuleIds(selector)`, so a page subscribes to the page.
+
+It predates `s.view()` and is the same on `main`. Narrowing it is not a
+one-liner: `getModuleIds` can name several modules (a gallery-backed image
+references another), and `/sources/~` takes ONE `path`, so it is either N
+requests or a new list parameter — and the endpoint also does validation and
+patch resolution whose scope would move with it. Measure a draft render before
+assuming this is the slow part, and do it in its own change.
+
 ## `.jsonValues()`
 
 **A validation error can point where the module source cannot go.** A
@@ -552,6 +589,50 @@ Adopted only for a module whose source was also adopted: the source decides whic
 keys exist, so taking one without the other would leave the content and the key
 set describing different moments.
 
+**A bare "Internal Server Error" from a patch save is `home` THROWING, and the
+reason is in `details`.** `sendResult` answers a refusal with the refusal's own
+message and an exception with the constant `"Internal Server Error"` plus the
+exception's message in `details` — so the one error whose `message` says
+nothing is the one whose `details` say everything.
+`getErrorMessageFromUnknownJson` now appends a STRING `details` (capped, and
+only a string: a refusal puts a structured zod error there, already summarised
+in `message`). Before that, this was the entire diagnosis available anywhere:
+
+```json
+{ "type": "patch-error", "message": "Internal Server Error", "errors": { … } }
+```
+
+— with the same text in the app's own logs, because Val was relaying it.
+
+**The deployment that produced it had silently lost its repository, and
+nothing said so.** `gitCommit` / `gitBranch` in `val.config.ts` are how an app
+names one, and for a while they did not reach the resolution at all: the
+framework bindings hand `initHandlerOptions` `{ versions, ...config }`, it read
+a nested `git` object, and nothing mapped the flat keys onto it — so a project
+setting the documented `gitCommit: process.env.VERCEL_GIT_COMMIT_SHA` resolved
+to NO repository. (Fixed in #708.) That was survivable until 0.133.0 made a
+repository optional in http mode, at which point the same configuration stopped
+being a startup error and became a supported, wrong mode.
+
+Three things follow, and none of them mentions git:
+
+- published images 404 from `/api/val/files` while serving fine from
+  `/public` — `getBinaryFile` has no repository to read them out of;
+- a publish saves the content and mirrors no `.val.ts`, so the repository
+  quietly falls behind;
+- every patch goes up with no `commit` and no `branch`, which `home` stores as
+  a NULL `patch_commit_sha` — correctly, and for one release unreadably, so the
+  SECOND edit of a session failed and the first did not. (The first edit is
+  what becomes the second one's parent.) It read as "I can create the record
+  entry but I cannot upload its image".
+
+`publishRefusal` names the state for a project that HAS a repository attached;
+nothing names it for one that does not, which is why it can be true for a week.
+The general shape is worth keeping: an option that is SPREAD into an options
+type and then not read is a compile error nowhere and a behaviour change
+everywhere. `homeWireContract.test.ts` pins what a deployment with no
+repository puts on the wire.
+
 ## Testing
 
 **`packages/ui` has no jsdom by default**, and importing a field component pulls in
@@ -713,6 +794,95 @@ bundle at the end of `pnpm --filter @valbuild/ui build` and asserts that
 `/<version>/app` really comes back as `application/javascript`. **That last
 check is the one that does not care how the placeholder is implemented** — keep
 it if you ever replace the hacks with something better.
+
+### Building `@valbuild/ui` in a `preconstruct dev` tree edits `src/`
+
+`fix-version-hack.js` writes the version into `dist/valbuild-ui.esm.js`. After
+`pnpm preconstruct dev` that path is a SYMLINK to `src/index.ts`, so the write
+goes through it and leaves
+
+```diff
+-export const VERSION = "$$BUILD_$$REPLACE_WITH_VERSION$$";
++export const VERSION = "0.134.0";
+```
+
+as an uncommitted change in a tracked source file. It is easy to miss — the
+build passes, `verify-build.js` passes, and the only symptom is a stray line in
+`git status` that reads like something you did.
+
+Committing it is the thing to avoid: the placeholder is what the NEXT build
+substitutes, and a source file carrying a hard-coded version substitutes
+nothing. `assertNoPlaceholdersLeft` would not complain, because the marker is
+gone in exactly the way it wants. Check `git status` after any
+`pnpm --filter @valbuild/ui build` and `git checkout packages/ui/src/index.ts`.
+
+### The Studio's bundler needs a cross-origin isolated page, and nothing says so
+
+`@rolldown/browser` is a THREADED WASI build. Its loader constructs
+`new WebAssembly.Memory({ initial: 16384, maximum: 65536, shared: true })` at
+module scope — 1 GiB committed, 4 GiB maximum — and `postMessage`s it to
+`max(2, hardwareConcurrency)` workers. A browser refuses to transfer a
+`SharedArrayBuffer` to a worker unless the document is cross-origin isolated, so
+on an ordinary page the import rejects with
+
+```
+DataCloneError: Failed to execute 'postMessage' on 'Worker':
+SharedArrayBuffer transfer requires self.crossOriginIsolated
+```
+
+thrown from inside `loadWasmModuleToAllWorkers` — naming nothing an editor or a
+developer could act on, and reaching the page as an unhandled rejection from a
+dynamic import.
+
+Measured in Chromium both ways, against a real build of the Studio's chunk:
+with `Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp` on the document, the same import
+gets past it; without them it always fails. There is no fallback in the package
+— no `crossOriginIsolated` check, no single-threaded path.
+
+**The part that looks like the problem and is not:** constructing the shared
+memory SUCCEEDS on an ordinary page, and `memory.buffer.constructor.name` is
+`SharedArrayBuffer`, even though the `SharedArrayBuffer` global is not exposed
+there. So a check on `typeof SharedArrayBuffer` or a try/catch around the
+constructor both report that everything is fine. The refusal is at the
+transfer, one step later.
+
+`builderRefusal` in `spa/publish/loadBuilder.ts` is what turns this into a
+sentence, and it is asked BEFORE the 10.9 MB is fetched.
+
+**The headers are not this package's to set**, and they are not free.
+`require-corp` blocks every cross-origin subresource that does not send
+`Cross-Origin-Resource-Policy` — which for a CMS means images an editor pointed
+at anywhere, and the site preview in the canvas. Turning it on is a decision
+about what happens to those, made by whoever serves the document the Studio is
+mounted in.
+
+### The Studio's bundler is NOT in the base64 record, and must stay out
+
+The SPA dynamically imports `@valbuild/tanstack-build` so a managed project can
+be built in the tab. That drags in `@rolldown/browser`, whose 10.9 MB
+WebAssembly binary Vite emits as an asset — and every asset in the SPA output is
+what `fix-server-hack.js` base64s into both server bundles.
+
+It cannot go there, for two independent reasons, and both were measured rather
+than reasoned about:
+
+- The record is built with `fs.readFileSync(file, "utf-8")`. Read that way and
+  written back, 10,845,151 bytes come out 12,811,857 bytes and unequal. Nothing
+  notices.
+- Its base64 is 14,460,204 characters, in each of the two server bundles — and
+  `wire.ts` DECLARES `@valbuild/ui` as a project dependency so the Studio's
+  bundle reaches the isolate, so that lands in every project's vendor layer.
+
+So `build/rolldownWasm.ts` rewrites the one asset URL to a content-addressed one
+on `DEFAULT_STATIC_HOST` and deletes the emitted file before the record is
+built. The trap: **`experimental.renderBuiltUrl` is read off the RESOLVED
+CONFIG, not off plugins.** Declaring it on the plugin object is accepted and
+silently ignored — the build then prints its own `/api/val/static/assets/…` URL
+and the plugin deletes the file that URL points at, which is worse than not
+rewriting at all. It is returned from the plugin's `config()` hook for that
+reason, and `closeBundle` refuses to delete anything still referenced by a
+chunk, which is what turns a 404 in someone's browser into a failed build.
 
 ## A request "pending" in dev is usually queued, not slow
 

@@ -35,6 +35,8 @@ export type StatusBarProps = {
   branch?: string;
   /** Publishes in flight or recently finished. Hidden when there is no feed. */
   deployments?: ShellDeployment[];
+  /** See `ShellData.studioIsDeployer`. */
+  studioIsDeployer?: boolean;
   deploymentsOpen?: boolean;
   onDeploymentsOpenChange?: (open: boolean) => void;
   /** True when the open list opened itself, which lets it close itself. */
@@ -62,6 +64,7 @@ export function StatusBar({
   onAutoSaveChange,
   branch,
   deployments,
+  studioIsDeployer = false,
   deploymentsOpen = false,
   onDeploymentsOpenChange,
   deploymentsAutoOpened = false,
@@ -114,6 +117,7 @@ export function StatusBar({
           <>
             <DeploymentsStatus
               deployments={deployments}
+              studioIsDeployer={studioIsDeployer}
               open={deploymentsOpen}
               onOpenChange={onDeploymentsOpenChange ?? (() => undefined)}
               autoClose={deploymentsAutoOpened}

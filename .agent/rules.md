@@ -282,6 +282,151 @@ serialized. There is no third serialized form and no `UnionSchema` class any
 more — `UnionSchema`, `SerializedUnionSchema`, `SerializedStringUnionSchema`
 and `SerializedObjectUnionSchema` are deprecated type aliases.
 
+### `s.view()` points at another module; it does not contain one
+
+`s.view(otherVal)` is a field whose source is a POINTER and nothing else:
+
+```typescript
+const schema = s.object({ title: s.string(), people: s.view(employeesVal) });
+export default c.define("/app/menneskene/page.val.ts", schema, {
+  title: "Våre folk",
+  people: { view: "/data/employees.val.ts" },
+});
+```
+
+The module it names keeps its own source, patches, validation and address. In
+the editor the field is a ROW that navigates there — it does not render the
+target's fields inline — which is also what stops an editor mistaking a shared
+module for a field of the page they are on.
+
+Eight things decide how it behaves, and each was a choice:
+
+- **A plain object, not a constructor.** Same rule as media: the value has to
+  work in a `.val.ts` and in a `*.val.json`, and a literal survives the static
+  extraction (`evaluateExpression`) that a call expression does not.
+- **A module carries its own id in its type.** `ValModule<T, Id>`, inferred from
+  `c.define`'s first argument, so `s.view(fooVal)` produces a schema whose source
+  type is the LITERAL `{ view: "/foo.val.ts" }`. The path autocompletes, and a
+  source naming a different module than its schema does is a type error. The
+  runtime check in `ValViewSchema.executeValidate` is for hand-written JSON, which
+  the compiler never saw.
+- **`view` is a reserved object key** (`ObjectSchemaProps`, beside `_type` and
+  `patch_id`). An ordinary `s.object({ view: s.string() })` is structurally
+  identical to a pointer, and would be mapped to `ValView<T>` and lose every
+  field it has — silently.
+- **The read side is `ValView<T>`, with no properties.** A new arm in
+  `Selector<T>` and in `StegaOfSource`, above `SourceObject` (the marker is structurally an
+  object) — the same position and the same reason as the `ExternalRecordSrc`
+  arm. Never stega encoded: an edit tag woven into a path corrupts the path.
+- **No cycles.** `viewCycles.ts`, called from `extractValModules` next to
+  `resolveSettingsModule` and for the same reason: it is a property of the whole
+  set of schemas, so no single module can see it. **Nothing else would catch
+  it** — a view stores a pointer rather than content, so there is no data cycle
+  for a source walk to trip over. A DIAMOND (two paths to one module) is not a
+  cycle and is allowed.
+- **A module cannot BE a view.** `c.define(path, s.view(x), …)` throws.
+- **The exported names carry a `Val` prefix, and this family alone does.**
+  `ValView<T>`, `ValViewSource`, `isValViewSource`, `ValViewSchema`,
+  `SerializedValViewSchema`, `ValViewHandle` — where every other schema is
+  `ImageSchema` / `ImageSource` with no prefix. `View` is the name a consuming
+  app is most likely to have its own of (React Native's, every design system's,
+  the local one in half the projects that would install this), and the rest
+  follow it so the family reads as one. It is a deliberate break from the
+  convention, not an oversight: do not "fix" it back.
+
+  The line is what `@valbuild/core` exports at the TOP level. The members of
+  `Internal` keep their plain names — `createViewHandle`, `isViewHandle`,
+  `viewHandleModule`, `viewModulesOf`, `resolveViewedModule` — because
+  `Internal.` already namespaces them and nothing can collide with them. So
+  does the WIRE form: `type: "view"` is the serialized discriminant, and
+  renaming it would break every stored schema and the zod parser.
+
+- **`hidden` and `readonly` are the view's own, never the target's.** A view
+  whose target module is hidden is still shown, and still leads there — which
+  is the whole point, because `hidden` on a MODULE's root schema means "the nav
+  does not list this", at EVERY destination the menu has: the Explorer and
+  Pages (both in `useTrees`, which drops a hidden module before it sorts
+  routers from the rest), Media (`collectMediaModules`) and Settings
+  (`useNavMenuData`, which resolves the settings module first and drops it
+  after — two settings modules must stay an error rather than become a way to
+  pick between them). A module has no parent to be hidden from, so it can mean
+  nothing else. The pair is what lets `employees.val.ts` be a `keyOf` target a
+  dozen modules point into, out of the nav, and reached from the one page it
+  belongs to. It also forced `AnyField`'s `ignoreHidden`, set by `Module`
+  alone: the page an editor has navigated to is not a parent's field list, so
+  honouring `hidden` there renders a blank page instead of hiding a row.
+  Hiding a page ROUTER is the sharp edge — its pages leave the sitemap with it,
+  so the site's URLs are listed nowhere.
+
+**Reading a view.** `useVal(page.header)` and `fetchVal(page.header)` resolve
+the pointer and give you the module it names. What makes that possible is that
+the READ path attaches the module to the pointer, on a symbol:
+
+- The app cannot turn a path back into a module. `val.modules` holds lazy
+  `import()` thunks and `<ValModulesClient>` is optional, so there is no
+  registry to look one up in.
+- So `stegaEncode` attaches it, from the schema instance at the module root —
+  the one place a `ValViewSchema` (which holds its module) is reachable. Not from
+  the source, and that is the point: with an edit pending, the source comes from
+  the overlay store as plain JSON that never went near a module, while the
+  schema is the module's own either way.
+- A symbol, so the pointer is still `{ view: "/foo.val.ts" }` to `JSON.stringify`,
+  to `Object.keys`, to the SHAs and to every walk that reads source as data.
+- **A handle does not survive serialization.** Passed from a server component to
+  a client one it arrives without its symbol, and `stegaEncode` throws rather
+  than hand back a pointer that looks like content. Resolve it in the component
+  that read the module, or read the target directly.
+
+`ResolvedVal` in `@valbuild/react/stega` is the one definition of what a reader
+gives back — `useVal`, `fetchVal`, `initValContent` and the TanStack client all
+use it, rather than the four copies of the selector conditional they had. Its
+outer arms are wrapped in tuples so it does not distribute over a union: a
+distributing version re-entered `StegaOfSource` per member and the async readers
+hit "Type instantiation is excessively deep". For the same reason
+`ValView<Source>` is a member of `SelectorSource` — it keeps the readers' type
+parameter bounded by one type, which is one conditional arm cheaper than widening it.
+
+**The readers that need a MODULE go through `Internal.resolveViewedModule`.**
+`useValKey`, `useValRoute`, `useValRouteUrl` and the three `fetch*` counterparts
+pull a path, a schema and a source off what they are handed, so a view — which
+is a pointer with none of the three — cannot be passed through to them. Their
+parameter is `ResolvableModule` and the resolver takes exactly that type, so the
+two cannot drift. It matters more than it looks: every one of those readers
+already returns `null` / `undefined` for "no such entry", so an unresolved view
+was not an error but a 404 from a call that looks right. `ResolvableModule`,
+`JsonEntryContentOf` and `RouteValueOf` are shared for the same reason
+`ResolvedVal` is — there were four identical copies, one per reader file.
+
+**Reading a view is LAZY, and there are tests whose only job is to keep it so.**
+A view is on the page's screen but its content is not on the page, so resolving
+one must cost nothing until someone asks. Three things could break that, and
+`stegaEncode.test.ts`'s "reading a view is lazy" pins each: the encoder must not
+ask the store for the target (`getModule` is called for the page and nothing
+else), `getModuleIds(pageVal)` must name the page alone (a target in there
+re-renders the page on an edit to a module it does not show), and no
+`.jsonValues()` entry thunk of a viewed module may fire — those are dynamic
+`import()`s, so an eager walk would pull every entry of every viewed record into
+a page that shows none of them. `executeSerialize` carries the path and not the
+module, which is what keeps the schema payload from growing by the whole content
+of every view target.
+
+What is NOT lazy, and cannot be: `s.view(x)` needs a static import of `x` to get
+its path, exactly as `s.keyOf(x)` does, so `x`'s bytes are in whatever bundle
+holds the page either way. `ValViewSchema` additionally RETAINS the module (a
+`KeyOfSchema` extracts and drops it) — that changes reachability, not loading,
+since an ES module binding lives for the process anyway. And see
+`architecture/quirks.md` for the one real eager load in the area, which predates
+views: draft-mode `fetchVal` fetches the whole tree per call.
+
+One trap when testing this: `stegaEncode` returns `any`, so
+`stegaEncode(pageVal, {}).notes` handed to a reader makes the reader's type
+parameter `any` too, and the conditionals resolve to whatever `any` distributes
+to. Annotate the encoded value (`const page: ResolvedVal<typeof pageVal> = …`)
+or the test proves nothing about the types.
+
+Not built yet, and deliberately: rendering the target inline
+(`render({ as: "inline" })`).
+
 ## Module System
 
 ### c.define() Pattern
@@ -365,8 +510,45 @@ Custom color tokens map to CSS variables (e.g., `bg-background` → `var(--backg
 
 ## Framework packages
 
-`@valbuild/next` and `@valbuild/tanstack` are the two framework bindings, and
-they are deliberately near-copies of each other: the provider, the overlay
+**TanStack Start is the PRIMARY release target.** Next.js is still supported and
+still the older of the two bindings, but when the two disagree — about which one
+gets a feature first, which one a doc example is written against, which one is
+driven by a test — TanStack wins. So a change to `@valbuild/next` that
+`@valbuild/tanstack` has not got is unfinished work, not a decision; the
+reverse is an ordinary lag.
+
+Two things follow, and they are the ones that get forgotten:
+
+- **`examples/tanstack` is the feature showcase, and it is only useful while it
+  is complete.** It exists to be the app where every schema type and every
+  schema modifier can be seen working, so ADDING A SCHEMA FEATURE INCLUDES
+  ADDING IT THERE — a module (or a field in one), registered in
+  `val.modules.ts`, rendered by a route, and passing `val validate`. A feature
+  that exists only in `packages/core` is a feature nobody can look at.
+  `examples/next` is the FIXTURE app: it carries the awkward shapes the e2e
+  suite and the language server drive, and it is allowed to hold things the
+  showcase does not.
+- **The TanStack checks have no CI job yet**, so they are yours to run. See the
+  CI section: `pnpm exec playwright test --project=tanstack` and
+  `cd examples/tanstack && pnpm run build`. Neither is optional for a change the
+  Studio loads through.
+
+The showcase covers, as of writing: every `s.*` factory except `s.union`
+(deprecated); `describe` / `preview` / `render` /
+`validate` / `nullable` / `readonly` / `hidden`; `minLength` / `maxLength` /
+`min` / `max` / `regexp` / `multiline` on strings and numbers, `from` / `to` on
+dates, `include` / `exclude` on routes; `s.record(key, item)` and the
+three-argument `s.router(router, key, item)` so a KEY can carry its own
+description; `.jsonValues()` with `c.json()`; `tanstackRouter` and
+`externalPageRouter`; and the settings sections `locales`, `theme` and
+`assistant`. What it does NOT cover, and why: `.remote()` on media and
+`.external()` on a record, because both need credentials or an adapter a plain
+`pnpm dev` does not have — `examples/next` gates the remote one behind
+`NEXT_PUBLIC_VAL_EXAMPLE_REMOTE_MEDIA`. When you add to the list, add to that
+sentence too, so the gap stays a decision rather than an oversight.
+
+`@valbuild/next` and `@valbuild/tanstack` are deliberately near-copies of each
+other: the provider, the overlay
 context, the canvas bridge, the client hooks and the route helpers are the same
 code with a different framework underneath. When you change one, ask whether the
 other needs it — `packages/tanstack/README.md` has a table of what actually
@@ -1002,6 +1184,53 @@ Fix, in this order:
 A newly added package is the usual trigger: its trusted publisher gets created
 long after everyone else's, with the newer default. Tick the `npm publish` box
 when you set it up, and expect this failure on the first release if you forget.
+
+## Adding a `ValidationFix` code
+
+A fix code is declared in one place and DISPATCHED ON in seven, spread over five
+packages. Nothing makes you visit them: the union is a `const` array, so a
+missing entry is a silent no-op rather than a type error, and the symptom is
+always the same — the error is reported somewhere it should have been quietly
+repaired, or a quick fix is offered nowhere while looking fine everywhere else.
+
+Visit all of these, in this order:
+
+1. **`core/src/schema/validation/ValidationFix.ts`** — the code itself.
+2. **`shared/src/internal/ApiRoutes.ts`** — a `z.literal` in the fixes union.
+   Not compiler-enforced: the zod schema is typed against the core union, so a
+   missing literal is a RUNTIME parse failure of the response that carries it.
+3. **The schema** that reports it (`fixes: [...]` on the `ValidationError`).
+4. **`shared/…/validation/partitionValidationErrors.ts`** — exhaustive switch,
+   so this one DOES fail to compile. `true` means the Studio hides it because
+   the server repairs it on save; `false` means an editor has to see it. This
+   also decides publish gating, via `filterBlockingValidationErrors` — which is
+   why `blockingValidationErrors.ts`, `ValErrorProvider` and `createSystem` need
+   nothing of their own.
+5. **`server/src/createFixPatch.ts`** — the branch that builds the patch. Read
+   the schema at the path with `Internal.resolvePath(modulePath, moduleSource,
+moduleSchema)` rather than trusting what the error carries.
+6. **`server/src/fixHandlers.ts`** — the entry the CLI dispatches on. The
+   registry's key type excludes the four `SCHEMA_SOURCE_FIXES`, so a fix that is
+   neither excluded nor registered fails to compile; one that is missing at
+   runtime makes `val validate` emit `unknown-fix`. Return
+   `shouldApplyPatch: true` to hand off to `createFixPatch`, and a
+   `fixableErrorMessage` when `ctx.fix` is off, or `--fix`-less runs report it as
+   a plain error instead of a fixable one.
+7. **`language-server/src/codeActions.ts`** — `LOCAL_FIXES` and `FIX_TITLES`.
+   Neither is exhaustive. A fix absent from `LOCAL_FIXES` is silently never
+   offered as a quick fix, which is how you get a diagnostic in VS Code with no
+   lightbulb and no explanation.
+
+Two lists that are NOT per-fix, and must not be copied: `SCHEMA_SOURCE_FIXES`
+(`shared/src/internal/resolveSchemaSourceFixes.ts`) is the set that only a
+project-wide snapshot can answer — the language server imports it as
+`DEFERRED_FIXES` rather than keeping its own, because its own fell two behind.
+
+**Verify end to end, not by reading.** Build a throwaway project in the
+scratchpad and run the CLI against it — `pnpm exec tsx src/cli.ts validate
+--root <dir>` from `packages/cli`, then again with `--fix`, and diff the file.
+That exercises module loading, validation, the handler, the patch and the TS
+rewrite in one go; the unit tests cover none of that seam.
 
 ## Common Fixes
 

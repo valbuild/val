@@ -18,7 +18,7 @@ import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchEr
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../designSystem/input";
-import { Loader2, Upload } from "lucide-react";
+import { Loader2, Upload, X } from "lucide-react";
 import { Button } from "../designSystem/button";
 import { Checkbox } from "../designSystem/checkbox";
 import { useValPortal } from "../ValPortalProvider";
@@ -111,6 +111,13 @@ export function ImageField({
       } else {
         setHotspot(undefined);
       }
+    } else if (maybeSourceData === null) {
+      // The field was cleared. The URL is state rather than derived, so it
+      // survives the source going away unless it is cleared too — and a
+      // thumbnail of the image you just removed is indistinguishable from the
+      // removal not having worked.
+      setUrl(null);
+      setHotspot(undefined);
     }
   }, [sourceAtPath, filePatchIds]);
   /**
@@ -459,6 +466,46 @@ export function ImageField({
                     }}
                   />
                 </>
+              )}
+              {/*
+               * Clearing the field, for a schema that allows it.
+               *
+               * The field itself has to offer this, not only the `Field`
+               * wrapper's nullable checkbox: an image opened on its own — an
+               * array item, a record entry, a gallery-backed field — has no
+               * wrapper, so without it a `.nullable()` image could be replaced
+               * but never emptied.
+               *
+               * Gated on `readonly` alone rather than on `disabled`: the other
+               * things that disable this field (remote uploads not ready, the
+               * referenced gallery missing from `val.modules`) stop a file
+               * going IN. Taking one out needs none of them, and a field
+               * pointing at a gallery that is gone is exactly when an editor
+               * wants to.
+               *
+               * An upload IN FLIGHT is the exception, and it is an ordering
+               * bug rather than a permission: `uploadImage` reads, encodes and
+               * hashes the file before it enqueues its `replace`, so a Remove
+               * clicked inside that window writes `null` first and the upload
+               * lands afterwards and puts the file back. Only reachable while
+               * REPLACING — an empty field has nothing to remove — which is
+               * exactly when it looks like the removal was ignored.
+               */}
+              {schemaAtPath.data.opt && source && !readonly && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={loading}
+                  onClick={() => {
+                    addPatch(
+                      [{ op: "replace", path: patchPath, value: null }],
+                      type,
+                    );
+                  }}
+                >
+                  <X className="mr-1.5 h-3.5 w-3.5" />
+                  Remove
+                </Button>
               )}
             </>
           }

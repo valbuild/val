@@ -1,5 +1,138 @@
 # @valbuild/ui
 
+## 0.136.0
+
+### Minor Changes
+
+- [#713](https://github.com/valbuild/val/pull/713) [`f3a4bb7`](https://github.com/valbuild/val/commit/f3a4bb7aea604943b92545c122243798c759715c) Thanks [@freekh](https://github.com/freekh)! - The Studio can load a bundler, and it stops telling a managed project that its
+  publish is on its way out.
+
+  **A managed project is one with no repository and no host watching one.** There
+  is nothing outside the browser to pick a commit up, so the Studio has been
+  showing it a story that belongs to a project with a repository: a `Building`
+  spinner, waiting for an event that can never arrive. It does not resolve on a
+  reload, on a retry, or tomorrow, and there is no way to tell it from a deploy
+  that is merely slow.
+
+  The content service now reports which kind of project this is, as `sourceMode`
+  on `/stat`, and the Studio narrates accordingly:
+
+  - a **connected** project keeps the deploy feed and keeps `Building`, because
+    there a host genuinely does pick the commit up;
+  - a **managed** one says `Saved, not yet live` instead — a durable condition,
+    not a phase, because nothing else will ever resolve it.
+
+  A server that reports no source mode keeps the behaviour it has today. Absence
+  means "not reported", never "managed": `fs` mode has no project to have a mode,
+  and neither does a content service that predates the field.
+
+  **The Studio also loads `@valbuild/tanstack-build` in the tab**, at mount and at
+  idle, for the managed projects that will need it — a browser that is the
+  deployer needs a bundler. This is the groundwork for browser-side publishing;
+  the publish path itself is unchanged in this release.
+
+  That bundler is `@rolldown/browser`, whose WebAssembly binary is 10.9 MB and is
+  **not** in the npm package. It is served from `static.val.build`, addressed by
+  the SHA-256 of its own bytes, so the build and the binary it needs cannot drift
+  apart. A deployment that must not reach that host — an air-gapped install, a
+  mirror — sets `globalThis.__VAL_ROLLDOWN_WASM_URL__` before the Studio loads and
+  needs no rebuild.
+
+  **Building in the browser requires a cross-origin isolated page.** Rolldown runs
+  WebAssembly on worker threads that share memory, and a browser will not hand a
+  `SharedArrayBuffer` to a worker otherwise. Without
+  `Cross-Origin-Opener-Policy: same-origin` and
+  `Cross-Origin-Embedder-Policy: require-corp` on the document Val is mounted in,
+  loading the bundler now fails with a message that says exactly that, instead of
+  a `DataCloneError` thrown from inside a worker. Nothing else in this release is
+  affected: a Studio that never builds in the browser never asks.
+
+## 0.134.0
+
+### Minor Changes
+
+- [#680](https://github.com/valbuild/val/pull/680) [`eaa265e`](https://github.com/valbuild/val/commit/eaa265e78d9f6d2a1b685c38901612b8a3704eed) Thanks [@freekh](https://github.com/freekh)! - Add `s.view()`: point at another module, so editors can reach it from the page it belongs to.
+
+  Content that has to live in its own module — a `keyOf` target, shared settings, a route-keyed record — is invisible from the page an editor thinks of it as part of. A view field puts a row on that page's screen that leads to it:
+
+  ```ts
+  import employeesVal from "../data/employees.val";
+
+  const schema = s.object({
+    title: s.string(),
+    employees: s.view(employeesVal),
+  });
+
+  export default c.define("/app/menneskene/page.val.ts", schema, {
+    title: "Våre folk",
+    employees: { view: "/data/employees.val.ts" },
+  });
+  ```
+
+  The source is a pointer and nothing else. The module it names keeps its own source, patches, validation and address, and an editor who follows the row lands on that module's own screen — so it is clear they are changing something other pages use too.
+
+  A few things worth knowing:
+
+  - **The path autocompletes, and a wrong one does not compile.** A module now carries its own id in its type, so the source type of the field above is the literal `{ view: "/data/employees.val.ts" }`.
+  - **It is not readable in code.** `useVal(pageVal).employees` is a `ValView<…>` — an opaque pointer with no fields on it. Read the module it names directly, as before.
+  - **`view` is now a reserved object key**, like `_type` and `patch_id`: `s.object({ view: ... })` no longer compiles. A single `view: string` key is what a view pointer looks like, and an ordinary object with that shape would be indistinguishable from one.
+  - **Views may not form a cycle.** `A → B → A`, and a module viewing itself, are reported as module errors by `val validate` and in the Studio.
+  - **A pointer that disagrees with its schema is repaired automatically.** It can only happen in hand-written JSON, and the schema is the authority, so `val validate --fix` and saving in the Studio both write the module the schema names.
+  - **A view's `hidden` and `readonly` are its own, never the module's it points at.** A view whose target is hidden is still shown, and still leads there.
+
+  That last one comes with a change to what `hidden()` means on a **module's own schema**, which is the other half of making a shared module usable:
+
+  ```ts
+  // Not in the nav, and on exactly one page.
+  export default c.define("/data/employees.val.ts", s.record(...).hidden(), { ... });
+  ```
+
+  It now means the nav does not list the module — the Explorer for an ordinary module, Media for a gallery — and nothing more. Previously it also blanked the module's own page, so a module you had hidden was still in the nav and showed nothing when opened. A hidden module is now reached from an `s.view()` row, from search or from a validation error, and renders in full when you get there.
+
+  One gap worth naming rather than leaving to be discovered: a view pointing at a
+  module the project does not have is reported by the FIELD — the row says the
+  target is missing — but not by `val validate`. The schema check compares the
+  pointer against the schema, and the cycle check deliberately skips a target that
+  is not a module of the project, so neither catches it. A project-level check
+  belongs with them and is not here yet.
+
+### Patch Changes
+
+- [#692](https://github.com/valbuild/val/pull/692) [`1c31dcc`](https://github.com/valbuild/val/commit/1c31dcca7f1bb0199350567fd579de29f48bb26d) Thanks [@freekh](https://github.com/freekh)! - `hidden()` on a module now keeps it out of every part of the nav, not just the Explorer
+
+  `hidden()` on a module's own schema means "the nav does not list this" — a module has no parent to be hidden from, so it can mean nothing else. That rule now reaches every destination the menu has:
+
+  - **Pages** — a hidden page router contributes no rows to the sitemap.
+  - **Media** — a hidden `s.imageset()` / `s.fileset()` gallery is not offered.
+  - **Settings** — a hidden settings module is not offered.
+  - **Explorer** — as before.
+
+  A hidden module is still reachable and still fully editable: from an `s.view()` row, from search, or from a validation error. Only the listing changes.
+
+  One thing to be deliberate about: hiding a **page router** takes its pages out of the sitemap with it, so the site's URLs are listed nowhere in the Studio. That is the rule working as stated, but it is rarely what you want — hide the router only if the pages are reached some other way.
+
+  Two settings modules remain an error rather than becoming a way to pick between them: the settings module is resolved first and dropped afterwards if it is hidden.
+
+- [#705](https://github.com/valbuild/val/pull/705) [`688b9e3`](https://github.com/valbuild/val/commit/688b9e36b821323cda6870cdff03dd36ec3e782f) Thanks [@freekh](https://github.com/freekh)! - Fix a nullable image or file that could be filled in but never emptied.
+
+  `s.image(gallery).nullable()` had two ways to go wrong, and between them an
+  editor who added a cover image was stuck with one:
+
+  - The tick box a nullable field is given decided which way a click went by
+    looking at the source alone. A media field has a third state — no file yet,
+    but the field shown, because a media value without a file is not something
+    that can be written — and that state looked exactly like "off", so a field
+    turned on and then off again re-ran the turn-on branch. The box stayed
+    ticked and the image stayed.
+  - That tick box is only drawn for a field inside an object. An image opened on
+    its own — an array item, a record entry, a module whose root is the image —
+    had nothing that wrote `null` at all, and a gallery-backed field could be
+    pointed at a different entry but never at none.
+
+  The field itself now offers **Remove** whenever the schema allows `null` and
+  there is a file to remove, so it works on every surface, and the tick box
+  decides on what it shows rather than on the source.
+
 ## 0.133.0
 
 ### Minor Changes

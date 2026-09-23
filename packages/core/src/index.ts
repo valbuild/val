@@ -213,6 +213,17 @@ export {
   DateTimeSchema,
 } from "./schema/datetime";
 export { type SerializedKeyOfSchema, KeyOfSchema } from "./schema/keyOf";
+export { type SerializedValViewSchema, ValViewSchema } from "./schema/view";
+export { type ValViewSource, isValViewSource } from "./source/view";
+export type { ValView } from "./selector/view";
+export type { ValViewHandle, ResolvableModule } from "./source/viewHandle";
+import {
+  createViewHandle,
+  isViewHandle,
+  resolveViewedModule,
+  viewHandleModule,
+  viewModulesOf,
+} from "./source/viewHandle";
 export { type SerializedRouteSchema, RouteSchema } from "./schema/route";
 export {
   type SerializedRichTextSchema,
@@ -281,11 +292,33 @@ export type FatalErrorType = (typeof FATAL_ERROR_TYPES)[number];
 
 export const DEFAULT_CONTENT_HOST = "https://content.val.build";
 export const DEFAULT_APP_HOST = "https://admin.val.build";
+/**
+ * Where Val's own immutable build artifacts are served from.
+ *
+ * Only one kind of thing lives here so far: the WebAssembly binary of the
+ * bundler the Studio builds a site with. It cannot travel with the Studio's
+ * own bundle -- 10.9 MB of binary, and `/api/val/static` is a base64 record of
+ * TEXT inside the server bundle, which both corrupts it and would carry it
+ * into every project that installs `@valbuild/ui`.
+ *
+ * Everything under this host is addressed by the SHA-256 of its own bytes, so
+ * an upload is idempotent, a URL is immutable, and the artifact a build asks
+ * for cannot be a different one than the build was made against.
+ */
+export const DEFAULT_STATIC_HOST = "https://static.val.build";
 
 const Internal = {
   VERSION: {
     core: corePackageJson.version,
   },
+  // A view's read-path plumbing: `Internal` rather than the public surface,
+  // because an app never builds or unwraps a handle — it passes one to
+  // `useVal`.
+  createViewHandle,
+  isViewHandle,
+  resolveViewedModule,
+  viewHandleModule,
+  viewModulesOf,
   mediaUrl,
   resolveMedia,
   isRemoteMediaPath,

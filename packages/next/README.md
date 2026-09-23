@@ -298,36 +298,30 @@ If you are using `prettier` or another code formatting tool, it is recommended t
 - Add a formatter to the `/val/val.server`:
 
   ```ts
-  formatter: (code: string, filePath: string) => {
-    return prettier.format(code, {
-      filepath: filePath,
-      ...prettierOptions, // <- use the same rules as in development
-    } as prettier.Options);
-  },
+  formatter: createPrettierFormatter(prettier, { projectRoot: process.cwd() }),
   ```
 
   Unless you have any modifications in your `val.server` file, the complete file should now look like this:
 
   ```ts
   import "server-only";
-  import { initValServer } from "@valbuild/next/server";
+  import {
+    initValServer,
+    createPrettierFormatter,
+  } from "@valbuild/next/server";
   import { config } from "../val.config";
   import { draftMode } from "next/headers";
   import valModules from "../val.modules";
   import prettier from "prettier";
-  import prettierOptions from "../.prettierrc.json";
 
   const { valNextAppRouter } = initValServer(
     valModules,
     { ...config },
     {
       draftMode,
-      formatter: (code: string, filePath: string) => {
-        return prettier.format(code, {
-          filepath: filePath,
-          ...prettierOptions, // <- use the same rules as in development
-        } as prettier.Options);
-      },
+      formatter: createPrettierFormatter(prettier, {
+        projectRoot: process.cwd(),
+      }),
     },
   );
 
@@ -335,6 +329,16 @@ If you are using `prettier` or another code formatting tool, it is recommended t
   ```
 
 You should now be able to hit the save button locally and see prettier rules being applied.
+
+### Why not just `prettier.format`?
+
+Because it does not read your config. `prettier.format(code, { filepath })` — the obvious thing to write — uses `filepath` only to pick the **parser**; `.prettierrc` is read by `resolveConfig`, `getFileInfo` and prettier's own CLI, and by nothing else. A project whose style is not prettier's default therefore gets every file Val touches rewritten in prettier's defaults, which turns a two-line content edit into a whole-file diff and a red `format` job in CI.
+
+`createPrettierFormatter` resolves `.prettierrc` for each file (including any `overrides` that match it), skips anything listed in `.prettierignore`, and falls back to prettier's defaults when the project has no config. `val validate --fix` uses the same function, so a fix applied from the CLI and an edit saved from the Studio come out identically formatted.
+
+`projectRoot` is what a module path is resolved against, and where `.prettierignore` is looked for. Prettier's config search walks up from the resolved file, so a package inside a monorepo that has its own `.prettierrc` is found without being named here.
+
+Pass it to `initValMcp` the same way if you mount the MCP endpoint — an agent's edits are written to the same files.
 
 ## Other formatters
 

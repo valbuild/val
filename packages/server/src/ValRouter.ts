@@ -117,9 +117,28 @@ type ValServerOverrides = Partial<{
    * property of those bytes. `VAL_GIT_COMMIT` / `VAL_GIT_BRANCH` supply it
    * where a build system sets environment variables instead.
    *
-   * @example { commit: "e83c5163316f89bfbde7d9ab23ca2e25604af290", branch: "main" }
+   * FLAT, and the same two names `val.config.ts` uses, so that there is one
+   * way to say this rather than two. An app reads these off its platform --
+   * `process.env.VERCEL_GIT_COMMIT_SHA` and friends, which are typed
+   * `string | undefined` -- and a pair of optional strings takes that as it
+   * comes. A nested `{ commit, branch }` would make every caller write the
+   * ternary that turns two maybe-strings into one maybe-object. Sharing the
+   * names with `ValConfig` is what makes the bindings' `{ versions,
+   * ...config }` carry them here with nothing to map.
+   *
+   * Taken together or not at all: `initHandlerOptions` refuses one without
+   * the other rather than resolving half a repository.
+   *
+   * @example "e83c5163316f89bfbde7d9ab23ca2e25604af290"
    */
-  git?: { commit: string; branch: string };
+  gitCommit?: string;
+  /**
+   * The branch a publish mirrors into. See {@link ValApiOptions.gitCommit},
+   * which this is required with and meaningless without.
+   *
+   * @example "main"
+   */
+  gitBranch?: string;
   /**
    * The base url of Val.
    *
@@ -486,12 +505,64 @@ export function createValApiRouter<Res>(
         query = queryRes.data;
       }
 
-      const res = await endpointImpl({
-        body: bodyRes.data,
-        cookies: cookiesRes.data,
-        query,
-        path,
-      });
+      /*
+       * A throw from an endpoint is Val's to report, not the framework's.
+       *
+       * Nothing here used to catch, so an endpoint that threw left the router
+       * entirely and became whatever the host does with an unhandled error --
+       * and on TanStack Start that is h3, which replaces the message with the
+       * literal string "HTTPError" and drops the stack. Its `debug` and
+       * `silent` options are not reachable from out here: `requestHandler`
+       * calls `toResponse(value, event)` with no config, and the default is
+       * `{}`. So the body a caller got was
+       * `{"status":500,"unhandled":true,"message":"HTTPError"}` -- the same
+       * five words for a missing project, a bad cookie secret and a module
+       * that failed to link -- with the real cause only on the server's
+       * console.
+       *
+       * That is survivable where the console is readable. It is not in a
+       * Cloudflare Dynamic Worker, whose `console` reaches no tail stream: a
+       * link error in a lazily imported chunk (`does not provide an export
+       * named 'getSerovalPlugins'`) showed up as an unreadable 500 on
+       * `/authorize` and nowhere else at all.
+       *
+       * So every endpoint's throw becomes Val's own 500 envelope, which the
+       * Studio already renders and `curl` already prints. The route and method
+       * are named because a message rarely says which endpoint it came from.
+       *
+       * The MESSAGE travels and the STACK does not. The message is the whole
+       * diagnostic value -- the line above names the package, the chunk and
+       * the export -- while a stack is a walk through somebody's bundle, and
+       * `/authorize` and `/enable` are reachable without a session. So the
+       * stack goes to the console, where a host that can read one will find
+       * it, and the body carries what a caller can act on.
+       */
+      let res: ValServerGenericResult;
+      try {
+        res = await endpointImpl({
+          body: bodyRes.data,
+          cookies: cookiesRes.data,
+          query,
+          path,
+        });
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        console.error(
+          `Val: ${method} ${route} threw: ${error.message}`,
+          error.stack,
+        );
+        return {
+          status: 500,
+          json: {
+            message: `Val: ${method} ${route} failed: ${error.message}`,
+            details: {
+              route,
+              method,
+              error: error.message,
+            },
+          },
+        };
+      }
       if (res.status === 500) {
         return {
           status: 500,

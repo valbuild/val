@@ -65,7 +65,8 @@ const SOURCE = { "/content/test.val.ts": "export default 1" };
 const HTTP = {
   apiKey: "key",
   valSecret: "secret",
-  git: { commit: "0".repeat(40), branch: "main" },
+  gitCommit: "0".repeat(40),
+  gitBranch: "main",
 };
 
 const optionsPassed = (): Record<string, unknown> => {
@@ -131,7 +132,8 @@ describe("initValContent in http mode", () => {
      * the site is serving, with nothing failing anywhere.
      */
     initValContent(config, valModules, { http: HTTP });
-    expect(optionsPassed().git).toEqual(HTTP.git);
+    expect(optionsPassed().gitCommit).toEqual(HTTP.gitCommit);
+    expect(optionsPassed().gitBranch).toEqual(HTTP.gitBranch);
   });
 
   test("a content url reaches it too, for a stand-in host", () => {
@@ -144,6 +146,6 @@ describe("initValContent in http mode", () => {
   test("a host that passes none of it is left exactly as it was", () => {
     initValContent(config, valModules, {});
     expect("apiKey" in optionsPassed()).toBe(false);
-    expect("git" in optionsPassed()).toBe(false);
+    expect("gitCommit" in optionsPassed()).toBe(false);
   });
 });

@@ -1,5 +1,169 @@
 # @valbuild/tanstack
 
+## 0.136.0
+
+### Patch Changes
+
+- Updated dependencies [[`f3a4bb7`](https://github.com/valbuild/val/commit/f3a4bb7aea604943b92545c122243798c759715c), [`1d72d00`](https://github.com/valbuild/val/commit/1d72d00a1b036959ae0f1540121701cbb2694dcb)]:
+  - @valbuild/ui@0.136.0
+  - @valbuild/core@0.136.0
+  - @valbuild/server@0.136.0
+  - @valbuild/shared@0.136.0
+  - @valbuild/language-server@0.136.0
+  - @valbuild/react@0.136.0
+  - @valbuild/mcp@0.136.0
+
+## 0.135.0
+
+### Patch Changes
+
+- [#707](https://github.com/valbuild/val/pull/707) [`c9affec`](https://github.com/valbuild/val/commit/c9affece6ae6ba62bd6c1113ed1fdab6317fa112) Thanks [@freekh](https://github.com/freekh)! - `val validate --fix` now formats with your prettier config instead of prettier's defaults
+
+  `--fix` formatted the files it repaired by calling `prettier.format(code, { filepath })`, which never reads `.prettierrc`: `filepath` picks the parser and nothing else — only `resolveConfig`, `getFileInfo` and prettier's own CLI consult the config. On a project whose style is not prettier's default, a two-line content fix therefore arrived as a whole-file rewrite, and in a repo with a format check in CI it turned a content fix into a red build.
+
+  There is now one implementation of "format a written file the way this project does", `createPrettierFormatter`, exported from `@valbuild/server` and re-exported by `@valbuild/next/server` and `@valbuild/tanstack/server`. It resolves `.prettierrc` for each file (including any `overrides` that match it), leaves anything in `.prettierignore` untouched, and falls back to prettier's defaults when the project has no config. `val validate --fix` uses it, so the CLI and the Studio can no longer disagree about formatting.
+
+  Use it for your app's `formatter` too — this is the recommended setup, and it replaces reading `.prettierrc.json` by hand:
+
+  ```ts
+  import prettier from "prettier";
+  import {
+    initValServer,
+    createPrettierFormatter,
+  } from "@valbuild/next/server";
+
+  const { valNextAppRouter } = initValServer(
+    valModules,
+    { ...config },
+    {
+      draftMode,
+      formatter: createPrettierFormatter(prettier, {
+        projectRoot: process.cwd(),
+      }),
+    },
+  );
+  ```
+
+  Existing `formatter` callbacks keep working unchanged.
+
+- Updated dependencies [[`c9affec`](https://github.com/valbuild/val/commit/c9affece6ae6ba62bd6c1113ed1fdab6317fa112), [`72a7ca7`](https://github.com/valbuild/val/commit/72a7ca78354fff00e37a51359b17fba9334dc5e6)]:
+  - @valbuild/server@0.135.0
+  - @valbuild/language-server@0.135.0
+  - @valbuild/mcp@0.135.0
+
+## 0.134.1
+
+### Patch Changes
+
+- Updated dependencies [[`821e789`](https://github.com/valbuild/val/commit/821e789c1af47510af5d23eb96384ff78ddd7646)]:
+  - @valbuild/shared@0.134.1
+  - @valbuild/language-server@0.134.1
+  - @valbuild/mcp@0.134.1
+  - @valbuild/react@0.134.1
+  - @valbuild/server@0.134.1
+  - @valbuild/ui@0.134.0
+
+## 0.134.0
+
+### Minor Changes
+
+- [#690](https://github.com/valbuild/val/pull/690) [`16c49ea`](https://github.com/valbuild/val/commit/16c49ea6dd97c7a96bbfdf211af9bab5884579e2) Thanks [@freekh](https://github.com/freekh)! - Read a view with `useVal` / `fetchVal`.
+
+  A `s.view()` field reads as a pointer with no properties on it. It can now be handed to a reader, which resolves it to the module it names:
+
+  ```tsx
+  const page = useVal(pageVal);
+  const header = useVal(page.header); // the header module's content, typed
+  ```
+
+  The point is single source of truth rather than a new capability: the page declares which module it shows, and a component follows that declaration instead of importing the target a second time. Change `s.view(headerVal)` to `s.view(navVal)` and the reader follows; an import would have kept reading the header.
+
+  The readers that take a MODULE rather than a value follow the same rule — `useValKey`, `useValRoute`, `useValRouteUrl` and the `fetchVal*` counterparts, in both the Next and TanStack packages:
+
+  ```tsx
+  const page = useVal(pageVal);
+  const note = useValRoute(page.notes, params); // the router module the view names
+  ```
+
+  Works in draft mode, including when the page itself has a pending edit. Two things to know:
+
+  - **Resolve a handle in the component that read the module containing it.** A handle carries the module it points at, and that cannot survive serialization — so one passed from a server component to a client component as a prop arrives empty. It throws with an explanation rather than handing back the pointer. This is why it throws rather than returning nothing: every one of the route and key readers already uses `null` / `undefined` to mean "no such entry", so a quiet answer would be indistinguishable from a 404.
+  - **`ValView<Source>` is now a member of `SelectorSource`**, since a reader accepts one.
+
+### Patch Changes
+
+- [#708](https://github.com/valbuild/val/pull/708) [`be78a9b`](https://github.com/valbuild/val/commit/be78a9b51678439f7ecb1c7f3887f9e8e1261a13) Thanks [@freekh](https://github.com/freekh)! - Fix `gitCommit` and `gitBranch` in `val.config.ts` never reaching the server,
+  and make them the one way to say it.
+
+  `val.config.ts` has had `gitCommit` and `gitBranch` for as long as it has had
+  anything, and a deployed app that set them resolved to no repository at all.
+  Nothing failed and nothing was logged: the commit was simply never sent, and
+  every patch the project saved recorded none.
+
+  ```ts
+  // val.config.ts — the normal Vercel shape, and it did nothing
+  initVal({
+    project: "org/project",
+    gitCommit: process.env.VERCEL_GIT_COMMIT_SHA,
+    gitBranch: process.env.VERCEL_GIT_COMMIT_REF,
+  });
+  ```
+
+  The two halves never met. The server wanted a nested
+  `git: { commit, branch }`, `val.config.ts` offered two flat keys, and nothing
+  mapped one onto the other — so the only thing that worked was
+  `VAL_GIT_COMMIT` / `VAL_GIT_BRANCH` in the environment.
+
+  Rather than teach the server to read both, the nested option is gone:
+  `ValApiOptions` and TanStack's `ValHttpMode` now take `gitCommit` and
+  `gitBranch`, the same two names `ValConfig` uses. There is one name for this
+  now, wherever it is set. The framework bindings already hand the server
+  `{ versions, ...config }`, so a project's config keys arrive with nothing to
+  map, and a host passing them directly is saying the same thing in the same
+  words.
+
+  Flat because of where these values come from. A platform supplies them as
+  `process.env.VERCEL_GIT_COMMIT_SHA` and friends, typed `string | undefined`,
+  and two optional strings take that as it comes — a nested object makes every
+  caller write the ternary that turns two maybe-strings into one maybe-object.
+
+  **Breaking for a host that passed `git` itself**, which is the nested option on
+  `ValApiOptions` and on TanStack's `http` mode. An app that only configures
+  `val.config.ts` or the environment is unaffected.
+
+  ```ts
+  // before
+  initValServer(valModules, config, {
+    http: { apiKey, valSecret, git: { commit, branch } },
+  });
+
+  // after
+  initValServer(valModules, config, {
+    http: { apiKey, valSecret, gitCommit: commit, gitBranch: branch },
+  });
+  ```
+
+  **What a commit is for**, and why its absence is worth a release rather than a
+  shrug: publishing turns pending patches into new `.val.ts` text, and to patch a
+  file you must first read it — at a commit. A project with none is a project
+  whose publishes read whatever the content service last had, rather than the
+  revision the deployed code was built from.
+
+  **One more behaviour change.** A commit and a branch have always been taken
+  together or not at all, and that check now sees config-supplied values too. A
+  project that sets exactly one of `gitCommit` and `gitBranch` used to have both
+  quietly ignored and will now be refused at startup, naming the missing half.
+  That is the configuration that would otherwise fail later, at a publish.
+
+- Updated dependencies [[`be78a9b`](https://github.com/valbuild/val/commit/be78a9b51678439f7ecb1c7f3887f9e8e1261a13), [`1c31dcc`](https://github.com/valbuild/val/commit/1c31dcca7f1bb0199350567fd579de29f48bb26d), [`688b9e3`](https://github.com/valbuild/val/commit/688b9e36b821323cda6870cdff03dd36ec3e782f), [`16c49ea`](https://github.com/valbuild/val/commit/16c49ea6dd97c7a96bbfdf211af9bab5884579e2), [`eaa265e`](https://github.com/valbuild/val/commit/eaa265e78d9f6d2a1b685c38901612b8a3704eed)]:
+  - @valbuild/server@0.134.0
+  - @valbuild/ui@0.134.0
+  - @valbuild/core@0.134.0
+  - @valbuild/react@0.134.0
+  - @valbuild/shared@0.134.0
+  - @valbuild/language-server@0.134.0
+  - @valbuild/mcp@0.134.0
+
 ## 0.133.0
 
 ### Minor Changes

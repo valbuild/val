@@ -1,3 +1,4 @@
 server/.tmp
 device-lab-shots/
 storybook-static/
+server/rolldown-wasm.json

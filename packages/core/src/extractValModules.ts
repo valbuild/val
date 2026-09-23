@@ -6,6 +6,7 @@ import { Source } from "./source";
 import { getValPath, ModuleFilePath, SourcePath } from "./val";
 import { getSource } from "./module";
 import { resolveSettingsModule } from "./settingsModule";
+import { viewCycleErrors } from "./schema/viewCycles";
 
 export type ExtractedModuleError = {
   message: string;
@@ -334,6 +335,13 @@ export async function extractValModules(
   // error count at the time it was folded in, so the SHAs stay a function of
   // the modules themselves.
   for (const error of resolveSettingsModule(serializedSchemas).errors) {
+    moduleErrors.push(error);
+  }
+  // Same kind of rule, same reason it is here: a view cycle is a property of the
+  // whole set of schemas, so no single module can see it. Nothing further down
+  // catches it either — a view stores a pointer, not content, so there is no
+  // data cycle for a source walk to trip over.
+  for (const error of viewCycleErrors(serializedSchemas)) {
     moduleErrors.push(error);
   }
   return {

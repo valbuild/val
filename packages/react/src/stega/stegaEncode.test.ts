@@ -1,9 +1,18 @@
-import { getModuleIds, stegaEncode, type StegaOfSource } from "./stegaEncode";
+import {
+  getModuleIds,
+  stegaEncode,
+  type JsonEntryContentOf,
+  type ResolvedVal,
+  type RouteValueOf,
+  type StegaOfSource,
+  type ValEncodedString,
+} from "./stegaEncode";
 import {
   Internal,
   RawString,
   Schema,
   SelectorSource,
+  SourceObject,
   initVal,
 } from "@valbuild/core";
 import { vercelStegaDecode, vercelStegaSplit } from "@vercel/stega";
@@ -698,5 +707,396 @@ describe("media is resolved from the schema, not from the value", () => {
     expect(vercelStegaSplit(res.link.path).cleaned).toBe(
       "/public/val/not-an-image.png",
     );
+  });
+});
+
+/**
+ * Resolving a view.
+ *
+ * `useVal(page.header)` has to read the header module. The pointer stored in the
+ * page is a path and nothing else, and the app has no way to turn a path back
+ * into a module — `val.modules` holds lazy `import()` thunks and
+ * `<ValModulesClient>` is optional — so the module travels with the handle,
+ * attached here rather than written into source.
+ */
+describe("view handles", () => {
+  const headerVal = c.define(
+    "/header.val.ts",
+    s.object({ title: s.string() }),
+    { title: "Blank" },
+  );
+  const pageSchema = s.object({
+    title: s.string(),
+    header: s.view(headerVal),
+  });
+  const pageVal = c.define("/page.val.ts", pageSchema, {
+    title: "Hello",
+    header: { view: "/header.val.ts" },
+  });
+
+  test("the pointer survives encoding, stega-free", () => {
+    const page = stegaEncode(pageVal, {});
+    // Still `{ view: ... }` to anything that reads it as data: the module rides
+    // on a symbol, which does not serialize.
+    expect(JSON.parse(JSON.stringify(page.header))).toEqual({
+      view: "/header.val.ts",
+    });
+    // And no edit tag woven into the path, which would corrupt it.
+    expect(page.header.view).toBe("/header.val.ts");
+  });
+
+  test("resolving the handle reads the module it points at", () => {
+    const page = stegaEncode(pageVal, {});
+    const header = stegaEncode(page.header, {});
+    expect(vercelStegaSplit(header.title).cleaned).toBe("Blank");
+    // The edit tag is the HEADER's own path, not the page's.
+    expect(vercelStegaDecode(header.title)).toStrictEqual({
+      origin: "val.build",
+      data: { valPath: '/header.val.ts?p="title"' },
+    });
+  });
+
+  /**
+   * The type half. A reader hands back `ValView<HeaderSrc>` for the field, and
+   * resolving that gives the header's content — so `useVal(page.header)` is
+   * typed as the header, not as a pointer. This does not compile if the arm in
+   * `ResolvedVal` stops matching.
+   */
+  test("the resolved type is the target's content", () => {
+    type Page = ResolvedVal<typeof pageVal>;
+    type HeaderHandle = Page["header"];
+    const resolved: ResolvedVal<HeaderHandle> = {
+      title: "Blank" as ValEncodedString,
+    };
+    expect(resolved.title).toBe("Blank");
+    // A view exposes nothing: reading a property off the handle is an error,
+    // which is what stops it being mistaken for content.
+    const handle: HeaderHandle = {} as HeaderHandle;
+    expect(Object.keys(handle)).toEqual([]);
+  });
+
+  test("a handle names the module to subscribe to", () => {
+    const page = stegaEncode(pageVal, {});
+    // Not the page: reading a view subscribes to what it points at, or an edit
+    // to the header would never reach the component that read it.
+    expect(getModuleIds(page.header)).toEqual(["/header.val.ts"]);
+  });
+
+  /**
+   * `useValStega` memoises `getModuleIds` on `[selector]`, and for a view that
+   * dependency is new on every render: the handle is built by `createViewHandle`
+   * inside `stegaEncode`, so `page.header` is a fresh object each time the page
+   * is encoded. Without a cache of its own, every render of a component reading
+   * a view rebuilds the target's whole serialized schema.
+   *
+   * Pinned by IDENTITY, because that is the only visible difference — a
+   * recomputed answer is equal to a cached one, so `toEqual` would pass either
+   * way and the memo could stop hitting without a single test noticing.
+   */
+  test("resolving the same view twice does not recompute", () => {
+    const first = stegaEncode(pageVal, {});
+    const second = stegaEncode(pageVal, {});
+    // The premise: two encodes really do give two different handles, so the
+    // test below is not passing for the boring reason.
+    expect(first.header).not.toBe(second.header);
+    expect(getModuleIds(first.header)).toBe(getModuleIds(second.header));
+    // And a handle shares the answer with the module it points at, since it
+    // resolves to it before the cache is consulted.
+    expect(getModuleIds(first.header)).toBe(getModuleIds(headerVal));
+  });
+
+  /**
+   * The answer is shared between callers, so it cannot be a mutable array: one
+   * consumer sorting in place would corrupt every later caller's subscription,
+   * and nothing would say so.
+   */
+  test("the shared answer cannot be mutated", () => {
+    expect(Object.isFrozen(getModuleIds(headerVal))).toBe(true);
+  });
+
+  /**
+   * A handle passed from a server component to a client one arrives as plain
+   * JSON: the symbol is gone, and with it the module. Resolving it would return
+   * the pointer — an object that looks like content and holds none — so it says
+   * what happened instead.
+   */
+  test("a handle that lost its module says so", () => {
+    const page = stegaEncode(pageVal, {});
+    const overTheWire = JSON.parse(JSON.stringify(page.header));
+    expect(() => stegaEncode(overTheWire, {})).toThrow(/it carries no module/);
+  });
+
+  /**
+   * A pointer that disagrees with its schema gets NO module.
+   *
+   * The two can disagree: a `.val.ts` cannot express it, since the source type
+   * is the literal path — but hand-written JSON and a patch can, which is why
+   * `view:check-module` exists as a fix at all. Attaching by schema alone read
+   * a module the value does not name, silently and looking exactly like a
+   * correct read.
+   *
+   * The source is fed in through `getModule` because that is the shape the case
+   * actually takes: a draft the editor holds, as plain JSON that never went near
+   * a module.
+   */
+  test("a pointer naming another module than its schema is not resolved", () => {
+    const page = stegaEncode(pageVal, {
+      getModule: (moduleId) => {
+        if (moduleId === "/page.val.ts") {
+          return { title: "Hello", header: { view: "/somewhere-else.val.ts" } };
+        }
+      },
+    });
+    // The value is untouched — the Studio still renders the field and still
+    // offers the repair, so encoding the page must not throw over it.
+    expect(page.header).toEqual({ view: "/somewhere-else.val.ts" });
+    // But reading it answers with an error rather than with the wrong module.
+    expect(() => stegaEncode(page.header, {})).toThrow(/it carries no module/);
+    expect(Internal.viewHandleModule(page.header)).toBe(undefined);
+  });
+
+  test("a resolved handle shows the target's draft, not its committed source", () => {
+    const page = stegaEncode(pageVal, {});
+    const header = stegaEncode(page.header, {
+      getModule: (moduleId) =>
+        moduleId === "/header.val.ts" ? { title: "DRAFT" } : undefined,
+    });
+    expect(vercelStegaSplit(header.title).cleaned).toBe("DRAFT");
+  });
+
+  /**
+   * The source a view sits in can come from the overlay store as plain JSON —
+   * that is what a pending edit to the PAGE looks like — and that JSON never
+   * went near a module. The schema is the module's own either way, which is why
+   * the handle is built from the schema rather than from the source.
+   */
+  test("the handle survives the page itself being a draft", () => {
+    const page = stegaEncode(pageVal, {
+      getModule: (moduleId) =>
+        moduleId === "/page.val.ts"
+          ? { title: "Edited", header: { view: "/header.val.ts" } }
+          : undefined,
+    });
+    expect(vercelStegaSplit(page.title).cleaned).toBe("Edited");
+    const header = stegaEncode(page.header, {});
+    expect(vercelStegaSplit(header.title).cleaned).toBe("Blank");
+  });
+});
+
+/**
+ * Reading through a view with the readers that need a MODULE, not a value.
+ *
+ * `useValKey`, `useValRoute`, `useValRouteUrl` and the `fetch*` counterparts all
+ * pull a path, a schema and a source off what they are handed. A view has none
+ * of those, and each of those readers already uses `undefined` / `null` to mean
+ * "no such entry" — so before `resolveViewedModule` a view argument was not an
+ * error, it was a silently empty answer. Both halves are pinned here: the
+ * runtime one it shares, and the types the four reader files share.
+ */
+describe("reading a route or an entry through a view", () => {
+  const notesVal = c.define(
+    "/app/notes/[note]/page.val.ts",
+    s.record(s.object({ title: s.string() })),
+    { "/notes/one": { title: "One" } },
+  );
+  const pageSchema = s.object({ title: s.string(), notes: s.view(notesVal) });
+  const pageVal = c.define("/page.val.ts", pageSchema, {
+    title: "Hello",
+    notes: { view: "/app/notes/[note]/page.val.ts" },
+  });
+
+  test("the handle resolves to the module the readers need", () => {
+    const page = stegaEncode(pageVal, {});
+    const resolved = Internal.resolveViewedModule<SourceObject>(page.notes);
+    // The same object `s.view()` was given — so `Internal.getValPath`,
+    // `getSchema` and `getSource` all answer, which is the whole requirement.
+    expect(resolved).toBe(notesVal);
+    expect(Internal.getValPath(resolved)).toBe("/app/notes/[note]/page.val.ts");
+  });
+
+  test("a module passed to the same readers is untouched", () => {
+    expect(Internal.resolveViewedModule(notesVal)).toBe(notesVal);
+  });
+
+  /**
+   * Symbols do not serialize, so a handle passed from a server component to a
+   * client one arrives as the bare pointer. Resolving it would hand back an
+   * object that looks like content and holds none — the same rule, and the same
+   * message, `stegaEncode` uses.
+   */
+  test("a pointer that lost its module says so", () => {
+    const page = stegaEncode(pageVal, {});
+    const overTheWire = JSON.parse(JSON.stringify(page.notes));
+    expect(() => Internal.resolveViewedModule(overTheWire)).toThrow(
+      /it carries no module/,
+    );
+  });
+
+  /**
+   * The type half, and the one that would go wrong silently: these two are
+   * computed from the reader's argument, so a view arm that stops matching does
+   * not fail to compile — it resolves to `never`, and every call to a reader
+   * starts erroring at the CALL SITE in someone's app instead.
+   */
+  test("the entry and route types read through the view", () => {
+    type NotesHandle = ResolvedVal<typeof pageVal>["notes"];
+
+    // What `useValRoute(page.notes, params)` gives back: the record's item,
+    // the same as passing the module itself.
+    const throughView: RouteValueOf<NotesHandle> = {
+      title: "One" as ValEncodedString,
+    };
+    const throughModule: RouteValueOf<typeof notesVal> = throughView;
+    expect(throughModule?.title).toBe("One");
+
+    // `JsonEntryContentOf` is `never` unless the record's values are
+    // `.jsonValues()` markers — the point here is only that the view arm
+    // agrees with the module arm rather than diverging.
+    const sameShape: JsonEntryContentOf<NotesHandle> =
+      undefined as unknown as JsonEntryContentOf<typeof notesVal>;
+    expect(sameShape).toBeUndefined();
+  });
+});
+
+/**
+ * Reading a page that CONTAINS a view must not read the module it points at.
+ *
+ * A view is on the page's screen, but its content is not on the page — so
+ * resolving one has to cost nothing until someone asks for it. Three things
+ * could break that, and each is pinned below: the encoder could walk into the
+ * module the schema now holds, the subscription could name it, or a
+ * `.jsonValues()` entry thunk could fire. The third is the one that would
+ * actually hurt: those are dynamic `import()`s, so an eager walk would pull
+ * every entry of every viewed record into the bundle's critical path.
+ *
+ * The module OBJECT is reachable either way — `s.view(x)` needs a static import
+ * to get `x`'s path at all, exactly as `s.keyOf(x)` does, so the bytes are in
+ * whatever bundle holds the page. What must stay lazy is READING it.
+ */
+describe("reading a view is lazy", () => {
+  /** Entry thunks, so a read that should not happen is countable. */
+  let loaded: string[] = [];
+  const entriesVal = c.define(
+    "/entries.val.ts",
+    s.record(s.object({ title: s.string() })).jsonValues(),
+    {
+      "/a": c.json(() => {
+        loaded.push("/a");
+        return Promise.resolve({ default: { title: "A" } });
+      }),
+      "/b": c.json(() => {
+        loaded.push("/b");
+        return Promise.resolve({ default: { title: "B" } });
+      }),
+    },
+  );
+  /** A plain target too, so the claim is not only about json markers. */
+  const sidebarVal = c.define("/sidebar.val.ts", s.object({ x: s.string() }), {
+    x: "side",
+  });
+  const pageSchema = s.object({
+    title: s.string(),
+    entries: s.view(entriesVal),
+    sidebar: s.view(sidebarVal),
+  });
+  const pageVal = c.define("/lazy-page.val.ts", pageSchema, {
+    title: "Hello",
+    entries: { view: "/entries.val.ts" },
+    sidebar: { view: "/sidebar.val.ts" },
+  });
+
+  beforeEach(() => {
+    loaded = [];
+  });
+
+  test("the encoder never asks the store for a module a view names", () => {
+    const asked: string[] = [];
+    stegaEncode(pageVal, {
+      getModule: (moduleId) => {
+        asked.push(moduleId);
+        return undefined;
+      },
+    });
+    // The page, and nothing else. Asking for a target here would make every
+    // page with a view wait on a module it is not showing.
+    expect(asked).toEqual(["/lazy-page.val.ts"]);
+  });
+
+  test("the subscription names the page, not what its views point at", () => {
+    // What `useVal(pageVal)` subscribes to. A view target in here would make
+    // every page with a view re-render on an edit to a module it does not show.
+    expect(getModuleIds(pageVal)).toEqual(["/lazy-page.val.ts"]);
+  });
+
+  /**
+   * The one that would actually hurt. A `.jsonValues()` entry is a dynamic
+   * `import()`, so an encoder that walked into a viewed record would pull every
+   * entry of it into the critical path of a page that shows none of them.
+   */
+  test("no entry of a viewed .jsonValues() module is loaded", () => {
+    stegaEncode(pageVal, {});
+    expect(loaded).toEqual([]);
+  });
+
+  /**
+   * The other half, so the three above cannot be satisfied by a view that never
+   * resolves at all: asking for it DOES read it — and still only its own module.
+   */
+  test("resolving the handle is what reads the target", () => {
+    const page = stegaEncode(pageVal, {});
+    const asked: string[] = [];
+    stegaEncode(page.sidebar, {
+      getModule: (moduleId) => {
+        asked.push(moduleId);
+        return undefined;
+      },
+    });
+    expect(asked).toEqual(["/sidebar.val.ts"]);
+    // And resolving THAT view still did not touch the other one.
+    expect(loaded).toEqual([]);
+  });
+
+  /**
+   * `viewModulesOf` walks the schema INSTANCE, which is the whole schema tree.
+   * Memoised per instance, and `Internal.getSchema` returns the module's own
+   * instance — so the walk is once per schema for the life of the process, not
+   * once per render. Identity is what proves the memo is being hit.
+   */
+  test("the schema walk happens once per schema, not once per render", () => {
+    const schema = Internal.getSchema(pageVal);
+    expect(Internal.viewModulesOf(schema)).toBe(Internal.viewModulesOf(schema));
+    // And it does not descend INTO the modules it finds: two entries, the two
+    // targets, and nothing from inside them.
+    expect([...Internal.viewModulesOf(schema).keys()].sort()).toEqual([
+      "/entries.val.ts",
+      "/sidebar.val.ts",
+    ]);
+  });
+
+  /**
+   * The wire form carries the path and not the module. Otherwise every schema
+   * payload the Studio loads would grow by the whole content of every module
+   * any view points at.
+   */
+  test("the serialized schema carries a path, not a module", () => {
+    const serialized = (pageSchema as Schema<SelectorSource>)[
+      "executeSerialize"
+    ]();
+    const entries =
+      serialized.type === "object" ? serialized.items["entries"] : undefined;
+    expect(entries).toMatchObject({
+      type: "view",
+      moduleFilePath: "/entries.val.ts",
+    });
+    // Nothing on it but the declared fields — no module, no source.
+    expect(Object.keys(entries ?? {}).sort()).toEqual([
+      "description",
+      "hidden",
+      "moduleFilePath",
+      "opt",
+      "readonly",
+      "render",
+      "type",
+    ]);
   });
 });

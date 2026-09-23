@@ -1,14 +1,23 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { ValImage, ValRichText } from "@valbuild/tanstack";
 import { useVal, useValRoute } from "../val/client";
-import pageVal from "./_site.index.val";
+import pageVal, { type Content } from "./_site.index.val";
 import { NotFound } from "../components/NotFound";
-import authorsVal from "../content/authors.val";
 import siteVal from "../content/site.val";
 
 export const Route = createFileRoute("/_site/")({
   component: Home,
 });
+
+/**
+ * What the route's entry reads as, so the child below can be typed from it.
+ *
+ * Not `Content`: that is the SOURCE type, where a view is the stored pointer
+ * `{ view: "/src/content/authors.val.ts" }`. What a reader hands back is the
+ * pointer with the module attached, which is the only thing `useVal` can
+ * resolve — so the prop has to come from the reader, not from the schema.
+ */
+type PageContent = NonNullable<ReturnType<typeof useValRoute<typeof pageVal>>>;
 
 /**
  * Content read in the component, which is the everyday way.
@@ -21,7 +30,6 @@ export const Route = createFileRoute("/_site/")({
  */
 function Home() {
   const page = useValRoute(pageVal, {});
-  const authors = useVal(authorsVal);
   const site = useVal(siteVal);
   if (page === null) {
     /*
@@ -35,16 +43,117 @@ function Home() {
      */
     return <NotFound />;
   }
-  const author = authors[page.author];
   return (
     <main>
       <h1>{page.hero.title}</h1>
       <p>{site.tagline}</p>
       <ValImage src={page.hero.image} style={{ maxWidth: "16rem" }} />
       <ValRichText content={page.hero.lead} />
-      {author && <aside>By {author.name}</aside>}
+      <p>
+        <a href={page.hero.ctaHref}>{page.hero.ctaLabel}</a>
+      </p>
+      <Authors
+        authors={page.authors}
+        authorKey={page.author}
+        published={page.published}
+      />
       <p>{page.tags.join(", ")}</p>
+      {page.blocks.map((block, i) => (
+        <Block key={i} block={block} />
+      ))}
+      <p>
+        <Link to="/showcase">Every other schema type</Link>
+      </p>
       <footer>{site.footer}</footer>
     </main>
   );
+}
+
+/**
+ * The authors module, read through the page's own `s.view()` field.
+ *
+ * `page.authors` is a pointer — `{ view: "/src/content/authors.val.ts" }` — and
+ * the reader resolves it, so this is the same content `useVal(authorsVal)` would
+ * give. What it buys is that the page DECLARES which module it shows and this
+ * component follows that declaration, where the import it replaces would have
+ * gone on reading authors whatever the schema said.
+ *
+ * Its own component because `page` can be `null` and a hook cannot be: reading
+ * the view where `page.authors` exists means reading it after the early return
+ * above, which is exactly what the rules of hooks forbid. A child that is only
+ * mounted once there IS a page keeps every hook unconditional.
+ */
+function Authors({
+  authors: authorsView,
+  authorKey,
+  published,
+}: {
+  authors: PageContent["authors"];
+  authorKey: PageContent["author"];
+  published: PageContent["published"];
+}) {
+  const authors = useVal(authorsView);
+  const author = authors[authorKey];
+  return (
+    <>
+      {author && (
+        <aside>
+          By {author.name}, published {published}
+        </aside>
+      )}
+      {/*
+       * Everyone in the viewed module, not just the one `s.keyOf` picked —
+       * which is the point of reading the whole thing rather than a key.
+       */}
+      <aside>
+        Authors:{" "}
+        {Object.values(authors)
+          .map((a) => a.name)
+          .join(", ")}
+      </aside>
+    </>
+  );
+}
+
+/**
+ * One case per variant of the discriminated union.
+ *
+ * The tag is an ordinary field of the value, so this is a plain `switch` and
+ * TypeScript narrows each branch to that variant's own fields. That is the
+ * difference a discriminated union buys over an object of optional fields.
+ */
+function Block({ block }: { block: Content["blocks"][number] }) {
+  switch (block.type) {
+    case "prose":
+      return <ValRichText content={block.body} />;
+    case "callout":
+      return (
+        <aside data-tone={block.tone}>
+          <strong>{block.title}</strong>
+          <p>{block.text}</p>
+          {block.dismissible && <button type="button">Dismiss</button>}
+        </aside>
+      );
+    case "stat":
+      return (
+        <p>
+          {block.label}: <strong>{block.value}</strong>{" "}
+          <time dateTime={block.measuredAt}>{block.measuredAt}</time>
+        </p>
+      );
+    case "snippet":
+      return (
+        <figure>
+          {/*
+           * `s.code()` is never stega encoded — invisible characters woven into
+           * source code are not something a reader can run — so the value
+           * reaches the page exactly as it was written.
+           */}
+          <pre>
+            <code>{block.source}</code>
+          </pre>
+          {block.caption && <figcaption>{block.caption}</figcaption>}
+        </figure>
+      );
+  }
 }

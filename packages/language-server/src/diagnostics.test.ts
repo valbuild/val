@@ -116,6 +116,7 @@ describe("diagnostics over LSP", () => {
     session.openDocument(
       uri,
       `import { s, c } from "../val.config";
+
 export default c.define("/content/unregistered.val.ts", s.object({ a: s.string() }), { a: "hi" });
 `,
     );
@@ -126,6 +127,38 @@ export default c.define("/content/unregistered.val.ts", s.object({ a: s.string()
     );
     expect(missing).toBeDefined();
     expect(missing!.message).toMatch(/not registered in val\.modules/);
+    // On the `export default`, because that is what has to be registered --
+    // not on line 1, where it named a file rather than a thing to change.
+    expect(missing!.range).toEqual({
+      start: { line: 2, character: 0 },
+      end: { line: 2, character: "export default".length },
+    });
+    // The message has to carry the other remedy: this diagnostic is only ever
+    // seen on a file with a default export, so "or stop default-exporting" is
+    // as real an answer as "register it".
+    expect(missing!.message).toMatch(/export what it holds by name instead/);
+    // And it is the only thing said about the file. `Service.get` reports the
+    // same absence as a fatal on line 1; publishing both was the bug.
+    expect(published.diagnostics).toHaveLength(1);
+  });
+
+  test("says nothing about an unregistered file with no export default", async () => {
+    // The reported bug: a `*.val.ts` that only exports the schema its
+    // neighbours import is not a Val module, so it is not a module Val is
+    // failing to serve. It was getting both `val/fatal` and
+    // `val/missing-module` on line 1, telling its author to register a file
+    // with nothing to register.
+    const uri = `file://${path.join(EXAMPLE_APP, "content", "blogSchema.val.ts")}`;
+    session.openDocument(
+      uri,
+      `import { s } from "../val.config";
+
+export const blogSchema = s.object({ title: s.string() });
+`,
+    );
+
+    const published = await session.nextDiagnostics(uri);
+    expect(published.diagnostics).toEqual([]);
   });
 
   test("does not report missing-module for a registered module", async () => {

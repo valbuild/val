@@ -23,9 +23,17 @@ import {
 } from "@valbuild/core";
 import { vercelStegaCombine, vercelStegaSplit } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
+import type { ValView, ValViewSource } from "@valbuild/core";
+import { isValViewSource } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core";
 import { SourceArray } from "@valbuild/core";
 import { RawString } from "@valbuild/core";
+import type {
+  GenericSelector,
+  JsonSource,
+  SelectorOf,
+  SelectorSource,
+} from "@valbuild/core";
 
 declare const brand: unique symbol;
 
@@ -232,19 +240,94 @@ export type StegaOfSource<T extends Source> = Json extends T
       ? Image
       : T extends FileSource
         ? File
-        : T extends SourceObject
-          ? {
-              [key in keyof T]: StegaOfSource<T[key]>;
-            }
-          : T extends SourceArray
-            ? StegaOfSource<T[number]>[]
-            : T extends RawString
-              ? string
-              : string extends T
-                ? ValEncodedString
-                : T extends JsonPrimitive
-                  ? T
-                  : never;
+        : // A view is a pointer at another module: nothing of it is rendered, so
+          // there is nothing here to encode or to read. `ValView<Target>`
+          // names what is behind it and exposes no properties.
+          T extends ValViewSource<string, infer Target>
+          ? ValView<Target>
+          : T extends SourceObject
+            ? {
+                [key in keyof T]: StegaOfSource<T[key]>;
+              }
+            : T extends SourceArray
+              ? StegaOfSource<T[number]>[]
+              : T extends RawString
+                ? string
+                : string extends T
+                  ? ValEncodedString
+                  : T extends JsonPrimitive
+                    ? T
+                    : never;
+
+/**
+ * What resolving `T` gives back — the one definition the framework readers
+ * share.
+ *
+ * Two shapes go in. A module or selector resolves as it always has. A
+ * {@link ValView}, which is what a `s.view()` field reads as, resolves to the
+ * module it points at: the page declares what it shows, and a reader follows
+ * that declaration instead of importing the target a second time.
+ *
+ * One definition rather than one per reader — `useVal`, `fetchVal`,
+ * `initValContent` and the TanStack client each had their own copy of the
+ * selector half, which is four places for the view half to be forgotten in.
+ *
+ * `Target extends Source` is checked HERE rather than on `ValView` itself:
+ * `ValView` is built from `ValViewSource`, which is a member of the `Source`
+ * union, so a constraint there is a circular type reference.
+ *
+ * The outer arms are wrapped in tuples so the conditional does not DISTRIBUTE
+ * over a union: distributing it re-entered `StegaOfSource` per member and the
+ * async readers hit "Type instantiation is excessively deep and possibly
+ * infinite" — `useVal` did not, because a `Promise<...>` around it is one more
+ * level than the checker had left.
+ */
+export type ResolvedVal<T extends SelectorSource> = [T] extends [
+  ValView<infer Target>,
+]
+  ? [Target] extends [Source]
+    ? StegaOfSource<Target>
+    : never
+  : SelectorOf<T> extends GenericSelector<infer S>
+    ? StegaOfSource<S>
+    : never;
+
+/** What a reader accepts. A view handle is a `SelectorSource`, so this is it. */
+export type Resolvable = SelectorSource;
+
+/**
+ * The source of whichever arm of `ResolvableModule` a reader was given — the
+ * module's own, or that of the module a view points at.
+ */
+type SourceOfResolvable<T> = [T] extends [ValView<infer Target>]
+  ? Target
+  : T extends GenericSelector<infer S>
+    ? S
+    : never;
+
+/**
+ * The (loosened) content type a single `.jsonValues()` entry resolves to.
+ *
+ * Here rather than in the framework packages because there were four identical
+ * copies of it — next's client and rsc readers, tanstack's client and server —
+ * and the view arm would have had to be added to each. Same reason
+ * {@link ResolvedVal} lives here.
+ */
+export type JsonEntryContentOf<T> =
+  SourceOfResolvable<T> extends Record<string, infer V>
+    ? V extends JsonSource<infer C>
+      ? C
+      : never
+    : never;
+
+/** What a route reader gives back for the entry the params matched. */
+export type RouteValueOf<T> =
+  SourceOfResolvable<T> extends SourceObject
+    ? // `.jsonValues()` router: the matched entry resolves to its json content.
+      NonNullable<SourceOfResolvable<T>>[string] extends JsonSource<infer C>
+      ? C | null
+      : StegaOfSource<NonNullable<SourceOfResolvable<T>>[string]> | null
+    : never;
 
 /**
  * Resolves the matching variant of a discriminated union from the value's tag.
@@ -382,10 +465,63 @@ export function stegaEncode(
     root?: { path: any; schema: any };
   },
 ): any {
+  const viewModules = new Map<string, unknown>();
+  // Handed a view handle rather than a module: resolve it and encode what it
+  // points at. This is what makes `useVal(page.header)` read the header.
+  const resolved = Internal.viewHandleModule(input);
+  if (resolved !== undefined) {
+    return stegaEncode(resolved, opts);
+  }
+  // A view pointer with no module on it. The module rides on a symbol, and
+  // symbols do not survive serialization — so this is a handle that crossed the
+  // server/client boundary as a prop, or one read out of raw JSON. Resolving it
+  // would hand back the pointer itself, which looks like content and is not, so
+  // say what happened instead.
+  if (isValViewSource(input)) {
+    throw Error(
+      `Cannot resolve the view of '${input.view}': it carries no module. ` +
+        `Either it crossed a server/client boundary, which drops the module because it rides on a symbol, ` +
+        `or it points at a different module than its schema declares — which \`val validate --fix\` repairs. ` +
+        `Resolve it in the same component that read the module containing it, or read '${input.view}' directly.`,
+    );
+  }
   function rec(
     sourceOrSelector: any,
     recOpts?: { path: any; schema: any },
   ): any {
+    // A view is a pointer at another module. Weaving an edit tag into it would
+    // corrupt the path it holds, and there is nothing of the target here to
+    // encode — the target is its own module, encoded when it is read.
+    //
+    // The module it names rides along on a symbol, so `useVal(page.header)` can
+    // resolve it without a path-to-module registry the app does not have. The
+    // pointer itself is unchanged: symbols do not serialize, so this is still
+    // `{ view: "/foo.val.ts" }` to anything that looks at it as data.
+    if (recOpts?.schema && recOpts.schema.type === "view") {
+      const valModule = viewModules.get(recOpts.schema.moduleFilePath);
+      if (valModule === undefined || !isValViewSource(sourceOrSelector)) {
+        return sourceOrSelector;
+      }
+      /*
+       * The POINTER decides what may be attached, not the schema alone.
+       *
+       * The two can disagree: a `.val.ts` cannot express it (the source type is
+       * the literal path), but hand-written JSON and a patch can, which is the
+       * whole reason `view:check-module` exists as a fix. Keying only on the
+       * schema attached the schema's module to a pointer naming a different one,
+       * so `useVal(page.field)` read a module the value does not name — silently,
+       * and looking exactly like a correct read.
+       *
+       * So a mismatch gets no handle: the value stays the bare pointer, and
+       * reading it throws rather than answering with the wrong module. The
+       * Studio still renders the field and still offers the repair; nothing here
+       * refuses to encode the page over it.
+       */
+      if (sourceOrSelector.view !== recOpts.schema.moduleFilePath) {
+        return sourceOrSelector;
+      }
+      return Internal.createViewHandle(sourceOrSelector, valModule);
+    }
     if (recOpts?.schema && isKeyOfSchema(recOpts?.schema)) {
       return sourceOrSelector;
     }
@@ -464,6 +600,14 @@ export function stegaEncode(
       const selectorPath = Internal.getValPath(sourceOrSelector);
       if (selectorPath) {
         const newSchema = Internal.getSchema(sourceOrSelector);
+        // The modules this module's views point at. Collected HERE because this
+        // is the only place with the schema INSTANCE — everything below walks
+        // the serialized schema, which carries a path and not a module. Merged
+        // rather than replaced: a handle resolved by `useVal` re-enters here as
+        // its own module, and its parent's views must stay resolvable.
+        for (const [path, valModule] of Internal.viewModulesOf(newSchema)) {
+          viewModules.set(path, valModule);
+        }
         return rec(
           opts.getModule && opts.getModule(selectorPath) !== undefined
             ? opts.getModule(selectorPath)
@@ -662,7 +806,48 @@ export function stegaClean(source: string) {
   return vercelStegaSplit(source).cleaned;
 }
 
+/**
+ * Answers already computed, keyed by the selector they were computed from.
+ *
+ * `getModuleIds` is not cheap: it calls `executeSerialize()`, which rebuilds the
+ * whole serialized schema tree on every call — ~31us for a 40-field schema with
+ * a nested array, against ~4us for a small one. It is called from `useValStega`
+ * on every render whose `useMemo` misses.
+ *
+ * That memo misses on every render for a VIEW, and cannot be fixed there: the
+ * handle is built by `createViewHandle` inside `stegaEncode`, so `page.authors`
+ * is a fresh object each time the page is encoded, and `[selector]` is a new
+ * dependency every render. Caching here rather than in the hooks fixes it for
+ * both copies of the hook at once, and for any other caller.
+ *
+ * Keyed on the selector, which is the module itself for the case that matters —
+ * a view resolves to it on the line below, and a module is a module-level
+ * constant, so the entry is hit for the life of the process. A fresh nested
+ * selector misses, as it did before; a `WeakMap` lets those entries go.
+ *
+ * The array is shared, so it is frozen: nothing may sort or splice it in place.
+ * Every consumer today copies first (`createSubscriberId` does `paths.slice()`),
+ * and freezing is what keeps that true.
+ */
+const moduleIdsCache = new WeakMap<object, string[]>();
+
 export function getModuleIds(input: any): string[] {
+  // A view handle names one module: the one it points at. Resolved first so a
+  // `useVal(page.header)` subscribes to the header rather than to nothing — and
+  // so the recursive call lands on the module, which is what the cache above
+  // can actually key on.
+  const resolved = Internal.viewHandleModule(input);
+  if (resolved !== undefined) {
+    return getModuleIds(resolved);
+  }
+  const cacheable = typeof input === "object" && input !== null;
+  if (cacheable) {
+    const cached = moduleIdsCache.get(input);
+    if (cached) {
+      // Frozen, so handing the same array to every caller is safe.
+      return cached;
+    }
+  }
   const modules: Set<string> = new Set();
   function rec(sourceOrSelector: any): undefined {
     if (typeof sourceOrSelector === "object") {
@@ -720,7 +905,14 @@ export function getModuleIds(input: any): string[] {
     return;
   }
   rec(input);
-  return Array.from(modules);
+  const moduleIds = Array.from(modules);
+  // Frozen before it is shared, not after: a consumer that sorts in place would
+  // otherwise corrupt every later caller's answer, and silently.
+  Object.freeze(moduleIds);
+  if (cacheable) {
+    moduleIdsCache.set(input, moduleIds);
+  }
+  return moduleIds;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

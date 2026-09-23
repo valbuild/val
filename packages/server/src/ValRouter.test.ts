@@ -373,6 +373,51 @@ describe("ValRouter", () => {
     });
   });
 
+  /*
+   * A THROWN endpoint is a 500 with a sentence in it, not a rejected promise.
+   *
+   * Nothing caught here before, so an endpoint that threw left the router and
+   * became whatever the host does with an unhandled error. On TanStack Start
+   * that is h3, which answers
+   * `{"status":500,"unhandled":true,"message":"HTTPError"}` -- the same five
+   * words whatever went wrong -- and keeps the real cause on a console that a
+   * Cloudflare Dynamic Worker does not have. `/authorize` is the route it
+   * happened on, so it is the route this is written against.
+   */
+  describe("an endpoint that throws", () => {
+    test("answers 500 naming the route and the cause", async () => {
+      const serverRes = await onRoute(
+        fakeRequest({
+          method: "GET",
+          // `authorize` needs a project to build the sign-in URL from, and
+          // this server has none -- so it throws, which is the point.
+          url: new URL(
+            "http://localhost:3000/api/val/authorize?redirect_to=http%3A%2F%2Flocalhost%3A3000%2Fval",
+          ),
+        }),
+      );
+      expect(serverRes.status).toBe(500);
+      const json = "json" in serverRes ? serverRes.json : undefined;
+      // The route, so a reader knows which endpoint this came from...
+      expect(json).toMatchObject({ details: { route: "/authorize" } });
+      // ...and the cause, which is the half h3 replaces with "HTTPError".
+      expect(JSON.stringify(json)).toContain("Project is not set");
+    });
+
+    test("does not reject, so the host never sees an unhandled error", async () => {
+      await expect(
+        onRoute(
+          fakeRequest({
+            method: "GET",
+            url: new URL(
+              "http://localhost:3000/api/val/authorize?redirect_to=http%3A%2F%2Flocalhost%3A3000%2Fval",
+            ),
+          }),
+        ),
+      ).resolves.toBeDefined();
+    });
+  });
+
   test("smoke test invalid route", async () => {
     const serverRes = await onRoute(
       fakeRequest({
