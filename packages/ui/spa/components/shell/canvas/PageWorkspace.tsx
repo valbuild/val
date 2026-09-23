@@ -368,6 +368,12 @@ export function PageWorkspace({
   );
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [attachedFieldIds, setAttachedFieldIds] = useState<string[]>([]);
+  /**
+   * The fields view's "changed only" filter, held here rather than in the
+   * column: the column unmounts whenever the view switches to Structure and
+   * back, and a filter that forgets itself mid-review is one you set twice.
+   */
+  const [changedFieldsOnly, setChangedFieldsOnly] = useState(false);
 
   /**
    * Leaving the canvas leaves nothing behind.
@@ -838,6 +844,8 @@ export function PageWorkspace({
       ) : reportedPaths.length > 0 ? (
         <CanvasFields
           paths={reportedPaths}
+          changedOnly={changedFieldsOnly}
+          onChangedOnlyChange={setChangedFieldsOnly}
           selectedPath={selectedCanvasPath}
           onSelect={onSelectCanvasPath}
         />

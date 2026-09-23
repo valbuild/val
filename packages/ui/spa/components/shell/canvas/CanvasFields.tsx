@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Internal, SourcePath } from "@valbuild/core";
 import { Search } from "lucide-react";
+import { useValSystem } from "../../../stores/react/SystemContext";
+import { useChainVersion } from "../../ValProvider";
+import { changedPathsAmong } from "./changedFields";
 import { cn } from "../../designSystem/cn";
 import { prettifyFilename } from "../../../utils/prettifyFilename";
 import { AnyField } from "../../AnyField";
@@ -34,15 +37,21 @@ const SETTLE_MS = 1200;
  */
 export function CanvasFields({
   paths,
+  changedOnly,
+  onChangedOnlyChange,
   selectedPath,
   onSelect,
 }: {
   paths: readonly SourcePath[];
+  /** List only the fields with an unpublished change. */
+  changedOnly: boolean;
+  onChangedOnlyChange: (changedOnly: boolean) => void;
   /** The field the editor is on, highlighted here to match. */
   selectedPath?: SourcePath | null;
   onSelect?: (path: SourcePath) => void;
 }) {
   const [query, setQuery] = useState("");
+  const changedPaths = useChangedPaths(paths);
 
   /**
    * Bring the selected field into view.
@@ -121,24 +130,40 @@ export function CanvasFields({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return groups;
+    if (!q && !changedOnly) return groups;
     return groups
       .map((group) => ({
         ...group,
-        entries: group.entries.filter((path) => path.toLowerCase().includes(q)),
+        entries: group.entries.filter(
+          (path) =>
+            (!q || path.toLowerCase().includes(q)) &&
+            (!changedOnly || changedPaths.has(path)),
+        ),
       }))
       .filter((group) => group.entries.length > 0);
-  }, [groups, query]);
+  }, [groups, query, changedOnly, changedPaths]);
 
   return (
     <div className="flex h-full min-h-0 flex-col rounded-xl border border-border-float bg-bg-float">
       <div className="shrink-0 border-b border-border-float px-3 py-2.5">
-        <h2 className="text-[0.8125rem] font-medium text-fg-primary">
-          On this page
-          <span className="ml-1.5 font-normal text-fg-secondary-alt">
-            {paths.length}
-          </span>
-        </h2>
+        {/*
+         * The toggle sits on the title's row rather than on a row of its own,
+         * so it costs no height: on a phone this column is already a header,
+         * a filter and a switch strip above the first field.
+         */}
+        <div className="flex items-center gap-2">
+          <h2 className="min-w-0 flex-1 truncate text-[0.8125rem] font-medium text-fg-primary">
+            On this page
+            <span className="ml-1.5 font-normal text-fg-secondary-alt">
+              {paths.length}
+            </span>
+          </h2>
+          <ChangedOnlyToggle
+            pressed={changedOnly}
+            count={changedPaths.size}
+            onPressedChange={onChangedOnlyChange}
+          />
+        </div>
         <p className="mt-1 text-[0.6875rem] leading-relaxed text-fg-secondary-alt">
           Edit here, or click an element on the page.
         </p>
@@ -163,7 +188,9 @@ export function CanvasFields({
           <p className="px-1 py-6 text-center text-xs text-fg-secondary-alt">
             {query
               ? "No fields match this filter."
-              : "The page reported no editable content."}
+              : changedOnly
+                ? "Nothing on this page has changed since it was published."
+                : "The page reported no editable content."}
           </p>
         ) : (
           filtered.map((group) => (
@@ -180,6 +207,7 @@ export function CanvasFields({
                     key={path}
                     path={path}
                     selected={selectedPath === path}
+                    changed={changedPaths.has(path)}
                     onSelect={onSelect}
                   />
                 ))}
@@ -203,10 +231,13 @@ export function CanvasFields({
 function CanvasFieldRow({
   path,
   selected,
+  changed,
   onSelect,
 }: {
   path: SourcePath;
   selected: boolean;
+  /** Has an unpublished change. Marked so the column can be scanned for them. */
+  changed: boolean;
   onSelect?: (path: SourcePath) => void;
 }) {
   const schemaAtPath = useSchemaAtPath(path);
@@ -224,14 +255,25 @@ function CanvasFieldRow({
           : "border-border-float",
       )}
     >
-      <button
-        type="button"
-        onClick={() => onSelect?.(path)}
-        title={path}
-        className="mb-1.5 block max-w-full truncate text-left text-[0.8125rem] font-medium text-fg-primary"
-      >
-        {fieldLabel(path)}
-      </button>
+      <div className="mb-1.5 flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => onSelect?.(path)}
+          title={path}
+          className="block min-w-0 truncate text-left text-[0.8125rem] font-medium text-fg-primary"
+        >
+          {fieldLabel(path)}
+        </button>
+        {changed && (
+          <span
+            data-canvas-field-changed
+            title="Changed since it was published"
+            className="h-1.5 w-1.5 shrink-0 rounded-full bg-bg-brand-primary"
+          >
+            <span className="sr-only">Changed</span>
+          </span>
+        )}
+      </div>
       {schemaAtPath.status === "error" ? (
         <FieldSchemaError
           path={path}
@@ -248,6 +290,90 @@ function CanvasFieldRow({
         <AnyField path={path} schema={schemaAtPath.data} compact />
       )}
     </div>
+  );
+}
+
+/**
+ * The paths among `paths` that an unpublished patch has touched.
+ *
+ * Re-read when the chain moves, which is every edit, save and publish. Kept
+ * reference-stable while the answer is the same, so a keystroke in a field that
+ * was already changed does not re-filter the column.
+ */
+function useChangedPaths(
+  paths: readonly SourcePath[],
+): ReadonlySet<SourcePath> {
+  const val = useValSystem();
+  const chainVersion = useChainVersion();
+  const previous = useRef<ReadonlySet<SourcePath>>(new Set());
+  return useMemo(() => {
+    void chainVersion;
+    if (val === null) return previous.current;
+    const store = val.system.patchStore;
+    const next = changedPathsAmong(
+      paths,
+      store.allRecords(),
+      store.publishedPatchIds(),
+    );
+    const current = previous.current;
+    if (
+      current.size === next.size &&
+      Array.from(next).every((path) => current.has(path))
+    ) {
+      return current;
+    }
+    previous.current = next;
+    return next;
+  }, [val, chainVersion, paths]);
+}
+
+/**
+ * "Show changed fields only", as a chip with the count on it.
+ *
+ * A chip rather than a checkbox and a sentence, because it has to fit beside
+ * the title on a phone. The count does double duty: it says there is something
+ * to review before anyone presses it, and the chip is disabled at zero, where
+ * pressing it could only empty the column. Once on it stays pressable, so the
+ * last change being discarded does not strand the column filtered.
+ */
+function ChangedOnlyToggle({
+  pressed,
+  count,
+  onPressedChange,
+}: {
+  pressed: boolean;
+  count: number;
+  onPressedChange: (pressed: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      aria-label="Show changed fields only"
+      title="Show changed fields only"
+      disabled={!pressed && count === 0}
+      onClick={() => onPressedChange(!pressed)}
+      className={cn(
+        "flex h-6 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[0.6875rem] font-medium transition-colors",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+        "disabled:cursor-default disabled:opacity-50",
+        pressed
+          ? "border-border-brand-primary bg-bg-brand-primary text-fg-brand-primary"
+          : "border-border-float text-fg-secondary enabled:hover:bg-bg-float-raised enabled:hover:text-fg-primary",
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "h-1.5 w-1.5 rounded-full",
+          pressed ? "bg-fg-brand-primary" : "bg-bg-brand-primary",
+        )}
+      />
+      Changed
+      <span className={cn("tabular-nums", !pressed && "text-fg-secondary-alt")}>
+        {count}
+      </span>
+    </button>
   );
 }
 
