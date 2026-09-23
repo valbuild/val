@@ -20,7 +20,7 @@ import { ColorField } from "./fields/ColorField";
 import { FieldSchemaError } from "./FieldSchemaError";
 import { FileField } from "./fields/FileField";
 import { ViewField } from "./fields/ViewField";
-import { LiteralPreview } from "./fields/LiteralPreview";
+import { LiteralField } from "./fields/LiteralField";
 import { FieldValidationErrorCompact } from "./FieldValidationError";
 import { ValidationErrors } from "./ValidationError";
 import { useFieldErrorsOwned } from "./FieldErrorsOwner";
@@ -180,18 +180,8 @@ export function AnyField({
   } else if (schema.type === "file") {
     leaf = <FileField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "literal") {
-    /*
-     * A literal has nothing to edit — its value IS the schema — so an editable
-     * one is a mistake worth saying out loud. A READONLY one is not: nobody was
-     * going to change it. The two-pane history view renders whole subtrees
-     * readonly, and a discriminator inside one of them turning into a red error
-     * says something is broken when nothing is.
-     */
-    leaf = effectiveReadonly ? (
-      <LiteralPreview path={path} />
-    ) : (
-      <FieldSchemaError path={path} error="Literal fields are not editable" />
-    );
+    // Always read-only: a literal's value IS its schema. See `LiteralField`.
+    leaf = <LiteralField key={path} path={path} compact={compact} />;
   } else if (schema.type === "view") {
     leaf = <ViewField key={path} path={path} schema={schema} />;
   } else {
