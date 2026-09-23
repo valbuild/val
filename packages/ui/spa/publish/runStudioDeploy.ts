@@ -87,6 +87,17 @@ export interface StudioDeployOptions {
    * the code it is running.
    */
   commit: string | null;
+  /**
+   * The source files that commit wrote, by path, or `null` when there are
+   * none to add -- a `Finish publishing` of a commit this tab did not make.
+   *
+   * Laid over the project's stored source before anything else, because the
+   * stored source is what the LAST build was made from: without this the
+   * build publishes the site as it was before the save, under the save's
+   * commit. `null` values are files the commit deleted. Paths may carry a
+   * leading `/` (Val's module paths do) and are matched without it.
+   */
+  committedFiles?: Record<string, string | null> | null;
   loadBuilder: () => Promise<StudioBuilder>;
   /**
    * Generates `src/routeTree.gen.ts` for a file-based project.
@@ -156,13 +167,14 @@ export async function runStudioDeploy(
       );
     }
     target = readTarget;
-    source = readSource;
+    source = withCommittedFiles(readSource, options.committedFiles ?? null);
   } catch (error) {
     return failed(messageOf(error));
   }
 
   let build: BuildOutput;
   let git: { commit: string; branch: string } | null;
+  let wiredSource: Record<string, string>;
   try {
     onPhase({ kind: "building" });
     /*
@@ -183,6 +195,7 @@ export async function runStudioDeploy(
         ? null
         : { commit: options.commit, branch };
     const wired = builder.rebakeGit(source, git);
+    wiredSource = wired;
     const fileBased = Object.keys(wired).some((path) =>
       path.startsWith(ROUTES_PREFIX),
     );
@@ -219,7 +232,14 @@ export async function runStudioDeploy(
 
   let artifacts;
   try {
-    artifacts = await builder.publishArtifacts(build);
+    /*
+     * With the source it was built from, so the stored source advances with
+     * the site. Without it the next publish starts from the copy before this
+     * one and quietly undoes it.
+     */
+    artifacts = await builder.publishArtifacts(build, {
+      projectSource: wiredSource,
+    });
   } catch (error) {
     return failed(messageOf(error));
   }
@@ -247,6 +267,28 @@ export async function runStudioDeploy(
     onPhase,
   });
   return asDeployResult(published);
+}
+
+/**
+ * The stored source with a commit's files laid over it.
+ *
+ * A new record rather than an edit of the one read, which the caller may still
+ * hold. Val names module files with a leading `/`; the stored record does
+ * not, so the slash is dropped -- two spellings of one path would build the
+ * old file and publish the new one beside it.
+ */
+export function withCommittedFiles(
+  source: Record<string, string>,
+  committed: Record<string, string | null> | null,
+): Record<string, string> {
+  if (committed === null) return source;
+  const out = { ...source };
+  for (const [path, content] of Object.entries(committed)) {
+    const key = path.replace(/^\/+/, "");
+    if (content === null) delete out[key];
+    else out[key] = content;
+  }
+  return out;
 }
 
 const asDeployResult = (published: StudioPublishResult): StudioDeployResult => {

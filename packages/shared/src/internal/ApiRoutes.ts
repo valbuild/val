@@ -1360,6 +1360,21 @@ export const Api = {
              */
             commitSha: z.string().optional(),
             /**
+             * The source files this commit wrote, by path, for a MANAGED project.
+             *
+             * A managed project has nobody to deploy it, so the Studio builds
+             * the site in the tab -- and the build has to contain the text this
+             * commit just produced. Nothing else can give it that: the
+             * project's stored source is what the LAST build was made from, and
+             * turning patched Source back into `.val.ts` text happens here, on
+             * the server, not in a browser. `null` is a file the commit
+             * deleted.
+             *
+             * Absent for a connected project, whose host builds from the
+             * repository, and from a server that predates it.
+             */
+            sourceFiles: z.record(z.string(), z.string().nullable()).optional(),
+            /**
              * Unpublished changes the save threw away because they could not be
              * applied.
              *

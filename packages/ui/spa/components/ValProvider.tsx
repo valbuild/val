@@ -2293,7 +2293,10 @@ export function usePublishSummary() {
                * resolves. Reported rather than thrown for the same reason: a
                * publish whose build failed is not a publish that did nothing.
                */
-              const deployed = await deploy(res.commitSha ?? null);
+              const deployed = await deploy(
+                res.commitSha ?? null,
+                res.sourceFiles ?? null,
+              );
               if (deployed.status === "failed") {
                 val.system.status.reportError(
                   "Your changes are saved, but the site has not been rebuilt.",

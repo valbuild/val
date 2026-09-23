@@ -15,3 +15,14 @@ export const TREE = "src/routeTree.gen.ts";
 
 /** Where a file-based project keeps its route files. */
 export const ROUTES_DIR = "src/routes";
+
+/**
+ * The one line the builder needs from a file-based project, as `src/app.tsx`.
+ *
+ * `src/app.tsx` is the entry the builder looks for, and a routes-as-data
+ * project writes it. A file-based project has no such file -- its entry IS
+ * the generated tree -- so every route generator adds this, and it is the
+ * same line wherever that runs (the `/node` entrypoint's `withRouteTree`, and
+ * the platform's browser generator, which reaches it through `/constants`).
+ */
+export const ENTRY_SHIM = `export { routeTree } from './routeTree.gen'\n`;

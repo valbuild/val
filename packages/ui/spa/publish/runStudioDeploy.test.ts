@@ -403,3 +403,78 @@ describe("nothing throws", () => {
     expect("message" in result && result.message).toBe(expected);
   });
 });
+
+/**
+ * What the Save just committed has to be IN the build, and has to go back out
+ * with it.
+ *
+ * The project's stored source is what the LAST build was made from. Found by
+ * driving the whole pipeline in a browser: a Studio publish went live and the
+ * page showed the old text, because the build never saw the file the save
+ * wrote -- and a publish that did not send its source back would have made
+ * the next edit's build undo this one.
+ */
+describe("the commit's own files", () => {
+  const edited = "export default 'edited';\n";
+
+  test("are laid over the stored source before it is built", async () => {
+    const handed: Array<Record<string, string>> = [];
+    await deploy({
+      committedFiles: {
+        "/src/content.val.ts": edited,
+        "/src/gone.val.ts": null,
+      },
+      client: client({
+        projectSource: async () => ({
+          ...dataRoutes,
+          "src/content.val.ts": "export default 'old';\n",
+          "src/gone.val.ts": "export default 'gone';\n",
+        }),
+      }),
+      loadBuilder: async () =>
+        builder([], {
+          buildUserApp: async (input) => {
+            handed.push(input.files);
+            return buildOutput;
+          },
+        }),
+    });
+    expect(handed).toHaveLength(1);
+    expect(handed[0]?.["src/content.val.ts"]).toBe(edited);
+    // A leading slash is the same file, not a second one beside it.
+    expect(handed[0]?.["/src/content.val.ts"]).toBeUndefined();
+    expect(handed[0]).not.toHaveProperty("src/gone.val.ts");
+  });
+
+  test("and the source it was built from goes out with the build", async () => {
+    const published: Array<Record<string, string> | undefined> = [];
+    await deploy({
+      committedFiles: { "/src/content.val.ts": edited },
+      loadBuilder: async () =>
+        builder([], {
+          publishArtifacts: async (_build, options) => {
+            published.push(options?.projectSource);
+            return [{ key: "server", body: "x", sha256: "sha", bytes: 1 }];
+          },
+        }),
+    });
+    expect(published[0]?.["src/content.val.ts"]).toBe(edited);
+    // Wired at the commit, like the build itself.
+    expect(published[0]?.["baked"]).toBe("yes");
+  });
+
+  test("a Finish publishing with none still builds and sends its source", async () => {
+    const published: Array<Record<string, string> | undefined> = [];
+    await deploy({
+      committedFiles: null,
+      loadBuilder: async () =>
+        builder([], {
+          publishArtifacts: async (_build, options) => {
+            published.push(options?.projectSource);
+            return [{ key: "server", body: "x", sha256: "sha", bytes: 1 }];
+          },
+        }),
+    });
+    expect(published[0]?.["src/app.tsx"]).toBe(dataRoutes["src/app.tsx"]);
+  });
+});

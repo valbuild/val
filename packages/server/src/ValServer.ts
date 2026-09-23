@@ -2695,7 +2695,17 @@ export const ValServer = (
              */
             return {
               status: 200,
-              json: { commitSha: commitRes.commit },
+              json: {
+                commitSha: commitRes.commit,
+                /*
+                 * For the Studio to BUILD, when it is the deployer. See
+                 * `sourceFiles` on the route: the build must contain the text
+                 * this commit wrote, and only this handler has it.
+                 */
+                ...(serverOps.sourceMode() === "managed"
+                  ? { sourceFiles: preparedCommit.patchedSourceFiles }
+                  : {}),
+              },
             };
           }
           return {

@@ -46,7 +46,11 @@ export interface UseStudioDeploy {
    * to say something and the one driving a retry wants to know whether to
    * stop.
    */
-  deploy: (commit: string | null) => Promise<StudioDeployResult>;
+  deploy: (
+    commit: string | null,
+    /** What that commit wrote; see `committedFiles` on `runStudioDeploy`. */
+    committedFiles?: Record<string, string | null> | null,
+  ) => Promise<StudioDeployResult>;
 }
 
 const ALREADY_RUNNING: StudioDeployResult = {
@@ -68,7 +72,7 @@ export function useStudioDeploy(options?: {
   const api = options?.api ?? "/api/val";
 
   const deploy = useCallback<UseStudioDeploy["deploy"]>(
-    async (commit) => {
+    async (commit, committedFiles) => {
       if (running.current) {
         return ALREADY_RUNNING;
       }
@@ -84,6 +88,7 @@ export function useStudioDeploy(options?: {
         const result = await runStudioDeploy({
           client: createStudioPublishClient({ api }),
           commit,
+          committedFiles: committedFiles ?? null,
           loadBuilder,
           ...(generateRouteTree !== null ? { generateRouteTree } : {}),
           onPhase: (phase) => setState({ status: "running", phase }),

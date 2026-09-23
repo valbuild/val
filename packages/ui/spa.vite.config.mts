@@ -1,5 +1,9 @@
 import { defineConfig } from "vite";
-import { DEFAULT_STATIC_HOST, rolldownWasmPlugin } from "./build/rolldownWasm";
+import {
+  DEFAULT_STATIC_HOST,
+  rolldownBrowserBindingPlugin,
+  rolldownWasmPlugin,
+} from "./build/rolldownWasm";
 
 const OUT_DIR = "./server/.tmp";
 
@@ -21,6 +25,7 @@ export default defineConfig({
     target: "ES2020",
   },
   plugins: [
+    rolldownBrowserBindingPlugin({ root: import.meta.dirname }),
     rolldownWasmPlugin({
       root: import.meta.dirname,
       host: process.env.VAL_STATIC_HOST || DEFAULT_STATIC_HOST,

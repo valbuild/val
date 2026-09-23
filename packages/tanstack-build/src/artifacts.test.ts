@@ -107,3 +107,24 @@ describe("what content checks each artifact against", () => {
     );
   });
 });
+
+describe("the project's own source", () => {
+  test("goes out as the `source` artifact, as JSON, when it is given", async () => {
+    const projectSource = {
+      "src/content.val.ts": "export default 'é';\n",
+      "val.config.ts": "export const config = {};\n",
+    };
+    const artifacts = await publishArtifacts(build(), { projectSource });
+    const source = artifacts.find((artifact) => artifact.key === "source");
+    expect(source).toBeDefined();
+    expect(JSON.parse(source?.body ?? "null")).toEqual(projectSource);
+    // Bytes, not UTF-16 units: the é is two of them.
+    expect(source?.bytes).toBe(new TextEncoder().encode(source?.body).length);
+  });
+
+  test("and is not declared when it is not", async () => {
+    // A publisher that does not send it leaves the stored source as it was --
+    // which is a different thing from replacing it with nothing.
+    expect(await keys(build())).not.toContain("source");
+  });
+});

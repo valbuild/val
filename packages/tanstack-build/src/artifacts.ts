@@ -37,31 +37,14 @@
 import type { BuildOutput } from "./build";
 import { sha256Hex } from "./hash";
 
-/** The single-file keys, in the order a reader most wants to see them. */
-export const ARTIFACT_KEYS = {
-  server: "server",
-  client: "client",
-  css: "css",
-  rsc: "rsc",
-  /**
-   * The dependency layer: gzipped JSON, and NOT produced by a browser build.
-   *
-   * Named here because it is part of the namespace a reader is trying to
-   * understand, not because {@link publishArtifacts} ever emits it -- building
-   * a layer is a rolldown pass over `node_modules`, which a tab does not have.
-   * A publisher without one sends `layerRev` instead; see `DeclareBody`.
-   */
-  layer: "layer",
-} as const;
-
-/** The prefixes, and which {@link BuildOutput} record fills each. */
-export const ARTIFACT_PREFIXES = {
-  serverChunks: "chunk/server/",
-  clientChunks: "chunk/client/",
-  rscChunks: "chunk/rsc/",
-  assetFiles: "asset/",
-  publicFiles: "public/",
-} as const;
+/*
+ * The key namespace itself lives in `artifactKeys.ts`, a module that imports
+ * nothing, so a server that only needs to TAKE ARTIFACTS APART (content's
+ * `loaderPayload.ts`) can have it from `@valbuild/tanstack-build/constants`
+ * without loading the bundler.
+ */
+import { ARTIFACT_KEYS, ARTIFACT_PREFIXES } from "./artifactKeys";
+export { ARTIFACT_KEYS, ARTIFACT_PREFIXES };
 
 /** One artifact, ready to declare and to upload. */
 export type PublishArtifact = {
@@ -93,6 +76,13 @@ export type PublishArtifact = {
  */
 export async function publishArtifacts(
   build: BuildOutput,
+  options: {
+    /**
+     * The project's own files, published as the `source` artifact. See
+     * `ARTIFACT_KEYS.source`. Omitted, the stored source is left as it was.
+     */
+    projectSource?: Record<string, string>;
+  } = {},
 ): Promise<PublishArtifact[]> {
   const encoder = new TextEncoder();
   const out: Array<{ key: string; body: string }> = [];
@@ -105,6 +95,9 @@ export async function publishArtifacts(
   single(ARTIFACT_KEYS.client, build.clientCode);
   single(ARTIFACT_KEYS.css, build.cssCode);
   single(ARTIFACT_KEYS.rsc, build.rscCode);
+  if (options.projectSource !== undefined) {
+    single(ARTIFACT_KEYS.source, JSON.stringify(options.projectSource));
+  }
 
   const group = (
     prefix: string,
