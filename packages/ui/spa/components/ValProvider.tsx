@@ -138,6 +138,15 @@ type ValContextValue = {
    * client whose stat is a poll out of date.
    */
   publishRefusal: string | null;
+  /**
+   * How this project's source is kept, or `null` when nothing said.
+   *
+   * `"managed"` means the Studio is the deployer -- see `ValSourceMode` and
+   * `summarizeDeployments`. `null` is treated as `"connected"` everywhere it is
+   * read, because that is the story the Studio has always told and an older
+   * server saying nothing is not evidence that a project has no repository.
+   */
+  sourceMode: "managed" | "connected" | null;
   profileId: string | null;
   profileAuthError: string | null;
   /**
@@ -808,6 +817,8 @@ export function ValProvider({
           "data" in stat && stat.data
             ? (stat.data.publishRefusal?.message ?? null)
             : null,
+        sourceMode:
+          "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null,
         profileAuthError:
           profilesData.status === "auth-error" ? profilesData.error : null,
         profilesError:
@@ -2063,6 +2074,25 @@ function toPendingPatch(record: PatchRecord, isPending: boolean): PendingPatch {
 export function useValMode(): "http" | "fs" | "unknown" {
   const { mode } = useContext(ValContext);
   return mode;
+}
+
+/** See {@link ValContextValue.sourceMode}. */
+export function useSourceMode(): "managed" | "connected" | null {
+  const { sourceMode } = useContext(ValContext);
+  return sourceMode;
+}
+
+/**
+ * Whether the Studio itself is what makes a publish live.
+ *
+ * True for a managed project and false for everything else, `null` included:
+ * see {@link ValContextValue.sourceMode} for why absence reads as connected.
+ * One function rather than the comparison at each call site, because getting
+ * the `null` side wrong is invisible until a project runs against an older
+ * server.
+ */
+export function useStudioIsDeployer(): boolean {
+  return useSourceMode() === "managed";
 }
 
 /** See {@link ValContextValue.publishRefusal}. */

@@ -497,6 +497,18 @@ export class ValOpsHttp extends ValOps {
     };
   }
 
+  /**
+   * What the content service last said this project's source mode is.
+   *
+   * Read off the same remembered expectation {@link publishRefusal} uses, and
+   * with the same tolerance for being one poll out of date: it decides how a
+   * publish is NARRATED, and a project that has just connected a repository is
+   * one whose builds are about to be replaced anyway.
+   */
+  override sourceMode(): "managed" | "connected" | null {
+    return this.projectExpectation?.sourceMode ?? null;
+  }
+
   async onInit(): Promise<void> {
     // TODO: unused for now. Implement or remove
   }

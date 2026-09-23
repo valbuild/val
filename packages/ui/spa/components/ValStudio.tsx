@@ -2,6 +2,7 @@ import { FC } from "react";
 import { ValClient } from "@valbuild/shared/internal";
 import { ValModules } from "@valbuild/core";
 import { ValProvider } from "./ValProvider";
+import { BuilderPreload } from "../publish/BuilderPreload";
 import { Themes } from "./ValThemeProvider";
 import { ValShell } from "./shell/ValShell";
 import { UploadRequestProvider } from "./UploadRequest";
@@ -36,6 +37,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({
       theme={theme}
       setTheme={setTheme}
     >
+      <BuilderPreload />
       <ErrorBoundary FallbackComponent={FallbackComponent}>
         <div
           style={{

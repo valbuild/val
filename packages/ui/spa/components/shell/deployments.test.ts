@@ -1,5 +1,7 @@
 import {
   DEPLOYMENT_NEWS_WINDOW_MS,
+  deploymentProgress,
+  describeDeploymentState,
   isDeploymentNews,
   summarizeDeployments,
 } from "./Deployments";
@@ -315,5 +317,79 @@ describe("isDeploymentNews", () => {
         NOW,
       ),
     ).toBe(true);
+  });
+});
+
+/**
+ * A managed project is narrated differently, and the difference is the whole
+ * point of `studioIsDeployer`.
+ *
+ * There the Studio is the deployer: the build that makes a publish live happens
+ * in the same browser that started it, so there is nothing outside to wait for.
+ * `building` in that world is a spinner with no event that can ever end it --
+ * not on a reload, not on a retry, not tomorrow -- and the reader has no way to
+ * tell it from a deploy that is merely slow.
+ */
+describe("a managed project", () => {
+  const unfinished = deployment({ commitSha: "a", state: "pending" });
+
+  test("never says a publish is building", () => {
+    expect(summarizeDeployments([unfinished], true)).toEqual({
+      state: "saved-not-live",
+      count: 1,
+    });
+  });
+
+  test("and a connected one still does, from the same feed", () => {
+    // The same rows. The only thing that changed is whose story is being told,
+    // which is what makes this per source mode rather than a removal.
+    expect(summarizeDeployments([unfinished], false)).toEqual({
+      state: "building",
+      count: 1,
+    });
+  });
+
+  test("says Saved, not yet live on the row too", () => {
+    expect(describeDeploymentState(unfinished, true)).toBe(
+      "Saved, not yet live",
+    );
+    expect(deploymentProgress(unfinished, true)).toBe("saved-not-live");
+  });
+
+  test("a live publish is live either way", () => {
+    // `isLive` is Val having seen the site answer with this commit, which is
+    // the one answer Val can get for itself and outranks everything else.
+    const live = deployment({ commitSha: "a", state: "pending", isLive: true });
+    expect(summarizeDeployments([live], true)).toEqual({ state: "live" });
+    expect(describeDeploymentState(live, true)).toBe("Live");
+  });
+
+  test("a failed publish still reads as failed, not as saved", () => {
+    // The two are different things to do about it: one is a build that ran and
+    // did not work, the other is a build that never happened.
+    const failed = deployment({ commitSha: "a", state: "failure" });
+    expect(summarizeDeployments([failed], true)).toEqual({ state: "failed" });
+    expect(deploymentProgress(failed, true)).toBe("failed");
+  });
+});
+
+/**
+ * The default is the CONNECTED story, and that is a decision rather than an
+ * accident of ordering.
+ *
+ * A server that reports no source mode is not evidence that a project has no
+ * repository -- `fs` mode has no project to have a mode, and neither does an
+ * older content service. Defaulting the other way would take the deploy feed
+ * away from every project running against one.
+ */
+describe("when nobody said which kind of project this is", () => {
+  test("the feed behaves exactly as it did before", () => {
+    const unfinished = deployment({ commitSha: "a", state: "pending" });
+    expect(summarizeDeployments([unfinished])).toEqual({
+      state: "building",
+      count: 1,
+    });
+    expect(describeDeploymentState(unfinished)).toBe("Building");
+    expect(deploymentProgress(unfinished)).toBe("building");
   });
 });

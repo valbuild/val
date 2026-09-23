@@ -208,6 +208,15 @@ export function toActivity(
    * of its inputs and can be tested — the same reason `toDeployments` takes one.
    */
   now: number,
+  /**
+   * Whether the Studio itself is what makes a publish live.
+   *
+   * Threaded here as well as into the deploy list, because a publish that reads
+   * "Saved, not yet live" in the status bar and "Building" in Recent activity
+   * is two answers to one question -- which is the reason
+   * {@link deploymentProgress} is shared in the first place.
+   */
+  studioIsDeployer = false,
 ): ShellActivityEntry[] {
   const changes = patchSets.slice(0, ACTIVITY_LIMIT).map(
     (set, index): Dated<ShellActivityEntry> => ({
@@ -241,7 +250,7 @@ export function toActivity(
   const deploys = deployments.slice(0, DEPLOY_ACTIVITY_LIMIT).map(
     (deployment): Dated<ShellActivityEntry> => ({
       at: timeOf(deployment.updatedAt),
-      entry: toDeployActivity(deployment),
+      entry: toDeployActivity(deployment, studioIsDeployer),
     }),
   );
   return (
@@ -269,7 +278,10 @@ function timeOf(iso: string): number {
 }
 
 /** One publish, as an activity row. */
-function toDeployActivity(deployment: ShellDeployment): ShellDeployActivity {
+function toDeployActivity(
+  deployment: ShellDeployment,
+  studioIsDeployer: boolean,
+): ShellDeployActivity {
   return {
     kind: "deploy",
     // Prefixed, because a commit sha and a patch set id share one list now.
@@ -278,8 +290,8 @@ function toDeployActivity(deployment: ShellDeployment): ShellDeployActivity {
     // about the publish but which commit it was, and the short sha is what the
     // deploy feed shows for the same publish.
     title: deployment.message ?? deployment.commitSha.slice(0, 7),
-    state: describeDeploymentState(deployment),
-    progress: deploymentProgress(deployment),
+    state: describeDeploymentState(deployment, studioIsDeployer),
+    progress: deploymentProgress(deployment, studioIsDeployer),
     timestamp: deployment.timestamp,
     author: deployment.author,
   };

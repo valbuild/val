@@ -795,6 +795,54 @@ bundle at the end of `pnpm --filter @valbuild/ui build` and asserts that
 check is the one that does not care how the placeholder is implemented** — keep
 it if you ever replace the hacks with something better.
 
+### Building `@valbuild/ui` in a `preconstruct dev` tree edits `src/`
+
+`fix-version-hack.js` writes the version into `dist/valbuild-ui.esm.js`. After
+`pnpm preconstruct dev` that path is a SYMLINK to `src/index.ts`, so the write
+goes through it and leaves
+
+```diff
+-export const VERSION = "$$BUILD_$$REPLACE_WITH_VERSION$$";
++export const VERSION = "0.134.0";
+```
+
+as an uncommitted change in a tracked source file. It is easy to miss — the
+build passes, `verify-build.js` passes, and the only symptom is a stray line in
+`git status` that reads like something you did.
+
+Committing it is the thing to avoid: the placeholder is what the NEXT build
+substitutes, and a source file carrying a hard-coded version substitutes
+nothing. `assertNoPlaceholdersLeft` would not complain, because the marker is
+gone in exactly the way it wants. Check `git status` after any
+`pnpm --filter @valbuild/ui build` and `git checkout packages/ui/src/index.ts`.
+
+### The Studio's bundler is NOT in the base64 record, and must stay out
+
+The SPA dynamically imports `@valbuild/tanstack-build` so a managed project can
+be built in the tab. That drags in `@rolldown/browser`, whose 10.9 MB
+WebAssembly binary Vite emits as an asset — and every asset in the SPA output is
+what `fix-server-hack.js` base64s into both server bundles.
+
+It cannot go there, for two independent reasons, and both were measured rather
+than reasoned about:
+
+- The record is built with `fs.readFileSync(file, "utf-8")`. Read that way and
+  written back, 10,845,151 bytes come out 12,811,857 bytes and unequal. Nothing
+  notices.
+- Its base64 is 14,460,204 characters, in each of the two server bundles — and
+  `wire.ts` DECLARES `@valbuild/ui` as a project dependency so the Studio's
+  bundle reaches the isolate, so that lands in every project's vendor layer.
+
+So `build/rolldownWasm.ts` rewrites the one asset URL to a content-addressed one
+on `DEFAULT_STATIC_HOST` and deletes the emitted file before the record is
+built. The trap: **`experimental.renderBuiltUrl` is read off the RESOLVED
+CONFIG, not off plugins.** Declaring it on the plugin object is accepted and
+silently ignored — the build then prints its own `/api/val/static/assets/…` URL
+and the plugin deletes the file that URL points at, which is worse than not
+rewriting at all. It is returned from the plugin's `config()` hook for that
+reason, and `closeBundle` refuses to delete anything still referenced by a
+chunk, which is what turns a 404 in someone's browser into a failed build.
+
 ## A request "pending" in dev is usually queued, not slow
 
 The devtools show a request as pending from the moment it is _created_, which

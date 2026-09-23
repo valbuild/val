@@ -64,6 +64,15 @@ function specifiersOf(source: string): string[] {
     /\bfrom\s*["']([^"']+)["']/g,
     /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
     /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
+    /*
+     * `import "node:fs"` -- a side-effect import has no `from`, so the first
+     * pattern cannot see it, and this walk reported such a file as importing
+     * nothing at all. Found by adding that exact line to a module the root
+     * re-exports and watching all five tests still pass. It is the shape a
+     * polyfill or a register hook takes, which is to say the shape most likely
+     * to be added here for a reason that sounds good.
+     */
+    /\bimport\s*["']([^"']+)["']/g,
   ];
   for (const pattern of patterns) {
     for (const match of code.matchAll(pattern)) {
