@@ -27,7 +27,7 @@ import {
   UploadSlot,
   VerifyResponse,
   parseProblems,
-} from "./protocol";
+} from "@valbuild/shared/internal";
 
 export type PublishOptions = {
   root?: string;

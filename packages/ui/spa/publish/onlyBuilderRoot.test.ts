@@ -38,18 +38,66 @@ function sourceFiles(dir: string): string[] {
 }
 
 /**
- * Specifiers, with comments removed.
+ * A file with its comments gone.
  *
  * This directory documents itself with the package's name in prose, and a
  * docblock saying "never import `@valbuild/tanstack-build/node`" would
  * otherwise be read as an import of it -- which would make the test fail on the
- * sentence warning against the thing it forbids.
+ * sentence warning against the thing it forbids. Stripped FIRST, so the type
+ * strip below cannot see a `from` that is part of an English sentence either.
  */
-function specifiersOf(file: string): string[] {
-  const code = fs
-    .readFileSync(file, "utf8")
+function withoutComments(source: string): string {
+  return source
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^[ \t]*\/\/.*$/gm, "");
+}
+
+/**
+ * `import type` / `export type` declarations, gone.
+ *
+ * What may sit between `type` and `from` is a binding list -- identifiers,
+ * braces, commas, `*`, `as`. So the gap excludes `;` and quotes, and that is
+ * the whole of why this is safe: without it the lazy match runs past the end of
+ * a `export type X = Y;` that has no `from` at all and swallows everything up
+ * to the next quoted string anywhere in the file. That is not hypothetical --
+ * it ate this module's own dynamic import and made the count below read zero.
+ *
+ * Erring towards NOT stripping is the safe direction: an unstripped type import
+ * is counted as a load site, and a test that fails is a test somebody reads.
+ */
+function withoutTypeImports(source: string): string {
+  return source.replace(
+    /\b(?:import|export)\s+type\s+[^;"'`]*?\bfrom\s*["'][^"']+["']/g,
+    "",
+  );
+}
+
+/**
+ * The specifiers a file reaches AT RUNTIME.
+ *
+ * Type imports are stripped, and only for the one-site rule below. A type
+ * import is erased by the compiler: it loads nothing, so there is no second
+ * path for a test to be unable to reach and nothing for `setBuilderLoader` to
+ * be unable to stand in for. Counting one would make declaring
+ * `PublishArtifact` in a second file look like a second way to load 10.9 MB of
+ * WebAssembly, which it is not.
+ *
+ * The SUBPATH rule below does not use this, deliberately: a type import from
+ * `@valbuild/tanstack-build/node` is erased too, but it says somebody meant to
+ * use the Node half from the Studio, and that is worth failing over while it
+ * is still only a type.
+ */
+function runtimeSpecifiersOf(file: string): string[] {
+  return specifiersIn(
+    withoutTypeImports(withoutComments(fs.readFileSync(file, "utf8"))),
+  );
+}
+
+function specifiersOf(file: string): string[] {
+  return specifiersIn(withoutComments(fs.readFileSync(file, "utf8")));
+}
+
+function specifiersIn(code: string): string[] {
   const found: string[] = [];
   for (const pattern of [
     /\bfrom\s*["']([^"']+)["']/g,
@@ -92,18 +140,18 @@ describe("the Studio's reach into the builder package", () => {
     expect(offenders).toEqual([]);
   });
 
-  test("and reaches the root from exactly one file", () => {
+  test("and LOADS the root from exactly one file", () => {
     const sites: string[] = [];
     for (const file of files) {
-      for (const specifier of specifiersOf(file)) {
+      for (const specifier of runtimeSpecifiersOf(file)) {
         if (specifier === PACKAGE) {
           sites.push(path.relative(SPA, file));
         }
       }
     }
-    // The type-only import in `loadBuilder.ts` is the same specifier and the
-    // same file, so this counts one site whether or not the dynamic import is
-    // beside it. Moving either is what this is here to notice.
+    // `loadBuilder.ts` holds the dynamic import. Its own `import type` beside
+    // it is stripped, so what this counts is the one path that actually loads
+    // the package -- moving THAT is what this is here to notice.
     expect([...new Set(sites)]).toEqual([
       path.join("publish", "loadBuilder.ts"),
     ]);
