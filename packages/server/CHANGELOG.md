@@ -1,5 +1,91 @@
 # @valbuild/server
 
+## 0.136.0
+
+### Minor Changes
+
+- [#713](https://github.com/valbuild/val/pull/713) [`f3a4bb7`](https://github.com/valbuild/val/commit/f3a4bb7aea604943b92545c122243798c759715c) Thanks [@freekh](https://github.com/freekh)! - The Studio can load a bundler, and it stops telling a managed project that its
+  publish is on its way out.
+
+  **A managed project is one with no repository and no host watching one.** There
+  is nothing outside the browser to pick a commit up, so the Studio has been
+  showing it a story that belongs to a project with a repository: a `Building`
+  spinner, waiting for an event that can never arrive. It does not resolve on a
+  reload, on a retry, or tomorrow, and there is no way to tell it from a deploy
+  that is merely slow.
+
+  The content service now reports which kind of project this is, as `sourceMode`
+  on `/stat`, and the Studio narrates accordingly:
+
+  - a **connected** project keeps the deploy feed and keeps `Building`, because
+    there a host genuinely does pick the commit up;
+  - a **managed** one says `Saved, not yet live` instead — a durable condition,
+    not a phase, because nothing else will ever resolve it.
+
+  A server that reports no source mode keeps the behaviour it has today. Absence
+  means "not reported", never "managed": `fs` mode has no project to have a mode,
+  and neither does a content service that predates the field.
+
+  **The Studio also loads `@valbuild/tanstack-build` in the tab**, at mount and at
+  idle, for the managed projects that will need it — a browser that is the
+  deployer needs a bundler. This is the groundwork for browser-side publishing;
+  the publish path itself is unchanged in this release.
+
+  That bundler is `@rolldown/browser`, whose WebAssembly binary is 10.9 MB and is
+  **not** in the npm package. It is served from `static.val.build`, addressed by
+  the SHA-256 of its own bytes, so the build and the binary it needs cannot drift
+  apart. A deployment that must not reach that host — an air-gapped install, a
+  mirror — sets `globalThis.__VAL_ROLLDOWN_WASM_URL__` before the Studio loads and
+  needs no rebuild.
+
+  **Building in the browser requires a cross-origin isolated page.** Rolldown runs
+  WebAssembly on worker threads that share memory, and a browser will not hand a
+  `SharedArrayBuffer` to a worker otherwise. Without
+  `Cross-Origin-Opener-Policy: same-origin` and
+  `Cross-Origin-Embedder-Policy: require-corp` on the document Val is mounted in,
+  loading the bundler now fails with a message that says exactly that, instead of
+  a `DataCloneError` thrown from inside a worker. Nothing else in this release is
+  affected: a Studio that never builds in the browser never asks.
+
+### Patch Changes
+
+- [#699](https://github.com/valbuild/val/pull/699) [`1d72d00`](https://github.com/valbuild/val/commit/1d72d00a1b036959ae0f1540121701cbb2694dcb) Thanks [@freekh](https://github.com/freekh)! - A `*.val.ts` with no default export is no longer reported as a missing module
+
+  `*.val.ts` is a naming convention, not a promise: plenty of files under it hold
+  only the schemas and helpers the modules beside them import. Every one of those
+  was getting two errors in the editor — `Module '…' was not found in
+val.modules` and `… is not registered in val.modules, so Val will not serve it`
+  — both on line 1, telling their author to register a file that has nothing to
+  register. `val validate` has never reported them; only the editor did.
+
+  The default export is what makes a `*.val.ts` a module, so that is what the
+  diagnostic now asks about:
+
+  - **No default export → nothing is reported.** The file is not a module, so it
+    is not a module Val is failing to serve.
+  - **A default export → one diagnostic, on the `export default` itself** rather
+    than on line 1, so it is next to the thing that has to change, and the
+    duplicate fatal beside it is gone. The message now gives both remedies: add
+    the file to `val.modules`, or export what it holds by name instead. The "Val:
+    register … in val.modules" quick fix is offered there.
+
+  The rule is `findDefaultExport` in `@valbuild/server`, which `val validate`
+  already used to decide the same question — so the editor and the CLI now agree
+  about which files are modules, including the cases that are easy to get wrong
+  (`export * from …` carries no default; `export type { T as default }` and
+  `export default interface T {}` are both gone after transpilation).
+
+  Because the diagnostic now replaces a module's own findings rather than adding
+  to them, the editor also stops guessing about registration it cannot read: a
+  `val.modules` that registers modules through a tsconfig path alias
+  (`import("_/content/page.val")`), or that builds its list in another file, is no
+  longer taken to register nothing.
+
+- Updated dependencies [[`f3a4bb7`](https://github.com/valbuild/val/commit/f3a4bb7aea604943b92545c122243798c759715c)]:
+  - @valbuild/ui@0.136.0
+  - @valbuild/core@0.136.0
+  - @valbuild/shared@0.136.0
+
 ## 0.135.0
 
 ### Patch Changes
