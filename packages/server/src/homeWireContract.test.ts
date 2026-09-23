@@ -623,3 +623,128 @@ test("a deployment built from a repository still sends both", async () => {
     restore();
   }
 });
+
+/**
+ * A DRAFT FILE'S BYTES, and the encoding the two sides have to agree on.
+ *
+ * `PUT /files` answers a `value` per file, and for a while that field carried
+ * TWO encodings told apart only by which branch produced them: a `data:` URL
+ * for a `patch` file, plain base64 for a `repo` one. `home#38` made both plain
+ * base64 and val#563 stopped unwrapping the data URL — a PAIRED change, which
+ * is the dangerous kind, because either half shipped alone is silently wrong.
+ *
+ * It did ship alone, and here is what that looked like: an editor uploaded an
+ * image, the Studio showed a broken tile, and the image appeared correctly the
+ * moment the change was PUBLISHED. `bufferFromDataUrl` found no `;base64,` in
+ * what it was handed, returned undefined,
+ * `getBase64EncodedBinaryFileFromPatch` turned that into `null`, and
+ * `/api/val/files?patch_id=…` answered 404. Nothing logged anything. The
+ * published image was fine because that read goes through the `repo` branch,
+ * which was already plain base64 — so the failure looked like "draft images do
+ * not work" rather than like an encoding mismatch.
+ *
+ * Pinned HERE rather than only in e2e because the e2e mock is ours: it answers
+ * base64 today, and if it ever went back to a data URL the suite would stay
+ * green against a service that does not. That is the whole reason this file
+ * exists. The two e2e tests that would notice a regression are incidental —
+ * `http/aiChat.spec.ts` (an AI-written image) and `http/remoteFiles.spec.ts`
+ * (a remote one) — and neither is the plain local upload that broke.
+ */
+
+/** Bytes with a byte over 0x7f, which is what a wrong encoding mangles first. */
+const PNG_BYTES = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0x00, 0xfe, 0x42,
+]);
+const FILE_PATH = "/public/val/photo.png";
+const PATCH_ID = "55555555-5555-4555-8555-555555555555" as PatchId;
+
+/** `home` — `putFiles.ts` builds a patch file's `value` as `bytes.toString("base64")`. */
+const HOME_PATCH_FILE = {
+  files: [
+    {
+      filePath: FILE_PATH,
+      location: "patch",
+      patchId: PATCH_ID,
+      value: PNG_BYTES.toString("base64"),
+      remote: false,
+    },
+  ],
+};
+
+/** The same endpoint's `repo` branch, which has always been plain base64. */
+const HOME_REPO_FILE = {
+  files: [
+    {
+      filePath: FILE_PATH,
+      location: "repo",
+      commitSha: "commit-sha",
+      value: PNG_BYTES.toString("base64"),
+    },
+  ],
+};
+
+test("a draft file's bytes come back as home sends them: plain base64", async () => {
+  const { ops, restore } = opsAnswering(HOME_PATCH_FILE);
+  try {
+    const bytes = await ops.getBase64EncodedBinaryFileFromPatch(
+      FILE_PATH,
+      PATCH_ID,
+      false,
+    );
+
+    // Byte for byte. A length check would not do: a mis-decode of this value
+    // still produces *some* bytes, and "an image came back" is exactly what
+    // the broken tile looked like.
+    expect(bytes).not.toBeNull();
+    expect(Buffer.from(bytes!)).toEqual(PNG_BYTES);
+  } finally {
+    restore();
+  }
+});
+
+test("and a published file's bytes do too, through the other branch", async () => {
+  // The two branches reading one field differently is the whole bug, so the
+  // pair is asserted together rather than separately.
+  const { ops, restore } = opsAnswering(HOME_REPO_FILE);
+  try {
+    const bytes = await ops.getBinaryFile(FILE_PATH);
+
+    expect(bytes).not.toBeNull();
+    expect(Buffer.from(bytes!)).toEqual(PNG_BYTES);
+  } finally {
+    restore();
+  }
+});
+
+test("a data: URL in that field is NOT the same bytes, which is why it broke", async () => {
+  /*
+   * The old shape, run through today's reader. This does not throw and it does
+   * not answer null — `Buffer.from(dataUrl, "base64")` decodes the prefix as
+   * though it were payload and skips what it cannot — so a service that went
+   * back to data URLs would serve a corrupt image rather than an error.
+   *
+   * Asserted as "not equal" rather than as some particular garbage: the point
+   * is that the two encodings are not interchangeable, so whoever finds this
+   * test knows why the tile is broken and which side to look at.
+   */
+  const { ops, restore } = opsAnswering({
+    files: [
+      {
+        ...HOME_PATCH_FILE.files[0],
+        value: `data:image/png;base64,${PNG_BYTES.toString("base64")}`,
+      },
+    ],
+  });
+  try {
+    const bytes = await ops.getBase64EncodedBinaryFileFromPatch(
+      FILE_PATH,
+      PATCH_ID,
+      false,
+    );
+
+    expect(bytes).not.toBeNull();
+    expect(Buffer.from(bytes!)).not.toEqual(PNG_BYTES);
+  } finally {
+    restore();
+  }
+});
