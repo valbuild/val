@@ -58,6 +58,7 @@ import { useValSystem } from "../stores/react/SystemContext";
 import type { StatusSnapshot } from "../stores/StatusStore";
 import type { PatchErrorEntry, PatchRecord } from "../stores/types";
 import type { PatchAtPath } from "../stores/PatchStore";
+import { useStudioDeploy } from "../publish/useStudioDeploy";
 import { ValOverlayEmitter } from "../stores/react/ValOverlayEmitter";
 import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
@@ -2195,6 +2196,17 @@ export function usePublishSummary() {
     }
   }, [publishSummaryState, runtimeConfig, setPublishSummaryState]);
   const [isPublishing, setIsPublishing] = useState(false);
+  /**
+   * In managed mode the commit is only half of a publish.
+   *
+   * There is no repository and no host watching one, so nothing outside this
+   * browser will turn the commit into a running site -- the Studio is the
+   * deployer. A connected project's `deploy` is never called: there a host
+   * genuinely does pick the commit up, which is what `Building` in the feed
+   * has always meant.
+   */
+  const studioIsDeployer = useStudioIsDeployer();
+  const { state: deployState, deploy } = useStudioDeploy();
   const publish = useCallback(
     async (summary: string) => {
       if (globalServerSidePatchIds === null) {
@@ -2234,13 +2246,37 @@ export function usePublishSummary() {
         return first;
       };
       return attempt()
-        .then((res) => {
+        .then(async (res) => {
           if (res.status === "published") {
             deleteSummaryStateFromLocalStorage(runtimeConfig?.project);
             setPublishSummaryState((prev) => ({
               type: "not-asked",
               isGenerating: prev.isGenerating,
             }));
+            if (studioIsDeployer) {
+              /*
+               * The commit has landed, so nothing here can lose an edit -- the
+               * worst case is a project that is saved and not yet live, which
+               * is a state the deploy feed shows and `Finish publishing`
+               * resolves. Reported rather than thrown for the same reason: a
+               * publish whose build failed is not a publish that did nothing.
+               */
+              const deployed = await deploy(res.commitSha ?? null);
+              if (deployed.status === "failed") {
+                val.system.status.reportError(
+                  "Your changes are saved, but the site has not been rebuilt.",
+                  [
+                    deployed.message,
+                    ...deployed.problems.map(
+                      (problem) =>
+                        `${problem.code}: ${problem.message}${
+                          problem.hint ? ` (${problem.hint})` : ""
+                        }`,
+                    ),
+                  ].join("\n"),
+                );
+              }
+            }
           } else if (res.status === "refused") {
             // Said out loud rather than swallowed: a publish button that does
             // nothing and reports nothing is how a user comes to believe their
@@ -2269,6 +2305,8 @@ export function usePublishSummary() {
       isPublishing,
       runtimeConfig?.project,
       setPublishSummaryState,
+      studioIsDeployer,
+      deploy,
     ],
   );
   const setSummary = useCallback(
@@ -2308,8 +2346,17 @@ export function usePublishSummary() {
      * There are only two reasons: a publish is running, or something in the
      * chain cannot be published. Both are already known here.
      */
-    publishDisabled: isPublishing || hasPatchErrors === true,
-    isPublishing,
+    publishDisabled:
+      isPublishing ||
+      hasPatchErrors === true ||
+      deployState.status === "running",
+    /*
+     * A publish is not over when the commit lands. In managed mode the build
+     * that makes it live runs here, so a button that stopped spinning at the
+     * commit would say "done" over a site that has not changed.
+     */
+    isPublishing: isPublishing || deployState.status === "running",
+    deployState,
     /**
      * Whether the project wants AI to write its commit messages.
      *
