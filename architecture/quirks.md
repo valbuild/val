@@ -816,6 +816,47 @@ nothing. `assertNoPlaceholdersLeft` would not complain, because the marker is
 gone in exactly the way it wants. Check `git status` after any
 `pnpm --filter @valbuild/ui build` and `git checkout packages/ui/src/index.ts`.
 
+### The Studio's bundler needs a cross-origin isolated page, and nothing says so
+
+`@rolldown/browser` is a THREADED WASI build. Its loader constructs
+`new WebAssembly.Memory({ initial: 16384, maximum: 65536, shared: true })` at
+module scope — 1 GiB committed, 4 GiB maximum — and `postMessage`s it to
+`max(2, hardwareConcurrency)` workers. A browser refuses to transfer a
+`SharedArrayBuffer` to a worker unless the document is cross-origin isolated, so
+on an ordinary page the import rejects with
+
+```
+DataCloneError: Failed to execute 'postMessage' on 'Worker':
+SharedArrayBuffer transfer requires self.crossOriginIsolated
+```
+
+thrown from inside `loadWasmModuleToAllWorkers` — naming nothing an editor or a
+developer could act on, and reaching the page as an unhandled rejection from a
+dynamic import.
+
+Measured in Chromium both ways, against a real build of the Studio's chunk:
+with `Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp` on the document, the same import
+gets past it; without them it always fails. There is no fallback in the package
+— no `crossOriginIsolated` check, no single-threaded path.
+
+**The part that looks like the problem and is not:** constructing the shared
+memory SUCCEEDS on an ordinary page, and `memory.buffer.constructor.name` is
+`SharedArrayBuffer`, even though the `SharedArrayBuffer` global is not exposed
+there. So a check on `typeof SharedArrayBuffer` or a try/catch around the
+constructor both report that everything is fine. The refusal is at the
+transfer, one step later.
+
+`builderRefusal` in `spa/publish/loadBuilder.ts` is what turns this into a
+sentence, and it is asked BEFORE the 10.9 MB is fetched.
+
+**The headers are not this package's to set**, and they are not free.
+`require-corp` blocks every cross-origin subresource that does not send
+`Cross-Origin-Resource-Policy` — which for a CMS means images an editor pointed
+at anywhere, and the site preview in the canvas. Turning it on is a decision
+about what happens to those, made by whoever serves the document the Studio is
+mounted in.
+
 ### The Studio's bundler is NOT in the base64 record, and must stay out
 
 The SPA dynamically imports `@valbuild/tanstack-build` so a managed project can

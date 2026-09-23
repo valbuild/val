@@ -100,7 +100,7 @@ async function main() {
  * utf-8 it does not round-trip, and its base64 is 14.5 MB of string literal in
  * each server bundle -- which `wire.ts` then carries into every project's
  * vendor layer, because it declares `@valbuild/ui` as a project dependency.
- * See `build/rolldownWasm.mjs`.
+ * See `build/rolldownWasm.ts`.
  *
  * Asserted on the BUILT artifact rather than on the build step, for the same
  * reason everything else here is: the substitution is a string replacement over

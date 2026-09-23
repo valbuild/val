@@ -1,6 +1,7 @@
 import {
   StudioBuilder,
-  builderIsLoading,
+  builderLoadStarted,
+  builderRefusal,
   loadBuilder,
   preloadBuilder,
   setBuilderLoader,
@@ -25,6 +26,14 @@ const builder = {} as StudioBuilder;
 
 beforeEach(() => {
   setBuilderLoader(async () => builder);
+  // Every test below is about what happens once the page CAN run the builder.
+  // jsdom is not cross-origin isolated, and `loadBuilder` refuses first — see
+  // the suite at the bottom, which is where that refusal is tested.
+  (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated = true;
+});
+
+afterEach(() => {
+  delete (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated;
 });
 
 describe("loading once", () => {
@@ -66,7 +75,7 @@ describe("after a failure", () => {
       return builder;
     });
     await expect(loadBuilder()).rejects.toThrow("offline");
-    expect(builderIsLoading()).toBe(false);
+    expect(builderLoadStarted()).toBe(false);
     await expect(loadBuilder()).resolves.toBe(builder);
     expect(calls).toBe(2);
   });
@@ -112,5 +121,42 @@ describe("preloading", () => {
         idle;
     }
     expect(calls).toBe(1);
+  });
+});
+
+/**
+ * A page that is not cross-origin isolated cannot run the bundler at all.
+ *
+ * `@rolldown/browser` posts a `SharedArrayBuffer` to a worker per core, and a
+ * browser refuses that transfer outside an isolated page. Measured in Chromium
+ * both ways; see the module docblock. The failure without this guard is a
+ * `DataCloneError` thrown from inside `loadWasmModuleToAllWorkers`, which says
+ * nothing about what to do.
+ */
+describe("a page that is not cross-origin isolated", () => {
+  test("is refused before anything is fetched", async () => {
+    // The point of refusing FIRST: 10.9 MB is not downloaded to discover this.
+    delete (globalThis as { crossOriginIsolated?: boolean })
+      .crossOriginIsolated;
+    let calls = 0;
+    setBuilderLoader(async () => {
+      calls++;
+      return builder;
+    });
+    await expect(loadBuilder()).rejects.toThrow(/cross-origin isolated/);
+    expect(calls).toBe(0);
+    expect(builderLoadStarted()).toBe(false);
+  });
+
+  test("the refusal names the two headers that fix it", () => {
+    // It is the app's document that has to send them, not anything in this
+    // package, so the message has to be actionable on its own.
+    const refusal = builderRefusal({});
+    expect(refusal).toContain("Cross-Origin-Opener-Policy: same-origin");
+    expect(refusal).toContain("Cross-Origin-Embedder-Policy: require-corp");
+  });
+
+  test("and an isolated one is not refused", () => {
+    expect(builderRefusal({ crossOriginIsolated: true })).toBeNull();
   });
 });

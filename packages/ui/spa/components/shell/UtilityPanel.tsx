@@ -323,19 +323,32 @@ export function UtilityPanel({
  * commit is not something the Studio can open. Its icon is the deploy feed's —
  * a spinner while it builds, a warning when it failed — so the same publish
  * looks the same in both places.
+ *
+ * `deployIcon` is a switch rather than a ternary chain for exactly that reason:
+ * a chain's `else` silently claimed success for `saved-not-live` the moment
+ * that state was added, so the row showed a rocket beside the words "Saved, not
+ * yet live" — the disagreement between the two surfaces that threading the
+ * source mode through `toActivity` was supposed to prevent.
  */
+function deployIcon(progress: ShellDeployActivity["progress"]) {
+  switch (progress) {
+    case "building":
+      return <Loader2 size={13} className="animate-spin text-fg-secondary" />;
+    case "failed":
+      return <CircleAlert size={13} className="text-fg-error-on-surface" />;
+    case "saved-not-live":
+      // Not a spinner and not red, as in the deploy feed: nothing is turning,
+      // and a durable condition is not an alarm. See `SummaryIcon`.
+      return <CircleAlert size={13} className="text-fg-secondary" />;
+    case "settled":
+      return <Rocket size={13} className="text-fg-secondary-alt" />;
+  }
+}
+
 function DeployActivityRow({ entry }: { entry: ShellDeployActivity }) {
   return (
     <div className="flex gap-2 w-full px-1.5 py-1.5">
-      <span className="mt-0.5 shrink-0">
-        {entry.progress === "building" ? (
-          <Loader2 size={13} className="animate-spin text-fg-secondary" />
-        ) : entry.progress === "failed" ? (
-          <CircleAlert size={13} className="text-fg-error-on-surface" />
-        ) : (
-          <Rocket size={13} className="text-fg-secondary-alt" />
-        )}
-      </span>
+      <span className="mt-0.5 shrink-0">{deployIcon(entry.progress)}</span>
       <ActivityLines
         title={entry.title}
         detail={`${entry.state}${entry.author ? ` · ${entry.author}` : ""} · ${

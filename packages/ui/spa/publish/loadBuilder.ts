@@ -37,6 +37,35 @@
  * act on, and saying it twice would mean saying it first at a moment nobody
  * asked a question.
  *
+ * ## The page has to be cross-origin isolated
+ *
+ * `@rolldown/browser` builds on a THREADED WASI runtime: its loader constructs
+ * `new WebAssembly.Memory({ shared: true })` at module scope and `postMessage`s
+ * it to a worker per core. A browser refuses to transfer a `SharedArrayBuffer`
+ * unless the page is cross-origin isolated, so on an ordinary page the import
+ * rejects with
+ *
+ *     DataCloneError: Failed to execute 'postMessage' on 'Worker':
+ *     SharedArrayBuffer transfer requires self.crossOriginIsolated
+ *
+ * from inside `loadWasmModuleToAllWorkers`, which names nothing an editor or a
+ * developer could act on. Measured in Chromium both ways: with
+ * `Cross-Origin-Opener-Policy: same-origin` and
+ * `Cross-Origin-Embedder-Policy: require-corp` on the document, the same import
+ * gets past it.
+ *
+ * Note which part is NOT the problem, because it looks like it should be:
+ * constructing the shared memory succeeds on an ordinary page and its buffer
+ * really is a `SharedArrayBuffer`, even though the `SharedArrayBuffer` global
+ * is not exposed there. The refusal is at the transfer, one step later.
+ *
+ * So {@link loadBuilder} refuses first, with a message that says what to do.
+ * That is not a policy this package can set — the headers belong to the
+ * document the Studio is mounted in, which is the app's, and
+ * `require-corp` additionally blocks every cross-origin subresource that does
+ * not send `Cross-Origin-Resource-Policy`. A CMS whose editors put images from
+ * anywhere on a page cannot turn that on without deciding what happens to them.
+ *
  * ## What publish will add, and why it is not here
  *
  * Publish awaits {@link loadBuilder}, and when it has to wait it is meant to
@@ -91,8 +120,37 @@ export function setBuilderLoader(next: BuilderLoader): BuilderLoader {
  */
 let pending: Promise<StudioBuilder> | null = null;
 
+/**
+ * Why the builder cannot be loaded here, or `null` when it can.
+ *
+ * Asked before anything is fetched, so a page that could never run it pays
+ * nothing — which is most pages: `crossOriginIsolated` is false unless the
+ * document opted in. See the module docblock for what was measured.
+ */
+export function builderRefusal(
+  scope: { crossOriginIsolated?: boolean } = globalThis,
+): string | null {
+  if (scope.crossOriginIsolated === true) {
+    return null;
+  }
+  return (
+    "The bundler needs a cross-origin isolated page: it runs WebAssembly on " +
+    "worker threads that share memory, and a browser will not hand a " +
+    "SharedArrayBuffer to a worker without it. Serve the page Val is mounted " +
+    "in with 'Cross-Origin-Opener-Policy: same-origin' and " +
+    "'Cross-Origin-Embedder-Policy: require-corp'."
+  );
+}
+
 export function loadBuilder(): Promise<StudioBuilder> {
   if (pending === null) {
+    const refusal = builderRefusal();
+    if (refusal !== null) {
+      // Not memoised, and not a rejected `pending`: the page's isolation does
+      // not change under us, but a caller that asks again should get the
+      // sentence again rather than a stale promise.
+      return Promise.reject(new Error(refusal));
+    }
     pending = loader().catch((error) => {
       pending = null;
       throw error;
@@ -101,8 +159,15 @@ export function loadBuilder(): Promise<StudioBuilder> {
   return pending;
 }
 
-/** Whether the builder is already in hand, without starting a load. */
-export function builderIsLoading(): boolean {
+/**
+ * Whether a load has been STARTED, without starting one.
+ *
+ * Not "is it in hand" and not "is it still going": the promise is kept after it
+ * resolves, so this stays true once anything has asked. What it is for is the
+ * one distinction the retry rule needs — a failed load clears it, so a caller
+ * can tell "nobody has tried" and "the last try failed" from "a load exists".
+ */
+export function builderLoadStarted(): boolean {
   return pending !== null;
 }
 

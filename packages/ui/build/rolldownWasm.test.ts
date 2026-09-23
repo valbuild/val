@@ -65,8 +65,11 @@ describe("addressing", () => {
 
 describe("what must not be embedded", () => {
   test("is every .wasm, not the one filename", () => {
-    // Named by content hash in the output, and a rolldown that shipped a second
-    // binary would slip past a check on the exact name.
+    // The emitted name carries a content hash, so a check on the literal
+    // filename would miss the rename this exists to notice. Finding a second
+    // binary is not the same as handling one: the URL addresses a single
+    // digest, so `closeBundle` refuses that build rather than pointing both at
+    // the same bytes.
     expect(
       wasmAssetsIn([
         "index-abc.js",

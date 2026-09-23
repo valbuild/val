@@ -6,7 +6,7 @@
  * npm package: `/api/val/static` is a base64 record of TEXT inside the server
  * bundle, and `@valbuild/tanstack-build`'s `wire.ts` declares `@valbuild/ui` as
  * a project dependency, so anything embedded there lands in every project's
- * vendor layer. `build/rolldownWasm.mjs` has the measurements.
+ * vendor layer. `build/rolldownWasm.ts` has the measurements.
  *
  * ## Why this cannot get out of step with a release
  *
@@ -39,8 +39,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
-const HERE = path.dirname(new URL(import.meta.url).pathname);
+/*
+ * `fileURLToPath`, not `new URL(...).pathname`: a checkout under a path with a
+ * space in it comes back percent-encoded from `pathname`, and every path built
+ * from it then points at a directory that does not exist.
+ */
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MANIFEST = path.join(HERE, "..", "server", "rolldown-wasm.json");
 
 function fail(message) {

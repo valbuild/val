@@ -38,3 +38,12 @@ the SHA-256 of its own bytes, so the build and the binary it needs cannot drift
 apart. A deployment that must not reach that host — an air-gapped install, a
 mirror — sets `globalThis.__VAL_ROLLDOWN_WASM_URL__` before the Studio loads and
 needs no rebuild.
+
+**Building in the browser requires a cross-origin isolated page.** Rolldown runs
+WebAssembly on worker threads that share memory, and a browser will not hand a
+`SharedArrayBuffer` to a worker otherwise. Without
+`Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp` on the document Val is mounted in,
+loading the bundler now fails with a message that says exactly that, instead of
+a `DataCloneError` thrown from inside a worker. Nothing else in this release is
+affected: a Studio that never builds in the browser never asks.

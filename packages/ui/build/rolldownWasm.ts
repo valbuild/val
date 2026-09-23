@@ -94,7 +94,7 @@ export function findRolldownWasm(fromDir: string): string {
     throw new Error(
       `@rolldown/browser does not have dist/${WASM_FILENAME} (looked in ${file}). ` +
         `Either the package changed its layout or the binary is not installed; ` +
-        `see packages/ui/build/rolldownWasm.mjs.`,
+        `see packages/ui/build/rolldownWasm.ts.`,
     );
   }
   return file;
@@ -126,8 +126,15 @@ export function wasmUrlExpression(url: string): string {
 /**
  * Which emitted files this build must not keep.
  *
- * Every `.wasm` rather than the one name, so a rolldown that ships a second
- * binary is caught here instead of being embedded.
+ * Every `.wasm` rather than the one name, because the name is content-hashed
+ * and a check on the literal filename would miss the rename this is here to
+ * notice.
+ *
+ * It does NOT follow that a second binary is handled. The URL addresses ONE
+ * digest, and `renderBuiltUrl` rewrites every `.wasm` to it — so a build that
+ * emitted two would point the second at the first's bytes and then delete it,
+ * which is a wrong answer rather than a missing one. `closeBundle` refuses that
+ * case outright; this function only says which files are in it.
  */
 export function wasmAssetsIn(files: string[]): string[] {
   return files.filter((file) => file.endsWith(".wasm"));
@@ -198,6 +205,25 @@ export function rolldownWasmPlugin({
         );
       }
       /*
+       * One binary, or none of this is true.
+       *
+       * The rewrite sends every `.wasm` to ONE content-addressed URL, so a
+       * build that emitted two would serve the first's bytes for both and then
+       * delete the second — silently, and with a digest that is honestly
+       * computed and describes the wrong file. There is no correct behaviour
+       * available here, so this refuses instead of choosing one.
+       */
+      if (emitted.length > 1) {
+        throw new Error(
+          `The Studio build emitted more than one .wasm asset ` +
+            `(${emitted.join(", ")}), and this serves exactly one from ` +
+            `${url}. Every one of them would be rewritten to that single URL, ` +
+            `so the extra binaries would resolve to the wrong bytes. Give each ` +
+            `its own content-addressed URL before removing this check.`,
+        );
+      }
+
+      /*
        * Nothing may still be pointing at what is about to be deleted.
        *
        * The rewrite above and this deletion are two halves of one change, and
@@ -225,7 +251,7 @@ export function rolldownWasmPlugin({
               `Deleting it would ship a 404. Referenced by: ` +
               `${holdouts.map((chunk) => chunk.name).join(", ")}. ` +
               `Vite's renderBuiltUrl did not take effect -- see the config() ` +
-              `hook in packages/ui/build/rolldownWasm.mjs.`,
+              `hook in packages/ui/build/rolldownWasm.ts.`,
           );
         }
       }

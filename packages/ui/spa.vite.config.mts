@@ -8,7 +8,7 @@ const OUT_DIR = "./server/.tmp";
  *
  * Everything this emits is base64-embedded into the server bundle by
  * `fix-server-hack.js` and served from `/api/val/static` -- with one exception,
- * which is what the plugin below is for. See `build/rolldownWasm.mjs`.
+ * which is what the plugin below is for. See `build/rolldownWasm.ts`.
  */
 // https://vitejs.dev/config/
 export default defineConfig({
