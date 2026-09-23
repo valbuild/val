@@ -1514,6 +1514,7 @@ function ReviewRoute() {
   const navigation = useNavigation();
   const portalContainer = useValPortal();
   const discardAll = useDiscardAll();
+  const mode = useValMode();
   return (
     <ReviewLoader>
       {(patchSets) => (
@@ -1521,7 +1522,17 @@ function ReviewRoute() {
           <ReviewSurface
             patchSets={patchSets}
             onCompare={() => navigation.navigate(VAL_COMPARE_ROUTE)}
-            onRestore={() => navigation.navigate(VAL_HISTORY_ROUTE)}
+            /*
+             * Only where there IS a published history: `ValOpsFS` answers
+             * `not-supported-in-fs-mode`, and the top bar hides its own
+             * History button on the same test. Two ways in that disagree
+             * about whether the feature exists is worse than one.
+             */
+            onRestore={
+              mode === "http"
+                ? () => navigation.navigate(VAL_HISTORY_ROUTE)
+                : undefined
+            }
             onDiscardAll={discardAll.discardAll}
             discardAllDescription={discardAll.description}
             portalContainer={portalContainer}

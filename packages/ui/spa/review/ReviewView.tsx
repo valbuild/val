@@ -78,8 +78,16 @@ export function ReviewView({
   initialSelection?: string[];
   /** Open the compare dialog over what is staged. */
   onCompare: () => void;
-  /** Go to the history page, to bring back a value that was published. */
-  onRestore: () => void;
+  /**
+   * Go to the history page, to bring back a value that was published.
+   *
+   * OPTIONAL, and absent hides the button entirely rather than disabling it.
+   * There is no published history in fs mode — the content host is a directory
+   * and `ValOpsFS` answers `not-supported-in-fs-mode` — so the button would
+   * lead to a page whose only content is an apology. Same rule, and the same
+   * reason, as `historyEnabled` on the top bar.
+   */
+  onRestore?: () => void;
   onStage: (rowIds: string[]) => void;
   onUnstage: (rowIds: string[]) => void;
   onDiscard: (rowIds: string[]) => void;
@@ -187,19 +195,33 @@ export function ReviewView({
            * It opens the history page rather than a panel over this one: a
            * restore is reviewed, sometimes by somebody else, and a link is what
            * makes that possible. See `VAL_HISTORY_ROUTE`.
+           *
+           * Gone entirely where there is no published history, rather than
+           * disabled: local dev has git, not a commit archive.
            */}
-          <Button size="sm" variant="secondary" onClick={onRestore}>
-            <History size={13} aria-hidden />
-            {COMMITTED.shortMode} from history
-          </Button>
+          {onRestore !== undefined && (
+            <Button size="sm" variant="secondary" onClick={onRestore}>
+              <History size={13} aria-hidden />
+              {COMMITTED.shortMode} from history
+            </Button>
+          )}
           {/*
            * `secondary`, not the accent: the primary action here is Publish,
            * which the shell owns, and a second filled button beside it would
            * compete with the thing this page exists to lead to.
+           *
+           * "staged" only where staging exists. Without patch groups there is
+           * no staged half to compare — the compare view shows the whole
+           * pending chain, which is what this button opens and what it should
+           * therefore say. It was "Compare staged changes" in both, which made
+           * a button that works perfectly well in fs mode read as one that
+           * belongs to a feature fs mode does not have.
            */}
           <Button size="sm" variant="secondary" onClick={onCompare}>
             <GitCompareArrows size={13} aria-hidden />
-            Compare staged changes
+            {model.stagingEnabled
+              ? "Compare staged changes"
+              : "Compare changes"}
           </Button>
         </div>
       </header>

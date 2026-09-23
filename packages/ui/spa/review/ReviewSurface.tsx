@@ -36,7 +36,8 @@ export function ReviewSurface({
 }: {
   patchSets: SerializedPatchSet;
   onCompare: () => void;
-  onRestore: () => void;
+  /** Absent where there is no published history to restore from. */
+  onRestore?: () => void;
   onDiscardAll: () => void;
   discardAllDescription?: string;
   portalContainer?: HTMLElement | null;

@@ -33,7 +33,12 @@ function Harness({
         model={model}
         initialSelection={initialSelection}
         onCompare={() => undefined}
-        onRestore={() => undefined}
+        /*
+         * Absent in fs mode, which is what the NoStaging story is: there is no
+         * published history there, so the button would lead to a page whose
+         * only content is an apology.
+         */
+        onRestore={model.mode === "fs" ? undefined : () => undefined}
         onStage={() => undefined}
         onUnstage={() => undefined}
         onDiscard={() => undefined}
@@ -139,6 +144,18 @@ export const Empty: Story = { args: { model: emptyReviewModel } };
  * that silently does nothing is worse than no control. The checkboxes stay,
  * because selecting rows to revert works without a group to put them in, and
  * so does the Unstaged section — empty, saying so.
+ *
+ * Two more things are different here, and both were wrong before:
+ *
+ * - **Restore from history is gone.** `ValOpsFS` answers
+ *   `not-supported-in-fs-mode`; local dev has git, not a commit archive. The
+ *   top bar hides its own History button on the same test, and two ways in
+ *   that disagree about whether a feature exists is worse than one.
+ * - **Compare does not say "staged".** Without patch groups there is no staged
+ *   half to compare — the dialog opens over the whole pending chain, which is
+ *   what the button should therefore say. Saying "staged" made a button that
+ *   works perfectly well here read as one belonging to a feature this mode
+ *   does not have.
  */
 export const NoStaging: Story = { args: { model: noStagingReviewModel } };
 
