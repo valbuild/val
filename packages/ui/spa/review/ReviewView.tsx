@@ -674,6 +674,7 @@ function Section({
               onToggle={onToggle}
               onDiscard={onDiscard}
               muted={muted}
+              portalContainer={portalContainer}
             />
           ))}
     </section>
@@ -687,6 +688,7 @@ function ModuleGroup({
   onToggle,
   onDiscard,
   muted,
+  portalContainer,
 }: {
   group: ReviewModuleGroup;
   model: ReviewModel;
@@ -694,6 +696,7 @@ function ModuleGroup({
   onToggle: (rowId: string, next: boolean) => void;
   onDiscard: (rowId: string) => void;
   muted: boolean;
+  portalContainer: HTMLElement | null;
 }) {
   return (
     <div className="mb-6 last:mb-0">
@@ -736,6 +739,7 @@ function ModuleGroup({
             checked={selected.has(row.id)}
             onToggle={(next) => onToggle(row.id, next)}
             onDiscard={() => onDiscard(row.id)}
+            portalContainer={portalContainer}
           />
         ))}
       </div>
@@ -749,12 +753,15 @@ function Row({
   checked,
   onToggle,
   onDiscard,
+  portalContainer,
 }: {
   row: ReviewRow;
   model: ReviewModel;
   checked: boolean;
   onToggle: (next: boolean) => void;
   onDiscard: () => void;
+  /** Where the author popover portals to, inside the shadow root. */
+  portalContainer: HTMLElement | null;
 }) {
   const named = row.description.origin.title === "preview";
   return (
@@ -838,7 +845,17 @@ function Row({
           patchesByAuthorIds={row.authors}
           profilesByAuthorIds={model.profiles}
           now={model.now}
-          portalContainer={null}
+          /*
+           * Into the shadow root, not `document.body`.
+           *
+           * This was `null`, which is Radix's default: portal to the body —
+           * OUTSIDE the shadow root the Studio lives in, where `index.css` is
+           * not. The avatars rendered fine and the popover behind them opened
+           * into an unstyled void, so the one place an author's full NAME is
+           * written out was invisible. Caught by `attribution.spec.ts`, which
+           * asserts exactly that name inside `#val-shadow-root`.
+           */
+          portalContainer={portalContainer}
           mode={model.mode}
         />
       </span>

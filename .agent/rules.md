@@ -775,11 +775,7 @@ cd examples/next && ./node_modules/.bin/val validate   # the `val` bin is linked
 
 The example app might have known pre-existing content errors (missing image files, stale image metadata), so a non-zero error count can be expected. What you are verifying is that the modules **load and validate at all** — a regression in the loader shows up as a thrown error or `0 valid` files, not as a changed error count.
 
-## Running the Studio against a content host locally
-
-```bash
-pnpm run dev:example-next:http     # then open the login URL it prints
-```
+## Proxy mode, and why the Studio's history UI is hard to reach locally
 
 `pnpm run dev:example-next` gives you **fs mode**, where the content host is a
 directory and the server is `ValOpsFS`. A deployed app runs **proxy mode**, and
@@ -790,13 +786,10 @@ and **history and restore**, which `ValOpsFS` answers
 fs mode (`historyEnabled` is false, so `/val/history` is never linked to), and
 no amount of clicking in the normal dev loop reaches that UI.
 
-`scripts/devProxyMode.ts` starts the same three processes the `chromium-http`
-Playwright project uses — `e2e/mock-content-host`, the Studio's Vite server,
-and a second `examples/next` on 3457 — importing their ports and secrets from
-`e2e/http/config.ts` so the two cannot drift. It adds the two things a human
-needs and a test does not: a login (proxy mode refuses every request without a
-signed session, and the real one goes to admin.val.build) and a seeded history
-to open. See [`docs/local-proxy-mode.md`](../docs/local-proxy-mode.md).
+What DOES exercise it is the `chromium-http` Playwright project, which starts
+`e2e/mock-content-host` — a faithful stand-in for `home` implementing all five
+history endpoints — alongside a second `examples/next` in proxy mode. Ports and
+secrets live in `e2e/http/config.ts`.
 
 **Do not add a second history implementation to `ValOpsFS`.** The mock content
 host is already a full stand-in for `home`, pinned by `homeWireContract.test.ts`
