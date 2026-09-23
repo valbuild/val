@@ -37,6 +37,9 @@ export type StatusBarProps = {
   deployments?: ShellDeployment[];
   /** See `ShellData.studioIsDeployer`. */
   studioIsDeployer?: boolean;
+  /** See `Shell`'s prop of the same name. */
+  onFinishPublishing?: (commitSha: string) => void;
+  finishingPublish?: boolean;
   deploymentsOpen?: boolean;
   onDeploymentsOpenChange?: (open: boolean) => void;
   /** True when the open list opened itself, which lets it close itself. */
@@ -65,6 +68,8 @@ export function StatusBar({
   branch,
   deployments,
   studioIsDeployer = false,
+  onFinishPublishing,
+  finishingPublish = false,
   deploymentsOpen = false,
   onDeploymentsOpenChange,
   deploymentsAutoOpened = false,
@@ -118,6 +123,8 @@ export function StatusBar({
             <DeploymentsStatus
               deployments={deployments}
               studioIsDeployer={studioIsDeployer}
+              onFinishPublishing={onFinishPublishing}
+              publishing={finishingPublish}
               open={deploymentsOpen}
               onOpenChange={onDeploymentsOpenChange ?? (() => undefined)}
               autoClose={deploymentsAutoOpened}

@@ -81,3 +81,73 @@ describe("a managed project's row", () => {
     expect(screen.getByText(/Building/)).toBeTruthy();
   });
 });
+
+describe("finishing a publish whose build never ran", () => {
+  /*
+   * `Saved, not yet live` is the one row state that needs an action. In
+   * managed mode nothing outside the browser will ever resolve it -- there is
+   * no host to notice the commit -- so a row that only named the state would
+   * be telling someone to wait for something that is not coming.
+   */
+  const stuck = deployment({
+    commitSha: "def4567",
+    isLive: false,
+    state: "pending",
+  });
+
+  test("offered on the stuck row, naming that row's commit", async () => {
+    const finished: string[] = [];
+    render(
+      <DeploymentRows
+        deployments={[stuck]}
+        studioIsDeployer
+        onFinishPublishing={(commitSha) => finished.push(commitSha)}
+      />,
+    );
+    const button = screen.getByRole("button", { name: "Finish publishing" });
+    button.click();
+    // The row's own commit, not "the latest": a project can be stuck at more
+    // than one, and a single button could only ever mean one of them.
+    expect(finished).toEqual(["def4567"]);
+  });
+
+  test("not offered for a connected project", () => {
+    // There a host really does pick the commit up, so the row is `Building`
+    // and there is nothing for anyone here to finish.
+    render(
+      <DeploymentRows
+        deployments={[stuck]}
+        onFinishPublishing={() => undefined}
+      />,
+    );
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
+
+  test("not offered where the surface has no action to give", () => {
+    // The settings sheet lists publishes to look at. Absent the prop, the row
+    // says the state and offers nothing, exactly as it did before.
+    render(<DeploymentRows deployments={[stuck]} studioIsDeployer />);
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
+
+  test("held while a build is already running", () => {
+    // One deploy at a time, and the guard is shared -- so a second row's
+    // button is held too, not just the one that was pressed.
+    render(
+      <DeploymentRows
+        deployments={[
+          stuck,
+          deployment({ commitSha: "aaa1111", isLive: false, state: "pending" }),
+        ]}
+        studioIsDeployer
+        onFinishPublishing={() => undefined}
+        publishing
+      />,
+    );
+    const buttons = screen.getAllByRole("button", { name: "Publishing…" });
+    expect(buttons).toHaveLength(2);
+    expect(buttons.every((button) => button.hasAttribute("disabled"))).toBe(
+      true,
+    );
+  });
+});

@@ -58,7 +58,10 @@ import { useValSystem } from "../stores/react/SystemContext";
 import type { StatusSnapshot } from "../stores/StatusStore";
 import type { PatchErrorEntry, PatchRecord } from "../stores/types";
 import type { PatchAtPath } from "../stores/PatchStore";
-import { useStudioDeploy } from "../publish/useStudioDeploy";
+import {
+  useStudioDeploy,
+  type UseStudioDeploy,
+} from "../publish/useStudioDeploy";
 import { ValOverlayEmitter } from "../stores/react/ValOverlayEmitter";
 import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
@@ -165,6 +168,19 @@ type ValContextValue = {
   client: ValClient;
   publishSummaryState: PublishSummaryState;
   setPublishSummaryState: Dispatch<SetStateAction<PublishSummaryState>>;
+  /**
+   * The browser-side build, and it lives HERE rather than in the hook.
+   *
+   * `useStudioDeploy` guards against two deploys racing with a ref, and a ref
+   * is per instance -- so a hook called from the publish button, the summary
+   * sheet and the shell would give each of them its own guard and its own
+   * phase. The three would not see each other: two could start a build of the
+   * same commit, and the shell's spinner would stop while the button's was
+   * still going.
+   *
+   * One here, for the same reason `publishSummaryState` is here.
+   */
+  deploy: UseStudioDeploy;
   serviceUnavailable: boolean | undefined;
   baseSha: string | undefined;
   config: ValConfig | undefined;
@@ -768,6 +784,8 @@ export function ValProvider({
     useState<PublishSummaryState>({
       type: "not-asked",
     });
+  /** See {@link ValContextValue.deploy}. One per Studio, not one per caller. */
+  const deploy = useStudioDeploy();
 
   /**
    * Warn before leaving with edits that have not reached the server.
@@ -812,6 +830,7 @@ export function ValProvider({
         client,
         publishSummaryState,
         setPublishSummaryState,
+        deploy,
         profileId: statProfileId,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
         publishRefusal:
@@ -2096,6 +2115,19 @@ export function useStudioIsDeployer(): boolean {
   return useSourceMode() === "managed";
 }
 
+/**
+ * The browser-side build: what it is doing, and how to start one.
+ *
+ * The one in the provider, so every caller shares the guard and the phase —
+ * see {@link ValContextValue.deploy}. `Finish publishing` and the publish
+ * button are the two callers, and they are deliberately the same deploy: a
+ * publish whose build failed and a retry of that build are one operation seen
+ * at two moments.
+ */
+export function useStudioDeployState(): UseStudioDeploy {
+  return useContext(ValContext).deploy;
+}
+
 /** See {@link ValContextValue.publishRefusal}. */
 export function usePublishRefusal(): string | null {
   const { publishRefusal } = useContext(ValContext);
@@ -2206,7 +2238,7 @@ export function usePublishSummary() {
    * has always meant.
    */
   const studioIsDeployer = useStudioIsDeployer();
-  const { state: deployState, deploy } = useStudioDeploy();
+  const { state: deployState, deploy } = useContext(ValContext).deploy;
   const publish = useCallback(
     async (summary: string) => {
       if (globalServerSidePatchIds === null) {
