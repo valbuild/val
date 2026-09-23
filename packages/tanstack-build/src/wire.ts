@@ -30,7 +30,13 @@ export interface WireResult {
 }
 
 export interface WireOptions {
-  /** The project id the app puts its pending source under, as a fallback. */
+  /**
+   * The project id this record is wired for.
+   *
+   * No longer written into the generated file: it named the project a save's
+   * files were handed over under, and that hand-over is gone. Kept so a caller
+   * that identifies the project does not have to change with it.
+   */
   project: string;
   /**
    * The platform's control plane.
@@ -59,24 +65,35 @@ export interface WireOptions {
  * Where a Val project keeps the module this replaces.
  *
  * Exported because a caller has to be able to rewrite JUST this file. The
- * commit is baked into it (see `BUILT_FROM` in the template), and the files a publish
- * hands over are the `.val.ts` ones it patched -- this is never among them, so a tab
- * that merged a save and rebuilt would compile the NEW content against the OLD
- * commit and read the wrong version of it back.
+ * commit is baked into it (see `BUILT_FROM` in the template), and the files a save
+ * writes are the `.val.ts` ones it patched -- this is never among them, so a tab
+ * that laid a save over the project and rebuilt would compile the NEW content
+ * against the OLD commit and read the wrong version of it back. `rebakeGit` is
+ * what the Studio calls.
  */
 export const VAL_SERVER_PATH = "src/val/val.server.ts";
 const VAL_SERVER = VAL_SERVER_PATH;
 const PROJECT_SOURCE_TYPES = "src/val/project-source.d.ts";
 
 /**
- * The sentinel host a wired app reaches its platform at.
+ * The first line of every `val.server.ts` this file generates, and how
+ * {@link isWired} recognises one.
  *
- * Spelled out here rather than imported from the loader: this package is built
- * into a browser bundle and the loader's into a Worker. One name in two
- * spellings is the risk, which is why this is a constant used by both the
- * template it goes into and the check that reads it back out.
+ * A comment rather than anything the file DOES, because a wired file no longer
+ * does anything no other Val host does: it used to post the files a save
+ * committed to `platform.internal`, for a builder tab to pick up, and that
+ * sentinel host was the marker. A managed project's Studio builds in its own
+ * tab now, the loader refuses that door, and the post went with it.
  */
-const CONTROL_HOST = "platform.internal";
+const WIRED_MARKER =
+  "// Wired for the Val platform by @valbuild/tanstack-build. Regenerated on publish.";
+
+/**
+ * The sentinel host a file wired BEFORE {@link WIRED_MARKER} existed posted to.
+ * Still recognised by {@link isWired}, so a project published by an older
+ * publisher is not wired twice.
+ */
+const LEGACY_CONTROL_HOST = "platform.internal";
 
 /**
  * The editing backend, as this platform needs it.
@@ -90,14 +107,8 @@ const CONTROL_HOST = "platform.internal";
  * buffered every draft image through the isolate. Two behaviours nobody chose,
  * out of one word.
  *
- * Two things differ, and each is load bearing:
+ * One thing differs, and it is load bearing:
  *
- * - **`publishOverride`** is the seam, and the only place this platform is
- *   unlike any other host. A publish here commits -- the default, handed over as
- *   `commitToGit` -- AND puts the files it committed where the platform can
- *   reach them, because there is no bundler in the isolate: the studio tab picks
- *   them up, builds, and the result
- *   is served immediately instead of a host noticing the commit and redeploying.
  * - **no formatter.** A repository passes prettier here so a patch written to
  *   disk comes out formatted like the rest of the code. Prettier's bundle
  *   TDZ-crashes in a Worker isolate ("Cannot access 'y' before
@@ -109,7 +120,8 @@ const CONTROL_HOST = "platform.internal";
  * these are fetched. Credentials stop being what EDITING needs and become what
  * running needs.
  */
-const valServerSource = ({ project, git }: WireOptions) => `import {
+const valServerSource = ({ git }: WireOptions) => `${WIRED_MARKER}
+import {
   initValContent,
   initValServer,
 } from "@valbuild/tanstack/server";
@@ -128,92 +140,6 @@ import valModules from "../../val.modules";
  */
 function secret(name: string): string | undefined {
   return (globalThis.__PLATFORM_SECRETS ?? {})[name] ?? process.env[name];
-}
-
-/**
- * Hand the files a publish committed back to the platform, to be built.
- *
- * There is no bundler in the isolate, so the commit a publish just made cannot
- * become a running site on its own. This writes what the commit contained, with
- * the commit's own sha, to the platform's pending source, and the studio tab
- * picks that up and builds. The sha is not a receipt: it is what the next build
- * is wired AT, so handing over the wrong one produces a build that reads a
- * different version of its content than it was compiled from.
- *
- * Named for \`putPendingSource\` in the loader's storage, which is what the
- * other side of this request calls -- along with \`getPendingSource\` and
- * \`clearPendingSource\`, which the studio tab uses to pick it up and let it go.
- * One mechanism, one noun, however many processes it crosses.
- */
-async function putPendingSource(
-  patchedSourceFiles: Record<string, string | null>,
-  commitSha?: string,
-  /**
-   * What the commit was built ON, and what it points AT.
-   *
-   * Both optional, and absent is meaningful rather than lazy: a Val too old to
-   * report them sends neither, and the platform has to be able to tell that
-   * apart from a commit that genuinely has no parent. It falls back to treating
-   * the hand-over as unchained -- correct but conservative -- rather than
-   * assuming it is a root commit and concluding the history starts here.
-   */
-  parentSha?: string,
-  treeSha?: string,
-) {
-  try {
-    /*
-     * A name the PLATFORM serves, not a URL on the internet.
-     *
-     * This used to post to the loader's public address, which works in dev --
-     * a different port on loopback -- and cannot work deployed: a Worker may
-     * not fetch the hostname it is itself served on, so Cloudflare resolved
-     * the subrequest away and answered 404. A save then failed with Val's
-     * \`HTTPError\` and the real cause only in the isolate's log.
-     *
-     * The platform intercepts this host and answers it from inside, so the
-     * door is one it holds rather than one this file knows the address of.
-     * \`.internal\` resolves nowhere, so if interception ever stopped, this
-     * fails closed instead of reaching a stranger.
-     */
-    const res = await fetch("https://${CONTROL_HOST}/__api/source", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        /*
-         * The project this isolate is actually SERVING, not the one it was
-         * generated for.
-         *
-         * The platform sets __PLATFORM_PROJECT_ID per request from the id the loader
-         * resolved off the hostname. The literal is only a fallback, for a build
-         * served by a platform too old to set it -- and it is a bad one: publish
-         * the same bundle to two projects and every edit made on either lands
-         * under whichever name was baked in here.
-         */
-        project: projectId(),
-        files: patchedSourceFiles,
-        commitSha,
-        /*
-         * Spread, so a Val that did not report them leaves the keys out of the
-         * body entirely. \`parentSha: undefined\` would serialise to nothing
-         * anyway, but the platform reads this body with a schema, and an
-         * explicitly-absent key is what lets it distinguish "this build's Val
-         * cannot tell me" from "there is no parent".
-         */
-        ...(parentSha !== undefined ? { parentSha } : {}),
-        ...(treeSha !== undefined ? { treeSha } : {}),
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(\`source endpoint returned \${res.status}\`);
-    }
-  } catch (error) {
-    throw new Error(\`PENDING_SOURCE_FAILED: \${String(error)}\`);
-  }
-}
-
-/** The project this isolate is serving. See the note in \`putPendingSource\`. */
-function projectId() {
-  return globalThis.__PLATFORM_PROJECT_ID ?? ${JSON.stringify(project)};
 }
 
 /**
@@ -366,56 +292,6 @@ const { valApiHandler, draftMode } = initValServer(
   valConfig,
   {
     ...(http ? { http } : {}),
-    /*
-     * The one thing this platform does differently from any other Val host.
-     *
-     * A publish in http mode is a git commit, and that stays: \`commitToGit\` is
-     * the default, handed over rather than skipped, and calling it is what makes
-     * the content service mark the patches published and the repository carry
-     * the change. What is ADDED is the build -- the tab picks the pending
-     * source up, compiles it, and the result is served immediately, rather than
-     * a host noticing the commit and redeploying minutes later.
-     *
-     * ORDER: commit, then hand over. The commit is the source of truth, and
-     * writing the pending source first would mean a build whose content the
-     * content service does not have yet, so every read in it would resolve the
-     * previous commit -- the site showing pre-save content with the edits
-     * already consumed.
-     *
-     * A hand-over that fails after a commit that succeeded is NOT reported as a
-     * failed publish, which is deliberate: the commit happened, and saying it
-     * did not is the more misleading of the two. What is lost is the immediate
-     * rebuild, so the site serves its previous build until the next publish --
-     * recoverable, and the tab can reload the repository at the new commit to
-     * do it.
-     */
-    publishOverride: async ({ patchedSourceFiles, commitToGit }) => {
-      const committed = await commitToGit();
-      if (committed.error) {
-        return committed;
-      }
-      try {
-        await putPendingSource(
-          patchedSourceFiles,
-          committed.commit,
-          /*
-           * Added by @valbuild/server after 0.132.0. An older one has neither
-           * field and the platform is told nothing rather than told wrongly --
-           * see the note on the parameters.
-           */
-          committed.parent,
-          committed.tree,
-        );
-      } catch (error) {
-        console.error(
-          "Val: the commit landed, but the platform could not be given the " +
-            "files to build. The site serves its previous build until it is " +
-            "published again.",
-          error,
-        );
-      }
-      return committed;
-    },
   },
 );
 
@@ -657,16 +533,17 @@ export function isValProject(files: Record<string, string>): boolean {
 /**
  * Has this record already been wired up?
  *
- * The control host is the marker. It used to be `platform:project-source`,
- * which the generated file imported while Val was in memory mode and no longer
- * does -- the project's source stopped being shipped into the isolate when the
- * content service became what answers for it. The pending-source POST is the
- * thing that cannot be anything but this platform's: no repository posts to a
- * host that resolves
- * nowhere, and every wired file has to, because an isolate cannot build.
+ * {@link WIRED_MARKER} is the marker, or -- for a file generated before it
+ * existed -- the sentinel host that file posted its saves to. It used to be
+ * `platform:project-source` before that, which the generated file imported
+ * while Val was in memory mode.
  */
 export function isWired(files: Record<string, string>): boolean {
-  return files[VAL_SERVER]?.includes(CONTROL_HOST) ?? false;
+  const source = files[VAL_SERVER];
+  if (source === undefined) return false;
+  return (
+    source.startsWith(WIRED_MARKER) || source.includes(LEGACY_CONTROL_HOST)
+  );
 }
 
 /**
