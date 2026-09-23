@@ -954,6 +954,16 @@ export const ValServer = (
          * it failed to compute.
          */
         const publishRefusal = serverOps.publishRefusal();
+        /*
+         * How this project's source is kept, when the store knows.
+         *
+         * Spread for the same reason `publishRefusal` is: absent has to keep
+         * meaning "not reported" rather than becoming a mode. The Studio
+         * narrates a publish differently for a managed project -- there is
+         * nothing outside the browser to finish it -- so a wrong default here
+         * shows one story to a project that lives by the other.
+         */
+        const sourceMode = serverOps.sourceMode();
         return {
           status: 200,
           json: {
@@ -961,6 +971,7 @@ export const ValServer = (
             profileId: profileId ?? null,
             mode,
             ...(publishRefusal ? { publishRefusal } : {}),
+            ...(sourceMode ? { sourceMode } : {}),
             config: options.config,
           },
         };

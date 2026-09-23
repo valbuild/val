@@ -2475,6 +2475,25 @@ export abstract class ValOps {
   }
 
   /**
+   * How this project's SOURCE is kept, or `null` when it is nobody's question.
+   *
+   * `"managed"` -- the content service is the store of record, there is no
+   * repository, and nothing outside the browser will ever pick a commit up.
+   * `"connected"` -- commits are mirrored into a repository a host watches.
+   *
+   * `null` is the honest answer for `fs` and memory mode, where publishing is
+   * writing to disk and there is no project to have a mode, and for an `http`
+   * project whose content service predates the field. The Studio treats it as
+   * "the story I have always told", which is the connected one -- the feed, and
+   * a `building` state that something outside resolves. Guessing `managed`
+   * instead would take the deploy feed away from every project running against
+   * an older service.
+   */
+  sourceMode(): "managed" | "connected" | null {
+    return null;
+  }
+
+  /**
    * Whether a commit here produces `.val.ts` TEXT as well as data.
    *
    * True everywhere there is somewhere to put it: a working tree in `fs` mode,

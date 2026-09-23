@@ -9,6 +9,7 @@ import {
   usePatchSets,
   useProfilesByAuthorId,
   useShallowModulesAtPaths,
+  useStudioIsDeployer,
 } from "../ValProvider";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { useFilePatchIds, useValConfig } from "../ValFieldProvider";
@@ -53,6 +54,13 @@ export function useShellData(): ShellDataState {
   const currentPatchIds = useCurrentPatchIds();
   const committedPatchIds = useCommittedPatches();
   const { deployments, observedCommitShas } = useDeployments();
+  /*
+   * A managed project has no host watching a repository, so the Studio is the
+   * deployer and a publish is binary. Read here rather than in the shell,
+   * because both the deploy feed and Recent activity narrate the same publishes
+   * and must not disagree about them.
+   */
+  const studioIsDeployer = useStudioIsDeployer();
   const profilesByAuthorId = useProfilesByAuthorId();
 
   // Relative times are computed once per feed change rather than per render,
@@ -177,9 +185,11 @@ export function useShellData(): ShellDataState {
           patchSets.status === "success" ? patchSets.data : [],
           shellDeployments,
           Date.now(),
+          studioIsDeployer,
         ),
         pendingChanges: currentPatchIds.length - committedPatchIds.size,
         deployments: shellDeployments,
+        studioIsDeployer,
         user: profile
           ? {
               name: profile.fullName,
@@ -204,5 +214,6 @@ export function useShellData(): ShellDataState {
     currentPatchIds,
     committedPatchIds,
     shellDeployments,
+    studioIsDeployer,
   ]);
 }

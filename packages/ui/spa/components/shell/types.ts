@@ -233,7 +233,16 @@ export type ShellDeployActivity = {
  * How a publish is doing, reduced to the three states anything rendering one
  * cares about. See `deploymentProgress`.
  */
-export type DeploymentProgress = "building" | "failed" | "settled";
+export type DeploymentProgress =
+  | "building"
+  | "failed"
+  | "settled"
+  /**
+   * The managed equivalent of `building`: the commit landed and the build did
+   * not, and nothing outside this browser will ever change that. See
+   * `summarizeDeployments`.
+   */
+  | "saved-not-live";
 
 /**
  * A destination: what the left rail switches between.
@@ -360,6 +369,18 @@ export type ShellData = {
    * entirely rather than showing an item that can never say anything.
    */
   deployments?: ShellDeployment[];
+  /**
+   * This project is MANAGED: it has no repository and no host watching one, so
+   * the Studio is what makes a publish live.
+   *
+   * Decides how the same publishes are narrated in the status bar, in the
+   * deploy list and in Recent activity -- a `building` state here would be a
+   * spinner nothing can ever end. See `summarizeDeployments`.
+   *
+   * Absent reads as connected, which is what the Studio has always shown and
+   * what a server that reports no source mode leaves it at.
+   */
+  studioIsDeployer?: boolean;
 };
 
 /**

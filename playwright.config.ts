@@ -314,6 +314,23 @@ export default defineConfig({
               MOCK_CONTENT_PROJECT: MOCK_PROJECT,
               MOCK_CONTENT_REPO_ROOT: process.cwd(),
               MOCK_CONTENT_INITIAL_COMMIT: MOCK_INITIAL_COMMIT,
+              /*
+               * The mock has to agree with the app about whether this project
+               * has a repository.
+               *
+               * The app below is given `VAL_GIT_COMMIT` unless
+               * `VAL_E2E_MANAGED` says otherwise, so the same switch decides
+               * both halves. They disagreed until the Studio started reading
+               * `sourceMode`: the mock called every project managed while the
+               * default run built the app FROM a repository, which is a
+               * contradiction -- a managed project has none, so no build of one
+               * can have been made from a commit. Nothing noticed, because the
+               * only reader was `publishRefusal`, which asks about the pair and
+               * so was satisfied by either half being connected.
+               */
+              ...(process.env.VAL_E2E_MANAGED
+                ? { MOCK_CONTENT_SOURCE_MODE: "managed" }
+                : { MOCK_CONTENT_SOURCE_MODE: "connected" }),
             },
           },
           {

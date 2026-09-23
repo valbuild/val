@@ -497,6 +497,24 @@ export class ValOpsHttp extends ValOps {
     };
   }
 
+  /**
+   * What the content service last said this project's source mode is.
+   *
+   * Read off the same remembered expectation {@link publishRefusal} uses. It is
+   * CURRENT wherever it matters rather than a poll behind, and by construction
+   * rather than by luck: the only caller is `/stat`, which awaits `getStat`
+   * first, and that fetches the patches -- which is the response the expectation
+   * is recorded from.
+   *
+   * `null` before anything has fetched patches, which is the same "not
+   * reported" the wire field means, and reads as connected. The alternative
+   * would be to ask for it separately, which is a round trip for a field that
+   * has just arrived.
+   */
+  override sourceMode(): "managed" | "connected" | null {
+    return this.projectExpectation?.sourceMode ?? null;
+  }
+
   async onInit(): Promise<void> {
     // TODO: unused for now. Implement or remove
   }

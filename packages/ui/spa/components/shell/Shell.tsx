@@ -601,6 +601,7 @@ export function Shell({
    * `mergeCommitsAndDeployments` and `toDeployments`.
    */
   const deployments = data.deployments;
+  const studioIsDeployer = data.studioIsDeployer ?? false;
 
   // A publish is the one thing here that finishes somewhere else, so the list
   // opens itself when a commit Val has not seen before shows up. The first
@@ -1106,6 +1107,7 @@ export function Shell({
             {mode === "http" && deployments !== undefined && (
               <MobileDeployments
                 deployments={deployments}
+                studioIsDeployer={studioIsDeployer}
                 open={deploymentsOpen}
                 onOpenChange={setDeploymentsOpenByUser}
                 autoClose={deploymentsAutoOpened}
@@ -1160,6 +1162,7 @@ export function Shell({
             onAutoSaveChange={onAutoSaveChange}
             branch={data.branch}
             deployments={deployments}
+            studioIsDeployer={studioIsDeployer}
             deploymentsOpen={deploymentsOpen}
             onDeploymentsOpenChange={setDeploymentsOpenByUser}
             deploymentsAutoOpened={deploymentsAutoOpened}
@@ -1272,6 +1275,7 @@ export function Shell({
              * feed (`mode === "http"`); the panel was missed.
              */
             deployments={mode === "fs" ? undefined : deployments}
+            studioIsDeployer={studioIsDeployer}
             // Passed through as-is: absent means there is no session to end, and
             // the panel then shows no Sign out button rather than a dead one.
             onSignOut={onSignOut}
