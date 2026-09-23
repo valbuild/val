@@ -95,7 +95,7 @@ export type GetDraftSourcesScope =
  * sharing one would answer each other's reads within a request, and they hold
  * different content.
  */
-function createTanStackRequestScope(): GetDraftSourcesScope {
+export function createTanStackRequestScope(): GetDraftSourcesScope {
   const boxes = new WeakMap<Request, RequestScopedMemo<DraftSources | null>>();
   return async () => {
     let request: Request;

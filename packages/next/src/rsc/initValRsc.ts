@@ -84,7 +84,7 @@ export type GetDraftSourcesScope =
  * process sharing one would answer each other's reads within a request, and
  * they hold different content.
  */
-function createReactCacheScope(): GetDraftSourcesScope {
+export function createReactCacheScope(): GetDraftSourcesScope {
   const getBox = cache((): RequestScopedMemo<DraftSources | null> => ({}));
   return async () => getBox();
 }
