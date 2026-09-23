@@ -487,6 +487,40 @@ export const ValServer = (
     return { status: 200, json: { remoteFileAuth } };
   };
 
+  /**
+   * Hand one publish-API call to content and carry the answer back.
+   *
+   * `JSON.parse` and nothing more. That is not validation -- there is no schema
+   * here and no knowledge of content's shapes -- it is the round trip a JSON
+   * body has to make to travel as `json` rather than as a string. A body that
+   * does not parse is a gateway's error page rather than content answering, so
+   * it comes back as a message with the original status instead of throwing:
+   * a publish that failed is something the editor has to be told in words.
+   */
+  const proxyPublishApi = async (
+    path: string | undefined,
+    method: "GET" | "POST",
+    body?: string,
+  ): Promise<{ status: number; json: unknown }> => {
+    const answer = await serverOps.publishApi(path ?? "", {
+      method,
+      ...(body === undefined ? {} : { body }),
+    });
+    try {
+      return { status: answer.status, json: JSON.parse(answer.body) };
+    } catch {
+      return {
+        status: answer.status,
+        json: {
+          message:
+            answer.body.trim() === ""
+              ? `The publish API answered ${answer.status} with no body.`
+              : `The publish API answered ${answer.status}: ${answer.body.slice(0, 300)}`,
+        },
+      };
+    }
+  };
+
   return {
     "/draft/enable": {
       GET: async (req) => {
@@ -975,6 +1009,41 @@ export const ValServer = (
             config: options.config,
           },
         };
+      },
+    },
+    /**
+     * The content service's publish API, reached through this deployment.
+     *
+     * The Studio builds a managed project in its own tab and then publishes
+     * what it built. It cannot talk to content directly -- it holds a session
+     * cookie for this origin and no credential content would accept -- so the
+     * whole conversation comes through here.
+     *
+     * Three things happen, and nothing else: the session is checked, the
+     * credential is swapped for a publish-scoped one (see
+     * `ValOpsHttp.publishApi`), and content's answer is carried back with its
+     * status intact. The Studio parses that answer with the same module
+     * `val publish` uses, so there is no copy of content's shapes here to
+     * fall out of step.
+     */
+    "/publish-api": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        return proxyPublishApi(req.path, "GET");
+      },
+      POST: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        return proxyPublishApi(
+          req.path,
+          "POST",
+          req.body === undefined ? undefined : JSON.stringify(req.body),
+        );
       },
     },
     "/upload/patches": {

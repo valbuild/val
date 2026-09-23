@@ -737,6 +737,76 @@ export const Api = {
     },
   },
   // This has a path which is like this: /upload/patches/:patchId/files. Example: /upload/patches/76b9237a-7712-4d60-88b4-d273e6d6fe18/files
+  /**
+   * The content service's publish API, reached through this deployment.
+   *
+   * A managed project is built in the Studio's own tab -- there is no host
+   * watching a repository to pick a commit up -- and what it builds then has to
+   * be published. The browser cannot do that itself: it holds a session cookie
+   * for this origin and no credential content would accept. So the publish
+   * conversation goes through here, exactly as patches already do.
+   *
+   * ## Deliberately not typed past this point
+   *
+   * No `res`, and a body this does not describe. The shapes belong to content,
+   * and they are already written down twice -- once in content's own `Api.ts`
+   * and once in the copy `@valbuild/cli` keeps beside its parser so the two can
+   * be diffed by eye. A third copy here would be a third thing to keep in step,
+   * and this layer has no decision to make that would need one: it authenticates
+   * the caller, swaps the credential, and carries status and body back verbatim.
+   * The Studio parses the answer with the same module the CLI does.
+   *
+   * That means this route answers with statuses the generic result type does not
+   * model -- a 409 when a publish has already gone live, for one. `/save` has
+   * always done the same; the dispatch boundary erases the type and the adapter
+   * sends what it is given.
+   *
+   * ## What it may reach
+   *
+   * The sub-path is content's, minus `/v1`: `/publish`, `/publish/{id}` and its
+   * three steps, and `/build-target`. `ValOpsHttp.publishApi` holds the allow
+   * list, beside the credential, because the browser chooses this path.
+   */
+  "/publish-api": {
+    GET: {
+      req: {
+        path: z.string().optional(),
+        cookies: { val_session: z.string().optional() },
+      },
+      /*
+       * Content's status and body, carried through.
+       *
+       * Permissive on purpose: describing the shapes here would be the third
+       * copy of a contract content owns, and this layer reads none of them. A
+       * body that is not JSON -- a gateway's HTML error page -- arrives as
+       * `{ message }` rather than throwing, because a publish failing is
+       * something the editor has to be told about in words.
+       */
+      res: z.object({ status: z.number(), json: z.unknown() }),
+    },
+    POST: {
+      req: {
+        path: z.string().optional(),
+        /*
+         * Unknown, and passed through unread. Every field content accepts here
+         * would otherwise have to be declared -- and kept in step -- by a layer
+         * that never looks at one.
+         */
+        body: z.unknown().optional(),
+        cookies: { val_session: z.string().optional() },
+      },
+      /*
+       * Content's status and body, carried through.
+       *
+       * Permissive on purpose: describing the shapes here would be the third
+       * copy of a contract content owns, and this layer reads none of them. A
+       * body that is not JSON -- a gateway's HTML error page -- arrives as
+       * `{ message }` rather than throwing, because a publish failing is
+       * something the editor has to be told about in words.
+       */
+      res: z.object({ status: z.number(), json: z.unknown() }),
+    },
+  },
   "/upload/patches": {
     POST: {
       req: {
