@@ -35,7 +35,7 @@
 
 import type { BuildOutput, BuildTarget } from "@valbuild/tanstack-build";
 import { PublishProblem } from "@valbuild/shared/internal";
-import { StudioPublishClient } from "./publishClient";
+import { CarriedArtifact, StudioPublishClient } from "./publishClient";
 import {
   PublishPhase,
   StudioPublishResult,
@@ -52,6 +52,25 @@ import { StudioBuilder } from "./loadBuilder";
  * `onlyBuilderRoot.test.ts`.
  */
 const ROUTES_PREFIX = "src/routes/";
+
+/**
+ * Where a project's served-as-is files live, and the artifact prefix they are
+ * published under -- the same four letters either way, which is the contract
+ * (`public/favicon.ico` is requested as `/favicon.ico`). Spelled here for the
+ * reason `ROUTES_PREFIX` is.
+ */
+const PUBLIC_PREFIX = "public/";
+
+/**
+ * The binary files a commit wrote, as `/save` answered them.
+ *
+ * `unread` is files the server could not read back before committing. The
+ * build refuses over them: the site would link a file it does not serve.
+ */
+export type CommittedBinaryFiles = {
+  files: Record<string, string>;
+  unread: string[];
+};
 
 export type DeployPhase =
   /** Waiting for the bundler. Only ever seen when the preload has not landed. */
@@ -98,6 +117,34 @@ export interface StudioDeployOptions {
    * leading `/` (Val's module paths do) and are matched without it.
    */
   committedFiles?: Record<string, string | null> | null;
+  /**
+   * The binary files that commit wrote -- an image uploaded in this save --
+   * base64 by path, or `null` when there are none to add.
+   *
+   * Nothing else has them: the stored source is text, and the live build
+   * predates the upload. A file under `public/` is published as one; anything
+   * else goes to the build as an asset, where an import can find it.
+   */
+  committedBinaryFiles?: CommittedBinaryFiles | null;
+  /**
+   * The branch the commit is on, as the server had it from the content
+   * service, or `null` when it did not say.
+   *
+   * Preferred over the branch baked into the last build's `val.server.ts`,
+   * which is the fallback: a project cloned from a template seed was wired at
+   * no commit and no branch, and a branchless publish is refused by a loader
+   * whose pointer follows one -- which admin configures for every project.
+   */
+  branch?: string | null;
+  /**
+   * One of the live site's public files, base64, by its URL path
+   * (`favicon.ico` for `/favicon.ico`).
+   *
+   * Only asked for when content cannot name the live build's public files by
+   * hash and the loader can name them by path. Absent, that case is refused
+   * like the one where nobody can say.
+   */
+  fetchPublicFile?: (path: string) => Promise<string>;
   loadBuilder: () => Promise<StudioBuilder>;
   /**
    * Generates `src/routeTree.gen.ts` for a file-based project.
@@ -138,15 +185,19 @@ export async function runStudioDeploy(
 
   let target: BuildTarget;
   let source: Record<string, string>;
+  let carried: CarriedArtifact[];
+  /** The live build's public files fetched from the site, when only paths are known. */
+  let refetched: Record<string, string>;
   try {
     onPhase({ kind: "reading" });
     /*
      * Together, because they are one answer with two halves and neither is
      * useful alone -- and because the round trip is the cost, not the work.
      */
-    const [readTarget, readSource] = await Promise.all([
+    const [readTarget, readSource, readPublic] = await Promise.all([
       client.buildTarget(),
       client.projectSource(),
+      client.publicFiles(),
     ]);
     if (readSource === null) {
       return failed(
@@ -166,8 +217,50 @@ export async function runStudioDeploy(
           "from the browser. Publish it once from a checkout, which builds it.",
       );
     }
+    if (
+      readPublic === null ||
+      ("paths" in readPublic && options.fetchPublicFile === undefined)
+    ) {
+      /*
+       * The loader keeps public files per build, so a build that names none
+       * serves none: guessing "none" here deletes the site's favicon and every
+       * image it has. Refused rather than guessed.
+       */
+      return failed(
+        "The Studio cannot tell which images and other public files this " +
+          "site serves, so publishing would remove them. Publish it once from " +
+          "a checkout with `val publish`, and the Studio can publish it from " +
+          "then on.",
+      );
+    }
+    const unread = options.committedBinaryFiles?.unread ?? [];
+    if (unread.length > 0) {
+      return failed(
+        `Your changes are saved, but ${unread.join(", ")} could not be read ` +
+          "back to build with, and the site would link a file it does not " +
+          "serve. Try publishing again.",
+      );
+    }
     target = readTarget;
     source = withCommittedFiles(readSource, options.committedFiles ?? null);
+    if ("carried" in readPublic) {
+      carried = readPublic.carried;
+      refetched = {};
+    } else {
+      /*
+       * Content has no record of the live build -- a project cloned from a
+       * template seed -- but the loader knows what it serves, and this page is
+       * ON the site. So the files come from the site and go into the build;
+       * content holds their hashes after this publish and the next one
+       * carries them without fetching.
+       */
+      carried = [];
+      refetched = await refetchPublicFiles(
+        readPublic.paths,
+        options.committedFiles ?? null,
+        options.fetchPublicFile,
+      );
+    }
   } catch (error) {
     return failed(messageOf(error));
   }
@@ -189,7 +282,7 @@ export async function runStudioDeploy(
      * source, so the next publish reads it back and the two never disagree
      * about which commit this build is wired at.
      */
-    const branch = builder.bakedGit(source)?.branch ?? null;
+    const branch = options.branch ?? builder.bakedGit(source)?.branch ?? null;
     git =
       options.commit === null || branch === null
         ? null
@@ -211,11 +304,16 @@ export async function runStudioDeploy(
           "checkout, or mount the Studio in a deployment that supplies one.",
       );
     }
+    const binaries = splitBinaryFiles(
+      options.committedBinaryFiles?.files ?? {},
+    );
     build = await builder.buildUserApp({
       files:
         fileBased && generateRouteTree !== undefined
           ? await generateRouteTree(wired)
           : wired,
+      publicFiles: { ...refetched, ...binaries.publicFiles },
+      assets: binaries.assets,
       /*
        * The project's OWN files, without the generated tree.
        *
@@ -244,6 +342,11 @@ export async function runStudioDeploy(
     return failed(messageOf(error));
   }
 
+  const declared = [
+    ...artifacts.map(({ key, sha256, bytes }) => ({ key, sha256, bytes })),
+    ...carriedInto(artifacts, carried, options.committedFiles ?? null),
+  ];
+
   const published = await runStudioPublish({
     client,
     artifacts,
@@ -258,11 +361,7 @@ export async function runStudioDeploy(
       branch: git?.branch ?? null,
       layerRev: target.project.rev,
       linksOwnCss: build.linksOwnCss,
-      artifacts: artifacts.map(({ key, sha256, bytes }) => ({
-        key,
-        sha256,
-        bytes,
-      })),
+      artifacts: declared,
     },
     onPhase,
   });
@@ -289,6 +388,88 @@ export function withCommittedFiles(
     else out[key] = content;
   }
   return out;
+}
+
+/**
+ * A commit's binary files, as the build takes them: `public/...` served as is,
+ * everything else an asset an import can reach. Keys lose the leading `/`
+ * Val's paths carry, as in {@link withCommittedFiles}.
+ */
+export function splitBinaryFiles(files: Record<string, string>): {
+  publicFiles: Record<string, string>;
+  assets: Record<string, string>;
+} {
+  const publicFiles: Record<string, string> = {};
+  const assets: Record<string, string> = {};
+  for (const [path, base64] of Object.entries(files)) {
+    const key = path.replace(/^\/+/, "");
+    if (key.startsWith(PUBLIC_PREFIX)) publicFiles[key] = base64;
+    else assets[key] = base64;
+  }
+  return { publicFiles, assets };
+}
+
+/**
+ * The live site's public files, fetched to be built with, as `public/<path>`.
+ *
+ * All of them but the ones the commit deleted -- a replaced one is overridden
+ * by the commit's own bytes where the two are merged. A file that cannot be
+ * fetched fails the publish by name: leaving it out is the hole this exists
+ * to prevent.
+ */
+async function refetchPublicFiles(
+  paths: ReadonlyArray<string>,
+  committed: Record<string, string | null> | null,
+  fetchPublicFile: ((path: string) => Promise<string>) | undefined,
+): Promise<Record<string, string>> {
+  const deleted = new Set(
+    Object.entries(committed ?? {})
+      .filter(([, content]) => content === null)
+      .map(([path]) => path.replace(/^\/+/, "")),
+  );
+  const out: Record<string, string> = {};
+  for (const path of paths) {
+    const key = PUBLIC_PREFIX + path.replace(/^\/+/, "");
+    if (deleted.has(key)) continue;
+    if (fetchPublicFile === undefined) {
+      throw new Error(`No way to read /${path} from the site to build with.`);
+    }
+    try {
+      out[key] = await fetchPublicFile(path.replace(/^\/+/, ""));
+    } catch (error) {
+      throw new Error(
+        `The site's /${path} could not be read to build with, and leaving it ` +
+          `out would remove it: ${messageOf(error)}`,
+        { cause: error },
+      );
+    }
+  }
+  return out;
+}
+
+/**
+ * The live build's public files this build keeps, re-declared by hash.
+ *
+ * All of them, except the ones this build produced itself (a file the commit
+ * replaced) and the ones the commit deleted. Content holds the bytes already,
+ * so this uploads nothing -- and if it has lost one, it asks for it, and
+ * `runStudioPublish` refuses rather than publishing a hole.
+ */
+export function carriedInto(
+  built: ReadonlyArray<{ key: string }>,
+  carried: ReadonlyArray<CarriedArtifact>,
+  committed: Record<string, string | null> | null,
+): CarriedArtifact[] {
+  const produced = new Set(built.map(({ key }) => key));
+  const deleted = new Set(
+    Object.entries(committed ?? {})
+      .filter(([, content]) => content === null)
+      .map(([path]) => path.replace(/^\/+/, "")),
+  );
+  return carried.filter(
+    ({ key }) =>
+      key.startsWith(PUBLIC_PREFIX) && !produced.has(key) && !deleted.has(key),
+  );
 }
 
 const asDeployResult = (published: StudioPublishResult): StudioDeployResult => {

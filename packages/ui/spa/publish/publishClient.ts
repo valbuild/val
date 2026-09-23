@@ -28,6 +28,7 @@ import {
   BuildTargetResponse,
   DeclareBody,
   DeclareResponse,
+  ProjectSourceResponse,
   PromoteResponse,
   StatusResponse,
   UploadSlot,
@@ -40,6 +41,15 @@ import {
   parseStatus,
   parseVerify,
 } from "@valbuild/shared/internal";
+
+/** An artifact the live build has and this publish re-declares by hash. */
+export type CarriedArtifact = { key: string; sha256: string; bytes: number };
+
+/** See {@link StudioPublishClient.publicFiles}. */
+export type LivePublicFiles =
+  | { carried: CarriedArtifact[] }
+  | { paths: string[] }
+  | null;
 
 /** Object storage refused the bytes, or could not be reached. */
 export class StudioUploadError extends Error {
@@ -77,6 +87,13 @@ export type StudioPublishClient = {
   buildTarget(): Promise<BuildTargetResponse>;
   /** `null` when the project has never published. */
   projectSource(): Promise<Record<string, string> | null>;
+  /**
+   * What the live build serves from `public/`: by hash when content published
+   * it, by path when only the loader knows, `null` when neither can say. See
+   * `publicFiles` and `publicPaths` on `GET /v1/project-source`, which this
+   * reads with {@link projectSource} in one request.
+   */
+  publicFiles(): Promise<LivePublicFiles>;
   declare(body: DeclareBody): Promise<DeclareResponse>;
   confirmArtifacts(publishId: string): Promise<ArtifactsResponse>;
   verify(publishId: string): Promise<VerifyResponse>;
@@ -146,11 +163,25 @@ export function createStudioPublishClient(options: {
     return parsed;
   };
 
+  /*
+   * One request for both halves of the answer. A client lives for one deploy,
+   * so this is the source as that deploy read it -- two requests could read
+   * two different builds' files.
+   */
+  let source: Promise<ProjectSourceResponse> | null = null;
+  const readSource = () =>
+    (source ??= call("/project-source", "GET").then(parseProjectSource));
+
   return {
     buildTarget: async () =>
       parseBuildTarget(await call("/build-target", "GET")),
-    projectSource: async () =>
-      parseProjectSource(await call("/project-source", "GET")).files,
+    projectSource: async () => (await readSource()).files,
+    publicFiles: async () => {
+      const { publicFiles, publicPaths } = await readSource();
+      if (publicFiles) return { carried: publicFiles };
+      if (publicPaths) return { paths: publicPaths };
+      return null;
+    },
     declare: async (body) => parseDeclare(await call("/publish", "POST", body)),
     confirmArtifacts: async (publishId) =>
       parseArtifacts(await call(publishStep(publishId, "artifacts"), "POST")),

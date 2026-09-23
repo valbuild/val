@@ -99,6 +99,7 @@ function client(overrides: Partial<StudioPublishClient> = {}) {
   const base: StudioPublishClient = {
     buildTarget: async () => target,
     projectSource: async () => dataRoutes,
+    publicFiles: async () => ({ carried: [] }),
     declare: async () => ({
       publishId: "pub_1",
       state: "awaiting-artifacts",
@@ -476,5 +477,255 @@ describe("the commit's own files", () => {
         }),
     });
     expect(published[0]?.["src/app.tsx"]).toBe(dataRoutes["src/app.tsx"]);
+  });
+});
+
+/*
+ * The loader stores public files PER BUILD, so a build that names none serves
+ * none. These pin that a Studio publish keeps the site's images, adds the ones
+ * the save uploaded, and refuses rather than guess when it cannot know.
+ */
+describe("the site's public files", () => {
+  const live = [
+    { key: "public/favicon.ico", sha256: "fav", bytes: 10 },
+    { key: "public/val/old.png", sha256: "old", bytes: 20 },
+    { key: "public/val/gone.png", sha256: "gone", bytes: 30 },
+  ];
+
+  const declaredKeys = async (
+    overrides: Partial<Parameters<typeof runStudioDeploy>[0]>,
+    built: Array<{
+      key: string;
+      body: string;
+      sha256: string;
+      bytes: number;
+    }> = [{ key: "server", body: "x", sha256: "sha", bytes: 1 }],
+  ) => {
+    const declared: string[][] = [];
+    const result = await deploy({
+      client: client({
+        publicFiles: async () => ({ carried: live }),
+        declare: async (body) => {
+          declared.push(body.artifacts.map(({ key }) => key));
+          return {
+            publishId: "pub_1",
+            state: "awaiting-artifacts",
+            project: { publicProjectId: "p", siteUrl: "https://site.test" },
+            uploads: [],
+            have: [],
+          };
+        },
+      }),
+      loadBuilder: async () =>
+        builder([], { publishArtifacts: async () => built }),
+      ...overrides,
+    });
+    return { result, declared: declared[0] ?? [] };
+  };
+
+  test("the live build's are declared again, so the site keeps them", async () => {
+    const { result, declared } = await declaredKeys({});
+    expect(result.status).toBe("live");
+    expect(declared).toEqual([
+      "server",
+      "public/favicon.ico",
+      "public/val/old.png",
+      "public/val/gone.png",
+    ]);
+  });
+
+  test("one the commit deleted is not", async () => {
+    const { declared } = await declaredKeys({
+      committedFiles: { "/public/val/gone.png": null },
+    });
+    expect(declared).not.toContain("public/val/gone.png");
+    expect(declared).toContain("public/val/old.png");
+  });
+
+  test("one this build produced is declared once, as built", async () => {
+    const { declared } = await declaredKeys({}, [
+      { key: "server", body: "x", sha256: "sha", bytes: 1 },
+      { key: "public/val/old.png", body: "new", sha256: "new", bytes: 3 },
+    ]);
+    expect(declared.filter((key) => key === "public/val/old.png")).toHaveLength(
+      1,
+    );
+  });
+
+  test("the images the save committed go into the build", async () => {
+    const inputs: Array<{
+      publicFiles?: Record<string, string>;
+      assets?: Record<string, string>;
+    }> = [];
+    await deploy({
+      committedBinaryFiles: {
+        files: {
+          "/public/val/new_a1b2c.png": "UE5H",
+          "/src/assets/logo.svg": "PHN2Zz4=",
+        },
+        unread: [],
+      },
+      loadBuilder: async () =>
+        builder([], {
+          buildUserApp: async (input) => {
+            inputs.push({
+              publicFiles: input.publicFiles,
+              assets: input.assets,
+            });
+            return buildOutput;
+          },
+        }),
+    });
+    expect(inputs[0]?.publicFiles).toEqual({
+      "public/val/new_a1b2c.png": "UE5H",
+    });
+    expect(inputs[0]?.assets).toEqual({ "src/assets/logo.svg": "PHN2Zz4=" });
+  });
+
+  test("when content cannot say what the site serves, nothing is published", async () => {
+    const calls: string[] = [];
+    const result = await deploy({
+      client: client({ publicFiles: async () => null }),
+      loadBuilder: async () => builder(calls),
+    });
+    expect(result.status).toBe("failed");
+    expect(result.status === "failed" && result.message).toMatch(
+      /cannot tell which images/,
+    );
+    expect(calls).not.toContain("buildUserApp");
+  });
+
+  test("a committed file the server could not read stops the build", async () => {
+    const calls: string[] = [];
+    const result = await deploy({
+      committedBinaryFiles: { files: {}, unread: ["/public/val/x.png"] },
+      loadBuilder: async () => builder(calls),
+    });
+    expect(result.status === "failed" && result.message).toMatch(
+      /\/public\/val\/x\.png could not be read/,
+    );
+    expect(calls).not.toContain("buildUserApp");
+  });
+});
+
+/*
+ * A project cloned from a template seed: content has no record of its live
+ * build, but the loader knows the paths, and the Studio is on the site.
+ */
+describe("public files content has no record of", () => {
+  const inputsOf = async (
+    overrides: Partial<Parameters<typeof runStudioDeploy>[0]>,
+  ) => {
+    const inputs: Array<Record<string, string> | undefined> = [];
+    const result = await deploy({
+      client: client({
+        publicFiles: async () => ({ paths: ["favicon.ico", "val/old.png"] }),
+      }),
+      loadBuilder: async () =>
+        builder([], {
+          buildUserApp: async (input) => {
+            inputs.push(input.publicFiles);
+            return buildOutput;
+          },
+        }),
+      ...overrides,
+    });
+    return { result, publicFiles: inputs[0] };
+  };
+
+  test("are fetched from the site and built with", async () => {
+    const asked: string[] = [];
+    const { result, publicFiles } = await inputsOf({
+      fetchPublicFile: async (path) => {
+        asked.push(path);
+        return `bytes-of-${path}`;
+      },
+    });
+    expect(result.status).toBe("live");
+    expect(asked).toEqual(["favicon.ico", "val/old.png"]);
+    expect(publicFiles).toEqual({
+      "public/favicon.ico": "bytes-of-favicon.ico",
+      "public/val/old.png": "bytes-of-val/old.png",
+    });
+  });
+
+  test("the commit's own bytes win over the site's, and a deletion stays deleted", async () => {
+    const { publicFiles } = await inputsOf({
+      fetchPublicFile: async (path) => `site-${path}`,
+      committedFiles: { "/public/favicon.ico": null },
+      committedBinaryFiles: {
+        files: { "/public/val/old.png": "committed" },
+        unread: [],
+      },
+    });
+    expect(publicFiles).toEqual({ "public/val/old.png": "committed" });
+  });
+
+  test("one that cannot be fetched fails the publish by name", async () => {
+    const { result, publicFiles } = await inputsOf({
+      fetchPublicFile: async (path) => {
+        if (path === "val/old.png") throw new Error("404");
+        return "x";
+      },
+    });
+    expect(result.status === "failed" && result.message).toMatch(
+      /\/val\/old\.png could not be read/,
+    );
+    expect(publicFiles).toBeUndefined();
+  });
+
+  test("without a way to fetch them, nothing is published", async () => {
+    const { result, publicFiles } = await inputsOf({});
+    expect(result.status === "failed" && result.message).toMatch(
+      /cannot tell which images/,
+    );
+    expect(publicFiles).toBeUndefined();
+  });
+});
+
+describe("the branch a build is made at", () => {
+  const declaredBranch = async (
+    overrides: Partial<Parameters<typeof runStudioDeploy>[0]>,
+    baked: { commit: string; branch: string } | undefined,
+  ) => {
+    const branches: Array<string | null> = [];
+    await deploy({
+      client: client({
+        declare: async (body) => {
+          branches.push(body.branch);
+          return {
+            publishId: "pub_1",
+            state: "awaiting-artifacts",
+            project: { publicProjectId: "p", siteUrl: "https://site.test" },
+            uploads: [],
+            have: [],
+          };
+        },
+      }),
+      loadBuilder: async () => builder([], { bakedGit: () => baked }),
+      ...overrides,
+    });
+    return branches[0];
+  };
+
+  test("is the project's, as the server had it", async () => {
+    await expect(
+      declaredBranch({ branch: "main" }, { commit: "old", branch: "stale" }),
+    ).resolves.toBe("main");
+  });
+
+  test("for a seed wired at no commit, the project's is what makes it one", async () => {
+    // The template seed is published commitless, so a cloned project's
+    // val.server.ts names no branch -- and a branchless publish is refused by
+    // a loader whose pointer follows one.
+    await expect(declaredBranch({ branch: "main" }, undefined)).resolves.toBe(
+      "main",
+    );
+  });
+
+  test("falls back to the one the last build was wired at", async () => {
+    await expect(
+      declaredBranch({ branch: null }, { commit: "old", branch: "main" }),
+    ).resolves.toBe("main");
   });
 });

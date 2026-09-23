@@ -515,6 +515,11 @@ export class ValOpsHttp extends ValOps {
     return this.projectExpectation?.sourceMode ?? null;
   }
 
+  /** Remembered with {@link sourceMode}, from the same response. */
+  override projectBranch(): string | null {
+    return this.projectExpectation?.branch ?? null;
+  }
+
   /**
    * The short-lived publish token, and when it stops being usable.
    *

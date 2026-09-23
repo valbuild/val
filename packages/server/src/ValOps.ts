@@ -2494,6 +2494,21 @@ export abstract class ValOps {
   }
 
   /**
+   * The branch the content service keeps this project's commits on, or `null`
+   * where there is no such service, or it has not said yet.
+   *
+   * For the Studio's in-tab build of a managed project, which has to name the
+   * branch its build was made at. Its other source is the `val.server.ts` the
+   * last build was wired with -- and a project cloned from a template seed has
+   * one wired at NO commit and no branch, so its first publish went out
+   * branchless and the loader refused it for a project whose pointer follows a
+   * branch. This is the project's own word for it.
+   */
+  projectBranch(): string | null {
+    return null;
+  }
+
+  /**
    * Forward one call to the content service's publish API, as this project.
    *
    * The Studio builds a managed project in the tab and then has to publish what

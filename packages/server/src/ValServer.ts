@@ -38,6 +38,7 @@ import {
 } from "./jwt";
 import { z } from "zod";
 import { ValOpsFS } from "./ValOpsFS";
+import { readCommittedBinaryFiles } from "./readCommittedBinaryFiles";
 import { computePatchesToDrop, DroppedPatch } from "./computePatchesToDrop";
 import {
   AuthorId,
@@ -2628,6 +2629,21 @@ export const ValServer = (
               "Val CMS update (" +
                 Object.keys(analysis.patchesByModule).length +
                 " files changed)";
+            /*
+             * Before the commit, because after it the files are no longer the
+             * patch's to read. See `binaryFiles` on the route.
+             */
+            const managedBranch =
+              serverOps.sourceMode() === "managed"
+                ? serverOps.projectBranch()
+                : null;
+            const committedBinaries =
+              serverOps.sourceMode() === "managed"
+                ? await readCommittedBinaryFiles(
+                    serverOps,
+                    preparedCommit.patchedBinaryFilesDescriptors,
+                  )
+                : null;
             const commitToGit = () =>
               serverOps.commit(
                 preparedCommit,
@@ -2704,6 +2720,15 @@ export const ValServer = (
                  */
                 ...(serverOps.sourceMode() === "managed"
                   ? { sourceFiles: preparedCommit.patchedSourceFiles }
+                  : {}),
+                ...(managedBranch !== null ? { branch: managedBranch } : {}),
+                ...(committedBinaries !== null
+                  ? {
+                      binaryFiles: committedBinaries.files,
+                      ...(committedBinaries.unread.length > 0
+                        ? { binaryFilesUnread: committedBinaries.unread }
+                        : {}),
+                    }
                   : {}),
               },
             };

@@ -206,6 +206,41 @@ export type BuildTargetResponse = z.infer<typeof buildTargetResponse>;
  */
 const projectSourceResponse = z.object({
   files: z.record(z.string(), z.string()).nullable(),
+  /**
+   * The live build's `public/*` artifacts, by hash -- what a publisher with no
+   * checkout carries into its build so the site keeps its favicon and images.
+   *
+   * The loader stores public files PER BUILD, so a build that names none
+   * serves none. A publisher with a checkout has them on disk; the Studio has
+   * this. Re-declaring one costs nothing: content holds the bytes for the
+   * project already and asks for no upload.
+   *
+   * `null` when content cannot say -- the live build was not published through
+   * it -- and absent from a content service that predates it. A publisher
+   * must treat both as "unknown", never as "none": publishing on that guess
+   * deletes every public file the site has.
+   */
+  publicFiles: z
+    .array(
+      z.object({
+        key: z.string(),
+        sha256: z.string(),
+        bytes: z.number().int().nonnegative(),
+      }),
+    )
+    .nullable()
+    .optional(),
+  /**
+   * The URL paths the live build serves from `public/`, as the loader has
+   * them -- without the bytes' hashes.
+   *
+   * The fallback for when `publicFiles` is `null`: a build content has no
+   * record of, which is every project cloned from a template seed. A publisher
+   * running on the site's own origin can fetch these and build with them;
+   * after that publish content holds their hashes and `publicFiles` answers.
+   * `null` when the loader serves no build or does not say.
+   */
+  publicPaths: z.array(z.string()).nullable().optional(),
 });
 
 export type ProjectSourceResponse = z.infer<typeof projectSourceResponse>;

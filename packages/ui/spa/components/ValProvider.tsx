@@ -2296,6 +2296,16 @@ export function usePublishSummary() {
               const deployed = await deploy(
                 res.commitSha ?? null,
                 res.sourceFiles ?? null,
+                {
+                  binaryFiles:
+                    res.binaryFiles !== undefined
+                      ? {
+                          files: res.binaryFiles,
+                          unread: res.binaryFilesUnread ?? [],
+                        }
+                      : null,
+                  branch: res.branch ?? null,
+                },
               );
               if (deployed.status === "failed") {
                 val.system.status.reportError(
