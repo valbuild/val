@@ -628,14 +628,27 @@ export class ValOpsHttp extends ValOps {
    * An allow list rather than a prefix check, because this method holds a
    * credential and the browser chooses the path. `/publish/{id}` and its three
    * steps are the publish conversation; `/build-target` is what a build needs
-   * to know before it starts.
+   * to know before it starts; `/project-source` is what it builds.
+   *
+   * `/project-source` is here rather than on a route of its own because it is
+   * one of the three things a publish asks for and none of them are useful
+   * apart -- and because the credential is the same one. The Studio cannot get
+   * the project's files any other way: it runs inside the deployment, which
+   * holds a session for its own origin and an api key for content, and content
+   * is the only thing it is allowed to talk to at all.
    *
    * A publish id is opaque and content-generated, so it is matched rather than
    * parsed -- what matters is that nothing with a `..`, a query or another
    * segment gets through.
    */
   private static publishApiPathAllowed(path: string): boolean {
-    if (path === "/build-target" || path === "/publish") return true;
+    if (
+      path === "/build-target" ||
+      path === "/project-source" ||
+      path === "/publish"
+    ) {
+      return true;
+    }
     return /^\/publish\/[A-Za-z0-9_-]+(\/(artifacts|verify|promote))?$/.test(
       path,
     );

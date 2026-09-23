@@ -572,6 +572,15 @@ export function wiredValServer(options: WireOptions): string {
  * build IS the published source, and the commit it was published at is a
  * literal inside its own `val.server.ts`.
  */
+/**
+ * The one line that carries the commit.
+ *
+ * Shared by the reader below and the rewriter under it, so the two cannot
+ * disagree about the format -- which they would silently, since a failed parse
+ * and a build made from no commit are the same answer.
+ */
+const BUILT_FROM_LINE = /^const BUILT_FROM = (.+);$/m;
+
 export function bakedGit(
   files: Record<string, string>,
 ): { commit: string; branch: string } | undefined {
@@ -587,7 +596,7 @@ export function bakedGit(
    * platform build bakes nothing and binds nothing, and this returns
    * `undefined` for one -- which is the truth about it.
    */
-  const match = /^const BUILT_FROM = (.+);$/m.exec(source);
+  const match = BUILT_FROM_LINE.exec(source);
   if (!match?.[1] || match[1] === "null") return undefined;
   try {
     const parsed: unknown = JSON.parse(match[1]);
@@ -600,6 +609,44 @@ export function bakedGit(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The same record, wired at a different commit.
+ *
+ * The inverse of {@link bakedGit}, and the whole of what a rebuild has to
+ * change: `BUILT_FROM` is the only place the commit appears, and every other
+ * use in the generated file reads it.
+ *
+ * REWRITES one line rather than regenerating the file, and that is the point.
+ * `wiredValServer` needs the project id and the platform's address, which the
+ * publisher that has them is the tab; a Studio publishing from inside the
+ * deployment has neither, and reconstructing the file from what it could guess
+ * would throw away wiring it cannot see. Replacing the literal cannot.
+ *
+ * Returns the record unchanged when there is nothing to rewrite -- no
+ * `val.server.ts`, or one this does not recognise. Unchanged rather than
+ * thrown, because the caller's next step is a build, and a build of a record
+ * with no wired server is a project that was never wired: a real thing, which
+ * fails with its own message rather than this one.
+ *
+ * Non-destructive, like {@link wireUp}: the caller's record is what gets
+ * published back as source.
+ */
+export function rebakeGit(
+  files: Record<string, string>,
+  git: { commit: string; branch: string } | null,
+): Record<string, string> {
+  const source = files[VAL_SERVER];
+  if (source === undefined) return files;
+  if (!BUILT_FROM_LINE.test(source)) return files;
+  return {
+    ...files,
+    [VAL_SERVER]: source.replace(
+      BUILT_FROM_LINE,
+      `const BUILT_FROM = ${git === null ? "null" : JSON.stringify(git)};`,
+    ),
+  };
 }
 
 /** Is this a Val project at all? */

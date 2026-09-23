@@ -66,9 +66,10 @@ const freshToken = (token = "publish-token") =>
   });
 
 describe("what may be reached", () => {
-  test("the publish conversation and the build target, and nothing else", async () => {
+  test("the publish conversation and what a build needs, and nothing else", async () => {
     const allowed = [
       "/build-target",
+      "/project-source",
       "/publish",
       "/publish/pub_1",
       "/publish/pub_1/artifacts",
@@ -102,6 +103,8 @@ describe("what may be reached", () => {
       "/publish/../patches",
       "/publish/pub_1/artifacts/extra",
       "/build-target?x=1",
+      "/project-source/secrets",
+      "/project-sources",
       "/publish-token",
       "",
     ];
