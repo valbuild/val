@@ -16,7 +16,12 @@ import {
   SourceObject,
 } from "@valbuild/core";
 import { cookies, draftMode, headers } from "next/headers";
-import { VAL_SESSION_COOKIE } from "@valbuild/shared/internal";
+import { cache } from "react";
+import {
+  VAL_SESSION_COOKIE,
+  memoizePerRequest,
+  type RequestScopedMemo,
+} from "@valbuild/shared/internal";
 import { createValServer, ValServer } from "@valbuild/server";
 import { VERSION } from "../version";
 import {
@@ -27,11 +32,129 @@ import {
 } from "../routeFromVal";
 
 SET_RSC(true);
-const initFetchValStega =
+
+/**
+ * The `modules` map every `fetchVal` in one render shares.
+ *
+ * Derived from the route's own response type rather than restated, so it cannot
+ * drift from what `/sources/~` actually returns.
+ */
+export type DraftSources = Extract<
+  Awaited<ReturnType<ValServer["/sources/~"]["PUT"]>>,
+  { status: 200 }
+>["json"]["modules"];
+
+/**
+ * The slice of `ValServer` the draft-sources reader uses.
+ *
+ * Narrower than `ValServer` for the same reason `JsonEntryValServer` below is:
+ * it says what the dependency IS, and it lets a test drive the reader with a
+ * one-route fake instead of casting a partial object to the whole server type.
+ */
+export type DraftSourcesValServer = Pick<ValServer, "/sources/~">;
+
+/** What the route readers need: the tree, plus the single-entry route. */
+export type RouteReaderValServer = Pick<ValServer, "/sources/~" | "/json">;
+
+/**
+ * Where the reader gets its per-request memo box.
+ *
+ * Injected rather than reached for, so that "this reader needs a request to
+ * scope its cache to" is part of its contract and a test can supply a scope it
+ * controls — in jest, React's non-`react-server` build makes `cache` a
+ * pass-through, so the real wiring memoises nothing there.
+ */
+export type GetDraftSourcesScope =
+  () => Promise<RequestScopedMemo<DraftSources | null> | null>;
+
+/**
+ * A per-request memo box, from React's request memoisation.
+ *
+ * `cache()` is what makes this safe: in an RSC render React hands back the SAME
+ * object for the length of one request and a fresh one for the next. Outside
+ * that — a route handler, a test, the non-`react-server` build of React —
+ * `cache` is a pass-through, so every call gets its own object, the memo misses,
+ * and the reader does exactly what it did before. Ineffective, never shared.
+ * See `memoizePerRequest`. `fetchVal` is an RSC API (`SET_RSC(true)` above, and
+ * its own error messages say so), so the effective case is the normal one.
+ *
+ * Built PER `initValRsc` rather than once for the module, because the box is
+ * only as specific as the `cache()` it came from: two Val servers in one
+ * process sharing one would answer each other's reads within a request, and
+ * they hold different content.
+ */
+export function createReactCacheScope(): GetDraftSourcesScope {
+  const getBox = cache((): RequestScopedMemo<DraftSources | null> => ({}));
+  return async () => getBox();
+}
+
+/**
+ * ONE read of the whole module tree, for the session in `sessionCookie`.
+ *
+ * `path` stays `"/"` on purpose, and the measurement is why. `/sources/~`
+ * evaluates, previews and validates EVERY module and only THEN filters the
+ * response by `req.path` (the two TODOs in `ValServer.ts` say so), so narrowing
+ * the path shrinks the answer and changes the work not at all: on a 60-module
+ * project, `path: "/"` took 53.6ms and a single-module path 53.5ms. And this is
+ * an in-process call rather than a round trip, so the object it builds is never
+ * serialised or sent anywhere — the bytes it saves are not bytes anyone pays
+ * for. Narrowing would also give each caller a different answer to cache, which
+ * is what would cost the saving that IS real (2.7x on the same project).
+ *
+ * `draftRead.perf.test.ts` prints both numbers; re-run it before believing
+ * anything different.
+ *
+ * Returns `null` when the session is not one the server accepts; the caller
+ * then renders published content, which is what it did before.
+ */
+async function loadDraftSources(
+  valServerPromise: Promise<DraftSourcesValServer>,
+  sessionCookie: string | undefined,
+): Promise<DraftSources | null> {
+  const valServer = await valServerPromise;
+  const treeRes = await valServer["/sources/~"]["PUT"]({
+    path: "/",
+    query: {
+      validate_sources: true,
+      validate_binary_files: false,
+      exclude_patches: false,
+      // RSC pre-render uses the legacy "server applies patches" path.
+      apply_patches: undefined,
+      /*
+       * The caller's own staged work, and nobody else's.
+       *
+       * A draft render cannot name its group ids — it has no client
+       * state — so it asks for "mine" and the server resolves them from
+       * the session. Without this a preview shows base + every pending
+       * patch on the branch, so one person's half-finished edit appears
+       * in another person's draft.
+       *
+       * `patch_id` stays `undefined`: naming an explicit list is for a
+       * caller that already knows what it wants, and it would override
+       * the resolution rather than intersect with it.
+       */
+      patch_id: undefined,
+      own_patch_groups_only: true,
+    },
+    cookies: {
+      [VAL_SESSION_COOKIE]: sessionCookie,
+    },
+  });
+  if (treeRes.status === 200) {
+    return treeRes.json.modules;
+  }
+  if (treeRes.status === 401) {
+    console.warn("Val: authentication error: ", treeRes.json.message);
+    return null;
+  }
+  throw Error(JSON.stringify(treeRes.json, null, 2));
+}
+
+export const initFetchValStega =
   (
     config: ValConfig,
     valApiEndpoints: string,
-    valServerPromise: Promise<ValServer>,
+    valServerPromise: Promise<DraftSourcesValServer>,
     isEnabled: () => Promise<boolean>,
     getHeaders: () => Promise<{
       get(name: string): string | null;
@@ -39,6 +162,7 @@ const initFetchValStega =
     getCookies: () => Promise<{
       get(name: string): { name: string; value: string } | undefined;
     }>,
+    getDraftSourcesScope: GetDraftSourcesScope,
   ) =>
   <T extends Resolvable>(selector: T): Promise<ResolvedVal<T>> => {
     const exec = async (): Promise<ResolvedVal<T>> => {
@@ -82,38 +206,25 @@ const initFetchValStega =
 
         const host: string | null = headers && getHost(headers);
         if (host && cookies) {
-          const valServer = await valServerPromise;
-          const treeRes = await valServer["/sources/~"]["PUT"]({
-            path: "/",
-            query: {
-              validate_sources: true,
-              validate_binary_files: false,
-              exclude_patches: false,
-              // RSC pre-render uses the legacy "server applies patches" path.
-              apply_patches: undefined,
-              /*
-               * The caller's own staged work, and nobody else's.
-               *
-               * A draft render cannot name its group ids — it has no client
-               * state — so it asks for "mine" and the server resolves them from
-               * the session. Without this a preview shows base + every pending
-               * patch on the branch, so one person's half-finished edit appears
-               * in another person's draft.
-               *
-               * `patch_id` stays `undefined`: naming an explicit list is for a
-               * caller that already knows what it wants, and it would override
-               * the resolution rather than intersect with it.
-               */
-              patch_id: undefined,
-              own_patch_groups_only: true,
-            },
-            cookies: {
-              [VAL_SESSION_COOKIE]: cookies?.get(VAL_SESSION_COOKIE)?.value,
-            },
-          });
-
-          if (treeRes.status === 200) {
-            const { modules } = treeRes.json;
+          const sessionCookie = cookies?.get(VAL_SESSION_COOKIE)?.value;
+          /*
+           * Once per request, however many times the page reads.
+           *
+           * Every `fetchVal` in one render asks the same question — same query,
+           * same session — so the second and third answer were identical and
+           * cost the same as the first. `fetchValRouteUrl` made that worse by
+           * calling `fetchVal` again on top of the caller's own.
+           *
+           * The key is the session, so a box that somehow outlived its request
+           * misses rather than serving another author's draft. See
+           * `memoizePerRequest`.
+           */
+          const modules = await memoizePerRequest(
+            await getDraftSourcesScope(),
+            sessionCookie ?? "",
+            () => loadDraftSources(valServerPromise, sessionCookie),
+          );
+          if (modules) {
             return stegaEncode(selector, {
               disabled: !enabled,
               getModule: (path) => {
@@ -123,12 +234,6 @@ const initFetchValStega =
                 }
               },
             });
-          } else {
-            if (treeRes.status === 401) {
-              console.warn("Val: authentication error: ", treeRes.json.message);
-            } else {
-              throw Error(JSON.stringify(treeRes.json, null, 2));
-            }
           }
         }
       }
@@ -186,7 +291,7 @@ const initFetchValRouteStega =
   (
     config: ValConfig,
     valApiEndpoints: string,
-    valServerPromise: Promise<ValServer>,
+    valServerPromise: Promise<RouteReaderValServer>,
     isEnabled: () => Promise<boolean>,
     getHeaders: () => Promise<{
       get(name: string): string | null;
@@ -194,6 +299,7 @@ const initFetchValRouteStega =
     getCookies: () => Promise<{
       get(name: string): { name: string; value: string } | undefined;
     }>,
+    getDraftSourcesScope: GetDraftSourcesScope,
   ) =>
   async <T extends ResolvableModule>(
     selector: T,
@@ -257,6 +363,7 @@ const initFetchValRouteStega =
       isEnabled,
       getHeaders,
       getCookies,
+      getDraftSourcesScope,
     );
     const val = valModule && (await fetchVal(valModule));
     const route = initValRouteFromVal(
@@ -464,7 +571,7 @@ const initFetchValRouteUrl =
   (
     config: ValConfig,
     valApiEndpoints: string,
-    valServerPromise: Promise<ValServer>,
+    valServerPromise: Promise<RouteReaderValServer>,
     isEnabled: () => Promise<boolean>,
     getHeaders: () => Promise<{
       get(name: string): string | null;
@@ -472,6 +579,7 @@ const initFetchValRouteUrl =
     getCookies: () => Promise<{
       get(name: string): { name: string; value: string } | undefined;
     }>,
+    getDraftSourcesScope: GetDraftSourcesScope,
   ) =>
   async <T extends ResolvableModule>(
     selector: T,
@@ -487,6 +595,7 @@ const initFetchValRouteUrl =
       isEnabled,
       getHeaders,
       getCookies,
+      getDraftSourcesScope,
     );
     const resolvedParams =
       params === undefined ? undefined : await Promise.resolve(params);
@@ -532,6 +641,7 @@ export function initValRsc(
   if (!nextVersion) {
     throw new Error("Could not get @valbuild/next package version");
   }
+  const draftSourcesScope = createReactCacheScope();
 
   const valServerPromise = createValServer(
     valModules,
@@ -570,6 +680,7 @@ export function initValRsc(
       async () => {
         return await rscNextConfig.cookies();
       },
+      draftSourcesScope,
     ),
     fetchValKeyStega: initFetchValKeyStega(
       valServerPromise,
@@ -593,6 +704,7 @@ export function initValRsc(
       async () => {
         return await rscNextConfig.cookies();
       },
+      draftSourcesScope,
     ),
     fetchValRouteUrl: initFetchValRouteUrl(
       config,
@@ -607,6 +719,7 @@ export function initValRsc(
       async () => {
         return await rscNextConfig.cookies();
       },
+      draftSourcesScope,
     ),
   };
 }
