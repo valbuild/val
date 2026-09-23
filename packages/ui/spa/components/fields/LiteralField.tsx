@@ -5,7 +5,6 @@ import { useShallowSourceAtPath } from "../ValFieldProvider";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSourceError } from "../../components/FieldSourceError";
-import { ReadonlyGuard } from "./ReadonlyGuard";
 
 /**
  * A literal, shown as the string it is — and never as something to change.
@@ -51,15 +50,20 @@ export function LiteralField({
       </div>
     );
   }
+  /*
+   * `readOnly`, not `ReadonlyGuard`. The guard makes its subtree `inert`, which
+   * hides it from assistive technology - right for a field that is only
+   * TEMPORARILY locked, wrong for a constant whose value is the whole point.
+   * A read-only input already refuses typing, and stays selectable and
+   * readable by a screen reader.
+   */
   return (
-    <ReadonlyGuard>
-      <div id={path}>
-        <Input
-          className="pr-6 sm:pr-8 sm:w-[calc(100%-0.5rem)]"
-          value={sourceAtPath.data}
-          readOnly
-        />
-      </div>
-    </ReadonlyGuard>
+    <div id={path}>
+      <Input
+        className="pr-6 sm:pr-8 sm:w-[calc(100%-0.5rem)] opacity-70"
+        value={sourceAtPath.data}
+        readOnly
+      />
+    </div>
   );
 }

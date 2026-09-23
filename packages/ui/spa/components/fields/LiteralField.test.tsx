@@ -38,6 +38,9 @@ describe("LiteralField", () => {
     render(<LiteralField path={PATH} />);
     const input = screen.getByDisplayValue("bento-box");
     expect(input).toHaveProperty("readOnly", true);
+    // Not behind `ReadonlyGuard`: that makes the subtree `inert`, which would
+    // hide the value from screen readers.
+    expect(input.closest('[aria-disabled="true"]')).toBeNull();
     expect(screen.queryByText(/not editable/i)).toBeNull();
   });
 
