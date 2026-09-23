@@ -66,11 +66,25 @@ export type ReviewModel = {
 
 export type ReviewModuleGroup = {
   /**
-   * The module's path, which is what makes the group unique.
+   * What makes the group unique: the PAGE's path, or the module's.
+   *
+   * Not {@link moduleFilePath}, and the difference is the whole point of
+   * grouping by page: a router module is one module holding many pages, so
+   * several groups on this screen share one module file path. Keying a list on
+   * it gave React duplicate keys — and with them a row's checkbox state
+   * following the wrong page as the list reorders.
    *
    * An id, not a label. It is never printed: an editor has no checkout, so
    * `/app/blogs/[blog]/page.val.ts` names a file they cannot open. What they
    * see is {@link description} and {@link location}.
+   */
+  id: string;
+  /**
+   * The module the changes are in.
+   *
+   * Still here because the rows are patch sets OF a module and an action has
+   * to find its way back to one. Never unique on this screen, and never
+   * printed.
    */
   moduleFilePath: string;
   /** What the module is CALLED — a heading is a title surface. */

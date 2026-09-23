@@ -60,7 +60,7 @@ export function toReviewModel(input: ReviewModelInput): ReviewModel {
   const groups = new Map<string, ReviewModuleGroup>();
   for (const patchSet of input.patchSets) {
     const isPage = input.isPageModule(patchSet.moduleFilePath);
-    const route = isPage ? pageRouteOf(reviewSourcePath(patchSet), true) : null;
+    const route = isPage ? pageRouteOf(reviewSourcePath(patchSet)) : null;
     /*
      * The group's own path: the page, or the module. Also its key, so two
      * pages in one router module are two groups and two modules with the same
@@ -74,6 +74,7 @@ export function toReviewModel(input: ReviewModelInput): ReviewModel {
     const group = groups.get(groupPath);
     if (group === undefined) {
       groups.set(groupPath, {
+        id: groupPath,
         moduleFilePath: patchSet.moduleFilePath,
         description: input.describe(groupPath),
         /*

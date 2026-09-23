@@ -1921,16 +1921,16 @@ export function useCurrentPatchIds(): PatchId[] {
 }
 
 /**
- * Pending patches this client is holding BACK, because they are outside its
- * patch group.
+ * Pending patches this client has UNSTAGED, because they are outside its patch
+ * group.
  *
  * Not the same question as "is anything pending" or "does anything change".
- * A held patch is not applied, so the scoped source equals base and every
+ * An unstaged patch is not applied, so the scoped source equals base and every
  * comparison against base reads it as an undone edit — which is why anything
  * that wants to tell those two apart has to ask this instead.
  *
  * Empty wherever there is no scope: `fs` mode and any content API without
- * groups hold nothing back.
+ * groups leave nothing unstaged.
  */
 export function useUnstagedPatchIds(): ReadonlySet<PatchId> {
   const val = useValSystem();

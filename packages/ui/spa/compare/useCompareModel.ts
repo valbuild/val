@@ -104,7 +104,7 @@ export function useCompareModel({
                * about to be published — so undoing means DISCARDING the patch.
                * No schema question: the result is a state that already existed.
                */
-              undo: { kind: "discard" as const },
+              undo: { kind: "discard" },
             })),
           },
         ],

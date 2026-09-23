@@ -79,15 +79,15 @@ export type PublishButtonInput = {
    */
   netChangesEmpty: boolean;
   /**
-   * Pending changes this client is holding BACK — outside its patch group.
+   * Pending changes this client has UNSTAGED — outside its patch group.
    *
    * Distinguishes two states that look identical from `netChangesEmpty` alone,
-   * because an unstaged patch is not applied to the scoped source and so leaves it
-   * equal to base, exactly as an undone edit does. The button is off either
-   * way; what differs is what the reader should do about it. Telling someone
-   * their work "has been reverted" and offering Discard, when in fact they had unstaged
-   * it back on purpose and need only stage it, is the more expensive of the two
-   * mistakes: one instruction throws the change away.
+   * because an unstaged patch is not applied to the scoped source and so
+   * leaves it equal to base, exactly as an undone edit does. The button is off
+   * either way; what differs is what the reader should do about it. Telling
+   * someone their work "has been reverted" and offering Discard, when in fact
+   * they unstaged it on purpose and need only stage it again, is the more
+   * expensive of the two mistakes: one instruction throws the change away.
    */
   unstagedChangeCount: number;
 };

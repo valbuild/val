@@ -1516,13 +1516,14 @@ export const StagingNothingHeld: Story = {
 };
 
 /**
- * The headline case: ship one change and hold another back.
+ * The headline case: ship one change and leave another out.
  *
- * Alice's title fix is staged; Bob's is held. The held row stays visible and
- * re-stageable — if unstaging hid the change there would be no way to find it
- * again and put it back. Hover either control to see what the toggle would move.
+ * Alice's title fix is staged; Bob's is unstaged. The unstaged row stays
+ * visible and re-stageable — if unstaging hid the change there would be no way
+ * to find it again and put it back. Hover either control to see what the
+ * toggle would move.
  */
-export const StagingOneHeld: Story = {
+export const StagingOneUnstaged: Story = {
   render: () => (
     <StorySetup
       mockData={mockData}

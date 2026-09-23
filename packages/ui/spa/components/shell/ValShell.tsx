@@ -1546,7 +1546,16 @@ function ReviewRoute() {
                 ? () => navigation.navigate(VAL_HISTORY_ROUTE)
                 : undefined
             }
-            onDiscardAll={discardAll.discardAll}
+            /*
+             * Only while there is something a revert could take back. Same
+             * test the shell's own Discard all uses — a committed patch is in
+             * a commit and cannot be dropped from here, so a page whose rows
+             * have all shipped would otherwise offer a button that confirms
+             * and does nothing.
+             */
+            onDiscardAll={
+              discardAll.enabled ? discardAll.discardAll : undefined
+            }
             discardAllDescription={discardAll.description}
             portalContainer={portalContainer}
           />

@@ -96,7 +96,17 @@ export function ReviewView({
   onStage: (rowIds: string[]) => void;
   onUnstage: (rowIds: string[]) => void;
   onDiscard: (rowIds: string[]) => void;
-  onDiscardAll: () => void;
+  /**
+   * Revert everything pending.
+   *
+   * OPTIONAL, and absent hides the control rather than disabling it — the same
+   * rule {@link onRestore} follows. Not every row on this page can be taken
+   * back: a patch that is already in a commit is history, so a publish can
+   * leave a list where the button would confirm, run, and do nothing. A
+   * destructive control that no-ops is worse than one that is not offered,
+   * because the reader is left believing the work is gone.
+   */
+  onDiscardAll?: () => void;
   /**
    * What reverting everything would lose, phrased by `discardAllDescription`.
    *
@@ -183,12 +193,14 @@ export function ReviewView({
           </p>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-3">
-          <RevertAll
-            count={allRows.length}
-            description={discardAllDescription}
-            onConfirm={onDiscardAll}
-            portalContainer={portalContainer}
-          />
+          {onDiscardAll !== undefined && (
+            <RevertAll
+              count={allRows.length}
+              description={discardAllDescription}
+              onConfirm={onDiscardAll}
+              portalContainer={portalContainer}
+            />
+          )}
           {/*
            * Restore is here because this is the page you are on when you find
            * out something is wrong, and the fix is as often "put back what was
@@ -667,7 +679,7 @@ function Section({
           )
         : groups.map((group) => (
             <ModuleGroup
-              key={group.moduleFilePath}
+              key={group.id}
               group={group}
               model={model}
               selected={selected}

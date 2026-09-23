@@ -42,7 +42,8 @@ export function ReviewSurface({
   patchSets: SerializedPatchSet;
   /** Absent where there is no published history to restore from. */
   onRestore?: () => void;
-  onDiscardAll: () => void;
+  /** Absent where there is nothing a revert could take back. */
+  onDiscardAll?: () => void;
   discardAllDescription?: string;
   portalContainer?: HTMLElement | null;
 }) {

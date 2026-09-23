@@ -92,6 +92,13 @@ function group(
   rows: ReviewRow[],
 ): ReviewModuleGroup {
   return {
+    /*
+     * A module group's id IS its module path; a page group's is the page's.
+     * These fixtures are all modules, so the two coincide — the adapter is
+     * where the distinction is made, and `toReviewModel.test.ts` is where it
+     * is pinned.
+     */
+    id: moduleFilePath,
     moduleFilePath,
     description,
     location: prettyModuleLocation(moduleFilePath),

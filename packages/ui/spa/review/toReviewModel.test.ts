@@ -169,6 +169,24 @@ describe("a page router", () => {
   });
 
   /*
+   * Two pages of one router module are two groups, and a list needs to be able
+   * to tell them apart. `moduleFilePath` cannot: it is the same file for both.
+   * Keying a rendered list on it gave React duplicate keys, and with them a
+   * row's tick following the wrong page when the list reordered.
+   */
+  test("a page group is identified by the page, not by its module", () => {
+    const model = toReviewModel(
+      input({ patchSets: twoPages, isPageModule: () => true }),
+    );
+    expect(model.modules.map((group) => group.moduleFilePath)).toEqual([
+      blogs,
+      blogs,
+    ]);
+    const ids = model.modules.map((group) => group.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  /*
    * The URL is the page's location AND its identity, so it is what the heading
    * says. `App / Blogs / Blog` describes the file, which an editor has no
    * checkout of.

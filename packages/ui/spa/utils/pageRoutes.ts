@@ -1,7 +1,6 @@
 import {
   Internal,
   isPageRouter,
-  type ModuleFilePath,
   type SerializedSchema,
   type SourcePath,
 } from "@valbuild/core";
@@ -34,16 +33,15 @@ export function isPageModule(schema: SerializedSchema | undefined): boolean {
  * named by its URL.
  *
  * The first segment, because a router record's keys ARE the routes: everything
- * below the first segment is inside one page.
+ * below the first segment is inside one page. Null at a module root, which is
+ * the record itself rather than any page in it.
+ *
+ * Whether the module IS a router is the caller's question — `isPageModule`
+ * answers it, from the schema — so this takes a path that is already known to
+ * be in one.
  */
-export function pageRouteOf(
-  sourcePath: SourcePath | ModuleFilePath,
-  isPage: boolean,
-): string | null {
-  if (!isPage) return null;
-  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
-    sourcePath as SourcePath,
-  );
+export function pageRouteOf(sourcePath: SourcePath): string | null {
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(sourcePath);
   if (!modulePath) return null;
   const [route] = Internal.splitModulePath(modulePath);
   return route ?? null;

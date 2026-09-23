@@ -109,7 +109,10 @@ export function toCompareStructure({
 }: CompareStructureInput): CompareStructure {
   const panes: Record<string, ComparePaneStructure> = {};
   const pageNodes: CompareNavNode[] = [];
-  const dataModules: { moduleFilePath: string; tree: ChangeTreeNode }[] = [];
+  const dataModules: {
+    moduleFilePath: string;
+    rows: CompareRowStructure[];
+  }[] = [];
   let changeCount = 0;
 
   for (const tree of trees) {
@@ -137,7 +140,7 @@ export function toCompareStructure({
           label: trailOf(row.sourcePath, 0),
         })),
       };
-      dataModules.push({ moduleFilePath, tree });
+      dataModules.push({ moduleFilePath, rows });
       continue;
     }
 
@@ -146,7 +149,7 @@ export function toCompareStructure({
      * record itself, which is a page being added or removed — has no route of
      * its own, so it is attributed to the page it names.
      */
-    for (const [route, pageRows] of byRoute(rows, moduleFilePath)) {
+    for (const [route, pageRows] of byRoute(rows)) {
       const pagePath = joinRoute(moduleFilePath, route);
       const id = navNodeId(pagePath);
       panes[id] = {
@@ -185,8 +188,7 @@ export function toCompareStructure({
        * would be a second implementation that agrees with nothing.
        */
       nodes: buildDataTree(
-        dataModules.map(({ moduleFilePath, tree }) => {
-          const rows = rowsOf(tree);
+        dataModules.map(({ moduleFilePath, rows }) => {
           return {
             moduleFilePath,
             node: {
@@ -230,11 +232,10 @@ function joinRoute(moduleFilePath: ModuleFilePath, route: string): SourcePath {
  */
 function byRoute(
   rows: CompareRowStructure[],
-  moduleFilePath: ModuleFilePath,
 ): Map<string, CompareRowStructure[]> {
   const byPage = new Map<string, CompareRowStructure[]>();
   for (const row of rows) {
-    const route = pageRouteOf(row.sourcePath, true);
+    const route = pageRouteOf(row.sourcePath);
     if (route === null) {
       /*
        * A change AT the record itself, which is a page being added or removed.
@@ -250,7 +251,6 @@ function byRoute(
     if (existing === undefined) byPage.set(route, [row]);
     else existing.push(row);
   }
-  void moduleFilePath;
   return byPage;
 }
 
