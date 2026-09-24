@@ -186,3 +186,26 @@ test("the text the save wrote reaches the tab, deletions included", async () => 
   tab.close();
   site.close();
 });
+
+test("committed files that arrive as an array are dropped, not read as files", async () => {
+  const site = openHandoff({ open });
+  const got: ToTab[] = [];
+  const tab = joinHandoff(site.id, (message) => got.push(message), {
+    retryMs: 10,
+  });
+  // What another tab of the origin could post on the shared channel.
+  const channel = new BroadcastChannel("val-publish-handoff");
+  channel.postMessage({
+    id: site.id,
+    message: { ...commitOf("c4"), committedFiles: ["export default 1"] },
+  });
+  try {
+    await until(() => got.length > 0);
+    expect(got[0]).toEqual(commitOf("c4"));
+  } finally {
+    // An open channel keeps jest alive, and a failure would hang instead.
+    channel.close();
+    tab.close();
+    site.close();
+  }
+});

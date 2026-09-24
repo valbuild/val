@@ -79,11 +79,6 @@
  */
 
 import type * as TanstackBuild from "@valbuild/tanstack-build";
-import type {
-  BuilderReply,
-  BuilderRequest,
-  BuilderResult,
-} from "./builderProtocol";
 
 type Builder = typeof TanstackBuild;
 

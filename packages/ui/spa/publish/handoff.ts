@@ -250,7 +250,10 @@ function asToTab(message: unknown): ToTab | null {
 function asCommittedFiles(
   value: unknown,
 ): Record<string, string | null> | null {
-  if (typeof value !== "object" || value === null) return null;
+  // An array is an object too, and would become files named "0", "1", ...
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
   const files: Record<string, string | null> = {};
   for (const [path, contents] of Object.entries(value)) {
     if (typeof contents === "string" || contents === null) {
