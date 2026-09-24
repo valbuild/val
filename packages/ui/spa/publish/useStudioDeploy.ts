@@ -51,6 +51,8 @@ export type StudioDeployState =
       phaseStartedAt: number;
       /** The steps finished so far, in order. */
       steps?: DeployStep[];
+      /** The commit being published, so the deploy list can show it on its row. */
+      commit: string | null;
     }
   | {
       status: "done";
@@ -58,6 +60,12 @@ export type StudioDeployState =
       /** The whole publish, and each step of it, in order. */
       ms: number;
       steps: DeployStep[];
+      /**
+       * The commit it published. A live one is a commit this Studio has seen
+       * the site serve, the same as `/stat` reporting it -- which, polled as
+       * rarely as it is in http mode, could otherwise be many minutes away.
+       */
+      commit: string | null;
     };
 
 export interface UseStudioDeploy {
@@ -130,6 +138,7 @@ export function useStudioDeploy(options?: {
           startedAt,
           phaseStartedAt: current.at,
           steps: [...steps],
+          commit,
         });
       };
       setState({
@@ -137,6 +146,7 @@ export function useStudioDeploy(options?: {
         phase: current.phase,
         startedAt,
         phaseStartedAt: startedAt,
+        commit,
       });
       /*
        * Read once per deploy, not per use: whether a deployment has injected
@@ -172,7 +182,7 @@ export function useStudioDeploy(options?: {
               .map((step) => `${step.kind} ${(step.ms / 1000).toFixed(1)}s`)
               .join(", "),
         );
-        setState({ status: "done", result, ms, steps });
+        setState({ status: "done", result, ms, steps, commit });
         return result;
       } finally {
         running.current = false;

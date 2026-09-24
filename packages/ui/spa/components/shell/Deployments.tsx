@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { seconds } from "../../publish/deployProgress";
+import { ProgressBar } from "./DeployProgress";
 import {
   Check,
   ChevronUp,
@@ -8,7 +10,11 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "../designSystem/cn";
-import { DeploymentProgress, ShellDeployment } from "./types";
+import {
+  DeploymentProgress,
+  ShellDeployment,
+  ShellDeploymentPublish,
+} from "./types";
 
 /**
  * What the deploy feed adds up to right now.
@@ -28,6 +34,8 @@ import { DeploymentProgress, ShellDeployment } from "./types";
  */
 export type DeploymentSummary =
   | { state: "building"; count: number }
+  /** This tab is publishing one of them right now: the percentage is the summary. */
+  | { state: "publishing"; percent: number }
   /**
    * The commit landed and the build did not.
    *
@@ -57,6 +65,13 @@ export function summarizeDeployments(
 ): DeploymentSummary {
   if (deployments.length === 0) {
     return { state: "none" };
+  }
+  // A publish running here is what the editor is waiting on, and it outranks
+  // "Saved, not yet live": that is the state it is in the middle of ending.
+  for (const deployment of deployments) {
+    if (deployment.publish?.kind === "running") {
+      return { state: "publishing", percent: deployment.publish.percent };
+    }
   }
   const unfinished = deployments.filter(isBuilding);
   if (unfinished.length > 0) {
@@ -320,7 +335,10 @@ export function DeploymentsStatus({
         )}
       >
         <SummaryIcon summary={summary} />
-        {describeSummary(summary)}
+        <span className="tabular-nums">{describeSummary(summary)}</span>
+        {summary.state === "publishing" && (
+          <ProgressBar percent={summary.percent} className="w-16" />
+        )}
         <ChevronUp
           size={12}
           className={cn(
@@ -350,6 +368,8 @@ function describeSummary(summary: DeploymentSummary): string {
       return summary.count > 1
         ? `Building ${summary.count} publishes`
         : "Building";
+    case "publishing":
+      return `Publishing ${summary.percent}%`;
     case "saved-not-live":
       // Not "Building 2 publishes": there is no plural of a thing that is not
       // happening. What the count says is how many commits are saved and not
@@ -358,14 +378,14 @@ function describeSummary(summary: DeploymentSummary): string {
     case "failed":
       return "Build failed";
     case "live":
-      return "Deployed";
+      return "Live";
     case "none":
       return "No deploys";
   }
 }
 
 function SummaryIcon({ summary }: { summary: DeploymentSummary }) {
-  if (summary.state === "building") {
+  if (summary.state === "building" || summary.state === "publishing") {
     return <Loader2 size={13} className="animate-spin" />;
   }
   /*
@@ -547,11 +567,12 @@ function DeploymentRow({
   const progress = deploymentProgress(deployment, studioIsDeployer);
   const building = progress === "building";
   const failed = progress === "failed";
-  const savedNotLive = progress === "saved-not-live";
+  const running = deployment.publish?.kind === "running";
+  const savedNotLive = progress === "saved-not-live" && !running;
   return (
     <li className="flex items-start gap-2.5 px-3 py-2.5 border-b border-border-float last:border-b-0">
       <span className="mt-0.5 shrink-0">
-        {building && (
+        {(building || running) && (
           <Loader2 size={13} className="animate-spin text-fg-secondary" />
         )}
         {failed && (
@@ -560,7 +581,7 @@ function DeploymentRow({
         {savedNotLive && (
           <CircleAlert size={13} className="text-fg-secondary" />
         )}
-        {!building && !failed && !savedNotLive && (
+        {!building && !running && !failed && !savedNotLive && (
           <span className="block w-1.5 h-1.5 m-[3px] rounded-full bg-bg-brand-secondary" />
         )}
       </span>
@@ -573,6 +594,9 @@ function DeploymentRow({
           {deployment.author ? ` · ${deployment.author}` : ""} ·{" "}
           {deployment.timestamp}
         </div>
+        {deployment.publish !== undefined && (
+          <PublishBreakdown publish={deployment.publish} />
+        )}
         {savedNotLive && onFinishPublishing !== undefined && (
           <FinishPublishing
             commitSha={deployment.commitSha}
@@ -582,6 +606,37 @@ function DeploymentRow({
         )}
       </div>
     </li>
+  );
+}
+
+/**
+ * This tab's own publish of the row's commit: the percentage while it runs,
+ * and how long each step took once it is done.
+ */
+function PublishBreakdown({ publish }: { publish: ShellDeploymentPublish }) {
+  if (publish.kind === "running") {
+    return (
+      <div className="mt-1.5">
+        <div className="flex items-center justify-between text-[11px] text-fg-secondary">
+          <span>{publish.step}</span>
+          <span className="tabular-nums">{publish.percent}%</span>
+        </div>
+        <ProgressBar percent={publish.percent} className="mt-1 w-full" />
+      </div>
+    );
+  }
+  return (
+    <div className="mt-1.5 text-[11px]">
+      <div className="text-fg-secondary">Live after {seconds(publish.ms)}</div>
+      <ul className="mt-1 space-y-0.5 text-fg-secondary-alt">
+        {publish.steps.map((step) => (
+          <li key={step.label} className="flex justify-between gap-3">
+            <span className="truncate">{step.label}</span>
+            <span className="tabular-nums">{seconds(step.ms)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -644,6 +699,9 @@ export function describeDeploymentState(
   // about it, including having said nothing at all. See `isBuilding`.
   if (deployment.isLive) {
     return "Live";
+  }
+  if (deployment.publish?.kind === "running") {
+    return "Publishing";
   }
   /*
    * Managed: there is no queue and nothing is building. The commit is saved and

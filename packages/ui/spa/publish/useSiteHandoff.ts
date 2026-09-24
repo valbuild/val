@@ -32,15 +32,28 @@ export interface UseSiteHandoff {
   openStudio: () => void;
 }
 
-export function useSiteHandoff(): UseSiteHandoff {
+export function useSiteHandoff(
+  options: {
+    /**
+     * The tab published `commit` and it is live: the site is serving it, the
+     * same as `/stat` reporting it would say.
+     */
+    onLive?: (commit: string) => void;
+  } = {},
+): UseSiteHandoff {
   const [state, setState] = useState<HandoffState | null>(null);
   const current = useRef<SiteHandoff | null>(null);
+  /** The commit handed to the tab, which the tab's `done` is about. */
+  const committed = useRef<string | null>(null);
+  const onLive = useRef(options.onLive);
+  onLive.current = options.onLive;
 
   const prepare = useCallback((studioIsDeployer: boolean) => {
     if (!studioIsDeployer || canBuildHere()) return;
     current.current?.close();
     const handoff = openHandoff();
     current.current = handoff;
+    committed.current = null;
     setState(handoff.opened ? { kind: "opening" } : { kind: "blocked" });
     handoff.onMessage((message) => {
       if (current.current !== handoff) return;
@@ -60,6 +73,9 @@ export function useSiteHandoff(): UseSiteHandoff {
             ? { kind: "failed", message: message.result.message }
             : { kind: "live", ms: message.ms },
         );
+        if (message.result.status !== "failed" && committed.current !== null) {
+          onLive.current?.(committed.current);
+        }
         handoff.close();
         current.current = null;
       }
@@ -69,6 +85,7 @@ export function useSiteHandoff(): UseSiteHandoff {
   const active = useCallback(() => current.current !== null, []);
 
   const commit = useCallback<UseSiteHandoff["commit"]>((payload) => {
+    committed.current = payload.commit;
     current.current?.commit({ type: "commit", ...payload });
   }, []);
 

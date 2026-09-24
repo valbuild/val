@@ -793,8 +793,30 @@ export function ValProvider({
     });
   /** See {@link ValContextValue.deploy}. One per Studio, not one per caller. */
   const deploy = useStudioDeploy();
+  /**
+   * A publish that went live is a commit this Studio has seen the site serve.
+   * `/stat` says the same thing eventually, but in http mode it is polled so
+   * rarely that the list said "Saved, not yet live" long after it was.
+   */
+  const markObserved = useCallback((commit: string) => {
+    setObservedCommitShas((prev) => {
+      if (prev.has(commit)) return prev;
+      const next = new Set(prev);
+      next.add(commit);
+      return next;
+    });
+  }, []);
+  useEffect(() => {
+    if (
+      deploy.state.status === "done" &&
+      deploy.state.result.status !== "failed" &&
+      deploy.state.commit !== null
+    ) {
+      markObserved(deploy.state.commit);
+    }
+  }, [deploy.state, markObserved]);
   /** See {@link ValContextValue.handoff}. */
-  const handoff = useSiteHandoff();
+  const handoff = useSiteHandoff({ onLive: markObserved });
 
   /**
    * Warn before leaving with edits that have not reached the server.

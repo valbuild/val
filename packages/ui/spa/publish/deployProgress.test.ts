@@ -1,60 +1,71 @@
-import { describeDeploy, describeDeployPhase } from "./deployProgress";
+import {
+  deployPercent,
+  describeDeploy,
+  describeDeployPhase,
+  DEPLOY_STEPS,
+} from "./deployProgress";
 
 describe("the publish line", () => {
-  test("names the step and how long the publish has run", () => {
+  test("says how far it has got, as a percentage", () => {
     expect(
-      describeDeploy(
-        {
-          status: "running",
-          phase: { kind: "uploading", done: 2, total: 7 },
-          startedAt: 1_000,
-          phaseStartedAt: 5_000,
-        },
-        13_400,
-      ),
-    ).toBe("Uploading 2 of 7 · 12s");
+      describeDeploy({
+        status: "running",
+        phase: { kind: "building" },
+        startedAt: 0,
+        phaseStartedAt: 0,
+        commit: "c",
+      }),
+    ).toBe("Publishing 12%");
   });
 
-  test("says when it is live but not yet served here", () => {
-    expect(describeDeployPhase({ kind: "propagating" })).toMatch(/waiting/);
+  test("is gone once it is live — the deploy summary says Live", () => {
     expect(
-      describeDeploy(
-        {
-          status: "done",
-          result: { status: "live", url: null, visible: false },
-          ms: 61_000,
-          steps: [],
-        },
-        0,
-      ),
-    ).toMatch(/Live after 61s — this location may take/);
-  });
-
-  test("says plainly when it is live and served", () => {
-    expect(
-      describeDeploy(
-        {
-          status: "done",
-          result: { status: "live", url: null, visible: true },
-          ms: 42_400,
-          steps: [],
-        },
-        0,
-      ),
-    ).toBe("Live after 42s");
-  });
-
-  test("leaves a failure to its own message", () => {
-    expect(
-      describeDeploy(
-        {
-          status: "done",
-          result: { status: "failed", message: "no", problems: [] },
-          ms: 1,
-          steps: [],
-        },
-        0,
-      ),
+      describeDeploy({
+        status: "done",
+        result: { status: "live", url: null, visible: true },
+        ms: 29_000,
+        steps: [],
+        commit: "c",
+      }),
     ).toBeNull();
+  });
+
+  test("and once it failed — the failure has its own message", () => {
+    expect(
+      describeDeploy({
+        status: "done",
+        result: { status: "failed", message: "no", problems: [] },
+        ms: 1,
+        steps: [],
+        commit: "c",
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("the percentage", () => {
+  test("only ever goes up, step by step", () => {
+    const percents = DEPLOY_STEPS.map((kind) =>
+      deployPercent(
+        kind === "uploading" ? { kind, done: 0, total: 4 } : { kind },
+      ),
+    );
+    expect([...percents].sort((a, b) => a - b)).toEqual(percents);
+  });
+
+  test("moves through the upload, file by file", () => {
+    const at = (done: number) =>
+      deployPercent({ kind: "uploading", done, total: 4 });
+    expect(at(0)).toBeLessThan(at(2));
+    expect(at(2)).toBeLessThan(at(4));
+    expect(at(4)).toBeLessThanOrEqual(deployPercent({ kind: "confirming" }));
+  });
+
+  test("never says 100 — done is the line going away", () => {
+    expect(deployPercent({ kind: "propagating" })).toBeLessThan(100);
+  });
+
+  test("the tab still names each step", () => {
+    expect(describeDeployPhase({ kind: "propagating" })).toMatch(/waiting/);
   });
 });

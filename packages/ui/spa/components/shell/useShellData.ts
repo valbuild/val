@@ -6,6 +6,7 @@ import {
   useCurrentPatchIds,
   useCurrentProfile,
   useDeployments,
+  useStudioDeployState,
   usePatchSets,
   useProfilesByAuthorId,
   useShallowModulesAtPaths,
@@ -20,6 +21,7 @@ import {
   toAdminLinks,
   toDataModules,
   toDeployments,
+  withStudioPublish,
   toExternalPages,
   toShellPages,
   toValidationErrors,
@@ -65,7 +67,7 @@ export function useShellData(): ShellDataState {
 
   // Relative times are computed once per feed change rather than per render,
   // so a row does not silently disagree with the one above it.
-  const shellDeployments = useMemo(
+  const listedDeployments = useMemo(
     () =>
       toDeployments(
         deployments,
@@ -74,6 +76,11 @@ export function useShellData(): ShellDataState {
         Date.now(),
       ),
     [deployments, observedCommitShas, profilesByAuthorId],
+  );
+  const { state: deployState } = useStudioDeployState();
+  const shellDeployments = useMemo(
+    () => withStudioPublish(listedDeployments, deployState),
+    [listedDeployments, deployState],
   );
 
   const navData = navMenu.status === "success" ? navMenu.data : undefined;
