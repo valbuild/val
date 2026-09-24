@@ -396,6 +396,22 @@ export class ValOpsHttp extends ValOps {
    */
   protected override readonly mirrorsSourceFiles: boolean;
   /**
+   * The running build's own source, when the host embedded it.
+   *
+   * Preferred over the content service for the `.val.ts` text a publish
+   * patches, for two reasons. It is exactly the text this build was made from,
+   * which is what the patches in its chain were written against. And it is the
+   * only copy there is for a project with no repository: the content service
+   * keeps a managed project's content as Source, not as files, and answers a
+   * file read for one with "no GitHub repo".
+   */
+  private readonly projectSource: Record<string, string> | null;
+
+  /** Did the host hand over the running build's source? See `projectSource`. */
+  embedsSource(): boolean {
+    return this.projectSource !== null;
+  }
+  /**
    * What the content service last said this project expects of its publisher.
    *
    * `null` until something has asked it, which in practice is the first poll.
@@ -446,6 +462,8 @@ export class ValOpsHttp extends ValOps {
        * the root would be /apps/my-app
        */
       root?: string;
+      /** See `projectSource` on {@link ValApiOptions}. */
+      projectSource?: Record<string, string>;
     },
   ) {
     super(valModules, options);
@@ -454,7 +472,8 @@ export class ValOpsHttp extends ValOps {
         ? { "x-val-pat": auth.pat }
         : { Authorization: `Bearer ${auth.apiKey}` };
     this.root = options?.root ?? "";
-    this.mirrorsSourceFiles = git !== null;
+    this.projectSource = options?.projectSource ?? null;
+    this.mirrorsSourceFiles = git !== null || this.projectSource !== null;
   }
   /**
    * A deployment that cannot mirror a project which expects to be mirrored.
@@ -1947,6 +1966,17 @@ export class ValOpsHttp extends ValOps {
   protected override async getSourceFile(
     path: string,
   ): Promise<WithGenericError<{ data: string }>> {
+    if (this.projectSource !== null) {
+      const text = this.projectSource[path.replace(/^\/+/, "")];
+      if (text === undefined) {
+        return {
+          error: {
+            message: `Cannot read the source of ${path}: it is not in the source this build was made from.`,
+          },
+        };
+      }
+      return { data: text };
+    }
     /*
      * There is no file to read without a repository to read it from.
      *

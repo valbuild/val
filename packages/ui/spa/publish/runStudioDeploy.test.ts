@@ -729,3 +729,112 @@ describe("the branch a build is made at", () => {
     ).resolves.toBe("main");
   });
 });
+
+/*
+ * Edits committed since the live build, which this save did not write: one
+ * whose own publish failed, or the first edit of a project copied from a
+ * template. They are in content and in no stored source.
+ */
+describe("the edits saved since the live build", () => {
+  const earlier = "export default 'saved before, never published';\n";
+  const now = "export default 'this save';\n";
+
+  const handedFiles = async (
+    overrides: Partial<Parameters<typeof runStudioDeploy>[0]>,
+  ) => {
+    const handed: Array<Record<string, string>> = [];
+    const result = await deploy({
+      client: client({
+        projectSource: async () => ({
+          ...dataRoutes,
+          "src/earlier.val.ts": "export default 'as the live build has it';\n",
+          "src/now.val.ts": "export default 'as the live build has it';\n",
+        }),
+      }),
+      loadBuilder: async () =>
+        builder([], {
+          buildUserApp: async (input) => {
+            handed.push(input.files);
+            return buildOutput;
+          },
+        }),
+      ...overrides,
+    });
+    return { result, handed };
+  };
+
+  test("are built, beside the files this save wrote", async () => {
+    const { handed } = await handedFiles({
+      committedFiles: { "/src/now.val.ts": now },
+      builtSource: async () => ({
+        "/src/earlier.val.ts": earlier,
+        "/src/now.val.ts": now,
+      }),
+    });
+    expect(handed[0]?.["src/earlier.val.ts"]).toBe(earlier);
+    expect(handed[0]?.["src/now.val.ts"]).toBe(now);
+  });
+
+  test("including by a Finish publishing, which saved nothing", async () => {
+    const { handed } = await handedFiles({
+      committedFiles: null,
+      builtSource: async () => ({ "/src/earlier.val.ts": earlier }),
+    });
+    expect(handed[0]?.["src/earlier.val.ts"]).toBe(earlier);
+  });
+
+  test("a server with none to give builds this save's files alone", async () => {
+    const { result, handed } = await handedFiles({
+      committedFiles: { "/src/now.val.ts": now },
+      builtSource: async () => null,
+    });
+    expect(result.status).toBe("live");
+    expect(handed[0]?.["src/now.val.ts"]).toBe(now);
+  });
+
+  test("one that cannot be read stops the build", async () => {
+    const { result, handed } = await handedFiles({
+      committedFiles: { "/src/now.val.ts": now },
+      builtSource: async () => {
+        throw new Error(
+          "The edits saved since the live build could not be read: 500",
+        );
+      },
+    });
+    expect(result).toMatchObject({
+      status: "failed",
+      message: expect.stringContaining("could not be read"),
+    });
+    expect(handed).toHaveLength(0);
+  });
+});
+
+describe("the stylesheet", () => {
+  const cssOf = async (built: string, live: string) => {
+    const published: string[] = [];
+    await deploy({
+      liveStylesheet: async () => live,
+      loadBuilder: async () =>
+        builder([], {
+          buildUserApp: async () => ({ ...buildOutput, cssCode: built }),
+          publishArtifacts: async (build) => {
+            published.push(build.cssCode);
+            return [{ key: "server", body: "x", sha256: "sha", bytes: 1 }];
+          },
+        }),
+    });
+    return published[0];
+  };
+
+  test("is the live site's when the tab compiled none", async () => {
+    expect(await cssOf("", ".flex{display:flex}")).toBe(".flex{display:flex}");
+  });
+
+  test("is the build's own when the tab compiled one", async () => {
+    expect(await cssOf(".mine{}", ".flex{display:flex}")).toBe(".mine{}");
+  });
+
+  test("is none when neither has one", async () => {
+    expect(await cssOf("", "")).toBe("");
+  });
+});
