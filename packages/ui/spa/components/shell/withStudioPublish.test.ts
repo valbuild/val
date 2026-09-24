@@ -4,7 +4,9 @@ import type { ShellDeployment } from "./types";
 const row = (commitSha: string): ShellDeployment => ({
   commitSha,
   state: "success",
+  message: null,
   timestamp: "just now",
+  updatedAt: "2026-09-24T12:00:00Z",
   isLive: false,
 });
 
