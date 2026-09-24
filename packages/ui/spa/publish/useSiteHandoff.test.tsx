@@ -24,7 +24,7 @@ test("a live publish from the tab names the commit that went live", async () => 
   });
   const live: string[] = [];
   const { result } = renderHook(() =>
-    useSiteHandoff({ onLive: (commit) => live.push(commit) }),
+    useSiteHandoff({ onLive: (commit) => live.push(commit), enabled: true }),
   );
   act(() => result.current.prepare(true));
   const id = new URL(opened[0], "http://site").searchParams.get(
@@ -47,4 +47,14 @@ test("a live publish from the tab names the commit that went live", async () => 
     tab.close();
     act(() => result.current.cancel(""));
   }
+});
+
+test("the Studio's own publish never opens a tab: only the overlay hands off", () => {
+  const open = jest.spyOn(window, "open").mockImplementation(() => null);
+  open.mockClear();
+  const { result } = renderHook(() => useSiteHandoff());
+  act(() => result.current.prepare(true));
+  expect(open).not.toHaveBeenCalled();
+  expect(result.current.active()).toBe(false);
+  expect(result.current.state).toBeNull();
 });

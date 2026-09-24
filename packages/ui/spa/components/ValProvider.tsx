@@ -63,6 +63,7 @@ import {
   type UseStudioDeploy,
 } from "../publish/useStudioDeploy";
 import { useSiteHandoff, type UseSiteHandoff } from "../publish/useSiteHandoff";
+import { describeDeployFailure } from "../publish/deployProgress";
 import { ValOverlayEmitter } from "../stores/react/ValOverlayEmitter";
 import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
@@ -292,6 +293,7 @@ export function ValProvider({
   dispatchValEvents,
   theme,
   setTheme,
+  handsOffPublish = false,
 }: {
   children: React.ReactNode;
   client: ValClient;
@@ -300,6 +302,16 @@ export function ValProvider({
   dispatchValEvents: boolean;
   theme?: Themes | null;
   setTheme?: (theme: Themes | null) => void;
+  /**
+   * May a publish that cannot build here open a Studio tab to build it?
+   *
+   * The OVERLAY's provider only. The overlay runs on the site's pages, which
+   * are never cross-origin isolated, and the Studio's page is -- so a tab is
+   * the way from one to the other. The Studio itself has nowhere better to
+   * send it: a Studio that cannot build here opens a Studio that cannot build
+   * either, which is how an iPhone got a second tab and the same failure.
+   */
+  handsOffPublish?: boolean;
 }) {
   // config parameter is unused but kept for API compatibility
   void _config;
@@ -816,7 +828,10 @@ export function ValProvider({
     }
   }, [deploy.state, markObserved]);
   /** See {@link ValContextValue.handoff}. */
-  const handoff = useSiteHandoff({ onLive: markObserved });
+  const handoff = useSiteHandoff({
+    onLive: markObserved,
+    enabled: handsOffPublish,
+  });
 
   /**
    * Warn before leaving with edits that have not reached the server.
@@ -2361,7 +2376,7 @@ export function usePublishSummary() {
                * resolves. Reported rather than thrown for the same reason: a
                * publish whose build failed is not a publish that did nothing.
                */
-              const deployed = await deploy(
+              const { result: deployed, failedAt } = await deploy(
                 res.commitSha ?? null,
                 res.sourceFiles ?? null,
                 {
@@ -2370,8 +2385,9 @@ export function usePublishSummary() {
                 },
               );
               if (deployed.status === "failed") {
+                // The sentence leads; the technical text is the details.
                 val.system.status.reportError(
-                  "Your changes are saved, but the site has not been rebuilt.",
+                  `Saved, but not published. ${describeDeployFailure(failedAt ?? undefined)}`,
                   [
                     deployed.message,
                     ...deployed.problems.map(

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useStudioDeployState } from "../ValProvider";
 import { joinHandoff, type TabHandoff } from "../../publish/handoff";
 import {
+  describeDeployFailure,
   describeDeployPhase,
   describeDeployStep,
 } from "../../publish/deployProgress";
@@ -96,7 +97,14 @@ export function HandoffPublishTab({ id }: { id: string }) {
   useEffect(() => {
     if (state.status !== "done" || !started.current || reported.current) return;
     reported.current = true;
-    tab.current?.report({ type: "done", result: state.result, ms: state.ms });
+    tab.current?.report({
+      type: "done",
+      result: state.result,
+      ms: state.ms,
+      ...(state.result.status === "failed"
+        ? { summary: describeDeployFailure(state.failedAt ?? undefined) }
+        : {}),
+    });
     if (state.result.status !== "failed") setClosingIn(CLOSE_AFTER_S);
   }, [state]);
 
@@ -116,7 +124,11 @@ export function HandoffPublishTab({ id }: { id: string }) {
       ? { kind: "failed", message: waiting.message }
       : state.status === "done" && started.current
         ? state.result.status === "failed"
-          ? { kind: "failed", message: state.result.message }
+          ? {
+              kind: "failed",
+              message: describeDeployFailure(state.failedAt ?? undefined),
+              details: state.result.message,
+            }
           : {
               kind: "live",
               ms: state.ms,

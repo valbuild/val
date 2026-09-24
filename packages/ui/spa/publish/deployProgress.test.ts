@@ -1,5 +1,6 @@
 import {
   deployPercent,
+  describeDeployFailure,
   describeDeploy,
   describeDeployPhase,
   DEPLOY_STEPS,
@@ -67,5 +68,35 @@ describe("the percentage", () => {
 
   test("the tab still names each step", () => {
     expect(describeDeployPhase({ kind: "propagating" })).toMatch(/waiting/);
+  });
+});
+
+describe("a failure, as the person who pressed Publish reads it", () => {
+  test("a browser that cannot build is told so, and where it can", () => {
+    const said = describeDeployFailure("getting-ready", {
+      crossOriginIsolated: false,
+    });
+    expect(said).toMatch(/This browser cannot build the site/);
+    expect(said).toMatch(/Chrome, Edge or Firefox/);
+  });
+
+  test("no step's sentence names a header, a buffer or an isolation", () => {
+    const kinds = [...DEPLOY_STEPS, undefined];
+    for (const kind of kinds) {
+      for (const crossOriginIsolated of [true, false]) {
+        expect(
+          describeDeployFailure(kind, { crossOriginIsolated }),
+        ).not.toMatch(
+          /Cross-Origin|SharedArrayBuffer|isolated|WebAssembly|COEP|COOP/i,
+        );
+      }
+    }
+  });
+
+  test("a failure before going live says the live site did not change", () => {
+    expect(describeDeployFailure("verifying")).toMatch(/left as it was/);
+    expect(describeDeployFailure("building")).toMatch(
+      /Nothing on the live site/,
+    );
   });
 });

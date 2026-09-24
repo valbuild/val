@@ -170,7 +170,8 @@ export const OverlayFailed: OverlayStory = {
       state={{
         kind: "failed",
         message:
-          "The build could not be uploaded. Your change is saved; open the Studio to try again.",
+          "The new version could not be uploaded. Nothing on the live site changed. Publish again to retry.",
+        details: "PUT /publish/9d74a699/files answered 502 Bad Gateway",
       }}
     />
   ),
@@ -278,7 +279,37 @@ export const StudioTabFailed: TabStory = {
       result={{
         kind: "failed",
         message:
-          "The build could not be uploaded (content answered 502). Your change is saved.",
+          "The new version could not be uploaded. Nothing on the live site changed. Publish again to retry.",
+        details: "PUT /publish/9d74a699/files answered 502 Bad Gateway",
+      }}
+    />
+  ),
+};
+
+/**
+ * The failure an iPhone met: a browser that cannot build.
+ *
+ * It used to lead with two HTTP headers and a SharedArrayBuffer. The sentence
+ * now says what happened and where it does work; the technical text is folded
+ * under Details, open here to show it.
+ */
+export const StudioTabBrowserCannotBuild: TabStory = {
+  render: () => (
+    <StudioTab
+      steps={[
+        { label: "Saving your change", status: "done", ms: 400 },
+        { label: "Loading the builder", status: "failed", ms: 0 },
+        ...STEPS.slice(1).map(
+          (label): PublishStep => ({ label, status: "todo" }),
+        ),
+      ]}
+      elapsedMs={400}
+      result={{
+        kind: "failed",
+        message:
+          "This browser cannot build the site, so it could not be published from here. Publish from Chrome, Edge or Firefox on a computer.",
+        details:
+          "The bundler needs a cross-origin isolated page: it runs WebAssembly on worker threads that share memory, and a browser will not hand a SharedArrayBuffer to a worker without it. Serve the page Val is mounted in with 'Cross-Origin-Opener-Policy: same-origin' and 'Cross-Origin-Embedder-Policy: require-corp'.",
       }}
     />
   ),

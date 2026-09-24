@@ -131,3 +131,33 @@ test("the tab's progress and result reach the site", async () => {
   tab.close();
   site.close();
 });
+
+test("a failure crosses as a sentence, with the technical message beside it", async () => {
+  const site = openHandoff({ open });
+  const heard: ToSite[] = [];
+  site.onMessage((message) => heard.push(message));
+  const tab = joinHandoff(site.id, () => undefined, { retryMs: 10 });
+  tab.report({
+    type: "done",
+    result: {
+      status: "failed",
+      message: "rolldown: out of memory",
+      problems: [],
+    },
+    ms: 3_000,
+    summary: "The site could not be built from this change.",
+  });
+  await until(() => heard.some((message) => message.type === "done"));
+  expect(heard.find((message) => message.type === "done")).toEqual({
+    type: "done",
+    result: {
+      status: "failed",
+      message: "rolldown: out of memory",
+      problems: [],
+    },
+    ms: 3_000,
+    summary: "The site could not be built from this change.",
+  });
+  tab.close();
+  site.close();
+});

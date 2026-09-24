@@ -111,3 +111,43 @@ export function describeDeploy(state: StudioDeployState): string | null {
     ? `Publishing ${deployPercent(state.phase)}%`
     : null;
 }
+
+/**
+ * What went wrong, for the person who pressed Publish -- in a sentence, with
+ * the step that failed and nothing they would have to look up.
+ *
+ * The technical message is still shown, under "Details": it is what a bug
+ * report needs. It is not what the page leads with, because the one the Studio
+ * used to lead with named two HTTP headers and a SharedArrayBuffer to someone
+ * who had just changed a title.
+ *
+ * `crossOriginIsolated` is asked for the builder step because that failure has
+ * a cause the reader CAN act on: the browser. Every other step's failure is
+ * ours, and the sentence says the change is safe rather than guessing a fix.
+ */
+export function describeDeployFailure(
+  failedAt: DeployPhase["kind"] | undefined,
+  scope: { crossOriginIsolated?: boolean } = globalThis,
+): string {
+  switch (failedAt) {
+    case "getting-ready":
+      return scope.crossOriginIsolated === true
+        ? "The site builder could not be loaded. Check the connection and publish again."
+        : "This browser cannot build the site, so it could not be published from here. Publish from Chrome, Edge or Firefox on a computer.";
+    case "reading":
+      return "The site's current files could not be read, so nothing was built. Publish again to retry.";
+    case "building":
+      return "The site could not be built from this change. Nothing on the live site changed.";
+    case "declaring":
+    case "uploading":
+    case "confirming":
+      return "The new version could not be uploaded. Nothing on the live site changed. Publish again to retry.";
+    case "verifying":
+      return "The new version did not pass its check, so the live site was left as it was.";
+    case "promoting":
+    case "propagating":
+      return "The new version was built but could not be made live. Publish again to retry.";
+    case undefined:
+      return "The site could not be rebuilt. Publish again to retry.";
+  }
+}

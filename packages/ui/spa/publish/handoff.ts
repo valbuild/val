@@ -40,7 +40,17 @@ export type ToSite =
   /** Listening. The site answers with the commit, if it has one yet. */
   | { type: "ready" }
   | { type: "phase"; label: string; elapsedMs: number }
-  | { type: "done"; result: StudioDeployResult; ms: number };
+  | {
+      type: "done";
+      result: StudioDeployResult;
+      ms: number;
+      /**
+       * What went wrong, in a sentence, when it failed -- decided in the tab,
+       * which knows the step it failed at and whether IT could build. The
+       * result's own message is the technical details.
+       */
+      summary?: string;
+    };
 
 type Envelope<T> = { id: string; message: T };
 
@@ -266,7 +276,10 @@ function asToSite(message: unknown): ToSite | null {
     typeof message.ms === "number"
   ) {
     const result = asResult(message.result);
-    return result === null ? null : { type: "done", result, ms: message.ms };
+    if (result === null) return null;
+    return "summary" in message && typeof message.summary === "string"
+      ? { type: "done", result, ms: message.ms, summary: message.summary }
+      : { type: "done", result, ms: message.ms };
   }
   return null;
 }
