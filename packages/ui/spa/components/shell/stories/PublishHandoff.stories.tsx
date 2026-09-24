@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { Loader2, Upload } from "lucide-react";
+import { CloudUpload, Rocket } from "lucide-react";
+import { Button } from "../../designSystem/button";
 import {
   PublishHandoffCard,
   StudioPublishPage,
@@ -9,7 +10,8 @@ import {
 } from "../PublishHandoff";
 import { DeployProgress } from "../DeployProgress";
 import { HostPage } from "./HostPage";
-import { cn } from "../../designSystem/cn";
+import { OverlayCard } from "../OverlayMenu";
+import { PublishSummaryView } from "../../PublishSummaryView";
 import type { StudioDeployState } from "../../../publish/useStudioDeploy";
 
 /**
@@ -17,8 +19,9 @@ import type { StudioDeployState } from "../../../publish/useStudioDeploy";
  * Studio tab builds and reports back.
  *
  * - **Overlay** — the card over the customer's site, in each state it passes
- *   through. The bar under it is the overlay's own, reduced to its Publish
- *   button, which says "Publishing…" for as long as the tab is working.
+ *   through. Under it is the overlay's own Publish, icon only as it is there,
+ *   in flight for as long as the tab is working. The message is asked for as it
+ *   is today; confirming it is what opens the tab.
  * - **Studio tab** — the page the overlay opened, for one commit.
  * - **Status bar** — the same progress inside the Studio itself.
  */
@@ -33,11 +36,15 @@ type Theme = "dark" | "light";
 function OverlayScene({
   state,
   theme = "dark",
+  prompt = false,
 }: {
   state: HandoffState;
   theme?: Theme;
+  /** The message prompt, as today, before anything is handed off. */
+  prompt?: boolean;
 }) {
-  const working = state.kind === "opening" || state.kind === "running";
+  const working =
+    !prompt && (state.kind === "opening" || state.kind === "running");
   return (
     <div
       className="relative w-full overflow-hidden"
@@ -48,27 +55,47 @@ function OverlayScene({
         data-mode={theme}
         className="absolute left-1/2 -translate-x-1/2 bottom-6 z-50 flex flex-col items-center gap-2"
       >
-        <PublishHandoffCard
-          state={state}
-          onShowTab={() => undefined}
-          onReload={() => undefined}
-          onOpenStudio={() => undefined}
-          onDismiss={working ? undefined : () => undefined}
-        />
+        {prompt ? (
+          <OverlayCard className="w-[340px] text-sm">
+            <PublishSummaryView
+              value="Update the product 1 description"
+              onChange={() => undefined}
+              ai={{ status: "off" }}
+              onUseAiSummary={() => undefined}
+              onPublish={() => undefined}
+              onClose={() => undefined}
+              publishDisabled={false}
+              isPublishing={false}
+              waitingForAiSeconds={null}
+            />
+          </OverlayCard>
+        ) : (
+          <PublishHandoffCard
+            state={state}
+            onShowTab={() => undefined}
+            onReload={() => undefined}
+            onOpenStudio={() => undefined}
+            onDismiss={working ? undefined : () => undefined}
+          />
+        )}
+        {/*
+         * The overlay's own Publish, as it renders there: `PublishButton
+         * compact`, icon only. In flight while the tab works on the commit, the
+         * same icon as any publish in flight.
+         */}
         <div className="inline-flex items-center gap-1 rounded-full bg-bg-float border border-border-float shadow-lg px-2 py-1.5">
-          <span
-            className={cn(
-              "inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium",
-              "bg-bg-brand-primary text-fg-brand-primary border border-border-brand-primary",
-            )}
+          <Button
+            className="h-auto w-auto p-2"
+            aria-label={working ? "Publishing" : "Publish"}
           >
-            {working ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Upload size={14} />
-            )}
-            {working ? "Publishing…" : "Publish"}
-          </span>
+            <span className="grid size-4 shrink-0 place-items-center">
+              {working ? (
+                <CloudUpload size={16} className="animate-pulse" />
+              ) : (
+                <Rocket size={16} />
+              )}
+            </span>
+          </Button>
         </div>
       </div>
     </div>
@@ -77,7 +104,16 @@ function OverlayScene({
 
 type OverlayStory = StoryObj<typeof OverlayScene>;
 
-/** The moment after Publish: the commit is saved and the tab is opening. */
+/**
+ * Publish, pressed in the overlay: the message is asked for exactly as today.
+ * Pressing Publish in here is what opens the Studio tab, in the same click, so
+ * the browser lets it open.
+ */
+export const OverlayMessage: OverlayStory = {
+  render: () => <OverlayScene prompt state={{ kind: "opening" }} />,
+};
+
+/** The moment after the message: the tab is open and the save is running. */
 export const OverlayOpening: OverlayStory = {
   render: () => <OverlayScene state={{ kind: "opening" }} />,
 };
