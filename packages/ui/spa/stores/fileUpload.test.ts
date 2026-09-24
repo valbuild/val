@@ -334,8 +334,8 @@ describe("a file's URL between saving and publishing", () => {
     dispose();
   });
 
-  it("stops pointing at the patch once it has shipped", async () => {
-    const { sourceStore, patchStore, patchSync, stat, dispose } =
+  it("keeps pointing at the patch after it is committed, until a deployment serves it", async () => {
+    const { sourceStore, patchStore, patchSync, stat, server, dispose } =
       initTestSystem();
     await sourceStore.testReceive([imageModule()]);
     stat.simulateExternal([]);
@@ -345,12 +345,18 @@ describe("a file's URL between saving and publishing", () => {
     );
     await patchSync.flush();
 
-    // PUBLISHED, not dropped — and the difference is the whole point. A
-    // published patch stays in the chain in `http` mode, so "is it in the chain"
-    // is not the question; dropping it would make this test pass with the gate
-    // removed entirely.
+    // Committed: the bytes are in a commit, and in no build yet. The published
+    // URL has nothing behind it until one is live, so the patch is still the
+    // only place they can be read from -- the same way the edit's TEXT is
+    // still read from the chain.
     patchStore.markPublished(["local-1" as PatchId]);
+    expect(patchStore.filePatchIds().get(HERO)).toBe("local-1");
 
+    // A deployment carrying it moved the base, and the patch left the chain.
+    server.simulateForeignPublish(["local-1" as PatchId]);
+    // Leaving the chain waits on the store confirming the patch is gone.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(patchStore.filePatchIds().get(HERO)).toBeUndefined();
     dispose();
   });
