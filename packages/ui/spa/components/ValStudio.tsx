@@ -48,6 +48,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({
       valModules={valModules ?? null}
       theme={theme}
       setTheme={setTheme}
+      handsOffPublish={handoffId === null}
     >
       <BuilderPreload />
       <ErrorBoundary FallbackComponent={FallbackComponent}>

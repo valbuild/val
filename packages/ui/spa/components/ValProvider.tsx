@@ -63,6 +63,7 @@ import {
   type UseStudioDeploy,
 } from "../publish/useStudioDeploy";
 import { useSiteHandoff, type UseSiteHandoff } from "../publish/useSiteHandoff";
+import { describeDeployFailure } from "../publish/deployProgress";
 import { ValOverlayEmitter } from "../stores/react/ValOverlayEmitter";
 import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
@@ -292,6 +293,7 @@ export function ValProvider({
   dispatchValEvents,
   theme,
   setTheme,
+  handsOffPublish = false,
 }: {
   children: React.ReactNode;
   client: ValClient;
@@ -300,6 +302,22 @@ export function ValProvider({
   dispatchValEvents: boolean;
   theme?: Themes | null;
   setTheme?: (theme: Themes | null) => void;
+  /**
+   * May a publish that cannot build HERE open a builder tab to build it?
+   *
+   * The tab is `/val?publish-handoff=…`, which the platform isolates in every
+   * browser (COEP `require-corp`), where the Studio itself is isolated only
+   * where `credentialless` is understood -- so not in WebKit, and not on any
+   * iPhone. `prepare` asks `crossOriginIsolated` first, so a page that CAN
+   * build never opens a tab: Chrome's Studio publishes in place, and only the
+   * overlay (never isolated) and a WebKit Studio hand off.
+   *
+   * Off by default, and set by the two mounts that publish: the overlay's and
+   * the Studio's. The builder tab's own provider leaves it off -- it builds
+   * with `deploy` directly, and a tab that could not build handing off to
+   * another tab would be the loop an iPhone met before the tab was isolated.
+   */
+  handsOffPublish?: boolean;
 }) {
   // config parameter is unused but kept for API compatibility
   void _config;
@@ -816,7 +834,10 @@ export function ValProvider({
     }
   }, [deploy.state, markObserved]);
   /** See {@link ValContextValue.handoff}. */
-  const handoff = useSiteHandoff({ onLive: markObserved });
+  const handoff = useSiteHandoff({
+    onLive: markObserved,
+    enabled: handsOffPublish,
+  });
 
   /**
    * Warn before leaving with edits that have not reached the server.
@@ -2361,7 +2382,7 @@ export function usePublishSummary() {
                * resolves. Reported rather than thrown for the same reason: a
                * publish whose build failed is not a publish that did nothing.
                */
-              const deployed = await deploy(
+              const { result: deployed, failedAt } = await deploy(
                 res.commitSha ?? null,
                 res.sourceFiles ?? null,
                 {
@@ -2370,8 +2391,9 @@ export function usePublishSummary() {
                 },
               );
               if (deployed.status === "failed") {
+                // The sentence leads; the technical text is the details.
                 val.system.status.reportError(
-                  "Your changes are saved, but the site has not been rebuilt.",
+                  `Saved, but not published. ${describeDeployFailure(failedAt ?? undefined)}`,
                   [
                     deployed.message,
                     ...deployed.problems.map(

@@ -24,7 +24,7 @@ test("a live publish from the tab names the commit that went live", async () => 
   });
   const live: string[] = [];
   const { result } = renderHook(() =>
-    useSiteHandoff({ onLive: (commit) => live.push(commit) }),
+    useSiteHandoff({ onLive: (commit) => live.push(commit), enabled: true }),
   );
   act(() => result.current.prepare(true));
   const id = new URL(opened[0], "http://site").searchParams.get(
@@ -47,4 +47,44 @@ test("a live publish from the tab names the commit that went live", async () => 
     tab.close();
     act(() => result.current.cancel(""));
   }
+});
+
+test("a provider that may not hand off never opens a tab", () => {
+  const open = jest.spyOn(window, "open").mockImplementation(() => null);
+  open.mockClear();
+  const { result } = renderHook(() => useSiteHandoff());
+  act(() => result.current.prepare(true));
+  expect(open).not.toHaveBeenCalled();
+  expect(result.current.active()).toBe(false);
+  expect(result.current.state).toBeNull();
+});
+
+test("a page that can build publishes in place, and never opens a tab", () => {
+  const open = jest.spyOn(window, "open").mockImplementation(() => null);
+  open.mockClear();
+  Object.defineProperty(globalThis, "crossOriginIsolated", {
+    value: true,
+    configurable: true,
+  });
+  try {
+    const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+    act(() => result.current.prepare(true));
+    expect(open).not.toHaveBeenCalled();
+    expect(result.current.active()).toBe(false);
+  } finally {
+    Object.defineProperty(globalThis, "crossOriginIsolated", {
+      value: undefined,
+      configurable: true,
+    });
+  }
+});
+
+test("a page that cannot build -- WebKit's Studio -- opens the builder tab", () => {
+  const open = jest.spyOn(window, "open").mockImplementation(() => null);
+  open.mockClear();
+  const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+  act(() => result.current.prepare(true));
+  expect(open).toHaveBeenCalledTimes(1);
+  expect(String(open.mock.calls[0]?.[0])).toMatch(/\/val\?publish-handoff=/);
+  act(() => result.current.cancel(""));
 });

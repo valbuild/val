@@ -39,6 +39,8 @@ export function useSiteHandoff(
      * same as `/stat` reporting it would say.
      */
     onLive?: (commit: string) => void;
+    /** See `handsOffPublish` on `ValProvider`: the overlay's alone. */
+    enabled?: boolean;
   } = {},
 ): UseSiteHandoff {
   const [state, setState] = useState<HandoffState | null>(null);
@@ -48,39 +50,52 @@ export function useSiteHandoff(
   const onLive = useRef(options.onLive);
   onLive.current = options.onLive;
 
-  const prepare = useCallback((studioIsDeployer: boolean) => {
-    if (!studioIsDeployer || canBuildHere()) return;
-    current.current?.close();
-    const handoff = openHandoff();
-    current.current = handoff;
-    committed.current = null;
-    setState(handoff.opened ? { kind: "opening" } : { kind: "blocked" });
-    handoff.onMessage((message) => {
-      if (current.current !== handoff) return;
-      if (message.type === "ready") {
-        setState((prev) =>
-          prev?.kind === "blocked" ? { kind: "opening" } : prev,
-        );
-      } else if (message.type === "phase") {
-        setState({
-          kind: "running",
-          step: message.label,
-          elapsedMs: message.elapsedMs,
-        });
-      } else {
-        setState(
-          message.result.status === "failed"
-            ? { kind: "failed", message: message.result.message }
-            : { kind: "live", ms: message.ms },
-        );
-        if (message.result.status !== "failed" && committed.current !== null) {
-          onLive.current?.(committed.current);
+  const enabled = options.enabled ?? false;
+  const prepare = useCallback(
+    (studioIsDeployer: boolean) => {
+      if (!enabled || !studioIsDeployer || canBuildHere()) return;
+      current.current?.close();
+      const handoff = openHandoff();
+      current.current = handoff;
+      committed.current = null;
+      setState(handoff.opened ? { kind: "opening" } : { kind: "blocked" });
+      handoff.onMessage((message) => {
+        if (current.current !== handoff) return;
+        if (message.type === "ready") {
+          setState((prev) =>
+            prev?.kind === "blocked" ? { kind: "opening" } : prev,
+          );
+        } else if (message.type === "phase") {
+          setState({
+            kind: "running",
+            step: message.label,
+            elapsedMs: message.elapsedMs,
+          });
+        } else {
+          setState(
+            message.result.status === "failed"
+              ? {
+                  kind: "failed",
+                  message:
+                    message.summary ??
+                    "The site could not be rebuilt. Publish again to retry.",
+                  details: message.result.message,
+                }
+              : { kind: "live", ms: message.ms },
+          );
+          if (
+            message.result.status !== "failed" &&
+            committed.current !== null
+          ) {
+            onLive.current?.(committed.current);
+          }
+          handoff.close();
+          current.current = null;
         }
-        handoff.close();
-        current.current = null;
-      }
-    });
-  }, []);
+      });
+    },
+    [enabled],
+  );
 
   const active = useCallback(() => current.current !== null, []);
 
