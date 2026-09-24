@@ -137,6 +137,26 @@ export interface StudioDeployOptions {
    */
   branch?: string | null;
   /**
+   * The `.val.ts` text of every module changed since the live build, with every
+   * commit since it applied -- the server's `/built-source`. `null` when the
+   * server has none to give, and the build uses `committedFiles` alone.
+   *
+   * Why it exists: `committedFiles` is what THIS save wrote. A commit whose own
+   * publish failed, or the first one of a project copied from a template, is
+   * in content and in no stored source, and a build of the stored source plus
+   * this save's files shipped without it.
+   */
+  builtSource?: () => Promise<Record<string, string | null> | null>;
+  /**
+   * The live site's compiled stylesheet, used when this build produced none.
+   *
+   * A build in the browser cannot run Tailwind `@plugin`s, and the stored
+   * source may not carry the stylesheets at all. A Studio save changes content
+   * and uploaded files, never a stylesheet or a component, so the live CSS is
+   * still the right CSS; without this every Studio publish shipped unstyled.
+   */
+  liveStylesheet?: () => Promise<string>;
+  /**
    * One of the live site's public files, base64, by its URL path
    * (`favicon.ico` for `/favicon.ico`).
    *
@@ -194,10 +214,11 @@ export async function runStudioDeploy(
      * Together, because they are one answer with two halves and neither is
      * useful alone -- and because the round trip is the cost, not the work.
      */
-    const [readTarget, readSource, readPublic] = await Promise.all([
+    const [readTarget, readSource, readPublic, built] = await Promise.all([
       client.buildTarget(),
       client.projectSource(),
       client.publicFiles(),
+      options.builtSource ? options.builtSource() : Promise.resolve(null),
     ]);
     if (readSource === null) {
       return failed(
@@ -242,7 +263,10 @@ export async function runStudioDeploy(
       );
     }
     target = readTarget;
-    source = withCommittedFiles(readSource, options.committedFiles ?? null);
+    source = withCommittedFiles(
+      withCommittedFiles(readSource, built),
+      options.committedFiles ?? null,
+    );
     if ("carried" in readPublic) {
       carried = readPublic.carried;
       refetched = {};
@@ -324,6 +348,14 @@ export async function runStudioDeploy(
       projectSource: wired,
       target,
     });
+    /*
+     * After the build, not instead of it: a project whose stylesheet the tab
+     * CAN compile ships its own. Only an empty one is replaced.
+     */
+    if (build.cssCode === "" && options.liveStylesheet) {
+      const live = await options.liveStylesheet();
+      if (live !== "") build = { ...build, cssCode: live };
+    }
   } catch (error) {
     return failed(messageOf(error));
   }

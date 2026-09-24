@@ -24,7 +24,11 @@
 
 import { useCallback, useRef, useState } from "react";
 import { createStudioPublishClient } from "./publishClient";
-import { fetchPublicFile } from "./fetchPublicFile";
+import {
+  fetchBuiltSource,
+  fetchLiveStylesheet,
+  fetchPublicFile,
+} from "./fetchPublicFile";
 import { loadBuilder, routeTreeGenerator } from "./loadBuilder";
 import {
   CommittedBinaryFiles,
@@ -99,6 +103,8 @@ export function useStudioDeploy(options?: {
           committedBinaryFiles: details?.binaryFiles ?? null,
           branch: details?.branch ?? null,
           fetchPublicFile: (path) => fetchPublicFile(path),
+          builtSource: () => fetchBuiltSource(api),
+          liveStylesheet: () => fetchLiveStylesheet(),
           loadBuilder,
           ...(generateRouteTree !== null ? { generateRouteTree } : {}),
           onPhase: (phase) => setState({ status: "running", phase }),
