@@ -9,6 +9,12 @@ import {
 } from "../../utils/mergeCommitsAndDeployments";
 import { deploymentProgress, describeDeploymentState } from "./Deployments";
 import {
+  deployPercent,
+  describeDeployPhase,
+  describeDeployStep,
+} from "../../publish/deployProgress";
+import type { StudioDeployState } from "../../publish/useStudioDeploy";
+import {
   ShellActivityEntry,
   ShellAdminLinks,
   ShellData,
@@ -325,6 +331,43 @@ export function toDeployments(
       updatedAt: deployment.updatedAt,
       isLive: observedCommitShas.has(deployment.commitSha),
     }),
+  );
+}
+
+/**
+ * This Studio's own publish, on the row of the commit it is publishing: the
+ * percentage while it runs, and how long each step took once it is live.
+ *
+ * Only on that row, and only while this tab remembers it -- a reload forgets
+ * the breakdown, which is fine, since the row still says Live. A publish of no
+ * commit has no row to go on, and a failed one says so in its own message.
+ */
+export function withStudioPublish(
+  deployments: ShellDeployment[],
+  state: StudioDeployState,
+): ShellDeployment[] {
+  if (state.status === "idle" || state.commit === null) return deployments;
+  if (state.status === "done" && state.result.status === "failed") {
+    return deployments;
+  }
+  const publish: ShellDeployment["publish"] =
+    state.status === "running"
+      ? {
+          kind: "running",
+          percent: deployPercent(state.phase),
+          step: describeDeployPhase(state.phase),
+        }
+      : {
+          kind: "done",
+          ms: state.ms,
+          steps: state.steps.map((step) => ({
+            label: describeDeployStep(step.kind),
+            ms: step.ms,
+          })),
+        };
+  const commit = state.commit;
+  return deployments.map((deployment) =>
+    deployment.commitSha === commit ? { ...deployment, publish } : deployment,
   );
 }
 

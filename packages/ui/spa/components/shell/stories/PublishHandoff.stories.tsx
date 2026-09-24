@@ -391,6 +391,7 @@ const runningState = (
   phase,
   startedAt: Date.now() - 12_000,
   phaseStartedAt: Date.now() - 4_000,
+  commit: null,
 });
 
 type BarStory = StoryObj<typeof StudioStatusBar>;

@@ -51,6 +51,8 @@ export type StudioDeployState =
       phaseStartedAt: number;
       /** The steps finished so far, in order. */
       steps?: DeployStep[];
+      /** The commit being published, so the deploy list can show it on its row. */
+      commit: string | null;
     }
   | {
       status: "done";
@@ -136,6 +138,7 @@ export function useStudioDeploy(options?: {
           startedAt,
           phaseStartedAt: current.at,
           steps: [...steps],
+          commit,
         });
       };
       setState({
@@ -143,6 +146,7 @@ export function useStudioDeploy(options?: {
         phase: current.phase,
         startedAt,
         phaseStartedAt: startedAt,
+        commit,
       });
       /*
        * Read once per deploy, not per use: whether a deployment has injected

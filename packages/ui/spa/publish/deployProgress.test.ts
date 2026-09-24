@@ -13,6 +13,7 @@ describe("the publish line", () => {
         phase: { kind: "building" },
         startedAt: 0,
         phaseStartedAt: 0,
+        commit: "c",
       }),
     ).toBe("Publishing 12%");
   });
