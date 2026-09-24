@@ -3,6 +3,7 @@ import type { PatchSetMetadata } from "../utils/PatchSets";
 import type { Description } from "../utils/describePath";
 import { reviewRowId, reviewSourcePath, toReviewModel } from "./toReviewModel";
 import type { ReviewModelInput } from "./toReviewModel";
+import { UNKNOWN_AUTHOR } from "../utils/computeChangedSourcePaths";
 
 /**
  * The half of the review page that can be wrong without the types noticing.
@@ -68,6 +69,7 @@ function input(over: Partial<ReviewModelInput> = {}): ReviewModelInput {
     stagingEnabled: true,
     stateOf: () => "staged",
     stagePreview: () => [],
+    unstagePreview: () => [],
     authorOf: () => null,
     isPageModule: () => false,
     describe: fallback,
@@ -426,5 +428,116 @@ describe("the source path a row is named by", () => {
     expect(reviewSourcePath(patchSet("/m.val.ts", ["a", "b"], []))).toBe(
       '/m.val.ts?p="a"."b"',
     );
+  });
+});
+
+/**
+ * A patch set counts PATCHES, not operations.
+ *
+ * `PatchSets` inserts one entry per op, so a patch carrying two ops at the
+ * same path lands in `patches` twice. Counting those entries told an editor
+ * their one edit was "2 edits", and handed the same id twice to staging and
+ * to the discard.
+ */
+describe("a multi-operation patch", () => {
+  const twoOps = [
+    patchSet(
+      "/content/page.val.ts",
+      ["title"],
+      [
+        { patchId: "p1", author: "ada", opType: "replace" },
+        { patchId: "p1", author: "ada", opType: "replace" },
+      ],
+    ),
+  ];
+
+  test("is one edit, not two", () => {
+    const model = toReviewModel(input({ patchSets: twoOps }));
+    expect(model.modules[0].rows[0].patchCount).toBe(1);
+  });
+
+  test("is listed once under its author", () => {
+    const model = toReviewModel(input({ patchSets: twoOps }));
+    expect(model.modules[0].rows[0].authors["ada"]).toHaveLength(1);
+  });
+});
+
+/**
+ * An author-less patch gets the bucket every other surface uses.
+ *
+ * It was the empty string here, which the author filter renders as a blank
+ * row with nothing to read — `computeChangedSourcePaths` had already chosen
+ * `unknown` for the same fact.
+ */
+test("an author-less patch is bucketed under the shared sentinel", () => {
+  const model = toReviewModel(
+    input({
+      patchSets: [
+        patchSet(
+          "/content/page.val.ts",
+          ["title"],
+          [{ patchId: "p1", author: null, opType: "replace" }],
+        ),
+      ],
+    }),
+  );
+  expect(Object.keys(model.modules[0].rows[0].authors)).toEqual([
+    UNKNOWN_AUTHOR,
+  ]);
+});
+
+/**
+ * Reverting a staged row names whose work would leave the publish with it.
+ *
+ * The mirror of `alsoStages`, and it was missing while that one was there: the
+ * page warned about the cheaper direction and said nothing about the
+ * destructive one. Deleting a row's patches means the later sets that were
+ * built on them cannot stay in the publish, so they are unstaged.
+ */
+describe("what a revert would take with it", () => {
+  const staged = [
+    patchSet(
+      "/content/page.val.ts",
+      ["title"],
+      [{ patchId: "p1", author: "ada", opType: "replace" }],
+    ),
+  ];
+
+  test("a staged row names the other people it would unstage", () => {
+    const model = toReviewModel(
+      input({
+        patchSets: staged,
+        unstagePreview: () => ["p9" as PatchId],
+        authorOf: () => "linus",
+      }),
+    );
+    expect(model.modules[0].rows[0].alsoUnstages).toEqual(["Linus Pauling"]);
+  });
+
+  /* Your own work is not a warning: it is already yours to drop. */
+  test("your own work is left out of the warning", () => {
+    const model = toReviewModel(
+      input({
+        patchSets: staged,
+        unstagePreview: () => ["p9" as PatchId],
+        authorOf: () => "ada",
+      }),
+    );
+    expect(model.modules[0].rows[0].alsoUnstages).toBeUndefined();
+  });
+
+  /* An unstaged row's revert takes nothing with it, so it carries neither. */
+  test("an unstaged row warns about staging instead", () => {
+    const model = toReviewModel(
+      input({
+        patchSets: staged,
+        stateOf: () => "unstaged",
+        stagePreview: () => ["p9" as PatchId],
+        unstagePreview: () => ["p9" as PatchId],
+        authorOf: () => "linus",
+      }),
+    );
+    expect(model.modules[0].rows[0].alsoStages).toEqual(["Linus Pauling"]);
+    expect(model.modules[0].rows[0].alsoUnstages).toBeUndefined();
   });
 });

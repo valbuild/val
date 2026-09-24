@@ -248,6 +248,13 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   usePatchGroupFlush();
   const portalContainer = useValPortal();
   const discardAll = useDiscardAll();
+  /*
+   * The branch history is listed under, which decides whether History is
+   * offered at all. `val.config` may not name one and the server fills in the
+   * branch it resolved, so this is null only for a deployment that has
+   * neither.
+   */
+  const shellGitBranch = useValConfig()?.gitBranch ?? null;
   // Only read when the wait has already gone on too long — see
   // `PendingChangesGate`.
   const pendingChangesProgress = usePendingChangesProgress();
@@ -1168,8 +1175,16 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
          * there is no published history to list and `/history/commits` answers
          * `not-supported-in-fs-mode`. The button is hidden rather than leading
          * to a page whose only content is an apology.
+         *
+         * And false without a resolved branch, for the same reason rather than
+         * a second one: history is listed PER BRANCH, so `HistoryView` has no
+         * request to make and says so. `gitBranch` is optional in
+         * `val.config` and the server fills in the one it resolved, so this is
+         * the deployment that has neither — a git-less http project. Offering
+         * the button there is the dead affordance this comment exists to
+         * forbid.
          */
-        historyEnabled={mode === "http"}
+        historyEnabled={mode === "http" && shellGitBranch !== null}
         historyActive={navigation.isHistoryView}
         onOpenHistory={() => navigation.navigate(VAL_HISTORY_ROUTE)}
         onMentionField={(sourcePath) =>

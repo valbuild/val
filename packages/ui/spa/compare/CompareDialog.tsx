@@ -171,6 +171,21 @@ export function CompareDialog({
   const selectRow = (id: string): void => {
     setSelectedId(id);
   };
+  /*
+   * Narrowing to a person moves the selection if it has to.
+   *
+   * The nav hides the rows that are not theirs, and the selection is not one
+   * of the things it hides — so filtering to somebody whose work is elsewhere
+   * left the dialog showing a change by the person it had just said it was
+   * filtering out, with no row in the list to match it. The first row that
+   * survives is the one the filter was asking for.
+   */
+  const onAuthorFilter = (next: string | null): void => {
+    setAuthorFilter(next);
+    if (selectedId !== null && !nodeIdShown(model, selectedId, next)) {
+      setSelectedId(firstNodeId(model, next));
+    }
+  };
   const hidden = pane === undefined ? 0 : hiddenFieldCount(pane, authorFilter);
   const isMobile = forceLayout === "mobile";
 
@@ -200,7 +215,7 @@ export function CompareDialog({
         profiles={model.profiles}
         authorIds={people}
         selected={authorFilter}
-        onSelect={setAuthorFilter}
+        onSelect={onAuthorFilter}
         mode={mode}
         portalContainer={portalContainer}
       />
@@ -572,9 +587,13 @@ function EmptyPane() {
   );
 }
 
-function firstNodeId(model: CompareModel): string | null {
+function firstNodeId(
+  model: CompareModel,
+  /** Only rows this person touched, matching what the nav will list. */
+  authorFilter: string | null = null,
+): string | null {
   for (const section of model.sections) {
-    const found = firstOf(section.nodes);
+    const found = firstOf(section.nodes, authorFilter);
     if (found !== null) {
       return found;
     }
@@ -637,15 +656,51 @@ function PaneHeading({ pane }: { pane: ComparePane }) {
   );
 }
 
-function firstOf(nodes: CompareNavNode[]): string | null {
+function firstOf(
+  nodes: CompareNavNode[],
+  authorFilter: string | null = null,
+): string | null {
   for (const node of nodes) {
-    if (node.change !== undefined) {
+    if (node.change !== undefined && nodeHasAuthor(node, authorFilter)) {
       return node.id;
     }
-    const child = firstOf(node.children ?? []);
+    const child = firstOf(node.children ?? [], authorFilter);
     if (child !== null) {
       return child;
     }
   }
   return null;
+}
+
+/**
+ * Whether the nav would still list this row under a filter.
+ *
+ * The same test `navNodeMatches` makes, and it has to stay the same one: this
+ * decides what is SELECTED and that decides what is LISTED, so a disagreement
+ * shows up as a dialog whose right-hand pane is not in its own left-hand list.
+ * A row with no `authorIds` is kept, because it is structure rather than
+ * somebody's work.
+ */
+function nodeHasAuthor(
+  node: CompareNavNode,
+  authorFilter: string | null,
+): boolean {
+  if (authorFilter === null) return true;
+  if (node.authorIds === undefined) return true;
+  return node.authorIds.includes(authorFilter);
+}
+
+/** Whether the node with this id survives the filter, anywhere in the tree. */
+function nodeIdShown(
+  model: CompareModel,
+  id: string,
+  authorFilter: string | null,
+): boolean {
+  const walk = (nodes: CompareNavNode[]): boolean =>
+    nodes.some(
+      (node) =>
+        (node.id === id && nodeHasAuthor(node, authorFilter)) ||
+        walk(node.children ?? []),
+    );
+  return model.sections.some((section) => walk(section.nodes));
 }

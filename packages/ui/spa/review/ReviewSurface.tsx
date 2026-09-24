@@ -1,10 +1,12 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import {
+  useCommittedPatches,
   useCurrentAuthorId,
   useDeletePatches,
   usePatchSets,
   useValMode,
 } from "../components/ValProvider";
+import { pendingPatchSets } from "../utils/computeChangedSourcePaths";
 import { usePatchStaging } from "../components/PatchStagingProvider";
 import type { SerializedPatchSet } from "../utils/PatchSets";
 import { ReviewView } from "./ReviewView";
@@ -33,7 +35,7 @@ import { ReviewCompare, useCompareDialog } from "./ReviewCompare";
  * which is why `stagingEnabled` is on the model rather than assumed.
  */
 export function ReviewSurface({
-  patchSets,
+  patchSets: allPatchSets,
   onRestore,
   onDiscardAll,
   discardAllDescription,
@@ -47,6 +49,24 @@ export function ReviewSurface({
   discardAllDescription?: string;
   portalContainer?: HTMLElement | null;
 }) {
+  /*
+   * What is going out NEXT, which is not the whole chain.
+   *
+   * In http mode a published patch stays in the chain until the deploy moves
+   * the base, so `usePatchSets()` still names it. This page has no section for
+   * shipped work — the compare view does, below the deploy line — so listing
+   * one here offers Stage and Revert over a change that is already live, and
+   * neither can honour it: the patch is in a commit.
+   *
+   * Filtered ONCE, here, so the model, the row actions and the compare dialog
+   * are all reading the same set. Filtering only the model would leave
+   * `patchIdsOf` mapping a row back to committed ids.
+   */
+  const committedPatchIds = useCommittedPatches();
+  const patchSets = useMemo(
+    () => pendingPatchSets(allPatchSets, committedPatchIds),
+    [allPatchSets, committedPatchIds],
+  );
   const model = useReviewModel(patchSets);
   const staging = usePatchStaging();
   const mode = useValMode();
@@ -84,6 +104,31 @@ export function ReviewSurface({
     [patchSets],
   );
 
+  /*
+   * The dialog compares the PUBLISH, so it sees the staged half alone.
+   *
+   * The button says "Compare staged changes" and the dialog's right column is
+   * headed "After publish" with a count under it — three statements about the
+   * same set. Handed every pending patch set, all three were wrong the moment
+   * anybody unstaged anything: an unstaged row showed up in a diff of what
+   * would ship, and counted towards the number beside it.
+   *
+   * `partial` counts as staged, the same way it does in the page's own
+   * sections: a set halfway into the publish is in the publish.
+   *
+   * Where staging is off — fs mode, and any content API without groups —
+   * every row is staged, so this is the whole list and the button says
+   * "Compare changes".
+   */
+  const stagedPatchSets = useMemo(() => {
+    if (!staging.enabled) return patchSets;
+    return patchSets.filter(
+      (patchSet) =>
+        staging.stateOf(patchSet.patches.map((patch) => patch.patchId)) !==
+        "unstaged",
+    );
+  }, [patchSets, staging]);
+
   return (
     <>
       <ReviewView
@@ -104,7 +149,7 @@ export function ReviewSurface({
         portalContainer={portalContainer}
       />
       <ReviewCompare
-        patchSets={patchSets}
+        patchSets={stagedPatchSets}
         mode={mode}
         open={compare.open}
         onOpenChange={compare.onOpenChange}

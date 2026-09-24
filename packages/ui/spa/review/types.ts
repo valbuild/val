@@ -158,4 +158,19 @@ export type ReviewRow = {
    * changes" does not tell you whose.
    */
   alsoStages?: string[];
+  /**
+   * Whose work REVERTING this row would push out of the publish, by name.
+   *
+   * The mirror of {@link alsoStages}, and it was missing while that one was
+   * there — which made the page warn about the cheaper of the two directions
+   * and stay silent about the destructive one. Reverting deletes this row's
+   * patches, and the prefix invariant then applies backwards: a later patch
+   * set cannot stay in the publish without the predecessors that have just
+   * gone, so it is unstaged. It is not lost — it stays pending, and can be
+   * staged again once the hole is filled — which is exactly why the warning
+   * says "unstages" rather than anything stronger.
+   *
+   * Only staged rows carry it: an unstaged row's revert takes nothing with it.
+   */
+  alsoUnstages?: string[];
 };

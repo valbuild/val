@@ -8,6 +8,7 @@ import {
 } from "../components/designSystem/popover";
 import { cn } from "../components/designSystem/cn";
 import type { Profile } from "../components/ValProvider";
+import { UNKNOWN_AUTHOR } from "../utils/computeChangedSourcePaths";
 
 /**
  * "Whose changes am I looking at" — a row of the people in this publish.
@@ -184,10 +185,25 @@ export function CompareAuthorFilterMenu({
     currentAuthorId !== null && authorIds.includes(currentAuthorId)
       ? [currentAuthorId, ...authorIds.filter((id) => id !== currentAuthorId)]
       : authorIds;
-  const nameOf = (authorId: string): string =>
-    authorId === currentAuthorId
-      ? `${profiles[authorId]?.fullName ?? authorId} (you)`
-      : (profiles[authorId]?.fullName ?? authorId);
+  /*
+   * A name, and never a raw id.
+   *
+   * `UNKNOWN_AUTHOR` is a real bucket, not a gap — fs mode has no profiles at
+   * all, and over http an api-key write has none — so it gets the words
+   * `ProfileAvatar` gives it rather than the sentinel itself. Any other id
+   * with no profile is a lookup that has not landed, and there the id is more
+   * use than a shrug.
+   */
+  const nameOf = (authorId: string): string => {
+    const named =
+      profiles[authorId]?.fullName ??
+      (authorId === UNKNOWN_AUTHOR
+        ? mode === "fs"
+          ? "Local changes"
+          : "Unknown author"
+        : authorId);
+    return authorId === currentAuthorId ? `${named} (you)` : named;
+  };
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -208,9 +224,7 @@ export function CompareAuthorFilterMenu({
           <span className="min-w-0 flex-1 truncate text-left">
             {selected === null
               ? `By anyone (${authorIds.length})`
-              : selected === currentAuthorId
-                ? `${current?.fullName ?? selected} (you)`
-                : (current?.fullName ?? selected)}
+              : nameOf(selected)}
           </span>
           <ChevronDown size={12} className="shrink-0" aria-hidden />
         </button>

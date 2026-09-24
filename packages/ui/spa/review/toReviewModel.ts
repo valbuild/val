@@ -7,6 +7,7 @@ import type { CompareAuthorship } from "../compare/types";
 import type { Description } from "../utils/describePath";
 import { pagePathOf, pageRouteOf } from "../utils/pageRoutes";
 import { prettyModuleLocation } from "../utils/prettyModulePath";
+import { UNKNOWN_AUTHOR } from "../utils/computeChangedSourcePaths";
 import type { ReviewModel, ReviewModuleGroup, ReviewRow } from "./types";
 
 /**
@@ -33,6 +34,8 @@ export type ReviewModelInput = {
   stateOf: (patchIds: readonly PatchId[]) => RowStagingState;
   /** What staging these would additionally pull in — the prefix invariant. */
   stagePreview: (patchIds: readonly PatchId[]) => PatchId[];
+  /** What REVERTING these would push out of the publish — the same invariant. */
+  unstagePreview: (patchIds: readonly PatchId[]) => PatchId[];
   authorOf: (patchId: PatchId) => string | null;
   /**
    * Whether this module's keys are URLs of the site.
@@ -120,7 +123,15 @@ function toRow(
   /** Leading segments the group heading already says. See `trailOf`. */
   skip: number,
 ): ReviewRow {
-  const patchIds = patchSet.patches.map((patch) => patch.patchId);
+  /*
+   * DISTINCT patch ids, because `PatchSets` inserts one entry per OP.
+   *
+   * A patch carrying two ops at the same path lands in `patches` twice, so a
+   * plain map gives the same id twice — which reads out as "2 edits" for one
+   * edit, and hands every id twice to `stateOf`, `stagePreview` and the
+   * discard. The set is the unit staging moves; the op is not.
+   */
+  const patchIds = [...new Set(patchSet.patches.map((patch) => patch.patchId))];
   const staging = input.stagingEnabled ? input.stateOf(patchIds) : "staged";
   return {
     id: reviewRowId(patchSet),
@@ -129,11 +140,11 @@ function toRow(
     summary: summaryOf(patchSet),
     authors: authorshipOf(patchSet),
     lastUpdated: patchSet.lastUpdated,
-    patchCount: patchSet.patches.length,
+    patchCount: patchIds.length,
     staging,
     ...(staging === "unstaged"
-      ? { alsoStages: alsoStagedBy(patchIds, input) }
-      : {}),
+      ? { alsoStages: namesOf(input.stagePreview(patchIds), input) }
+      : { alsoUnstages: namesOf(input.unstagePreview(patchIds), input) }),
   };
 }
 
@@ -214,13 +225,22 @@ function summaryOf(patchSet: PatchSetMetadata): string {
 /** The shape `FieldPatchAuthorsPure` draws: every patch, under its author. */
 function authorshipOf(patchSet: PatchSetMetadata): CompareAuthorship {
   const authorship: CompareAuthorship = {};
+  /*
+   * One entry per PATCH, not per op. `PatchSets` inserts an entry per
+   * operation, so a two-op patch would otherwise be listed as two edits by the
+   * same person — which is what `buildPatchesByAuthorIds` dedupes for on the
+   * compare side.
+   */
+  const seen = new Set<string>();
   for (const patch of patchSet.patches) {
+    if (seen.has(patch.patchId)) continue;
+    seen.add(patch.patchId);
     /*
      * An author-less patch is a real state, not a gap: in fs mode there are no
      * profiles at all, and over http an api-key write has none. It gets one
      * bucket, and `ProfileAvatar` names it per mode.
      */
-    const key = patch.author ?? "";
+    const key = patch.author ?? UNKNOWN_AUTHOR;
     (authorship[key] ??= []).push({
       opType: patch.opType,
       createdAt: patch.createdAt,
@@ -230,21 +250,24 @@ function authorshipOf(patchSet: PatchSetMetadata): CompareAuthorship {
 }
 
 /**
- * Whose work staging this row would additionally publish, by name.
+ * Whose work a staging move would carry with it, by name.
  *
- * The prefix invariant: a patch set later in the chain cannot publish without
- * its predecessors, so ticking one row can drag another person's work into the
- * publish. Named rather than counted, because "also publishes 2 changes" does
- * not tell you whose — and it is the names that make it a decision rather than
- * a surprise. This person's own earlier work is left out: it is already theirs
- * to publish, and listing it reads as a warning about nothing.
+ * One function for both directions, because the argument is the same one: the
+ * prefix invariant says a later patch set cannot publish without its
+ * predecessors, so ticking a row can drag somebody else's work INTO the
+ * publish and reverting one can push somebody else's OUT. Named rather than
+ * counted, because "also moves 2 changes" does not tell you whose — and it is
+ * the names that make it a decision rather than a surprise.
+ *
+ * This person's own work is left out of both. It is already theirs to publish
+ * or to drop, and listing it reads as a warning about nothing.
  */
-function alsoStagedBy(
-  patchIds: readonly PatchId[],
+function namesOf(
+  movedPatchIds: readonly PatchId[],
   input: ReviewModelInput,
 ): string[] | undefined {
   const names: string[] = [];
-  for (const patchId of input.stagePreview(patchIds)) {
+  for (const patchId of movedPatchIds) {
     const authorId = input.authorOf(patchId);
     if (authorId === null || authorId === input.currentAuthorId) continue;
     const name = input.profiles[authorId]?.fullName ?? authorId;

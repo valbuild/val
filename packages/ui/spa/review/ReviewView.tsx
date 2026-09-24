@@ -16,6 +16,7 @@ import { cn } from "../components/designSystem/cn";
 import { FieldPatchAuthorsPure } from "../components/FieldPatchAuthors";
 import { CompareAuthorFilterMenu } from "../compare/CompareAuthorFilter";
 import { undoWords } from "../compare/undoWords";
+import { UNKNOWN_AUTHOR } from "../utils/computeChangedSourcePaths";
 import type { ReviewModel, ReviewModuleGroup, ReviewRow } from "./types";
 
 /**
@@ -157,6 +158,13 @@ export function ReviewView({
     0,
   );
   const unstagedCount = rows.length - stagedCount;
+  /*
+   * The whole publish, never the filtered view: what Compare would open is
+   * not narrowed by who you are reading.
+   */
+  const stagedTotal = allRows.filter(
+    (row) => row.staging !== "unstaged",
+  ).length;
   const picked = [...selected];
 
   const toggle = (rowId: string, next: boolean): void =>
@@ -234,7 +242,26 @@ export function ReviewView({
            * a button that works perfectly well in fs mode read as one that
            * belongs to a feature fs mode does not have.
            */}
-          <Button size="sm" variant="secondary" onClick={onCompare}>
+          {/*
+           * Off when there is nothing staged, because the dialog compares the
+           * PUBLISH and an empty publish has no diff. It opens on the staged
+           * half alone, so with everything unstaged it would open onto "pick
+           * something on the left" over a list with nothing in it — which
+           * reads as the dialog being broken rather than as the publish being
+           * empty. Disabled rather than hidden: the control is the one way in,
+           * and a button that vanishes teaches nothing about why.
+           */}
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={onCompare}
+            disabled={stagedTotal === 0}
+            title={
+              stagedTotal === 0
+                ? "Nothing is staged, so there is nothing to compare."
+                : undefined
+            }
+          >
             <GitCompareArrows size={13} aria-hidden />
             {model.stagingEnabled
               ? "Compare staged changes"
@@ -275,7 +302,14 @@ export function ReviewView({
             {`Nothing in this publish is ${
               authorFilter === model.currentAuthorId
                 ? "yours"
-                : `by ${model.profiles[authorFilter ?? ""]?.fullName ?? "this person"}`
+                : `by ${
+                    model.profiles[authorFilter ?? ""]?.fullName ??
+                    (authorFilter === UNKNOWN_AUTHOR
+                      ? model.mode === "fs"
+                        ? "anyone but you"
+                        : "an unknown author"
+                      : "this person")
+                  }`
             }.`}
           </p>
         ) : (
@@ -839,6 +873,19 @@ function Row({
             {row.patchCount} {row.patchCount === 1 ? "edit" : "edits"}
           </span>
         </div>
+        {row.alsoUnstages !== undefined && row.alsoUnstages.length > 0 && (
+          /*
+           * The mirror of the line below, and the destructive half of the
+           * pair. Reverting deletes this row's patches, and a later patch set
+           * cannot stay in the publish without predecessors that have gone —
+           * so somebody else's staged work leaves with it. "Unstages" and not
+           * anything stronger: their work is still there, still theirs, and
+           * can be staged again.
+           */
+          <p className="mt-0.5 truncate text-xs text-fg-warning-primary">
+            {`Reverting this also unstages work by ${row.alsoUnstages.join(", ")}`}
+          </p>
+        )}
         {row.alsoStages !== undefined && row.alsoStages.length > 0 && (
           /*
            * Said on the row rather than at confirm time, because it changes

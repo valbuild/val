@@ -76,6 +76,7 @@ export function useReviewModel(patchSets: SerializedPatchSet): ReviewModel {
         stagingEnabled: staging.enabled,
         stateOf: staging.stateOf,
         stagePreview: staging.stagePreview,
+        unstagePreview: staging.unstagePreview,
         authorOf: staging.authorOf,
         isPageModule: isPage,
         describe: descriptions.describe,
