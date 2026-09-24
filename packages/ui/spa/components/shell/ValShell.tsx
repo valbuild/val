@@ -36,6 +36,8 @@ import { useCurrentPatchGroup } from "../useCurrentPatchGroup";
 import type { SerializedPatchSet } from "../../utils/PatchSets";
 import { isPathWithin } from "../../utils/sourcePath";
 import type { Profile } from "../ValProvider";
+import { canBuildHere } from "../../publish/handoff";
+import { PublishHandoffCard } from "./PublishHandoff";
 import { LoginDialog } from "../LoginDialog";
 import { PatchErrorsDialog } from "../PatchErrorsDialog";
 import { GlobalErrors } from "../GlobalErrors";
@@ -72,6 +74,7 @@ import {
   usePublishCount,
   usePublishSummary,
   useStudioDeployState,
+  useSiteHandoffState,
   useStudioIsDeployer,
   useCommittedPatches,
   useCurrentAuthorId,
@@ -234,6 +237,23 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    */
   const { state: deployState, deploy } = useStudioDeployState();
   const studioIsDeployer = useStudioIsDeployer();
+  const handoff = useSiteHandoffState();
+  /*
+   * Finish publishing a commit that is saved and not live: here when this page
+   * can build, and in a builder tab when it cannot -- WebKit, which isolates
+   * only the tab. The press is what lets the tab open, so both happen in it.
+   */
+  const finishPublishing = useCallback(
+    (commitSha: string) => {
+      if (canBuildHere()) {
+        void deploy(commitSha);
+        return;
+      }
+      handoff.prepare(studioIsDeployer);
+      handoff.commit({ commit: commitSha, binaryFiles: null, branch: null });
+    },
+    [deploy, handoff, studioIsDeployer],
+  );
   /**
    * Whether the fields can be trusted yet.
    *
@@ -1090,9 +1110,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         editorOverride={overrideEditor}
         publishSlot={<PublishButton />}
         publishState={publishState}
-        onFinishPublishing={
-          studioIsDeployer ? (commitSha) => void deploy(commitSha) : undefined
-        }
+        onFinishPublishing={studioIsDeployer ? finishPublishing : undefined}
         finishingPublish={deployState.status === "running"}
         deployState={deployState}
         saveState={saveState}
@@ -1210,6 +1228,25 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         pendingChangesProgress={pendingChangesProgress}
         pendingChangesError={pendingChangesError}
       />
+      {handoff.state !== null && (
+        /*
+         * A publish this Studio handed to a builder tab, because it cannot
+         * build here. Above the status bar, where the deploy item is.
+         */
+        <div className="fixed bottom-16 right-4 z-50">
+          <PublishHandoffCard
+            state={handoff.state}
+            onReload={() => window.location.reload()}
+            onOpenStudio={handoff.openStudio}
+            onDismiss={
+              handoff.state.kind === "opening" ||
+              handoff.state.kind === "running"
+                ? undefined
+                : handoff.dismiss
+            }
+          />
+        </div>
+      )}
     </LocaleFilterProvider>
   );
 }

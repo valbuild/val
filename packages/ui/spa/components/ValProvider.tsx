@@ -303,13 +303,19 @@ export function ValProvider({
   theme?: Themes | null;
   setTheme?: (theme: Themes | null) => void;
   /**
-   * May a publish that cannot build here open a Studio tab to build it?
+   * May a publish that cannot build HERE open a builder tab to build it?
    *
-   * The OVERLAY's provider only. The overlay runs on the site's pages, which
-   * are never cross-origin isolated, and the Studio's page is -- so a tab is
-   * the way from one to the other. The Studio itself has nowhere better to
-   * send it: a Studio that cannot build here opens a Studio that cannot build
-   * either, which is how an iPhone got a second tab and the same failure.
+   * The tab is `/val?publish-handoff=…`, which the platform isolates in every
+   * browser (COEP `require-corp`), where the Studio itself is isolated only
+   * where `credentialless` is understood -- so not in WebKit, and not on any
+   * iPhone. `prepare` asks `crossOriginIsolated` first, so a page that CAN
+   * build never opens a tab: Chrome's Studio publishes in place, and only the
+   * overlay (never isolated) and a WebKit Studio hand off.
+   *
+   * Off by default, and set by the two mounts that publish: the overlay's and
+   * the Studio's. The builder tab's own provider leaves it off -- it builds
+   * with `deploy` directly, and a tab that could not build handing off to
+   * another tab would be the loop an iPhone met before the tab was isolated.
    */
   handsOffPublish?: boolean;
 }) {
