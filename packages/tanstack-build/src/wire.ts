@@ -127,6 +127,12 @@ import {
 } from "@valbuild/tanstack/server";
 import { config } from "../../val.config";
 import valModules from "../../val.modules";
+/*
+ * This build's own source, which a publish patches. A project with no
+ * repository has no other copy of its \`.val.ts\` text: content keeps its
+ * content as data. Ignored by a @valbuild/tanstack that predates it.
+ */
+import { FILES } from "platform:project-source";
 
 /**
  * A secret, as the platform hands it over at RUNTIME.
@@ -284,6 +290,7 @@ const http =
             }
           : {}),
         ...(valContentUrl !== undefined ? { valContentUrl } : {}),
+        projectSource: FILES,
       }
     : undefined;
 

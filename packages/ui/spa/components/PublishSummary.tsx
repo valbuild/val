@@ -61,6 +61,8 @@ const PUBLISH_GRACE_SECONDS = 10;
 export function PublishSummary({
   onPublish,
   onClose,
+  onPress,
+  onAbandon,
 }: {
   /**
    * Publish, committing exactly this text. Passed rather than read back out of
@@ -70,9 +72,31 @@ export function PublishSummary({
    */
   onPublish?: (summary: string) => void;
   onClose: () => void;
+  /**
+   * The press that starts a publish, before any countdown. On a page that
+   * cannot build this is where the Studio tab is opened: a browser allows a
+   * tab only in the press itself.
+   */
+  onPress?: () => void;
+  /** Pressed, and then closed before it published. */
+  onAbandon?: () => void;
 }) {
   const { summary, setSummary, publishDisabled, isPublishing, aiEnabled } =
     usePublishSummary();
+  /*
+   * Pressed, and not yet published: the countdown is running. Whatever the
+   * press prepared -- a Studio tab, on a page that cannot build -- is closed
+   * again if the summary goes away before it publishes.
+   */
+  const prepared = useRef(false);
+  const abandon = useRef(onAbandon);
+  abandon.current = onAbandon;
+  useEffect(
+    () => () => {
+      if (prepared.current) abandon.current?.();
+    },
+    [],
+  );
   const patchSets = usePatchSets();
   const val = useValSystem();
   const availableModel = useAvailableAIModel();
@@ -225,6 +249,7 @@ export function PublishSummary({
     }
     // Publishing means nobody is going to read the summary session any more.
     ai.cancel();
+    prepared.current = false;
     onPublish?.(text);
   };
 
@@ -269,6 +294,9 @@ export function PublishSummary({
           grace.skip();
           return;
         }
+        // In the press, before any wait: see `onPress`.
+        onPress?.();
+        prepared.current = true;
         // Only worth waiting for if it could still change the text: someone who
         // wrote their own summary is not waiting on a suggestion they will not
         // get.
@@ -288,6 +316,10 @@ export function PublishSummary({
       onClose={() => {
         grace.cancel();
         ai.cancel();
+        if (prepared.current) {
+          prepared.current = false;
+          onAbandon?.();
+        }
         onClose();
       }}
       publishDisabled={publishDisabled}
