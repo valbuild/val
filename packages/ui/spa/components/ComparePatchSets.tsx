@@ -375,7 +375,7 @@ type SectionProps = {
 };
 
 /**
- * The module list, split into what will publish and what is held back.
+ * The module list, split into what will publish and what is unstaged.
  *
  * Two sections only when staging is on. With it off — FS mode, or a content API
  * without patch groups — this renders exactly the flat list it always did, which
@@ -383,10 +383,10 @@ type SectionProps = {
  * and chrome for an absent feature is worse than no chrome.
  *
  * Staged first. It is what Publish will ship, so it is what a person opening this
- * screen is deciding about; the held section is the exception below it.
+ * screen is deciding about; the unstaged section is the exception below it.
  *
  * The deploy divider lives in the staged section. A committed patch has shipped,
- * so it is not held by anyone and could not be — there is nothing to unstage.
+ * so it is unstaged by nobody and could not be — there is nothing to unstage.
  */
 function StagedSections({
   trees,
@@ -397,15 +397,15 @@ function StagedSections({
   canDiscard,
 }: SectionProps) {
   const staging = usePatchStaging();
-  const { staged, held } = useMemo(
+  const { staged, unstaged } = useMemo(
     () =>
       staging.enabled
         ? splitTreesByStaging(trees, staging.stateOf)
-        : { staged: trees, held: [] },
+        : { staged: trees, unstaged: [] },
     [trees, staging.enabled, staging.stateOf],
   );
 
-  const renderTrees = (list: ChangeTreeNode[], side: "staged" | "held") =>
+  const renderTrees = (list: ChangeTreeNode[], side: "staged" | "unstaged") =>
     list.map((tree) => (
       <ModuleGroup
         key={`${side}-${tree.sourcePath}`}
@@ -446,20 +446,20 @@ function StagedSections({
       )}
       <SectionHeading
         title="Unstaged"
-        detail="Held back. These stay pending and can be staged again — or published by someone else."
-        count={countRows(held)}
+        detail="Not in this publish. These stay pending and can be staged again — or published by someone else."
+        count={countRows(unstaged)}
         actions={
           <StagingBulkActions
-            patchIds={collectPatchIds(held.flatMap(flattenChanges))}
+            patchIds={collectPatchIds(unstaged.flatMap(flattenChanges))}
             profilesByAuthorIds={profilesByAuthorIds}
-            side="held"
+            side="unstaged"
           />
         }
       />
-      {held.length === 0 ? (
-        <EmptySection>Nothing is held back.</EmptySection>
+      {unstaged.length === 0 ? (
+        <EmptySection>Nothing is unstaged.</EmptySection>
       ) : (
-        renderTrees(held, "held")
+        renderTrees(unstaged, "unstaged")
       )}
     </>
   );
@@ -1744,10 +1744,10 @@ function ChangeRow({
 
   const onDiscard = () => deletePatches(change.patchIds);
 
-  // A held row still has to be legible and re-stageable — if unstaging hid the
+  // An unstaged row still has to be legible and re-stageable — if unstaging hid the
   // change, unstaging would be a one-way trapdoor.
   const stagingState = staging.stateOf(change.patchIds);
-  const isHeld = staging.enabled && stagingState === "held";
+  const isUnstaged = staging.enabled && stagingState === "unstaged";
 
   return (
     <article
@@ -1757,9 +1757,9 @@ function ChangeRow({
         "opacity-60": isEqual,
         "bg-bg-error-secondary/30": change.changeType === "removed",
         "bg-bg-brand-primary/5": change.changeType === "added",
-        // Held: desaturated and struck through the rail, so it reads as "present
+        // Unstaged: desaturated and struck through the rail, so it reads as "present
         // but not going out" rather than as an error.
-        "opacity-50 grayscale": isHeld,
+        "opacity-50 grayscale": isUnstaged,
       })}
     >
       <ChangeRowHeader

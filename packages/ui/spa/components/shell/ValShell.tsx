@@ -10,7 +10,6 @@ import { PublishState } from "./TopBar";
 import { ShellData, ShellMediaGallery, ShellValidationError } from "./types";
 import { useShellData } from "./useShellData";
 import { ValSettingsSections } from "./ValSettingsSections";
-import { discardAllDescription } from "../discardAllDescription";
 import { useValPortal } from "../ValPortalProvider";
 import { useContentSearch } from "./useContentSearch";
 import {
@@ -46,13 +45,16 @@ import { PatchGroupWidenedToasts } from "../PatchGroupWidenedToasts";
 import { Toaster } from "../designSystem/sonner";
 import { useTheme } from "../ValThemeProvider";
 import {
-  VAL_COMPARE_ROUTE,
   VAL_ERRORS_ROUTE,
+  VAL_HISTORY_ROUTE,
+  VAL_REVIEW_ROUTE,
   scrollToStudioPath,
   useNavigation,
   useHistoryParams,
 } from "../ValRouter";
 import { HistoryPane } from "../../history/HistoryPane";
+import { ReviewLoader, ReviewSurface } from "../../review/ReviewSurface";
+import { useDiscardAll } from "../useDiscardAll";
 import { CommitList } from "../../history/CommitList";
 import { PanelEmptyState } from "./FloatingPanel";
 import { useCommitList } from "../../history/useCommitList";
@@ -76,10 +78,6 @@ import {
   useStudioDeployState,
   useSiteHandoffState,
   useStudioIsDeployer,
-  useCommittedPatches,
-  useCurrentAuthorId,
-  useCurrentPatchIds,
-  useDeletePatches,
   useHasNetChanges,
   useOwnPendingChangeCount,
   useInitialPatchesApplied,
@@ -269,61 +267,19 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    */
   const pendingChangesLoaded = useInitialPatchesApplied();
   const hasNetChanges = useHasNetChanges();
-  const { deletePatches } = useDeletePatches();
-  const currentPatchIds = useCurrentPatchIds();
-  const committedPatchIds = useCommittedPatches();
-  const patchSets = usePatchSets();
   const ownPendingChanges = useOwnPendingChangeCount();
   usePatchGroupWrites();
   usePatchGroupScope();
   usePatchGroupFlush();
-  const profilesByAuthorIds = useProfilesByAuthorId();
-  const currentAuthorId = useCurrentAuthorId();
   const portalContainer = useValPortal();
+  const discardAll = useDiscardAll();
   /*
-   * Everything discardable: the chain minus what has already shipped.
-   *
-   * A committed patch cannot be taken back from here — it is in a commit —
-   * and including one would make the count promise more than it can do. Same
-   * subtraction `useShellData` does for `pendingChanges`, so the number in the
-   * confirm matches the number on the row that opened it.
+   * The branch history is listed under, which decides whether History is
+   * offered at all. `val.config` may not name one and the server fills in the
+   * branch it resolved, so this is null only for a deployment that has
+   * neither.
    */
-  const discardablePatchIds = useMemo(
-    () => currentPatchIds.filter((patchId) => !committedPatchIds.has(patchId)),
-    [currentPatchIds, committedPatchIds],
-  );
-  /*
-   * Whose work Discard all would take, named — yours excluded.
-   *
-   * The confirm in the review view names them, and this one has to name the
-   * same people: a destructive action that warns you in one place and not the
-   * other is worse than one that never warns at all. Read off the patch sets
-   * rather than the activity feed, which is capped for display.
-   *
-   * `currentAuthorId` comes out because the sentence is about work that is not
-   * yours. Your own name in it is noise at best, and at worst it is what makes
-   * a project where you are the only editor read as if someone else had a stake
-   * in the changes.
-   */
-  const discardAuthorNames = useMemo(() => {
-    if (patchSets.status !== "success") return [];
-    const discardable = new Set<string>(discardablePatchIds);
-    const authorIds = new Set<string>();
-    for (const set of patchSets.data) {
-      for (const patch of set.patches) {
-        if (
-          patch.author !== null &&
-          patch.author !== currentAuthorId &&
-          discardable.has(patch.patchId)
-        ) {
-          authorIds.add(patch.author);
-        }
-      }
-    }
-    return [...authorIds]
-      .map((id) => profilesByAuthorIds?.[id]?.fullName)
-      .filter((name): name is string => !!name);
-  }, [patchSets, discardablePatchIds, profilesByAuthorIds, currentAuthorId]);
+  const shellGitBranch = useValConfig()?.gitBranch ?? null;
   // Only read when the wait has already gone on too long — see
   // `PendingChangesGate`.
   const pendingChangesProgress = usePendingChangesProgress();
@@ -939,8 +895,16 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     [navigation, allValidationErrorPaths],
   );
 
-  const showCompare = useCallback(() => {
-    navigation.navigate(VAL_COMPARE_ROUTE);
+  /*
+   * The Review button goes to the review page, not the compare dialog.
+   *
+   * Its badge counts this user's pending changes and it sits beside Publish, so
+   * it is read as "what am I about to ship" — which is the question the review
+   * page answers and the compare view deliberately does not. Compare is one
+   * button further in, from the page itself.
+   */
+  const showReview = useCallback(() => {
+    navigation.navigate(VAL_REVIEW_ROUTE);
   }, [navigation]);
 
   /**
@@ -1013,14 +977,35 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const unlistedModulePath =
     !navigation.isCompareView &&
     !navigation.isErrorsView &&
+    !navigation.isHistoryView &&
+    !navigation.isReviewView &&
     selectionId === null &&
     navigation.currentSourcePath
       ? (navigation.currentSourcePath as SourcePath)
       : null;
   const overrideEditor = navigation.isCompareView ? (
     <CompareView />
+  ) : navigation.isReviewView ? (
+    /*
+     * What is going out, as the whole editor column.
+     *
+     * Beside `/val/compare` rather than replacing it, for now: the two answer
+     * different questions ("what is going out" and "what changed"), and this
+     * one leads to that one by its Compare button.
+     */
+    <ReviewRoute />
   ) : navigation.isErrorsView ? (
     <ValidationErrorsView />
+  ) : navigation.isHistoryView ? (
+    /*
+     * The list of publishes, as the whole editor column.
+     *
+     * Mounted only on this route, so opening the Studio does not fetch a list
+     * nobody asked for — the head of it moves on every publish, so it is not
+     * cached and there would be nothing to warm. That was the one good
+     * property of it being a panel, and a route keeps it.
+     */
+    <HistoryView />
   ) : unlistedModulePath ? (
     <Module path={unlistedModulePath} showModuleGalleryChild={null} />
   ) : null;
@@ -1148,15 +1133,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
          * work having promised, and shown, nothing about it. A row that appears
          * a moment late is the cheaper mistake.
          */
-        onDiscardAll={
-          discardablePatchIds.length > 0 && patchSets.status === "success"
-            ? () => deletePatches(discardablePatchIds)
-            : undefined
-        }
-        discardAllDescription={discardAllDescription(
-          discardablePatchIds.length,
-          discardAuthorNames,
-        )}
+        onDiscardAll={discardAll.enabled ? discardAll.discardAll : undefined}
+        discardAllDescription={discardAll.description}
         portalContainer={portalContainer}
         isLoading={state.status === "loading"}
         loadError={state.status === "error" ? state.error : undefined}
@@ -1185,7 +1163,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         // enables preview and redirects, so it is worth sending to someone.
         previewHref={previewHref}
         onSelectValidationError={onSelectValidationError}
-        onCompare={showCompare}
+        onCompare={showReview}
         // Recent activity rows did nothing: the panel listed them and no handler
         // was passed. They carry a real source path, so opening one is the same
         // act as opening a search hit.
@@ -1215,16 +1193,24 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
           isAIChatEnabled ? <AIChatSurface className="h-full" /> : undefined
         }
         /*
-         * The list of publishes.
+         * Whether to offer History at all.
          *
-         * `undefined` in FS mode, which also hides the button: local dev has git
-         * rather than a commit archive, so there is no published history to list
-         * and `/history/commits` answers `not-supported-in-fs-mode`. Mounted only
-         * while the panel is open, so opening the Studio does not fetch a list
-         * nobody asked for — the head of it moves on every publish, so it is not
-         * cached and there would be nothing to warm.
+         * False in FS mode: local dev has git rather than a commit archive, so
+         * there is no published history to list and `/history/commits` answers
+         * `not-supported-in-fs-mode`. The button is hidden rather than leading
+         * to a page whose only content is an apology.
+         *
+         * And false without a resolved branch, for the same reason rather than
+         * a second one: history is listed PER BRANCH, so `HistoryView` has no
+         * request to make and says so. `gitBranch` is optional in
+         * `val.config` and the server fills in the one it resolved, so this is
+         * the deployment that has neither — a git-less http project. Offering
+         * the button there is the dead affordance this comment exists to
+         * forbid.
          */
-        historySlot={mode === "http" ? <CommitListSurface /> : undefined}
+        historyEnabled={mode === "http" && shellGitBranch !== null}
+        historyActive={navigation.isHistoryView}
+        onOpenHistory={() => navigation.navigate(VAL_HISTORY_ROUTE)}
         onMentionField={(sourcePath) =>
           insertFieldRef(sourcePath as SourcePath)
         }
@@ -1257,13 +1243,17 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
 }
 
 /**
- * The History panel's contents: the commit list, wired up.
+ * The `/val/history` page: the commit list, wired up.
  *
  * Separated from `ValShell` so the fetch lives with the thing that shows it —
- * and so it unmounts with the panel, which is what keeps the list from being
+ * and so it unmounts with the route, which is what keeps the list from being
  * fetched on every Studio load.
+ *
+ * Picking a commit here sets `?commit=` and the two-pane view opens over
+ * whatever the editor is on. That is the same layering the panel had: history
+ * is a LAYER over a route, and this page is only the place you pick from.
  */
-function CommitListSurface() {
+function HistoryView() {
   const config = useValConfig();
   const { history, setHistory } = useHistoryParams();
   const branch = config?.gitBranch ?? null;
@@ -1566,6 +1556,89 @@ function StagedCompare({
   mode: "fs" | "http" | "unknown";
   publishCount: number;
 }) {
+  return (
+    <StagingScope patchSets={patchSets}>
+      <ComparePatchSets
+        patchSets={patchSets}
+        profilesByAuthorIds={profilesByAuthorIds}
+        mode={mode}
+        canDiscard
+        reloadKey={publishCount}
+      />
+    </StagingScope>
+  );
+}
+
+/**
+ * `/val/review`, wired to the same patch sets the compare view diffs.
+ *
+ * The flush is the same one `CompareView` does and for the same reason: a
+ * field writes on a pause in typing, so arriving here a moment after editing
+ * could list a chain that is missing the last word — and this page's whole job
+ * is to be the truth about what is going out.
+ */
+function ReviewRoute() {
+  const val = useValSystem();
+  useEffect(() => {
+    if (val === null) return;
+    void val.system.patchSync.flush();
+  }, [val]);
+  const navigation = useNavigation();
+  const portalContainer = useValPortal();
+  const discardAll = useDiscardAll();
+  const mode = useValMode();
+  return (
+    <ReviewLoader>
+      {(patchSets) => (
+        <StagingScope patchSets={patchSets}>
+          <ReviewSurface
+            patchSets={patchSets}
+            /*
+             * Only where there IS a published history: `ValOpsFS` answers
+             * `not-supported-in-fs-mode`, and the top bar hides its own
+             * History button on the same test. Two ways in that disagree
+             * about whether the feature exists is worse than one.
+             */
+            onRestore={
+              mode === "http"
+                ? () => navigation.navigate(VAL_HISTORY_ROUTE)
+                : undefined
+            }
+            /*
+             * Only while there is something a revert could take back. Same
+             * test the shell's own Discard all uses — a committed patch is in
+             * a commit and cannot be dropped from here, so a page whose rows
+             * have all shipped would otherwise offer a button that confirms
+             * and does nothing.
+             */
+            onDiscardAll={
+              discardAll.enabled ? discardAll.discardAll : undefined
+            }
+            discardAllDescription={discardAll.description}
+            portalContainer={portalContainer}
+          />
+        </StagingScope>
+      )}
+    </ReviewLoader>
+  );
+}
+
+/**
+ * The staging provider, around whatever is reading it.
+ *
+ * Shared by `/val/compare` and `/val/review` because both of them ARE the
+ * staging UI — one shows it per diff row, the other per patch set — and the
+ * scope logic below is not a thing to have two copies of. Without this wrapper
+ * `PatchStaging.enabled` is false, every row answers "staged", and the review
+ * page's two sections collapse into one with no way to tell.
+ */
+function StagingScope({
+  patchSets,
+  children,
+}: {
+  patchSets: SerializedPatchSet;
+  children: React.ReactNode;
+}) {
   const val = useValSystem();
   const group = useCurrentPatchGroup();
   const chainOrder = useChainOrder();
@@ -1601,13 +1674,7 @@ function StagedCompare({
       group={members}
       onChange={onChange}
     >
-      <ComparePatchSets
-        patchSets={patchSets}
-        profilesByAuthorIds={profilesByAuthorIds}
-        mode={mode}
-        canDiscard
-        reloadKey={publishCount}
-      />
+      {children}
     </PatchStagingProvider>
   );
 }

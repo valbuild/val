@@ -76,6 +76,29 @@ export async function openStudio(
 }
 
 /**
+ * Go to another Studio route WITHOUT reloading the page.
+ *
+ * What clicking a link in the shell does, and the distinction matters more than
+ * it looks. `page.goto` reloads the SPA, which throws away everything the store
+ * system holds: the intake `openStudio` waited for, and — for a test that has
+ * just typed into a field — the pending edit the next screen is supposed to be
+ * showing. Flushing first gets the patch to the server, but a reload then reads
+ * the world back fresh, and in fs mode with auto save on that world has already
+ * absorbed the edit: the compare view is right to answer "the one pending
+ * change has been reverted", which reads as a broken diff and is not one.
+ *
+ * `ValRouter` keeps its route in React state and listens on `popstate`, so a
+ * `pushState` plus a synthetic `popstate` is exactly the navigation its own
+ * `navigate` performs — same listener, same state, nothing remounted.
+ */
+export async function navigateStudio(page: Page, route: string): Promise<void> {
+  await page.evaluate((to) => {
+    window.history.pushState(null, "", to);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, route);
+}
+
+/**
  * Throw away every patch on the server, so a run starts where the last one did.
  *
  * `examples/next/.val` is a fixture directory, gitignored and owned by whoever is

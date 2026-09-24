@@ -79,17 +79,17 @@ export type PublishButtonInput = {
    */
   netChangesEmpty: boolean;
   /**
-   * Pending changes this client is holding BACK — outside its patch group.
+   * Pending changes this client has UNSTAGED — outside its patch group.
    *
    * Distinguishes two states that look identical from `netChangesEmpty` alone,
-   * because a held patch is not applied to the scoped source and so leaves it
-   * equal to base, exactly as an undone edit does. The button is off either
-   * way; what differs is what the reader should do about it. Telling someone
-   * their work "has been reverted" and offering Discard, when in fact they held
-   * it back on purpose and need only stage it, is the more expensive of the two
-   * mistakes: one instruction throws the change away.
+   * because an unstaged patch is not applied to the scoped source and so
+   * leaves it equal to base, exactly as an undone edit does. The button is off
+   * either way; what differs is what the reader should do about it. Telling
+   * someone their work "has been reverted" and offering Discard, when in fact
+   * they unstaged it on purpose and need only stage it again, is the more
+   * expensive of the two mistakes: one instruction throws the change away.
    */
-  heldChangeCount: number;
+  unstagedChangeCount: number;
 };
 
 function plural(count: number, one: string, many: string): string {
@@ -110,7 +110,7 @@ export function describePublishButton(
     pendingServerSidePatchCount,
     pendingClientSidePatchCount,
     netChangesEmpty,
-    heldChangeCount,
+    unstagedChangeCount,
   } = input;
   const saving = mode === "fs";
 
@@ -209,8 +209,8 @@ export function describePublishButton(
           : nothingToSend
             ? "Nothing to send."
             : revertedToNothing
-              ? heldChangeCount > 0
-                ? `${heldChangeCount} ${plural(heldChangeCount, "change is", "changes are")} held back, so there is nothing to publish. Stage ${plural(heldChangeCount, "it", "them")} in Review to publish.`
+              ? unstagedChangeCount > 0
+                ? `${unstagedChangeCount} ${plural(unstagedChangeCount, "change is", "changes are")} unstaged, so there is nothing to publish. Stage ${plural(unstagedChangeCount, "it", "them")} in Review to publish.`
                 : "Every change has been reverted, so there is nothing to publish. Discard them to clear."
               : null,
       action: "none",

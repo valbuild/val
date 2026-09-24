@@ -8,7 +8,7 @@ import {
 } from "react";
 import type { SerializedPatchSet } from "../utils/PatchSets";
 import {
-  heldPatchSets,
+  unstagedPatchSets,
   inChainOrder,
   type PatchGroup,
   stageClosure,
@@ -37,7 +37,7 @@ export type RowStagingState =
   /** Every patch behind this row is staged. */
   | "staged"
   /** None of them are. The row will not publish and is not in your preview. */
-  | "held"
+  | "unstaged"
   /**
    * Some are and some are not. Only reachable transiently — a patch set is the
    * unit of staging, but a compare-view row can span more than one patch set (a
@@ -59,8 +59,8 @@ export type PatchStaging = {
   unstagePreview: (patchIds: readonly PatchId[]) => PatchId[];
   stage: (patchIds: readonly PatchId[]) => void;
   unstage: (patchIds: readonly PatchId[]) => void;
-  /** Patch sets this group is holding back, for the "held" summary. */
-  held: { patchSet: string; unstaged: PatchId[] }[];
+  /** Patch sets this group is not staging, for the "Unstaged" summary. */
+  unstagedPatchSets: { patchSet: string; unstaged: PatchId[] }[];
   group: PatchGroup;
   /** Author of a patch, for "also publishes Bob's change" copy. */
   authorOf: (patchId: PatchId) => string | null;
@@ -73,7 +73,7 @@ const noopStaging: PatchStaging = {
   unstagePreview: () => [],
   stage: () => {},
   unstage: () => {},
-  held: [],
+  unstagedPatchSets: [],
   group: new Set(),
   authorOf: () => null,
 };
@@ -143,7 +143,7 @@ export function PatchStagingProvider({
       if (staged === patchIds.length) {
         return "staged";
       }
-      return staged === 0 ? "held" : "partial";
+      return staged === 0 ? "unstaged" : "partial";
     },
     [group],
   );
@@ -210,7 +210,7 @@ export function PatchStagingProvider({
       unstagePreview,
       stage,
       unstage,
-      held: heldPatchSets(index, group),
+      unstagedPatchSets: unstagedPatchSets(index, group),
       group,
       authorOf: (patchId) => authors.get(patchId) ?? null,
     }),

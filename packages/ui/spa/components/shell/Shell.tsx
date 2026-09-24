@@ -38,7 +38,6 @@ import { NavSwitcher, needsNavSwitcher } from "./NavSwitcher";
 import { PendingChangesGate } from "./PendingChangesGate";
 import type { ChainProgress } from "../../utils/describePendingChangesStall";
 
-import { FloatingPanel } from "./FloatingPanel";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { PagesPanel } from "./PagesPanel";
 import { AccountPanel } from "./AccountPanel";
@@ -367,15 +366,23 @@ export type ShellProps = {
    */
   aiSlot?: ReactNode;
   /**
-   * The list of publishes, for the History panel.
+   * Whether this project HAS a published history, which decides whether the
+   * top bar offers the button at all.
    *
-   * A slot for the same reason `aiSlot` is one: the list has to fetch commits
-   * and set `?commit=`, and the shell is deliberately free of Val hooks so it
-   * can be rendered from a story with mock data. Absent means Val has no
-   * published history here (FS mode), and the button is hidden with it — see
-   * `historyEnabled`.
+   * False in FS mode: local dev has git rather than a commit archive, and
+   * `/history/commits` answers `not-supported-in-fs-mode`. A button that can
+   * only open an apology is worse than no button.
+   *
+   * There is no `historySlot` any more. The list of publishes used to be a
+   * floating panel here and is now a page of its own — see
+   * `VAL_HISTORY_ROUTE` — so what the shell needs is permission to show a
+   * button and somewhere to send it, not the list itself.
    */
-  historySlot?: ReactNode;
+  historyEnabled?: boolean;
+  /** Whether that page is the one currently on screen. */
+  historyActive?: boolean;
+  /** Go to it. */
+  onOpenHistory?: () => void;
   /**
    * Mention a source path in the assistant. From the canvas's field menu.
    *
@@ -506,7 +513,9 @@ export function Shell({
   accountError,
   aiEnabled = false,
   aiSlot,
-  historySlot,
+  historyEnabled = false,
+  historyActive = false,
+  onOpenHistory,
   onMentionField,
   pendingChangesLoaded = true,
   pendingChangesProgress,
@@ -769,12 +778,6 @@ export function Shell({
       setOpenPanel(null);
     }
   }, [openPanel, aiEnabled]);
-
-  useEffect(() => {
-    if (openPanel === "history" && historySlot === undefined) {
-      setOpenPanel(null);
-    }
-  }, [openPanel, historySlot]);
 
   const validationErrorCount = useMemo(
     () => data.validationErrors.reduce((sum, e) => sum + e.count, 0),
@@ -1093,7 +1096,9 @@ export function Shell({
           accountError={breakpoint === "desktop" ? undefined : accountError}
           isLoading={isLoading}
           aiEnabled={aiEnabled}
-          historyEnabled={historySlot !== undefined}
+          historyEnabled={historyEnabled}
+          historyActive={historyActive}
+          onOpenHistory={onOpenHistory}
           onPreview={onPreview ?? (() => undefined)}
           previewHref={previewHref}
           onToggleCanvas={canCanvas ? togglePreview : undefined}
@@ -1348,19 +1353,6 @@ export function Shell({
           >
             {aiSlot ?? <NoAssistantConfigured />}
           </AIChatPanel>
-        )}
-
-        {openPanel === "history" && (
-          <FloatingPanel
-            side="right"
-            width={340}
-            title="History"
-            mobileVariant="bottom-sheet"
-            breakpoint={breakpoint}
-            onClose={closePanel}
-          >
-            {historySlot}
-          </FloatingPanel>
         )}
 
         {openPanel === "notifications" && (

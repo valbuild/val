@@ -1683,7 +1683,7 @@ export function useNoOpSourcePaths(
      * Modules with a HELD patch, which are never no-ops.
      *
      * `peek` answers with the scoped source, so a module whose only pending
-     * patch is held back reads exactly like one whose pending patch was undone
+     * patch is unstaged reads exactly like one whose pending patch was undone
      * — and the review screen files it under "reverted", tells its author the
      * content matches what is published, and offers only Discard. That is the
      * screen a held change has to be put BACK from, so getting this wrong
@@ -1694,7 +1694,7 @@ export function useNoOpSourcePaths(
      */
     const heldPaths: SourcePath[] = [];
     for (const record of val.system.patchStore.recordsFor([
-      ...val.system.patchStore.heldPatchIds(),
+      ...val.system.patchStore.unstagedPatchIds(),
     ])) {
       heldPaths.push(...touchedSourcePaths(record));
     }
@@ -1974,18 +1974,18 @@ export function useCurrentPatchIds(): PatchId[] {
 }
 
 /**
- * Pending patches this client is holding BACK, because they are outside its
- * patch group.
+ * Pending patches this client has UNSTAGED, because they are outside its patch
+ * group.
  *
  * Not the same question as "is anything pending" or "does anything change".
- * A held patch is not applied, so the scoped source equals base and every
+ * An unstaged patch is not applied, so the scoped source equals base and every
  * comparison against base reads it as an undone edit — which is why anything
  * that wants to tell those two apart has to ask this instead.
  *
  * Empty wherever there is no scope: `fs` mode and any content API without
- * groups hold nothing back.
+ * groups leave nothing unstaged.
  */
-export function useHeldPatchIds(): ReadonlySet<PatchId> {
+export function useUnstagedPatchIds(): ReadonlySet<PatchId> {
   const val = useValSystem();
   const chainVersion = useChainVersion();
   const groupsVersion = useGroupsVersion();
@@ -1996,7 +1996,7 @@ export function useHeldPatchIds(): ReadonlySet<PatchId> {
     /*
      * COPIED, so identity tracks content.
      *
-     * `PatchStore.heldPatchIds()` returns `this.heldIds` itself — one Set,
+     * `PatchStore.unstagedPatchIds()` returns `this.unstagedIds` itself — one Set,
      * mutated in place — so handing that reference out made this memo's result
      * referentially identical forever, however much the held set changed. Any
      * consumer keying its own memo on it then computed once and never again,
@@ -2006,7 +2006,7 @@ export function useHeldPatchIds(): ReadonlySet<PatchId> {
      * The copy is made inside this memo, so it is rebuilt only when the chain
      * or the groups actually move — a new identity per CHANGE, not per render.
      */
-    return new Set(val.system.patchStore.heldPatchIds());
+    return new Set(val.system.patchStore.unstagedPatchIds());
   }, [val, chainVersion, groupsVersion]);
 }
 

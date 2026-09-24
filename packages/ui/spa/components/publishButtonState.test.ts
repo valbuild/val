@@ -24,7 +24,7 @@ function input(over: Partial<PublishButtonInput> = {}): PublishButtonInput {
     pendingServerSidePatchCount: 1,
     pendingClientSidePatchCount: 0,
     netChangesEmpty: false,
-    heldChangeCount: 0,
+    unstagedChangeCount: 0,
     ...over,
   };
 }
@@ -198,17 +198,17 @@ describe("describePublishButton", () => {
 });
 
 /**
- * Reverted and HELD BACK look identical to every comparison against base — a
- * held patch is not applied, so the scoped source equals base exactly as an
+ * Reverted and UNSTAGED look identical to every comparison against base — an
+ * unstaged patch is not applied, so the scoped source equals base exactly as an
  * undone edit does. The button is off either way, and only the wording tells
  * the reader which of the two they are in.
  *
  * Getting it backwards is the expensive direction: "Every change has been
- * reverted... Discard them to clear" tells someone who deliberately held a
- * change back that their work is gone, and points them at the one control that
+ * reverted... Discard them to clear" tells someone who deliberately unstaged a
+ * change that their work is gone, and points them at the one control that
  * would actually destroy it.
  */
-describe("nothing to publish: reverted against held back", () => {
+describe("nothing to publish: reverted against unstaged", () => {
   const nothingToPublish = {
     netChangesEmpty: true,
     pendingServerSidePatchCount: 1,
@@ -222,24 +222,25 @@ describe("nothing to publish: reverted against held back", () => {
     );
   });
 
-  test("a held change says held back, and points at Review", () => {
+  test("an unstaged change says unstaged, and points at Review", () => {
     const state = describePublishButton(
-      input({ ...nothingToPublish, heldChangeCount: 1 }),
+      input({ ...nothingToPublish, unstagedChangeCount: 1 }),
     );
     expect(state.kind).toBe("idle");
     expect(state.reason).toBe(
-      "1 change is held back, so there is nothing to publish. Stage it in Review to publish.",
+      "1 change is unstaged, so there is nothing to publish. Stage it in Review to publish.",
     );
     // Never Discard: the change is pending on purpose.
     expect(state.reason).not.toContain("Discard");
   });
 
-  test("more than one held change reads as plural", () => {
+  test("more than one unstaged change reads as plural", () => {
     expect(
-      describePublishButton(input({ ...nothingToPublish, heldChangeCount: 3 }))
-        .reason,
+      describePublishButton(
+        input({ ...nothingToPublish, unstagedChangeCount: 3 }),
+      ).reason,
     ).toBe(
-      "3 changes are held back, so there is nothing to publish. Stage them in Review to publish.",
+      "3 changes are unstaged, so there is nothing to publish. Stage them in Review to publish.",
     );
   });
 });

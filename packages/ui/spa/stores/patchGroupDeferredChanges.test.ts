@@ -12,7 +12,7 @@ import { createSystem, type PatchGroupChangeRequest } from "./createSystem";
  * `patchGroupId` is `undefined` in two windows, and the review screen works in
  * both: before this author's first write on a branch, and after every publish,
  * because a publish CLOSES the group and the next one is created by the next
- * write. Someone unstaging a colleague's patch, or putting back one they held
+ * write. Someone unstaging a colleague's patch, or putting back one they unstaged
  * earlier, is doing something perfectly ordinary in either.
  *
  * It used to move the local scope and return. Nothing went to the server, so
