@@ -2260,7 +2260,7 @@ export function createSystem(options: SystemOptions): System {
           // Recorded, not just returned. A server refusal never resolves itself,
           // so the publish gate has to keep seeing it after the caller that made
           // this call has gone — see `PatchStore.publishErrors`.
-          patchStore.recordPublishErrors(outcome.errors);
+          patchStore.recordPublishErrors(outcome.errors, toPublish);
           return {
             status: "failed",
             message: outcome.message,

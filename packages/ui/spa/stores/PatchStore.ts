@@ -1188,6 +1188,11 @@ export class PatchStore {
   ): void {
     let changed = false;
     for (const patchId of patchIds) {
+      // A refusal from an earlier attempt is answered by this one. In `http`
+      // mode the patch stays in the chain after it ships, so leaving the reason
+      // behind would go on reporting a published change as one that could not
+      // be applied.
+      if (this.publishErrorById.delete(patchId)) changed = true;
       if (this.publishedIds.has(patchId)) continue;
       this.publishedIds.add(patchId);
       changed = true;
@@ -1686,12 +1691,15 @@ export class PatchStore {
    * and the two can genuinely disagree — a `c.image` metadata key that is not
    * literally present, a non-literal initializer, an array shorter in the source
    * than in the evaluated JSON. So a patch that applies perfectly here can be
-   * rejected there, and the publish gate has to be able to say so rather than
-   * letting the user click again forever.
+   * rejected there, and the Studio has to be able to say so.
    *
-   * Cleared for a patch that leaves the chain, and only then: a failed patch is
-   * still in the chain and still shown, so forgetting the reason would leave the
-   * publish button disabled with nothing explaining it.
+   * Said, not enforced: nothing disables Publish on this. The server refuses the
+   * whole commit when a patch does not apply, so another attempt cannot publish
+   * anything wrong — and a refusal describes the attempt that got it, which a
+   * deployment catching up or an earlier change shipping can make untrue.
+   *
+   * Cleared for a patch that leaves the chain, that is published, or that a
+   * later refused attempt sent: each of those is a newer answer than this one.
    */
   private publishErrorById = new Map<PatchId, string>();
 
@@ -1701,7 +1709,15 @@ export class PatchStore {
     byModule: Record<ModuleFilePath, Record<PatchId, PatchErrorEntry>>;
   } | null = null;
 
-  recordPublishErrors(errors: Readonly<Record<PatchId, string>>): void {
+  recordPublishErrors(
+    errors: Readonly<Record<PatchId, string>>,
+    /**
+     * The patches the refused attempt sent. Their earlier reasons are replaced
+     * by this answer rather than added to, so a change the server has stopped
+     * refusing is not reported for the rest of the session.
+     */
+    attempted: readonly PatchId[] = [],
+  ): void {
     const entries = Object.entries(errors);
     if (entries.length === 0) {
       /*
@@ -1715,6 +1731,9 @@ export class PatchStore {
        * with nobody typing.
        */
       return;
+    }
+    for (const patchId of attempted) {
+      this.publishErrorById.delete(patchId);
     }
     for (const [patchId, message] of entries) {
       this.publishErrorById.set(patchId as PatchId, message);

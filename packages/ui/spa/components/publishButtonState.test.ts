@@ -87,15 +87,29 @@ describe("describePublishButton", () => {
       input({ validationErrorCount: 2, conflictingChangeCount: 1 }),
     );
     expect(state.reason).toContain("2 validation errors");
-    expect(state.reason).toContain("cannot be applied");
+    expect(state.reason).toContain("could not apply 1 change");
   });
 
-  test("a conflict with no validation error has nowhere to send you", () => {
-    // The errors view lists validation errors; a conflicting change is not one.
-    const state = describePublishButton(input({ conflictingChangeCount: 2 }));
-    expect(state.kind).toBe("blocked");
-    expect(state.action).toBe("none");
-    expect(state.label).toBe("Fix errors");
+  test("a change the server refused last time does not block the next attempt", () => {
+    // The server refuses the whole commit when a change does not apply, so a
+    // retry cannot publish anything wrong — and it is often all it takes: the
+    // deployment catches up, or the change it depended on ships. This used to
+    // be a disabled "Fix errors" that only a discard could clear.
+    const state = describePublishButton(
+      input({ mode: "http", conflictingChangeCount: 2 }),
+    );
+    expect(state).toMatchObject({
+      kind: "ready",
+      label: "Publish",
+      action: "publish",
+    });
+    expect(state.description).toContain("could not apply 2 changes");
+  });
+
+  test("...in dev too", () => {
+    const state = describePublishButton(input({ conflictingChangeCount: 1 }));
+    expect(state).toMatchObject({ kind: "ready", action: "save" });
+    expect(state.description).toContain("could not apply 1 change.");
   });
 
   test("in flight says which kind of in flight", () => {
