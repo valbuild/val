@@ -1094,6 +1094,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
           studioIsDeployer ? (commitSha) => void deploy(commitSha) : undefined
         }
         finishingPublish={deployState.status === "running"}
+        deployState={deployState}
         saveState={saveState}
         autoSave={autoPublish}
         onAutoSaveChange={setAutoPublish}

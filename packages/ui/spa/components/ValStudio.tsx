@@ -1,4 +1,6 @@
-import { FC } from "react";
+import { FC, useState } from "react";
+import { HANDOFF_PARAM } from "../publish/handoff";
+import { HandoffPublishTab } from "./shell/HandoffPublishTab";
 import { ValClient } from "@valbuild/shared/internal";
 import { ValModules } from "@valbuild/core";
 import { ValProvider } from "./ValProvider";
@@ -28,6 +30,16 @@ export const ValStudio: FC<ValFullscreenProps> = ({
   theme,
   setTheme,
 }) => {
+  /*
+   * A tab a page opened to publish a commit it could not build itself. Read
+   * once: the tab is for that one publish, and the Studio's own navigation
+   * never adds the parameter.
+   */
+  const [handoffId] = useState(() =>
+    typeof window === "undefined"
+      ? null
+      : new URLSearchParams(window.location.search).get(HANDOFF_PARAM),
+  );
   return (
     <ValProvider
       client={client}
@@ -55,7 +67,12 @@ export const ValStudio: FC<ValFullscreenProps> = ({
              * `UploadRequest`.
              */}
             <UploadRequestProvider>
-              {cssLoaded && <ValShell />}
+              {cssLoaded &&
+                (handoffId !== null ? (
+                  <HandoffPublishTab id={handoffId} />
+                ) : (
+                  <ValShell />
+                ))}
             </UploadRequestProvider>
           </ValRouter>
         </div>

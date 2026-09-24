@@ -34,8 +34,13 @@ import {
   TooltipTrigger,
 } from "./designSystem/tooltip";
 
-// Matches the size of the MenuButton in ValOverlay: 16px icon + p-2 + border
-const compactButtonClassName = "h-auto w-auto p-2";
+/*
+ * The overlay's Publish: the size of its other buttons (`w-8 h-8`), and round.
+ * The bar it sits in is a pill and the buttons around it are ghosts, so the one
+ * filled control reads as a square stamped on a round thing unless it is round
+ * too.
+ */
+const compactButtonClassName = "h-8 w-8 p-0 rounded-full";
 
 /**
  * The icon for each state, at one size, always present.
@@ -81,7 +86,13 @@ export function PublishButton({
   compact?: boolean;
 }) {
   const [summaryOpen, setSummaryOpen] = useState(false);
-  const { publish, publishDisabled, isPublishing } = usePublishSummary();
+  const {
+    publish,
+    publishDisabled,
+    isPublishing,
+    preparePublish,
+    abandonPublish,
+  } = usePublishSummary();
   const allValidationErrors = useAllValidationErrors();
   const validationErrorPaths = Object.keys(allValidationErrors ?? {});
   const { patchErrors } = useAllPatchErrors();
@@ -269,6 +280,8 @@ export function PublishButton({
             <X size={12} />
           </PopoverClose>
           <PublishSummary
+            onPress={preparePublish}
+            onAbandon={abandonPublish}
             onClose={() => {
               setSummaryOpen(false);
             }}

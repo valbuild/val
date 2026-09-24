@@ -77,10 +77,28 @@ export type DeployPhase =
   | { kind: "getting-ready" }
   | { kind: "reading" }
   | { kind: "building" }
-  | PublishPhase;
+  | PublishPhase
+  /**
+   * Live, and waiting for the site to SERVE it where this tab is.
+   *
+   * The loader reads which build is live from KV, which each Cloudflare
+   * location caches for up to a minute. So "live" and "what a visitor here
+   * gets" can be a minute apart, and that minute used to look like a publish
+   * that had not worked.
+   */
+  | { kind: "propagating" };
 
 export type StudioDeployResult =
-  | { status: "live"; url: string | null }
+  | {
+      status: "live";
+      url: string | null;
+      /**
+       * Whether the site, as this tab reaches it, serves the new build yet.
+       * `undefined` when there was no way to ask. Other locations can still
+       * be up to a minute behind -- see the `propagating` phase.
+       */
+      visible?: boolean;
+    }
   | { status: "already-live"; url: string | null }
   | {
       status: "failed";
@@ -156,6 +174,12 @@ export interface StudioDeployOptions {
    * still the right CSS; without this every Studio publish shipped unstyled.
    */
   liveStylesheet?: () => Promise<string>;
+  /**
+   * Resolve once the site serves `buildHash` where this tab reaches it: `true`
+   * when it does, `false` when it gave up waiting, `undefined` when it cannot
+   * tell. Absent, a live publish is reported as soon as it is promoted.
+   */
+  waitUntilServed?: (buildHash: string) => Promise<boolean | undefined>;
   /**
    * One of the live site's public files, base64, by its URL path
    * (`favicon.ico` for `/favicon.ico`).
@@ -397,7 +421,15 @@ export async function runStudioDeploy(
     },
     onPhase,
   });
-  return asDeployResult(published);
+  const result = asDeployResult(published);
+  if (result.status !== "live" || !options.waitUntilServed) return result;
+  onPhase({ kind: "propagating" });
+  // Never a failure: the publish IS live, and this only says whether it can be
+  // seen from here yet.
+  const visible = await options
+    .waitUntilServed(build.hash)
+    .catch(() => undefined);
+  return visible === undefined ? result : { ...result, visible };
 }
 
 /**
