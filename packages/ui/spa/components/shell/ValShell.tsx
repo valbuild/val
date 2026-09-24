@@ -250,7 +250,12 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         return;
       }
       handoff.prepare(studioIsDeployer);
-      handoff.commit({ commit: commitSha, binaryFiles: null, branch: null });
+      handoff.commit({
+        commit: commitSha,
+        committedFiles: null,
+        binaryFiles: null,
+        branch: null,
+      });
     },
     [deploy, handoff, studioIsDeployer],
   );

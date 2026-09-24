@@ -79,20 +79,84 @@
  */
 
 import type * as TanstackBuild from "@valbuild/tanstack-build";
+import type {
+  BuilderReply,
+  BuilderRequest,
+  BuilderResult,
+} from "./builderProtocol";
 
-/** What the Studio uses out of the builder package. */
-export type StudioBuilder = typeof TanstackBuild;
+type Builder = typeof TanstackBuild;
+
+/**
+ * What the Studio uses out of the builder package: four methods, each of which
+ * may answer later.
+ *
+ * Later because the builder runs in a worker (see {@link importBuilder}), so
+ * even `bakedGit` -- synchronous in the package -- is a round trip here. The
+ * package module itself still satisfies this type, which is what lets a test
+ * hand one in.
+ */
+export type StudioBuilder = {
+  bakedGit: (
+    ...args: Parameters<Builder["bakedGit"]>
+  ) =>
+    | ReturnType<Builder["bakedGit"]>
+    | Promise<ReturnType<Builder["bakedGit"]>>;
+  rebakeGit: (
+    ...args: Parameters<Builder["rebakeGit"]>
+  ) =>
+    | ReturnType<Builder["rebakeGit"]>
+    | Promise<ReturnType<Builder["rebakeGit"]>>;
+  buildUserApp: Builder["buildUserApp"];
+  publishArtifacts: Builder["publishArtifacts"];
+};
 
 export type BuilderLoader = () => Promise<StudioBuilder>;
 
 /**
- * The real loader.
+ * The package, loaded into whatever realm calls this.
  *
  * A bare dynamic import of the package root, and deliberately nothing else: the
  * specifier has to stay a literal so a bundler can see it, and so
- * `noNodeFromBrowser.test.ts`'s static walk can too.
+ * `noNodeFromBrowser.test.ts`'s static walk can too. It is the ONLY import of
+ * the package in the Studio (`onlyBuilderRoot.test.ts`); the worker reaches the
+ * package through this function rather than importing it itself.
  */
-const importBuilder: BuilderLoader = () => import("@valbuild/tanstack-build");
+export const importBuilderModule = () => import("@valbuild/tanstack-build");
+
+/**
+ * The real loader: the builder in a worker.
+ *
+ * ## Why not on the page
+ *
+ * Rolldown's browser build runs threaded wasm whose threads share memory, and
+ * when the thread that called into it has to wait for one of them it BLOCKS
+ * with an atomic wait. A page's main thread may not: Chromium throws
+ * "Atomics.wait cannot be called in this context", WebKit reports an
+ * out-of-bounds memory access, and in both the promise the publish is awaiting
+ * never settles -- "Building" spinning forever, some of the time, depending on
+ * timing. Measured with 400 modules and async plugin hooks: on the main thread
+ * both engines hung on the first or second build; in a worker, 40 builds out of
+ * 40 finished.
+ *
+ * A browser without `Worker` builds on the page, which is how it always did.
+ */
+const importBuilder: BuilderLoader = () =>
+  typeof Worker === "undefined"
+    ? importBuilderModule()
+    : /*
+       * Its own module, loaded here: it needs `import.meta.url` to find the
+       * worker, and that is ES module syntax jest's CommonJS cannot load --
+       * every test of this file injects a builder instead and never gets here.
+       */
+      import("./builderWorkerClient").then(({ workerBuilder }) =>
+        workerBuilder({
+          // A worker that died is a load to forget, so a retry starts anew.
+          onBroken: () => {
+            pending = null;
+          },
+        }),
+      );
 
 let loader: BuilderLoader = importBuilder;
 

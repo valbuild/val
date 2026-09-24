@@ -161,3 +161,28 @@ test("a failure crosses as a sentence, with the technical message beside it", as
   tab.close();
   site.close();
 });
+
+test("the text the save wrote reaches the tab, deletions included", async () => {
+  const site = openHandoff({ open });
+  site.commit({
+    ...commitOf("c3"),
+    committedFiles: {
+      "src/routes/_site.index.val.ts": "export default 1",
+      "gone.ts": null,
+    },
+  });
+  const got: ToTab[] = [];
+  const tab = joinHandoff(site.id, (message) => got.push(message), {
+    retryMs: 10,
+  });
+  await until(() => got.length > 0);
+  expect(got[0]).toEqual({
+    ...commitOf("c3"),
+    committedFiles: {
+      "src/routes/_site.index.val.ts": "export default 1",
+      "gone.ts": null,
+    },
+  });
+  tab.close();
+  site.close();
+});
