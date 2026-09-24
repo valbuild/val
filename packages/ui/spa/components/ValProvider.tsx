@@ -62,6 +62,7 @@ import {
   useStudioDeploy,
   type UseStudioDeploy,
 } from "../publish/useStudioDeploy";
+import { useSiteHandoff, type UseSiteHandoff } from "../publish/useSiteHandoff";
 import { ValOverlayEmitter } from "../stores/react/ValOverlayEmitter";
 import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
@@ -181,6 +182,12 @@ type ValContextValue = {
    * One here, for the same reason `publishSummaryState` is here.
    */
   deploy: UseStudioDeploy;
+  /**
+   * A publish from a page that cannot build, handed to a Studio tab. One here
+   * for the same reason as `deploy`: the button that starts it and the card
+   * that reports on it have to read one state. See `publish/handoff.ts`.
+   */
+  handoff: UseSiteHandoff;
   serviceUnavailable: boolean | undefined;
   baseSha: string | undefined;
   config: ValConfig | undefined;
@@ -786,6 +793,8 @@ export function ValProvider({
     });
   /** See {@link ValContextValue.deploy}. One per Studio, not one per caller. */
   const deploy = useStudioDeploy();
+  /** See {@link ValContextValue.handoff}. */
+  const handoff = useSiteHandoff();
 
   /**
    * Warn before leaving with edits that have not reached the server.
@@ -831,6 +840,7 @@ export function ValProvider({
         publishSummaryState,
         setPublishSummaryState,
         deploy,
+        handoff,
         profileId: statProfileId,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
         publishRefusal:
@@ -2124,6 +2134,11 @@ export function useStudioIsDeployer(): boolean {
  * publish whose build failed and a retry of that build are one operation seen
  * at two moments.
  */
+/** See {@link ValContextValue.handoff}. */
+export function useSiteHandoffState(): UseSiteHandoff {
+  return useContext(ValContext).handoff;
+}
+
 export function useStudioDeployState(): UseStudioDeploy {
   return useContext(ValContext).deploy;
 }
@@ -2239,21 +2254,33 @@ export function usePublishSummary() {
    */
   const studioIsDeployer = useStudioIsDeployer();
   const { state: deployState, deploy } = useContext(ValContext).deploy;
+  const { handoff } = useContext(ValContext);
   const publish = useCallback(
     async (summary: string) => {
+      /*
+       * A page that cannot build hands the build to a Studio tab. The press
+       * that opened the summary normally prepared it already -- that is the
+       * moment the browser lets a tab open -- and this is the fallback for a
+       * publish that did not come from one. It may be blocked, and the card
+       * then offers the tab as a button.
+       */
+      if (!handoff.active()) handoff.prepare(studioIsDeployer);
       if (globalServerSidePatchIds === null) {
+        handoff.cancel("No changes to publish");
         return {
           status: "error",
           message: "No changes to publish",
         };
       }
       if (isPublishing) {
+        handoff.cancel("Already publishing");
         return {
           status: "error",
           message: "Already publishing",
         };
       }
       if (val === null) {
+        handoff.cancel("No store system is mounted");
         return { status: "error", message: "No store system is mounted" };
       }
       setIsPublishing(true);
@@ -2285,7 +2312,26 @@ export function usePublishSummary() {
               type: "not-asked",
               isGenerating: prev.isGenerating,
             }));
-            if (studioIsDeployer) {
+            const committedBinaries =
+              res.binaryFiles !== undefined
+                ? {
+                    files: res.binaryFiles,
+                    unread: res.binaryFilesUnread ?? [],
+                  }
+                : null;
+            if (handoff.active()) {
+              /*
+               * This page cannot build, and a Studio tab is waiting for this
+               * commit. It builds from `/built-source` as a Finish publishing
+               * does, so all it needs from here is what only this save knows:
+               * the images it uploaded, and the branch.
+               */
+              handoff.commit({
+                commit: res.commitSha ?? null,
+                binaryFiles: committedBinaries,
+                branch: res.branch ?? null,
+              });
+            } else if (studioIsDeployer) {
               /*
                * The commit has landed, so nothing here can lose an edit -- the
                * worst case is a project that is saved and not yet live, which
@@ -2297,13 +2343,7 @@ export function usePublishSummary() {
                 res.commitSha ?? null,
                 res.sourceFiles ?? null,
                 {
-                  binaryFiles:
-                    res.binaryFiles !== undefined
-                      ? {
-                          files: res.binaryFiles,
-                          unread: res.binaryFilesUnread ?? [],
-                        }
-                      : null,
+                  binaryFiles: committedBinaries,
                   branch: res.branch ?? null,
                 },
               );
@@ -2327,8 +2367,10 @@ export function usePublishSummary() {
             // nothing and reports nothing is how a user comes to believe their
             // work has shipped.
             const said = describePublishRefusal(res);
+            handoff.cancel(said.message);
             val.system.status.reportError(said.message, said.details);
           } else if (res.status === "failed") {
+            handoff.cancel("Could not publish");
             val.system.status.reportError(
               "Could not publish",
               res.patchErrors
@@ -2339,6 +2381,10 @@ export function usePublishSummary() {
             );
           }
           return res;
+        })
+        .catch((error: unknown) => {
+          handoff.cancel("Could not publish");
+          throw error;
         })
         .finally(() => {
           setIsPublishing(false);
@@ -2352,6 +2398,7 @@ export function usePublishSummary() {
       setPublishSummaryState,
       studioIsDeployer,
       deploy,
+      handoff,
     ],
   );
   const setSummary = useCallback(
@@ -2400,8 +2447,21 @@ export function usePublishSummary() {
      * that makes it live runs here, so a button that stopped spinning at the
      * commit would say "done" over a site that has not changed.
      */
-    isPublishing: isPublishing || deployState.status === "running",
+    isPublishing:
+      isPublishing ||
+      deployState.status === "running" ||
+      // Or in a Studio tab this page handed it to.
+      handoff.state?.kind === "opening" ||
+      handoff.state?.kind === "running",
     deployState,
+    /**
+     * Call in the press that starts a publish. On a page that cannot build it
+     * opens the Studio tab that will, which a browser only allows in the press
+     * itself -- not after the summary's countdown. See `publish/handoff.ts`.
+     */
+    preparePublish: () => handoff.prepare(studioIsDeployer),
+    /** The summary was closed before it published: close what was prepared. */
+    abandonPublish: () => handoff.cancel("The publish was cancelled."),
     /**
      * Whether the project wants AI to write its commit messages.
      *

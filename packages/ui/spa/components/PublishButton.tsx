@@ -86,7 +86,13 @@ export function PublishButton({
   compact?: boolean;
 }) {
   const [summaryOpen, setSummaryOpen] = useState(false);
-  const { publish, publishDisabled, isPublishing } = usePublishSummary();
+  const {
+    publish,
+    publishDisabled,
+    isPublishing,
+    preparePublish,
+    abandonPublish,
+  } = usePublishSummary();
   const allValidationErrors = useAllValidationErrors();
   const validationErrorPaths = Object.keys(allValidationErrors ?? {});
   const { patchErrors } = useAllPatchErrors();
@@ -274,6 +280,8 @@ export function PublishButton({
             <X size={12} />
           </PopoverClose>
           <PublishSummary
+            onPress={preparePublish}
+            onAbandon={abandonPublish}
             onClose={() => {
               setSummaryOpen(false);
             }}

@@ -49,6 +49,8 @@ export type StudioDeployState =
       /** `Date.now()` when the publish, and when this step, began. */
       startedAt: number;
       phaseStartedAt: number;
+      /** The steps finished so far, in order. */
+      steps?: DeployStep[];
     }
   | {
       status: "done";
@@ -127,6 +129,7 @@ export function useStudioDeploy(options?: {
           phase,
           startedAt,
           phaseStartedAt: current.at,
+          steps: [...steps],
         });
       };
       setState({

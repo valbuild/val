@@ -37,6 +37,18 @@ export function describeDeployPhase(phase: DeployPhase): string {
   }
 }
 
+/** A step as a row of a list: the same words, without a running count. */
+export function describeDeployStep(kind: DeployPhase["kind"]): string {
+  switch (kind) {
+    case "uploading":
+      return "Uploading";
+    case "propagating":
+      return "Waiting for the site to show it";
+    default:
+      return describeDeployPhase({ kind });
+  }
+}
+
 /**
  * The line while a publish runs, and after it finished. `null` for nothing to
  * say: no publish yet, or one that failed (the failure has its own message).
