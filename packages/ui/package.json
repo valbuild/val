@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/ui",
-  "version": "0.136.4",
+  "version": "0.136.5",
   "sideEffects": false,
   "repository": {
     "type": "git",
