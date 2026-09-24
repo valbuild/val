@@ -1233,7 +1233,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
          * A publish this Studio handed to a builder tab, because it cannot
          * build here. Above the status bar, where the deploy item is.
          */
-        <div className="fixed bottom-16 right-4 z-50">
+        <div className="fixed bottom-16 right-4 z-window">
           <PublishHandoffCard
             state={handoff.state}
             onReload={() => window.location.reload()}
