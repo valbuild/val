@@ -1,5 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { CloudUpload, Rocket } from "lucide-react";
+import {
+  CloudUpload,
+  GitCompareArrows,
+  Globe,
+  Rocket,
+  SquareDashedMousePointer,
+} from "lucide-react";
 import { Button } from "../../designSystem/button";
 import {
   PublishHandoffCard,
@@ -10,7 +16,7 @@ import {
 } from "../PublishHandoff";
 import { DeployProgress } from "../DeployProgress";
 import { HostPage } from "./HostPage";
-import { OverlayCard } from "../OverlayMenu";
+import { OverlayCard, OverlayMenuButton } from "../OverlayMenu";
 import { PublishSummaryView } from "../../PublishSummaryView";
 import type { StudioDeployState } from "../../../publish/useStudioDeploy";
 
@@ -84,8 +90,16 @@ function OverlayScene({
          * same icon as any publish in flight.
          */}
         <div className="inline-flex items-center gap-1 rounded-full bg-bg-float border border-border-float shadow-lg px-2 py-1.5">
+          <OverlayMenuButton
+            label="Select content to edit"
+            icon={<SquareDashedMousePointer size={16} />}
+          />
+          <OverlayMenuButton
+            label="Review changes in Studio"
+            icon={<GitCompareArrows size={16} />}
+          />
           <Button
-            className="h-auto w-auto p-2"
+            className="h-8 w-8 p-0 rounded-full"
             aria-label={working ? "Publishing" : "Publish"}
           >
             <span className="grid size-4 shrink-0 place-items-center">
@@ -96,6 +110,10 @@ function OverlayScene({
               )}
             </span>
           </Button>
+          <OverlayMenuButton
+            label="Open Val Studio"
+            icon={<Globe size={16} />}
+          />
         </div>
       </div>
     </div>
