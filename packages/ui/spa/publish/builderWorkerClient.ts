@@ -50,7 +50,22 @@ export function workerBuilder(options: {
   };
 
   const ready = new Promise<void>((resolve, reject) => {
+    /*
+     * The load has the same deadline as a call: a worker whose builder never
+     * finishes loading -- 11 MB of wasm on a connection that stalled -- would
+     * otherwise leave the publish at "Loading the builder" for good.
+     */
+    const loading = setTimeout(() => {
+      const error = new Error(
+        `The site builder did not finish loading within ` +
+          `${CALL_DEADLINE_MS / 60_000} minutes. Check the connection and publish again.`,
+      );
+      reject(error);
+      breakAll(error);
+    }, CALL_DEADLINE_MS);
+    const settleLoad = () => clearTimeout(loading);
     worker.onerror = (event) => {
+      settleLoad();
       const error = new Error(
         `The site builder stopped: ${event.message || "the worker failed to start"}.`,
       );
@@ -60,10 +75,12 @@ export function workerBuilder(options: {
     worker.onmessage = (event: MessageEvent<BuilderReply>) => {
       const reply = event.data;
       if (reply.type === "ready") {
+        settleLoad();
         resolve();
         return;
       }
       if (reply.type === "load-failed") {
+        settleLoad();
         const error = new Error(reply.message);
         reject(error);
         breakAll(error);
