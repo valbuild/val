@@ -330,12 +330,13 @@ export async function runStudioDeploy(
      * source, so the next publish reads it back and the two never disagree
      * about which commit this build is wired at.
      */
-    const branch = options.branch ?? builder.bakedGit(source)?.branch ?? null;
+    const branch =
+      options.branch ?? (await builder.bakedGit(source))?.branch ?? null;
     git =
       options.commit === null || branch === null
         ? null
         : { commit: options.commit, branch };
-    const wired = builder.rebakeGit(source, git);
+    const wired = await builder.rebakeGit(source, git);
     wiredSource = wired;
     const fileBased = Object.keys(wired).some((path) =>
       path.startsWith(ROUTES_PREFIX),

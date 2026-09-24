@@ -2364,13 +2364,16 @@ export function usePublishSummary() {
                 : null;
             if (handoff.active()) {
               /*
-               * This page cannot build, and a Studio tab is waiting for this
-               * commit. It builds from `/built-source` as a Finish publishing
-               * does, so all it needs from here is what only this save knows:
-               * the images it uploaded, and the branch.
+               * This page cannot build, and a builder tab is waiting for this
+               * commit. It gets everything the in-place build below gets --
+               * the text this save wrote as well as its images and branch --
+               * so the two build the same site from the same save. The tab
+               * used to rely on `/built-source` for the text alone, and a
+               * publish from Safari could go live with the edit missing.
                */
               handoff.commit({
                 commit: res.commitSha ?? null,
+                committedFiles: res.sourceFiles ?? null,
                 binaryFiles: committedBinaries,
                 branch: res.branch ?? null,
               });

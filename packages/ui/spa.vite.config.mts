@@ -32,6 +32,20 @@ export default defineConfig({
       outDir: OUT_DIR,
     }),
   ],
+  /*
+   * The builder runs in a worker (`spa/publish/builder.worker.ts`), and a worker
+   * is a bundle of its own with plugins of its own. ES modules, because the
+   * builder is dynamic imports and rolldown's loader awaits at the top level.
+   * The binding redirect again, because the builder is in THIS bundle now; the
+   * wasm URL rewrite needs nothing, as `renderBuiltUrl` is config for every
+   * bundle the build emits.
+   */
+  worker: {
+    format: "es",
+    plugins: () => [
+      rolldownBrowserBindingPlugin({ root: import.meta.dirname }),
+    ],
+  },
   build: {
     outDir: OUT_DIR,
     minify: true,

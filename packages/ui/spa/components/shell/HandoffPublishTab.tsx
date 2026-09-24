@@ -70,7 +70,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
         savedAfterMs: prev.kind === "waiting" ? Date.now() - prev.since : 0,
         commit: message.commit,
       }));
-      void deploy(message.commit, null, {
+      void deploy(message.commit, message.committedFiles ?? null, {
         binaryFiles: message.binaryFiles,
         branch: message.branch,
       });
