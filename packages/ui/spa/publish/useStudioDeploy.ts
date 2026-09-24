@@ -28,6 +28,7 @@ import {
   fetchBuiltSource,
   fetchLiveStylesheet,
   fetchPublicFile,
+  waitUntilServed,
 } from "./fetchPublicFile";
 import { loadBuilder, routeTreeGenerator } from "./loadBuilder";
 import {
@@ -37,10 +38,25 @@ import {
   runStudioDeploy,
 } from "./runStudioDeploy";
 
+/** How long one step of a publish took. */
+export type DeployStep = { kind: DeployPhase["kind"]; ms: number };
+
 export type StudioDeployState =
   | { status: "idle" }
-  | { status: "running"; phase: DeployPhase }
-  | { status: "done"; result: StudioDeployResult };
+  | {
+      status: "running";
+      phase: DeployPhase;
+      /** `Date.now()` when the publish, and when this step, began. */
+      startedAt: number;
+      phaseStartedAt: number;
+    }
+  | {
+      status: "done";
+      result: StudioDeployResult;
+      /** The whole publish, and each step of it, in order. */
+      ms: number;
+      steps: DeployStep[];
+    };
 
 export interface UseStudioDeploy {
   state: StudioDeployState;
@@ -88,7 +104,37 @@ export function useStudioDeploy(options?: {
         return ALREADY_RUNNING;
       }
       running.current = true;
-      setState({ status: "running", phase: { kind: "getting-ready" } });
+      const startedAt = Date.now();
+      const steps: DeployStep[] = [];
+      let current: { phase: DeployPhase; at: number } = {
+        phase: { kind: "getting-ready" },
+        at: startedAt,
+      };
+      /*
+       * One entry per step, however many times it reports: `uploading`
+       * reports once per file, and the time is the step's, not the file's.
+       */
+      const enter = (phase: DeployPhase) => {
+        const now = Date.now();
+        if (phase.kind !== current.phase.kind) {
+          steps.push({ kind: current.phase.kind, ms: now - current.at });
+          current = { phase, at: now };
+        } else {
+          current = { phase, at: current.at };
+        }
+        setState({
+          status: "running",
+          phase,
+          startedAt,
+          phaseStartedAt: current.at,
+        });
+      };
+      setState({
+        status: "running",
+        phase: current.phase,
+        startedAt,
+        phaseStartedAt: startedAt,
+      });
       /*
        * Read once per deploy, not per use: whether a deployment has injected
        * one is settled when the publish starts, so a page cannot build half a
@@ -105,11 +151,25 @@ export function useStudioDeploy(options?: {
           fetchPublicFile: (path) => fetchPublicFile(path),
           builtSource: () => fetchBuiltSource(api),
           liveStylesheet: () => fetchLiveStylesheet(),
+          waitUntilServed: (buildHash) => waitUntilServed(buildHash),
           loadBuilder,
           ...(generateRouteTree !== null ? { generateRouteTree } : {}),
-          onPhase: (phase) => setState({ status: "running", phase }),
+          onPhase: enter,
         });
-        setState({ status: "done", result });
+        const now = Date.now();
+        steps.push({ kind: current.phase.kind, ms: now - current.at });
+        const ms = now - startedAt;
+        /*
+         * In the console as well as on screen, so a slow publish can be
+         * reported with the step that was slow rather than as "it took ages".
+         */
+        console.info(
+          `Val: publish ${result.status} in ${(ms / 1000).toFixed(1)}s -- ` +
+            steps
+              .map((step) => `${step.kind} ${(step.ms / 1000).toFixed(1)}s`)
+              .join(", "),
+        );
+        setState({ status: "done", result, ms, steps });
         return result;
       } finally {
         running.current = false;

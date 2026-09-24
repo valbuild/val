@@ -1,4 +1,6 @@
 import { CircleDot, Cloud, GitBranch, Info, Terminal } from "lucide-react";
+import type { StudioDeployState } from "../../publish/useStudioDeploy";
+import { DeployProgress } from "./DeployProgress";
 import { cn } from "../designSystem/cn";
 import { Checkbox } from "../designSystem/checkbox";
 import {
@@ -40,6 +42,8 @@ export type StatusBarProps = {
   /** See `Shell`'s prop of the same name. */
   onFinishPublishing?: (commitSha: string) => void;
   finishingPublish?: boolean;
+  /** A publish built in this tab: which step it is on. See `DeployProgress`. */
+  deployState?: StudioDeployState;
   deploymentsOpen?: boolean;
   onDeploymentsOpenChange?: (open: boolean) => void;
   /** True when the open list opened itself, which lets it close itself. */
@@ -70,6 +74,7 @@ export function StatusBar({
   studioIsDeployer = false,
   onFinishPublishing,
   finishingPublish = false,
+  deployState,
   deploymentsOpen = false,
   onDeploymentsOpenChange,
   deploymentsAutoOpened = false,
@@ -118,6 +123,9 @@ export function StatusBar({
         </>
       )}
       <div className="ml-auto flex items-center gap-3">
+        {mode === "http" && deployState !== undefined && (
+          <DeployProgress state={deployState} />
+        )}
         {mode === "http" && deployments !== undefined && (
           <>
             <DeploymentsStatus

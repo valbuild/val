@@ -101,3 +101,49 @@ export async function fetchLiveStylesheet(
   if (!res.ok) return "";
   return res.text();
 }
+
+/**
+ * Wait until the site, as this tab reaches it, serves the build `buildHash`.
+ *
+ * Asks the platform's `/__api/head`, which reads the live pointer the same way
+ * a page request does -- through the KV cache of THIS Cloudflare location -- so
+ * `true` means a page opened from here now shows the publish. `undefined` when
+ * the site has no such route (it is not on the platform).
+ */
+export async function waitUntilServed(
+  buildHash: string,
+  options: {
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+    intervalMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<boolean | undefined> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const intervalMs = options.intervalMs ?? 2_000;
+  const sleep =
+    options.sleep ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const res = await fetchImpl("/__api/head", {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    if (res.status === 404) return undefined;
+    if (res.ok) {
+      const body: unknown = await res.json().catch(() => null);
+      if (
+        typeof body === "object" &&
+        body !== null &&
+        "hash" in body &&
+        body.hash === buildHash
+      ) {
+        return true;
+      }
+    }
+    if (Date.now() + intervalMs > deadline) return false;
+    await sleep(intervalMs);
+  }
+}

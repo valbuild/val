@@ -838,3 +838,51 @@ describe("the stylesheet", () => {
     expect(await cssOf("", "")).toBe("");
   });
 });
+
+describe("after it is live", () => {
+  test("it waits for the site to serve the build, and says whether it does", async () => {
+    const phases: DeployPhase[] = [];
+    const asked: string[] = [];
+    const result = await deploy(
+      {
+        waitUntilServed: async (hash) => {
+          asked.push(hash);
+          return false;
+        },
+      },
+      phases,
+    );
+    expect(asked).toEqual(["build-hash"]);
+    expect(phases.at(-1)).toEqual({ kind: "propagating" });
+    expect(result).toEqual({
+      status: "live",
+      url: "https://site.test",
+      visible: false,
+    });
+  });
+
+  test("a site that cannot say is still a live publish", async () => {
+    const result = await deploy({
+      waitUntilServed: async () => {
+        throw new Error("offline");
+      },
+    });
+    expect(result).toEqual({ status: "live", url: "https://site.test" });
+  });
+
+  test("a failed publish does not wait", async () => {
+    const asked: string[] = [];
+    await deploy({
+      client: client({
+        promote: async () => {
+          throw new Error("refused");
+        },
+      }),
+      waitUntilServed: async (hash) => {
+        asked.push(hash);
+        return true;
+      },
+    });
+    expect(asked).toEqual([]);
+  });
+});
