@@ -194,6 +194,77 @@ describe("publish", () => {
   });
 });
 
+/**
+ * A refusal describes the attempt that got it, not the next one.
+ *
+ * It is shown, and it never disables Publish — so it has to stop being shown
+ * once a newer answer exists, or a change that has since shipped goes on being
+ * reported as one that cannot be applied.
+ */
+describe("a refused change", () => {
+  function sequence(outcomes: PublishOutcome[], mode: "fs" | "http") {
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+      createPatchId: (() => {
+        let next = 0;
+        return () => `pub-${++next}` as PatchId;
+      })(),
+      mode,
+      publishPatches: async () => {
+        const outcome = outcomes.shift();
+        if (outcome === undefined) throw new Error("no outcome left");
+        return outcome;
+      },
+    });
+    system.host.receive(project());
+    return system;
+  }
+  const refused = (errors: Record<string, string>): PublishOutcome => ({
+    status: "patch-errors",
+    message: "cannot be applied",
+    errors,
+  });
+
+  it("is forgotten once a retry publishes it, although http keeps the chain", async () => {
+    const system = sequence(
+      [refused({ "pub-1": "cannot apply" }), { status: "published" }],
+      "http",
+    );
+    await edit(system, "value");
+
+    await system.publish([]);
+    expect(Object.keys(system.patchErrors())).toEqual(["/a.val.ts"]);
+
+    expect((await system.publish([])).status).toBe("published");
+    // Still in the chain — http mode keeps it — and no longer blamed.
+    expect(system.patchStore.allRecords()).toHaveLength(1);
+    expect(system.patchErrors()).toEqual({});
+    system.dispose();
+  });
+
+  it("is replaced by the next refusal of the same attempt, not added to", async () => {
+    const system = sequence(
+      [
+        refused({ "pub-1": "cannot apply" }),
+        refused({ "pub-2": "cannot apply either" }),
+      ],
+      "http",
+    );
+    await edit(system, "one");
+    await edit(system, "two", "/b.val.ts");
+
+    await system.publish([]);
+    await system.publish([]);
+
+    expect(system.patchErrors()).toEqual({
+      ["/b.val.ts" as ModuleFilePath]: {
+        "pub-2": { message: "cannot apply either", source: "server" },
+      },
+    });
+    system.dispose();
+  });
+});
+
 describe("discard", () => {
   /**
    * The opposite of publish, and this is the assertion that shows it: the value

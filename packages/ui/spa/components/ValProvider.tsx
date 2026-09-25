@@ -2261,15 +2261,6 @@ export function usePublishSummary() {
   } = useContext(ValContext);
   const val = useValSystem();
   const globalServerSidePatchIds = useCurrentPatchIds();
-  const { patchErrors } = useAllPatchErrors();
-  const hasPatchErrors = useMemo(() => {
-    if (patchErrors) {
-      return Object.values(patchErrors).some(
-        (forModule) => Object.keys(forModule).length > 0,
-      );
-    }
-    return false;
-  }, [patchErrors]);
   useEffect(() => {
     if (publishSummaryState.type === "not-asked") {
       const storedSummaryState = getSummaryStateFromLocalStorage(
@@ -2482,13 +2473,14 @@ export function usePublishSummary() {
     /**
      * The engine kept a `publishDisabled` flag that it set on entering publish
      * and cleared on the way out, and a caller could not tell why it was set.
-     * There are only two reasons: a publish is running, or something in the
-     * chain cannot be published. Both are already known here.
+     * The one reason left is that a publish is already running.
+     *
+     * NOT a change the server refused last time. That disabled Publish until
+     * the change was discarded, although the server refuses the whole commit
+     * when a change does not apply — so a retry cannot publish anything wrong,
+     * and is often all it takes (see `describePublishButton`).
      */
-    publishDisabled:
-      isPublishing ||
-      hasPatchErrors === true ||
-      deployState.status === "running",
+    publishDisabled: isPublishing || deployState.status === "running",
     /*
      * A publish is not over when the commit lands. In managed mode the build
      * that makes it live runs here, so a button that stopped spinning at the
