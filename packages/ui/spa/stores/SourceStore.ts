@@ -316,6 +316,21 @@ export class SourceStore {
    * one map cannot hold both.
    */
   private baseJsonEntries = new Map<ModuleFilePath, Map<string, Json>>();
+  /**
+   * Base plus the patches that have SHIPPED, for modules whose chain still holds
+   * any. See {@link publishedRealm}.
+   *
+   * Its own realm, with its own entry map, for the reason `baseJsonEntries` is
+   * kept apart from `jsonEntries`: `substitutedSource` caches on the source
+   * object, so no object may be shared with another realm.
+   */
+  private publishedSources: Record<ModuleFilePath, Json> = {};
+  private publishedJsonEntries = new Map<ModuleFilePath, Map<string, Json>>();
+  /** What each {@link publishedSources} entry was computed from. */
+  private publishedFrom = new Map<
+    ModuleFilePath,
+    { base: Json; n: number; applied: string; applies: boolean }
+  >();
   /** In-flight entry fetches, so N readers of one entry cause ONE fetch. */
   private loadingEntries = new Map<string, Promise<void>>();
   /**
@@ -1090,17 +1105,122 @@ export class SourceStore {
   }
 
   /**
-   * The COMMITTED value at a path — what the server has, before local patches.
+   * The realm {@link peekBase} reads: the base, with every SHIPPED patch still in
+   * the chain applied on top of it.
    *
-   * For a diff or compare view: "what did this look like before I touched it".
-   * Reads `baseSources` rather than `sources`, and is otherwise the same walk, so
-   * the two answers are comparable by construction.
+   * The base alone is not what has been published. In `http` mode a published
+   * patch stays in the chain, with `appliedAt` set, until the next deployment
+   * moves the base — so between publish and deploy `baseSources` is the text
+   * from BEFORE the publish. Comparing against it made "A"→"B", publish, "B"→"A"
+   * look like nothing to publish: the value on screen matched the stale base,
+   * `useHasNetChanges` disabled Publish, and the change back to "A" could not
+   * ship even though the repository says "B".
+   *
+   * `fs` mode never reaches the rebuild: a publish there bakes the patches into
+   * the base (`promotePublished`) and takes them out of the chain.
+   *
+   * Recomputed only when its inputs move: the base object (a `receive`, a
+   * promote), the revision (entry content arriving or going stale) and which of
+   * the chain's patches have shipped (`markApplied` moves that without a bump).
+   */
+  private publishedRealm(moduleFilePath: ModuleFilePath): {
+    sources: Record<ModuleFilePath, Json>;
+    entries: Map<ModuleFilePath, Map<string, Json>>;
+  } {
+    const baseRealm = {
+      sources: this.baseSources,
+      entries: this.baseJsonEntries,
+    };
+    const base = this.baseSources[moduleFilePath];
+    const shipped = (this.chains.get(moduleFilePath) ?? []).filter((entry) =>
+      isApplied(entry.record),
+    );
+    if (base === undefined || shipped.length === 0) {
+      return baseRealm;
+    }
+    const publishedRealm = {
+      sources: this.publishedSources,
+      entries: this.publishedJsonEntries,
+    };
+    const n = this.revisions.get(moduleFilePath) ?? 0;
+    const applied = shipped.map((entry) => entry.record.patchId).join("\0");
+    const from = this.publishedFrom.get(moduleFilePath);
+    if (
+      from !== undefined &&
+      from.base === base &&
+      from.n === n &&
+      from.applied === applied
+    ) {
+      return from.applies ? publishedRealm : baseRealm;
+    }
+    // Recorded before the apply, so a patch that cannot be applied is logged
+    // once per change of inputs rather than on every peek.
+    const computed = { base, n, applied, applies: false };
+    this.publishedFrom.set(moduleFilePath, computed);
+    // The SUBSTITUTED base, for the reason `promotePublished` gives.
+    let next: JSONValue = deepClone(
+      this.substitutedSource(
+        moduleFilePath,
+        base,
+        this.baseJsonEntries,
+      ) as JSONValue,
+    );
+    for (const entry of shipped) {
+      const patchableOps = entry.record.patch.filter((op) => op.op !== "file");
+      if (patchableOps.length === 0) continue;
+      this.activity.work("source:apply-patch", entry.record.patchId);
+      const res = applyPatch(deepClone(next), ops, patchableOps);
+      if (!result.isOk(res)) {
+        /*
+         * The server applied it and this could not. The base is the best
+         * answer left: it is what this store said before shipped patches were
+         * counted, and the next intake replaces it anyway.
+         */
+        console.error(
+          "Val: could not apply a published change to the base. Comparisons against what is published may be stale until the next load.",
+          { moduleFilePath, patchId: entry.record.patchId, error: res.error },
+        );
+        delete this.publishedSources[moduleFilePath];
+        this.publishedJsonEntries.delete(moduleFilePath);
+        return baseRealm;
+      }
+      next = res.value;
+    }
+    const baseEntries = this.baseJsonEntries.get(moduleFilePath);
+    if (baseEntries === undefined) {
+      this.publishedJsonEntries.delete(moduleFilePath);
+    } else {
+      this.publishedJsonEntries.set(
+        moduleFilePath,
+        new Map(
+          [...baseEntries].map(([key, value]) => [
+            key,
+            deepClone(value as JSONValue),
+          ]),
+        ),
+      );
+    }
+    this.storePatched(moduleFilePath, base, next, publishedRealm);
+    computed.applies = true;
+    return publishedRealm;
+  }
+
+  /**
+   * The COMMITTED value at a path — what has been published, before pending
+   * patches.
+   *
+   * For a diff or compare view: "what did this look like before I touched it",
+   * and for the Publish gate: "would publishing change anything". Walks the
+   * {@link publishedRealm} rather than `sources`, and is otherwise the same walk,
+   * so the two answers are comparable by construction.
    *
    * Reference-stable like {@link peek}, and it has to be for the same reason: a
    * compare view is a `useSyncExternalStore` consumer too.
    */
   peekBase(path: SourcePath): SourcePeek {
-    const next = this.computePeek(path, this.baseSources, this.baseJsonEntries);
+    const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+    const realm = this.publishedRealm(moduleFilePath);
+    const next = this.computePeek(path, realm.sources, realm.entries);
     const previous = this.peekedBase.get(path);
     if (previous !== undefined && samePeek(previous, next)) {
       return previous;

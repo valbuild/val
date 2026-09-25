@@ -2364,10 +2364,18 @@ export function createSystem(options: SystemOptions): System {
           // left it in the chain to be applied again on top of itself.
           sourceStore.promotePublished(toPublish, [...affected]);
           patchStore.forgetPublished(toPublish);
+        } else {
+          // In `http` mode the patches stay server-side and are re-applied, so
+          // the chain stays too — removing it would show the value without them
+          // until the next fetch, and promoting the base would then double-apply.
+          //
+          // But the chain has to KNOW they shipped. `peekBase` counts shipped
+          // patches as published, and until a `/stat` names them the records
+          // still read as pending — so "A"→"B", publish, "B"→"A" compared "A"
+          // against the pre-publish base, found nothing to publish, and
+          // disabled Publish on a change the repository does not have.
+          sourceStore.markApplied(toPublish);
         }
-        // In `http` mode the patches stay server-side and are re-applied, so the
-        // chain stays too — removing it would show the value without them until
-        // the next fetch, and promoting the base would then double-apply.
         // The ids that were actually published, which is what the caller has to
         // forget — it asked with a list taken before the flush.
         /*
