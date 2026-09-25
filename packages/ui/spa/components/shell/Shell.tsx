@@ -11,6 +11,8 @@ import type { StudioDeployState } from "../../publish/useStudioDeploy";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { AIChatPanel } from "./AIChatPanel";
 import { DataPanel } from "./DataPanel";
+import { checkExternalUrls } from "./externalUrlChecks";
+import { toRows } from "./externalPageGroups";
 import { ShellPanelProvider } from "./shellPanelLink";
 import { EmptyEditorState, PageEditor } from "./EditorCanvas";
 import {
@@ -58,6 +60,7 @@ import {
 import { servedPath } from "../../utils/mediaPath";
 import { useShellBreakpoint } from "./useShellBreakpoint";
 import {
+  ShellBreakpoint,
   ShellChangeActivity,
   ShellData,
   ShellDataModule,
@@ -302,6 +305,33 @@ export type ShellProps = {
    */
   renderSettings?: () => ReactNode;
   /**
+   * The external pages dialog, connected to the store.
+   *
+   * A render prop, and called only while the dialog is open — which is the
+   * point. Reading what is behind every external URL and who links to it means
+   * an index over the whole project (`useRouteReferenceIndex`), and nothing
+   * should build that for a Studio nobody has opened this dialog in. The shell
+   * owns the open state; the app owns the data.
+   *
+   * Absent — in Storybook, or in a project with no external router — and the
+   * Pages panel has no external pages button.
+   */
+  renderExternalPages?: (props: {
+    close: () => void;
+    /**
+     * Open one URL's entry in the editor.
+     *
+     * Handed down rather than done by the app, because selection is the
+     * shell's: it owns which row is current and what the editor column shows.
+     * Opening one of the PLACES a URL is linked from is the app's — that is a
+     * field inside a module, deeper than any navigation row, and the same
+     * reason `onOpenSearchResult` exists.
+     */
+    onSelectExternalPage: (page: ShellExternalPage) => void;
+    /** The shell is what knows it — see `renderHistory`. */
+    breakpoint: ShellBreakpoint;
+  }) => ReactNode;
+  /**
    * Something to show in the editor column instead of the selection's editor.
    *
    * The compare and errors views are not items: they take the whole column and
@@ -496,6 +526,7 @@ export function Shell({
   onSelectionChange,
   renderEditor,
   renderSettings,
+  renderExternalPages,
   editorOverride,
   renderHistory,
   onPublish,
@@ -545,6 +576,26 @@ export function Shell({
     [selectionId, data],
   );
   const selection = isControlled ? controlledSelection : internalSelection;
+  const [isExternalPagesOpen, setIsExternalPagesOpen] = useState(false);
+  /**
+   * How many external URLs want looking at, for the button's badge.
+   *
+   * Computed here rather than passed in because the shape checks are pure and
+   * cheap — they read the URLs and nothing else — and because the button has to
+   * say something about what is behind it before anyone opens it. The
+   * reachability half is not here: that needs the network, and it only runs
+   * when someone presses Check.
+   */
+  const externalIssueCount = useMemo(() => {
+    // Through `toRows`, so this counts exactly what the dialog's own badges,
+    // Flagged filter and totals count. Counting the URL checks alone here put
+    // a red badge on a row whose entry does not validate while the footer said
+    // there was nothing to look at.
+    const issues = checkExternalUrls(data.externalPages.map((p) => p.url));
+    return toRows(data.externalPages, issues).filter(
+      (row) => row.status !== "ok",
+    ).length;
+  }, [data.externalPages]);
   const [isSearchOpen, setIsSearchOpen] = useState(initialSearchOpen);
   const [isCanvasOpen, setIsCanvasOpen] = useState(initialCanvasOpen);
   const [canvasView, setCanvasView] = useState<CanvasView>(initialCanvasView);
@@ -1202,10 +1253,12 @@ export function Shell({
               const next = toPageSelection(page);
               if (next) select(next);
             }}
-            onSelectExternalPage={(page) => {
-              const next = toExternalSelection(page);
-              if (next) select(next);
-            }}
+            onOpenExternalPages={
+              renderExternalPages
+                ? () => setIsExternalPagesOpen(true)
+                : undefined
+            }
+            externalIssueCount={externalIssueCount}
             onNewPage={onNewPage ?? (() => undefined)}
             onDuplicatePage={onDuplicatePage}
             onRenamePage={onRenamePage}
@@ -1218,6 +1271,16 @@ export function Shell({
             loadError={loadError}
           />
         )}
+
+        {isExternalPagesOpen &&
+          renderExternalPages?.({
+            close: () => setIsExternalPagesOpen(false),
+            onSelectExternalPage: (page) => {
+              const next = toExternalSelection(page);
+              if (next) select(next);
+            },
+            breakpoint,
+          })}
 
         {openPanel === "media" && (
           <MediaPanel

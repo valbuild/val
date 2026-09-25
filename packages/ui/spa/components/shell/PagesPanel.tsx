@@ -11,7 +11,6 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
-  ExternalLink,
   File,
   MoreHorizontal,
   Pencil,
@@ -22,6 +21,7 @@ import {
   PanelEmptyState,
   PanelSectionLabel,
 } from "./FloatingPanel";
+import { ExternalPagesButton } from "./ExternalPagesButton";
 import {
   PanelErrorState,
   PanelFilterInput,
@@ -289,7 +289,18 @@ export type PagesPanelProps = {
   externalPages: ShellExternalPage[];
   selectedId: string | null;
   onSelectPage: (page: ShellPage) => void;
-  onSelectExternalPage: (page: ShellExternalPage) => void;
+  /**
+   * Open the external pages dialog.
+   *
+   * Absent in a project with no external router, and then there is no button:
+   * a way in to a list that cannot exist is worse than no button.
+   */
+  onOpenExternalPages?: () => void;
+  /**
+   * How many external URLs have something wrong with them, for the button's
+   * badge. Computed by the caller, which is the one that has the URLs.
+   */
+  externalIssueCount?: number;
   /**
    * Create a page under a route, given the URL that was built for it.
    *
@@ -444,7 +455,8 @@ export function PagesPanel({
   externalPages,
   selectedId,
   onSelectPage,
-  onSelectExternalPage,
+  onOpenExternalPages,
+  externalIssueCount,
   onNewPage,
   onDuplicatePage,
   onRenamePage,
@@ -524,16 +536,6 @@ export function PagesPanel({
     () => (query ? new Set(collectIds(filtered)) : null),
     [query, filtered],
   );
-  const filteredExternal = useMemo(() => {
-    if (!query) return externalPages;
-    const q = query.toLowerCase();
-    return externalPages.filter(
-      (page) =>
-        page.name.toLowerCase().includes(q) ||
-        page.url.toLowerCase().includes(q),
-    );
-  }, [externalPages, query]);
-
   const toggle = (id: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -711,6 +713,17 @@ export function PagesPanel({
           />
         )
       }
+      footer={
+        onOpenExternalPages && !isLoading && !loadError ? (
+          <div className="p-1.5">
+            <ExternalPagesButton
+              count={externalPages.length}
+              issueCount={externalIssueCount}
+              onClick={onOpenExternalPages}
+            />
+          </div>
+        ) : undefined
+      }
     >
       {isLoading ? (
         <PanelSkeleton rows={12} />
@@ -734,34 +747,6 @@ export function PagesPanel({
             </PanelEmptyState>
           ) : (
             filtered.map((page) => renderPage(page, 0))
-          )}
-
-          <PanelSectionLabel>
-            External pages
-            <span className="ml-1.5 font-normal normal-case tracking-normal text-fg-secondary-alt">
-              {filteredExternal.length}
-            </span>
-          </PanelSectionLabel>
-          {filteredExternal.length === 0 ? (
-            <PanelEmptyState>
-              {query
-                ? "No external pages match this filter."
-                : "No external pages yet. These are links out of the site — a social profile, a help desk — that content can point at."}
-            </PanelEmptyState>
-          ) : (
-            filteredExternal.map((page) => (
-              <PanelRow
-                key={page.id}
-                selected={selectedId === page.id}
-                title={page.url}
-                onClick={() => onSelectExternalPage(page)}
-                leading={
-                  <ExternalLink size={12} className="text-fg-secondary-alt" />
-                }
-                label={page.name}
-                errorCount={page.errorCount}
-              />
-            ))
           )}
         </div>
       )}

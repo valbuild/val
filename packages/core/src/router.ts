@@ -1,23 +1,67 @@
 import { ModuleFilePath } from "./val";
+import {
+  describeSchemeRejection,
+  ExternalUrlSchemePolicy,
+  rejectScheme,
+} from "./externalUrlSchemes";
 
-export const externalPageRouter: ValRouter = {
-  getRouterId: () => "external-url-router",
-  validate: (_moduleFilePath, urlPaths): RouteValidationError[] => {
-    const errors: RouteValidationError[] = [];
-    for (const urlPath of urlPaths) {
-      if (!(urlPath.startsWith("https://") || urlPath.startsWith("http://"))) {
-        errors.push({
-          error: {
-            message: `URL path "${urlPath}" does not start with "https://" or "http://"`,
-            expectedPath: null,
-            urlPath,
-          },
-        });
+/**
+ * The router whose keys are URLs to somewhere else.
+ *
+ * Used directly for the wide default, or called to narrow it:
+ *
+ * ```ts
+ * s.router(externalPageRouter, item)                          // anything safe
+ * s.router(externalPageRouter({ schemes: ["https"] }), item)  // https only
+ * ```
+ *
+ * Its one rule is that a key has a scheme, and that the scheme is not one of
+ * the handful that are not links at all - see `externalUrlSchemes.ts`. That
+ * rule was WRITTEN here from the start and never enforced: the errors were
+ * collected into a list and then `return []` threw them away, so every key was
+ * accepted however it was spelled.
+ *
+ * `expectedPath` is null because there is nothing to suggest: a key that is
+ * not a URL could have been meant as any URL, and guessing `https://` in front
+ * of it would propose a different site as often as the right one.
+ */
+export const externalPageRouter: ExternalPageRouter = Object.assign(
+  (policy: ExternalUrlSchemePolicy): ValRouter =>
+    createExternalPageRouter(policy),
+  createExternalPageRouter(),
+);
+
+/**
+ * Callable AND a router, so `externalPageRouter` keeps working unchanged
+ * where nobody needs to configure it - which is almost everywhere.
+ */
+export type ExternalPageRouter = ValRouter &
+  ((policy: ExternalUrlSchemePolicy) => ValRouter);
+
+function createExternalPageRouter(
+  policy: ExternalUrlSchemePolicy = {},
+): ValRouter {
+  return {
+    getRouterId: () => "external-url-router",
+    getUrlSchemePolicy: () => policy,
+    validate: (_moduleFilePath, urlPaths): RouteValidationError[] => {
+      const errors: RouteValidationError[] = [];
+      for (const urlPath of urlPaths) {
+        const rejection = rejectScheme(urlPath, policy);
+        if (rejection !== null) {
+          errors.push({
+            error: {
+              message: `URL "${urlPath}" cannot be used here. ${describeSchemeRejection(rejection)}`,
+              expectedPath: null,
+              urlPath,
+            },
+          });
+        }
       }
-    }
-    return [];
-  },
-};
+      return errors;
+    },
+  };
+}
 
 export type RouteValidationError = {
   error: {
@@ -359,6 +403,15 @@ export const tanstackRouter: ValRouter = {
 
 export interface ValRouter {
   getRouterId(): string;
+  /**
+   * Which URL schemes this router's keys may use, where it restricts them.
+   *
+   * Serialized alongside the router id so the Studio can apply the SAME rule
+   * while someone types, rather than accepting a key and reporting it as a
+   * validation error afterwards. Absent on routers whose keys are paths rather
+   * than URLs, which is every other one.
+   */
+  getUrlSchemePolicy?(): ExternalUrlSchemePolicy;
   validate(
     moduleFilePath: ModuleFilePath,
     urlPaths: string[],

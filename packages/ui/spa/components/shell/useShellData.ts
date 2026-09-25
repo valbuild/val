@@ -151,7 +151,8 @@ export function useShellData(): ShellDataState {
         // hides the New page buttons instead of opening a form that can only
         // say no.
         newPage: newPageRoutes,
-        externalPages: toExternalPages(externalRecord),
+        externalPages: toExternalPages(externalRecord, validationErrors),
+        externalModuleFilePath: externalPath,
         media: (navData?.media ?? []).map(
           (entry, index): ShellMediaGallery => ({
             id: entry.moduleFilePath,

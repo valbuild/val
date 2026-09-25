@@ -41,7 +41,6 @@ function panel(pages: ShellPage[]) {
       externalPages={[]}
       selectedId={null}
       onSelectPage={() => undefined}
-      onSelectExternalPage={() => undefined}
       onNewPage={() => undefined}
       onClose={() => undefined}
     />

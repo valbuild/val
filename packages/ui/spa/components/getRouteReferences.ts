@@ -7,19 +7,31 @@ import {
   SourcePath,
 } from "@valbuild/core";
 import { sourcePathOfChild } from "../utils/sourcePath";
+import {
+  JsonValuesLoadQuery,
+  schemaContainsReferrer,
+} from "./jsonValuesLoadRequirements";
+
+/** Allocated once: the predicate is called for every module, on every call. */
+const ROUTE_QUERY: JsonValuesLoadQuery = { kind: "route" };
 
 /**
- * Find all s.route() fields that have a value matching the given route key
+ * Every `s.route()` field in the project, handed to `visit` with its value.
  *
- * This scans all modules to find route fields where the source value equals the routeKey.
+ * The one traversal. Both answers below are built on it because the traversal
+ * is what costs: comparing a leaf to a string, or pushing it into a bucket, is
+ * free next to reaching the leaf at all.
+ *
+ * A module whose SCHEMA contains no route field anywhere cannot hold one, so
+ * its source is not walked. That test is a walk over the schema - small, fixed,
+ * and the same shape for every project - and it replaces a walk over the
+ * source, which is the part that grows.
  */
-export function getRouteReferences(
+export function walkRouteFields(
   schemas: Record<ModuleFilePath, SerializedSchema>,
   sources: Record<ModuleFilePath, Source>,
-  routeKey: string,
-): SourcePath[] {
-  const results: SourcePath[] = [];
-
+  visit: (value: string, sourcePath: SourcePath) => void,
+): void {
   const go = (
     sourcePath: SourcePath,
     schema: SerializedSchema | undefined,
@@ -29,15 +41,12 @@ export function getRouteReferences(
       return;
     }
     if (Internal.isJson(source)) {
-      // Un-loaded `.jsonValues()` entry marker — opaque until loaded.
+      // Un-loaded `.jsonValues()` entry marker - opaque until loaded.
       return;
     }
     if (schema.type === "route") {
-      // Check if the source value matches the route key we're looking for
-      if (typeof source === "string" && source === routeKey) {
-        if (!results.includes(sourcePath)) {
-          results.push(sourcePath);
-        }
+      if (typeof source === "string") {
+        visit(source, sourcePath);
       }
     } else if (schema.type === "object" || schema.type === "record") {
       if (isObjectSource(source)) {
@@ -77,19 +86,82 @@ export function getRouteReferences(
         }
       }
     }
-    // Ignore other schema types (string, number, boolean, literal, enum, date, image, file, richtext, keyOf)
+    // Ignore other schema types (string, number, boolean, literal, enum, date,
+    // image, file, richtext, keyOf)
   };
 
   for (const moduleFilePathS in schemas) {
     const moduleFilePath = moduleFilePathS as ModuleFilePath;
-    go(
-      moduleFilePathS as SourcePath,
-      schemas[moduleFilePath],
-      sources[moduleFilePath],
-    );
+    const schema = schemas[moduleFilePath];
+    if (!schemaContainsReferrer(schema, ROUTE_QUERY)) {
+      continue;
+    }
+    go(moduleFilePathS as SourcePath, schema, sources[moduleFilePath]);
   }
+}
 
-  return results;
+/**
+ * Which `s.route()` fields hold `routeKey`.
+ *
+ * For one key. Asking about several is what {@link buildRouteReferenceIndex}
+ * is for - it is the same walk, and doing it once beats doing it N times.
+ */
+export function getRouteReferences(
+  schemas: Record<ModuleFilePath, SerializedSchema>,
+  sources: Record<ModuleFilePath, Source>,
+  routeKey: string,
+): SourcePath[] {
+  const results = new Set<SourcePath>();
+  walkRouteFields(schemas, sources, (value, sourcePath) => {
+    if (value === routeKey) {
+      results.add(sourcePath);
+    }
+  });
+  return [...results];
+}
+
+/**
+ * Every route value in the project, to the fields that hold it.
+ *
+ * Built for the question the external pages dialog asks: not "who points at
+ * this URL" but "who points at each of these eighteen URLs", which as eighteen
+ * separate scans is eighteen traversals of the same tree to compare against a
+ * different string each time.
+ *
+ * It is also the only shape React allows. `useEagerRouteReferences` is a hook,
+ * and a hook cannot be called once per item of a list whose length changes -
+ * so a per-URL answer in a component rendering N URLs is not merely slower,
+ * it is not writable. One hook returning one index is.
+ *
+ * The index is keyed by the route value as authored, which is what a route
+ * field holds and what an external router's record keys are.
+ */
+export type RouteReferenceIndex = ReadonlyMap<string, SourcePath[]>;
+
+export function buildRouteReferenceIndex(
+  schemas: Record<ModuleFilePath, SerializedSchema>,
+  sources: Record<ModuleFilePath, Source>,
+): RouteReferenceIndex {
+  const index = new Map<string, SourcePath[]>();
+  walkRouteFields(schemas, sources, (value, sourcePath) => {
+    const existing = index.get(value);
+    if (existing === undefined) {
+      index.set(value, [sourcePath]);
+    } else if (!existing.includes(sourcePath)) {
+      // A discriminated union's variant shares the union's own path, so the
+      // same leaf can be reached twice.
+      existing.push(sourcePath);
+    }
+  });
+  return index;
+}
+
+/** What the index says about one value. Absent means nothing points at it. */
+export function referencesTo(
+  index: RouteReferenceIndex,
+  routeKey: string,
+): SourcePath[] {
+  return index.get(routeKey) ?? [];
 }
 
 function isObjectSource(

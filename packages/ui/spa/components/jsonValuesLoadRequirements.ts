@@ -93,6 +93,21 @@ function isJsonValuesModule(
 }
 
 /**
+ * True when `schema` can hold a field that `query` would match — decided from
+ * the schema alone, so it costs nothing and needs no sources.
+ *
+ * Exported because it answers a second question as cheaply as the first: not
+ * only "must this module be loaded before a scan", but "is there any point
+ * walking this module's SOURCE at all". `getRouteReferences` asks it that way.
+ */
+export function schemaContainsReferrer(
+  schema: SerializedSchema | undefined,
+  query: JsonValuesLoadQuery,
+): boolean {
+  return containsReferrer(schema, query, new Set());
+}
+
+/**
  * True when `schema` can hold a field that {@link JsonValuesLoadQuery} would
  * match, looking through objects, arrays, records and unions.
  *

@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useEffect, useState } from "react";
 import { Shell } from "../Shell";
+import { ExternalPagesDialog } from "../ExternalPagesDialog";
 import { PublishState } from "../TopBar";
 import { SaveState, StatusBarProps } from "../StatusBar";
 import { ShellData, ShellPanel } from "../types";
@@ -380,6 +381,20 @@ function ShellHarness({
   return (
     <Shell
       renderSettings={() => <MockSettingsSections />}
+      // The Pages panel's External pages button is only there when the app can
+      // render the dialog, so the story has to supply it for the button to
+      // appear at all.
+      renderExternalPages={({ close, onSelectExternalPage, breakpoint }) => (
+        <ExternalPagesDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) close();
+          }}
+          breakpoint={breakpoint}
+          pages={data.externalPages}
+          onOpenEntry={onSelectExternalPage}
+        />
+      )}
       key={`${openPanel}-${selectionId}-${empty}-${noPendingChanges}-${withoutRouters}-${aiEnabled}-${searchOpen}-${tourOpen}-${isLoading}-${loadError}-${mode}-${deployments}-${deploymentsOpen}-${canvasOpen}-${canvasView}-${canvasReported}`}
       data={data}
       initialPanel={openPanel}
