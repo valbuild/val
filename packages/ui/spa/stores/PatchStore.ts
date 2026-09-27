@@ -1136,6 +1136,25 @@ export class PatchStore {
            * rebuilds the module without them and every published field reverts.
            */
           this.forgetPublished(gone);
+          /*
+           * The SOURCE store keeps its copy in the chain, marked shipped.
+           *
+           * `baseMoved` is the stat's base sha, not the source store's base.
+           * That comes from the host's modules, which on a hosted project are
+           * the bundle this tab loaded, so it stays the pre-deploy text until
+           * a reload — and a reload starts from a chain the server no longer
+           * lists this patch in. Taking it out of the source chain before then
+           * leaves its effect in neither base nor chain: `peekBase` falls back
+           * to the pre-publish text, and the next rebuild of the module reverts
+           * the value on screen.
+           *
+           * Marked applied, because the server's `appliedPatches` may never
+           * have named it — somebody else's publish, deployed before this tab
+           * heard about it — and a record that reads as pending is left out of
+           * `peekBase`, which is the stale comparison this is all for.
+           * `markApplied` also brings a held one into view.
+           */
+          this.appliedSource?.markApplied(gone);
         } else {
           this.drop(gone);
         }
