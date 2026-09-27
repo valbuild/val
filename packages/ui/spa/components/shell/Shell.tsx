@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { StudioDeployState } from "../../publish/useStudioDeploy";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { AIChatPanel } from "./AIChatPanel";
 import { DataPanel } from "./DataPanel";
@@ -187,6 +188,8 @@ export type ShellProps = {
   onFinishPublishing?: (commitSha: string) => void;
   /** A browser-side build is already running, so every row's action is held. */
   finishingPublish?: boolean;
+  /** The step that build is on, for the status bar. */
+  deployState?: StudioDeployState;
   /** Show placeholder rows in the nav panels instead of content. */
   isLoading?: boolean;
   /** Show a load failure in the nav panels instead of content. */
@@ -468,6 +471,7 @@ export function Shell({
   publishState = "idle",
   onFinishPublishing,
   finishingPublish = false,
+  deployState,
   isLoading = false,
   loadError,
   initialDeploymentsOpen = false,
@@ -1178,6 +1182,7 @@ export function Shell({
             studioIsDeployer={studioIsDeployer}
             onFinishPublishing={onFinishPublishing}
             finishingPublish={finishingPublish}
+            deployState={deployState}
             deploymentsOpen={deploymentsOpen}
             onDeploymentsOpenChange={setDeploymentsOpenByUser}
             deploymentsAutoOpened={deploymentsAutoOpened}

@@ -204,6 +204,8 @@ export type ValServerConfig = ValServerOptions &
          */
         git?: { commit: string; branch: string };
         root?: string;
+        /** See `projectSource` on {@link ValApiOptions}. */
+        projectSource?: Record<string, string>;
         config: ValConfig;
       }
     /**
@@ -2115,6 +2117,58 @@ export const ValServer = (
       },
     },
 
+    "/built-source": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        if (!(serverOps instanceof ValOpsHttp) || !serverOps.embedsSource()) {
+          return {
+            status: 409,
+            json: {
+              message:
+                "This server has no source of its own to render commits into.",
+            },
+          };
+        }
+        const chain = await serverOps.fetchPatches({
+          patchIds: undefined,
+          excludePatchOps: false,
+        });
+        if (chain.error) {
+          return { status: 500, json: { message: chain.error.message } };
+        }
+        /*
+         * The patches committed SINCE this build, as though pending.
+         *
+         * `applicable/patches` answers with the ones applied at a commit after
+         * the one this build was made from, which is exactly what the text
+         * embedded in it is missing. `analyzePatches` skips applied patches --
+         * for a save they are already in the file it reads -- so they are
+         * handed over unapplied: here the file predates them.
+         */
+        const committed = chain.patches
+          .filter((patch) => patch.appliedAt !== null)
+          .map((patch) => ({ ...patch, appliedAt: null }));
+        const prepared = await serverOps.prepare({
+          ...serverOps.analyzePatches(committed, chain.commits, commit),
+          ...chain,
+          patches: committed,
+        });
+        if (prepared.hasErrors) {
+          return {
+            status: 500,
+            json: {
+              message:
+                "The commits since this build could not be rendered into source: " +
+                JSON.stringify(prepared.sourceFilePatchErrors).slice(0, 500),
+            },
+          };
+        }
+        return { status: 200, json: { files: prepared.patchedSourceFiles } };
+      },
+    },
     "/profiles": {
       GET: async (req) => {
         const cookies = req.cookies;

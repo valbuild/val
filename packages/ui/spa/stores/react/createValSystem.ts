@@ -1,4 +1,4 @@
-import type { ModuleFilePath, PatchId } from "@valbuild/core";
+import type { Json, ModuleFilePath, PatchId } from "@valbuild/core";
 import { Internal } from "@valbuild/core";
 import type { ValClient, PatchGroupT } from "@valbuild/shared/internal";
 import { createSystem, type System } from "../createSystem";
@@ -76,6 +76,35 @@ export function createValSystem(
    */
   let built: System | null = null;
   const system = createSystem({
+    /**
+     * The base of the build a `/stat` came from, when it is not the bundle's.
+     *
+     * Un-patched and unvalidated: the Studio applies the chain itself, and all
+     * it needs from the server here is the source that chain is relative to.
+     * The sha comes back with it, so `BaseAlignment` can tell a base from a
+     * third build -- the pointer that made the stat differ can move again.
+     */
+    fetchBaseSources: async () => {
+      const res = await client("/sources/~", "PUT", {
+        path: undefined,
+        query: {
+          apply_patches: false,
+          exclude_patches: true,
+          validate_sources: false,
+          validate_binary_files: false,
+          patch_id: undefined,
+          own_patch_groups_only: undefined,
+        },
+      });
+      if (res.status !== 200) return null;
+      const sources: Record<ModuleFilePath, Json> = {};
+      for (const [moduleFilePath, module] of Object.entries(res.json.modules)) {
+        if (isModuleFilePath(moduleFilePath) && module.source !== undefined) {
+          sources[moduleFilePath] = module.source;
+        }
+      }
+      return { sourcesSha: res.json.sourcesSha, sources };
+    },
     /**
      * Schema validation, on a thread.
      *
@@ -685,9 +714,14 @@ export function createValSystem(
             }
             built?.stat.receiveStat({
               baseSha: res.json.baseSha,
+              sourcesSha: res.json.sourcesSha,
               patches: res.json.patches,
               appliedPatches: res.json.appliedPatches,
               headCommitSha: res.json.headCommitSha,
+              // The new head is the whole point of this call: a conflict means
+              // the parent we named was not it. `fs` answers without one.
+              headPatchId:
+                "headPatchId" in res.json ? res.json.headPatchId : undefined,
             });
           },
         }
@@ -695,4 +729,9 @@ export function createValSystem(
   });
   built = system;
   return system;
+}
+
+/** A `/sources/~` key: the response is keyed by module file path, which is absolute. */
+function isModuleFilePath(path: string): path is ModuleFilePath {
+  return path.startsWith("/");
 }

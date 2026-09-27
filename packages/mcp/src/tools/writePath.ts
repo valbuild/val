@@ -17,7 +17,10 @@ import {
   type JSONValue,
 } from "@valbuild/core/patch";
 import { result } from "@valbuild/core/fp";
-import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
+import {
+  chainHeadOf,
+  filterBlockingValidationErrors,
+} from "@valbuild/shared/internal";
 import type { PatchAnalysis, Sources, ValOps } from "@valbuild/server";
 import type { ValToolDeps, ValToolState } from "./defineTool";
 import type { ValToolError } from "./types";
@@ -46,24 +49,32 @@ export function mintPatchId(): PatchId {
 }
 
 /**
- * What the new patch should hang off.
+ * What the new patch should hang off: the HEAD of the chain, by the same rule
+ * the Studio uses — see `chainHeadOf`.
  *
- * The last known patch if there is one, otherwise the current head. Note the
- * asymmetry between the two backends: `ValOpsFS` ignores `parentRef` entirely
- * because its append-only ordering log defines order, while `ValOpsHttp` sends
- * it up as `parentPatchId` for optimistic concurrency. So a wrong value here is
- * invisible locally and a conflict in production — which is why this is derived
- * fresh rather than remembered.
+ * Note the asymmetry between the two backends: `ValOpsFS` ignores `parentRef`
+ * entirely because its append-only ordering log defines order, while
+ * `ValOpsHttp` sends it up as `parentPatchId` for optimistic concurrency. So a
+ * wrong value here is invisible locally and a conflict in production — which is
+ * why this is derived fresh rather than remembered.
  */
 export async function deriveParentRef(
-  ops: ValOps,
+  // Only the base sha, for an empty chain — so a caller (or a test) need not
+  // construct a whole store to ask.
+  ops: Pick<ValOps, "getBaseSha">,
   // Only the ids matter, so this accepts either shape `fetchPatches` can
   // return — the metadata-only variant omits the ops but keeps the ids.
-  patches: { patches: readonly { patchId: PatchId }[] },
+  patches: {
+    patches: readonly { patchId: PatchId }[];
+    headPatchId?: PatchId | null;
+  },
 ): Promise<ParentRef> {
-  const last = patches.patches[patches.patches.length - 1];
-  if (last) {
-    return { type: "patch", patchId: last.patchId };
+  const patchId = chainHeadOf(
+    patches.headPatchId,
+    patches.patches.map((patch) => patch.patchId),
+  );
+  if (patchId !== null) {
+    return { type: "patch", patchId };
   }
   return { type: "head", headBaseSha: await ops.getBaseSha() };
 }

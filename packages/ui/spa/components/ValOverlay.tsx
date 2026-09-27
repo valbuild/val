@@ -41,6 +41,7 @@ import {
   useAuthenticationState,
   useCurrentPatchIds,
   useValMode,
+  useSiteHandoffState,
   useShallowModulesAtPaths,
 } from "./ValProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
@@ -60,6 +61,7 @@ import {
   HoverCardTrigger,
 } from "./designSystem/hover-card";
 import { PublishButton } from "./PublishButton";
+import { PublishHandoffCard } from "./shell/PublishHandoff";
 import {
   Select,
   SelectContent,
@@ -1404,6 +1406,7 @@ function ValMenu({
   // about is offered here, and the panel asks before it is used.
   const isChatEnabled = useAssistantAvailability() !== "off";
   const sourcePathResult = useValRouterSourcePathFromCurrentPathname();
+  const handoff = useSiteHandoffState();
   const publishPopoverSide =
     dropZone === "val-menu-center-bottom"
       ? "top"
@@ -1463,6 +1466,26 @@ function ValMenu({
               <LogIn size={16} />
             </a>
           </div>
+        </div>
+      )}
+      {handoff.state !== null && (
+        /*
+         * A publish handed to a Studio tab, because this page cannot build.
+         * Beside the dock rather than in a window: it is news about something
+         * happening elsewhere, and editing carries on under it.
+         */
+        <div className={handoffCardPositionClassName(dropZone)}>
+          <PublishHandoffCard
+            state={handoff.state}
+            onReload={() => window.location.reload()}
+            onOpenStudio={handoff.openStudio}
+            onDismiss={
+              handoff.state.kind === "opening" ||
+              handoff.state.kind === "running"
+                ? undefined
+                : handoff.dismiss
+            }
+          />
         </div>
       )}
       <AnimateHeight
@@ -2034,6 +2057,32 @@ function DraggableValMenu(props: ValMenuProps) {
 }
 
 // NOTE: This is also used in ValNextProvider to display a loading spinner
+/**
+ * Where the handoff card sits: off the dock's edge, toward the page, far
+ * enough out to clear the bar in any of its eight positions.
+ */
+function handoffCardPositionClassName(dropZone: string | null): string {
+  const base = "fixed transform z-[8999]";
+  switch (dropZone) {
+    case "val-menu-left-top":
+      return `${base} left-4 top-20`;
+    case "val-menu-left-center":
+      return `${base} left-20 top-1/2 -translate-y-1/2`;
+    case "val-menu-left-bottom":
+      return `${base} left-4 bottom-20`;
+    case "val-menu-center-top":
+      return `${base} left-1/2 -translate-x-1/2 top-20`;
+    case "val-menu-center-bottom":
+      return `${base} left-1/2 -translate-x-1/2 bottom-20`;
+    case "val-menu-right-top":
+      return `${base} right-4 top-20`;
+    case "val-menu-right-center":
+      return `${base} right-20 top-1/2 -translate-y-1/2`;
+    default:
+      return `${base} right-4 bottom-20`;
+  }
+}
+
 function getPositionClassName(dropZone: string | null) {
   let className = "fixed transform";
   if (dropZone === "val-menu-left-top") {

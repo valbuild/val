@@ -1,3 +1,4 @@
+import { BaseAlignment, type FetchBaseSources } from "./BaseAlignment";
 import type {
   ModuleFilePath,
   PatchId,
@@ -498,6 +499,14 @@ export type SystemOptions = {
    * parent and can only fail again.
    */
   resyncChain?: ResyncChain;
+  /**
+   * Another build's base source, for a `/stat` answered by that build.
+   *
+   * Without it a stat from a build other than the bundle's is applied to the
+   * bundle's source, which is the mismatch `BaseAlignment` exists to prevent --
+   * so absent is the old behaviour, for a driver with no server.
+   */
+  fetchBaseSources?: FetchBaseSources;
   /**
    * How long `publish` waits for local edits to reach the server.
    *
@@ -1289,7 +1298,14 @@ export function createSystem(options: SystemOptions): System {
     });
   }
 
+  const baseAlignment = new BaseAlignment(
+    host,
+    sourceStore,
+    patchStore,
+    options.fetchBaseSources,
+  );
   const unsubscribe = [
+    baseAlignment.listenTo(stat),
     patchStore.listenTo(stat, sourceStore),
     /*
      * A patch this client just wrote joins the scope — BEFORE the source store
@@ -1442,7 +1458,7 @@ export function createSystem(options: SystemOptions): System {
     stat.events.on("stat:receive", (event) => {
       const baseSha = stat.currentBaseSha();
       if (baseSha === null) return;
-      patchSync.receiveStat(baseSha, event.patches);
+      patchSync.receiveStat(baseSha, event.patches, stat.currentHeadPatchId());
       // A stat can unblock a save that had no honest parent to name. Nothing
       // else would retry it: `patch:create` already fired and found no base.
       void patchSync.flush();
@@ -2364,10 +2380,18 @@ export function createSystem(options: SystemOptions): System {
           // left it in the chain to be applied again on top of itself.
           sourceStore.promotePublished(toPublish, [...affected]);
           patchStore.forgetPublished(toPublish);
+        } else {
+          // In `http` mode the patches stay server-side and are re-applied, so
+          // the chain stays too — removing it would show the value without them
+          // until the next fetch, and promoting the base would then double-apply.
+          //
+          // But the chain has to KNOW they shipped. `peekBase` counts shipped
+          // patches as published, and until a `/stat` names them the records
+          // still read as pending — so "A"→"B", publish, "B"→"A" compared "A"
+          // against the pre-publish base, found nothing to publish, and
+          // disabled Publish on a change the repository does not have.
+          sourceStore.markApplied(toPublish);
         }
-        // In `http` mode the patches stay server-side and are re-applied, so the
-        // chain stays too — removing it would show the value without them until
-        // the next fetch, and promoting the base would then double-apply.
         // The ids that were actually published, which is what the caller has to
         // forget — it asked with a list taken before the flush.
         /*

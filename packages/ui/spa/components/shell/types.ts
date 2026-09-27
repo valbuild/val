@@ -428,4 +428,14 @@ export type ShellDeployment = {
   updatedAt: string;
   /** True once Val has seen this commit serving the live site. */
   isLive: boolean;
+  /**
+   * How this tab's own publish of the commit went, when this tab made it: the
+   * percentage while it runs, and each step's time once it is live. Absent
+   * for a publish made anywhere else, which nothing here timed.
+   */
+  publish?: ShellDeploymentPublish;
 };
+
+export type ShellDeploymentPublish =
+  | { kind: "running"; percent: number; step: string }
+  | { kind: "done"; ms: number; steps: Array<{ label: string; ms: number }> };

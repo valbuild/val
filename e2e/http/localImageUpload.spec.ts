@@ -1,6 +1,12 @@
 import { expect, test, type Locator } from "@playwright/test";
 import { readFile } from "fs/promises";
-import { discardAll, mock, openHttpStudio, sessionCookie } from "./httpMode";
+import {
+  discardAll,
+  mock,
+  openHttpStudio,
+  publishAll,
+  sessionCookie,
+} from "./httpMode";
 
 /**
  * A PLAIN LOCAL IMAGE, uploaded from the Studio in http mode and read back
@@ -102,4 +108,50 @@ test("uploads a local image, and the editor can see it before publishing", async
   expect(src).toContain(REF.slice(1));
 
   await discardAll(page);
+});
+
+/**
+ * ...and after it is PUBLISHED, until a deployment serves it.
+ *
+ * Publishing commits the bytes, and nothing is serving them yet: a managed
+ * project's build runs after the commit, and a repository's host deploys some
+ * time after it. The Studio used to treat the commit as "shipped" and point the
+ * tile at the published path for that whole window -- which the site answers
+ * with its HTML -- so the image vanished the moment Publish was pressed, stayed
+ * gone across a reload, and came back once the build was live.
+ *
+ * Here nothing ever deploys: the harness keeps serving the commit it booted
+ * with, which is exactly that window held open.
+ */
+test("a published image stays visible until a deployment serves it", async ({
+  page,
+}) => {
+  await openHttpStudio(page, `/val/~${MODULE}?p=%22image%22`);
+  const studio = page.locator("#val-shadow-root");
+  await expect(picker(studio).first()).toBeAttached({ timeout: 30_000 });
+  await picker(studio).first().setInputFiles(IMAGE);
+  const tile = studio.locator('img[src*="blue-8x8_"]');
+  await expect(tile).toHaveCount(1, { timeout: 30_000 });
+  const decoded = (message: string) =>
+    expect
+      .poll(() => tile.evaluate((i) => (i as HTMLImageElement).naturalWidth), {
+        timeout: 20_000,
+        message,
+      })
+      .toBe(8);
+  await decoded("the uploaded tile did not decode");
+
+  // Retried while the upload's own write is still in flight, which a publish
+  // refuses as unsaved -- a refusal changes nothing, so asking again is safe.
+  await expect
+    .poll(async () => JSON.stringify(await publishAll(page, "Add an image")), {
+      timeout: 30_000,
+    })
+    .toContain('"status":"published"');
+  await decoded("the tile broke when the publish committed it");
+  await expect(tile).toHaveAttribute("src", /patch_id=/);
+
+  await page.reload();
+  await expect(tile).toHaveCount(1, { timeout: 30_000 });
+  await decoded("the tile was broken after a reload, before any deployment");
 });

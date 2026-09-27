@@ -19,6 +19,7 @@ import {
 import { assetModule, isAsset, resolveAsset } from "./assets";
 import { sha256Hex } from "./hash";
 import { transformEnvMarkers } from "./envTransforms";
+import { transformRemoveDevtools } from "./removeDevtools";
 import { transformRouteNodes } from "./routeNodes";
 import { aliasMap, type AliasMap } from "./tsconfigPaths";
 import {
@@ -679,8 +680,14 @@ function projectPlugin(
        */
       const half = splitIdOf(id);
       if (half) {
-        const envMarkers = await transformEnvMarkers(half.path, code, target);
-        return envMarkers ? { code: envMarkers.code, map: null } : null;
+        // Devtools too, for the same reason: `<TanStackDevtools>` sits in a
+        // layout's component, which is what moves into this half.
+        let out = code;
+        const devtools = await transformRemoveDevtools(half.path, out);
+        if (devtools) out = devtools.code;
+        const envMarkers = await transformEnvMarkers(half.path, out, target);
+        if (envMarkers) out = envMarkers.code;
+        return out === code ? null : { code: out, map: null };
       }
       if (!(id in files) || isCss(id)) return null;
 
@@ -688,8 +695,14 @@ function projectPlugin(
       // check before parsing, so a module that uses neither -- which is most of
       // them -- is never parsed at all.
       let out = code;
-      // First, because it decides what stays in this module at all: the other
-      // passes should see the reference half, not code about to move out of it.
+      // Before the split, as `@tanstack/devtools-vite` runs (`enforce: "pre"`):
+      // the reference half then carries no devtools import. The deferred half
+      // is built from the original source, so it runs again above.
+      const devtools = await transformRemoveDevtools(id, out);
+      if (devtools) out = devtools.code;
+      // Then the split, because it decides what stays in this module at all:
+      // the other passes should see the reference half, not code about to move
+      // out of it.
       if (splitter && isRouteFile(id)) {
         const reference = splitter.reference(id, out);
         if (reference) out = reference.code;
@@ -742,10 +755,30 @@ function defineFor(
     if (exposed) visible[key] = value;
   }
 
+  // Vite's built-ins, and they win over a project env var of the same name as
+  // they do in Vite. Every build here is a production build -- it is what gets
+  // published -- so these say what `vite build` would. Without them
+  // `import.meta.env.PROD` read `undefined`, and `!import.meta.env.PROD &&
+  // <Debug />` rendered on a published site while `vite build` dropped it.
+  const builtins = {
+    MODE: "production",
+    DEV: false,
+    PROD: true,
+    SSR: target === "server",
+    BASE_URL: "/",
+  };
+  for (const [key, value] of Object.entries(builtins))
+    define[`import.meta.env.${key}`] = JSON.stringify(value);
+  // What Vite substitutes, and what the vendor layer already bakes into every
+  // dependency (vendorLayer.ts). The project's own source was the one place
+  // nobody set it, and rolldown's own default filled the gap with
+  // "development" -- so a published site's code was told it was in dev.
+  define["process.env.NODE_ENV"] = JSON.stringify("production");
+
   // Always defined, even when empty: it makes `import.meta.env` destructuring
   // work and stops a bare reference from throwing. Specific keys above take
   // precedence over this object.
-  define["import.meta.env"] = JSON.stringify(visible);
+  define["import.meta.env"] = JSON.stringify({ ...visible, ...builtins });
   return define;
 }
 

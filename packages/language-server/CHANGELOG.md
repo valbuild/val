@@ -1,5 +1,65 @@
 # @valbuild/language-server
 
+## 0.136.10
+
+### Patch Changes
+
+- Updated dependencies [[`fef29b0`](https://github.com/valbuild/val/commit/fef29b0d9e826e4e7e63a3ae61553137a3f9d280)]:
+  - @valbuild/server@0.136.10
+  - @valbuild/shared@0.136.10
+
+## 0.136.9
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.136.9
+
+## 0.136.8
+
+### Patch Changes
+
+- Updated dependencies [[`35577be`](https://github.com/valbuild/val/commit/35577be50981fec35fc27ee9435a092a26909395)]:
+  - @valbuild/core@0.136.8
+  - @valbuild/server@0.136.8
+  - @valbuild/shared@0.136.8
+
+## 0.136.7
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.136.7
+
+## 0.136.6
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.136.6
+
+## 0.136.5
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.136.5
+
+## 0.136.4
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.136.4
+
+## 0.136.3
+
+### Patch Changes
+
+- Updated dependencies [[`3b19534`](https://github.com/valbuild/val/commit/3b19534bb7aa16452a104906d9594083c3bc3e89)]:
+  - @valbuild/server@0.136.3
+  - @valbuild/shared@0.136.3
+
 ## 0.136.2
 
 ### Patch Changes

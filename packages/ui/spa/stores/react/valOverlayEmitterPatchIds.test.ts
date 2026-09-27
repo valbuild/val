@@ -69,7 +69,7 @@ describe("withFilePatchIds", () => {
   });
 
   test("a published file is not stamped, because the map excludes it", () => {
-    // `filePatchIds` drops a patch once its bytes are at the committed path;
+    // `filePatchIds` drops a patch once a deployment serves its bytes;
     // this asserts the emitter adds nothing of its own on top of that rule.
     const source: Json = { image: { path: "/public/val/photo_a1b2c.jpg" } };
     expect(withFilePatchIds(source, new Map())).toBe(source);

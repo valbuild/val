@@ -218,7 +218,7 @@ function shell(page: Page) {
  * The status bar's deploy item.
  *
  * Located by its accessible name because that name IS the summary — "Building",
- * "Deployed", "Build failed" — so one locator both finds the control and says
+ * "Live", "Build failed" — so one locator both finds the control and says
  * what it currently claims.
  */
 function deploySummary(page: Page) {
@@ -330,7 +330,7 @@ test.describe("the deploy feed", () => {
       .poll(() => summaryLabel(page), {
         message: "a commit the site is serving still read as building",
       })
-      .toBe("Deployed");
+      .toBe("Live");
     const list = await openDeployList(page);
     await expect(list.getByText(/^Live ·/)).toBeVisible();
   });
@@ -348,7 +348,7 @@ test.describe("the deploy feed", () => {
     await openHttpStudio(page);
     await mock.deployment({ deploymentState: "failure" });
 
-    await expect.poll(() => summaryLabel(page)).toBe("Deployed");
+    await expect.poll(() => summaryLabel(page)).toBe("Live");
   });
 
   test("a build that failed for a publish is reported", async ({ page }) => {
@@ -432,7 +432,7 @@ test.describe("the deploy feed", () => {
     });
 
     await expect(list.getByText(/^Built ·/)).toBeVisible({ timeout: 30_000 });
-    expect(await summaryLabel(page)).toBe("Deployed");
+    expect(await summaryLabel(page)).toBe("Live");
   });
 });
 

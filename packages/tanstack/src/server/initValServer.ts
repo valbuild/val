@@ -55,6 +55,17 @@ export type ValHttpMode = {
    * commits go here.
    */
   valContentUrl?: string;
+  /**
+   * The project's own source, by path with no leading slash, as this build was
+   * made from it.
+   *
+   * For a host that builds the project itself and embeds its source -- the
+   * build platform does, as `platform:project-source`. With it, a publish
+   * patches THIS text rather than fetching it from the content service at a
+   * commit, which is the only way a project with no repository can produce
+   * `.val.ts` at all.
+   */
+  projectSource?: Record<string, string>;
 };
 
 /**

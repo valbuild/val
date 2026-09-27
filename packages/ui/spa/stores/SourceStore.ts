@@ -212,6 +212,13 @@ function sameEntriesStatus(a: EntriesStatus, b: EntriesStatus): boolean {
   return true;
 }
 
+/** One patch in a module's chain, and who made it. */
+type ChainEntry = {
+  record: PatchRecord;
+  origin: PatchOrigin;
+  creatorFieldId?: string;
+};
+
 /**
  * Has this patch shipped?
  *
@@ -258,10 +265,7 @@ export class SourceStore {
    * patch announced before its module loaded was dropped and could never land,
    * and re-intake silently discarded the user's pending edits.
    */
-  private chains = new Map<
-    ModuleFilePath,
-    { record: PatchRecord; origin: PatchOrigin; creatorFieldId?: string }[]
-  >();
+  private chains = new Map<ModuleFilePath, ChainEntry[]>();
 
   /**
    * How far each module's source has moved. THE comparator for reads.
@@ -316,6 +320,52 @@ export class SourceStore {
    * one map cannot hold both.
    */
   private baseJsonEntries = new Map<ModuleFilePath, Map<string, Json>>();
+  /**
+   * Base plus the patches that have SHIPPED, for modules whose chain still holds
+   * any. See {@link publishedRealm}.
+   *
+   * Its own realm, with its own entry map, for the reason `baseJsonEntries` is
+   * kept apart from `jsonEntries`: `substitutedSource` caches on the source
+   * object, so no object may be shared with another realm.
+   */
+  private publishedSources: Record<ModuleFilePath, Json> = {};
+  private publishedJsonEntries = new Map<ModuleFilePath, Map<string, Json>>();
+  /** What each {@link publishedSources} entry was computed from. */
+  private publishedFrom = new Map<
+    ModuleFilePath,
+    { base: Json; baseN: number; applied: string; applies: boolean }
+  >();
+  /**
+   * How far each module's BASE realm has moved: `baseSources` or
+   * `baseJsonEntries` written.
+   *
+   * Not `revisions`, which moves on every pending keystroke as well. Keyed on
+   * that, {@link publishedRealm} re-applied every shipped patch to a clone of
+   * the whole module per edit — to answer a question whose inputs had not
+   * changed.
+   */
+  private baseRevisions = new Map<ModuleFilePath, number>();
+  /**
+   * Each module's shipped chain entries, so {@link peekBase} — called once per
+   * subscribed path — does not scan the whole chain on every call.
+   *
+   * Valid while the chain is the same array at the same length and no record's
+   * `appliedAt` has moved. That is every way a chain changes: removals replace
+   * the array, intake pushes onto it, and only {@link markApplied} rewrites a
+   * record, which bumps that module's {@link appliedVersions} entry.
+   */
+  private shippedCache = new Map<
+    ModuleFilePath,
+    {
+      chain: readonly unknown[];
+      length: number;
+      appliedVersion: number;
+      shipped: { record: PatchRecord }[];
+      applied: string;
+    }
+  >();
+  /** Per module, so a publish in one does not invalidate every other's cache. */
+  private appliedVersions = new Map<ModuleFilePath, number>();
   /** In-flight entry fetches, so N readers of one entry cause ONE fetch. */
   private loadingEntries = new Map<string, Promise<void>>();
   /**
@@ -405,6 +455,14 @@ export class SourceStore {
    */
   private deferredAnnouncements = new Set<ModuleFilePath>();
   private batchDepth = 0;
+
+  /** Record that the base realm of this module was written. See {@link baseRevisions}. */
+  private bumpBase(moduleFilePath: ModuleFilePath): void {
+    this.baseRevisions.set(
+      moduleFilePath,
+      (this.baseRevisions.get(moduleFilePath) ?? 0) + 1,
+    );
+  }
 
   private bump(moduleFilePath: ModuleFilePath): void {
     this.revisions.set(
@@ -596,6 +654,7 @@ export class SourceStore {
       this.baseJsonEntries.set(moduleFilePath, baseByKey);
     }
     baseByKey.set(key, deepClone(content as JSONValue));
+    this.bumpBase(moduleFilePath);
     this.activity.work("source:receive-json-entry", moduleFilePath);
     this.bump(moduleFilePath);
     if (this.batchDepth > 0) {
@@ -652,6 +711,7 @@ export class SourceStore {
     // The base copy too: the file on disk changed, so what the server last said
     // about it is exactly what is now stale.
     this.baseJsonEntries.delete(moduleFilePath);
+    this.bumpBase(moduleFilePath);
     this.bump(moduleFilePath);
   }
 
@@ -1089,18 +1149,149 @@ export class SourceStore {
       : { status: "error", message: failure };
   }
 
+  /** This module's shipped chain entries, in chain order. See {@link shippedCache}. */
+  private shippedEntries(moduleFilePath: ModuleFilePath): {
+    shipped: { record: PatchRecord }[];
+    applied: string;
+  } {
+    const chain = this.chains.get(moduleFilePath);
+    if (chain === undefined) return { shipped: [], applied: "" };
+    const cached = this.shippedCache.get(moduleFilePath);
+    const appliedVersion = this.appliedVersions.get(moduleFilePath) ?? 0;
+    if (
+      cached !== undefined &&
+      cached.chain === chain &&
+      cached.length === chain.length &&
+      cached.appliedVersion === appliedVersion
+    ) {
+      return cached;
+    }
+    const shipped = chain.filter((entry) => isApplied(entry.record));
+    const applied = shipped.map((entry) => entry.record.patchId).join("\0");
+    this.shippedCache.set(moduleFilePath, {
+      chain,
+      length: chain.length,
+      appliedVersion,
+      shipped,
+      applied,
+    });
+    return { shipped, applied };
+  }
+
   /**
-   * The COMMITTED value at a path — what the server has, before local patches.
+   * The realm {@link peekBase} reads: the base, with every SHIPPED patch still in
+   * the chain applied on top of it.
    *
-   * For a diff or compare view: "what did this look like before I touched it".
-   * Reads `baseSources` rather than `sources`, and is otherwise the same walk, so
-   * the two answers are comparable by construction.
+   * The base alone is not what has been published. In `http` mode a published
+   * patch stays in the chain, with `appliedAt` set, until the next deployment
+   * moves the base — so between publish and deploy `baseSources` is the text
+   * from BEFORE the publish. Comparing against it made "A"→"B", publish, "B"→"A"
+   * look like nothing to publish: the value on screen matched the stale base,
+   * `useHasNetChanges` disabled Publish, and the change back to "A" could not
+   * ship even though the repository says "B".
+   *
+   * `fs` mode never reaches the rebuild: a publish there bakes the patches into
+   * the base (`promotePublished`) and takes them out of the chain.
+   *
+   * Recomputed only when its inputs move: the base realm ({@link baseRevisions})
+   * and which of the chain's patches have shipped (`markApplied` moves that
+   * without a bump). Never on a pending edit, which touches neither.
+   */
+  private publishedRealm(moduleFilePath: ModuleFilePath): {
+    sources: Record<ModuleFilePath, Json>;
+    entries: Map<ModuleFilePath, Map<string, Json>>;
+  } {
+    const baseRealm = {
+      sources: this.baseSources,
+      entries: this.baseJsonEntries,
+    };
+    const base = this.baseSources[moduleFilePath];
+    const { shipped, applied } = this.shippedEntries(moduleFilePath);
+    if (base === undefined || shipped.length === 0) {
+      return baseRealm;
+    }
+    const publishedRealm = {
+      sources: this.publishedSources,
+      entries: this.publishedJsonEntries,
+    };
+    const baseN = this.baseRevisions.get(moduleFilePath) ?? 0;
+    const from = this.publishedFrom.get(moduleFilePath);
+    if (
+      from !== undefined &&
+      from.base === base &&
+      from.baseN === baseN &&
+      from.applied === applied
+    ) {
+      return from.applies ? publishedRealm : baseRealm;
+    }
+    // Recorded before the apply, so a patch that cannot be applied is logged
+    // once per change of inputs rather than on every peek.
+    const computed = { base, baseN, applied, applies: false };
+    this.publishedFrom.set(moduleFilePath, computed);
+    // The SUBSTITUTED base, for the reason `promotePublished` gives.
+    let next: JSONValue = deepClone(
+      this.substitutedSource(
+        moduleFilePath,
+        base,
+        this.baseJsonEntries,
+      ) as JSONValue,
+    );
+    for (const entry of shipped) {
+      const patchableOps = entry.record.patch.filter((op) => op.op !== "file");
+      if (patchableOps.length === 0) continue;
+      this.activity.work("source:apply-patch", entry.record.patchId);
+      const res = applyPatch(deepClone(next), ops, patchableOps);
+      if (!result.isOk(res)) {
+        /*
+         * The server applied it and this could not. The base is the best
+         * answer left: it is what this store said before shipped patches were
+         * counted, and the next intake replaces it anyway.
+         */
+        console.error(
+          "Val: could not apply a published change to the base. Comparisons against what is published may be stale until the next load.",
+          { moduleFilePath, patchId: entry.record.patchId, error: res.error },
+        );
+        delete this.publishedSources[moduleFilePath];
+        this.publishedJsonEntries.delete(moduleFilePath);
+        return baseRealm;
+      }
+      next = res.value;
+    }
+    const baseEntries = this.baseJsonEntries.get(moduleFilePath);
+    if (baseEntries === undefined) {
+      this.publishedJsonEntries.delete(moduleFilePath);
+    } else {
+      this.publishedJsonEntries.set(
+        moduleFilePath,
+        new Map(
+          [...baseEntries].map(([key, value]) => [
+            key,
+            deepClone(value as JSONValue),
+          ]),
+        ),
+      );
+    }
+    this.storePatched(moduleFilePath, base, next, publishedRealm);
+    computed.applies = true;
+    return publishedRealm;
+  }
+
+  /**
+   * The COMMITTED value at a path — what has been published, before pending
+   * patches.
+   *
+   * For a diff or compare view: "what did this look like before I touched it",
+   * and for the Publish gate: "would publishing change anything". Walks the
+   * {@link publishedRealm} rather than `sources`, and is otherwise the same walk,
+   * so the two answers are comparable by construction.
    *
    * Reference-stable like {@link peek}, and it has to be for the same reason: a
    * compare view is a `useSyncExternalStore` consumer too.
    */
   peekBase(path: SourcePath): SourcePeek {
-    const next = this.computePeek(path, this.baseSources, this.baseJsonEntries);
+    const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+    const realm = this.publishedRealm(moduleFilePath);
+    const next = this.computePeek(path, realm.sources, realm.entries);
     const previous = this.peekedBase.get(path);
     if (previous !== undefined && samePeek(previous, next)) {
       return previous;
@@ -1182,6 +1373,7 @@ export class SourceStore {
       if (patched === undefined) continue;
       this.activity.work("source:promote-to-base", moduleFilePath);
       this.baseSources[moduleFilePath] = deepClone(patched as JSONValue);
+      this.bumpBase(moduleFilePath);
       // The entry content is part of the value, so it bakes with it. Left behind,
       // a published edit inside a `.jsonValues()` entry would keep showing in a
       // compare as an outstanding change against the pre-publish text.
@@ -1317,6 +1509,7 @@ export class SourceStore {
         sources: this.baseSources,
         entries: this.baseJsonEntries,
       });
+      this.bumpBase(moduleFilePath);
       this.chains.set(moduleFilePath, surviving);
     }
   }
@@ -1344,6 +1537,59 @@ export class SourceStore {
         this.chains.set(moduleFilePath, surviving);
       }
     }
+  }
+
+  /**
+   * Replace the base AND the chain on it, in one step.
+   *
+   * For a base from another build (`BaseAlignment`). {@link receive} alone
+   * replays the chain this store already holds and leaves new patches to
+   * arrive after it, which is right when the base moves forward and wrong when
+   * it moves back: an older build's base needs patches that come BEFORE the
+   * ones held here, and appending them applies them on top of edits that were
+   * made on top of them.
+   *
+   * So the chain of every module in `sources` is replaced by the one given,
+   * in its order. An entry that was already here keeps its origin and creator,
+   * so a field is not woken by its own edit being replayed. A module outside
+   * `sources` keeps its base, and only gains the patches it has never had.
+   */
+  rebase(sources: Record<ModuleFilePath, Json>, chain: PatchRecord[]): void {
+    const previous = new Map<PatchId, ChainEntry>();
+    for (const entries of this.chains.values()) {
+      for (const entry of entries) {
+        previous.set(entry.record.patchId, entry);
+      }
+    }
+    const rebased = new Set<string>(Object.keys(sources));
+    for (const moduleFilePath of [...this.chains.keys()]) {
+      if (rebased.has(moduleFilePath)) this.chains.delete(moduleFilePath);
+    }
+    // `.jsonValues()` entry content is not in `sources` -- the module's source
+    // is markers -- and what is loaded came from the build that answered when
+    // it was read. Dropped, so the next read fetches it from this one; entry
+    // patches then replay on that, not on the previous build's content.
+    for (const moduleFilePath of [...this.jsonEntries.keys()]) {
+      if (rebased.has(moduleFilePath))
+        this.markJsonEntriesStale(moduleFilePath);
+    }
+    this.receive(sources);
+    const entries: ChainEntry[] = [];
+    for (const record of chain) {
+      const known = previous.get(record.patchId);
+      if (!rebased.has(record.moduleFilePath) && known !== undefined) continue;
+      entries.push(known ?? { record, origin: "external" });
+    }
+    for (const entry of entries) {
+      const moduleFilePath = entry.record.moduleFilePath;
+      const moduleChain = this.chains.get(moduleFilePath);
+      if (moduleChain === undefined) {
+        this.chains.set(moduleFilePath, [entry]);
+      } else {
+        moduleChain.push(entry);
+      }
+    }
+    this.applyEntries(entries);
   }
 
   /** Where this module's source has got to. */
@@ -1513,6 +1759,16 @@ export class SourceStore {
      */
     const unheld: ModuleFilePath[] = [];
     const touched: SourcePath[] = [];
+    /*
+     * Where a patch that was already on screen has now shipped.
+     *
+     * The displayed value does not move, but {@link peekBase} does: it counts
+     * shipped patches as published. Its readers — the "before" side of a
+     * compare — subscribe per path, so without a wake they keep the pre-publish
+     * snapshot until something else happens to touch the path.
+     */
+    const shippedVisible = new Set<ModuleFilePath>();
+    const shippedTouched: SourcePath[] = [];
     for (const [moduleFilePath, chain] of this.chains) {
       let differs = false;
       for (const entry of chain) {
@@ -1521,13 +1777,32 @@ export class SourceStore {
         if (!this.isVisible(entry.record)) {
           differs = true;
           touched.push(...touchedSourcePaths(entry.record));
+        } else {
+          shippedVisible.add(moduleFilePath);
+          shippedTouched.push(...touchedSourcePaths(entry.record));
         }
         entry.record = {
           ...entry.record,
           appliedAt: { commitSha: APPLIED_ELSEWHERE_SHA },
         };
+        this.appliedVersions.set(
+          moduleFilePath,
+          (this.appliedVersions.get(moduleFilePath) ?? 0) + 1,
+        );
       }
       if (differs) unheld.push(moduleFilePath);
+    }
+    if (shippedTouched.length > 0) {
+      // No `bump`: the displayed value did not move, which is the reason
+      // `promoteToBase` does not bump either. A reader of `peek` re-reads the
+      // same object and does not re-render.
+      this.wakeListeners(shippedVisible, [
+        {
+          origin: "external",
+          creatorFieldId: undefined,
+          paths: shippedTouched,
+        },
+      ]);
     }
     if (unheld.length === 0) {
       // Every one of them was already on screen. The records are now honest
@@ -1754,7 +2029,29 @@ export class SourceStore {
       this.activity.work("source:clone-module", moduleFilePath);
       const base = deepClone(source as JSONValue);
       this.baseSources[moduleFilePath as ModuleFilePath] = base;
+      this.bumpBase(moduleFilePath as ModuleFilePath);
       this.sources[moduleFilePath as ModuleFilePath] = deepClone(base);
+      /*
+       * And the entry content back to base, as a rebuild does.
+       *
+       * The replay below applies the whole chain again. Left holding the
+       * PATCHED entry content, it applied every edit inside a `.jsonValues()`
+       * entry once more per intake — an array `add` doubled, then tripled.
+       */
+      const baseEntries = this.baseJsonEntries.get(
+        moduleFilePath as ModuleFilePath,
+      );
+      if (baseEntries !== undefined) {
+        this.jsonEntries.set(
+          moduleFilePath as ModuleFilePath,
+          new Map(
+            [...baseEntries].map(([key, value]) => [
+              key,
+              deepClone(value as JSONValue),
+            ]),
+          ),
+        );
+      }
       /*
        * A recorded entry FAILURE does not survive a re-intake.
        *
