@@ -236,7 +236,9 @@ function CanvasFieldRow({
         type="button"
         onClick={() => onSelect?.(path)}
         title={path}
-        className="mb-1.5 block max-w-full truncate text-left text-[0.8125rem] font-medium text-fg-primary"
+        // Its own ring, because the row's accent steps aside for it: a
+        // keyboard focus on the label would otherwise show nothing at all.
+        className="mb-1.5 block max-w-full truncate rounded-sm text-left text-[0.8125rem] font-medium text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
       >
         {fieldLabel(path)}
       </button>
