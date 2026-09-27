@@ -259,6 +259,72 @@ describe("the parent is the head the server reports", () => {
   });
 });
 
+describe("our own saves, and a stat that has seen past them", () => {
+  test("a head written after our save, with our save left out of the list, wins", async () => {
+    // Our save is published and deployed — so the list leaves it out — and
+    // somebody else writes on top before the next stat. That stat names their
+    // patch as the head and does not mention ours; the parent follows the head.
+    const server = makeServer({ rows: [] });
+    const system = makeSystem(server);
+    await edit(system, "one");
+    await flush(system);
+    for (const row of server.rows) row.published = true;
+    server.publishElsewhere("elsewhere-later");
+    system.stat.receiveStat(server.snapshot());
+
+    await edit(system, "two");
+    await flush(system);
+
+    expect(server.writes).toEqual([
+      { type: "head", headBaseSha: "sha" },
+      { type: "patch", patchId: "elsewhere-later" },
+    ]);
+    system.dispose();
+  });
+
+  test("a stat taken before our save still leaves our save as the parent", async () => {
+    // The ordinary race: a stat already in flight when our write landed. It
+    // reports the head we wrote ON, and naming that would walk the parent back.
+    const server = makeServer({ rows: incident() });
+    const system = makeSystem(server);
+    const before = server.snapshot();
+    const first = await edit(system, "one");
+    await flush(system);
+    system.stat.receiveStat(before);
+
+    await edit(system, "two");
+    await flush(system);
+
+    expect(server.writes).toEqual([
+      { type: "patch", patchId: "elsewhere-published" },
+      { type: "patch", patchId: first },
+    ]);
+    system.dispose();
+  });
+
+  test("a stat that caught up to some of our saves keeps the rest", async () => {
+    // Two saves in a row, and a stat taken between them: it names the first as
+    // the head. What is left was written on top of it, so a repeat of that same
+    // stat must not throw the second away.
+    const server = makeServer({ rows: [] });
+    const system = makeSystem(server);
+    const first = await edit(system, "one");
+    await flush(system);
+    const between = server.snapshot();
+    const second = await edit(system, "two");
+    await flush(system);
+    system.stat.receiveStat(between);
+    system.stat.receiveStat(between);
+
+    expect(system.patchSync.currentParentRef()).toEqual({
+      type: "patch",
+      patchId: second,
+    });
+    expect(first).not.toBe(second);
+    system.dispose();
+  });
+});
+
 describe("a server that reports no head", () => {
   test("falls back to the last listed id, as before", async () => {
     const server = makeServer({

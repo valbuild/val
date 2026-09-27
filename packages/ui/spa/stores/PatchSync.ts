@@ -289,6 +289,19 @@ export class PatchSync {
    * point the two agree and it no longer matters which one answered.
    */
   private savedNotInStat: PatchId[] = [];
+  /**
+   * The head {@link savedNotInStat} was written on: the parent the first of
+   * those saves named, `null` for the base. Meaningless while the list is
+   * empty.
+   *
+   * What tells an OLD stat from a new one when the server reports a head. A
+   * stat taken before our saves landed reports the head they were written on;
+   * one taken after reports one of them, or — when they are left out of the
+   * list because the deployment already contains them — a head somebody else
+   * wrote since. Without this the second case kept naming our own save, which
+   * the server no longer calls the head.
+   */
+  private savedOnHead: PatchId | null = null;
   private inFlight: Promise<void> | null = null;
   private attempt = 0;
   /** See {@link reportStuck}: one report per spell of failure, not per attempt. */
@@ -363,6 +376,21 @@ export class PatchSync {
       headPatchId === undefined || headPatchId === null
         ? -1
         : this.savedNotInStat.indexOf(headPatchId);
+    if (
+      headPatchId !== undefined &&
+      headAt === -1 &&
+      headPatchId !== this.savedOnHead
+    ) {
+      // A head that is neither one of our saves nor the one they went on: the
+      // chain has moved past them, so the reported head is the parent. See
+      // {@link savedOnHead}.
+      this.savedNotInStat = [];
+      return;
+    }
+    if (headAt !== -1) {
+      // What is left was written on top of the head just caught up to.
+      this.savedOnHead = this.savedNotInStat[headAt];
+    }
     this.savedNotInStat = this.savedNotInStat.filter(
       (patchId, index) => index > headAt && !known.has(patchId),
     );
@@ -593,7 +621,7 @@ export class PatchSync {
       if (this.stopped) {
         return;
       }
-      const done = await this.handle(result, patchIds);
+      const done = await this.handle(result, patchIds, parentRef);
       if (done) {
         return;
       }
@@ -601,10 +629,19 @@ export class PatchSync {
   }
 
   /** Returns true when the loop should stop. */
-  private async handle(result: SaveResult, sent: PatchId[]): Promise<boolean> {
+  private async handle(
+    result: SaveResult,
+    sent: PatchId[],
+    /** What this save named as its parent. See {@link savedOnHead}. */
+    parentRef: ParentRef,
+  ): Promise<boolean> {
     if (result.status === "saved") {
       this.attempt = 0;
       this.reportedStuck = false;
+      if (this.savedNotInStat.length === 0) {
+        this.savedOnHead =
+          parentRef.type === "patch" ? parentRef.patchId : null;
+      }
       this.savedNotInStat.push(...result.newPatchIds);
       // The ids the SERVER named, not the ids we sent — see `markSaved`.
       this.patchStore.markSaved(result.newPatchIds);
