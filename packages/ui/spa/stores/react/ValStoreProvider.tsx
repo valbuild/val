@@ -59,6 +59,8 @@ export function ValStoreProvider({
     appliedPatches?: PatchId[];
     /** See {@link StatSnapshot.headCommitSha}. The publish head. */
     headCommitSha?: string;
+    /** See {@link StatSnapshot.sourcesSha}. Which build answered. */
+    sourcesSha?: string;
   } | null;
   children: ReactNode;
 }) {
@@ -115,10 +117,10 @@ export function ValStoreProvider({
    * modules exist is not wrong — the chain is kept and replayed by `receive` — but
    * doing it in the natural order means the common case does not depend on that.
    *
-   * `baseSha` is the part that unblocks writing. Everything else the store needs
-   * from stat it already gets: `schemaSha` / `sourcesSha` / `jsonEntriesSha` are
-   * inputs to a refetch this system does not do yet, and are the remaining half of
-   * openquestions item 8.
+   * `baseSha` is the part that unblocks writing, and `sourcesSha` says which
+   * build answered, so its chain goes on that build's base (`BaseAlignment`).
+   * `schemaSha` / `jsonEntriesSha` are inputs to a refetch this system does not
+   * do yet.
    */
   useEffect(() => {
     if (stat === null || !received) {
@@ -133,6 +135,9 @@ export function ValStoreProvider({
       // `PatchStore.receiveApplied`.
       appliedPatches: stat.appliedPatches,
       headCommitSha: stat.headCommitSha,
+      // Which build answered, so a chain from a build other than the bundle's
+      // is put on that build's base. See `BaseAlignment`.
+      sourcesSha: stat.sourcesSha,
     });
   }, [system, stat, received]);
 
