@@ -279,6 +279,7 @@ export class PatchStore {
   /** Told when a record becomes applied, so the chain it holds keeps up. */
   private appliedSource: {
     markApplied(patchIds: readonly PatchId[]): void;
+    forgetPublished(patchIds: readonly PatchId[]): void;
   } | null = null;
   /**
    * Patches the source store reported as HELD — outside the reader's patch
@@ -856,6 +857,16 @@ export class PatchStore {
            * rebuilds the module without them and every published field reverts.
            */
           this.forgetPublished(gone);
+          /*
+           * And out of the SOURCE store's chain, which holds its own copy.
+           *
+           * Left there, the record stays applied forever: the next `receive`
+           * of the new base — which already contains it — replays it on top,
+           * and `peekBase`, which counts shipped patches as published, applies
+           * it a second time. `forgetPublished` there does not rebuild, so the
+           * value on screen does not move.
+           */
+          this.appliedSource?.forgetPublished(gone);
         } else {
           this.drop(gone);
         }

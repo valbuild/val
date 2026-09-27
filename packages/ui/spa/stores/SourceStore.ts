@@ -329,8 +329,18 @@ export class SourceStore {
   /** What each {@link publishedSources} entry was computed from. */
   private publishedFrom = new Map<
     ModuleFilePath,
-    { base: Json; n: number; applied: string; applies: boolean }
+    { base: Json; baseN: number; applied: string; applies: boolean }
   >();
+  /**
+   * How far each module's BASE realm has moved: `baseSources` or
+   * `baseJsonEntries` written.
+   *
+   * Not `revisions`, which moves on every pending keystroke as well. Keyed on
+   * that, {@link publishedRealm} re-applied every shipped patch to a clone of
+   * the whole module per edit — to answer a question whose inputs had not
+   * changed.
+   */
+  private baseRevisions = new Map<ModuleFilePath, number>();
   /** In-flight entry fetches, so N readers of one entry cause ONE fetch. */
   private loadingEntries = new Map<string, Promise<void>>();
   /**
@@ -420,6 +430,14 @@ export class SourceStore {
    */
   private deferredAnnouncements = new Set<ModuleFilePath>();
   private batchDepth = 0;
+
+  /** Record that the base realm of this module was written. See {@link baseRevisions}. */
+  private bumpBase(moduleFilePath: ModuleFilePath): void {
+    this.baseRevisions.set(
+      moduleFilePath,
+      (this.baseRevisions.get(moduleFilePath) ?? 0) + 1,
+    );
+  }
 
   private bump(moduleFilePath: ModuleFilePath): void {
     this.revisions.set(
@@ -611,6 +629,7 @@ export class SourceStore {
       this.baseJsonEntries.set(moduleFilePath, baseByKey);
     }
     baseByKey.set(key, deepClone(content as JSONValue));
+    this.bumpBase(moduleFilePath);
     this.activity.work("source:receive-json-entry", moduleFilePath);
     this.bump(moduleFilePath);
     if (this.batchDepth > 0) {
@@ -667,6 +686,7 @@ export class SourceStore {
     // The base copy too: the file on disk changed, so what the server last said
     // about it is exactly what is now stale.
     this.baseJsonEntries.delete(moduleFilePath);
+    this.bumpBase(moduleFilePath);
     this.bump(moduleFilePath);
   }
 
@@ -1119,9 +1139,9 @@ export class SourceStore {
    * `fs` mode never reaches the rebuild: a publish there bakes the patches into
    * the base (`promotePublished`) and takes them out of the chain.
    *
-   * Recomputed only when its inputs move: the base object (a `receive`, a
-   * promote), the revision (entry content arriving or going stale) and which of
-   * the chain's patches have shipped (`markApplied` moves that without a bump).
+   * Recomputed only when its inputs move: the base realm ({@link baseRevisions})
+   * and which of the chain's patches have shipped (`markApplied` moves that
+   * without a bump). Never on a pending edit, which touches neither.
    */
   private publishedRealm(moduleFilePath: ModuleFilePath): {
     sources: Record<ModuleFilePath, Json>;
@@ -1142,20 +1162,20 @@ export class SourceStore {
       sources: this.publishedSources,
       entries: this.publishedJsonEntries,
     };
-    const n = this.revisions.get(moduleFilePath) ?? 0;
+    const baseN = this.baseRevisions.get(moduleFilePath) ?? 0;
     const applied = shipped.map((entry) => entry.record.patchId).join("\0");
     const from = this.publishedFrom.get(moduleFilePath);
     if (
       from !== undefined &&
       from.base === base &&
-      from.n === n &&
+      from.baseN === baseN &&
       from.applied === applied
     ) {
       return from.applies ? publishedRealm : baseRealm;
     }
     // Recorded before the apply, so a patch that cannot be applied is logged
     // once per change of inputs rather than on every peek.
-    const computed = { base, n, applied, applies: false };
+    const computed = { base, baseN, applied, applies: false };
     this.publishedFrom.set(moduleFilePath, computed);
     // The SUBSTITUTED base, for the reason `promotePublished` gives.
     let next: JSONValue = deepClone(
@@ -1302,6 +1322,7 @@ export class SourceStore {
       if (patched === undefined) continue;
       this.activity.work("source:promote-to-base", moduleFilePath);
       this.baseSources[moduleFilePath] = deepClone(patched as JSONValue);
+      this.bumpBase(moduleFilePath);
       // The entry content is part of the value, so it bakes with it. Left behind,
       // a published edit inside a `.jsonValues()` entry would keep showing in a
       // compare as an outstanding change against the pre-publish text.
@@ -1437,6 +1458,7 @@ export class SourceStore {
         sources: this.baseSources,
         entries: this.baseJsonEntries,
       });
+      this.bumpBase(moduleFilePath);
       this.chains.set(moduleFilePath, surviving);
     }
   }
@@ -1633,6 +1655,16 @@ export class SourceStore {
      */
     const unheld: ModuleFilePath[] = [];
     const touched: SourcePath[] = [];
+    /*
+     * Where a patch that was already on screen has now shipped.
+     *
+     * The displayed value does not move, but {@link peekBase} does: it counts
+     * shipped patches as published. Its readers — the "before" side of a
+     * compare — subscribe per path, so without a wake they keep the pre-publish
+     * snapshot until something else happens to touch the path.
+     */
+    const shippedVisible = new Set<ModuleFilePath>();
+    const shippedTouched: SourcePath[] = [];
     for (const [moduleFilePath, chain] of this.chains) {
       let differs = false;
       for (const entry of chain) {
@@ -1641,6 +1673,9 @@ export class SourceStore {
         if (!this.isVisible(entry.record)) {
           differs = true;
           touched.push(...touchedSourcePaths(entry.record));
+        } else {
+          shippedVisible.add(moduleFilePath);
+          shippedTouched.push(...touchedSourcePaths(entry.record));
         }
         entry.record = {
           ...entry.record,
@@ -1648,6 +1683,18 @@ export class SourceStore {
         };
       }
       if (differs) unheld.push(moduleFilePath);
+    }
+    if (shippedTouched.length > 0) {
+      // No `bump`: the displayed value did not move, which is the reason
+      // `promoteToBase` does not bump either. A reader of `peek` re-reads the
+      // same object and does not re-render.
+      this.wakeListeners(shippedVisible, [
+        {
+          origin: "external",
+          creatorFieldId: undefined,
+          paths: shippedTouched,
+        },
+      ]);
     }
     if (unheld.length === 0) {
       // Every one of them was already on screen. The records are now honest
@@ -1874,6 +1921,7 @@ export class SourceStore {
       this.activity.work("source:clone-module", moduleFilePath);
       const base = deepClone(source as JSONValue);
       this.baseSources[moduleFilePath as ModuleFilePath] = base;
+      this.bumpBase(moduleFilePath as ModuleFilePath);
       this.sources[moduleFilePath as ModuleFilePath] = deepClone(base);
       /*
        * A recorded entry FAILURE does not survive a re-intake.

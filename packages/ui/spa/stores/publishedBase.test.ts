@@ -4,6 +4,7 @@ import {
   type PatchId,
   type SourcePath,
 } from "@valbuild/core";
+import type { ActivitySink } from "./activity";
 import { createSystem, type System } from "./createSystem";
 import type { PatchRecord } from "./types";
 
@@ -24,20 +25,38 @@ import type { PatchRecord } from "./types";
 
 const MODULE = "/a.val.ts" as ModuleFilePath;
 const TITLE = '/a.val.ts?p="title"' as SourcePath;
+const TAGS = '/a.val.ts?p="tags"' as SourcePath;
 const ROOT = "/a.val.ts" as SourcePath;
 
-const project = () => {
+/** The module as a deployment serves it: `title` and `tags` as given. */
+const project = (
+  deployed: { title: string; tags: string[] } = {
+    title: "Old Value",
+    tags: [],
+  },
+) => {
   const { c, s } = initVal();
   return [
-    c.define(MODULE, s.object({ title: s.string() }), { title: "Old Value" }),
+    c.define(
+      MODULE,
+      s.object({ title: s.string(), tags: s.array(s.string()) }),
+      deployed,
+    ),
   ];
 };
 
 function makeSystem(options: {
   mode: "fs" | "http";
   fetched?: PatchRecord[];
+  activity?: ActivitySink;
 }): System {
   const system = createSystem({
+    activity: options.activity,
+    savePatches: async ({ patches, parentRef }) => ({
+      status: "saved",
+      newPatchIds: patches.map((patch) => patch.patchId),
+      parentRef,
+    }),
     fetchPatches: async (patchIds) => ({
       patches: (options.fetched ?? []).filter((record) =>
         patchIds.includes(record.patchId),
@@ -51,6 +70,8 @@ function makeSystem(options: {
     publishPatches: async () => ({ status: "published" }),
   });
   system.host.receive(project());
+  // The first stat is what lets a save go out: it names the parent to save on.
+  system.stat.receiveStat({ patches: [], baseSha: "before-deploy" });
   return system;
 }
 
@@ -61,6 +82,9 @@ async function edit(system: System, value: string): Promise<PatchId> {
   if (res.status !== "created") {
     throw new Error(`Could not create the patch: ${res.status}`);
   }
+  // Saved before anything is published, or the save landing mid-publish moves
+  // the chain and the publish is refused as `chain-moved`.
+  await system.patchSync.flush();
   return res.record.patchId;
 }
 
@@ -145,6 +169,89 @@ describe("peekBase counts what has shipped", () => {
     expect(system.sourceStore.peekBase(TITLE)).toBe(
       system.sourceStore.peekBase(TITLE),
     );
+    system.dispose();
+  });
+
+  it("does not replay a shipped patch once the deploy has moved the base", async () => {
+    /*
+     * The deploy is what ends the window. The new base already contains the
+     * shipped patch, and the server stops listing it — so it has to leave the
+     * source store's chain too, or `peekBase` applies it a second time. A
+     * `replace` would hide that; an array `add` doubles the item.
+     */
+    const system = makeSystem({ mode: "http" });
+    const res = await system.patchStore.createPatch(MODULE, [
+      { op: "add", path: ["tags", "-"], value: "shipped" },
+    ]);
+    if (res.status !== "created") throw new Error(res.status);
+    await system.patchSync.flush();
+    await system.publish([res.record.patchId]);
+    expect(system.sourceStore.peekBase(TAGS)).toMatchObject({
+      data: ["shipped"],
+    });
+
+    // The deploy: the new base has the item, and the patch is no longer listed.
+    system.stat.receiveStat({ patches: [], baseSha: "after-deploy" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    system.host.receive(project({ title: "Old Value", tags: ["shipped"] }));
+
+    expect(system.sourceStore.peekBase(TAGS)).toMatchObject({
+      data: ["shipped"],
+    });
+    system.dispose();
+  });
+
+  it("does not recompute the published base on a pending edit", async () => {
+    /*
+     * The module revision moves on every keystroke. Keyed on it, the published
+     * base re-applied every shipped patch to a clone of the whole module per
+     * edit, for an answer that had not changed.
+     */
+    const applied: string[] = [];
+    const system = makeSystem({
+      mode: "http",
+      activity: {
+        work: (kind, subject) => {
+          if (kind === "source:apply-patch" && subject !== undefined) {
+            applied.push(subject);
+          }
+        },
+      },
+    });
+    const published = await edit(system, "New Value");
+    await system.publish([published]);
+    system.sourceStore.peekBase(TITLE);
+    const before = applied.filter((id) => id === published).length;
+
+    for (const value of ["N", "Ne", "New", "Old Value"]) {
+      await edit(system, value);
+      system.sourceStore.peekBase(TITLE);
+    }
+
+    expect(applied.filter((id) => id === published).length).toBe(before);
+    expect(system.sourceStore.peekBase(TITLE)).toMatchObject({
+      data: "New Value",
+    });
+    system.dispose();
+  });
+
+  it("wakes readers of the path when a visible patch ships", async () => {
+    /*
+     * Nothing on screen moves when an already-visible patch is marked shipped,
+     * but `peekBase` does — and the "before" side of a compare reads it through
+     * a per-path subscription. Without a wake it keeps the pre-publish value.
+     */
+    const system = makeSystem({ mode: "http" });
+    const published = await edit(system, "New Value");
+    let woken = 0;
+    const off = system.sourceStore.addListener(TITLE, "compare-before", () => {
+      woken++;
+    });
+
+    await system.publish([published]);
+
+    expect(woken).toBeGreaterThan(0);
+    off();
     system.dispose();
   });
 
