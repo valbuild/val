@@ -6,6 +6,7 @@ import {
   type SourcePath,
 } from "@valbuild/core";
 import { createSystem } from "./createSystem";
+import type { FetchJsonEntry } from "./SourceStore";
 import type { FetchPatches } from "./PatchStore";
 import type { PatchRecord } from "./types";
 
@@ -138,7 +139,11 @@ function statFor(commit: Commit) {
 
 function studioOnBundle(
   bundle: Commit,
-  options: { fetchPatches?: FetchPatches } = {},
+  options: {
+    fetchPatches?: FetchPatches;
+    /** Held until resolved, to keep a base fetch in flight. */
+    baseGate?: () => Promise<void>;
+  } = {},
 ) {
   const { c, s } = initVal();
   const baseFetches: string[] = [];
@@ -152,6 +157,7 @@ function studioOnBundle(
     // asked for: the base that build's chain is relative to.
     fetchBaseSources: async (sourcesSha) => {
       baseFetches.push(sourcesSha);
+      await options.baseGate?.();
       const commit = COMMITS.find((at) => sourcesShaAt(at) === sourcesSha);
       if (commit === undefined) return null;
       return {
@@ -525,4 +531,141 @@ describe("the swap never rebases onto a chain with a hole in it", () => {
       expect(value).toEqual(HEAD_PLUS_PENDING);
     }
   });
+
+  test("a tail patch whose record only a swap fetched is applied, not left empty", async () => {
+    // p3's ordinary fetch comes back empty once, so the chain holds its id and
+    // no record. A stale stat from C1 then leaves it out: the swap asks, the
+    // server says it is pending, and its record has to make it into the chain.
+    let dropP3 = true;
+    const system = studioOnBundle("C2", {
+      fetchPatches: async (patchIds) => {
+        const res = await fetchFromContent(patchIds);
+        if (dropP3 && patchIds.length === 1 && patchIds[0] === "p3") {
+          dropP3 = false;
+          return { patches: [] };
+        }
+        return res;
+      },
+    });
+    system.stat.receiveStat(statFor("C2"));
+    await settle(system);
+    system.stat.receiveStat({
+      patches: [brand("p2", isPatchId)],
+      appliedPatches: [],
+      baseSha: "sources-at-C1",
+      sourcesSha: sourcesShaAt("C1"),
+    });
+    await settle(system);
+    expect(peekKeywords(system)).toEqual(HEAD_PLUS_PENDING);
+  });
+
+  test("an omitted patch whose ordinary fetch is still out is waited for", async () => {
+    // A stat from C0 starts fetching p1, p2 and p3. Before it answers, a stat
+    // from C2 names none of them: p1 and p2 are in C2's base, p3 is pending.
+    const answers: (() => void)[] = [];
+    const system = studioOnBundle("C0", {
+      fetchPatches: async (patchIds) => {
+        await new Promise<void>((resolve) => answers.push(resolve));
+        return fetchFromContent(patchIds);
+      },
+    });
+    system.stat.receiveStat({ ...statFor("C0"), appliedPatches: [] });
+    system.stat.receiveStat({
+      ...statFor("C2"),
+      patches: [],
+      appliedPatches: [],
+    });
+    for (let i = 0; i < 10 && answers.length > 0; i++) {
+      // Newest first: the swap's own question is answered while the ordinary
+      // fetch is still out.
+      answers.pop()?.();
+      await settle(system);
+    }
+    await settle(system);
+    // p1 and p2 are not replayed on C2's base when the ordinary fetch lands.
+    expect(peekKeywords(system)).toEqual(HEAD_PLUS_PENDING);
+  });
+
+  test("a re-intake while a newer stat is being prepared does not overtake it", async () => {
+    let openGate: () => void = () => {};
+    let gated = false;
+    const system = studioOnBundle("C0", {
+      baseGate: () =>
+        gated
+          ? new Promise<void>((resolve) => {
+              openGate = resolve;
+            })
+          : Promise.resolve(),
+    });
+    system.stat.receiveStat(statFor("C2"));
+    await settle(system);
+
+    gated = true;
+    system.stat.receiveStat(statFor("C1"));
+    const seen: unknown[] = [];
+    system.sourceStore.events.on("source:change", () => {
+      queueMicrotask(() => seen.push(peekKeywords(system)));
+    });
+    system.reintake();
+    await settle(system);
+    openGate();
+    await settle(system);
+
+    expect(peekKeywords(system)).toEqual(HEAD_PLUS_PENDING);
+    expect(system.stat.currentPatchIds()).toEqual(statFor("C1").patches);
+    for (const value of seen) {
+      expect(value).toEqual(HEAD_PLUS_PENDING);
+    }
+  });
+});
+
+/**
+ * `.jsonValues()` entry content is not in a module's source -- the source is
+ * markers -- so a base from another build does not carry it. What the Studio
+ * had loaded came from the build that answered when it was read; after a swap
+ * it has to be read again, from the new one.
+ */
+test("a swap drops loaded .jsonValues() entries, so they are read from the new build", async () => {
+  const { c, s } = initVal();
+  const BLOGS = brand("/blogs.val.ts", isModuleFilePath);
+  const TITLE = brand('/blogs.val.ts?p="/a"."title"', isSourcePath);
+  let serving = "Alpha, as the bundle's build has it";
+  const fetchJsonEntry: FetchJsonEntry = async () => ({
+    status: "ok",
+    content: { title: serving },
+  });
+  const module = c.define(
+    BLOGS,
+    s.record(s.object({ title: s.string() })).jsonValues(),
+    { "/a": c.json(() => Promise.resolve({ default: { title: "unused" } })) },
+  );
+  const markers = { "/a": { _type: "json" } };
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    fetchJsonEntry,
+    fetchBaseSources: async (sourcesSha) => ({
+      sourcesSha,
+      sources: { [BLOGS]: markers },
+    }),
+  });
+  system.host.receive([module]);
+  const first = await system.sourceStore.get(TITLE, null);
+  expect("data" in first ? first.data : first.status).toBe(
+    "Alpha, as the bundle's build has it",
+  );
+
+  serving = "Alpha, as the answering build has it";
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "another-build",
+    sourcesSha: "another-build",
+  });
+  for (let i = 0; i < 5; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  const again = await system.sourceStore.get(TITLE, null);
+  expect("data" in again ? again.data : again.status).toBe(
+    "Alpha, as the answering build has it",
+  );
+  system.dispose();
 });

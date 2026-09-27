@@ -1376,6 +1376,14 @@ export class SourceStore {
     for (const moduleFilePath of [...this.chains.keys()]) {
       if (rebased.has(moduleFilePath)) this.chains.delete(moduleFilePath);
     }
+    // `.jsonValues()` entry content is not in `sources` -- the module's source
+    // is markers -- and what is loaded came from the build that answered when
+    // it was read. Dropped, so the next read fetches it from this one; entry
+    // patches then replay on that, not on the previous build's content.
+    for (const moduleFilePath of [...this.jsonEntries.keys()]) {
+      if (rebased.has(moduleFilePath))
+        this.markJsonEntriesStale(moduleFilePath);
+    }
     this.receive(sources);
     const entries: ChainEntry[] = [];
     for (const record of chain) {

@@ -881,6 +881,11 @@ export class PatchStore {
   /** See {@link stage}. */
   private staged = new Map<PatchId, PatchRecord>();
 
+  /** The chain as it stands, as records, in order. */
+  chainRecords(): PatchRecord[] {
+    return this.recordsFor(this.ordered);
+  }
+
   /** Whether every one of `patchIds` is held, so {@link stage} has nothing to do. */
   holdsAll(patchIds: readonly PatchId[]): boolean {
     return patchIds.every(
@@ -906,8 +911,17 @@ export class PatchStore {
    * patches that were made on top of them.
    */
   takeStaged(named: readonly PatchId[]): PatchRecord[] {
+    const listed = new Set(named);
+    const order = [
+      ...named,
+      ...this.ordered.filter((patchId) => !listed.has(patchId)),
+    ];
+    // Every staged record the new chain has a place for, named or in the
+    // tail: a tail id can be here without a record (its ordinary fetch failed)
+    // and have had one staged since, and dropping that would leave it in the
+    // chain with nothing to apply and nothing to fetch it again.
     let took = false;
-    for (const patchId of named) {
+    for (const patchId of order) {
       const record = this.staged.get(patchId);
       if (record === undefined || this.dataById.has(patchId)) continue;
       this.dataById.set(patchId, record);
@@ -921,11 +935,6 @@ export class PatchStore {
       this.bump();
       this.applyServerApplied();
     }
-    const listed = new Set(named);
-    const order = [
-      ...named,
-      ...this.ordered.filter((patchId) => !listed.has(patchId)),
-    ];
     const records: PatchRecord[] = [];
     for (const patchId of order) {
       const record = this.dataById.get(patchId);
@@ -1000,6 +1009,16 @@ export class PatchStore {
     complete: boolean;
   }> {
     if (patchIds.length === 0) return { leaving: [], complete: true };
+    // An ordinary fetch still out for one of these lands its record, and a
+    // `patch:receive`, whenever it answers -- after the swap, on top of a base
+    // that may already contain it. Waited for, so it lands first and the
+    // answer below decides it along with the rest.
+    const running = new Set<Promise<void>>();
+    for (const patchId of patchIds) {
+      const settled = this.inFlight.get(patchId);
+      if (settled !== undefined) running.add(settled);
+    }
+    await Promise.all(running);
     this.activity.work("patch:verify-vanished", undefined, patchIds.length);
     const res = await this.fetchPatches([...patchIds]).catch((): null => null);
     if (res === null || res.error !== undefined) {
@@ -1018,6 +1037,10 @@ export class PatchStore {
       const record = records.get(patchId);
       if (record === undefined || record.appliedAt != null) {
         leaving.push(patchId);
+      } else if (!this.dataById.has(patchId)) {
+        // Still pending, and this client never got its record: staged, so the
+        // swap has it to apply.
+        this.staged.set(patchId, record);
       }
     }
     return { leaving, complete };

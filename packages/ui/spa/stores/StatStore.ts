@@ -148,14 +148,17 @@ export class StatStore {
    */
   receiveStat(snapshot: StatSnapshot): void {
     const ticket = ++this.received;
+    this.preparing = false;
     const prepared = this.preparer?.(snapshot) ?? null;
     if (prepared === null) {
       this.adopt(snapshot);
     } else if (typeof prepared === "function") {
       if (prepared()) this.adopt(snapshot);
     } else {
+      this.preparing = true;
       void prepared.then((commit) => {
         if (ticket !== this.received) return;
+        this.preparing = false;
         // Same turn: nothing renders between the base moving and the chain
         // that belongs on it arriving.
         if (commit()) this.adopt(snapshot);
@@ -163,7 +166,26 @@ export class StatStore {
     }
   }
 
+  /** A stat is waiting on its preparation. See {@link readopt}. */
+  private preparing = false;
+  private lastAdopted: StatSnapshot | null = null;
+
+  /**
+   * Run the last adopted stat through preparation again, as a new stat.
+   *
+   * For a re-intake (HMR) that put the bundle's source back under another
+   * build's chain. As a stat rather than beside one, so it takes a ticket like
+   * any other and a newer stat overtakes it. Skipped while a stat is being
+   * prepared: that one will put its own base in, and re-running an older one
+   * would overtake the newer answer instead.
+   */
+  readopt(): void {
+    if (this.preparing || this.lastAdopted === null) return;
+    this.receiveStat(this.lastAdopted);
+  }
+
   private adopt(snapshot: StatSnapshot): void {
+    this.lastAdopted = snapshot;
     this.patches = [...snapshot.patches];
     if (snapshot.baseSha !== undefined) {
       this.baseSha = snapshot.baseSha;

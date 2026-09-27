@@ -68,20 +68,25 @@ export class BaseAlignment {
     stat.setPreparer((snapshot) => this.prepare(snapshot));
     return this.host.events.on("host:base-received", (event) => {
       this.current = event.sourcesSha;
-      // A re-intake put the bundle's source back. If the chain in place is
-      // another build's, that build's base goes back under it.
+      // A re-intake (HMR) put the bundle's source back under whatever chain is
+      // in place. If that chain is another build's, its base goes back -- in
+      // this turn, so the bundle's source under it is never on screen.
       const last = this.lastStat;
-      if (last?.sourcesSha === undefined || last.sourcesSha === this.current) {
+      const wanted = last?.sourcesSha;
+      if (wanted === undefined || wanted === this.current) return;
+      if (this.fetched?.sourcesSha === wanted) {
+        // Restoring what was showing, not adopting anything: no stat moves, so
+        // a newer one being prepared is not overtaken.
+        this.sourceStore.rebase(
+          this.fetched.sources,
+          this.patchStore.chainRecords(),
+        );
+        this.current = wanted;
         return;
       }
-      const prepared = this.prepare(last);
-      if (typeof prepared === "function") {
-        prepared();
-      } else {
-        void prepared.then((commit) => {
-          if (this.lastStat === last) commit();
-        });
-      }
+      // The base is not held (it cannot be, short of a failed fetch): prepare
+      // the stat again, as a stat, so a newer one still wins.
+      stat.readopt();
     });
   }
 
