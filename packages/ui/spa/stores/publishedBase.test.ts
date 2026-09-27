@@ -172,12 +172,18 @@ describe("peekBase counts what has shipped", () => {
     system.dispose();
   });
 
-  it("does not replay a shipped patch once the deploy has moved the base", async () => {
+  it("keeps a shipped patch until the deployed base arrives, then drops it", async () => {
     /*
-     * The deploy is what ends the window. The new base already contains the
-     * shipped patch, and the server stops listing it — so it has to leave the
-     * source store's chain too, or `peekBase` applies it a second time. A
-     * `replace` would hide that; an array `add` doubles the item.
+     * The deploy and the new base arrive by different routes, and the stat
+     * comes first. On a hosted project the base is the bundle this tab loaded,
+     * so between the stat and the next intake the base is still the
+     * pre-deploy text.
+     *
+     * Dropping the shipped patch on the stat put its effect in neither base
+     * nor chain: `peekBase` fell back to the pre-publish value, and the next
+     * rebuild of the module reverted it on screen. Keeping it past the intake
+     * replays it on a base that already has it. A `replace` would hide both;
+     * an array `add` shows them as a missing or a doubled item.
      */
     const system = makeSystem({ mode: "http" });
     const res = await system.patchStore.createPatch(MODULE, [
@@ -190,12 +196,29 @@ describe("peekBase counts what has shipped", () => {
       data: ["shipped"],
     });
 
-    // The deploy: the new base has the item, and the patch is no longer listed.
+    // The stat: the deployment moved, and the patch is no longer listed.
     system.stat.receiveStat({ patches: [], baseSha: "after-deploy" });
     await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Still the pre-deploy base here, so the shipped patch still counts.
+    expect(system.sourceStore.peekBase(TAGS)).toMatchObject({
+      data: ["shipped"],
+    });
+    // And a rebuild does not lose it: hiding a pending edit replays the chain
+    // onto the pre-deploy base.
+    await edit(system, "pending");
+    system.setPatchGroup([]);
+    expect(system.sourceStore.peek(TAGS)).toMatchObject({
+      data: ["shipped"],
+    });
+
+    // The deployed base arrives, with the item already in it.
     system.host.receive(project({ title: "Old Value", tags: ["shipped"] }));
 
     expect(system.sourceStore.peekBase(TAGS)).toMatchObject({
+      data: ["shipped"],
+    });
+    expect(system.sourceStore.peek(TAGS)).toMatchObject({
       data: ["shipped"],
     });
     system.dispose();

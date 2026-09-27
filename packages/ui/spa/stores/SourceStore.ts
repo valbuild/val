@@ -341,6 +341,8 @@ export class SourceStore {
    * changed.
    */
   private baseRevisions = new Map<ModuleFilePath, number>();
+  /** Shipped patches to drop at the next base intake. See {@link retireWithNextBase}. */
+  private retiring = new Set<PatchId>();
   /** In-flight entry fetches, so N readers of one entry cause ONE fetch. */
   private loadingEntries = new Map<string, Promise<void>>();
   /**
@@ -1488,6 +1490,27 @@ export class SourceStore {
     }
   }
 
+  /**
+   * These shipped patches are in the deployed base now: drop them from the
+   * chain when a base for their module next arrives, and not before.
+   *
+   * Deferred because the deploy and the base arrive by different routes. The
+   * stat says a deployment moved the base; the base itself comes from the
+   * host's modules, and until those are received again the base here is the
+   * pre-deploy text. Dropping at once would leave the published effect in
+   * neither — `peekBase` back on the pre-publish value, and the next rebuild
+   * reverting it on screen. Keeping them past the intake would replay them on
+   * top of a base that already has them, which an array `add` shows as a
+   * doubled item.
+   *
+   * No rebuild, and no wake: until the base arrives nothing has changed.
+   */
+  retireWithNextBase(patchIds: readonly PatchId[]): void {
+    for (const patchId of patchIds) {
+      this.retiring.add(patchId);
+    }
+  }
+
   /** Where this module's source has got to. */
   revisionOf(moduleFilePath: ModuleFilePath): Revision {
     return {
@@ -1941,6 +1964,23 @@ export class SourceStore {
       type: "source:init",
       sources: Object.keys(sources) as ModuleFilePath[],
     });
+    // Shipped patches the deploy put into this base leave the chain BEFORE the
+    // replay below, or it applies them to a base that already contains them.
+    // See `retireWithNextBase`.
+    if (this.retiring.size > 0) {
+      for (const moduleFilePath of Object.keys(sources) as ModuleFilePath[]) {
+        const chain = this.chains.get(moduleFilePath);
+        if (chain === undefined) continue;
+        const surviving = chain.filter((entry) => {
+          if (!this.retiring.has(entry.record.patchId)) return true;
+          this.retiring.delete(entry.record.patchId);
+          return false;
+        });
+        if (surviving.length !== chain.length) {
+          this.chains.set(moduleFilePath, surviving);
+        }
+      }
+    }
     // The rebase. Base source has just been replaced under whatever patches
     // already exist, so the chain has to be re-applied on top of it or the new
     // base silently wins and the user's pending edits vanish.
