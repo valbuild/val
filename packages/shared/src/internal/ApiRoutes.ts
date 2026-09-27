@@ -687,6 +687,13 @@ export const Api = {
                * carries back to `/save` to say which world it decided against.
                */
               headCommitSha: z.string().optional(),
+              /**
+               * The head of the PATCH CHAIN: the last patch registered on the
+               * branch, published or not. `null` when there is none. What a
+               * new patch names as its parent — see `chainHeadOf`. Optional: a
+               * content service that predates it sends nothing.
+               */
+              headPatchId: PatchId.nullable().optional(),
               commits: z.array(ValCommit),
               /**
                * The publishes the content service knows about.
@@ -1259,6 +1266,48 @@ export const Api = {
                   .optional(),
               }),
             ),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * The `.val.ts` text of every module that changed since the RUNNING build,
+   * with every commit since it applied, for a build made in the browser.
+   *
+   * A Studio build starts from the source stored with the live build. A commit
+   * whose own publish failed -- or the first commit of a project that started
+   * as a copy of a template -- is in content and in no stored source, so a build
+   * that added only its own save's files shipped without it. Only this server
+   * can render those commits back into text: content keeps a managed project's
+   * content as Source, not as files.
+   *
+   * Committed patches only. A pending one is somebody's unpublished work, and
+   * is not this build's to ship. 409 where there is nothing to answer with: a
+   * project with a repository, or a build that did not embed its source.
+   */
+  "/built-source": {
+    GET: {
+      req: {
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(409),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            /** By path, as `/save`'s `sourceFiles`. `null` is a deleted file. */
+            files: z.record(z.string(), z.string().nullable()),
           }),
         }),
       ]),

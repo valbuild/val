@@ -664,7 +664,29 @@ export class PatchStore {
     // being watched here is the request, and a test asserting "one fetch, five
     // ids" would be unable to tell that from five fetches otherwise.
     this.activity.work("patch:fetch", undefined, missing.length);
-    const res = await this.fetchPatches(missing);
+    // Settles once the records are IN, not when the response arrives: `stage`
+    // waits on it, and a record that is still between the two is not here yet.
+    let settle = () => {};
+    const settled = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    for (const patchId of missing) {
+      this.inFlight.set(patchId, settled);
+    }
+    /*
+     * A request that failed outright is answered like one that came back with
+     * an error: reported, and every id treated as not delivered below, which
+     * takes it out of `fetching` so the next stat asks again. Rejecting left
+     * the ids in `fetching` for good -- skipped as in flight by every later
+     * stat, a hole in the chain from one dropped request -- and the rejection
+     * itself reached nobody, since this runs detached from the stat.
+     */
+    const res = await this.fetchPatches(missing).catch(
+      (error: unknown): Awaited<ReturnType<FetchPatches>> => ({
+        patches: [],
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
     if (res.error !== undefined) {
       this.events.emit({
         type: "patch:fetch-failed",
@@ -782,6 +804,264 @@ export class PatchStore {
         patches: notDelivered,
       });
     }
+    this.releaseInFlight(missing, settled, settle);
+  }
+
+  /** Fetches {@link onStatPatchIds} has running, by id, for {@link stage}. */
+  private inFlight = new Map<PatchId, Promise<void>>();
+
+  private releaseInFlight(
+    patchIds: readonly PatchId[],
+    settled: Promise<void>,
+    settle: () => void,
+  ): void {
+    for (const patchId of patchIds) {
+      if (this.inFlight.get(patchId) === settled) this.inFlight.delete(patchId);
+    }
+    settle();
+  }
+
+  /**
+   * Fetch the records a stat about to be adopted will need, without adopting
+   * anything.
+   *
+   * For `BaseAlignment`: a stat from another build comes with a base swap, and
+   * the swap and the chain have to land together. Were the records fetched the
+   * usual way, after adoption, an older base would show without the patches
+   * that bring it forward for as long as the request took. {@link takeStaged}
+   * hands them over.
+   *
+   * Resolves to whether EVERY one of `patchIds` is now here. A fetch already
+   * running for one is waited on rather than counted as done, and one that
+   * errored or came back without a record makes this `false`: a rebase onto a
+   * chain with a hole in it would take that patch's effect out of source, and
+   * nothing would bring it back, because the stat that named it would already
+   * have been adopted.
+   */
+  async stage(patchIds: readonly PatchId[]): Promise<boolean> {
+    const running = new Set<Promise<void>>();
+    for (const patchId of patchIds) {
+      const settled = this.inFlight.get(patchId);
+      if (settled !== undefined) running.add(settled);
+    }
+    const ask = patchIds.filter(
+      (patchId) =>
+        !this.dataById.has(patchId) &&
+        !this.staged.has(patchId) &&
+        !this.fetching.has(patchId),
+    );
+    const fetched =
+      ask.length === 0
+        ? Promise.resolve()
+        : (() => {
+            this.activity.work("patch:fetch", undefined, ask.length);
+            return this.fetchPatches(ask).then(
+              (res) => {
+                for (const record of res.patches) {
+                  this.staged.set(record.patchId, record);
+                }
+              },
+              // A request that failed outright stages nothing, which the
+              // completeness check below reports -- rather than rejecting a
+              // preparation nobody is waiting to catch.
+              (error: unknown) => {
+                console.warn("Val: could not fetch changes ahead of a stat", {
+                  patchIds: ask,
+                  error,
+                });
+              },
+            );
+          })();
+    await Promise.all([...running, fetched]);
+    return patchIds.every(
+      (patchId) => this.dataById.has(patchId) || this.staged.has(patchId),
+    );
+  }
+
+  /** See {@link stage}. */
+  private staged = new Map<PatchId, PatchRecord>();
+
+  /** Omitted patches one answer came back without. See {@link resolveOmitted}. */
+  private absentOnce = new Set<PatchId>();
+
+  /** The chain as it stands, as records, in order. */
+  chainRecords(): PatchRecord[] {
+    return this.recordsFor(this.ordered);
+  }
+
+  /** Whether every one of `patchIds` is held, so {@link stage} has nothing to do. */
+  holdsAll(patchIds: readonly PatchId[]): boolean {
+    return patchIds.every(
+      (patchId) => this.dataById.has(patchId) || this.staged.has(patchId),
+    );
+  }
+
+  /**
+   * Hold the staged records for `named`, WITHOUT announcing them, and return
+   * the new chain as records: `named` in order, then every patch of the chain
+   * it does not name -- the order {@link onStatPatchIds} will adopt.
+   *
+   * EVERY one, not only the unsaved. A saved patch a stale stat has not caught
+   * up with is in that tail too, and is not ours to judge here: dropping it from
+   * the rebase took its edit out of source for good, since its record is held
+   * and nothing receives it again. {@link reconcileVanished} decides it, as it
+   * does for any stat. The shipped ones left before this was called.
+   *
+   * No `patch:receive`: the caller hands the whole chain to
+   * `SourceStore.rebase`, in order, together with the base it belongs on.
+   * Announcing would add them to source a second time, at the END of the chain
+   * -- which for a base older than the one being replaced puts them after
+   * patches that were made on top of them.
+   */
+  takeStaged(named: readonly PatchId[]): PatchRecord[] {
+    const listed = new Set(named);
+    const order = [
+      ...named,
+      ...this.ordered.filter((patchId) => !listed.has(patchId)),
+    ];
+    // Every staged record the new chain has a place for, named or in the
+    // tail: a tail id can be here without a record (its ordinary fetch failed)
+    // and have had one staged since, and dropping that would leave it in the
+    // chain with nothing to apply and nothing to fetch it again.
+    let took = false;
+    for (const patchId of order) {
+      const record = this.staged.get(patchId);
+      if (record === undefined || this.dataById.has(patchId)) continue;
+      this.dataById.set(patchId, record);
+      if (!this.originById.has(patchId)) {
+        this.originById.set(patchId, "external");
+      }
+      took = true;
+    }
+    this.staged.clear();
+    if (took) {
+      this.bump();
+      this.applyServerApplied();
+    }
+    const records: PatchRecord[] = [];
+    for (const patchId of order) {
+      const record = this.dataById.get(patchId);
+      if (record !== undefined) records.push(record);
+    }
+    return records;
+  }
+
+  /**
+   * Of the chain, the patches that have SHIPPED and that `named` leaves out.
+   *
+   * Shipped: committed, as the server said (`appliedAt`, `appliedPatches`) or
+   * because this client published it. Those are the patches a newer build's
+   * base already contains, which is why its stat does not name them -- so when
+   * that base is put in, they have to leave the chain in the same turn or they
+   * are applied a second time on top of themselves.
+   *
+   * Only shipped ones. A patch that is merely absent may be one stat has not
+   * caught up with, and {@link reconcileVanished} is what decides those.
+   */
+  shippedOutside(named: readonly PatchId[]): PatchId[] {
+    const keep = new Set(named);
+    return this.ordered.filter(
+      (patchId) =>
+        !keep.has(patchId) &&
+        !this.pendingIds.has(patchId) &&
+        this.knownShipped(patchId),
+    );
+  }
+
+  private knownShipped(patchId: PatchId): boolean {
+    return (
+      this.serverAppliedIds.has(patchId) ||
+      this.publishedIds.has(patchId) ||
+      this.dataById.get(patchId)?.appliedAt != null
+    );
+  }
+
+  /**
+   * The patches `named` leaves out that this client cannot place: saved, not
+   * known to have shipped. For `BaseAlignment`, before it puts another build's
+   * base in.
+   *
+   * A stat that omits a patch does not say why. It may have shipped in the
+   * build that answered -- published by another session, whose `appliedAt`
+   * this client never saw -- and then replaying it on that build's base applies
+   * it twice. It may have been discarded. Or the stat may simply predate the
+   * save. Without a base swap none of that mattered, because the base never
+   * moved; with one it decides what the new base shows, so the server is asked
+   * ({@link resolveOmitted}) rather than guessed at.
+   */
+  omittedUnplaced(named: readonly PatchId[]): PatchId[] {
+    const keep = new Set(named);
+    return this.ordered.filter(
+      (patchId) =>
+        !keep.has(patchId) &&
+        !this.pendingIds.has(patchId) &&
+        !this.knownShipped(patchId),
+    );
+  }
+
+  /**
+   * Ask the server where {@link omittedUnplaced} patches stand. A record back
+   * with `appliedAt` has shipped; no record and no error means it is gone; a
+   * record without `appliedAt` is still pending and stays in the chain.
+   *
+   * `complete` is false when the answer is not conclusive for every id -- an
+   * error, or the request failing -- and then nothing should be rebased on it.
+   */
+  async resolveOmitted(patchIds: readonly PatchId[]): Promise<{
+    leaving: PatchId[];
+    complete: boolean;
+  }> {
+    if (patchIds.length === 0) return { leaving: [], complete: true };
+    // An ordinary fetch still out for one of these lands its record, and a
+    // `patch:receive`, whenever it answers -- after the swap, on top of a base
+    // that may already contain it. Waited for, so it lands first and the
+    // answer below decides it along with the rest.
+    const running = new Set<Promise<void>>();
+    for (const patchId of patchIds) {
+      const settled = this.inFlight.get(patchId);
+      if (settled !== undefined) running.add(settled);
+    }
+    await Promise.all(running);
+    this.activity.work("patch:verify-vanished", undefined, patchIds.length);
+    const res = await this.fetchPatches([...patchIds]).catch((): null => null);
+    if (res === null || res.error !== undefined) {
+      return { leaving: [], complete: false };
+    }
+    const errored = new Set<string>(Object.keys(res.errors ?? {}));
+    const records = new Map<PatchId, PatchRecord>();
+    for (const record of res.patches) records.set(record.patchId, record);
+    const leaving: PatchId[] = [];
+    let complete = true;
+    for (const patchId of patchIds) {
+      if (errored.has(patchId)) {
+        complete = false;
+        continue;
+      }
+      const record = records.get(patchId);
+      if (record === undefined) {
+        // One empty answer is not evidence, for the reason
+        // {@link notDeliveredOnce} gives: an answer can be older than a write
+        // or be partial. The first holds the swap back; only a second, asked
+        // afterwards, lets the patch go.
+        if (this.absentOnce.has(patchId)) {
+          this.absentOnce.delete(patchId);
+          leaving.push(patchId);
+        } else {
+          this.absentOnce.add(patchId);
+          complete = false;
+        }
+        continue;
+      }
+      this.absentOnce.delete(patchId);
+      if (record.appliedAt != null) {
+        leaving.push(patchId);
+      } else if (!this.dataById.has(patchId)) {
+        // Still pending, and this client never got its record: staged, so the
+        // swap has it to apply.
+        this.staged.set(patchId, record);
+      }
+    }
+    return { leaving, complete };
   }
 
   /**
@@ -856,6 +1136,25 @@ export class PatchStore {
            * rebuilds the module without them and every published field reverts.
            */
           this.forgetPublished(gone);
+          /*
+           * The SOURCE store keeps its copy in the chain, marked shipped.
+           *
+           * `baseMoved` is the stat's base sha, not the source store's base.
+           * That comes from the host's modules, which on a hosted project are
+           * the bundle this tab loaded, so it stays the pre-deploy text until
+           * a reload — and a reload starts from a chain the server no longer
+           * lists this patch in. Taking it out of the source chain before then
+           * leaves its effect in neither base nor chain: `peekBase` falls back
+           * to the pre-publish text, and the next rebuild of the module reverts
+           * the value on screen.
+           *
+           * Marked applied, because the server's `appliedPatches` may never
+           * have named it — somebody else's publish, deployed before this tab
+           * heard about it — and a record that reads as pending is left out of
+           * `peekBase`, which is the stale comparison this is all for.
+           * `markApplied` also brings a held one into view.
+           */
+          this.appliedSource?.markApplied(gone);
         } else {
           this.drop(gone);
         }
@@ -1905,34 +2204,39 @@ export class PatchStore {
   }
 
   /**
-   * File path -> the id of the UNPUBLISHED patch that carries its bytes.
+   * File path -> the id of the patch whose bytes a read should serve, for every
+   * file no deployment is serving yet.
    *
-   * What a component needs to build a URL for an image the server has not
-   * committed yet: `/api/val/files{path}?patch_id=...` serves the bytes out of
-   * the patch directory, so without this map a just-uploaded image renders as a
-   * broken link.
+   * What a component needs to build a URL for an image the site does not serve
+   * yet: `/api/val/files{path}?patch_id=...` serves the bytes out of the patch
+   * store, so without this map a just-uploaded image renders as a broken link.
    *
-   * ## Unpublished, not unsaved — and the difference was a bug
+   * ## The question is "is it served", not "is it saved" or "is it committed"
    *
-   * This gate used to be `pendingIds`, on the reasoning that "once a patch is
-   * saved the file is fetchable by its committed path". That premise is false.
-   * **Saved** means `PUT /patches` succeeded: the patch is on the server, and its
-   * bytes are in the PATCH directory. Only **publish** writes them to the
-   * committed path. Between the two — which is the normal state of every pending
-   * edit, and lasts from the moment the write lands until someone hits Save — the
-   * bytes are reachable at nothing but the `patch_id` URL.
+   * The gate has been wrong twice, the same way each time: it asked a question
+   * whose answer arrives BEFORE the file is at its published URL.
    *
-   * So a gallery upload rendered correctly for the second or so before its write
-   * came back, and then broke: `filePatchIds` dropped the ref, `refToUrl` fell
-   * through to the published branch, and the tile pointed at a path with no file
-   * behind it. Exactly the symptom the old comment predicted, caused by the gate
-   * that comment was justifying.
+   * - **Saved** (`PUT /patches` succeeded) was the first. The bytes are in the
+   *   patch store then, and at no published URL -- so a gallery upload rendered
+   *   for the second before its write came back, and then broke.
+   * - **Committed** (`appliedAt`, or published by this client) was the second.
+   *   In `fs` mode a commit writes the bytes into `public/` and the dev server
+   *   serves them at once, so there it held. Everywhere a build has to run first
+   *   -- a managed project, or a repository whose host has not deployed -- the
+   *   file is in the commit and in no build: the Studio switched to `/val/...`
+   *   the moment Publish was pressed, the site answered that with its HTML, and
+   *   the image was broken for the whole publish, and after a reload in it.
    *
-   * `appliedAt` is the honest test, and the type says why: a published patch
-   * stays in the chain in `http` mode, so "is it in the chain" and "has it
-   * shipped" are different questions. A patch that has shipped has its bytes at
-   * the committed path and must NOT carry a `patch_id` — that one really would
-   * point at a patch that may already have been collected.
+   * What is true for exactly as long as the published URL is not: the patch is
+   * still in the chain. A published patch stays there in `http` mode until a
+   * deployment moves the base -- that is how the TEXT of the same edit stays on
+   * screen through a publish -- and a file should follow the same rule as the
+   * text it was saved with. In `fs` mode `forgetPublished` takes a published
+   * patch out of the chain in the same step, so nothing there changes.
+   *
+   * Nor is the bytes' lifetime a problem: the content service releases a
+   * patch's files a day after its commit's deployment succeeded, and by then
+   * the base has moved and the patch is out of the chain.
    *
    * Reference-stable across an unchanged chain, because this is a
    * `useSyncExternalStore` snapshot. Memoised on {@link chainVersion} rather
@@ -1948,13 +2252,11 @@ export class PatchStore {
     for (const patchId of this.ordered) {
       const record = this.dataById.get(patchId);
       if (record === undefined) continue;
-      // Shipped: the bytes are at the committed path now. Either the server
-      // told us (`appliedAt`, on a fetched record) or we published it ourselves.
-      if (record.appliedAt || this.publishedIds.has(patchId)) continue;
+      // Committed or not: still in the chain means no deployment serves it yet.
       for (const op of record.patch) {
         if (op.op === "file") {
-          // Later wins: if two unpublished patches touch one file, the newest is
-          // the one whose bytes a read should serve.
+          // Later wins: if two patches in the chain touch one file, the newest
+          // is the one whose bytes a read should serve.
           map.set(op.filePath, patchId);
         }
       }

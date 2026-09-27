@@ -29,7 +29,11 @@
  */
 
 import type { PublishArtifact } from "@valbuild/tanstack-build";
-import type { DeclareBody, PublishProblem } from "@valbuild/shared/internal";
+import {
+  parseProblems,
+  type DeclareBody,
+  type PublishProblem,
+} from "@valbuild/shared/internal";
 import {
   StudioPublishClient,
   StudioPublishError,
@@ -202,10 +206,19 @@ export async function runStudioPublish(args: {
         error instanceof StudioPublishError || error instanceof Error
           ? error.message
           : String(error),
+      /*
+       * Content refuses with `{ statusCode, message, details }`, and the
+       * publish routes put EVERY problem in `details`. Without them the editor
+       * reads "This publish cannot be declared" and nothing about why.
+       */
       problems:
-        error instanceof StudioPublishError && Array.isArray(error.body)
-          ? []
-          : [],
+        error instanceof StudioPublishError ? problemsOf(error.body) : [],
     };
   }
 }
+
+/** The problems a refusal carries, or none when its body names none. */
+const problemsOf = (body: unknown): PublishProblem[] =>
+  typeof body === "object" && body !== null && "details" in body
+    ? parseProblems(body.details)
+    : [];

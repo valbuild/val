@@ -36,10 +36,11 @@ import {
  * `PatchSync` splits a refused write in two, and the split is the whole
  * difference: a 409 is `conflict`, which re-syncs and retries; anything else is
  * `rejected`, which is permanent, so the patch is dropped and the field reverts.
- * The content service answers a parent it does not have with `Parent patch not
- * found` and a status that is not 409, so a stale parent lands on the
- * destroying side of that split. The mock answers the same way — see
- * `savePatch` in `e2e/mock-content-host/server.ts`.
+ * The content service answered a parent it does not have with `Parent patch
+ * not found` and a status that is not 409, so a stale parent landed on the
+ * destroying side of that split. It answers 409 now, but a service deployed
+ * before that still does not, so the mock keeps the old answer — see `savePatch`
+ * in `e2e/mock-content-host/server.ts`.
  */
 
 const MODULE = "/content/authors.val.ts";

@@ -1,5 +1,103 @@
 # @valbuild/tanstack
 
+## 0.136.10
+
+### Patch Changes
+
+- Updated dependencies [[`fef29b0`](https://github.com/valbuild/val/commit/fef29b0d9e826e4e7e63a3ae61553137a3f9d280)]:
+  - @valbuild/ui@0.136.10
+  - @valbuild/server@0.136.10
+  - @valbuild/shared@0.136.10
+  - @valbuild/mcp@0.136.10
+  - @valbuild/react@0.136.10
+  - @valbuild/language-server@0.136.10
+
+## 0.136.9
+
+### Patch Changes
+
+- Updated dependencies [[`c2bd7e7`](https://github.com/valbuild/val/commit/c2bd7e7e537f00a269a54b72274fe5efb81c0ae9)]:
+  - @valbuild/ui@0.136.9
+  - @valbuild/react@0.136.9
+  - @valbuild/server@0.136.9
+  - @valbuild/language-server@0.136.9
+  - @valbuild/mcp@0.136.9
+
+## 0.136.8
+
+### Patch Changes
+
+- Updated dependencies [[`35577be`](https://github.com/valbuild/val/commit/35577be50981fec35fc27ee9435a092a26909395)]:
+  - @valbuild/core@0.136.8
+  - @valbuild/ui@0.136.8
+  - @valbuild/language-server@0.136.8
+  - @valbuild/mcp@0.136.8
+  - @valbuild/react@0.136.8
+  - @valbuild/server@0.136.8
+  - @valbuild/shared@0.136.8
+
+## 0.136.7
+
+### Patch Changes
+
+- Updated dependencies [[`5f7a4a5`](https://github.com/valbuild/val/commit/5f7a4a5f86dfe4581fbfb402059bba70e029afdc)]:
+  - @valbuild/ui@0.136.7
+  - @valbuild/react@0.136.7
+  - @valbuild/server@0.136.7
+  - @valbuild/language-server@0.136.7
+  - @valbuild/mcp@0.136.7
+
+## 0.136.6
+
+### Patch Changes
+
+- Updated dependencies [[`562713a`](https://github.com/valbuild/val/commit/562713a2e972e603abb43259f40ccfbf06990fe5)]:
+  - @valbuild/ui@0.136.6
+  - @valbuild/react@0.136.6
+  - @valbuild/server@0.136.6
+  - @valbuild/language-server@0.136.6
+  - @valbuild/mcp@0.136.6
+
+## 0.136.5
+
+### Patch Changes
+
+- Updated dependencies [[`28a71c3`](https://github.com/valbuild/val/commit/28a71c3beb40d15d628b99959c5161cee09d1871)]:
+  - @valbuild/ui@0.136.5
+  - @valbuild/react@0.136.5
+  - @valbuild/server@0.136.5
+  - @valbuild/language-server@0.136.5
+  - @valbuild/mcp@0.136.5
+
+## 0.136.4
+
+### Patch Changes
+
+- Updated dependencies [[`d19b1f6`](https://github.com/valbuild/val/commit/d19b1f67360b057e63536ac020f7109bd2496389)]:
+  - @valbuild/ui@0.136.4
+  - @valbuild/react@0.136.4
+  - @valbuild/server@0.136.4
+  - @valbuild/language-server@0.136.4
+  - @valbuild/mcp@0.136.4
+
+## 0.136.3
+
+### Patch Changes
+
+- [#726](https://github.com/valbuild/val/pull/726) [`3b19534`](https://github.com/valbuild/val/commit/3b19534bb7aa16452a104906d9594083c3bc3e89) Thanks [@freekh](https://github.com/freekh)! - A Studio publish of a project with no repository now ships every edit that was saved, and keeps the site styled.
+
+  - A host that embeds the project's source can hand it to Val as `projectSource` (`initValServer(..., { http: { projectSource } })`). A publish then patches that text, not text fetched from the content service at a commit, which a project with no repository does not have. The build platform's wiring passes the build's own source, so `.val.ts` can be rendered for a project made on `/new`. Before, its first save produced no files, and the build that followed carried none of the save's edits.
+  - New route `GET /api/val/built-source`: the `.val.ts` text of every module changed since the running build, with every commit since it applied. The Studio builds from it, so an edit whose own publish failed, and a Finish publishing, are no longer left out of the next build.
+  - A Studio build that compiles no stylesheet (a browser cannot run Tailwind `@plugin`s) keeps the live site's. A Studio save never changes a stylesheet or a component, so the live CSS is still the right one.
+
+- Updated dependencies [[`38d24f7`](https://github.com/valbuild/val/commit/38d24f723639ee109d1007854507c4571bc82575), [`3b19534`](https://github.com/valbuild/val/commit/3b19534bb7aa16452a104906d9594083c3bc3e89), [`fa28164`](https://github.com/valbuild/val/commit/fa28164dfd1e05ff53eccf375334741d857fd2ef)]:
+  - @valbuild/ui@0.136.3
+  - @valbuild/server@0.136.3
+  - @valbuild/shared@0.136.3
+  - @valbuild/react@0.136.3
+  - @valbuild/language-server@0.136.3
+  - @valbuild/mcp@0.136.3
+
 ## 0.136.2
 
 ### Patch Changes

@@ -1,6 +1,10 @@
 import type { PublishArtifact } from "@valbuild/tanstack-build";
 import type { DeclareBody } from "@valbuild/shared/internal";
-import { StudioPublishClient, StudioUploadError } from "./publishClient";
+import {
+  StudioPublishClient,
+  StudioPublishError,
+  StudioUploadError,
+} from "./publishClient";
 import { PublishPhase, runStudioPublish } from "./runStudioPublish";
 
 /**
@@ -271,6 +275,34 @@ describe("when something goes wrong", () => {
       publishId: null,
       message: "content is unreachable",
       problems: [],
+    });
+  });
+
+  test("a refused declaration carries content's reasons", async () => {
+    // Content answers a bad declaration with every problem in `details`. The
+    // headline alone ("cannot be declared") is a message nobody can act on.
+    const problems = [
+      {
+        code: "COMMIT_INVALID",
+        message: "commit must be a git sha, a content commit sha, or null.",
+      },
+    ];
+    const { result } = await run(
+      client({
+        declare: async () => {
+          throw new StudioPublishError(400, "This publish cannot be declared", {
+            statusCode: 400,
+            message: "This publish cannot be declared",
+            details: problems,
+          });
+        },
+      }),
+    );
+    expect(result).toEqual({
+      status: "failed",
+      publishId: null,
+      message: "This publish cannot be declared",
+      problems,
     });
   });
 });

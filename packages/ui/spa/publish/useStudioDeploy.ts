@@ -24,7 +24,12 @@
 
 import { useCallback, useRef, useState } from "react";
 import { createStudioPublishClient } from "./publishClient";
-import { fetchPublicFile } from "./fetchPublicFile";
+import {
+  fetchBuiltSource,
+  fetchLiveStylesheet,
+  fetchPublicFile,
+  waitUntilServed,
+} from "./fetchPublicFile";
 import { loadBuilder, routeTreeGenerator } from "./loadBuilder";
 import {
   CommittedBinaryFiles,
@@ -33,10 +38,37 @@ import {
   runStudioDeploy,
 } from "./runStudioDeploy";
 
+/** How long one step of a publish took. */
+export type DeployStep = { kind: DeployPhase["kind"]; ms: number };
+
 export type StudioDeployState =
   | { status: "idle" }
-  | { status: "running"; phase: DeployPhase }
-  | { status: "done"; result: StudioDeployResult };
+  | {
+      status: "running";
+      phase: DeployPhase;
+      /** `Date.now()` when the publish, and when this step, began. */
+      startedAt: number;
+      phaseStartedAt: number;
+      /** The steps finished so far, in order. */
+      steps?: DeployStep[];
+      /** The commit being published, so the deploy list can show it on its row. */
+      commit: string | null;
+    }
+  | {
+      status: "done";
+      result: StudioDeployResult;
+      /** The whole publish, and each step of it, in order. */
+      ms: number;
+      steps: DeployStep[];
+      /** The step it stopped at, when it failed. */
+      failedAt?: DeployPhase["kind"] | null;
+      /**
+       * The commit it published. A live one is a commit this Studio has seen
+       * the site serve, the same as `/stat` reporting it -- which, polled as
+       * rarely as it is in http mode, could otherwise be many minutes away.
+       */
+      commit: string | null;
+    };
 
 export interface UseStudioDeploy {
   state: StudioDeployState;
@@ -57,8 +89,14 @@ export interface UseStudioDeploy {
       binaryFiles: CommittedBinaryFiles | null;
       branch: string | null;
     } | null,
-  ) => Promise<StudioDeployResult>;
+  ) => Promise<StudioDeployOutcome>;
 }
+
+/** What a deploy did, and -- when it failed -- the step it failed at. */
+export type StudioDeployOutcome = {
+  result: StudioDeployResult;
+  failedAt: DeployPhase["kind"] | null;
+};
 
 const ALREADY_RUNNING: StudioDeployResult = {
   status: "failed",
@@ -81,10 +119,43 @@ export function useStudioDeploy(options?: {
   const deploy = useCallback<UseStudioDeploy["deploy"]>(
     async (commit, committedFiles, details) => {
       if (running.current) {
-        return ALREADY_RUNNING;
+        return { result: ALREADY_RUNNING, failedAt: null };
       }
       running.current = true;
-      setState({ status: "running", phase: { kind: "getting-ready" } });
+      const startedAt = Date.now();
+      const steps: DeployStep[] = [];
+      let current: { phase: DeployPhase; at: number } = {
+        phase: { kind: "getting-ready" },
+        at: startedAt,
+      };
+      /*
+       * One entry per step, however many times it reports: `uploading`
+       * reports once per file, and the time is the step's, not the file's.
+       */
+      const enter = (phase: DeployPhase) => {
+        const now = Date.now();
+        if (phase.kind !== current.phase.kind) {
+          steps.push({ kind: current.phase.kind, ms: now - current.at });
+          current = { phase, at: now };
+        } else {
+          current = { phase, at: current.at };
+        }
+        setState({
+          status: "running",
+          phase,
+          startedAt,
+          phaseStartedAt: current.at,
+          steps: [...steps],
+          commit,
+        });
+      };
+      setState({
+        status: "running",
+        phase: current.phase,
+        startedAt,
+        phaseStartedAt: startedAt,
+        commit,
+      });
       /*
        * Read once per deploy, not per use: whether a deployment has injected
        * one is settled when the publish starts, so a page cannot build half a
@@ -99,12 +170,30 @@ export function useStudioDeploy(options?: {
           committedBinaryFiles: details?.binaryFiles ?? null,
           branch: details?.branch ?? null,
           fetchPublicFile: (path) => fetchPublicFile(path),
+          builtSource: () => fetchBuiltSource(api),
+          liveStylesheet: () => fetchLiveStylesheet(),
+          waitUntilServed: (buildHash) => waitUntilServed(buildHash),
           loadBuilder,
           ...(generateRouteTree !== null ? { generateRouteTree } : {}),
-          onPhase: (phase) => setState({ status: "running", phase }),
+          onPhase: enter,
         });
-        setState({ status: "done", result });
-        return result;
+        const now = Date.now();
+        steps.push({ kind: current.phase.kind, ms: now - current.at });
+        const ms = now - startedAt;
+        /*
+         * In the console as well as on screen, so a slow publish can be
+         * reported with the step that was slow rather than as "it took ages".
+         */
+        console.info(
+          `Val: publish ${result.status} in ${(ms / 1000).toFixed(1)}s -- ` +
+            steps
+              .map((step) => `${step.kind} ${(step.ms / 1000).toFixed(1)}s`)
+              .join(", "),
+        );
+        // The step that was current when it returned is the one that failed.
+        const failedAt = result.status === "failed" ? current.phase.kind : null;
+        setState({ status: "done", result, ms, steps, commit, failedAt });
+        return { result, failedAt };
       } finally {
         running.current = false;
       }

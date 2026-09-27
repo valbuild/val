@@ -140,6 +140,18 @@ type ValServerOverrides = Partial<{
    */
   gitBranch?: string;
   /**
+   * The project's own source files, by path with no leading slash, as the
+   * RUNNING build was made from them.
+   *
+   * Where a publish reads the `.val.ts` text it patches. Without it that text
+   * is fetched from the content service at {@link gitCommit}, which only a
+   * project with a repository has -- so a project whose content service is the
+   * store of record could not produce `.val.ts` at all, and a build made after
+   * a save carried none of the save's edits. A host that builds the project
+   * itself embeds its source in the build and hands it over here.
+   */
+  projectSource?: Record<string, string>;
+  /**
    * The base url of Val.
    *
    * Typically this should not be set.

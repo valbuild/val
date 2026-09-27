@@ -319,6 +319,9 @@ export async function initHandlerOptions(
         ? { git: { commit: maybeGitCommit, branch: maybeGitBranch } }
         : {}),
       root: opts.root,
+      ...(opts.projectSource !== undefined
+        ? { projectSource: opts.projectSource }
+        : {}),
       project: maybeValProject,
       valEnableRedirectUrl,
       valDisableRedirectUrl,
@@ -394,6 +397,9 @@ export function createValOps(
         formatter: options.formatter,
         root: options.root,
         config: options.config,
+        ...(options.projectSource !== undefined
+          ? { projectSource: options.projectSource }
+          : {}),
       },
     );
   }

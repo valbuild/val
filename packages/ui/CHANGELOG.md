@@ -1,5 +1,82 @@
 # @valbuild/ui
 
+## 0.136.10
+
+### Patch Changes
+
+- [#743](https://github.com/valbuild/val/pull/743) [`fef29b0`](https://github.com/valbuild/val/commit/fef29b0d9e826e4e7e63a3ae61553137a3f9d280) Thanks [@freekh](https://github.com/freekh)! - Saving no longer gets stuck on "Changes cannot be saved: something else keeps changing them first" when another editor has an unpublished change and later work has been published.
+
+  A new change is now written on top of the latest change the content service has registered, which it reports alongside the list of pending changes, instead of the last change this deployment was shown. Since changes can be published independently, those two can differ for good: an unpublished change can sit before published ones that the running deployment already contains. The Studio and the MCP tools both name the reported head, and fall back to the old behaviour against a content service that does not report one.
+
+## 0.136.9
+
+### Patch Changes
+
+- [#730](https://github.com/valbuild/val/pull/730) [`c2bd7e7`](https://github.com/valbuild/val/commit/c2bd7e7e537f00a269a54b72274fe5efb81c0ae9) Thanks [@freekh](https://github.com/freekh)! - Changing a field back to its old value after publishing no longer disables Publish. Between a publish and the deploy that follows it, the Studio compared edits against the deployed content rather than what had just been published, so changing "Old Value" to "New Value", publishing, and then changing it back to "Old Value" was treated as "no changes" even though publishing would change the field.
+
+## 0.136.8
+
+### Patch Changes
+
+- [#737](https://github.com/valbuild/val/pull/737) [`35577be`](https://github.com/valbuild/val/commit/35577be50981fec35fc27ee9435a092a26909395) Thanks [@freekh](https://github.com/freekh)! - After a publish, the Studio no longer loses edits or applies a list reorder twice while the new build is rolling out.
+
+  The Studio shows the content built into the page it loaded, with the unpublished changes on top. Which changes those are comes from the server, and the server lists them relative to its own build. For a while after a publish the two can be different builds: a tab opened before the publish keeps its page, and a managed project's new build reaches each location up to a minute apart. The Studio then applied one build's list of changes to another build's content. Published edits went missing, or were applied a second time, which is invisible for a text replacement but reorders a list again, or removes the wrong item.
+
+  The server already says which build answered (`sourcesSha`), and the Studio now computes the same fingerprint for the content it holds. When the two differ, it fetches the answering build's content and puts it in place together with that build's list of changes, in one step, so nothing on screen shows a half-updated state. Going back to its own build needs no fetch. When they match, which is almost always, nothing extra is requested.
+
+## 0.136.7
+
+### Patch Changes
+
+- [#735](https://github.com/valbuild/val/pull/735) [`5f7a4a5`](https://github.com/valbuild/val/commit/5f7a4a5f86dfe4581fbfb402059bba70e029afdc) Thanks [@freekh](https://github.com/freekh)! - Publishing no longer gets stuck at "Building", and a publish from Safari or an iPhone keeps the edit it was made for.
+
+  - **The site builder runs in a Web Worker.** It ran on the page, and rolldown's threaded WebAssembly sometimes has to wait for one of its own threads, which a page is not allowed to do. The build then stopped with no error and "Building" spun forever. How often depended on timing, and it happened in every browser, most visibly on iPhones. In a worker the same builds finish every time. If a build ever does stop answering, the publish now fails after five minutes with a message, instead of spinning.
+  - **The builder tab builds from the files the save wrote,** as a publish built in the Studio does. It used to rely on reading the project's current source back from the site, so a publish from Safari could go live without the edit it was made for.
+
+## 0.136.6
+
+### Patch Changes
+
+- [#733](https://github.com/valbuild/val/pull/733) [`562713a`](https://github.com/valbuild/val/commit/562713a2e972e603abb43259f40ccfbf06990fe5) Thanks [@freekh](https://github.com/freekh)! - Publishing works in Safari and on iPhone, and a failed publish says what happened in plain words.
+
+  - **Safari and iOS can publish.** WebKit does not support the header that lets the Studio build in place (`Cross-Origin-Embedder-Policy: credentialless`), so a Studio in Safari, or in any browser on an iPhone, could not build at all. Its Publish, and Finish publishing, now hand the build to a small builder tab. The Val platform isolates that tab in every browser, and it closes itself once the change is live. Chrome, Edge and Firefox still build in place and open no tab.
+  - **A failed publish leads with a sentence,** such as "This browser cannot build the site, so it could not be published from here", with the technical message under **Details**. This applies to the Studio's error, the builder tab and the overlay's card.
+
+## 0.136.5
+
+### Patch Changes
+
+- [#731](https://github.com/valbuild/val/pull/731) [`28a71c3`](https://github.com/valbuild/val/commit/28a71c3beb40d15d628b99959c5161cee09d1871) Thanks [@freekh](https://github.com/freekh)! - The Studio's publish shows how far it has got and what it cost, and a new image no longer disappears while it is being published.
+
+  - **An uploaded image stays visible through its publish.** Pressing Publish used to switch a new image to its published URL at once, before any build had it, so it showed as broken (and stayed broken across a reload) until the build went live. It is now served from the saved change until a deployment serves it, the same way the text of the edit is.
+  - **Publishing N%** replaces the separate progress line in the status bar while a publish runs, and goes away when it is done.
+  - **"Live"** once a publish is out (was "Deployed"), and a publish that went live from this browser is shown as live straight away instead of reading "Saved, not yet live" until the next status check.
+  - **The deployments list** shows the step and percentage of a running publish, and how long each step took once it is live.
+
+## 0.136.4
+
+### Patch Changes
+
+- [#727](https://github.com/valbuild/val/pull/727) [`d19b1f6`](https://github.com/valbuild/val/commit/d19b1f67360b057e63536ac020f7109bd2496389) Thanks [@freekh](https://github.com/freekh)! - Publishing now says how far it has got, and works from the overlay.
+
+  - **Progress.** A publish built in the Studio shows the step it is on and how long it has run, in the status bar: loading the builder, building, uploading _n of m_, checking the site renders, going live. After it goes live the Studio waits until the site actually serves the new build where you are, and only then says "Live after 42s". A Cloudflare location can serve the previous build for up to a minute. Each publish also logs its steps and their durations to the browser console.
+  - **Publishing from the overlay.** A page of the site cannot build: the bundler needs a cross-origin isolated document, and only the Studio is one. So the overlay's Publish, after you write the message, opens a Studio tab that builds and publishes the commit. A card on the page follows it to "Live after 42s". Before, a publish from the overlay was committed and then stayed at "deploying". If the browser blocks the tab, the card offers it as a button; nothing is lost.
+  - The overlay's Publish button is round, the size of the buttons beside it.
+
+## 0.136.3
+
+### Patch Changes
+
+- [#719](https://github.com/valbuild/val/pull/719) [`38d24f7`](https://github.com/valbuild/val/commit/38d24f723639ee109d1007854507c4571bc82575) Thanks [@freekh](https://github.com/freekh)! - A literal field in an object, such as `type: s.literal("bento-box")`, now shows its value in the Studio as a read-only text field. Before, it showed the error "Literal fields are not editable".
+
+- [#726](https://github.com/valbuild/val/pull/726) [`3b19534`](https://github.com/valbuild/val/commit/3b19534bb7aa16452a104906d9594083c3bc3e89) Thanks [@freekh](https://github.com/freekh)! - A Studio publish of a project with no repository now ships every edit that was saved, and keeps the site styled.
+
+  - A host that embeds the project's source can hand it to Val as `projectSource` (`initValServer(..., { http: { projectSource } })`). A publish then patches that text, not text fetched from the content service at a commit, which a project with no repository does not have. The build platform's wiring passes the build's own source, so `.val.ts` can be rendered for a project made on `/new`. Before, its first save produced no files, and the build that followed carried none of the save's edits.
+  - New route `GET /api/val/built-source`: the `.val.ts` text of every module changed since the running build, with every commit since it applied. The Studio builds from it, so an edit whose own publish failed, and a Finish publishing, are no longer left out of the next build.
+  - A Studio build that compiles no stylesheet (a browser cannot run Tailwind `@plugin`s) keeps the live site's. A Studio save never changes a stylesheet or a component, so the live CSS is still the right one.
+
+- [#725](https://github.com/valbuild/val/pull/725) [`fa28164`](https://github.com/valbuild/val/commit/fa28164dfd1e05ff53eccf375334741d857fd2ef) Thanks [@freekh](https://github.com/freekh)! - When content refuses a Studio publish, the error now lists content's reasons, one line per problem (for example `COMMIT_INVALID: …`), instead of only "This publish cannot be declared".
+
 ## 0.136.2
 
 ### Patch Changes

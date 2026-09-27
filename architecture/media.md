@@ -192,20 +192,32 @@ carries a SHA-256.
 
 Two states, and conflating them is the recurring bug:
 
-| state                                         | where the bytes are | URL                                    |
-| --------------------------------------------- | ------------------- | -------------------------------------- |
-| unpublished (created, or saved to the server) | the patch directory | `/api/val/files{path}?patch_id=…`      |
-| published                                     | the committed path  | `/public/x/y.png` served as `/x/y.png` |
+| state                                                     | where the bytes are  | URL                                    |
+| --------------------------------------------------------- | -------------------- | -------------------------------------- |
+| not served yet (created, saved, or committed and unbuilt) | the patch store      | `/api/val/files{path}?patch_id=…`      |
+| served by a deployment                                    | the site's `/public` | `/public/x/y.png` served as `/x/y.png` |
 
 `Internal.mediaUrl` is the one implementation of that rule — it was two functions
 (`convertFileSource` / `convertRemoteSource`) split by a marker rather than by
 anything about the answer.
 
-`filePatchIds` is the map that decides, and its gate must be **`appliedAt`** — has
-this patch _shipped_ — not pending-vs-saved. "Saved" only means `PUT /patches`
-succeeded; only `/save` writes the committed path. **Every pending edit sits
-between those two**, so gating on "unsaved" makes a just-uploaded image render
-broken the moment its write comes back.
+`filePatchIds` is the map that decides, and its gate is **is the patch still in
+the chain** — the same rule the edit's text follows. It has been got wrong twice,
+each time by asking a question whose answer arrives before the file is at its
+published URL:
+
+- **saved** (`PUT /patches` succeeded): the bytes are in the patch store and at no
+  published URL, so a just-uploaded image broke the moment its write came back;
+- **committed** (`appliedAt`, or published by this client): true in `fs` mode,
+  where `/save` writes `public/` and the dev server serves it at once, and false
+  everywhere a build runs first. On a managed project the image vanished the
+  moment Publish was pressed, stayed gone across a reload, and came back when the
+  build went live.
+
+A committed patch stays in the chain in `http` mode until a deployment moves the
+base, and in `fs` mode `forgetPublished` removes it in the same step, so the
+chain is the one test that is right in both. The bytes outlive it: the content
+service releases a patch's files a day after its commit's deployment succeeded.
 
 > `next dev` answers an uncommitted `/public` path with the app's HTML, so a
 > broken tile still returns **200** with a `src` that looks right. Only decoding

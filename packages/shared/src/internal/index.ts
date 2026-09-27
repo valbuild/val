@@ -11,6 +11,7 @@ export * from "./ValUrls";
 export * from "./ApiRoutes";
 export * from "./schema/compatibility";
 export * from "./newestCommitSha";
+export * from "./chainHead";
 export * from "./zod/Patch";
 export * from "./sessionStorage";
 export * from "./SharedValConfig";
