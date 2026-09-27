@@ -673,10 +673,20 @@ export class PatchStore {
     for (const patchId of missing) {
       this.inFlight.set(patchId, settled);
     }
-    const res = await this.fetchPatches(missing).catch((error: unknown) => {
-      this.releaseInFlight(missing, settled, settle);
-      throw error;
-    });
+    /*
+     * A request that failed outright is answered like one that came back with
+     * an error: reported, and every id treated as not delivered below, which
+     * takes it out of `fetching` so the next stat asks again. Rejecting left
+     * the ids in `fetching` for good -- skipped as in flight by every later
+     * stat, a hole in the chain from one dropped request -- and the rejection
+     * itself reached nobody, since this runs detached from the stat.
+     */
+    const res = await this.fetchPatches(missing).catch(
+      (error: unknown): Awaited<ReturnType<FetchPatches>> => ({
+        patches: [],
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
     if (res.error !== undefined) {
       this.events.emit({
         type: "patch:fetch-failed",
@@ -845,11 +855,22 @@ export class PatchStore {
         ? Promise.resolve()
         : (() => {
             this.activity.work("patch:fetch", undefined, ask.length);
-            return this.fetchPatches(ask).then((res) => {
-              for (const record of res.patches) {
-                this.staged.set(record.patchId, record);
-              }
-            });
+            return this.fetchPatches(ask).then(
+              (res) => {
+                for (const record of res.patches) {
+                  this.staged.set(record.patchId, record);
+                }
+              },
+              // A request that failed outright stages nothing, which the
+              // completeness check below reports -- rather than rejecting a
+              // preparation nobody is waiting to catch.
+              (error: unknown) => {
+                console.warn("Val: could not fetch changes ahead of a stat", {
+                  patchIds: ask,
+                  error,
+                });
+              },
+            );
           })();
     await Promise.all([...running, fetched]);
     return patchIds.every(

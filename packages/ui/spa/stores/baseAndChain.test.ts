@@ -379,4 +379,46 @@ describe("the swap never rebases onto a chain with a hole in it", () => {
     await settle(system);
     expect(peekKeywords(system)).toEqual([...HEAD_PLUS_PENDING, "y"]);
   });
+
+  test("a fetch that throws is asked for again by the next stat", async () => {
+    let throwOnce = true;
+    const system = studioOnBundle("C2", {
+      fetchPatches: async (patchIds) => {
+        if (throwOnce) {
+          throwOnce = false;
+          throw new Error("the network blinked");
+        }
+        return fetchFromContent(patchIds);
+      },
+    });
+    system.stat.receiveStat(statFor("C2"));
+    await settle(system);
+    system.stat.receiveStat(statFor("C2"));
+    await settle(system);
+    expect(peekKeywords(system)).toEqual(HEAD_PLUS_PENDING);
+  });
+
+  test("a staging fetch that throws holds the stat back instead of losing it", async () => {
+    let throwOnce = true;
+    const failing = studioOnBundle("C2", {
+      fetchPatches: async (patchIds) => {
+        if (throwOnce && patchIds.some((id) => id === "p1")) {
+          throwOnce = false;
+          throw new Error("the network blinked");
+        }
+        return fetchFromContent(patchIds);
+      },
+    });
+    failing.stat.receiveStat(statFor("C2"));
+    await settle(failing);
+    failing.stat.receiveStat(statFor("C0"));
+    await settle(failing);
+    // Held back, not rebased with a hole and not stuck on a rejection.
+    expect(peekKeywords(failing)).toEqual(HEAD_PLUS_PENDING);
+    expect(failing.stat.currentPatchIds()).toEqual(statFor("C2").patches);
+    failing.stat.receiveStat(statFor("C0"));
+    await settle(failing);
+    expect(peekKeywords(failing)).toEqual(HEAD_PLUS_PENDING);
+    expect(failing.stat.currentPatchIds()).toEqual(statFor("C0").patches);
+  });
 });
