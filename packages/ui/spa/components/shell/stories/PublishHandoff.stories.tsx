@@ -73,7 +73,6 @@ function OverlayScene({
               onClose={() => undefined}
               publishDisabled={false}
               isPublishing={false}
-              waitingForAiSeconds={null}
             />
           </OverlayCard>
         ) : (

@@ -21,6 +21,12 @@ export default c.define("/settings.val.ts", s.settings(), {
     radius: "soft",
     mode: "dark",
   },
+  studio: {
+    // The default, spelled out so the showcase has the field. `"required"`
+    // puts a commit message box in front of every publish; either way this
+    // only matters in HTTP mode — local development saves to disk.
+    commitMessage: "automatic",
+  },
   assistant: {
     // Without this the Studio OFFERS the assistant and asks first, which is the
     // right default for a project nobody has decided about — and the wrong one

@@ -1,177 +1,83 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ModuleFilePath } from "@valbuild/core";
-import { Internal } from "@valbuild/core";
 import { usePatchSets, usePublishSummary } from "./ValProvider";
 import { useValSystem } from "../stores/react/SystemContext";
-import { PublishSummaryView, usePublishGrace } from "./PublishSummaryView";
+import { PublishSummaryView } from "./PublishSummaryView";
 import {
-  buildDefaultCommitSummary,
-  resolvePublishText,
+  buildDefaultCommitMessage,
   shouldAutoApplyAiSummary,
 } from "./publish/defaultCommitSummary";
-import {
-  renderChangeDescription,
-  type FieldChange,
-} from "./publish/changeDescription";
+import { renderChangeDescription } from "./publish/changeDescription";
+import { collectFieldChanges } from "./publish/collectFieldChanges";
 import { useCommitSummary } from "../hooks/useCommitSummary";
 import { useAvailableAIModel } from "./ValProvider";
 import { useSessionParam } from "./ValRouter";
 import { useAIChatActions } from "./AIChatActionsContext";
 
-/** A peek answer we cannot describe: still loading, or failed. */
-const UNKNOWN = Symbol("unknown");
-
 /**
- * A peek answer as a value the prompt can carry.
+ * The commit message box, for a project whose settings REQUIRE one.
  *
- * `ready` is its data and `absent` is `undefined` — which is what
- * `describeValue` renders as "(not set)", and the before-value of a field this
- * publish adds. Everything else is genuinely unknown.
- */
-function readPeek(
-  peek:
-    | { status: string; data?: unknown }
-    | { status: "absent" }
-    | { status: string },
-): unknown {
-  if (peek.status === "ready") {
-    return (peek as { data: unknown }).data;
-  }
-  if (peek.status === "absent") {
-    return undefined;
-  }
-  return UNKNOWN;
-}
-
-/**
- * How long publishing waits for an AI summary that is still being written.
+ * Only that project sees it: by default Publish publishes, with a message the
+ * AI writes or one assembled from what changed (`useAutomaticPublish`). So
+ * this box exists for a person to read the message and stand behind it, and
+ * the three things it used to do to get out of their way are gone:
  *
- * Publishing was already asked for, so this is a courtesy, not a gate: it ends
- * either way, and pressing Publish again ends it immediately.
- */
-const PUBLISH_GRACE_SECONDS = 10;
-
-/**
- * The publish summary popover.
+ * - It is not seeded with a default. A box that arrives full can be published
+ *   without reading, which is exactly what "required" is there to prevent. The
+ *   default is the placeholder instead: a hint of what one could say.
+ * - It never publishes on its own. There is no countdown waiting for the AI; a
+ *   person presses Publish, and only when the box has something in it.
+ * - The AI still writes one. It fills the box when it arrives — unless the
+ *   person has started typing, in which case it is offered rather than
+ *   applied — and that is the whole of what it does.
  *
  * Mounting this IS "publish was hit" — the popover only renders when opened —
- * so this is where the AI request starts, and where the box is seeded with a
- * summary that needed no network call.
+ * so this is where the AI request starts.
  */
 export function PublishSummary({
   onPublish,
   onClose,
   onPress,
-  onAbandon,
 }: {
-  /**
-   * Publish, committing exactly this text. Passed rather than read back out of
-   * the summary state: publishing can be fired by the grace period after the
-   * AI summary landed, and a caller reading its own render's copy of the state
-   * would commit the text the box no longer shows.
-   */
+  /** Publish, committing exactly this text. */
   onPublish?: (summary: string) => void;
   onClose: () => void;
   /**
-   * The press that starts a publish, before any countdown. On a page that
-   * cannot build this is where the Studio tab is opened: a browser allows a
-   * tab only in the press itself.
+   * The press that publishes. On a page that cannot build this is where the
+   * Studio tab is opened: a browser allows a tab only in the press itself.
    */
   onPress?: () => void;
-  /** Pressed, and then closed before it published. */
-  onAbandon?: () => void;
 }) {
   const { summary, setSummary, publishDisabled, isPublishing, aiEnabled } =
     usePublishSummary();
-  /*
-   * Pressed, and not yet published: the countdown is running. Whatever the
-   * press prepared -- a Studio tab, on a page that cannot build -- is closed
-   * again if the summary goes away before it publishes.
-   */
-  const prepared = useRef(false);
-  const abandon = useRef(onAbandon);
-  abandon.current = onAbandon;
-  useEffect(
-    () => () => {
-      if (prepared.current) abandon.current?.();
-    },
-    [],
-  );
   const patchSets = usePatchSets();
   const val = useValSystem();
   const availableModel = useAvailableAIModel();
-  // `ai.commitMessages.disabled` in the project's config. It lost its only
-  // reader when the REST path went, so the opt-out silently stopped working.
-  // Gated after the hook, not around it: a conditional hook call would break
-  // the render on the first publish where the config changed.
+  // `ai.commitMessages.disabled` in the project's config. Gated after the
+  // hook, not around it: a conditional hook call would break the render on the
+  // first publish where the config changed.
   const model = aiEnabled ? availableModel : null;
-  const grace = usePublishGrace(PUBLISH_GRACE_SECONDS);
   const { setSessionParam } = useSessionParam();
   const { openAIChat } = useAIChatActions();
   const ai = useCommitSummary(model);
 
-  const changedModules = useMemo<ModuleFilePath[]>(
+  const defaultMessage = useMemo(
     () =>
-      patchSets.status === "success"
-        ? patchSets.data.map((patchSet) => patchSet.moduleFilePath)
-        : [],
+      buildDefaultCommitMessage(
+        patchSets.status === "success" ? patchSets.data : [],
+      ),
     [patchSets],
-  );
-  const defaultSummary = useMemo(
-    () => buildDefaultCommitSummary(changedModules),
-    [changedModules],
   );
 
   const value = "text" in summary ? summary.text : "";
 
-  // Fill the box before anything else happens. An empty publish box is the one
-  // state this flow must never be in, because it disables Publish.
-  //
-  // Ref-guarded rather than keyed off `value`: seeding must happen once, and
-  // re-running as the box changes would put the default back the moment the
-  // user cleared it to write their own.
-  const seededRef = useRef(false);
-  useEffect(() => {
-    if (seededRef.current) {
-      return;
-    }
-    seededRef.current = true;
-    if (value.trim() === "") {
-      setSummary({ type: "manual", text: defaultSummary });
-    }
-  }, [defaultSummary, value, setSummary]);
-
-  // Start the AI when the popover opens, and never block on it. The changes go
-  // in the prompt as field paths with before/after values — cheaper than a
-  // source diff, and the material a summary actually needs.
+  // Start the AI when the popover opens. The changes go in the prompt as field
+  // paths with before/after values — cheaper than a source diff, and the
+  // material a summary actually needs.
   useEffect(() => {
     if (val === null || patchSets.status !== "success") {
       return;
     }
-    const store = val.system.sourceStore;
-    const changes: FieldChange[] = [];
-    for (const patchSet of patchSets.data) {
-      const sourcePath = Internal.joinModuleFilePathAndModulePath(
-        patchSet.moduleFilePath,
-        Internal.patchPathToModulePath(patchSet.patchPath),
-      );
-      const after = readPeek(store.peek(sourcePath));
-      const before = readPeek(store.peekBase(sourcePath));
-      // A value still loading is unknown, not unchanged, and saying "unchanged"
-      // would hide a real change. `absent` is not that: it is a definite answer,
-      // and the answer an added or deleted field has on one side.
-      if (after === UNKNOWN || before === UNKNOWN) {
-        continue;
-      }
-      changes.push({
-        sourcePath,
-        moduleFilePath: patchSet.moduleFilePath,
-        fieldPath: patchSet.patchPath.join("."),
-        schemaType: patchSet.schemaTypes[0],
-        before,
-        after,
-      });
-    }
+    const changes = collectFieldChanges(patchSets.data, val.system.sourceStore);
     // Nothing readable to describe. Sending "No changes." would spend the
     // user's own key to be told what we already know, and then apply the reply.
     if (changes.length === 0) {
@@ -189,6 +95,10 @@ export function PublishSummary({
   // decision reads off the box as it is now, not as it was when the request was
   // made. It happens at most once — one arrival, one chance to take over, and
   // after that the suggestion is offered rather than applied.
+  //
+  // The untouched box is the EMPTY one now, so that is what it may replace. A
+  // box restored with text from an earlier visit is somebody's words, and is
+  // left alone.
   const [hasEdited, setHasEdited] = useState(false);
   const appliedRef = useRef(false);
   useEffect(() => {
@@ -200,62 +110,21 @@ export function PublishSummary({
       shouldAutoApplyAiSummary({
         hasEdited,
         currentValue: value,
-        defaultSummary,
+        defaultSummary: "",
       })
     ) {
       setSummary({ type: "ai", text: ai.state.text });
     }
-  }, [ai.state, hasEdited, value, defaultSummary, setSummary]);
-
-  // The countdown exists to give the summary a chance to arrive. Once it has —
-  // or has failed — there is nothing left to wait for, so go.
-  const { isWaiting, skip } = grace;
-  useEffect(() => {
-    if (!isWaiting) {
-      return;
-    }
-    if (ai.state.status === "ready" || ai.state.status === "failed") {
-      skip();
-    }
-  }, [ai.state.status, isWaiting, skip]);
-
-  // Written on every render, read by callbacks that outlive the render that
-  // made them. The grace period holds the `publishNow` from the press that
-  // started it, and the whole point of the countdown is that the AI summary
-  // arrives after that — so the values that decide what gets committed cannot
-  // come from that closure.
-  const latest = useRef({
-    value,
-    hasEdited,
-    defaultSummary,
-    aiState: ai.state,
-  });
-  latest.current = { value, hasEdited, defaultSummary, aiState: ai.state };
-
-  const publishNow = () => {
-    const current = latest.current;
-    const text = resolvePublishText({
-      hasEdited: current.hasEdited,
-      currentValue: current.value,
-      defaultSummary: current.defaultSummary,
-      aiText: current.aiState.status === "ready" ? current.aiState.text : null,
-    });
-    // The box has not necessarily re-rendered with the summary that is about to
-    // be committed — the effect that applies it and this one fire in the same
-    // flush. Setting it keeps the two in agreement, which matters if the
-    // publish fails and the user is left looking at what was sent.
-    if (text !== current.value) {
-      setSummary({ type: "ai", text });
-    }
-    // Publishing means nobody is going to read the summary session any more.
-    ai.cancel();
-    prepared.current = false;
-    onPublish?.(text);
-  };
+  }, [ai.state, hasEdited, value, setSummary]);
 
   return (
     <PublishSummaryView
       value={value}
+      placeholder={
+        ai.state.status === "loading"
+          ? "Writing a commit message with AI…"
+          : `Describe your changes. For example: ${defaultMessage.split("\n")[0]}`
+      }
       onChange={(next) => {
         setHasEdited(true);
         setSummary({ type: "manual", text: next });
@@ -289,42 +158,24 @@ export function PublishSummary({
           : undefined
       }
       onPublish={() => {
-        // A second press during the countdown skips the rest of it.
-        if (grace.isWaiting) {
-          grace.skip();
+        const text = value.trim();
+        // The button is disabled on an empty box; this is the same rule for
+        // anything that calls it another way.
+        if (text === "") {
           return;
         }
-        // In the press, before any wait: see `onPress`.
+        // In the press: see `onPress`.
         onPress?.();
-        prepared.current = true;
-        // Only worth waiting for if it could still change the text: someone who
-        // wrote their own summary is not waiting on a suggestion they will not
-        // get.
-        const couldStillHelp =
-          ai.state.status === "loading" &&
-          shouldAutoApplyAiSummary({
-            hasEdited,
-            currentValue: value,
-            defaultSummary,
-          });
-        if (couldStillHelp) {
-          grace.start(publishNow);
-          return;
-        }
-        publishNow();
+        // Publishing means nobody is going to read the summary session any more.
+        ai.cancel();
+        onPublish?.(text);
       }}
       onClose={() => {
-        grace.cancel();
         ai.cancel();
-        if (prepared.current) {
-          prepared.current = false;
-          onAbandon?.();
-        }
         onClose();
       }}
       publishDisabled={publishDisabled}
       isPublishing={isPublishing}
-      waitingForAiSeconds={grace.remaining}
     />
   );
 }

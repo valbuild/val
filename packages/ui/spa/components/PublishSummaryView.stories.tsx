@@ -4,14 +4,16 @@ import { fn } from "storybook/test";
 import { PublishSummaryView } from "./PublishSummaryView";
 import type { AiSummaryState } from "./PublishSummaryView";
 import {
-  buildDefaultCommitSummary,
+  buildDefaultCommitMessage,
   shouldAutoApplyAiSummary,
 } from "./publish/defaultCommitSummary";
 
-const DEFAULT_SUMMARY = buildDefaultCommitSummary([
-  "/content/home.val.ts",
-  "/content/blogs/page.val.ts",
-]);
+/** What the placeholder suggests: the message nobody wrote. */
+const PLACEHOLDER = `Describe your changes. For example: ${
+  buildDefaultCommitMessage([
+    { moduleFilePath: "/content/home.val.ts", patchPath: ["hero", "title"] },
+  ]).split("\n")[0]
+}`;
 
 const AI_SUMMARY =
   "Rewrite the hero heading and add a third blog post\n\n" +
@@ -30,7 +32,7 @@ const meta: Meta<typeof PublishSummaryView> = {
     onClose: fn(),
     publishDisabled: false,
     isPublishing: false,
-    waitingForAiSeconds: null,
+    placeholder: PLACEHOLDER,
   },
   decorators: [
     (Story) => (
@@ -46,24 +48,26 @@ export default meta;
 type Story = StoryObj<typeof PublishSummaryView>;
 
 /**
- * No AI configured at all. This is the baseline the whole flow is measured
- * against: a summary is already written, the box is editable, publish is live.
+ * No AI configured at all. The box starts empty — the project requires a
+ * message, so one that arrived filled in could be published unread — and
+ * Publish waits for the reader to write one.
  */
 export const NoAiConfigured: Story = {
   args: {
-    value: DEFAULT_SUMMARY,
+    value: "",
     ai: { status: "off" },
     onSetUpAi: fn(),
   },
 };
 
 /**
- * The typo fix. AI is writing in the background, and none of it is in the way:
- * the generic summary is already there and Publish is enabled.
+ * AI is writing in the background, and none of it is in the way: the box is
+ * editable, and the AI's message will fill it if nobody has typed by then.
  */
 export const AiWriting: Story = {
   args: {
-    value: DEFAULT_SUMMARY,
+    value: "",
+    placeholder: "Writing a commit message with AI…",
     ai: { status: "loading" },
   },
 };
@@ -102,29 +106,16 @@ export const AiSummaryOffered: Story = {
   },
 };
 
-/** The AI failed. The summary is untouched and publishing is unaffected. */
+/** The AI failed. The box is the reader's to fill, as without AI. */
 export const AiFailed: Story = {
   args: {
-    value: DEFAULT_SUMMARY,
+    value: "",
     ai: {
       status: "failed",
       message: "The Anthropic key was rejected.",
       canSetUp: true,
     },
     onSetUpAi: fn(),
-  },
-};
-
-/**
- * Publish was pressed while the AI was still writing. Publishing is already
- * happening — this is the 10 second grace period. Pressing Publish again
- * skips the rest of it, so there is no separate escape control.
- */
-export const WaitingForAiOnPublish: Story = {
-  args: {
-    value: DEFAULT_SUMMARY,
-    ai: { status: "loading" },
-    waitingForAiSeconds: 7,
   },
 };
 
@@ -140,13 +131,13 @@ export const Publishing: Story = {
 };
 
 /**
- * The whole flow, driven for real: the summary is there immediately, the AI
- * lands after three seconds, and typing at any point cancels the takeover so
- * your text survives — the same `shouldAutoApplyAiSummary` rule the app uses.
+ * The whole flow, driven for real: the box starts empty, the AI lands after
+ * three seconds, and typing at any point cancels the takeover so your text
+ * survives — the same `shouldAutoApplyAiSummary` rule the app uses.
  */
 export const InteractiveFlow: Story = {
   render: function InteractiveFlowStory() {
-    const [value, setValue] = useState(DEFAULT_SUMMARY);
+    const [value, setValue] = useState("");
     // A ref, not state: the timeout below closes over its scheduling-time
     // value, and nothing renders off it.
     const hasEditedRef = useRef(false);
@@ -170,7 +161,7 @@ export const InteractiveFlow: Story = {
                 shouldAutoApplyAiSummary({
                   hasEdited: hasEditedRef.current,
                   currentValue: current,
-                  defaultSummary: DEFAULT_SUMMARY,
+                  defaultSummary: "",
                 })
                   ? AI_SUMMARY
                   : current,
@@ -198,7 +189,7 @@ export const InteractiveFlow: Story = {
           onClose={fn()}
           publishDisabled={false}
           isPublishing={false}
-          waitingForAiSeconds={null}
+          placeholder={PLACEHOLDER}
         />
       </div>
     );

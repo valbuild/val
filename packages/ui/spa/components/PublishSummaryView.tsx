@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   Loader2,
@@ -31,6 +30,8 @@ export type AiSummaryState =
 export type PublishSummaryViewProps = {
   /** The text that will be committed. Always editable, never blocked. */
   value: string;
+  /** What the empty box says. Defaults to asking for a summary. */
+  placeholder?: string;
   onChange: (value: string) => void;
   ai: AiSummaryState;
   /** Replace the box with the AI's suggestion. */
@@ -46,26 +47,20 @@ export type PublishSummaryViewProps = {
   onClose: () => void;
   publishDisabled: boolean;
   isPublishing: boolean;
-  /**
-   * Publish was pressed while the AI was still writing. Publishing is already
-   * committed to happening — this is the short grace period before it goes
-   * ahead with whatever is in the box. Pressing Publish again during it skips
-   * the wait, so there is no separate escape control.
-   */
-  waitingForAiSeconds: number | null;
 };
 
 /**
- * The publish summary box.
+ * The commit message box, shown only where the project requires one.
  *
- * The rule the whole component is built around: **the user is never blocked**.
- * The box arrives filled with a summary that needed no network call, the
- * textarea is editable from the first frame, and everything the AI does is an
- * offer on the side rather than a gate in front. Someone fixing a typo should
- * be able to open this and publish without noticing an AI exists.
+ * The rule the whole component is built around: **nobody waits on the AI**.
+ * The textarea is editable from the first frame, and everything the AI does is
+ * an offer on the side rather than a gate in front — it fills an empty box
+ * when it arrives, and that is all. The one thing standing between the reader
+ * and Publish is the requirement itself: an empty box cannot be published.
  */
 export function PublishSummaryView({
   value,
+  placeholder = "Write a summary of your changes",
   onChange,
   ai,
   onUseAiSummary,
@@ -75,15 +70,13 @@ export function PublishSummaryView({
   onClose,
   publishDisabled,
   isPublishing,
-  waitingForAiSeconds,
 }: PublishSummaryViewProps) {
   const className = "w-full p-2 border rounded bg-bg-secondary";
-  const isWaiting = waitingForAiSeconds !== null;
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
-        <span className="font-semibold">Summary</span>
+        <span className="font-semibold">Commit message</span>
         <AiSummaryButton
           ai={ai}
           // Offered whenever it is not already what is in the box. Gating this
@@ -107,25 +100,19 @@ export function PublishSummaryView({
           {value + " "}
         </div>
         <textarea
-          // Never disabled, not even while the AI is writing or during the
-          // grace period: waiting for a model is exactly what this flow is
-          // designed not to make anyone do.
+          // Never disabled, not even while the AI is writing: waiting for a
+          // model is exactly what this flow is designed not to make anyone do.
           className={cn(className, "resize-none overflow-clip")}
           value={value}
           style={{ gridArea: "1 / 1 / 2 / 2" }}
-          placeholder="Write a summary of your changes"
+          placeholder={placeholder}
+          aria-label="Commit message"
           onChange={(e) => onChange(e.currentTarget.value)}
         />
       </div>
-      {isWaiting && (
-        <div className="flex items-start gap-2 text-xs text-fg-secondary">
-          <Loader2 size={12} className="animate-spin mt-0.5 shrink-0" />
-          <span>
-            Waiting for the AI summary. Publishing in {waitingForAiSeconds}s
-            either way — press Publish again to skip the wait.
-          </span>
-        </div>
-      )}
+      <p className="text-xs text-fg-secondary">
+        This project asks for a message on every publish.
+      </p>
       <div className="flex items-center justify-end gap-2">
         <Button variant="outline" onClick={onClose}>
           Close
@@ -284,68 +271,4 @@ function AiTooltip({
       </TooltipContent>
     </Tooltip>
   );
-}
-
-/**
- * Counts a publish grace period down and then lets publishing proceed.
- *
- * Exported for the container to drive the `waitingForAiSeconds` prop; the view
- * itself stays a pure function of its props so stories can pin any frame of it.
- *
- * Pressing Publish committed to publishing, so the pending publish outlives
- * this component: closing the popover mid-countdown fires it rather than
- * dropping it on the floor.
- */
-export function usePublishGrace(totalSeconds: number) {
-  const [remaining, setRemaining] = useState<number | null>(null);
-  const onElapsed = useRef<(() => void) | null>(null);
-
-  const fire = useCallback(() => {
-    const pending = onElapsed.current;
-    onElapsed.current = null;
-    setRemaining(null);
-    pending?.();
-  }, []);
-
-  useEffect(() => {
-    if (remaining === null) {
-      return;
-    }
-    if (remaining <= 0) {
-      fire();
-      return;
-    }
-    const timer = setTimeout(() => setRemaining((r) => (r ?? 1) - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [remaining, fire]);
-
-  // Escape, or a click outside, unmounts the popover mid-countdown. The user
-  // already asked to publish, so honour it instead of silently losing it.
-  useEffect(
-    () => () => {
-      const pending = onElapsed.current;
-      onElapsed.current = null;
-      pending?.();
-    },
-    [],
-  );
-
-  return {
-    remaining,
-    isWaiting: remaining !== null,
-    /** Ignored while a countdown is already running: a second press skips it. */
-    start: (whenElapsed: () => void) => {
-      if (onElapsed.current !== null) {
-        return;
-      }
-      onElapsed.current = whenElapsed;
-      setRemaining(totalSeconds);
-    },
-    /** Publish now, without waiting for the rest of the countdown. */
-    skip: fire,
-    cancel: () => {
-      onElapsed.current = null;
-      setRemaining(null);
-    },
-  };
 }
