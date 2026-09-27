@@ -119,3 +119,81 @@ test("the studio still reads normally around it", async () => {
     data: "mine",
   });
 });
+
+/**
+ * A patch that has already SHIPPED is not "a change added to your changes".
+ *
+ * A publish leaves its patches in the chain with `appliedAt` set until the
+ * deploy moves the base — which can be days on a project that deploys rarely.
+ * The group they were in is closed, so they are in no scope, and the closure
+ * read the oldest one as a predecessor this edit depends on. The user's very
+ * first edit after a publish was then announced as having pulled their own
+ * published work back in, and the write sent it as `withPatchIds`.
+ *
+ * `prefixViolations` already counts an applied patch as shipped; the closure
+ * has to agree with it, or the two disagree about what a group must hold.
+ */
+test("a write does not pull in a patch that has already been published", async () => {
+  const saves: (readonly PatchId[] | undefined)[] = [];
+  const widened: PatchId[][] = [];
+  const published = "published" as PatchId;
+  const system = createSystem({
+    fetchPatches: async (patchIds) => ({
+      patches: patchIds.includes(published)
+        ? [
+            {
+              patchId: published,
+              moduleFilePath: MODULE,
+              patch: [{ op: "replace", path: ["title"], value: "shipped" }],
+              createdAt: "2026-01-01T00:00:00.000Z",
+              authorId: "me",
+              appliedAt: null,
+            },
+          ]
+        : [],
+    }),
+    createPatchId: (() => {
+      let next = 0;
+      return () => `p${++next}` as PatchId;
+    })(),
+    savePatches: async ({ patches, parentRef, patchGroup }) => {
+      saves.push(patchGroup?.withPatchIds);
+      return {
+        status: "saved",
+        newPatchIds: patches.map((patch) => patch.patchId),
+        parentRef,
+      };
+    },
+    publishPatches: async () => ({ status: "published" }),
+  });
+  system.host.receive(project());
+  system.stat.receiveStat({ patches: [], baseSha: "sha" });
+  system.patchSync.events.on("patch:group-widened", (event: SystemEvent) => {
+    if (event.type !== "patch:group-widened") return;
+    widened.push([...event.patches]);
+  });
+  // Published, and still in the chain because the deploy has not landed.
+  system.stat.receiveStat({
+    patches: [published],
+    baseSha: "sha",
+    appliedPatches: [published],
+  });
+  await system.patchSync.flush();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(
+    system.patchStore
+      .allRecords()
+      .find((record) => record.patchId === published)?.appliedAt,
+  ).toBeTruthy();
+
+  // A fresh group after the publish, and the real resolver.
+  system.setPatchGroup([]);
+  system.setPatchGroupResolver(async (patchIds) => ({
+    withPatchIds: await system.computeWriteClosure(patchIds),
+  }));
+
+  await edit(system, "mine");
+
+  expect(saves).toEqual([[]]);
+  expect(widened).toEqual([]);
+});
