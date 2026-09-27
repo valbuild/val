@@ -52,6 +52,24 @@ export { other };
 export const o = { TanStackDevtools: 1, a: o.TanStackDevtools };
 export const A = () => <div><TanStackDevtools /></div>;
 `,
+  shadowedByParam: `import { TanStackDevtools } from "@tanstack/react-devtools";
+export function Own(TanStackDevtools) {
+  return <TanStackDevtools />;
+}
+export const A = () => <div><TanStackDevtools /></div>;
+`,
+  shadowedByConst: `import { TanStackDevtools } from "@tanstack/react-devtools";
+export function Own() {
+  if (x) {
+    const TanStackDevtools = Mine;
+    return <TanStackDevtools />;
+  }
+  return <TanStackDevtools />;
+}
+`,
+  intrinsicAlias: `import { TanStackDevtools as div } from "@tanstack/react-devtools";
+export const A = () => <div>kept</div>;
+`,
   untouched: `import { devtools } from "@tanstack/devtools-vite";
 export default devtools();
 `,
@@ -143,4 +161,33 @@ export const A = () => <div></div>;
 
 test("a package that only shares the prefix is left alone", () => {
   expect(results.untouched!.code).toBeNull();
+});
+
+test("an element naming a parameter that shadows the import is kept", () => {
+  // Copilot's example on #741. The inner `<TanStackDevtools />` is the
+  // caller's component, and the import is removed rather than stubbed because
+  // that read is not of it.
+  expect(results.shadowedByParam!.code)
+    .toBe(`export function Own(TanStackDevtools) {
+  return <TanStackDevtools />;
+}
+export const A = () => <div></div>;
+`);
+});
+
+test("and so is one naming a block's own const", () => {
+  expect(results.shadowedByConst!.code).toBe(`export function Own() {
+  if (x) {
+    const TanStackDevtools = Mine;
+    return <TanStackDevtools />;
+  }
+  return null;
+}
+`);
+});
+
+test("an alias spelled like an intrinsic tag does not remove the tag", () => {
+  expect(results.intrinsicAlias!.code)
+    .toBe(`export const A = () => <div>kept</div>;
+`);
 });

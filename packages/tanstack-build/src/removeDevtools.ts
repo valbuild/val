@@ -30,6 +30,10 @@
 //     Upstream deletes both imports and leaves the references dangling.
 //   - a bare `import "@tanstack/react-devtools"` goes too. It has no names, and
 //     upstream returned early on "no names" after deciding to remove it.
+//   - an element is matched by BINDING, not by spelling: one naming a local
+//     that shadows the import (`function P(TanStackDevtools) { ... }`) is the
+//     caller's own component and stays, and a lower-case alias never matches
+//     an intrinsic tag. Upstream removed both.
 //   - a partly-removed import keeps its default specifier where it was, and a
 //     default-imported panel is removed like a named one. Upstream rewrote the
 //     rest as `import { ... }`, which turns a default into a named import.
@@ -100,14 +104,133 @@ function pluginReferences(opening: Node) {
   return refs;
 }
 
-function isDevtoolsElement(opening: Node, names: Set<string>) {
+/** Every name a binding pattern declares: `a`, `{ a, b: c }`, `[a, ...b]`, `a = 1`. */
+function patternNames(pattern: Node | null | undefined, into: Set<string>) {
+  if (!pattern) return;
+  switch (pattern.type) {
+    case "Identifier":
+      into.add(String(pattern.name));
+      return;
+    case "ObjectPattern":
+      for (const prop of pattern.properties as Array<Node>)
+        patternNames(
+          prop.type === "RestElement" ? prop.argument : prop.value,
+          into,
+        );
+      return;
+    case "ArrayPattern":
+      for (const element of pattern.elements as Array<Node | null>)
+        patternNames(element, into);
+      return;
+    case "AssignmentPattern":
+      patternNames(pattern.left, into);
+      return;
+    case "RestElement":
+      patternNames(pattern.argument, into);
+      return;
+    case "TSParameterProperty":
+      patternNames(pattern.parameter, into);
+      return;
+  }
+}
+
+/** The names declared by the statements directly in a block's body. */
+function blockNames(statements: Array<Node>, into: Set<string>) {
+  for (const statement of statements) {
+    const declaration =
+      statement.type === "ExportNamedDeclaration"
+        ? (statement.declaration as Node | null)
+        : statement;
+    if (!declaration) continue;
+    if (declaration.type === "VariableDeclaration")
+      for (const declarator of declaration.declarations as Array<Node>)
+        patternNames(declarator.id, into);
+    else if (
+      (declaration.type === "FunctionDeclaration" ||
+        declaration.type === "ClassDeclaration") &&
+      declaration.id
+    )
+      into.add(String(declaration.id.name));
+  }
+}
+
+/**
+ * Whether some scope between `stack`'s root and here declares `name`, so a
+ * read of it here is NOT the import.
+ *
+ * The module scope itself is skipped: a top-level declaration sharing an
+ * import's name is a redeclaration error, not a shadow. What this does not
+ * see is a `var` hoisted out of a nested block into its function -- which
+ * errs toward keeping an element, never toward removing a user's own one.
+ */
+function isShadowed(name: string, stack: Array<Node>) {
+  for (const scope of stack) {
+    const declared = new Set<string>();
+    switch (scope.type) {
+      case "FunctionDeclaration":
+      case "FunctionExpression":
+      case "ArrowFunctionExpression":
+        for (const param of scope.params as Array<Node>)
+          patternNames(param, declared);
+        // A function expression's own name is in scope inside it.
+        if (scope.type === "FunctionExpression" && scope.id)
+          declared.add(String(scope.id.name));
+        break;
+      case "BlockStatement":
+      case "StaticBlock":
+        blockNames(scope.body as Array<Node>, declared);
+        break;
+      case "SwitchStatement":
+        for (const branch of scope.cases as Array<Node>)
+          blockNames(branch.consequent as Array<Node>, declared);
+        break;
+      case "ForStatement":
+        if (scope.init?.type === "VariableDeclaration")
+          blockNames([scope.init], declared);
+        break;
+      case "ForInStatement":
+      case "ForOfStatement":
+        if (scope.left?.type === "VariableDeclaration")
+          blockNames([scope.left], declared);
+        break;
+      case "CatchClause":
+        patternNames(scope.param, declared);
+        break;
+      case "ClassExpression":
+        if (scope.id) declared.add(String(scope.id.name));
+        break;
+    }
+    if (declared.has(name)) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether this element is one of the imported devtools components.
+ *
+ * By binding, not by spelling: a lower-case name is an intrinsic element
+ * whatever is in scope (`import { TanStackDevtools as div }` does not make
+ * `<div>` a devtools), and a name some enclosing scope redeclares is that
+ * scope's, not the import's.
+ */
+function isDevtoolsElement(
+  opening: Node,
+  names: Set<string>,
+  stack: Array<Node>,
+) {
   const name = opening.name as Node;
-  if (name.type === "JSXIdentifier") return names.has(String(name.name));
-  return (
-    name.type === "JSXMemberExpression" &&
-    name.object.type === "JSXIdentifier" &&
-    names.has(String(name.object.name))
-  );
+  const root =
+    name.type === "JSXIdentifier"
+      ? String(name.name)
+      : name.type === "JSXMemberExpression" &&
+          name.object.type === "JSXIdentifier"
+        ? String(name.object.name)
+        : null;
+  if (root === null || !names.has(root)) return false;
+  // Only a bare name is subject to the intrinsic rule: `<d.Panel>` is a member
+  // read of `d` whatever its case.
+  if (name.type === "JSXIdentifier" && /^[a-z]/.test(root)) return false;
+  return !isShadowed(root, stack);
 }
 
 /**
@@ -149,6 +272,10 @@ function isReference(node: Node, parent: Node | undefined) {
       return parent.key !== node || parent.computed;
     case "JSXAttribute":
       return parent.name !== node;
+    case "JSXOpeningElement":
+    case "JSXClosingElement":
+      // `<div>` is an intrinsic element, never a read of a binding named div.
+      return !/^[a-z]/.test(String(node.name));
     default:
       return true;
   }
@@ -171,6 +298,9 @@ function readOutside(ast: Node, names: Set<string>, removed: Array<Edit>) {
       const name = String(node.name);
       if (!names.has(name) || found.has(name)) return;
       if (!isReference(node, stack[stack.length - 1])) return;
+      // A read of some inner scope's binding of the same name is not a read
+      // of the import, and must not turn its removal into a stub.
+      if (isShadowed(name, stack)) return;
       if (!inRemoved(node)) found.add(name);
     });
   }
@@ -230,7 +360,7 @@ export async function transformRemoveDevtools(
     walk(ast, (node, stack) => {
       if (node.type !== "JSXElement") return;
       const opening = node.openingElement as Node;
-      if (!isDevtoolsElement(opening, devtoolsNames)) return;
+      if (!isDevtoolsElement(opening, devtoolsNames, stack)) return;
       for (const panel of pluginReferences(opening)) panels.add(panel);
       const parent = stack[stack.length - 1];
       // Only a JSX child can simply vanish, and take its line with it.
