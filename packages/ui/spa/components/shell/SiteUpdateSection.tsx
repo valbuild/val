@@ -10,27 +10,33 @@ import type { SiteUpdateView } from "../../publish/useSiteUpdate";
  */
 export function SiteUpdateSection({
   view,
-  canBuild,
+  buildsInNewTab,
   onUpdate,
   onRetry,
   onReload,
+  onOpenBuilderTab,
 }: {
   view: SiteUpdateView;
-  /** Whether this page can run the builder. See `canBuildHere`. */
-  canBuild: boolean;
+  /**
+   * Whether the update will run in a tab of its own, because this page cannot
+   * run the builder (WebKit). See `canBuildHere`.
+   */
+  buildsInNewTab: boolean;
   onUpdate: () => void;
   onRetry: () => void;
   onReload: () => void;
+  onOpenBuilderTab: () => void;
 }) {
   return (
     <>
       <SettingsSection title="Updates" description={descriptionOf(view)}>
         <SiteUpdateBody
           view={view}
-          canBuild={canBuild}
+          buildsInNewTab={buildsInNewTab}
           onUpdate={onUpdate}
           onRetry={onRetry}
           onReload={onReload}
+          onOpenBuilderTab={onOpenBuilderTab}
         />
       </SettingsSection>
       <SettingsSectionDivider />
@@ -52,6 +58,8 @@ function descriptionOf(view: SiteUpdateView): string {
       return "Could not check for updates.";
     case "updating":
       return "Updating your site. This takes a minute or two.";
+    case "blocked":
+      return "Updating your site needs a tab of its own.";
     case "updated":
       return "Your site was updated and is live.";
     case "failed":
@@ -61,16 +69,18 @@ function descriptionOf(view: SiteUpdateView): string {
 
 function SiteUpdateBody({
   view,
-  canBuild,
+  buildsInNewTab,
   onUpdate,
   onRetry,
   onReload,
+  onOpenBuilderTab,
 }: {
   view: SiteUpdateView;
-  canBuild: boolean;
+  buildsInNewTab: boolean;
   onUpdate: () => void;
   onRetry: () => void;
   onReload: () => void;
+  onOpenBuilderTab: () => void;
 }) {
   switch (view.status) {
     case "checking":
@@ -95,16 +105,25 @@ function SiteUpdateBody({
             Unpublished changes are kept, and are not published. If the updated
             site does not pass its check, nothing changes.
           </p>
-          {canBuild ? (
-            <Button size="sm" onClick={onUpdate}>
-              Update site
-            </Button>
-          ) : (
+          {buildsInNewTab && (
             <p className="text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
-              This browser cannot build the site. Update from Chrome, Edge or
-              Firefox on a computer.
+              A new tab opens to build the site, and closes when it is done.
             </p>
           )}
+          <Button size="sm" onClick={onUpdate}>
+            Update site
+          </Button>
+        </div>
+      );
+    case "blocked":
+      return (
+        <div className="flex flex-col gap-2">
+          <p className="text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
+            Your browser blocked the tab that builds the site.
+          </p>
+          <Button size="sm" onClick={onOpenBuilderTab}>
+            Open it
+          </Button>
         </div>
       );
     case "updating":

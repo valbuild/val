@@ -33,6 +33,11 @@ import {
 } from "./fetchPublicFile";
 import { loadBuilder, routeTreeGenerator } from "./loadBuilder";
 import {
+  STUDIO_OUT_OF_DATE,
+  loadedLayer,
+  markStudioOutOfDate,
+} from "./loadedLayer";
+import {
   CommittedBinaryFiles,
   DeployPhase,
   StudioDeployResult,
@@ -166,7 +171,9 @@ export function useStudioDeploy(options?: {
        */
       const generateRouteTree = routeTreeGenerator();
       try {
+        const loaded = await loadedLayer();
         const result = await runStudioDeploy({
+          loadedLayer: loaded,
           client: createStudioPublishClient({ api }),
           commit,
           committedFiles: committedFiles ?? null,
@@ -181,6 +188,12 @@ export function useStudioDeploy(options?: {
           ...(generateRouteTree !== null ? { generateRouteTree } : {}),
           onPhase: enter,
         });
+        if (
+          result.status === "failed" &&
+          result.problems.some((problem) => problem.code === STUDIO_OUT_OF_DATE)
+        ) {
+          markStudioOutOfDate();
+        }
         const now = Date.now();
         steps.push({ kind: current.phase.kind, ms: now - current.at });
         const ms = now - startedAt;

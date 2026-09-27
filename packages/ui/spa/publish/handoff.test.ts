@@ -209,3 +209,136 @@ test("committed files that arrive as an array are dropped, not read as files", a
     site.close();
   }
 });
+
+/*
+ * An update handed to a tab: the Studio in WebKit cannot build, so pressing
+ * Update site opens a tab that can. Nothing is saved first, so the page sends
+ * `update` at once -- and it has to survive a tab that joins late, exactly as
+ * a commit does.
+ */
+describe("an update handed to a tab", () => {
+  test("reaches a tab that joins after it was sent", async () => {
+    const site = openHandoff({ open });
+    site.update();
+    const got: ToTab[] = [];
+    const tab = joinHandoff(site.id, (message) => got.push(message), {
+      retryMs: 10,
+    });
+    await until(() => got.length > 0);
+    expect(got[0]).toEqual({ type: "update" });
+    tab.close();
+    site.close();
+  });
+
+  test("its ending reaches the site as an update, not as a publish", async () => {
+    const site = openHandoff({ open });
+    const heard: ToSite[] = [];
+    site.onMessage((message) => heard.push(message));
+    const tab = joinHandoff(site.id, () => undefined, { retryMs: 10 });
+    tab.report({
+      type: "update-done",
+      outcome: {
+        status: "updated",
+        changes: [
+          {
+            name: "@valbuild/core",
+            section: "dependencies",
+            from: "0.136.8",
+            to: "0.140.0",
+          },
+        ],
+      },
+    });
+    await until(() => heard.some((m) => m.type === "update-done"));
+    expect(heard.find((m) => m.type === "update-done")).toEqual({
+      type: "update-done",
+      outcome: {
+        status: "updated",
+        changes: [
+          {
+            name: "@valbuild/core",
+            section: "dependencies",
+            from: "0.136.8",
+            to: "0.140.0",
+          },
+        ],
+      },
+    });
+    tab.close();
+    site.close();
+  });
+
+  test("a refusal and a failure keep their sentences", async () => {
+    const site = openHandoff({ open });
+    const heard: ToSite[] = [];
+    site.onMessage((message) => heard.push(message));
+    const tab = joinHandoff(site.id, () => undefined, { retryMs: 10 });
+    tab.report({
+      type: "update-done",
+      outcome: { status: "unavailable", message: "Depends on left-pad." },
+    });
+    tab.report({
+      type: "update-done",
+      outcome: {
+        status: "failed",
+        message: "Your site is unchanged.",
+        details: "PLATFORM501",
+        deploy: null,
+      },
+    });
+    await until(
+      () => heard.filter((m) => m.type === "update-done").length === 2,
+    );
+    expect(
+      heard
+        .filter((m) => m.type === "update-done")
+        .map((m) => (m.type === "update-done" ? m.outcome : null)),
+    ).toEqual([
+      { status: "unavailable", message: "Depends on left-pad." },
+      {
+        status: "failed",
+        message: "Your site is unchanged.",
+        details: "PLATFORM501",
+        deploy: null,
+      },
+    ]);
+    tab.close();
+    site.close();
+  });
+
+  test("a change list with junk in it keeps only the changes", async () => {
+    const site = openHandoff({ open });
+    const heard: ToSite[] = [];
+    site.onMessage((message) => heard.push(message));
+    const channel = new BroadcastChannel("val-publish-handoff");
+    channel.postMessage({
+      id: site.id,
+      message: {
+        type: "update-done",
+        outcome: {
+          status: "updated",
+          changes: [
+            { name: "ok", section: "dependencies", from: null, to: "1" },
+            { name: "bad", section: "peerDependencies", from: null, to: "1" },
+            "not a change",
+          ],
+        },
+      },
+    });
+    try {
+      await until(() => heard.some((m) => m.type === "update-done"));
+      expect(heard.find((m) => m.type === "update-done")).toEqual({
+        type: "update-done",
+        outcome: {
+          status: "updated",
+          changes: [
+            { name: "ok", section: "dependencies", from: null, to: "1" },
+          ],
+        },
+      });
+    } finally {
+      channel.close();
+      site.close();
+    }
+  });
+});

@@ -42,6 +42,12 @@ import {
   runStudioPublish,
 } from "./runStudioPublish";
 import { StudioBuilder } from "./loadBuilder";
+import {
+  LayerReading,
+  STUDIO_OUT_OF_DATE,
+  STUDIO_OUT_OF_DATE_MESSAGE,
+  layerMoved,
+} from "./loadedLayer";
 
 /**
  * Where a project's route files live, if it has any.
@@ -199,6 +205,16 @@ export interface StudioDeployOptions {
    * publish then names the layer it carries, which is what moves the site.
    */
   target?: BuildTarget;
+  /**
+   * The dependency layer the live build had when this page loaded (see
+   * `loadedLayer.ts`), or `undefined` when it cannot say.
+   *
+   * A publish whose build target names a different one is refused: the site
+   * was updated since, this Studio is the old version, and building with it
+   * would use the old builder. Not asked of an update, whose whole point is a
+   * different layer.
+   */
+  loadedLayer?: LayerReading;
   loadBuilder: () => Promise<StudioBuilder>;
   /**
    * Generates `src/routeTree.gen.ts` for a file-based project.
@@ -271,6 +287,18 @@ export async function runStudioDeploy(
         "This project has no dependency layer yet, and one cannot be built " +
           "from the browser. Publish it once from a checkout, which builds it.",
       );
+    }
+    if (
+      options.target === undefined &&
+      layerMoved(options.loadedLayer, readTarget.project.rev)
+    ) {
+      return {
+        status: "failed",
+        message: STUDIO_OUT_OF_DATE_MESSAGE,
+        problems: [
+          { code: STUDIO_OUT_OF_DATE, message: STUDIO_OUT_OF_DATE_MESSAGE },
+        ],
+      };
     }
     if (
       readPublic === null ||

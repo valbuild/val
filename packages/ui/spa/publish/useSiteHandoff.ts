@@ -71,7 +71,7 @@ export function useSiteHandoff(
             step: message.label,
             elapsedMs: message.elapsedMs,
           });
-        } else {
+        } else if (message.type === "done") {
           setState(
             message.result.status === "failed"
               ? {

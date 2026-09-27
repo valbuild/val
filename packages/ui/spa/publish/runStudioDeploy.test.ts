@@ -938,3 +938,44 @@ describe("an update's build target", () => {
     expect(declared).toMatchObject({ layerRev: "layer-2" });
   });
 });
+
+describe("a Studio older than the site", () => {
+  /*
+   * The site was updated after this page loaded: the live build's layer is not
+   * the one this Studio came with. Publishing from here would build with the
+   * old builder, so it is refused and the page asks for a reload.
+   */
+  test("is refused before anything is built", async () => {
+    const calls: string[] = [];
+    const result = await deploy({
+      loadedLayer: "layer-0",
+      loadBuilder: async () => builder(calls),
+    });
+    expect(result).toMatchObject({
+      status: "failed",
+      problems: [{ code: "STUDIO_OUT_OF_DATE" }],
+    });
+    expect(calls).toEqual([]);
+  });
+
+  test("on the layer it loaded with, publishes", async () => {
+    await expect(deploy({ loadedLayer: "layer-1" })).resolves.toMatchObject({
+      status: "live",
+    });
+  });
+
+  test("that cannot say what it loaded on, publishes", async () => {
+    await expect(deploy({ loadedLayer: undefined })).resolves.toMatchObject({
+      status: "live",
+    });
+  });
+
+  test("an update is not refused for moving the layer, which is its point", async () => {
+    await expect(
+      deploy({
+        loadedLayer: "layer-1",
+        target: { ...target, project: { ...target.project, rev: "layer-2" } },
+      }),
+    ).resolves.toMatchObject({ status: "live" });
+  });
+});

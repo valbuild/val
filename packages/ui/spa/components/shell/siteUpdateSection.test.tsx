@@ -29,15 +29,16 @@ const changes = [
   },
 ];
 
-const renderWith = (view: SiteUpdateView, canBuild = true) => {
+const renderWith = (view: SiteUpdateView, buildsInNewTab = false) => {
   const pressed: string[] = [];
   render(
     <SiteUpdateSection
       view={view}
-      canBuild={canBuild}
+      buildsInNewTab={buildsInNewTab}
       onUpdate={() => pressed.push("update")}
       onRetry={() => pressed.push("retry")}
       onReload={() => pressed.push("reload")}
+      onOpenBuilderTab={() => pressed.push("open-tab")}
     />,
   );
   return pressed;
@@ -59,10 +60,19 @@ describe("the update section", () => {
     expect(pressed).toEqual(["update"]);
   });
 
-  test("offers no button in a browser that cannot build", () => {
-    renderWith({ status: "available", changes }, false);
-    expect(screen.queryByRole("button", { name: "Update site" })).toBeNull();
-    expect(screen.queryByText(/Chrome, Edge or Firefox/)).not.toBeNull();
+  test("in a browser that cannot build here, still offers it, in a new tab", () => {
+    const pressed = renderWith({ status: "available", changes }, true);
+    expect(
+      screen.queryByText(/A new tab opens to build the site/),
+    ).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Update site" }));
+    expect(pressed).toEqual(["update"]);
+  });
+
+  test("a blocked builder tab can be opened from a click", () => {
+    const pressed = renderWith({ status: "blocked" }, true);
+    fireEvent.click(screen.getByRole("button", { name: "Open it" }));
+    expect(pressed).toEqual(["open-tab"]);
   });
 
   test("says it is up to date, and offers nothing", () => {

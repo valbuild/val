@@ -8,6 +8,11 @@ import {
 } from "../../publish/deployProgress";
 import type { DeployPhase } from "../../publish/runStudioDeploy";
 import type { StudioDeployState } from "../../publish/useStudioDeploy";
+import { createStudioPublishClient } from "../../publish/publishClient";
+import {
+  runSiteUpdate,
+  type SiteUpdateOutcome,
+} from "../../publish/runSiteUpdate";
 import {
   StudioPublishPage,
   type PublishPageResult,
@@ -53,6 +58,15 @@ export function HandoffPublishTab({ id }: { id: string }) {
   const [now, setNow] = useState(() => Date.now());
   const tab = useRef<TabHandoff | null>(null);
   const started = useRef(false);
+  /**
+   * An update rather than a publish of a commit: the page that cannot build
+   * pressed Update site. Reported with `update-done`, never `done`, because it
+   * can end without a deploy -- see `ToSite`.
+   */
+  const updating = useRef(false);
+  const [updateOutcome, setUpdateOutcome] = useState<SiteUpdateOutcome | null>(
+    null,
+  );
 
   useEffect(() => {
     const handoff = joinHandoff(id, (message) => {
@@ -65,6 +79,19 @@ export function HandoffPublishTab({ id }: { id: string }) {
       // Once: the site re-sends the commit whenever a tab says it is ready.
       if (started.current) return;
       started.current = true;
+      if (message.type === "update") {
+        updating.current = true;
+        setWaiting({ kind: "started", savedAfterMs: 0, commit: null });
+        void runSiteUpdate({
+          client: createStudioPublishClient({ api: "/api/val" }),
+          deploy,
+        }).then((outcome) => {
+          setUpdateOutcome(outcome);
+          tab.current?.report({ type: "update-done", outcome });
+          if (outcome.status === "updated") setClosingIn(CLOSE_AFTER_S);
+        });
+        return;
+      }
       setWaiting((prev) => ({
         kind: "started",
         savedAfterMs: prev.kind === "waiting" ? Date.now() - prev.since : 0,
@@ -96,6 +123,8 @@ export function HandoffPublishTab({ id }: { id: string }) {
   const reported = useRef(false);
   useEffect(() => {
     if (state.status !== "done" || !started.current || reported.current) return;
+    // An update reports its own ending, once `runSiteUpdate` has one.
+    if (updating.current) return;
     reported.current = true;
     tab.current?.report({
       type: "done",
@@ -118,9 +147,10 @@ export function HandoffPublishTab({ id }: { id: string }) {
     return () => clearTimeout(timer);
   }, [closingIn]);
 
-  const steps = stepsOf(waiting, state);
-  const result: PublishPageResult | undefined =
-    waiting.kind === "cancelled"
+  const steps = stepsOf(waiting, state, updating.current);
+  const result: PublishPageResult | undefined = updating.current
+    ? updateResultOf(updateOutcome, closingIn)
+    : waiting.kind === "cancelled"
       ? { kind: "failed", message: waiting.message }
       : state.status === "done" && started.current
         ? state.result.status === "failed"
@@ -165,14 +195,48 @@ export function HandoffPublishTab({ id }: { id: string }) {
   );
 }
 
-function stepsOf(waiting: Waiting, state: StudioDeployState): PublishStep[] {
+/** What the page says when the tab ran an update. `undefined` while it runs. */
+function updateResultOf(
+  outcome: SiteUpdateOutcome | null,
+  closingIn: number | null,
+): PublishPageResult | undefined {
+  if (outcome === null) return undefined;
+  switch (outcome.status) {
+    case "updated":
+      return {
+        kind: "live",
+        ms: 0,
+        ...(closingIn !== null && closingIn > 0
+          ? { closingInS: closingIn }
+          : {}),
+      };
+    case "current":
+      return { kind: "failed", message: "The site is already up to date." };
+    case "unavailable":
+      return { kind: "failed", message: outcome.message };
+    case "failed":
+      return {
+        kind: "failed",
+        message: outcome.message,
+        details: outcome.details,
+      };
+  }
+}
+
+function stepsOf(
+  waiting: Waiting,
+  state: StudioDeployState,
+  update: boolean,
+): PublishStep[] {
+  // An update saves nothing; its first step is asking the platform for it.
+  const first = update ? "Starting the update" : "Saving your change";
   const saved: PublishStep =
     waiting.kind === "waiting"
-      ? { label: "Saving your change", status: "current" }
+      ? { label: first, status: "current" }
       : waiting.kind === "cancelled"
-        ? { label: "Saving your change", status: "failed" }
+        ? { label: first, status: "failed" }
         : {
-            label: "Saving your change",
+            label: first,
             status: "done",
             ms: waiting.savedAfterMs,
           };

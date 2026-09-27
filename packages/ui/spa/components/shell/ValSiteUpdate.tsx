@@ -18,14 +18,15 @@ import { SiteUpdateSection } from "./SiteUpdateSection";
  */
 export function ValSiteUpdate() {
   const deploy = useStudioDeployState();
-  const { view, check, update } = useSiteUpdate({ deploy });
+  const { view, check, update, openBuilderTab } = useSiteUpdate({ deploy });
   return (
     <SiteUpdateSection
       view={view}
-      canBuild={canBuildHere()}
+      buildsInNewTab={!canBuildHere()}
       onUpdate={update}
       onRetry={check}
       onReload={() => window.location.reload()}
+      onOpenBuilderTab={openBuilderTab}
     />
   );
 }
