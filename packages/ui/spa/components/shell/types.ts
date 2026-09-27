@@ -401,6 +401,23 @@ export type ShellData = {
    * button.
    */
   externalModuleFilePath?: ModuleFilePath;
+  /**
+   * The schemes the external router allows, where the project narrowed them.
+   *
+   * Carried on the shell's data because the Pages panel's count is computed
+   * from it: a footer badge that applies the WIDE default while the dialog
+   * behind it applies the project's own list says "nothing to look at" over a
+   * dialog full of flagged rows.
+   */
+  externalSchemes?: string[];
+  /**
+   * Whether the external record has been fetched yet.
+   *
+   * `externalPages` is empty both before the record arrives and when the
+   * project genuinely has none, and only one of those should say "no external
+   * pages yet".
+   */
+  externalPagesLoading?: boolean;
   media: ShellMediaGallery[];
   /**
    * The project's settings module, when it has exactly one usable one.

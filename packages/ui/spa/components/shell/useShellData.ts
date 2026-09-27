@@ -12,6 +12,7 @@ import {
 } from "../ValProvider";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { useFilePatchIds, useValConfig } from "../ValFieldProvider";
+import { useCreatableRouters } from "../useCreateRouteEntry";
 import { ShellData, ShellMediaGallery } from "./types";
 import { useThemeSettings } from "../../hooks/useThemeSettings";
 import {
@@ -54,6 +55,14 @@ export function useShellData(): ShellDataState {
   const committedPatchIds = useCommittedPatches();
   const { deployments, observedCommitShas } = useDeployments();
   const profilesByAuthorId = useProfilesByAuthorId();
+  /*
+   * The external router's own scheme policy.
+   *
+   * Read here rather than only inside the dialog because the Pages panel's
+   * count is computed from the shell's data, and a count that disagrees with
+   * the dialog it opens is worse than no count.
+   */
+  const { externalRouter } = useCreatableRouters();
 
   // Relative times are computed once per feed change rather than per render,
   // so a row does not silently disagree with the one above it.
@@ -138,6 +147,8 @@ export function useShellData(): ShellDataState {
         newPage: newPageRoutes,
         externalPages: toExternalPages(externalRecord, validationErrors),
         externalModuleFilePath: externalPath,
+        externalSchemes: externalRouter?.schemes,
+        externalPagesLoading: externalPath !== undefined && recordData === null,
         media: (navData?.media ?? []).map(
           (entry, index): ShellMediaGallery => ({
             id: entry.moduleFilePath,
@@ -197,6 +208,7 @@ export function useShellData(): ShellDataState {
     navData,
     records,
     externalPath,
+    externalRouter,
     config,
     profile,
     validationErrors,

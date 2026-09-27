@@ -30,8 +30,22 @@ export type ExternalUrlProbeResult =
     }
   | { kind: "unreachable"; message: string }
   | { kind: "timeout"; ms: number }
-  /** Not attempted, and why. Not a failure: the report has to say which. */
-  | { kind: "skipped"; message: string };
+  /**
+   * There was nothing to open. `mailto:`, `tel:`, a key that is not a URL.
+   *
+   * Not a failure and not a shortfall: the URL is as checked as it can be.
+   */
+  | { kind: "skipped"; message: string }
+  /**
+   * The check itself did not run, so nothing is known about this URL.
+   *
+   * Kept apart from `skipped`, and the distinction is the whole point of
+   * having two: an expired session answers 401 to every batch, and folding
+   * that into "nothing to open" made the report say "All 20 look fine" about
+   * twenty URLs nobody had looked at. Neither fine nor broken - unknown, and
+   * the report has to be able to say so.
+   */
+  | { kind: "not-checked"; message: string };
 
 export type ExternalUrlProbe =
   | { state: "checking" }
@@ -67,7 +81,11 @@ export function probeIssues(
   result: ExternalUrlProbeResult,
 ): ExternalUrlIssue[] {
   switch (result.kind) {
+    // Neither says anything about the URL. A row whose check did not run
+    // keeps the badge its shape findings gave it - inventing a warning per
+    // URL because the session lapsed would flag a project's every link.
     case "skipped":
+    case "not-checked":
       return [];
     case "timeout":
       return [
@@ -158,6 +176,7 @@ export function probeSummary(result: ExternalUrlProbeResult): string {
     case "unreachable":
       return "No answer.";
     case "skipped":
+    case "not-checked":
       return result.message;
   }
 }

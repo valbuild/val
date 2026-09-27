@@ -70,8 +70,11 @@ function parseIPv4(text: string): [number, number, number, number] | null {
   for (const part of parts) {
     // Deliberately strict: `010` is octal to `inet_aton` and decimal to
     // `Number`, and `1e2` parses as 100. A resolver never produces either, so
-    // anything that is not plain digits is not an address.
-    if (!/^\d{1,3}$/.test(part)) {
+    // anything that is not plain digits is not an address - and a leading
+    // zero is refused outright rather than read as decimal, because that is
+    // the one form where this and `inet_aton` would read the SAME string as
+    // two different addresses. `0` itself is an octet; `01` is not.
+    if (!/^(0|[1-9]\d{0,2})$/.test(part)) {
       return null;
     }
     const value = Number(part);

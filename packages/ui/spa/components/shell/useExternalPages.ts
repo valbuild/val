@@ -25,7 +25,7 @@ export function useExternalPages(
 ): ShellExternalPage[] {
   const schemas = useSchemas();
   const allSources = useAllSources();
-  const { index, scan } = useRouteReferenceIndex(enabled);
+  const { index, scan, indexIsComplete } = useRouteReferenceIndex(enabled);
 
   const moduleSchema =
     moduleFilePath !== undefined && "data" in schemas
@@ -45,7 +45,12 @@ export function useExternalPages(
       externalItemSchema(moduleSchema),
       moduleSource,
       lookup,
-      scan.status === "success",
+      // BOTH halves, and neither is enough alone: the scan answers for the
+      // `.jsonValues()` entries this walk cannot see, and `indexIsComplete`
+      // answers for the sources it can - which are still arriving during the
+      // first intake, and one render behind while a change is deferred.
+      // "Unused" is the label someone deletes on, so it waits for both.
+      scan.status === "success" && indexIsComplete,
     );
   }, [
     enabled,
@@ -55,5 +60,6 @@ export function useExternalPages(
     moduleSource,
     index,
     scan.status,
+    indexIsComplete,
   ]);
 }

@@ -72,7 +72,10 @@ export function isRetryable(result: ExternalUrlProbeResult): boolean {
       return true;
     case "answered":
       return result.code === 429 || result.code >= 500;
+    // Both mean "asking again changes nothing": there is no request to make,
+    // or the thing that would make it is not working.
     case "skipped":
+    case "not-checked":
       return false;
   }
 }
@@ -153,8 +156,10 @@ export function createBatchedProber(
  *
  * Retryably so, and reported as unreachable - unless the throw says the check
  * itself is unavailable, which is neither the link's fault nor worth asking
- * again. `skipped` is not retryable (see `isRetryable`), so that distinction
- * is the whole of what stops the retries too.
+ * again. `not-checked` is not retryable (see `isRetryable`), so that
+ * distinction is the whole of what stops the retries too - and it is a
+ * different kind from `skipped`, so the report can tell "there was nothing to
+ * open" from "nobody looked".
  */
 async function runBatch(
   probeBatch: ProbeBatch,
@@ -167,7 +172,7 @@ async function runBatch(
     const message = error instanceof Error ? error.message : String(error);
     const result: ExternalUrlProbeResult =
       error instanceof ProbeUnavailableError
-        ? { kind: "skipped", message: `Not checked: ${message}.` }
+        ? { kind: "not-checked", message: `Not checked: ${message}.` }
         : { kind: "unreachable", message };
     return new Map(urls.map((url) => [url, result]));
   }

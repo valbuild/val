@@ -20,6 +20,15 @@ export type ConnectedExternalPagesProps = {
   pages: readonly ShellExternalPage[];
   /** The external router's module, where the entries live. */
   moduleFilePath: ModuleFilePath | undefined;
+  /** Whether the record is still being fetched. See `ShellData`. */
+  isLoading?: boolean;
+  /**
+   * The schemes the router allows, where the project narrowed them.
+   *
+   * Read from the serialized schema by the shell rather than here, so the
+   * Pages panel's count and this dialog apply the same one.
+   */
+  schemes?: string[];
   breakpoint: ShellBreakpoint;
   portalContainer?: HTMLElement | null;
   onClose: () => void;
@@ -44,6 +53,8 @@ export type ConnectedExternalPagesProps = {
 export function ConnectedExternalPages({
   pages,
   moduleFilePath,
+  isLoading,
+  schemes,
   breakpoint,
   portalContainer,
   onClose,
@@ -140,7 +151,8 @@ export function ConnectedExternalPages({
       }
       onProbe={onProbe}
       onAddPage={externalRouter === null ? undefined : onAddPage}
-      schemes={externalRouter?.schemes}
+      schemes={schemes}
+      isLoading={isLoading}
       onRemovePage={moduleFilePath === undefined ? undefined : onRemovePage}
     />
   );

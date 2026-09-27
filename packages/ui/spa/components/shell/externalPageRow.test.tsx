@@ -192,3 +192,41 @@ describe("an entry that does not validate", () => {
     expect(screen.getAllByText(/Uses http:\/\//).length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * The link the pane offers is one the project's own router would accept.
+ *
+ * The unsafe-scheme gate was the first half of this; the second is that a
+ * project narrowed to `https` should not be handed a live `mailto:` either,
+ * because its router refuses that key too.
+ */
+describe("the open-in-a-new-tab link under a narrowed policy", () => {
+  function openDetail(url: string, schemes?: string[]) {
+    render(
+      <ExternalPagesDialog
+        open
+        onOpenChange={() => undefined}
+        breakpoint="desktop"
+        pages={[page(url)]}
+        onOpenEntry={() => undefined}
+        schemes={schemes}
+      />,
+    );
+    fireEvent.click(screen.getByTitle(url));
+  }
+
+  test("a mailto: is clickable under the wide default", () => {
+    openDetail("mailto:post@example.com");
+    expect(screen.queryAllByRole("link")).toHaveLength(1);
+  });
+
+  test("and is not when the router takes https only", () => {
+    openDetail("mailto:post@example.com", ["https"]);
+    expect(screen.queryAllByRole("link")).toEqual([]);
+  });
+
+  test("an https URL stays clickable under that same policy", () => {
+    openDetail("https://example.com/a", ["https"]);
+    expect(screen.queryAllByRole("link")).toHaveLength(1);
+  });
+});

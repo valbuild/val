@@ -117,6 +117,11 @@ describe("addresses this server may not connect to", () => {
     "0x7f.0.0.1",
     // Octal, which `inet_aton` reads as 127.0.0.1 and `Number` as 10.0.0.1.
     "0177.0.0.1",
+    // A leading zero on an octet this parser WOULD otherwise read: `010` is
+    // 8 to `inet_aton` and 10 here, so the two disagree about which address
+    // the string names. Refused rather than picked.
+    "010.0.0.1",
+    "01.2.3.4",
     "1e2.0.0.1",
     "::fffff:1.2.3.4",
     "1::2::3",

@@ -15,7 +15,9 @@ response status without CORS headers no ordinary site sends.
 It is an endpoint that makes outbound requests to addresses your content
 supplies, so it is built as one:
 
-- It requires a Studio session, like every other authenticated route.
+- It is behind the same session check as every other authenticated route —
+  which, in fs mode, means the same anonymous access every other route allows
+  on a developer's own machine. It is not a new way in; it is the same door.
 - It refuses to connect to anything that is not a public internet address —
   loopback, link-local, the private ranges, the carrier-grade NAT range, and
   the cloud metadata service that hands out instance credentials. The check is

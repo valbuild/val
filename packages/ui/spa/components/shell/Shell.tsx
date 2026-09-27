@@ -576,11 +576,17 @@ export function Shell({
     // Flagged filter and totals count. Counting the URL checks alone here put
     // a red badge on a row whose entry does not validate while the footer said
     // there was nothing to look at.
-    const issues = checkExternalUrls(data.externalPages.map((p) => p.url));
+    const issues = checkExternalUrls(
+      data.externalPages.map((p) => p.url),
+      // The project's own policy, the same one the dialog applies. Counting
+      // with the wide default under a router narrowed to `https` said there
+      // was nothing to look at over a dialog full of flagged `mailto:` rows.
+      data.externalSchemes ? { schemes: data.externalSchemes } : {},
+    );
     return toRows(data.externalPages, issues).filter(
       (row) => row.status !== "ok",
     ).length;
-  }, [data.externalPages]);
+  }, [data.externalPages, data.externalSchemes]);
   const [isSearchOpen, setIsSearchOpen] = useState(initialSearchOpen);
   const [isCanvasOpen, setIsCanvasOpen] = useState(initialCanvasOpen);
   const [canvasView, setCanvasView] = useState<CanvasView>(initialCanvasView);

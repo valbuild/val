@@ -489,6 +489,11 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
           <ConnectedExternalPages
             pages={data.externalPages}
             moduleFilePath={data.externalModuleFilePath}
+            // Empty means "none yet" only once the record has arrived. Opened
+            // during the fetch it said the project had no external pages,
+            // which is the one answer the dialog must not guess at.
+            isLoading={data.externalPagesLoading}
+            schemes={data.externalSchemes}
             breakpoint={breakpoint}
             portalContainer={portalContainer}
             onClose={close}

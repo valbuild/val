@@ -303,16 +303,20 @@ describe("a check that cannot run", () => {
     );
 
     expect(calls).toBe(1);
+    // `not-checked`, not `skipped`. The two look the same from here and mean
+    // opposite things to the report: a `mailto:` was checked as far as it can
+    // be, and this was not checked at all.
     expect(results.get("https://a.com")).toEqual({
-      kind: "skipped",
+      kind: "not-checked",
       message: "Not checked: the link check answered 401.",
     });
-    expect(results.get("https://b.com")?.kind).toBe("skipped");
+    expect(results.get("https://b.com")?.kind).toBe("not-checked");
   });
 
   test("an ordinary throw is still retried and still unreachable", () => {
     // The distinction is the whole point, so it is pinned from both sides.
     expect(isRetryable({ kind: "unreachable", message: "x" })).toBe(true);
     expect(isRetryable({ kind: "skipped", message: "x" })).toBe(false);
+    expect(isRetryable({ kind: "not-checked", message: "x" })).toBe(false);
   });
 });

@@ -1019,6 +1019,17 @@ export const ValServer = (
     },
     "/external-urls/check": {
       POST: async (req) => {
+        /*
+         * The same door as every other route, which in fs mode is an open one.
+         *
+         * `getAuth` returns anonymous success when there is no `valSecret` and
+         * nothing requires auth — a developer's own machine, where there is no
+         * credential to require and 29 other routes already behave this way.
+         * So this is not a session gate in fs mode, and it is not meant to be
+         * the thing that makes the endpoint safe: what does that is
+         * `addressGuard`, which refuses every address that is not on the
+         * public internet, on the RESOLVED address, at every redirect hop.
+         */
         const auth = getAuth(req.cookies);
         if (auth.error) {
           return { status: 401, json: { message: auth.error } };

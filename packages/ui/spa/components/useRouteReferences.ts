@@ -86,6 +86,19 @@ export function useEagerRouteReferences(
 export function useRouteReferenceIndex(enabled: boolean): {
   index: RouteReferenceIndex;
   scan: ReturnType<typeof useReferenceScanStatus>;
+  /**
+   * Whether this index was built from everything there is to build it from.
+   *
+   * False while the sources are still arriving, and false while
+   * `useDeferredValue` is still serving the previous input set - in both
+   * windows the index is COHERENT but not COMPLETE, and a caller that reads
+   * it as complete turns "not counted yet" into "nothing links here", which
+   * is the label someone deletes on.
+   *
+   * Separate from `scan`, which answers the other half: whether the
+   * `.jsonValues()` entries this walk cannot see have been fetched.
+   */
+  indexIsComplete: boolean;
 } {
   const schemas = useSchemas();
   const loadingStatus = useLoadingStatus();
@@ -101,13 +114,26 @@ export function useRouteReferenceIndex(enabled: boolean): {
   );
   const deferred = useDeferredValue(inputs);
 
+  /*
+   * The deferred inputs ARE the current ones, and the current ones are all of
+   * them.
+   *
+   * `useDeferredValue` returns the same object it was given once it has caught
+   * up, so identity is the question "is this index built from what the store
+   * holds now". `loadingStatus` is the other half: during the first intake the
+   * store holds a fraction of the sources, and an index over a fraction is
+   * missing references rather than having none.
+   */
+  const indexIsComplete =
+    deferred === inputs && loadingStatus === "success" && enabled;
+
   return useMemo(() => {
     if (
       !deferred.enabled ||
       !("data" in deferred.schemas) ||
       deferred.schemas.data === undefined
     ) {
-      return { index: EMPTY_INDEX, scan };
+      return { index: EMPTY_INDEX, scan, indexIsComplete: false };
     }
     return {
       index: buildRouteReferenceIndex(
@@ -115,8 +141,9 @@ export function useRouteReferenceIndex(enabled: boolean): {
         deferred.allSources,
       ),
       scan,
+      indexIsComplete,
     };
-  }, [deferred, scan]);
+  }, [deferred, scan, indexIsComplete]);
 }
 
 /** Stable, so "not asked for" does not churn a caller's dependencies. */

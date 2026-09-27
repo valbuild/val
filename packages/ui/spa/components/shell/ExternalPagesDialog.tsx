@@ -603,6 +603,7 @@ export function ExternalPagesDialog({
               ) : openRow !== null ? (
                 <EntryDetail
                   row={openRow}
+                  policy={policy}
                   renderEntry={renderEntry}
                   onOpenEntry={() => {
                     onOpenEntry(openRow.page);
@@ -1100,6 +1101,7 @@ function EmptyList({ children }: { children: ReactNode }) {
 
 function EntryDetail({
   row,
+  policy,
   renderEntry,
   onOpenEntry,
   onOpenUsage,
@@ -1107,6 +1109,8 @@ function EntryDetail({
   portalContainer,
 }: {
   row: ExternalPageRowData;
+  /** The project's own scheme policy, so the link offered is one it allows. */
+  policy: ExternalUrlSchemePolicy;
   renderEntry?: (page: ShellExternalPage) => ReactNode;
   onOpenEntry: () => void;
   onOpenUsage?: (usage: ShellExternalPageUsage) => void;
@@ -1134,13 +1138,16 @@ function EntryDetail({
           {page.url}
         </p>
         <CopyButton value={page.url} />
-        {/* Only for a key the router would accept. A record can HOLD a
-            `javascript:` key - validation reports it, it does not delete it -
+        {/* Only for a key the router would accept - THIS router, including
+            the narrowing a project asked for. A record can HOLD a
+            `javascript:` key (validation reports it, it does not delete it),
             and putting that in an `href` makes the Studio the place where it
-            runs. The same deny list decides both, so a key that is refused is
-            a key that is never clickable; Copy still works, because getting a
-            bad key out to look at is the point of opening the row. */}
-        {rejectScheme(page.url) === null && (
+            runs; a project restricted to `https` should likewise not be
+            offered a live `mailto:` its own router refuses. One call decides
+            both, so a key that is refused is a key that is never clickable.
+            Copy still works, because getting a bad key out to look at is the
+            point of opening the row. */}
+        {rejectScheme(page.url, policy) === null && (
           <a
             href={page.url}
             target="_blank"
@@ -1352,7 +1359,24 @@ function CheckReport({
       row.probe?.state === "done" &&
       row.probe.result.kind === "skipped",
   ).length;
-  const fine = totals.ok - notOpened;
+  /*
+   * URLs nothing is known about, because the check itself did not run.
+   *
+   * These are the ones that must never be counted as fine. An expired session
+   * answers 401 to every batch, and a report that then says "All 20 look
+   * fine" is the most confident possible way of saying nothing was looked at.
+   */
+  const notChecked = settled.filter(
+    (row) =>
+      row.probe?.state === "done" && row.probe.result.kind === "not-checked",
+  );
+  /** Why, in the checker's own words. The same reason for the whole batch. */
+  const notCheckedReason =
+    notChecked[0]?.probe?.state === "done" &&
+    notChecked[0].probe.result.kind === "not-checked"
+      ? notChecked[0].probe.result.message
+      : null;
+  const fine = totals.ok - notOpened - notChecked.length;
   // Broken before worth-a-look, and the ones still opening last: a report you
   // read from the top should start with the links that are actually gone.
   // `sort` is stable, so the list order survives inside each severity.
@@ -1376,6 +1400,25 @@ function CheckReport({
         </Button>
       </div>
 
+      {notChecked.length > 0 && (
+        // Above the findings, because it changes what the findings mean: the
+        // shape checks still ran and still hold, and nothing below them was
+        // opened at all.
+        <p className="flex items-start gap-1.5 text-xs text-fg-secondary">
+          <CircleAlert
+            size={12}
+            aria-hidden
+            className="mt-0.5 shrink-0 text-fg-warning-primary"
+          />
+          <span>
+            {notChecked.length === rows.length
+              ? "None of these could be opened."
+              : `${notChecked.length} could not be opened.`}{" "}
+            {notCheckedReason}
+          </span>
+        </p>
+      )}
+
       {flagged.length === 0 ? (
         <p className="flex items-center gap-1.5 text-xs text-fg-secondary">
           <CircleCheck
@@ -1383,9 +1426,9 @@ function CheckReport({
             aria-hidden
             className="text-fg-brand-primary"
           />
-          {totals.ok === 0
+          {fine === 0
             ? "Nothing to report."
-            : `All ${totals.ok} look fine.`}
+            : `${fine === totals.ok ? "All " : ""}${fine} look fine.`}
         </p>
       ) : (
         <ul className="space-y-2">
@@ -1426,6 +1469,7 @@ function CheckReport({
         {[
           flagged.length > 0 && fine > 0 ? `${fine} fine` : null,
           notOpened > 0 ? `${notOpened} with nothing to open` : null,
+          notChecked.length > 0 ? `${notChecked.length} not checked` : null,
           inFlight > 0 ? `${inFlight} still opening` : null,
           opened
             ? null
