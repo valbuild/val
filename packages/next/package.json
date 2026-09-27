@@ -12,7 +12,7 @@
     "next",
     "react"
   ],
-  "version": "0.136.10",
+  "version": "0.137.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest"

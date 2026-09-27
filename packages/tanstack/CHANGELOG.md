@@ -1,5 +1,50 @@
 # @valbuild/tanstack
 
+## 0.137.0
+
+### Patch Changes
+
+- [#676](https://github.com/valbuild/val/pull/676) [`43b58f2`](https://github.com/valbuild/val/commit/43b58f2962840883badf91950da2c51b89d1c7cb) Thanks [@freekh](https://github.com/freekh)! - External page keys are now validated, and `mailto:` and `tel:` are allowed.
+
+  `externalPageRouter` documented a rule — a key must start with `https://` or
+  `http://` — and never enforced it: the validator collected the errors and then
+  returned an empty list, so a key like `discord.gg/val` or `/about` was accepted
+  in silence and behaved as a relative link on the site.
+
+  Fixing that made the rule itself worth looking at, because it was a rule about
+  the protocol standing in for a rule about links. A contact page's email address
+  and phone number are external pages to whoever maintains the list, and they
+  were refused. So the rule that is now enforced is a deny list rather than an
+  allow list: a key must have a scheme, and the scheme must not be one of
+  `javascript:`, `data:`, `vbscript:`, `file:` or `blob:` — which are not links
+  at all. An external page key ends up in an `href` in your site's own markup, so
+  those stay refused however the router is configured.
+
+  A project that wants to be stricter says so:
+
+  ```ts
+  s.record(item).router(externalPageRouter({ schemes: ["https", "mailto"] }));
+  ```
+
+  `initVal()` from `@valbuild/next` and `@valbuild/tanstack` hands you the
+  callable form, so the narrowed version typechecks in an app.
+
+  Val Studio applies the same rule while you type — it calls the same function —
+  and shows a narrowed project's own list in the message.
+
+  If your project has a key with no scheme at all, it will start showing a
+  validation error on that entry. Give it one, or move it out of the external
+  router.
+
+- Updated dependencies [[`8f60073`](https://github.com/valbuild/val/commit/8f60073e5490971a615cebbe8ea1243c67e43530), [`af7a4ba`](https://github.com/valbuild/val/commit/af7a4baa63da5d8a226166377a354cf2fc0c1d77), [`48ac9f0`](https://github.com/valbuild/val/commit/48ac9f06dd59a5b4ca60232b1ef198cf42f23aa6), [`daecf41`](https://github.com/valbuild/val/commit/daecf416f51990569a47a6a9ee9174b1a57f98c2), [`43b58f2`](https://github.com/valbuild/val/commit/43b58f2962840883badf91950da2c51b89d1c7cb), [`9b09bf3`](https://github.com/valbuild/val/commit/9b09bf38c9d5912f41fec1c18aa87455fd32f616), [`e2bfc0e`](https://github.com/valbuild/val/commit/e2bfc0e40383fe25d3ec0473d1032f6264a8939f), [`9b09bf3`](https://github.com/valbuild/val/commit/9b09bf38c9d5912f41fec1c18aa87455fd32f616), [`8e49bf4`](https://github.com/valbuild/val/commit/8e49bf41ad6a8ad3b01e502fb7ce0369baa316db), [`370d0df`](https://github.com/valbuild/val/commit/370d0df7ea45aeeafb4520318018d7c4e1c040d6), [`14877a8`](https://github.com/valbuild/val/commit/14877a85c5add4daa16836470b8739180a9fe8c6), [`beda04b`](https://github.com/valbuild/val/commit/beda04bd326cbab18ed103e8d43917b16f43bd8c)]:
+  - @valbuild/ui@0.137.0
+  - @valbuild/server@0.137.0
+  - @valbuild/shared@0.137.0
+  - @valbuild/core@0.137.0
+  - @valbuild/react@0.137.0
+  - @valbuild/language-server@0.137.0
+  - @valbuild/mcp@0.137.0
+
 ## 0.136.10
 
 ### Patch Changes
