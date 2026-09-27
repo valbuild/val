@@ -55,6 +55,7 @@ import {
   studioOutOfDateRefusals,
   subscribeStudioOutOfDate,
 } from "../publish/loadedLayer";
+import { beginSiteOperation, busyMessage } from "../publish/siteOperation";
 import { LocalModulesErrorBanner } from "./LocalModulesErrorBanner";
 import { useSchemas } from "./ValFieldProvider";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
@@ -2382,13 +2383,29 @@ export function usePublishSummary() {
         handoff.cancel("No store system is mounted");
         return { status: "error", message: "No store system is mounted" };
       }
+      /*
+       * Not while this page is updating the site: the update has already
+       * copied the new layer in, and a save now would find the deploy taken
+       * and stay saved and not live. See `publish/siteOperation.ts`.
+       */
+      const lock = beginSiteOperation("publish");
+      if (!lock.ok) {
+        const message = busyMessage(lock.busy);
+        handoff.cancel(message);
+        return { status: "error", message };
+      }
       setIsPublishing(true);
       /*
-       * Before the save, so nothing is committed that this Studio would then
-       * build with the wrong version of itself. See `publish/loadedLayer.ts`.
+       * Before the save, so that -- unless the site moves in the instant
+       * between this read and the save -- nothing is committed that this Studio
+       * would then build with the wrong version of itself. In that instant the
+       * save lands and the deploy's own check refuses it: the change is saved
+       * and not live, and Finish publishing takes it live after the reload.
+       * See `publish/loadedLayer.ts`.
        */
       if (studioIsDeployer && (await siteMovedSinceLoad())) {
         setIsPublishing(false);
+        lock.release();
         markStudioOutOfDate();
         handoff.cancel(STUDIO_OUT_OF_DATE_MESSAGE);
         return { status: "error", message: STUDIO_OUT_OF_DATE_MESSAGE };
@@ -2501,6 +2518,7 @@ export function usePublishSummary() {
         })
         .finally(() => {
           setIsPublishing(false);
+          lock.release();
         });
     },
     [

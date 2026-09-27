@@ -36,6 +36,7 @@ import {
   STUDIO_OUT_OF_DATE,
   loadedLayer,
   markStudioOutOfDate,
+  readLiveLayer,
 } from "./loadedLayer";
 import {
   CommittedBinaryFiles,
@@ -174,6 +175,7 @@ export function useStudioDeploy(options?: {
         const loaded = await loadedLayer();
         const result = await runStudioDeploy({
           loadedLayer: loaded,
+          liveLayer: () => readLiveLayer(),
           client: createStudioPublishClient({ api }),
           commit,
           committedFiles: committedFiles ?? null,

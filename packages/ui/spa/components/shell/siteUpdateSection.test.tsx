@@ -75,6 +75,18 @@ describe("the update section", () => {
     expect(pressed).toEqual(["open-tab"]);
   });
 
+  test("a dependency the template dropped reads as removed", () => {
+    renderWith({
+      status: "available",
+      changes: [
+        { name: "zod", section: "dependencies", from: "^4.0.0", to: null },
+      ],
+    });
+    expect(screen.getByRole("listitem").textContent).toContain(
+      "^4.0.0 → removed",
+    );
+  });
+
   test("says it is up to date, and offers nothing", () => {
     renderWith({ status: "current" });
     expect(screen.queryByText(/newest version/)).not.toBeNull();

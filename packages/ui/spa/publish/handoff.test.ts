@@ -319,7 +319,9 @@ describe("an update handed to a tab", () => {
           status: "updated",
           changes: [
             { name: "ok", section: "dependencies", from: null, to: "1" },
+            { name: "gone", section: "dependencies", from: "1", to: null },
             { name: "bad", section: "peerDependencies", from: null, to: "1" },
+            { name: "worse", section: "dependencies", from: null, to: 2 },
             "not a change",
           ],
         },
@@ -333,6 +335,8 @@ describe("an update handed to a tab", () => {
           status: "updated",
           changes: [
             { name: "ok", section: "dependencies", from: null, to: "1" },
+            // A removal is a change; a version that is not one is not.
+            { name: "gone", section: "dependencies", from: "1", to: null },
           ],
         },
       });

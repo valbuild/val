@@ -40,8 +40,8 @@ describe("reading the live build's layer", () => {
     ).resolves.toBe("layer-1");
   });
 
-  test("a build with no layer is null, which is an answer", async () => {
-    await expect(readLiveLayer(head({ hash: "h" }))).resolves.toBeNull();
+  test("a head that names no layer cannot tell, so it never blocks", async () => {
+    await expect(readLiveLayer(head({ hash: "h" }))).resolves.toBe(undefined);
   });
 
   test("anything else cannot tell", async () => {

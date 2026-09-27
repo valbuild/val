@@ -20,8 +20,9 @@
  */
 
 /**
- * The layer, `null` for a live build that has none, `undefined` for "cannot
- * tell".
+ * The layer, or `undefined` for "cannot tell". `null` is never READ -- a head
+ * that names no layer is "cannot tell" too, see `readLiveLayer` -- but is what
+ * a build target says for a project with none, which is why it is comparable.
  */
 export type LayerReading = string | null | undefined;
 
@@ -38,10 +39,16 @@ export async function readLiveLayer(
     if (typeof body !== "object" || body === null || !("hash" in body)) {
       return undefined;
     }
+    /*
+     * Only a layer that is NAMED is an answer. An absent field is the same
+     * "cannot tell" as an unreachable loader: a head with no layer is a
+     * project the Studio cannot publish anyway, and an older loader that did
+     * not report one would otherwise refuse every publish from every page.
+     */
     return "projectVendorRev" in body &&
       typeof body.projectVendorRev === "string"
       ? body.projectVendorRev
-      : null;
+      : undefined;
   } catch {
     return undefined;
   }

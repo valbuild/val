@@ -215,6 +215,15 @@ export interface StudioDeployOptions {
    * different layer.
    */
   loadedLayer?: LayerReading;
+  /**
+   * The live build's layer NOW. Asked once more after the build, just before
+   * the declare: an update that went live while this page was building would
+   * pass the check against the target read at the start, and this publish
+   * would then put the old dependencies back. Absent, only that first check
+   * is made. What closes the remaining window -- declare to promote -- is the
+   * seal in publish-jobs.
+   */
+  liveLayer?: () => Promise<LayerReading>;
   loadBuilder: () => Promise<StudioBuilder>;
   /**
    * Generates `src/routeTree.gen.ts` for a file-based project.
@@ -435,6 +444,19 @@ export async function runStudioDeploy(
     });
   } catch (error) {
     return failed(messageOf(error));
+  }
+
+  if (options.target === undefined && options.liveLayer !== undefined) {
+    const live = await options.liveLayer().catch(() => undefined);
+    if (layerMoved(options.loadedLayer, live)) {
+      return {
+        status: "failed",
+        message: STUDIO_OUT_OF_DATE_MESSAGE,
+        problems: [
+          { code: STUDIO_OUT_OF_DATE, message: STUDIO_OUT_OF_DATE_MESSAGE },
+        ],
+      };
+    }
   }
 
   const declared = [

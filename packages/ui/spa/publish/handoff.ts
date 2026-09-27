@@ -382,8 +382,6 @@ function asDependencyChange(change: unknown): DependencyChange[] {
     change === null ||
     !("name" in change) ||
     typeof change.name !== "string" ||
-    !("to" in change) ||
-    typeof change.to !== "string" ||
     !("section" in change) ||
     (change.section !== "dependencies" && change.section !== "devDependencies")
   ) {
@@ -391,6 +389,12 @@ function asDependencyChange(change: unknown): DependencyChange[] {
   }
   const from =
     "from" in change && typeof change.from === "string" ? change.from : null;
+  // `null` is a removal. Anything else that is not a version is not a change.
+  if (
+    !("to" in change) ||
+    (typeof change.to !== "string" && change.to !== null)
+  )
+    return [];
   return [{ name: change.name, section: change.section, from, to: change.to }];
 }
 

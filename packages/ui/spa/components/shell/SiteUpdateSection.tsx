@@ -148,7 +148,7 @@ function SiteUpdateBody({
     case "failed":
       return (
         <div className="flex flex-col gap-2">
-          <Details text={view.details} />
+          {view.details !== "" && <Details text={view.details} />}
           <Button size="xs" variant="outline" onClick={onRetry}>
             Check again
           </Button>
@@ -182,7 +182,9 @@ function ChangeList({ changes }: { changes: DependencyChange[] }) {
             {change.name}
           </span>
           <span className="shrink-0 font-mono text-[0.6875rem] text-fg-secondary-alt">
-            {change.from ?? "new"} → {change.to}
+            {change.to === null
+              ? `${change.from ?? ""} → removed`
+              : `${change.from ?? "new"} → ${change.to}`}
           </span>
         </li>
       ))}

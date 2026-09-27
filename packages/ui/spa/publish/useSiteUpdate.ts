@@ -15,6 +15,14 @@ import { runSiteUpdate, type SiteUpdateOutcome } from "./runSiteUpdate";
 import { describeDeployPhase } from "./deployProgress";
 import type { UseStudioDeploy } from "./useStudioDeploy";
 import { canBuildHere, openHandoff, type SiteHandoff } from "./handoff";
+import { beginSiteOperation, busyMessage } from "./siteOperation";
+
+/**
+ * How long a builder tab may take before this page stops holding the lock for
+ * it. The tab reports its ending; one the person closed never will, and a lock
+ * held forever would refuse every publish from this page.
+ */
+const HANDOFF_LOCK_MS = 10 * 60_000;
 
 export type SiteUpdateView =
   | { status: "checking" }
@@ -120,6 +128,16 @@ export function useSiteUpdate(options: {
 
   const update = useCallback(() => {
     if (updating.current) return;
+    // A publish is saving or building: an update now would race it to promote.
+    const lock = beginSiteOperation("update");
+    if (!lock.ok) {
+      setView({
+        status: "failed",
+        message: busyMessage(lock.busy),
+        details: "",
+      });
+      return;
+    }
     updating.current = true;
     if (!canBuildHere()) {
       /*
@@ -130,6 +148,7 @@ export function useSiteUpdate(options: {
        */
       const tab = openHandoff();
       handoff.current = tab;
+      const timeout = setTimeout(lock.release, HANDOFF_LOCK_MS);
       setView(
         tab.opened
           ? { status: "updating", step: "Opening a tab to build the site" }
@@ -144,6 +163,8 @@ export function useSiteUpdate(options: {
           tab.close();
           handoff.current = null;
           updating.current = false;
+          clearTimeout(timeout);
+          lock.release();
         }
       });
       tab.update();
@@ -157,6 +178,7 @@ export function useSiteUpdate(options: {
       .then((outcome) => setView(viewOfOutcome(outcome)))
       .finally(() => {
         updating.current = false;
+        lock.release();
       });
   }, [api, deploy.deploy]);
 

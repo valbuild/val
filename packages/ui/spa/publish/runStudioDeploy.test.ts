@@ -970,6 +970,29 @@ describe("a Studio older than the site", () => {
     });
   });
 
+  test("the site moving WHILE it builds is caught before anything is declared", async () => {
+    const calls: string[] = [];
+    let declared = false;
+    const result = await deploy({
+      loadedLayer: "layer-1",
+      liveLayer: async () => "layer-2",
+      client: client({
+        declare: async () => {
+          declared = true;
+          throw new Error("must not declare");
+        },
+      }),
+      loadBuilder: async () => builder(calls),
+    });
+    expect(result).toMatchObject({
+      status: "failed",
+      problems: [{ code: "STUDIO_OUT_OF_DATE" }],
+    });
+    // It built -- the first check passed -- and stopped short of the publish.
+    expect(calls).toContain("buildUserApp");
+    expect(declared).toBe(false);
+  });
+
   test("an update is not refused for moving the layer, which is its point", async () => {
     await expect(
       deploy({

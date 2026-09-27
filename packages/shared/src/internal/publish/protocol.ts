@@ -263,7 +263,8 @@ const dependencyChange = z.object({
   section: z.enum(["dependencies", "devDependencies"]),
   /** `null` for a dependency the template added. */
   from: z.string().nullable(),
-  to: z.string(),
+  /** `null` for a dependency the template dropped: it leaves `package.json`. */
+  to: z.string().nullable(),
 });
 
 const updateTargetResponse = z.discriminatedUnion("status", [
