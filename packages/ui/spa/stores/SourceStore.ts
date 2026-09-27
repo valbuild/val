@@ -2048,6 +2048,27 @@ export class SourceStore {
       this.bumpBase(moduleFilePath as ModuleFilePath);
       this.sources[moduleFilePath as ModuleFilePath] = deepClone(base);
       /*
+       * And the entry content back to base, as a rebuild does.
+       *
+       * The replay below applies the whole chain again. Left holding the
+       * PATCHED entry content, it applied every edit inside a `.jsonValues()`
+       * entry once more per intake — an array `add` doubled, then tripled.
+       */
+      const baseEntries = this.baseJsonEntries.get(
+        moduleFilePath as ModuleFilePath,
+      );
+      if (baseEntries !== undefined) {
+        this.jsonEntries.set(
+          moduleFilePath as ModuleFilePath,
+          new Map(
+            [...baseEntries].map(([key, value]) => [
+              key,
+              deepClone(value as JSONValue),
+            ]),
+          ),
+        );
+      }
+      /*
        * A recorded entry FAILURE does not survive a re-intake.
        *
        * `peek` reports `entry-failed` so readers stop asking, which is right

@@ -374,6 +374,50 @@ describe("peekBase counts what has shipped", () => {
     system.dispose();
   });
 
+  it("does not re-apply an entry edit on every intake of the module", async () => {
+    /*
+     * An intake replays the whole chain onto the base. It reset the module's
+     * source but left the entry content patched, so each intake applied every
+     * edit inside an entry once more. A shipped patch waiting for its entry is
+     * replayed exactly like a pending one, so this is the same bug twice.
+     */
+    const { c, s } = initVal();
+    const BLOGS = "/blogs.val.ts" as ModuleFilePath;
+    const TAGS_A = '/blogs.val.ts?p="/a"."tags"' as SourcePath;
+    const blogs = () => [
+      c.define(
+        BLOGS,
+        s.record(s.object({ tags: s.array(s.string()) })).jsonValues(),
+        { "/a": c.json(() => Promise.resolve({ default: { tags: [] } })) },
+      ),
+    ];
+    const system = makeSystem({ mode: "http" });
+    system.host.receive(blogs());
+    system.sourceStore.receiveJsonEntry(BLOGS, "/a", { tags: [] });
+    const res = await system.patchStore.createPatch(BLOGS, [
+      { op: "add", path: ["/a", "tags", "-"], value: "shipped" },
+    ]);
+    if (res.status !== "created") throw new Error(res.status);
+    await system.patchSync.flush();
+    await system.publish([res.record.patchId]);
+    system.stat.receiveStat({ patches: [], baseSha: "after-deploy" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // The entry's content never arrives again: the patch waits, and is
+    // replayed onto the base's copy of the entry, which is still pre-deploy.
+    system.host.receive(blogs());
+    system.host.receive(blogs());
+    system.host.receive(blogs());
+
+    expect(system.sourceStore.peek(TAGS_A)).toMatchObject({
+      data: ["shipped"],
+    });
+    expect(system.sourceStore.peekBase(TAGS_A)).toMatchObject({
+      data: ["shipped"],
+    });
+    system.dispose();
+  });
+
   it("keeps a shipped copy until the entry it reads from arrives too", async () => {
     /*
      * A `copy` reads its `from`. Retiring it once only the entry it WRITES had
