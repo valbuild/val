@@ -1384,6 +1384,13 @@ export const ValServer = (
          * re-read when a fetch has missing ids to ask for.
          */
         let patchGroupIdFromStore: string | undefined;
+        /*
+         * The chain version the LAST patch made — the head this batch leaves.
+         * The client keeps the highest version it has seen, so a `/stat` read
+         * before this write cannot put its parent back behind it. Absent in
+         * `fs` mode and from an older content API.
+         */
+        let headVersion: number | undefined;
         for (const patch of patches) {
           const createPatchRes = await serverOps.createPatch(
             patch.path,
@@ -1431,6 +1438,7 @@ export const ValServer = (
             if (createPatchRes.value.patchGroupId !== undefined) {
               patchGroupIdFromStore = createPatchRes.value.patchGroupId;
             }
+            headVersion = createPatchRes.value.headVersion;
           }
         }
         return {
@@ -1444,6 +1452,7 @@ export const ValServer = (
             ...(patchGroupIdFromStore !== undefined
               ? { patchGroupId: patchGroupIdFromStore }
               : {}),
+            ...(headVersion !== undefined ? { headVersion } : {}),
           },
         };
       },

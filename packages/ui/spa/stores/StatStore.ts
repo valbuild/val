@@ -74,6 +74,22 @@ export type StatSnapshot = {
    */
   headPatchId?: PatchId | null;
   /**
+   * The version of the chain {@link headPatchId} was read at. The content
+   * service bumps it with every write and every delete.
+   *
+   * What lets a stat that arrives AFTER a newer one be recognised as older.
+   * `/stat` has more than one caller — the poll, the websocket, the re-sync
+   * after a conflict, and React re-announcing what it last held — so two
+   * answers can be in flight at once and land in either order, and adopting
+   * the late one rewound the chain: the list, and the parent the next write
+   * names. A snapshot at a lower version than one already received is
+   * dropped.
+   *
+   * Absent means "not reported" (`fs`, or a content service that predates
+   * it), and such a snapshot is adopted as it always was.
+   */
+  headVersion?: number;
+  /**
    * WHICH BUILD answered: the `sourcesSha` of the source its chain is relative to.
    *
    * `patches` are the ones that build does not contain, so they are right only
@@ -116,6 +132,13 @@ export class StatStore {
   private patches: PatchId[] = [];
   /** See {@link StatSnapshot.headPatchId}. `undefined` is "not reported". */
   private headPatchId: PatchId | null | undefined = undefined;
+  /**
+   * The newest {@link StatSnapshot.headVersion} RECEIVED — not adopted, so a
+   * newer stat still being prepared already makes an older one stale.
+   */
+  private newestHeadVersion: number | undefined = undefined;
+  /** The version of the ADOPTED head, which is {@link headPatchId}'s. */
+  private headVersion: number | undefined = undefined;
   private baseSha: string | null = null;
   /** The publish head. See {@link StatSnapshot.headCommitSha}. */
   private headCommitSha: string | null = null;
@@ -138,9 +161,9 @@ export class StatStore {
    * nobody else has until the page is reloaded.
    *
    * `resyncChain` asks `/stat` outside that serial loop, so two answers CAN be
-   * in flight at once; the second would still rewind. That is the bug as it
-   * stands today rather than a new one, and closing it needs a per-request
-   * sequence number carried on the response.
+   * in flight at once. Where the server versions its chain (`headVersion`), the
+   * older of the two is dropped on arrival — see {@link StatSnapshot.headVersion}
+   * — so this guard is what is left for a server that does not.
    */
   private supersededHead: string | null = null;
 
@@ -162,6 +185,17 @@ export class StatStore {
    * meanwhile, since a newer answer is the one to believe.
    */
   receiveStat(snapshot: StatSnapshot): void {
+    if (snapshot.headVersion !== undefined) {
+      if (
+        this.newestHeadVersion !== undefined &&
+        snapshot.headVersion < this.newestHeadVersion
+      ) {
+        // Older than an answer already in hand. Dropped before the ticket
+        // moves, so it cannot cancel a newer stat still being prepared.
+        return;
+      }
+      this.newestHeadVersion = snapshot.headVersion;
+    }
     const ticket = ++this.received;
     this.preparing = false;
     const prepared = this.preparer?.(snapshot) ?? null;
@@ -203,6 +237,7 @@ export class StatStore {
     this.lastAdopted = snapshot;
     this.patches = [...snapshot.patches];
     this.headPatchId = snapshot.headPatchId;
+    this.headVersion = snapshot.headVersion;
     if (snapshot.baseSha !== undefined) {
       this.baseSha = snapshot.baseSha;
     }
@@ -245,6 +280,14 @@ export class StatStore {
    */
   currentHeadPatchId(): PatchId | null | undefined {
     return this.headPatchId;
+  }
+
+  /**
+   * The chain version {@link currentHeadPatchId} was read at, or `undefined`
+   * when the server does not say. See {@link StatSnapshot.headVersion}.
+   */
+  currentHeadVersion(): number | undefined {
+    return this.headVersion;
   }
 
   /**

@@ -679,6 +679,9 @@ export function createValSystem(
               ...(res.json.patchGroupId !== undefined
                 ? { patchGroupId: res.json.patchGroupId }
                 : {}),
+              ...(res.json.headVersion !== undefined
+                ? { headVersion: res.json.headVersion }
+                : {}),
             };
           },
         }
@@ -722,6 +725,8 @@ export function createValSystem(
               // the parent we named was not it. `fs` answers without one.
               headPatchId:
                 "headPatchId" in res.json ? res.json.headPatchId : undefined,
+              headVersion:
+                "headVersion" in res.json ? res.json.headVersion : undefined,
             });
           },
         }

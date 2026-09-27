@@ -56,6 +56,8 @@ const WebSocketServerMessage = z.union([
      * a content service that predates it sends nothing.
      */
     headPatchId: PatchId.nullable().optional(),
+    /** The chain version of that head. See `headVersion` on {@link StatData}. */
+    headVersion: z.number().optional(),
   }),
   z.object({
     type: z.literal("deployment"),
@@ -166,6 +168,12 @@ export const StatData = z.object({
    * `chainHeadOf`. `http` only; absent is "not reported", not `null`.
    */
   headPatchId: PatchId.nullable().optional(),
+  /**
+   * The version of the chain `headPatchId` was read at, so an answer that lands
+   * after a newer one can be told apart. `http` only; absent is "not
+   * reported".
+   */
+  headVersion: z.number().optional(),
   /**
    * The newest commit, which is the PUBLISH head.
    *
@@ -507,6 +515,7 @@ async function execStat(
                         // the previous stat: a head older than the list it
                         // came with is a parent the server will refuse.
                         headPatchId: message.headPatchId,
+                        headVersion: message.headVersion,
                       },
                       waitStart:
                         "waitStart" in prev ? prev.waitStart : Date.now(),

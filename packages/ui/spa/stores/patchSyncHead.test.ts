@@ -39,10 +39,20 @@ function makeServer(options: {
   rows: Row[];
   /** A content service that predates `headPatchId` reports none. */
   reportsHead?: boolean;
+  /**
+   * Version the chain, as the content service does (`headVersion`): bumped by
+   * every change to it, and reported with the head. Off by default: the tests
+   * above are about a server that sends a head and nothing to order it by.
+   */
+  versions?: boolean;
 }) {
   const rows = [...options.rows];
   const reportsHead = options.reportsHead ?? true;
+  const versions = options.versions ?? false;
   const writes: ParentRef[] = [];
+  let version = 1;
+  /** The chain changed. */
+  const bump = () => (version += 1);
   const head = (): PatchId | null => rows[rows.length - 1]?.patchId ?? null;
   const shown = () =>
     rows.filter((row) => !row.published).map((row) => row.patchId);
@@ -50,15 +60,30 @@ function makeServer(options: {
     patches: shown(),
     baseSha: "sha",
     ...(reportsHead ? { headPatchId: head() } : {}),
+    ...(versions ? { headVersion: version } : {}),
   });
   return {
     rows,
     writes,
     head,
     snapshot,
+    versions,
+    bump,
+    /** A discard: the row is deleted, and the head can move BACK. */
+    discard(patchId: string) {
+      const index = rows.findIndex((row) => row.patchId === patchId);
+      if (index !== -1) rows.splice(index, 1);
+      bump();
+    },
+    /** Somebody else's pending patch. */
+    writeElsewhere(patchId: string) {
+      rows.push({ patchId: patchId as PatchId, published: false });
+      bump();
+    },
     /** Somebody else's patch, published and deployed: in the chain, not shown. */
     publishElsewhere(patchId: string) {
       rows.push({ patchId: patchId as PatchId, published: true });
+      bump();
     },
   };
 }
@@ -110,6 +135,7 @@ function makeSystem(server: ReturnType<typeof makeServer>): System {
       for (const patch of patches) {
         server.rows.push({ patchId: patch.patchId, published: false });
       }
+      const madeVersion = server.bump();
       return {
         status: "saved",
         newPatchIds: patches.map((patch) => patch.patchId),
@@ -117,6 +143,8 @@ function makeSystem(server: ReturnType<typeof makeServer>): System {
           type: "patch",
           patchId: patches[patches.length - 1].patchId,
         },
+        // The version this write made, as the content service reports it.
+        ...(server.versions ? { headVersion: madeVersion } : {}),
       };
     },
     resyncChain: async () => {
@@ -321,6 +349,100 @@ describe("our own saves, and a stat that has seen past them", () => {
       patchId: second,
     });
     expect(first).not.toBe(second);
+    system.dispose();
+  });
+});
+
+describe("a versioned head is never rewound by an older answer", () => {
+  test("a stat that lands after a newer one is ignored", async () => {
+    // Two answers in flight — the poll and a re-sync, say — landing in the
+    // wrong order. The second to arrive is the older, and must not win.
+    const server = makeServer({ rows: incident(), versions: true });
+    const system = makeSystem(server);
+    const older = server.snapshot();
+    server.publishElsewhere("elsewhere-later");
+    system.stat.receiveStat(server.snapshot());
+    system.stat.receiveStat(older);
+
+    await edit(system, "mine");
+    await flush(system);
+
+    expect(server.writes).toEqual([
+      { type: "patch", patchId: "elsewhere-later" },
+    ]);
+    system.dispose();
+  });
+
+  test("an answer taken before our own save does not put the parent back", async () => {
+    const server = makeServer({ rows: incident(), versions: true });
+    const system = makeSystem(server);
+    const before = server.snapshot();
+    const first = await edit(system, "one");
+    await flush(system);
+    system.stat.receiveStat(before);
+
+    await edit(system, "two");
+    await flush(system);
+
+    expect(server.writes).toEqual([
+      { type: "patch", patchId: "elsewhere-published" },
+      { type: "patch", patchId: first },
+    ]);
+    system.dispose();
+  });
+
+  test("a head that moves BACK, because it was discarded, is still believed", async () => {
+    // Why a version and not seq_num: a discard of the head lowers it. A client
+    // that only believed a higher head would name the deleted patch forever.
+    const server = makeServer({
+      rows: [
+        { patchId: "theirs-first" as PatchId, published: false },
+        { patchId: "theirs-last" as PatchId, published: false },
+      ],
+      versions: true,
+    });
+    const system = makeSystem(server);
+    server.discard("theirs-last");
+    system.stat.receiveStat(server.snapshot());
+
+    await edit(system, "mine");
+    await flush(system);
+
+    expect(server.writes).toEqual([{ type: "patch", patchId: "theirs-first" }]);
+    system.dispose();
+  });
+
+  test("a stat newer than our save wins, even when it does not list our patch", async () => {
+    const server = makeServer({ rows: [], versions: true });
+    const system = makeSystem(server);
+    await edit(system, "one");
+    await flush(system);
+    for (const row of server.rows) row.published = true;
+    server.publishElsewhere("elsewhere-later");
+    system.stat.receiveStat(server.snapshot());
+
+    await edit(system, "two");
+    await flush(system);
+
+    expect(server.writes).toEqual([
+      { type: "head", headBaseSha: "sha" },
+      { type: "patch", patchId: "elsewhere-later" },
+    ]);
+    system.dispose();
+  });
+
+  test("the list is not rewound either", async () => {
+    const server = makeServer({ rows: incident(), versions: true });
+    const system = makeSystem(server);
+    const older = server.snapshot();
+    server.writeElsewhere("theirs-newer");
+    system.stat.receiveStat(server.snapshot());
+    system.stat.receiveStat(older);
+
+    expect(system.stat.currentPatchIds()).toEqual([
+      "theirs-pending",
+      "theirs-newer",
+    ]);
     system.dispose();
   });
 });

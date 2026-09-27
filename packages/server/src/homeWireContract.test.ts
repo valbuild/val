@@ -768,6 +768,7 @@ const HOME_APPLICABLE_PATCHES = {
     },
   ],
   headPatchId: "55555555-5555-4555-8555-555555555555",
+  headVersion: 42,
   patchGroups: [],
   commits: [],
   deployments: [],
@@ -784,6 +785,8 @@ test("home's chain head is carried, and it is not the last listed patch", async 
     ]);
     // The whole point: a writer names THIS, and the list cannot tell it.
     expect(res.headPatchId).toBe("55555555-5555-4555-8555-555555555555");
+    // And the chain version it was read at, so a late answer can be told apart.
+    expect(res.headVersion).toBe(42);
   } finally {
     restore();
   }
@@ -798,6 +801,7 @@ test("a filtered fetch carries the head too", async () => {
     });
 
     expect(res.headPatchId).toBe("55555555-5555-4555-8555-555555555555");
+    expect(res.headVersion).toBe(42);
   } finally {
     restore();
   }
@@ -820,7 +824,11 @@ test("an empty chain is a null head, not an absent one", async () => {
 });
 
 test("an older content server, which reports no head, leaves it absent", async () => {
-  const { headPatchId: _dropped, ...older } = HOME_APPLICABLE_PATCHES;
+  const {
+    headPatchId: _dropped,
+    headVersion: _droppedVersion,
+    ...older
+  } = HOME_APPLICABLE_PATCHES;
   const { ops, restore } = opsAnswering(older);
   try {
     const res = await ops.fetchPatches({ excludePatchOps: true });
@@ -828,6 +836,7 @@ test("an older content server, which reports no head, leaves it absent", async (
     // Absent, so callers fall back to the last listed id rather than reading
     // `undefined` as an empty chain.
     expect("headPatchId" in res).toBe(false);
+    expect("headVersion" in res).toBe(false);
     expect(res.patches).toHaveLength(1);
   } finally {
     restore();

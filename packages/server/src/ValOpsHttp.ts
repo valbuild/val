@@ -98,6 +98,11 @@ const GetApplicablePatches = z.object({
    * a content service that predates it sends nothing.
    */
   headPatchId: PatchIdSchema.nullable().optional(),
+  /**
+   * The chain version of that head. See `OrderedPatches.headVersion`.
+   * Optional for the same reason.
+   */
+  headVersion: z.number().optional(),
   commits: z
     .array(
       z.object({
@@ -196,6 +201,11 @@ const SavePatchResponse = z.object({
    * absence has to keep meaning "no groups here" rather than failing the save.
    */
   patchGroupId: z.string().optional(),
+  /**
+   * The chain version this write made, comparable with `headVersion` on the
+   * listing. Optional: a content service that predates it sends nothing.
+   */
+  headVersion: z.number().optional(),
 });
 const DeletePatchesResponse = z.object({
   deleted: z.array(PatchId),
@@ -880,6 +890,8 @@ export class ValOpsHttp extends ValOps {
         appliedPatches: PatchId[];
         /** The head of the chain. See {@link OrderedPatchesMetadata.headPatchId}. */
         headPatchId?: PatchId | null;
+        /** The chain version of that head. See {@link OrderedPatchesMetadata.headVersion}. */
+        headVersion?: number;
         /** The newest commit, which is the publish head. */
         headCommitSha?: string;
       }
@@ -976,6 +988,9 @@ export class ValOpsHttp extends ValOps {
        */
       ...(allPatchData.headPatchId !== undefined
         ? { headPatchId: allPatchData.headPatchId }
+        : {}),
+      ...(allPatchData.headVersion !== undefined
+        ? { headVersion: allPatchData.headVersion }
         : {}),
       /*
        * The PUBLISH head, which is not `commitSha`.
@@ -1130,6 +1145,7 @@ export class ValOpsHttp extends ValOps {
     // A fact about the branch too, so taken from the first chunk that has it
     // for the same reason `commits` is.
     let headPatchId: OrderedPatches["headPatchId"];
+    let headVersion: OrderedPatches["headVersion"];
     if (patchIds === undefined || patchIds.length === 0) {
       return this.fetchPatchesInternal({
         patchIds: patchIds,
@@ -1156,6 +1172,8 @@ export class ValOpsHttp extends ValOps {
       }
       if (headPatchId === undefined && res.headPatchId !== undefined) {
         headPatchId = res.headPatchId;
+        // The version of THAT head, so the two always describe one read.
+        headVersion = res.headVersion;
       }
     }
     // Chunking is a query-string-length workaround, NOT a filter: the content
@@ -1189,6 +1207,7 @@ export class ValOpsHttp extends ValOps {
       // readers do — sees the same shape the unchunked path gives it.
       ...(commits !== undefined ? { commits } : {}),
       ...(headPatchId !== undefined ? { headPatchId } : {}),
+      ...(headVersion !== undefined ? { headVersion } : {}),
     } as ExcludePatchOps extends true ? OrderedPatchesMetadata : OrderedPatches;
   }
 
@@ -1310,6 +1329,9 @@ export class ValOpsHttp extends ValOps {
             errors,
             ...(data.headPatchId !== undefined
               ? { headPatchId: data.headPatchId }
+              : {}),
+            ...(data.headVersion !== undefined
+              ? { headVersion: data.headVersion }
               : {}),
           } as ExcludePatchOps extends true
             ? OrderedPatchesMetadata
@@ -1773,6 +1795,9 @@ export class ValOpsHttp extends ValOps {
                */
               ...(parsed.data.patchGroupId !== undefined
                 ? { patchGroupId: parsed.data.patchGroupId }
+                : {}),
+              ...(parsed.data.headVersion !== undefined
+                ? { headVersion: parsed.data.headVersion }
                 : {}),
             });
           }

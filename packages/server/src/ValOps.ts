@@ -273,6 +273,8 @@ export abstract class ValOps {
          * {@link OrderedPatches.headPatchId}.
          */
         headPatchId?: PatchId | null;
+        /** The chain version of that head. See {@link OrderedPatches.headVersion}. */
+        headVersion?: number;
       }
     | {
         type: "error";
@@ -2427,6 +2429,8 @@ export abstract class ValOps {
         createdAt: string;
         /** See {@link SaveSourceFilePatchResult} — absent where there are no groups. */
         patchGroupId?: string;
+        /** See {@link SaveSourceFilePatchResult}. */
+        headVersion?: number;
       },
       | { errorType: "other"; error: GenericErrorMessage }
       | { errorType: "patch-head-conflict" }
@@ -2457,6 +2461,9 @@ export abstract class ValOps {
       // group whose id is undefined, all the way to the client.
       ...(saveRes.value.patchGroupId !== undefined
         ? { patchGroupId: saveRes.value.patchGroupId }
+        : {}),
+      ...(saveRes.value.headVersion !== undefined
+        ? { headVersion: saveRes.value.headVersion }
         : {}),
     });
   }
@@ -2866,6 +2873,12 @@ export type SaveSourceFilePatchResult = result.Result<
      * client uses it to learn the id of the group its own first write created.
      */
     patchGroupId?: string;
+    /**
+     * The chain version this write made — see
+     * {@link OrderedPatches.headVersion}. Absent in `fs` mode and against a
+     * content service that predates it.
+     */
+    headVersion?: number;
   },
   | ({ errorType: "other" } & GenericErrorMessage)
   | { errorType: "patch-head-conflict" }
@@ -3089,6 +3102,18 @@ export type OrderedPatches = {
    * ignores the parent) and a content service that predates the field.
    */
   headPatchId?: PatchId | null;
+  /**
+   * The version of the chain {@link headPatchId} was read at.
+   *
+   * The content service bumps it with every write and every delete, in the
+   * transaction that makes the change, and reads it in the same statement as
+   * the head. `/stat` has more than one caller, so two answers can be in
+   * flight at once and land in either order; a client keeps the head with the
+   * highest version, and an answer that arrives after a newer one no longer
+   * puts its parent back. Absent wherever `headPatchId` is, and for the same
+   * reasons.
+   */
+  headVersion?: number;
   error?: GenericErrorMessage;
   errors?: PatchReadError[];
   unauthorized?: boolean;
@@ -3103,6 +3128,8 @@ export type OrderedPatchesMetadata = {
   deployments?: ValDeployment[];
   /** See {@link OrderedPatches.headPatchId}. */
   headPatchId?: OrderedPatches["headPatchId"];
+  /** See {@link OrderedPatches.headVersion}. */
+  headVersion?: OrderedPatches["headVersion"];
   error?: GenericErrorMessage;
   errors?: OrderedPatches["errors"];
   unauthorized?: boolean;

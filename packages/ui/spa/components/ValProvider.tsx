@@ -526,6 +526,9 @@ export function ValProvider({
    */
   const statPatchHead =
     "data" in stat && stat.data ? stat.data.headPatchId : undefined;
+  /** The chain version of `statPatchHead`, so an older answer can be ignored. */
+  const statHeadVersion =
+    "data" in stat && stat.data ? stat.data.headVersion : undefined;
   /**
    * Which build answered: its chain is relative to the source with this sha.
    * See `BaseAlignment`.
@@ -542,6 +545,7 @@ export function ValProvider({
             appliedPatches: statApplied,
             headCommitSha: statHead,
             headPatchId: statPatchHead,
+            headVersion: statHeadVersion,
             sourcesSha: statSourcesSha,
           }
         : null,
@@ -552,6 +556,7 @@ export function ValProvider({
       statApplied,
       statHead,
       statPatchHead,
+      statHeadVersion,
       statSourcesSha,
     ],
   );

@@ -694,6 +694,13 @@ export const Api = {
                * content service that predates it sends nothing.
                */
               headPatchId: PatchId.nullable().optional(),
+              /**
+               * The version of the chain `headPatchId` was read at, bumped by
+               * every write and delete. `/stat` has more than one caller, so
+               * answers can land out of order; a client keeps the head with the
+               * highest version. Optional, for the same reason `headPatchId` is.
+               */
+              headVersion: z.number().optional(),
               commits: z.array(ValCommit),
               /**
                * The publishes the content service knows about.
@@ -977,6 +984,13 @@ export const Api = {
             newPatchIds: z.array(PatchId),
             parentRef: ParentRef,
             patchGroupId: z.string().optional(),
+            /**
+             * The chain version the last of these patches made, comparable with
+             * `headVersion` on `/stat`. A client keeps the highest version, so a
+             * stat read before this write does not put its parent back behind
+             * it. Absent in `fs` mode and from an older content service.
+             */
+            headVersion: z.number().optional(),
           }),
         }),
       ]),
