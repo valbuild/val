@@ -80,6 +80,20 @@ export const StatData = z.object({
   profileId: z.string().nullable(),
   config: z.object({
     project: z.string().optional(),
+    /*
+     * The branch history is listed under, and the one thing that decides
+     * whether the Studio offers History at all (`historyEnabledFor`).
+     *
+     * Declared here even though nothing in this file parses at runtime — the
+     * `/stat` response is validated against `ApiRoutes`, which has always
+     * carried it, and `ValClient` hands back the raw json regardless. What
+     * this shape decides is the TYPE of `stat.data.config`, and `ValProvider`
+     * bridges that to `ValConfig` with an assertion. So an undeclared field is
+     * a field that is silently absent from the type while being present on the
+     * wire, which is the same trap `ApiRoutes` records for `deployments`: a
+     * field nobody has declared is a field the next person deletes.
+     */
+    gitBranch: z.string().optional(),
     ai: z
       .object({
         // Read to decide whether to open the AI socket: commit summaries run

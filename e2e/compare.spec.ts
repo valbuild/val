@@ -1,25 +1,25 @@
 import { expect, test } from "@playwright/test";
-import { clearPatchChain, openStudio } from "./studio";
+import { clearPatchChain, navigateStudio, openStudio } from "./studio";
 import type { Locator, Page } from "@playwright/test";
 
 /**
- * Reach the compare view the way an editor does.
+ * The compare view, by its route.
  *
- * A `page.goto("/val/compare")` looks equivalent and is not: it reloads the SPA,
- * throwing away the intake `openStudio` waited for AND the pending edit the view
- * is supposed to be showing. Review is the route in, and it only appears once
- * there is something to review — so clicking it is also the wait for the edit
- * having landed.
+ * This used to click Review, and said so: a `goto` "looks equivalent and is
+ * not — it reloads the SPA, throwing away the intake `openStudio` waited for
+ * AND the pending edit the view is supposed to be showing". Both halves of
+ * that are still true; what changed is that Review no longer goes here. It
+ * opens `/val/review`, a list of what is going out rather than a diff of it,
+ * and the diff behind ITS Compare button is the new `CompareDialog` — which
+ * renders these fields differently.
  *
- * At this viewport that control is in the top bar, next to Publish. It used to
- * be inside the Quick actions panel; the panel now carries it on mobile only,
- * because two controls with the same accessible name on one screen is
- * ambiguous to a screen reader and a second place to look for everyone else.
+ * So the route is navigated to the way the shell navigates, in the page,
+ * rather than reloaded into. `navigateStudio` says why a reload is not the
+ * same thing.
  */
 async function openCompare(page: Page, studio: Locator): Promise<void> {
-  const review = studio.getByRole("button", { name: /Review \d+ change/ });
-  await expect(review).toBeVisible({ timeout: 30000 });
-  await review.click();
+  void studio;
+  await navigateStudio(page, "/val/compare");
 }
 
 /**

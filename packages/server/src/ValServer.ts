@@ -36,6 +36,7 @@ import {
   verifyJwt,
   type JwtFailureReason,
 } from "./jwt";
+import { clientConfig } from "./clientConfig";
 import { z } from "zod";
 import { probeUrl } from "./linkCheck/probeUrl";
 import { ValOpsFS } from "./ValOpsFS";
@@ -1010,7 +1011,10 @@ export const ValServer = (
             mode,
             ...(publishRefusal ? { publishRefusal } : {}),
             ...(sourceMode ? { sourceMode } : {}),
-            config: options.config,
+            // Not `options.config` verbatim: in proxy mode the branch the
+            // server resolved is filled in where the file did not name one.
+            // See `clientConfig`.
+            config: clientConfig(options),
           },
         };
       },

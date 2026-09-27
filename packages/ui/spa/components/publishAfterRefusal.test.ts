@@ -86,7 +86,7 @@ function button(system: System) {
     pendingServerSidePatchCount: pendingServerSide.length,
     pendingClientSidePatchCount: store.unsavedRecords().length,
     netChangesEmpty: false,
-    heldChangeCount: 0,
+    unstagedChangeCount: 0,
   });
 }
 

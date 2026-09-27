@@ -56,7 +56,7 @@ function Harness({
   ids = CHAIN,
   onChange,
 }: {
-  side: "staged" | "held";
+  side: "staged" | "unstaged";
   initialGroup?: PatchId[];
   ids?: PatchId[];
   onChange?: (next: Set<PatchId>) => void;
@@ -88,7 +88,7 @@ test("the staged section offers unstage, the unstaged section offers stage", () 
   const { unmount } = render(<Harness side="staged" />);
   expect(screen.getByRole("button", { name: /^Unstage all/ })).toBeTruthy();
   unmount();
-  render(<Harness side="held" initialGroup={[]} />);
+  render(<Harness side="unstaged" initialGroup={[]} />);
   expect(screen.getByRole("button", { name: /^Stage all/ })).toBeTruthy();
 });
 
@@ -103,7 +103,7 @@ test("a per-author button moves only that author's ids", () => {
   let latest: Set<PatchId> | null = null;
   render(
     <Harness
-      side="held"
+      side="unstaged"
       initialGroup={[]}
       onChange={(next) => (latest = next)}
     />,
@@ -114,7 +114,7 @@ test("a per-author button moves only that author's ids", () => {
 });
 
 test("per-author buttons are counted and named", () => {
-  render(<Harness side="held" initialGroup={[]} />);
+  render(<Harness side="unstaged" initialGroup={[]} />);
   expect(screen.getByText("Stage Bob Bakke's 2")).toBeTruthy();
   expect(screen.getByText("Stage Alice Andersen's 1")).toBeTruthy();
 });
@@ -136,13 +136,17 @@ test("with a single author there is no per-author button", () => {
   // "Stage all" already says exactly the same thing, and two controls doing
   // one job is worse than one.
   render(
-    <Harness side="held" initialGroup={[]} ids={["p2", "p3"] as PatchId[]} />,
+    <Harness
+      side="unstaged"
+      initialGroup={[]}
+      ids={["p2", "p3"] as PatchId[]}
+    />,
   );
   expect(screen.queryByText(/Stage Bob Bakke's/)).toBeNull();
   expect(screen.getByRole("button", { name: /^Stage all/ })).toBeTruthy();
 });
 
 test("an empty section renders nothing", () => {
-  const { container } = render(<Harness side="held" ids={[]} />);
+  const { container } = render(<Harness side="unstaged" ids={[]} />);
   expect(container.textContent).toBe("");
 });

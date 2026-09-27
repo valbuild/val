@@ -44,14 +44,18 @@ export type TopBarProps = {
    */
   unreadNotifications?: number;
   /**
-   * Whether to offer the history panel.
+   * Whether to offer the history page.
    *
    * False in FS mode: local dev has git, not a commit archive, so there is no
    * published history to list and the endpoint answers
    * `not-supported-in-fs-mode`. Better to not offer the button than to open a
-   * panel whose only content is an apology.
+   * page whose only content is an apology.
    */
   historyEnabled?: boolean;
+  /** Whether the history page is the one being shown. */
+  historyActive?: boolean;
+  /** Go to the history page. A navigation, not a panel toggle. */
+  onOpenHistory?: () => void;
   /** Absent until a profile loads, and in modes that have none. */
   user?: { name: string; avatarUrl?: string };
   onOpenSearch: () => void;
@@ -155,6 +159,8 @@ export function TopBar({
   onOpenMenu,
   unreadNotifications,
   historyEnabled = false,
+  historyActive = false,
+  onOpenHistory,
   user,
   onOpenSearch,
   locales,
@@ -255,8 +261,8 @@ export function TopBar({
         {historyEnabled && (
           <IconButton
             label="History"
-            active={openPanel === "history"}
-            onClick={() => onTogglePanel("history")}
+            active={historyActive}
+            onClick={onOpenHistory ?? (() => undefined)}
           >
             <History size={16} />
           </IconButton>

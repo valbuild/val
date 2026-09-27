@@ -7,21 +7,21 @@ import type { ChangeTreeNode } from "./computeChangedSourcePaths";
  */
 export type StagingStateOf = (
   patchIds: readonly PatchId[],
-) => "staged" | "held" | "partial";
+) => "staged" | "unstaged" | "partial";
 
 export type SplitTrees = {
   /** Trees whose changes will publish. */
   staged: ChangeTreeNode[];
-  /** Trees whose changes are held back and will not. */
-  held: ChangeTreeNode[];
+  /** Trees whose changes are unstaged and will not. */
+  unstaged: ChangeTreeNode[];
 };
 
 /**
- * Split each tree into the part that is staged and the part that is held.
+ * Split each tree into the staged part and the unstaged part.
  *
- * A module is NOT staged or held as a whole — the unit of staging is the patch
+ * A module is NOT staged or unstaged as a whole — the unit of staging is the patch
  * set, and one module file routinely carries several. So a module with a staged
- * title and a held list has to appear in both sections, showing only the rows
+ * title and an unstaged list has to appear in both sections, showing only the rows
  * that belong there.
  *
  * This is the same move `isCommitted` already makes one level up: "a patch set
@@ -45,24 +45,24 @@ export function splitTreesByStaging(
   stateOf: StagingStateOf,
 ): SplitTrees {
   const staged: ChangeTreeNode[] = [];
-  const held: ChangeTreeNode[] = [];
+  const unstaged: ChangeTreeNode[] = [];
   for (const tree of trees) {
     const stagedSide = filterTree(tree, stateOf, "staged");
-    const heldSide = filterTree(tree, stateOf, "held");
+    const unstagedSide = filterTree(tree, stateOf, "unstaged");
     if (stagedSide) {
       staged.push(stagedSide);
     }
-    if (heldSide) {
-      held.push(heldSide);
+    if (unstagedSide) {
+      unstaged.push(unstagedSide);
     }
   }
-  return { staged, held };
+  return { staged, unstaged };
 }
 
 function filterTree(
   node: ChangeTreeNode,
   stateOf: StagingStateOf,
-  want: "staged" | "held",
+  want: "staged" | "unstaged",
 ): ChangeTreeNode | null {
   const children: ChangeTreeNode[] = [];
   for (const child of node.children) {
@@ -87,7 +87,7 @@ function filterTree(
 function belongsTo(
   patchIds: readonly PatchId[],
   stateOf: StagingStateOf,
-  want: "staged" | "held",
+  want: "staged" | "unstaged",
 ): boolean {
   // A row with no patches behind it cannot be staged or unstaged, and belongs
   // wherever it would have been without staging: the staged side.
@@ -95,5 +95,5 @@ function belongsTo(
     return want === "staged";
   }
   const state = stateOf(patchIds);
-  return want === "staged" ? state !== "held" : state === "held";
+  return want === "staged" ? state !== "unstaged" : state === "unstaged";
 }

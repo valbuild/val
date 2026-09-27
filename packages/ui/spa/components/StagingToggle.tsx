@@ -12,7 +12,7 @@ import {
 /**
  * Stage / unstage a compare-view row: a status pill and the button that changes it.
  *
- * Three states, and the middle one is the point of the feature: **held** means the
+ * Three states, and the middle one is the point of the feature: **unstaged** means the
  * change exists, is not in your preview, and will not be published when you hit
  * Publish. Someone else may still publish it.
  *
@@ -42,7 +42,7 @@ export function StagingToggle({
   }
 
   const state = staging.stateOf(patchIds);
-  const isHeld = state === "held";
+  const isUnstaged = state === "unstaged";
   // A partial row is treated as "not fully staged", so the action is to stage.
   const willStage = state !== "staged";
   const alsoMoved = willStage
@@ -68,29 +68,29 @@ export function StagingToggle({
               {
                 "border-border-brand-primary text-fg-brand-primary":
                   state === "staged",
-                "border-border-primary text-fg-secondary": isHeld,
+                "border-border-primary text-fg-secondary": isUnstaged,
                 "border-border-primary text-fg-primary": state === "partial",
               },
             )}
           >
             {state === "staged" && <Check size={12} aria-hidden />}
             {state === "partial" && <Minus size={12} aria-hidden />}
-            {isHeld && <EyeOff size={12} aria-hidden />}
+            {isUnstaged && <EyeOff size={12} aria-hidden />}
             <span>
               {state === "staged"
                 ? "Staged"
-                : isHeld
-                  ? "Held"
+                : isUnstaged
+                  ? "Unstaged"
                   : "Partly staged"}
             </span>
           </span>
         </TooltipTrigger>
         <TooltipContent>
           <p className="max-w-72">
-            {isHeld
+            {isUnstaged
               ? "Not in your preview and will not be published when you publish."
               : state === "partial"
-                ? "Partly held: some of this will publish and some will not. Stage it to publish all of it."
+                ? "Partly staged: some of this will publish and some will not. Stage it to publish all of it."
                 : "In your preview and will be published when you publish."}
           </p>
         </TooltipContent>
@@ -213,13 +213,13 @@ export function StagingBulkActions({
   patchIds: readonly PatchId[];
   profilesByAuthorIds: Record<string, Profile>;
   /** Which section this is: what it holds decides what the buttons do. */
-  side: "staged" | "held";
+  side: "staged" | "unstaged";
 }) {
   const staging = usePatchStaging();
   if (!staging.enabled || patchIds.length === 0) {
     return null;
   }
-  const willStage = side === "held";
+  const willStage = side === "unstaged";
   const act = (ids: readonly PatchId[]) => () => {
     if (willStage) {
       staging.stage(ids);

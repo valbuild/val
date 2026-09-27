@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { clearPatchChain, openStudio, patchThroughStore } from "./studio";
+import {
+  clearPatchChain,
+  navigateStudio,
+  openStudio,
+  patchThroughStore,
+} from "./studio";
 import type { Locator, Page } from "@playwright/test";
 
 const MODULE = "/content/lists.val.ts";
@@ -47,11 +52,27 @@ async function openKeywords(page: Page): Promise<Locator> {
   return studio;
 }
 
-/** Reach the compare view the way an editor does — see compare.spec.ts. */
+/**
+ * The compare view, by its route.
+ *
+ * NOT through the Review button any more: that opens `/val/review`, which is a
+ * list of what is going out rather than a diff of it, and the diff behind its
+ * own Compare button is the new `CompareDialog` — which has no list groups yet,
+ * so a record entry added or removed renders as a field row rather than as the
+ * one-line statement these tests are about.
+ *
+ * So these stay pointed at the screen they were written for, and they are the
+ * reason it cannot simply be deleted: `PrimitiveListDiff` is the only thing
+ * that renders a reorder as a move naming where it came from, and nothing in
+ * the new dialog does that yet. When it does, these move with it.
+ *
+ * Navigated to in the page rather than reloaded into, because a reload throws
+ * away the patches these tests have just written. `navigateStudio` has the
+ * whole of that argument.
+ */
 async function openCompare(page: Page, studio: Locator): Promise<void> {
-  const review = studio.getByRole("button", { name: /Review \d+ change/ });
-  await expect(review).toBeVisible({ timeout: 30000 });
-  await review.click();
+  void studio;
+  await navigateStudio(page, "/val/compare");
 }
 
 /**

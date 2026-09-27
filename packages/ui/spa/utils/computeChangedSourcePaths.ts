@@ -114,7 +114,7 @@ function buildPatchesByAuthorIds(
       continue;
     }
     seen.add(patch.patchId);
-    const authorKey = patch.author ?? "unknown";
+    const authorKey = patch.author ?? UNKNOWN_AUTHOR;
     if (!result[authorKey]) {
       result[authorKey] = [];
     }
@@ -288,6 +288,51 @@ function halfOf(
  * which is every set in `fs` mode and every set before the first publish. That is
  * the common case and it must not pay for this.
  */
+/**
+ * The patch sets with everything that has already shipped taken out.
+ *
+ * For the surfaces that answer "what is going out NEXT" and have no second
+ * section to put shipped work in. `usePatchSets()` keeps a published patch in
+ * the chain until the deploy moves the base, so a screen that lists it
+ * unfiltered offers Stage and Revert over a change that is already live — and
+ * those controls cannot honour it: the patch is in a commit.
+ *
+ * `computeChangedSourcePaths` does not use this, and should not: the compare
+ * view SHOWS the shipped half, below the deploy line, with its undo controls
+ * removed. Both go through `splitByCommitted`, so the two cannot disagree
+ * about where the line is.
+ *
+ * A set with work on both sides keeps its pending half alone, which is the
+ * same half that view puts above the line.
+ */
+/**
+ * The bucket an author-less patch is listed under.
+ *
+ * A real state rather than a gap: in `fs` mode there are no profiles at all,
+ * and over http an api-key write has none. Shared, because a second spelling
+ * of it is a filter option that matches nothing — the review page invented
+ * the empty string for a while, which rendered as a blank row in the author
+ * menu with nothing to read.
+ *
+ * No profile has this id, so `profiles[UNKNOWN_AUTHOR]` is always undefined
+ * and every surface falls back the way `ProfileAvatar` does: "Local changes"
+ * in fs mode, "Unknown author" over http.
+ */
+export const UNKNOWN_AUTHOR = "unknown";
+
+export function pendingPatchSets(
+  patchSets: SerializedPatchSet,
+  committedPatchIds: ReadonlySet<PatchId>,
+): SerializedPatchSet {
+  if (committedPatchIds.size === 0) return patchSets;
+  const pending: SerializedPatchSet = [];
+  for (const patchSet of patchSets) {
+    const half = splitByCommitted(patchSet, committedPatchIds).pending;
+    if (half !== null) pending.push(half);
+  }
+  return pending;
+}
+
 function splitByCommitted(
   patchSet: PatchSetMetadata,
   committedPatchIds: ReadonlySet<PatchId>,
