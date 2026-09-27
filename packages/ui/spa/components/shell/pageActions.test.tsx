@@ -59,7 +59,6 @@ function panel(props: Partial<Parameters<typeof PagesPanel>[0]> = {}) {
       externalPages={[]}
       selectedId={null}
       onSelectPage={() => undefined}
-      onSelectExternalPage={() => undefined}
       onNewPage={() => undefined}
       onDuplicatePage={() => undefined}
       onRenamePage={() => undefined}

@@ -1458,7 +1458,7 @@ export function createSystem(options: SystemOptions): System {
     stat.events.on("stat:receive", (event) => {
       const baseSha = stat.currentBaseSha();
       if (baseSha === null) return;
-      patchSync.receiveStat(baseSha, event.patches);
+      patchSync.receiveStat(baseSha, event.patches, stat.currentHeadPatchId());
       // A stat can unblock a save that had no honest parent to name. Nothing
       // else would retry it: `patch:create` already fired and found no base.
       void patchSync.flush();
@@ -2276,7 +2276,7 @@ export function createSystem(options: SystemOptions): System {
           // Recorded, not just returned. A server refusal never resolves itself,
           // so the publish gate has to keep seeing it after the caller that made
           // this call has gone — see `PatchStore.publishErrors`.
-          patchStore.recordPublishErrors(outcome.errors);
+          patchStore.recordPublishErrors(outcome.errors, toPublish);
           return {
             status: "failed",
             message: outcome.message,

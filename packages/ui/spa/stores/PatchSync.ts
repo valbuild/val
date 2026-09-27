@@ -1,3 +1,4 @@
+import { chainHeadOf } from "@valbuild/shared/internal";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import type { ParentRef, Patch } from "@valbuild/core/patch";
 import { StoreBus } from "./StoreBus";
@@ -196,15 +197,21 @@ export type SyncState =
  *
  * ## The parent ref
  *
- * `{ type: "patch", patchId }` of the last patch the SERVER has acknowledged,
- * falling back to `{ type: "head", headBaseSha }` when it has acknowledged none.
- * Deliberately not the local head: the local head includes patches the server has
- * never seen, and naming one of those as a parent is a guaranteed 409.
+ * `{ type: "patch", patchId }` of the HEAD of the server's chain — its last
+ * registered patch — falling back to `{ type: "head", headBaseSha }` when the
+ * chain is empty. Deliberately not the local head: the local head includes
+ * patches the server has never seen, and naming one of those as a parent is a
+ * guaranteed 409.
  *
- * "What the server has acknowledged" is two things joined, not one: the last
- * stat's id list, plus the ids our own 200s named that the stat has not caught up
- * to. A stat can be older than our own write, so using it alone would walk the
- * parent backwards and conflict with ourselves.
+ * The head is what the last stat REPORTED (`headPatchId`), and not the last id
+ * it listed — see `chainHeadOf` in `@valbuild/shared` for why the two differ for
+ * good once patch groups are in play. The parent is a fact about the whole
+ * chain, so it is taken from the server rather than inferred from what this
+ * client is shown.
+ *
+ * Joined with the ids our own 200s named that the stat has not caught up to. A
+ * stat can be older than our own write, so using it alone would walk the parent
+ * backwards and conflict with ourselves.
  */
 /**
  * Is this the same queue state?
@@ -267,6 +274,11 @@ export class PatchSync {
   /** The server's ordered patch ids, as of the last stat. */
   private statPatchIds: PatchId[] = [];
   /**
+   * The head of the server's chain as the last stat reported it: `null` for an
+   * empty chain, `undefined` when the server does not report one.
+   */
+  private statHeadPatchId: PatchId | null | undefined = undefined;
+  /**
    * Patches the server has acknowledged that the last stat did not list yet.
    *
    * This list is the whole reason the parent ref is computed rather than stored.
@@ -277,6 +289,19 @@ export class PatchSync {
    * point the two agree and it no longer matters which one answered.
    */
   private savedNotInStat: PatchId[] = [];
+  /**
+   * The head {@link savedNotInStat} was written on: the parent the first of
+   * those saves named, `null` for the base. Meaningless while the list is
+   * empty.
+   *
+   * What tells an OLD stat from a new one when the server reports a head. A
+   * stat taken before our saves landed reports the head they were written on;
+   * one taken after reports one of them, or — when they are left out of the
+   * list because the deployment already contains them — a head somebody else
+   * wrote since. Without this the second case kept naming our own save, which
+   * the server no longer calls the head.
+   */
+  private savedOnHead: PatchId | null = null;
   private inFlight: Promise<void> | null = null;
   private attempt = 0;
   /** See {@link reportStuck}: one report per spell of failure, not per attempt. */
@@ -334,12 +359,40 @@ export class PatchSync {
    * sources of truth have converged on those, so keeping them would be keeping a
    * duplicate.
    */
-  receiveStat(headBaseSha: string, serverPatchIds: readonly PatchId[]): void {
+  receiveStat(
+    headBaseSha: string,
+    serverPatchIds: readonly PatchId[],
+    /** The chain head the server reported. See {@link statHeadPatchId}. */
+    headPatchId?: PatchId | null,
+  ): void {
     this.baseSha = headBaseSha;
     this.statPatchIds = [...serverPatchIds];
+    this.statHeadPatchId = headPatchId;
     const known = new Set(serverPatchIds);
+    // A reported head the server holds is caught up to as well, with everything
+    // we saved before it — the chain is linear. It matters when the head is not
+    // listed: a patch this deployment already contains is left out of the list.
+    const headAt =
+      headPatchId === undefined || headPatchId === null
+        ? -1
+        : this.savedNotInStat.indexOf(headPatchId);
+    if (
+      headPatchId !== undefined &&
+      headAt === -1 &&
+      headPatchId !== this.savedOnHead
+    ) {
+      // A head that is neither one of our saves nor the one they went on: the
+      // chain has moved past them, so the reported head is the parent. See
+      // {@link savedOnHead}.
+      this.savedNotInStat = [];
+      return;
+    }
+    if (headAt !== -1) {
+      // What is left was written on top of the head just caught up to.
+      this.savedOnHead = this.savedNotInStat[headAt];
+    }
     this.savedNotInStat = this.savedNotInStat.filter(
-      (patchId) => !known.has(patchId),
+      (patchId, index) => index > headAt && !known.has(patchId),
     );
   }
 
@@ -385,6 +438,19 @@ export class PatchSync {
     this.statPatchIds = this.statPatchIds.filter(
       (patchId) => !gone.has(patchId),
     );
+    // And the head, when it is one of them: a head that has been deleted is a
+    // parent the server no longer holds. What replaced it is not known until the
+    // next stat, so this falls back to the list — which may be behind the head
+    // and cost one 409 and a re-sync, where naming a deleted patch would cost
+    // the same round trip against a server that refuses a vanished parent, and
+    // the patches themselves against one that predates that.
+    if (
+      this.statHeadPatchId !== undefined &&
+      this.statHeadPatchId !== null &&
+      gone.has(this.statHeadPatchId)
+    ) {
+      this.statHeadPatchId = undefined;
+    }
   }
 
   currentState(): SyncState {
@@ -417,8 +483,8 @@ export class PatchSync {
     }
     const patchId =
       this.savedNotInStat[this.savedNotInStat.length - 1] ??
-      this.statPatchIds[this.statPatchIds.length - 1];
-    if (patchId === undefined) {
+      chainHeadOf(this.statHeadPatchId, this.statPatchIds);
+    if (patchId === null) {
       return { type: "head", headBaseSha: this.baseSha };
     }
     return { type: "patch", patchId };
@@ -555,7 +621,7 @@ export class PatchSync {
       if (this.stopped) {
         return;
       }
-      const done = await this.handle(result, patchIds);
+      const done = await this.handle(result, patchIds, parentRef);
       if (done) {
         return;
       }
@@ -563,10 +629,19 @@ export class PatchSync {
   }
 
   /** Returns true when the loop should stop. */
-  private async handle(result: SaveResult, sent: PatchId[]): Promise<boolean> {
+  private async handle(
+    result: SaveResult,
+    sent: PatchId[],
+    /** What this save named as its parent. See {@link savedOnHead}. */
+    parentRef: ParentRef,
+  ): Promise<boolean> {
     if (result.status === "saved") {
       this.attempt = 0;
       this.reportedStuck = false;
+      if (this.savedNotInStat.length === 0) {
+        this.savedOnHead =
+          parentRef.type === "patch" ? parentRef.patchId : null;
+      }
       this.savedNotInStat.push(...result.newPatchIds);
       // The ids the SERVER named, not the ids we sent — see `markSaved`.
       this.patchStore.markSaved(result.newPatchIds);

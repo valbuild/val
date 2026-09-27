@@ -1,6 +1,8 @@
 import {
+  builderWindowFeatures,
   handoffUrl,
   joinHandoff,
+  leaveTo,
   openHandoff,
   type ToSite,
   type ToTab,
@@ -208,4 +210,70 @@ test("committed files that arrive as an array are dropped, not read as files", a
     tab.close();
     site.close();
   }
+});
+
+test("the builder opens as a popup window, never as noopener", () => {
+  const features = builderWindowFeatures({});
+  expect(features.split(",")).toEqual(["popup", "width=480", "height=680"]);
+  // `noopener` makes `window.open` return null: every handoff would read as blocked.
+  expect(features).not.toMatch(/noopener|noreferrer/);
+});
+
+test("the builder window is centred across the page that opened it", () => {
+  const features = builderWindowFeatures({
+    screenX: 100,
+    screenY: 50,
+    outerWidth: 1480,
+    outerHeight: 1030,
+  });
+  expect(features.split(",")).toEqual([
+    "popup",
+    "width=480",
+    "height=680",
+    "left=600",
+    "top=167",
+  ]);
+});
+
+test("a page smaller than the window does not position it off the page", () => {
+  const features = builderWindowFeatures({
+    screenX: 0,
+    screenY: 0,
+    outerWidth: 400,
+    outerHeight: 600,
+  });
+  expect(features).not.toMatch(/left=|top=/);
+});
+
+/**
+ * "View site" and "Open Studio" from the builder: in a tab of their own, and
+ * the builder closes -- it is a popup the size of the publish card.
+ */
+function leaveScope(opens: boolean) {
+  const calls: string[] = [];
+  const scope = {
+    open: (url: string, target: string) => {
+      calls.push(`open ${url} ${target}`);
+      return opens ? {} : null;
+    },
+    close: () => {
+      calls.push("close");
+    },
+    location: { href: "/val?publish-handoff=x" },
+  };
+  return { scope, calls };
+}
+
+test("leaving the builder opens a normal tab and closes the builder", () => {
+  const { scope, calls } = leaveScope(true);
+  leaveTo("/", scope);
+  expect(calls).toEqual(["open / _blank", "close"]);
+  expect(scope.location.href).toBe("/val?publish-handoff=x");
+});
+
+test("a builder whose new tab is blocked stays open and navigates instead", () => {
+  const { scope, calls } = leaveScope(false);
+  leaveTo("/val", scope);
+  expect(calls).toEqual(["open /val _blank"]);
+  expect(scope.location.href).toBe("/val");
 });

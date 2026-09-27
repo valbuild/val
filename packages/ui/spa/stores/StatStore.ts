@@ -61,6 +61,19 @@ export type StatSnapshot = {
    */
   headCommitSha?: string;
   /**
+   * The head of the PATCH CHAIN: the last patch registered, published or not.
+   * `null` when there is none.
+   *
+   * What the next write names as its parent — see `chainHeadOf`.
+   *
+   * Replaced with every snapshot, absent included, and never kept from an
+   * earlier one: the head is a fact about the same moment as the list, and a
+   * head older than its list is a parent the server refuses. Absent means "not
+   * reported" (`fs`, or a content service that predates it) and the sync falls
+   * back to the last listed id.
+   */
+  headPatchId?: PatchId | null;
+  /**
    * WHICH BUILD answered: the `sourcesSha` of the source its chain is relative to.
    *
    * `patches` are the ones that build does not contain, so they are right only
@@ -101,6 +114,8 @@ export class StatStore {
   readonly events = new StoreBus<SystemEvent>();
 
   private patches: PatchId[] = [];
+  /** See {@link StatSnapshot.headPatchId}. `undefined` is "not reported". */
+  private headPatchId: PatchId | null | undefined = undefined;
   private baseSha: string | null = null;
   /** The publish head. See {@link StatSnapshot.headCommitSha}. */
   private headCommitSha: string | null = null;
@@ -187,6 +202,7 @@ export class StatStore {
   private adopt(snapshot: StatSnapshot): void {
     this.lastAdopted = snapshot;
     this.patches = [...snapshot.patches];
+    this.headPatchId = snapshot.headPatchId;
     if (snapshot.baseSha !== undefined) {
       this.baseSha = snapshot.baseSha;
     }
@@ -220,6 +236,15 @@ export class StatStore {
 
   currentPatchIds(): PatchId[] {
     return [...this.patches];
+  }
+
+  /**
+   * The head of the patch chain as the last stat reported it, `null` for an
+   * empty chain, or `undefined` when the server does not report one. See
+   * {@link StatSnapshot.headPatchId}.
+   */
+  currentHeadPatchId(): PatchId | null | undefined {
+    return this.headPatchId;
   }
 
   /**

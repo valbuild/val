@@ -7,9 +7,16 @@ import { CanvasFrame } from "./canvas/CanvasFrame";
 import { canvasFallbackRoute } from "./canvasFallbackRoute";
 import { SaveState } from "./StatusBar";
 import { PublishState } from "./TopBar";
-import { ShellData, ShellMediaGallery, ShellValidationError } from "./types";
+import {
+  ShellBreakpoint,
+  ShellData,
+  ShellExternalPage,
+  ShellMediaGallery,
+  ShellValidationError,
+} from "./types";
 import { useShellData } from "./useShellData";
 import { ValSettingsSections } from "./ValSettingsSections";
+import { ConnectedExternalPages } from "./ConnectedExternalPages";
 import { discardAllDescription } from "../discardAllDescription";
 import { useValPortal } from "../ValPortalProvider";
 import { useContentSearch } from "./useContentSearch";
@@ -495,6 +502,44 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   );
 
   /**
+   * The external pages dialog.
+   *
+   * Only called while it is open - `Shell` owns that state - so the reference
+   * index it builds over the whole project does not exist until someone asks
+   * for it. Absent when the project has no external router, and then the Pages
+   * panel has no button for it either.
+   *
+   * Not a `useCallback`, for the same reason `renderHistory` is not one: the
+   * whole thing is absent in the case that matters, and a hook cannot be.
+   */
+  const renderExternalPages =
+    data.externalModuleFilePath === undefined
+      ? undefined
+      : ({
+          close,
+          onSelectExternalPage,
+          breakpoint,
+        }: {
+          close: () => void;
+          onSelectExternalPage: (page: ShellExternalPage) => void;
+          breakpoint: ShellBreakpoint;
+        }) => (
+          <ConnectedExternalPages
+            pages={data.externalPages}
+            moduleFilePath={data.externalModuleFilePath}
+            // Empty means "none yet" only once the record has arrived. Opened
+            // during the fetch it said the project had no external pages,
+            // which is the one answer the dialog must not guess at.
+            isLoading={data.externalPagesLoading}
+            schemes={data.externalSchemes}
+            breakpoint={breakpoint}
+            portalContainer={portalContainer}
+            onClose={close}
+            onSelectExternalPage={onSelectExternalPage}
+          />
+        );
+
+  /**
    * The route the canvas opens on.
    *
    * A page selection is a router entry, and a route pointing anywhere inside one
@@ -895,7 +940,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
          * the broken-looking state this used to leave behind.
          */
         onPick={(paths) => {
-          if (openPickedPath(paths)) onPicked();
+          if (openPickedPath(paths)) onPicked(paths[0] ?? null);
         }}
         onPinch={onPinch}
         onZoom={onZoom}
@@ -1113,6 +1158,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         onSelectionChange={onSelectionChange}
         renderEditor={renderEditor}
         renderSettings={renderSettings}
+        renderExternalPages={renderExternalPages}
         tourEnabled={isTourOffered(studioSettings)}
         editorOverride={overrideEditor}
         publishSlot={<PublishButton />}

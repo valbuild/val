@@ -5,6 +5,7 @@ import {
   type ValConstructor,
   Internal,
   ValRouter,
+  ExternalPageRouter,
 } from "@valbuild/core";
 import { raw } from "@valbuild/react/stega";
 import { getUnpatchedUnencodedVal } from "./getUnpatchedUnencodedVal";
@@ -13,7 +14,7 @@ import { attrs } from "@valbuild/react/stega";
 import { readValEnableCookie } from "./valEnableCookieBridge";
 
 const tanstackRouter: ValRouter = Internal.tanstackRouter;
-const externalPageRouter: ValRouter = Internal.externalPageRouter;
+const externalPageRouter: ExternalPageRouter = Internal.externalPageRouter;
 
 /**
  * Returns true if the Val Enable cookie is set. Must be called on the server —
@@ -132,6 +133,11 @@ export const initVal = (
    * It is what `s.route()` links to when the destination is somewhere else -
    * a campaign site, a docs host, a social profile.
    *
+   * By default a key may use any scheme except the handful that are not links
+   * at all (`javascript:`, `data:`), so `mailto:` and `tel:` are ordinary
+   * keys. Call it - `externalPageRouter({ schemes: ["https", "mailto"] })` -
+   * to narrow that.
+   *
    * @example
    * const links = s.record(s.object({ title: s.string() }));
    * export default c.define(
@@ -140,7 +146,7 @@ export const initVal = (
    *   { "https://val.build": { title: "Val" } },
    * );
    */
-  externalPageRouter: ValRouter;
+  externalPageRouter: ExternalPageRouter;
 } => {
   const { s, c, val, config: systemConfig } = createValSystem(config);
   const currentConfig = {

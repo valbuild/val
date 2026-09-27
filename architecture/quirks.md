@@ -461,6 +461,23 @@ writes to a live store.
 
 ## Patches
 
+**A write's parent is the head the server REPORTS, not the last id `/stat`
+listed.** The list (`/applicable/patches`) leaves out patches the running
+deployment already contains — their effect is in its base. Before patch groups
+that was harmless, because a publish shipped the whole pending chain, so the
+published patches were always a prefix. A group publish ships a subset, so a
+published patch can come AFTER one that is still pending, and the list then ends
+behind the real head. What it cost: another author left a change that nets to
+nothing (it can never be published), somebody published later work, the deploy
+landed, and from then on every save in every Studio was refused with "something
+else keeps changing them first" — 409 on every retry, because the re-sync
+returned the same list. Discarding the other author's change "fixed" it, by
+emptying the list so the Studio sent no parent. The content service now reports
+`headPatchId` (its last registered patch, published or not) beside the list, and
+`POST /patches` accepts only that id as the parent. `PatchSync.currentParentRef`
+and the MCP's `deriveParentRef` name it, and fall back to the last listed id only
+for a server that reports no head. `patchSyncHead.test.ts` pins it.
+
 **A discard is `source:patch-drop` and, usually, nothing else.** The source
 store announces a drop as its own event and then re-applies whatever survives
 in the module's chain, which is what emits `source:patch-apply` — so a discard
