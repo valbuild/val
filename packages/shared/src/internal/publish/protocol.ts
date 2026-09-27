@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { fromError } from "zod-validation-error";
-import { ContentPublishApi, PublishProblem, PublishState } from "./contentApi";
+import {
+  ContentPublishApi,
+  PublishProblem,
+  PublishRequestStatus,
+  PublishState,
+  PublishTabJob,
+} from "./contentApi";
 
 /**
  * Reading what content answers.
@@ -304,6 +310,90 @@ export const parseBuildTarget = (body: unknown): BuildTargetResponse =>
 
 export const parseProjectSource = (body: unknown): ProjectSourceResponse =>
   parse(projectSourceResponse, body, "GET /v1/project-source");
+
+// ------------------------------------------------------ publish jobs
+
+/*
+ * Publishing as a queued job (valbuild/home docs/app-mode.md, "Publishing is a
+ * queued job"): a press is a request, the tab builds and uploads the job it is
+ * given, and content runs verify and the seal. Each parser is typed against
+ * the copy in `contentApi.ts`, so a copy brought up to date fails to compile
+ * here until these follow it.
+ */
+export type { PublishRequestStatus, PublishTabJob };
+
+export type PressResponse =
+  ContentPublishApi["/publish-requests"]["POST"]["res"];
+export type RequestStatusResponse =
+  ContentPublishApi["/publish-requests/:requestId"]["GET"]["res"];
+export type NextJobResponse =
+  ContentPublishApi["/publish-jobs/next"]["POST"]["res"];
+export type JobPrepareBody =
+  ContentPublishApi["/publish-jobs/:jobId/prepare"]["POST"]["body"];
+export type JobStepBody =
+  ContentPublishApi["/publish-jobs/:jobId/steps"]["POST"]["body"];
+export type JobStepResponse =
+  ContentPublishApi["/publish-jobs/:jobId/steps"]["POST"]["res"];
+export type JobRenewResponse =
+  ContentPublishApi["/publish-jobs/:jobId/renew"]["POST"]["res"];
+export type JobCancelResponse =
+  ContentPublishApi["/publish-jobs/:jobId/cancel"]["POST"]["res"];
+export type JobDiscardResponse =
+  ContentPublishApi["/publish-jobs/:jobId/discard"]["POST"]["res"];
+
+const requestStatus: z.ZodType<PublishRequestStatus> = z.union([
+  z.object({ kind: z.literal("queued") }),
+  z.object({ kind: z.literal("publishing") }),
+  z.object({ kind: z.literal("live"), commit: z.string() }),
+  z.object({
+    kind: z.literal("failed"),
+    message: z.string(),
+    actions: z.array(z.enum(["try-again", "discard", "re-run-build"])),
+  }),
+  z.object({ kind: z.literal("cancelled") }),
+  z.object({ kind: z.literal("nothing-to-publish") }),
+]);
+
+const tabJob: z.ZodType<PublishTabJob> = z.object({
+  id: z.string(),
+  step: z.enum(["prepare", "build", "upload"]).nullable(),
+  base: z.string().nullable(),
+  patches: z.array(z.string()),
+});
+
+const pressResponse: z.ZodType<PressResponse> = z.object({
+  request: requestStatus,
+  job: tabJob.nullable(),
+});
+const requestStatusResponse: z.ZodType<RequestStatusResponse> = z.object({
+  request: requestStatus,
+});
+// `/next`, `/prepare` and `/steps` all answer with the job as it now is.
+const jobResponse: z.ZodType<JobStepResponse> = z.object({
+  job: tabJob.nullable(),
+});
+const renewResponse: z.ZodType<JobRenewResponse> = z.object({
+  renewed: z.boolean(),
+});
+const cancelResponse: z.ZodType<JobCancelResponse> = z.object({
+  cancelled: z.boolean(),
+});
+const discardResponse: z.ZodType<JobDiscardResponse> = z.object({
+  stillHeld: z.array(z.string()),
+});
+
+export const parsePress = (body: unknown, call: string): PressResponse =>
+  parse(pressResponse, body, call);
+export const parseRequestStatus = (body: unknown): RequestStatusResponse =>
+  parse(requestStatusResponse, body, "GET /v1/publish-requests/{id}");
+export const parseJob = (body: unknown, call: string): JobStepResponse =>
+  parse(jobResponse, body, call);
+export const parseRenew = (body: unknown): JobRenewResponse =>
+  parse(renewResponse, body, "POST /v1/publish-jobs/{id}/renew");
+export const parseCancel = (body: unknown): JobCancelResponse =>
+  parse(cancelResponse, body, "POST /v1/publish-jobs/{id}/cancel");
+export const parseDiscard = (body: unknown): JobDiscardResponse =>
+  parse(discardResponse, body, "POST /v1/publish-jobs/{id}/discard");
 
 /**
  * The `details` of a refusal, when it carries a list of problems.

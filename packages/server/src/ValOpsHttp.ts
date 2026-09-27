@@ -717,6 +717,23 @@ export class ValOpsHttp extends ValOps {
     ) {
       return true;
     }
+    /*
+     * Publishing as a queued job: a press, where it is, Try again, and the
+     * tab's reports about the job it runs. NOT `/publish-jobs/{id}/prepare`:
+     * its body is the job's source files and modules, which this server
+     * computes (`prepareJob`) -- a browser allowed to send it could publish
+     * any text at all as a commit's archive.
+     */
+    if (/^\/publish-requests(\/[A-Za-z0-9_-]{1,100})?$/.test(path)) {
+      return true;
+    }
+    if (
+      /^\/publish-jobs\/(next|[A-Za-z0-9_-]{1,100}\/(steps|renew|cancel|discard))$/.test(
+        path,
+      )
+    ) {
+      return true;
+    }
     return /^\/publish\/[A-Za-z0-9_-]+(\/(artifacts|verify|promote))?$/.test(
       path,
     );
@@ -726,17 +743,52 @@ export class ValOpsHttp extends ValOps {
     path: string,
     init: { method: string; body?: string },
   ): Promise<{ status: number; body: string; contentType: string }> {
-    const json = "application/json";
     if (!ValOpsHttp.publishApiPathAllowed(path)) {
       return {
         status: 403,
-        contentType: json,
+        contentType: "application/json",
         body: JSON.stringify({
           message: `'${path}' is not part of the publish API.`,
         }),
       };
     }
+    return this.callPublishApi(path, init);
+  }
 
+  /**
+   * A publish job's prepare, sent to content: the job's sources, archived
+   * there before the job is built (valbuild/home, docs/app-mode.md, "The
+   * archive, before the seal"). With this server's publish token, as every
+   * publish call is, and never through `publishApi` -- see the allowlist.
+   */
+  async prepareJob(
+    jobId: string,
+    body: {
+      tab: string;
+      filesDirectory: string;
+      patchedSourceFiles: Record<string, string | null>;
+      patchedBinaryFilesDescriptors: PreparedCommit["patchedBinaryFilesDescriptors"];
+      modules: PreparedCommit["moduleVersions"];
+    },
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    if (!/^[A-Za-z0-9_-]{1,100}$/.test(jobId)) {
+      return {
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ message: `'${jobId}' is not a job id.` }),
+      };
+    }
+    return this.callPublishApi(`/publish-jobs/${jobId}/prepare`, {
+      method: "POST",
+      body: JSON.stringify({ ...body, root: this.root }),
+    });
+  }
+
+  private async callPublishApi(
+    path: string,
+    init: { method: string; body?: string },
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    const json = "application/json";
     const send = async (token: string) =>
       fetch(`${this.contentUrl}/v1${path}`, {
         method: init.method,

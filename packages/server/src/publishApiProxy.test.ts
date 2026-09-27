@@ -76,6 +76,16 @@ describe("what may be reached", () => {
       "/publish/pub_1/artifacts",
       "/publish/pub_1/verify",
       "/publish/pub_1/promote",
+      // Publishing as a queued job: a press, where it is, Try again, and the
+      // tab's reports about its job.
+      "/publish-requests",
+      "/publish-requests/r_1",
+      "/publish-requests/try-again",
+      "/publish-jobs/next",
+      "/publish-jobs/J1/steps",
+      "/publish-jobs/J1/renew",
+      "/publish-jobs/J1/cancel",
+      "/publish-jobs/J1/discard",
     ];
     for (const path of allowed) {
       const { ops, restore } = opsWith((call) => ({
@@ -108,6 +118,12 @@ describe("what may be reached", () => {
       "/project-sources",
       "/update-target/extra",
       "/publish-token",
+      // A job's prepare carries its source files: only this server sends it.
+      "/publish-jobs/J1/prepare",
+      "/publish-jobs/J1",
+      "/publish-jobs/../patches/steps",
+      "/publish-requests/r_1/extra",
+      "/publish-requests/" + "x".repeat(101),
       "",
     ];
     for (const path of refused) {

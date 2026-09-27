@@ -1403,6 +1403,64 @@ export const Api = {
       ]),
     },
   },
+  /**
+   * A publish job's prepare, which only this server can do.
+   *
+   * The tab that is running a job (valbuild/home, docs/app-mode.md,
+   * "Publishing is a queued job") asks for it as its first step. The server
+   * turns the job's changes into source -- this build's embedded source, with
+   * every commit since and then the job's pending changes applied -- and sends
+   * content the part the job itself changes, which content archives before
+   * anything is built. It answers the tab with the whole of the job's source,
+   * which is what the tab builds.
+   *
+   * Only this server sends content a job's prepare: the content publish proxy
+   * refuses it, so no browser can hand content text to archive as a commit.
+   */
+  "/publish-job-prepare": {
+    POST: {
+      req: {
+        body: z.object({
+          jobId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+          tab: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+          /** The job's changes, as content handed them to the tab. */
+          patchIds: z.array(PatchId),
+        }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({ status: z.literal(400), json: GenericError }),
+        z.object({ status: z.literal(409), json: GenericError }),
+        z.object({ status: z.literal(500), json: GenericError }),
+        z.object({ status: z.literal(502), json: GenericError }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            /** The job as content has it now: its next step is the build. */
+            job: z
+              .object({
+                id: z.string(),
+                step: z.enum(["prepare", "build", "upload"]).nullable(),
+                base: z.string().nullable(),
+                patches: z.array(z.string()),
+              })
+              .nullable(),
+            /** Every source file of the job's content, by path. `null` is deleted. */
+            sourceFiles: z.record(z.string(), z.string().nullable()),
+            /** The job's own local binary files, base64, by path. */
+            binaryFiles: z.record(z.string(), z.string()),
+            /** Binary files whose bytes could not be read back. */
+            binaryFilesUnread: z.array(z.string()),
+            /** The branch the job publishes to. */
+            branch: z.string().nullable(),
+          }),
+        }),
+      ]),
+    },
+  },
   "/profiles": {
     GET: {
       req: {
