@@ -136,7 +136,26 @@ export function CompareDialog({
   tone?: UndoTone;
 }) {
   const firstId = useMemo(() => firstNodeId(model), [model]);
-  const [selectedId, setSelectedId] = useState<string | null>(firstId);
+  const [picked, setPicked] = useState<string | null>(firstId);
+  /*
+   * The selection is a PREFERENCE over the model, not a fact independent of it.
+   *
+   * `useState(firstId)` reads its argument on the first render and never
+   * again, and the model behind this dialog is not fixed once it is open: with
+   * schemas still loading, `toCompareStructure` cannot tell a router from a
+   * data module, so it emits one `node:<module>` pane — and replaces it with a
+   * pane per PAGE the moment the schemas arrive. A stored id pointing at the
+   * pane that no longer exists renders a populated nav beside "Nothing
+   * selected", which reads as the dialog being broken rather than as it still
+   * loading.
+   *
+   * So the stored id is honoured only while the model still has it, and the
+   * first pane stands in otherwise. Derived rather than repaired in an effect:
+   * an effect would render the empty state once before correcting it, and the
+   * flash is the bug.
+   */
+  const selectedId =
+    picked !== null && model.panes[picked] !== undefined ? picked : firstId;
   const [showUnchanged, setShowUnchanged] = useState(false);
   const [showing, setShowing] = useState<"left" | "right">("right");
   /*
@@ -169,7 +188,7 @@ export function CompareDialog({
   const [undoing, setUndoing] = useState(initialUndoMode);
   const pane = selectedId === null ? undefined : model.panes[selectedId];
   const selectRow = (id: string): void => {
-    setSelectedId(id);
+    setPicked(id);
   };
   /*
    * Narrowing to a person moves the selection if it has to.
@@ -183,7 +202,7 @@ export function CompareDialog({
   const onAuthorFilter = (next: string | null): void => {
     setAuthorFilter(next);
     if (selectedId !== null && !nodeIdShown(model, selectedId, next)) {
-      setSelectedId(firstNodeId(model, next));
+      setPicked(firstNodeId(model, next));
     }
   };
   const hidden = pane === undefined ? 0 : hiddenFieldCount(pane, authorFilter);

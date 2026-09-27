@@ -114,13 +114,17 @@ export const Selecting: Story = {
 };
 
 /**
- * What the "Mine" preset produces for Ada: her four rows, across three modules
- * and both sections.
+ * Ada's own four rows selected, across three modules and both sections.
  *
- * Both sections on purpose. A preset selects by WHO, not by where the row
- * already is, so pressing Stage here pulls her unstaged blog change into the
- * publish and leaves Linus's alone — which is the sentence the preset exists
- * to make one gesture.
+ * What you get by narrowing the author filter to yourself and pressing
+ * "Select showing" — the state, reached in two gestures rather than by a
+ * "Mine" preset, which the page does not have. Kept as a story because the
+ * STATE is what the bulk actions have to be right about, however it was
+ * arrived at.
+ *
+ * Both sections on purpose. Selecting by WHO ignores where a row already is,
+ * so pressing Stage here pulls Ada's unstaged blog change into the publish and
+ * leaves Linus's alone — which is the sentence this selection exists to make.
  */
 export const MineSelected: Story = {
   args: {

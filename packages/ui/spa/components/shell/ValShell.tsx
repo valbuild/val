@@ -34,6 +34,7 @@ import {
 import { useCurrentPatchGroup } from "../useCurrentPatchGroup";
 import type { SerializedPatchSet } from "../../utils/PatchSets";
 import { isPathWithin } from "../../utils/sourcePath";
+import { pendingPatchSets } from "../../utils/computeChangedSourcePaths";
 import type { Profile } from "../ValProvider";
 import { canBuildHere } from "../../publish/handoff";
 import { PublishHandoffCard } from "./PublishHandoff";
@@ -68,6 +69,7 @@ import { useHistoricalCommit } from "../../history/useHistoricalCommit";
 import {
   useAllPatchErrors,
   useAuthenticationState,
+  useCommittedPatches,
   useConnectionStatus,
   useProfilesError,
   useChainOrder,
@@ -1648,6 +1650,30 @@ function StagingScope({
   const val = useValSystem();
   const group = useCurrentPatchGroup();
   const chainOrder = useChainOrder();
+  /*
+   * Indexed over the PENDING half, the same half the page shows.
+   *
+   * `stageClosure` walks each patch set and pulls in every predecessor of
+   * whatever is staged, which is exactly right for pending work — a patch
+   * cannot ship without the ones it was built on. A shipped patch is already
+   * in a commit, so it is not a predecessor that needs bringing along; it is
+   * one the page has just promised cannot be staged or unstaged from here.
+   * Indexing the unfiltered sets let the closure reach one anyway and put it
+   * in the next group request, because a source path edited on both sides of
+   * a publish has its committed and pending patches in ONE set — which is the
+   * ordinary state of things now that a shipped patch stays in the chain
+   * until the deploy moves the base.
+   *
+   * Filtered here rather than in `ReviewLoader` because the loader feeds the
+   * surface too, and `ReviewSurface` does its own filtering for its own
+   * reasons; one more caller of the same helper is cheaper than a second
+   * definition of "pending".
+   */
+  const committedPatchIds = useCommittedPatches();
+  const pending = useMemo(
+    () => pendingPatchSets(patchSets, committedPatchIds),
+    [patchSets, committedPatchIds],
+  );
 
   /**
    * What this client is scoped to, which is the LOCAL truth.
@@ -1675,7 +1701,7 @@ function StagingScope({
   return (
     <PatchStagingProvider
       enabled={group.enabled}
-      patchSets={patchSets}
+      patchSets={pending}
       chainOrder={chainOrder}
       group={members}
       onChange={onChange}

@@ -119,9 +119,9 @@ export function toCompareStructure({
     const moduleFilePath = tree.sourcePath as ModuleFilePath;
     const isPage = isPageModule(moduleFilePath);
     const rows = rowsOf(tree);
-    changeCount += rows.length;
 
     if (!isPage) {
+      changeCount += rows.length;
       panes[navNodeId(moduleFilePath)] = {
         sourcePath: moduleFilePath as unknown as SourcePath,
         /*
@@ -149,7 +149,22 @@ export function toCompareStructure({
      * record itself, which is a page being added or removed — has no route of
      * its own, so it is attributed to the page it names.
      */
-    for (const [route, pageRows] of byRoute(rows)) {
+    const pages = byRoute(rows);
+    /*
+     * Counted from what the panes will HOLD, not from what the tree offered.
+     *
+     * `byRoute` drops a change at the record itself — see the note in it —
+     * and counting before the drop made the header promise changes that the
+     * nav could not show: a module whose only change was at its root reported
+     * "1 change" over an empty dialog, and every other router module
+     * over-reported by however many root rows it had. The count and the panes
+     * have to be read off the same thing or one of them is lying.
+     */
+    for (const pageRows of pages.values()) {
+      changeCount += pageRows.length;
+    }
+
+    for (const [route, pageRows] of pages) {
       const pagePath = joinRoute(moduleFilePath, route);
       const id = navNodeId(pagePath);
       panes[id] = {

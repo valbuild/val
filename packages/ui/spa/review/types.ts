@@ -53,11 +53,19 @@ export type ReviewModel = {
    */
   mode: "fs" | "http" | "unknown";
   /**
-   * Who is looking, so "Mine" can be one click.
+   * Who is looking, so the author filter can lead with them and say "(you)".
    *
-   * Null when the profile has not loaded or there is no session — and then the
-   * "Mine" preset is absent rather than present and selecting nothing, which is
-   * the same rule the staging checkboxes follow in fs mode.
+   * Null when the profile has not loaded or there is no session, and then it
+   * is simply one more name in the list — the same rule the staging checkboxes
+   * follow in fs mode: a control that cannot mean anything is not drawn
+   * meaning nothing.
+   *
+   * NOT a one-click "Mine" preset, which this said for a while and the page
+   * never had. Narrowing to yourself and then pressing "Select showing" is two
+   * gestures and reaches the same set, so the preset is a convenience rather
+   * than a capability — worth adding, but it has to be added before it is
+   * described, because a comment promising a control is where the next person
+   * goes looking for it.
    */
   currentAuthorId: string | null;
   /** Fixed clock, so relative dates are screenshottable. */

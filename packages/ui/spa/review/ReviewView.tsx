@@ -793,6 +793,36 @@ function ModuleGroup({
   );
 }
 
+/**
+ * What a screen reader reads out for a row's checkbox.
+ *
+ * The visible row says the name and the trail side by side, and needs both:
+ * a preview names the thing, and the trail says which of several like it this
+ * is. The accessible name is the same sentence, so the two cannot disagree —
+ * the label used to carry the title alone, and `items/0/title` and
+ * `items/1/title` were then announced identically.
+ *
+ * The trail is joined with "in" rather than the visible "\u203a": read aloud, a
+ * chevron is either silence or the word "chevron", and neither says that the
+ * left side contains the right one. Deepest first for the same reason the
+ * visible row is not — what this row IS matters more than where it lives, and
+ * a listener cannot skim back to the end of the line.
+ */
+export function accessibleRowName(row: ReviewRow): string {
+  if (row.trail.length === 0) {
+    // The module itself, which is what the visible row says here too.
+    return `Select ${row.description.title}, the whole module`;
+  }
+  const trail = [...row.trail].reverse().join(" in ");
+  // A row whose title came from a preview is named twice otherwise: the
+  // preview of `items/0` is already "Kim Midtlid", and so is the last trail
+  // segment for a record keyed by it.
+  if (row.trail[row.trail.length - 1] === row.description.title) {
+    return `Select ${trail}`;
+  }
+  return `Select ${row.description.title}, ${trail}`;
+}
+
 function Row({
   row,
   model,
@@ -835,7 +865,15 @@ function Row({
       <Checkbox
         checked={checked}
         onCheckedChange={(next) => onToggle(next === true)}
-        aria-label={`Select ${row.description.title}`}
+        /*
+         * The trail as well as the title, because the title alone does not
+         * tell two rows apart — which is the same thing the trail is drawn
+         * for, three lines below. Two `title` fields in one array are both
+         * called `title`, so a screen reader read out a column of "Select
+         * title" and the one control this page turns on became unusable
+         * exactly where the list is longest.
+         */
+        aria-label={accessibleRowName(row)}
         className="shrink-0 cursor-pointer"
       />
       <div className="min-w-0 flex-1">

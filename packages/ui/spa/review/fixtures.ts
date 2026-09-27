@@ -137,7 +137,7 @@ export const reviewModel: ReviewModel = {
   stagingEnabled: true,
   profiles: PROFILES,
   mode: "http",
-  /* Ada is looking, so "Mine" is one of the presets. */
+  /* Ada is looking, so the author filter leads with her and says "(you)". */
   currentAuthorId: "profile-ada",
   now: NOW,
   modules: [

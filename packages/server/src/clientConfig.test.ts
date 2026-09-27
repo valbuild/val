@@ -1,4 +1,5 @@
 import type { ValConfig } from "@valbuild/core";
+import { Api } from "@valbuild/shared/internal";
 import { clientConfig } from "./clientConfig";
 
 /**
@@ -60,5 +61,54 @@ describe("clientConfig", () => {
     clientConfig({ mode: "http", git: { branch: "main" }, config });
 
     expect(config.gitBranch).toBeUndefined();
+  });
+});
+
+/**
+ * And that it survives the wire, which `clientConfig` alone cannot promise.
+ *
+ * The branch crosses three schemas on its way to the History button, and each
+ * of them is a place it can be dropped in silence: `clientConfig` puts it on
+ * the response, `ApiRoutes` validates that response in the browser, and
+ * `useStatus`'s `StatData` types what the Studio reads back. A zod object
+ * strips what it does not declare, so a missing line in the middle schema
+ * would leave a server that resolves the branch, a Studio that never sees it,
+ * and a History door that is hidden for the exact projects this was added for
+ * — with nothing failing anywhere.
+ *
+ * Pinned against the SHARED contract rather than against a hand-written shape,
+ * because that is the schema the real client parses with.
+ */
+describe("the resolved branch reaches the Studio", () => {
+  test("survives the /stat response schema", () => {
+    const statRes = Api["/stat"].POST.res;
+    const parsed = statRes.safeParse({
+      status: 200,
+      json: {
+        type: "did-change",
+        profileId: null,
+        config: clientConfig({
+          mode: "http",
+          git: { branch: "release/2026-09" },
+          config: { project: "org/app" },
+        }),
+        mode: "http",
+        baseSha: "base",
+        schemaSha: "schema",
+        sourcesSha: "sources",
+        patches: [],
+      },
+    });
+
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    /*
+     * Read off the PARSED value, not the input: reading the input back would
+     * pass whether or not the schema declares the field, which is the whole
+     * thing this test exists to catch.
+     */
+    expect(parsed.data.json).toHaveProperty("config.gitBranch");
+    if (!("config" in parsed.data.json)) return;
+    expect(parsed.data.json.config.gitBranch).toBe("release/2026-09");
   });
 });
