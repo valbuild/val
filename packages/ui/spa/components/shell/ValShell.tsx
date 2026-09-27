@@ -53,6 +53,7 @@ import {
 import { HistoryPane } from "../../history/HistoryPane";
 import { ReviewLoader, ReviewSurface } from "../../review/ReviewSurface";
 import { useDiscardAll } from "../useDiscardAll";
+import { historyEnabledFor } from "./historyEnabled";
 import { CommitList } from "../../history/CommitList";
 import { PanelEmptyState } from "./FloatingPanel";
 import { useCommitList } from "../../history/useCommitList";
@@ -1184,7 +1185,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
          * the button there is the dead affordance this comment exists to
          * forbid.
          */
-        historyEnabled={mode === "http" && shellGitBranch !== null}
+        historyEnabled={historyEnabledFor({ mode, gitBranch: shellGitBranch })}
         historyActive={navigation.isHistoryView}
         onOpenHistory={() => navigation.navigate(VAL_HISTORY_ROUTE)}
         onMentionField={(sourcePath) =>
@@ -1544,6 +1545,12 @@ function ReviewRoute() {
   const portalContainer = useValPortal();
   const discardAll = useDiscardAll();
   const mode = useValMode();
+  /*
+   * The branch history is listed under. Read here as well as in the shell
+   * because Restore and the History button are two doors to one page, and a
+   * door that opens onto an apology should not be there.
+   */
+  const reviewGitBranch = useValConfig()?.gitBranch ?? null;
   return (
     <ReviewLoader>
       {(patchSets) => (
@@ -1551,13 +1558,12 @@ function ReviewRoute() {
           <ReviewSurface
             patchSets={patchSets}
             /*
-             * Only where there IS a published history: `ValOpsFS` answers
-             * `not-supported-in-fs-mode`, and the top bar hides its own
-             * History button on the same test. Two ways in that disagree
-             * about whether the feature exists is worse than one.
+             * The same test the top bar's History button uses, from the same
+             * function — see `historyEnabledFor` for why the two doors to
+             * that page cannot be allowed to answer differently.
              */
             onRestore={
-              mode === "http"
+              historyEnabledFor({ mode, gitBranch: reviewGitBranch })
                 ? () => navigation.navigate(VAL_HISTORY_ROUTE)
                 : undefined
             }
