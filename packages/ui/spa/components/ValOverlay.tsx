@@ -1611,7 +1611,11 @@ function ValMenu({
               <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>
           </HoverCard>
-          <PublishButton compact onHoldOpenChange={setPublishHoldsMenuOpen} />
+          <PublishButton
+            compact
+            onHoldOpenChange={setPublishHoldsMenuOpen}
+            popoverSide={publishPopoverSide}
+          />
           <HoverCard>
             <HoverCardTrigger asChild>
               <MenuButton

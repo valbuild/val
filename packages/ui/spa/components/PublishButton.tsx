@@ -100,8 +100,16 @@ export function PublishButton({
    */
   compact,
   onHoldOpenChange,
+  popoverSide,
 }: {
   compact?: boolean;
+  /**
+   * Which side of the button the commit message popover opens on. The overlay
+   * passes the side facing into the page, as its hover cards do: below the
+   * button, on a menu docked to the right edge, it covered the rest of the
+   * menu.
+   */
+  popoverSide?: "top" | "right" | "bottom" | "left";
   /**
    * Whether whatever holds this button should stay open around it: the
    * commit message popover is open, or a publish is under way.
@@ -357,6 +365,7 @@ export function PublishButton({
         )}
         <PopoverContent
           container={portalContainer}
+          side={popoverSide}
           align="end"
           className="z-[9001] flex flex-col gap-4"
         >

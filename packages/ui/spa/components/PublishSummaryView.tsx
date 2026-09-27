@@ -76,7 +76,9 @@ export function PublishSummaryView({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
-        <span className="font-semibold">Commit message</span>
+        <span className="shrink-0 whitespace-nowrap text-sm font-semibold">
+          Commit message
+        </span>
         <AiSummaryButton
           ai={ai}
           // Offered whenever it is not already what is in the box. Gating this
@@ -165,7 +167,7 @@ function AiSummaryButton({
         <button
           type="button"
           onClick={onSetUpAi}
-          className="flex items-center gap-1 text-xs text-fg-secondary underline cursor-pointer"
+          className="flex items-center gap-1 whitespace-nowrap text-xs text-fg-secondary underline cursor-pointer"
         >
           <Sparkles size={12} />
           <span>Set up AI</span>
@@ -202,7 +204,7 @@ function AiSummaryButton({
           <button
             type="button"
             onClick={onSetUpAi}
-            className="flex items-center gap-1 text-xs text-fg-secondary underline cursor-pointer"
+            className="flex items-center gap-1 whitespace-nowrap text-xs text-fg-secondary underline cursor-pointer"
           >
             <AlertTriangle size={12} />
             <span>AI unavailable</span>
@@ -219,7 +221,7 @@ function AiSummaryButton({
 
   // ready
   return (
-    <span className="flex items-center gap-2">
+    <span className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
       {canApply && (
         <AiTooltip
           container={portalContainer}
@@ -228,7 +230,7 @@ function AiSummaryButton({
           <button
             type="button"
             onClick={onUseAiSummary}
-            className="flex items-center gap-1 text-xs text-fg-secondary underline cursor-pointer"
+            className="flex items-center gap-1 whitespace-nowrap text-xs text-fg-secondary underline cursor-pointer"
           >
             <Sparkles size={12} />
             <span>Use AI summary</span>
@@ -243,7 +245,7 @@ function AiSummaryButton({
           <button
             type="button"
             onClick={onOpenAiSession}
-            className="flex items-center gap-1 text-xs text-fg-secondary underline cursor-pointer"
+            className="flex items-center gap-1 whitespace-nowrap text-xs text-fg-secondary underline cursor-pointer"
           >
             <MessageSquare size={12} />
             <span>Ask what changed</span>
