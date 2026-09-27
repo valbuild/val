@@ -312,10 +312,66 @@ describe("peekBase counts what has shipped", () => {
       data: "Beta",
     });
 
+    // Typing carries on in the same entry before its content is refreshed.
+    const pending = await system.patchStore.createPatch(BLOGS, [
+      { op: "replace", path: ["/a", "title"], value: "Pending" },
+    ]);
+    if (pending.status !== "created") throw new Error(pending.status);
+    await system.patchSync.flush();
+
     // The deployed entry content arrives, and the patch is retired with it:
     // what the server sends is what counts from here on.
     system.sourceStore.receiveJsonEntry(BLOGS, "/a", { title: "Deployed" });
     expect(system.sourceStore.peekBase(BLOG_TITLE)).toMatchObject({
+      data: "Deployed",
+    });
+    // And the pending edit is still on screen: the intake overwrote the live
+    // entry, so only replaying what survives puts it back.
+    expect(system.sourceStore.peek(BLOG_TITLE)).toMatchObject({
+      data: "Pending",
+    });
+    system.dispose();
+  });
+
+  it("keeps a shipped copy until the entry it reads from arrives too", async () => {
+    /*
+     * A `copy` reads its `from`. Retiring it once only the entry it WRITES had
+     * been refreshed replays it — or drops it — against a source entry that is
+     * still the pre-deploy text.
+     */
+    const { c, s } = initVal();
+    const BLOGS = "/blogs.val.ts" as ModuleFilePath;
+    const B_TITLE = '/blogs.val.ts?p="/b"."title"' as SourcePath;
+    const blogs = () => [
+      c.define(BLOGS, s.record(s.object({ title: s.string() })).jsonValues(), {
+        "/a": c.json(() => Promise.resolve({ default: { title: "Alpha" } })),
+        "/b": c.json(() => Promise.resolve({ default: { title: "Beta" } })),
+      }),
+    ];
+    const system = makeSystem({ mode: "http" });
+    system.host.receive(blogs());
+    system.sourceStore.receiveJsonEntry(BLOGS, "/a", { title: "Alpha" });
+    system.sourceStore.receiveJsonEntry(BLOGS, "/b", { title: "Beta" });
+
+    const res = await system.patchStore.createPatch(BLOGS, [
+      { op: "copy", from: ["/a"], path: ["/b"] },
+    ]);
+    if (res.status !== "created") throw new Error(res.status);
+    await system.patchSync.flush();
+    await system.publish([res.record.patchId]);
+    system.stat.receiveStat({ patches: [], baseSha: "after-deploy" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    system.host.receive(blogs());
+
+    // Only the entry it writes: still waiting on the one it reads.
+    system.sourceStore.receiveJsonEntry(BLOGS, "/b", { title: "Deployed" });
+    expect(system.sourceStore.peekBase(B_TITLE)).toMatchObject({
+      data: "Alpha",
+    });
+
+    // Both are current now, so the deployed content is the answer.
+    system.sourceStore.receiveJsonEntry(BLOGS, "/a", { title: "Alpha" });
+    expect(system.sourceStore.peekBase(B_TITLE)).toMatchObject({
       data: "Deployed",
     });
     system.dispose();

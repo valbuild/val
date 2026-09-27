@@ -1576,8 +1576,10 @@ export class SourceStore {
    * An entry's content arrived: retire the patches that were waiting for it,
    * once every entry each of them touches has arrived.
    *
-   * No rebuild: the content that just arrived is what the live realm shows for
-   * this entry, and the patch is already in it.
+   * Then REBUILD, from the base that now includes that content. The intake
+   * overwrote the live entry with the deployed text, so a pending edit inside
+   * it — typing that carried on after the publish — is no longer on screen;
+   * only a replay of the surviving chain puts it back.
    */
   private retireOnEntry(moduleFilePath: ModuleFilePath, key: string): void {
     if (this.retiringOnEntries.size === 0) return;
@@ -1593,10 +1595,17 @@ export class SourceStore {
     }
     const chain = this.chains.get(moduleFilePath);
     if (chain === undefined) return;
-    this.chains.set(
-      moduleFilePath,
-      chain.filter((entry) => !done.has(entry.record.patchId)),
-    );
+    const touched: SourcePath[] = [];
+    const surviving = chain.filter((entry) => {
+      if (!done.has(entry.record.patchId)) return true;
+      touched.push(...touchedSourcePaths(entry.record));
+      return false;
+    });
+    this.chains.set(moduleFilePath, surviving);
+    for (const entry of surviving) {
+      touched.push(...touchedSourcePaths(entry.record));
+    }
+    this.rebuildModules([moduleFilePath], touched);
   }
 
   /** Where this module's source has got to. */
@@ -2828,16 +2837,21 @@ function substituteJsonEntries(
  * `isRecordSource` in `validation/customValidate.ts`.
  */
 /**
- * The `.jsonValues()` entry keys a patch edits: the top-level keys it writes
- * under whose value in `source` is an entry marker.
+ * The `.jsonValues()` entry keys a patch edits or reads: the top-level keys of
+ * its `path` (and a `move`'s or `copy`'s `from`) whose value in `source` is an
+ * entry marker.
  */
 function entryKeysTouched(record: PatchRecord, source: Json): Set<string> {
   const keys = new Set<string>();
   if (!isJsonObject(source)) return keys;
   for (const op of record.patch) {
     if (op.op === "file") continue;
-    const key = op.path[0];
-    if (key !== undefined && Internal.isJson(source[key])) keys.add(key);
+    // A `move` or `copy` READS its `from` as well, so the entry it reads from
+    // has to be current too.
+    const read = op.op === "move" || op.op === "copy" ? [op.from[0]] : [];
+    for (const key of [op.path[0], ...read]) {
+      if (key !== undefined && Internal.isJson(source[key])) keys.add(key);
+    }
   }
   return keys;
 }
