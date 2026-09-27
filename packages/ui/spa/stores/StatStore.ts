@@ -283,6 +283,21 @@ export class StatStore {
   }
 
   /**
+   * A version this client already knows the chain has reached — its own save's
+   * — so that a stat read before it is dropped like any other older answer.
+   * Only ever raises the floor: it is information about what exists, not a
+   * snapshot to adopt, so it changes nothing that has already been adopted.
+   */
+  noteHeadVersion(version: number): void {
+    if (
+      this.newestHeadVersion === undefined ||
+      version > this.newestHeadVersion
+    ) {
+      this.newestHeadVersion = version;
+    }
+  }
+
+  /**
    * The chain version {@link currentHeadPatchId} was read at, or `undefined`
    * when the server does not say. See {@link StatSnapshot.headVersion}.
    */

@@ -1170,9 +1170,19 @@ export class ValOpsHttp extends ValOps {
       if (commits === undefined && res.commits !== undefined) {
         commits = res.commits;
       }
-      if (headPatchId === undefined && res.headPatchId !== undefined) {
+      /*
+       * The NEWEST head among the chunks: each is its own request, so a later
+       * one can have seen a write an earlier one did not. Taken with its own
+       * version, so the two always describe one read. Without versions (an
+       * older content service) the first head stands, as before.
+       */
+      if (
+        res.headPatchId !== undefined &&
+        (headPatchId === undefined ||
+          (res.headVersion !== undefined &&
+            (headVersion === undefined || res.headVersion > headVersion)))
+      ) {
         headPatchId = res.headPatchId;
-        // The version of THAT head, so the two always describe one read.
         headVersion = res.headVersion;
       }
     }

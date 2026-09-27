@@ -1443,6 +1443,16 @@ export function createSystem(options: SystemOptions): System {
      * by title there — which is why `describeStuckSave` keeps the attempt count
      * out of the title and in the detail.
      */
+    /*
+     * A save's version is a floor for the stat store too, not only the sync:
+     * without it a stat read before the save was adopted — its list lacking
+     * the patch just saved — and only the parent was protected.
+     */
+    patchSync.events.on("patch:saved", (event) => {
+      if (event.headVersion !== undefined) {
+        stat.noteHeadVersion(event.headVersion);
+      }
+    }),
     patchSync.events.on("patch:save-stuck", (event) => {
       const report = describeStuckSave(
         event.reason,

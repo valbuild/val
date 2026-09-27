@@ -1551,6 +1551,11 @@ const commit: Handler = async (req, res) => {
       patch.applied = { commitSha };
     }
   }
+  // What `/stat` reports just changed (these are applied now), so the chain
+  // moves a version, as `home` bumps it in the transaction that marks them.
+  if (appliedPatchIds.size > 0) {
+    chainVersion += 1;
+  }
   /*
    * The archive and the snapshot: what history reads.
    *

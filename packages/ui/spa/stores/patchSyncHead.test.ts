@@ -379,7 +379,12 @@ describe("a versioned head is never rewound by an older answer", () => {
     const before = server.snapshot();
     const first = await edit(system, "one");
     await flush(system);
+    const adopted: PatchId[][] = [];
+    const stop = system.stat.events.on("stat:receive", (event) => {
+      adopted.push(event.patches);
+    });
     system.stat.receiveStat(before);
+    stop();
 
     await edit(system, "two");
     await flush(system);
@@ -388,6 +393,9 @@ describe("a versioned head is never rewound by an older answer", () => {
       { type: "patch", patchId: "elsewhere-published" },
       { type: "patch", patchId: first },
     ]);
+    // Nor is the LIST rewound: the stat store is floored by our own save, so
+    // the older answer is dropped rather than adopted.
+    expect(adopted).toEqual([]);
     system.dispose();
   });
 

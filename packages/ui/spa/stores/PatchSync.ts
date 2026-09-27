@@ -700,6 +700,9 @@ export class PatchSync {
         type: "patch:saved",
         patches: result.newPatchIds,
         parentRef: result.parentRef,
+        ...(result.headVersion !== undefined
+          ? { headVersion: result.headVersion }
+          : {}),
       });
       // Keep looping. More may have been created while this request was in
       // flight, and the loop's own emptiness check is what terminates it — a

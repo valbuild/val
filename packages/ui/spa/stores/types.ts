@@ -326,7 +326,17 @@ export type SystemEvent =
    */
   | { type: "patch:save"; patches: PatchId[]; parentRef: ParentRef }
   /** The server accepted them. They are no longer local-only. */
-  | { type: "patch:saved"; patches: PatchId[]; parentRef: ParentRef }
+  | {
+      type: "patch:saved";
+      patches: PatchId[];
+      parentRef: ParentRef;
+      /**
+       * The chain version this save made, where the server versions its chain.
+       * `StatStore` takes it as a floor: a stat read before the save is older
+       * than what this client already knows. See `StatSnapshot.headVersion`.
+       */
+      headVersion?: number;
+    }
   /**
    * The server said our parent is no longer the head (409).
    *
