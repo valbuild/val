@@ -274,6 +274,53 @@ describe("peekBase counts what has shipped", () => {
     system.dispose();
   });
 
+  it("keeps a shipped entry edit until the entry's own content arrives", async () => {
+    /*
+     * A `.jsonValues()` module's source is markers; each entry's content is a
+     * separate intake that arrives after it. Retiring the patch with the
+     * markers left the pre-publish entry content as the base, and the compare
+     * reported an already-deployed entry edit as outstanding again.
+     */
+    const { c, s } = initVal();
+    const BLOGS = "/blogs.val.ts" as ModuleFilePath;
+    const BLOG_TITLE = '/blogs.val.ts?p="/a"."title"' as SourcePath;
+    const blogs = () => [
+      c.define(BLOGS, s.record(s.object({ title: s.string() })).jsonValues(), {
+        "/a": c.json(() => Promise.resolve({ default: { title: "Alpha" } })),
+      }),
+    ];
+    const system = makeSystem({ mode: "http" });
+    system.host.receive(blogs());
+    system.sourceStore.receiveJsonEntry(BLOGS, "/a", { title: "Alpha" });
+
+    const res = await system.patchStore.createPatch(BLOGS, [
+      { op: "replace", path: ["/a", "title"], value: "Beta" },
+    ]);
+    if (res.status !== "created") throw new Error(res.status);
+    await system.patchSync.flush();
+    await system.publish([res.record.patchId]);
+    expect(system.sourceStore.peekBase(BLOG_TITLE)).toMatchObject({
+      data: "Beta",
+    });
+
+    // The deploy, then the deployed markers: the entry content is still the
+    // pre-publish text, so the shipped edit has to go on counting.
+    system.stat.receiveStat({ patches: [], baseSha: "after-deploy" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    system.host.receive(blogs());
+    expect(system.sourceStore.peekBase(BLOG_TITLE)).toMatchObject({
+      data: "Beta",
+    });
+
+    // The deployed entry content arrives, and the patch is retired with it:
+    // what the server sends is what counts from here on.
+    system.sourceStore.receiveJsonEntry(BLOGS, "/a", { title: "Deployed" });
+    expect(system.sourceStore.peekBase(BLOG_TITLE)).toMatchObject({
+      data: "Deployed",
+    });
+    system.dispose();
+  });
+
   it("does not recompute the published base on a pending edit", async () => {
     /*
      * The module revision moves on every keystroke. Keyed on it, the published

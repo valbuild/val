@@ -348,7 +348,7 @@ export class SourceStore {
    * Valid while the chain is the same array at the same length and no record's
    * `appliedAt` has moved. That is every way a chain changes: removals replace
    * the array, intake pushes onto it, and only {@link markApplied} rewrites a
-   * record, which bumps {@link appliedVersion}.
+   * record, which bumps that module's {@link appliedVersions} entry.
    */
   private shippedCache = new Map<
     ModuleFilePath,
@@ -360,9 +360,23 @@ export class SourceStore {
       applied: string;
     }
   >();
-  private appliedVersion = 0;
+  /** Per module, so a publish in one does not invalidate every other's cache. */
+  private appliedVersions = new Map<ModuleFilePath, number>();
   /** Shipped patches to drop at the next base intake. See {@link retireWithNextBase}. */
   private retiring = new Set<PatchId>();
+  /**
+   * Retiring patches that edit inside a `.jsonValues()` entry, waiting for that
+   * entry's content, keyed by patch with the entry keys still outstanding.
+   *
+   * The module's source carries only markers; entry content is a separate base
+   * intake (`receiveJsonEntry`) that arrives after it. Dropping such a patch
+   * with the source left the pre-publish entry content as the base, so
+   * `peekBase` reported an already-deployed entry edit as outstanding again.
+   */
+  private retiringOnEntries = new Map<
+    PatchId,
+    { moduleFilePath: ModuleFilePath; keys: Set<string> }
+  >();
   /** In-flight entry fetches, so N readers of one entry cause ONE fetch. */
   private loadingEntries = new Map<string, Promise<void>>();
   /**
@@ -652,6 +666,7 @@ export class SourceStore {
     }
     baseByKey.set(key, deepClone(content as JSONValue));
     this.bumpBase(moduleFilePath);
+    this.retireOnEntry(moduleFilePath, key);
     this.activity.work("source:receive-json-entry", moduleFilePath);
     this.bump(moduleFilePath);
     if (this.batchDepth > 0) {
@@ -1154,11 +1169,12 @@ export class SourceStore {
     const chain = this.chains.get(moduleFilePath);
     if (chain === undefined) return { shipped: [], applied: "" };
     const cached = this.shippedCache.get(moduleFilePath);
+    const appliedVersion = this.appliedVersions.get(moduleFilePath) ?? 0;
     if (
       cached !== undefined &&
       cached.chain === chain &&
       cached.length === chain.length &&
-      cached.appliedVersion === this.appliedVersion
+      cached.appliedVersion === appliedVersion
     ) {
       return cached;
     }
@@ -1167,7 +1183,7 @@ export class SourceStore {
     this.shippedCache.set(moduleFilePath, {
       chain,
       length: chain.length,
-      appliedVersion: this.appliedVersion,
+      appliedVersion,
       shipped,
       applied,
     });
@@ -1556,6 +1572,33 @@ export class SourceStore {
     }
   }
 
+  /**
+   * An entry's content arrived: retire the patches that were waiting for it,
+   * once every entry each of them touches has arrived.
+   *
+   * No rebuild: the content that just arrived is what the live realm shows for
+   * this entry, and the patch is already in it.
+   */
+  private retireOnEntry(moduleFilePath: ModuleFilePath, key: string): void {
+    if (this.retiringOnEntries.size === 0) return;
+    const done = new Set<PatchId>();
+    for (const [patchId, waiting] of this.retiringOnEntries) {
+      if (waiting.moduleFilePath !== moduleFilePath) continue;
+      waiting.keys.delete(key);
+      if (waiting.keys.size === 0) done.add(patchId);
+    }
+    if (done.size === 0) return;
+    for (const patchId of done) {
+      this.retiringOnEntries.delete(patchId);
+    }
+    const chain = this.chains.get(moduleFilePath);
+    if (chain === undefined) return;
+    this.chains.set(
+      moduleFilePath,
+      chain.filter((entry) => !done.has(entry.record.patchId)),
+    );
+  }
+
   /** Where this module's source has got to. */
   revisionOf(moduleFilePath: ModuleFilePath): Revision {
     return {
@@ -1749,7 +1792,10 @@ export class SourceStore {
           ...entry.record,
           appliedAt: { commitSha: APPLIED_ELSEWHERE_SHA },
         };
-        this.appliedVersion++;
+        this.appliedVersions.set(
+          moduleFilePath,
+          (this.appliedVersions.get(moduleFilePath) ?? 0) + 1,
+        );
       }
       if (differs) unheld.push(moduleFilePath);
     }
@@ -2017,9 +2063,20 @@ export class SourceStore {
       for (const moduleFilePath of Object.keys(sources) as ModuleFilePath[]) {
         const chain = this.chains.get(moduleFilePath);
         if (chain === undefined) continue;
+        const incoming = sources[moduleFilePath];
         const surviving = chain.filter((entry) => {
           if (!this.retiring.has(entry.record.patchId)) return true;
           this.retiring.delete(entry.record.patchId);
+          // A patch inside an entry waits for that entry's content, not for
+          // the markers. See `retiringOnEntries`.
+          const keys = entryKeysTouched(entry.record, incoming);
+          if (keys.size > 0) {
+            this.retiringOnEntries.set(entry.record.patchId, {
+              moduleFilePath,
+              keys,
+            });
+            return true;
+          }
           return false;
         });
         if (surviving.length !== chain.length) {
@@ -2770,6 +2827,21 @@ function substituteJsonEntries(
  * the union — the checks read as though they narrow and then do not. Mirrors
  * `isRecordSource` in `validation/customValidate.ts`.
  */
+/**
+ * The `.jsonValues()` entry keys a patch edits: the top-level keys it writes
+ * under whose value in `source` is an entry marker.
+ */
+function entryKeysTouched(record: PatchRecord, source: Json): Set<string> {
+  const keys = new Set<string>();
+  if (!isJsonObject(source)) return keys;
+  for (const op of record.patch) {
+    if (op.op === "file") continue;
+    const key = op.path[0];
+    if (key !== undefined && Internal.isJson(source[key])) keys.add(key);
+  }
+  return keys;
+}
+
 function isJsonObject(value: Json): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
