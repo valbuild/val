@@ -1,5 +1,17 @@
 # @valbuild/server
 
+## 0.136.10
+
+### Patch Changes
+
+- [#743](https://github.com/valbuild/val/pull/743) [`fef29b0`](https://github.com/valbuild/val/commit/fef29b0d9e826e4e7e63a3ae61553137a3f9d280) Thanks [@freekh](https://github.com/freekh)! - Saving no longer gets stuck on "Changes cannot be saved: something else keeps changing them first" when another editor has an unpublished change and later work has been published.
+
+  A new change is now written on top of the latest change the content service has registered, which it reports alongside the list of pending changes, instead of the last change this deployment was shown. Since changes can be published independently, those two can differ for good: an unpublished change can sit before published ones that the running deployment already contains. The Studio and the MCP tools both name the reported head, and fall back to the old behaviour against a content service that does not report one.
+
+- Updated dependencies [[`fef29b0`](https://github.com/valbuild/val/commit/fef29b0d9e826e4e7e63a3ae61553137a3f9d280)]:
+  - @valbuild/ui@0.136.10
+  - @valbuild/shared@0.136.10
+
 ## 0.136.9
 
 ### Patch Changes
