@@ -309,6 +309,11 @@ export type DeploymentProgress =
   | "failed"
   | "settled"
   /**
+   * The host last said this was building, and said so over an hour ago. See
+   * `isDeploymentStatusStale`.
+   */
+  | "unknown"
+  /**
    * The managed equivalent of `building`: the commit landed and the build did
    * not, and nothing outside this browser will ever change that. See
    * `summarizeDeployments`.
@@ -510,8 +515,12 @@ export type ShellDeployment = {
   /**
    * `created` is a commit Val has made but no deployment has claimed yet,
    * so it reads as queued rather than as a state of its own.
+   *
+   * `unknown` is not the host's: it is `created` or `pending` that has not
+   * moved for over an hour, which the Studio stops calling in progress. Decided
+   * once, in `toDeployments`, so every surface agrees on it.
    */
-  state: "created" | "pending" | "success" | "failure" | "error";
+  state: "created" | "pending" | "success" | "failure" | "error" | "unknown";
   /** Val's commit message. Null when only the deployment is known. */
   message: string | null;
   /** Who published, when known. */

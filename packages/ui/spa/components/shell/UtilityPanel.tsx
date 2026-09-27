@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   CircleAlert,
+  CircleHelp,
   Clock,
   Compass,
   FilePlus2,
@@ -340,6 +341,8 @@ function deployIcon(progress: ShellDeployActivity["progress"]) {
       // Not a spinner and not red, as in the deploy feed: nothing is turning,
       // and a durable condition is not an alarm. See `SummaryIcon`.
       return <CircleAlert size={13} className="text-fg-secondary" />;
+    case "unknown":
+      return <CircleHelp size={13} className="text-fg-secondary" />;
     case "settled":
       return <Rocket size={13} className="text-fg-secondary-alt" />;
   }

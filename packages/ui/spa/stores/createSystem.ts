@@ -998,8 +998,25 @@ export function createSystem(options: SystemOptions): System {
        */
       return [];
     }
-    const shipped = new Set<PatchId>(toPublish);
-    for (const record of chain) {
+    const shipped = shippedPatchIds();
+    for (const patchId of toPublish) {
+      shipped.add(patchId);
+    }
+    return validateGroup(index, shipped);
+  }
+
+  /**
+   * The patches in the chain that have already shipped.
+   *
+   * A publish leaves its patches in the chain with `appliedAt` set until the
+   * deploy moves the base, and their group is closed, so they are in no scope.
+   * Anything asking what a group must hold has to count them as held — the
+   * publish gate, and the write closure, which otherwise pulls them back in and
+   * announces them as somebody's changes joining yours.
+   */
+  function shippedPatchIds(): Set<PatchId> {
+    const shipped = new Set<PatchId>();
+    for (const record of patchStore.allRecords()) {
       if (record.appliedAt !== null && record.appliedAt !== undefined) {
         shipped.add(record.patchId);
       }
@@ -1007,7 +1024,7 @@ export function createSystem(options: SystemOptions): System {
     for (const patchId of patchStore.publishedPatchIds()) {
       shipped.add(patchId);
     }
-    return validateGroup(index, shipped);
+    return shipped;
   }
 
   /**
@@ -1079,7 +1096,13 @@ export function createSystem(options: SystemOptions): System {
       // edit is worse, and the prefix can still be restored by staging.
       return [];
     }
-    const staged = new Set(patchGroupIds);
+    /*
+     * Shipped patches count as staged. They cannot be left behind by this
+     * group, so they are never what keeps it prefix-closed — and without this
+     * the first edit after a publish sent the published patch as closure and
+     * told the user it had been added to their changes.
+     */
+    const staged = new Set([...patchGroupIds, ...shippedPatchIds()]);
     const next = stageClosure(index, staged, patchIds);
     return [...next].filter(
       (patchId) => !staged.has(patchId) && !patchIds.includes(patchId),

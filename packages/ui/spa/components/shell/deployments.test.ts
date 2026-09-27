@@ -7,6 +7,7 @@ import {
 } from "./Deployments";
 import { formatRelativeTime, toDeployments } from "./shellDataMapping";
 import { ShellDeployment } from "./types";
+import { msUntilNextStale } from "../../utils/deploymentStatus";
 
 /**
  * The deploy feed's two decisions: what the status bar says about a set of
@@ -391,5 +392,149 @@ describe("when nobody said which kind of project this is", () => {
     });
     expect(describeDeploymentState(unfinished)).toBe("Building");
     expect(deploymentProgress(unfinished)).toBe("building");
+  });
+});
+
+/**
+ * A build that has been "building" for over an hour is not building.
+ *
+ * The build state is relayed from the host, and when that channel goes quiet a
+ * publish sits at `created` or `pending` for good. The feed showed a spinner
+ * for it indefinitely — days, on a project whose deploy events stopped. Past
+ * the hour it is shown for what it is: a status nobody has reported.
+ */
+describe("a deploy that has not moved for over an hour", () => {
+  const enrichedAt = (
+    deploymentState: "created" | "pending" | "success",
+    minutes: number,
+  ) => ({
+    commitSha: "abc1234def",
+    commitMessage: "Update the hero",
+    deploymentState,
+    creator: null,
+    createdAt: minutesAgo(minutes),
+    updatedAt: minutesAgo(minutes),
+  });
+
+  test("is unknown rather than building", () => {
+    const [pending] = toDeployments(
+      [enrichedAt("pending", 61)],
+      new Set(),
+      {},
+      NOW,
+    );
+    const [queued] = toDeployments(
+      [enrichedAt("created", 61)],
+      new Set(),
+      {},
+      NOW,
+    );
+    expect(pending.state).toBe("unknown");
+    expect(queued.state).toBe("unknown");
+    expect(summarizeDeployments([pending])).toEqual({ state: "unknown" });
+    expect(deploymentProgress(pending)).toBe("unknown");
+    expect(describeDeploymentState(pending)).toBe("Status unknown");
+  });
+
+  test("is still building up to the hour", () => {
+    const [row] = toDeployments(
+      [enrichedAt("pending", 59)],
+      new Set(),
+      {},
+      NOW,
+    );
+    expect(row.state).toBe("pending");
+    expect(summarizeDeployments([row])).toEqual({
+      state: "building",
+      count: 1,
+    });
+  });
+
+  test("a live commit is live however long its build report has been stuck", () => {
+    const [row] = toDeployments(
+      [enrichedAt("pending", 600)],
+      new Set(["abc1234def"]),
+      {},
+      NOW,
+    );
+    expect(describeDeploymentState(row)).toBe("Live");
+    expect(summarizeDeployments([row])).toEqual({ state: "live" });
+  });
+
+  test("a finished build is not affected by its age", () => {
+    const [row] = toDeployments(
+      [enrichedAt("success", 600)],
+      new Set(),
+      {},
+      NOW,
+    );
+    expect(row.state).toBe("success");
+  });
+
+  test("an old unknown does not hide a publish building right now", () => {
+    const fresh = deployment({ commitSha: "new", state: "pending" });
+    const stale = deployment({ commitSha: "old", state: "unknown" });
+    expect(summarizeDeployments([fresh, stale])).toEqual({
+      state: "building",
+      count: 1,
+    });
+  });
+
+  test("a managed project keeps Saved, not yet live, and its way out", () => {
+    const stale = deployment({ commitSha: "a", state: "unknown" });
+    expect(summarizeDeployments([stale], true)).toEqual({
+      state: "saved-not-live",
+      count: 1,
+    });
+    expect(deploymentProgress(stale, true)).toBe("saved-not-live");
+    expect(describeDeploymentState(stale, true)).toBe("Saved, not yet live");
+  });
+});
+
+describe("msUntilNextStale", () => {
+  test("names the next crossing, and nothing when no build is running", () => {
+    expect(
+      msUntilNextStale(
+        [
+          { state: "pending", updatedAt: minutesAgo(50) },
+          { state: "created", updatedAt: minutesAgo(30) },
+          { state: "success", updatedAt: minutesAgo(59) },
+        ],
+        NOW,
+      ),
+    ).toBe(10 * 60 * 1000);
+    expect(
+      msUntilNextStale([{ state: "pending", updatedAt: minutesAgo(61) }], NOW),
+    ).toBeNull();
+    expect(
+      msUntilNextStale([{ state: "success", updatedAt: minutesAgo(1) }], NOW),
+    ).toBeNull();
+  });
+});
+
+/**
+ * A publish running in this tab reads as progress, whatever the host last said.
+ *
+ * The row checks `publish.kind === "running"` first and says "Publishing"; the
+ * activity list takes its icon from `deploymentProgress`, which did not — so a
+ * running publish over a stale host report was "Publishing" beside the help
+ * icon, and in a managed project beside the saved-not-live warning.
+ */
+describe("a publish running in this tab", () => {
+  const running = (state: ShellDeployment["state"]) =>
+    deployment({
+      commitSha: "a",
+      state,
+      publish: { kind: "running", percent: 40, step: "Building" },
+    });
+
+  test("is progress even when the host's report has gone stale", () => {
+    expect(deploymentProgress(running("unknown"))).toBe("building");
+    expect(describeDeploymentState(running("unknown"))).toBe("Publishing");
+  });
+
+  test("is progress in a managed project too", () => {
+    expect(deploymentProgress(running("unknown"), true)).toBe("building");
+    expect(deploymentProgress(running("pending"), true)).toBe("building");
   });
 });

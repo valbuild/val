@@ -17,6 +17,7 @@ import { useFilePatchIds, useValConfig } from "../ValFieldProvider";
 import { useCreatableRouters } from "../useCreateRouteEntry";
 import { ShellData, ShellMediaGallery } from "./types";
 import { useThemeSettings } from "../../hooks/useThemeSettings";
+import { useDeploymentStaleTick } from "../../hooks/useDeploymentStaleTick";
 import {
   toActivity,
   toAdminLinks,
@@ -74,18 +75,19 @@ export function useShellData(): ShellDataState {
    */
   const { externalRouter } = useCreatableRouters();
 
+  const staleTick = useDeploymentStaleTick(deployments);
+
   // Relative times are computed once per feed change rather than per render,
   // so a row does not silently disagree with the one above it.
-  const listedDeployments = useMemo(
-    () =>
-      toDeployments(
-        deployments,
-        observedCommitShas,
-        profilesByAuthorId,
-        Date.now(),
-      ),
-    [deployments, observedCommitShas, profilesByAuthorId],
-  );
+  const listedDeployments = useMemo(() => {
+    void staleTick;
+    return toDeployments(
+      deployments,
+      observedCommitShas,
+      profilesByAuthorId,
+      Date.now(),
+    );
+  }, [deployments, observedCommitShas, profilesByAuthorId, staleTick]);
   const { state: deployState } = useStudioDeployState();
   const shellDeployments = useMemo(
     () => withStudioPublish(listedDeployments, deployState),
