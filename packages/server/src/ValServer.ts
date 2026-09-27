@@ -37,6 +37,7 @@ import {
   type JwtFailureReason,
 } from "./jwt";
 import { z } from "zod";
+import { probeUrl } from "./linkCheck/probeUrl";
 import { ValOpsFS } from "./ValOpsFS";
 import { readCommittedBinaryFiles } from "./readCommittedBinaryFiles";
 import { computePatchesToDrop, DroppedPatch } from "./computePatchesToDrop";
@@ -1097,6 +1098,38 @@ export const ValServer = (
             patchId,
           },
         };
+      },
+    },
+    "/external-urls/check": {
+      POST: async (req) => {
+        /*
+         * The same door as every other route, which in fs mode is an open one.
+         *
+         * `getAuth` returns anonymous success when there is no `valSecret` and
+         * nothing requires auth — a developer's own machine, where there is no
+         * credential to require and 29 other routes already behave this way.
+         * So this is not a session gate in fs mode, and it is not meant to be
+         * the thing that makes the endpoint safe: what does that is
+         * `addressGuard`, which refuses every address that is not on the
+         * public internet, on the RESOLVED address, at every redirect hop.
+         */
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        /*
+         * Every URL in the batch at once, and nothing beyond it.
+         *
+         * The concurrency here is the batch size the route caps at, which is
+         * what keeps "check a thousand links" from becoming a thousand
+         * simultaneous outbound sockets: the client sends ten, waits, sends
+         * the next ten. Doing them in parallel WITHIN a batch is what makes a
+         * batch worth having — ten five-second timeouts in series is a minute.
+         */
+        const results = await Promise.all(
+          req.body.urls.map(async (url) => [url, await probeUrl(url)] as const),
+        );
+        return { status: 200, json: { results: Object.fromEntries(results) } };
       },
     },
     "/direct-file-upload-settings": {
